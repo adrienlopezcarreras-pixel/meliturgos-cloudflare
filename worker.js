@@ -6,6 +6,7 @@ const ORCHESTRATION_LIMITS={
   timeout_ms:10000,
   max_request_bytes:1024*1024,
   max_model_calls:50,
+  max_input_chars:12000,
   max_tokens:8192,
   max_estimated_cost_usd:0.10
 };
@@ -20,7 +21,6 @@ const DEFAULT_MODEL="@cf/zai-org/glm-4.7-flash";
 const ALLOWED_MODELS=[DEFAULT_MODEL,"@cf/google/gemma-3-12b-it","@cf/meta/llama-3.3-70b-instruct-fp8-fast"];
 const KINDS=["identity","fact","preference","decision","project","episodic","lesson"];
 const LEARNING_CLASSES=["confirmed_fact","documented_source","explicit_correction","user_preference","hypothesis","temporary_context","rejected_proposal"];
-const ORCHESTRATION_LIMITS={max_model_calls:2,max_input_chars:12000,max_tokens:1400,timeout_ms:30000,max_estimated_cost_usd:0.01,max_request_bytes:1_000_000};
 const MODEL_REGISTRY=[
  {id:DEFAULT_MODEL,label:"GLM 4.7 Flash",provider:"Workers AI",tasks:["conversation","memory","reasoning","summary","research"],cost:{class:"included_first",estimated_max_usd_per_call:0.005},limits:{input_chars:12000,output_tokens:1400,timeout_ms:30000},risk_level:"read",permissions:["ai.inference"],data_access:["prompt","retrieved_memory_context"],status:"configured"},
  {id:"@cf/google/gemma-3-12b-it",label:"Gemma 3 12B",provider:"Workers AI",tasks:["conversation","summary","code"],cost:{class:"included",estimated_max_usd_per_call:0.005},limits:{input_chars:12000,output_tokens:1400,timeout_ms:30000},risk_level:"read",permissions:["ai.inference"],data_access:["prompt","retrieved_memory_context"],status:"configured"},

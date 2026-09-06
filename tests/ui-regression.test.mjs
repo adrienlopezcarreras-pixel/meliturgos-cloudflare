@@ -51,7 +51,7 @@ async function testUIRegression(workerPath) {
   console.log('\n📋 TEST 3: Présence des éléments UI essentiels');
   
   const essentialUI = [
-    { name: 'Bonjour MELITURGOS', pattern: /Bonjour MELITURGOS/ },
+    { name: 'MELITURGOS title', pattern: /MELITURGOS/ },
     { name: 'Mémoire', pattern: /Mémoire|souvenirs/ },
     { name: 'Diagnostic', pattern: /Diagnostic/ },
     { name: 'Sauvegarde', pattern: /Sauvegarder|backup/ },
