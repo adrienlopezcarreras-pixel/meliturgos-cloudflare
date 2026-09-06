@@ -14,7 +14,5 @@ async function call(path,body,authorized=true){const h=authorized?{Authorization
  assert.equal((await call("/api/tools/workflows/status",undefined,false)).status,401);
  assert.equal((await call("/api/diagnostic")).status,200);
 }
-const source=await readFile(new URL("../worker.js",import.meta.url),"utf8");
-const codeWithoutAvatar=source.replace(/const MEL_AVATAR_B64="[^"]+";?/,"");
-assert.match(codeWithoutAvatar,/workflowErrorClass/);assert.match(codeWithoutAvatar,/WORKFLOW_VARIANTS/);assert.match(codeWithoutAvatar,/stable_comparison/);assert.match(codeWithoutAvatar,/workflow-improvements/);assert.match(codeWithoutAvatar,/PRAGMA quick_check/);assert.doesNotMatch(codeWithoutAvatar,/training|LoRA|retrain/i);
+const source=await readFile(new URL("../worker.js",import.meta.url),"utf8");assert.match(source,/workflowErrorClass/);assert.match(source,/WORKFLOW_VARIANTS/);assert.match(source,/stable_comparison/);assert.match(source,/workflow-improvements/);assert.match(source,/PRAGMA quick_check/);assert.doesNotMatch(source,/training|LoRA|retrain/i);
 await unlink(testWorker);console.log("workflow-improvement: métriques, classification, variante sandbox, comparaison et auth validés");

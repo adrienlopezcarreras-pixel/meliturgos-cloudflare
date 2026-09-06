@@ -18,7 +18,7 @@ for(const path of ["/api/status","/api/diagnostic","/api/export"]){assert.equal(
 
 {
  const {body}=await json("/api/status");
- assert.equal(body.version,"0.2.5-rc.2-gen2.1");
+ assert.equal(body.version,"0.2.5-rc.1");
  assert.equal(body.checks.d1,"ok");
  assert.equal(body.checks.workers_ai.status,"configured_not_probed");
  assert.equal(body.checks.media_bucket.public_access,false);

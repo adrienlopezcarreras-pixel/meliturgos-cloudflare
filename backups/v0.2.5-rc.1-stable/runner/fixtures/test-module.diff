@@ -1,0 +1,8 @@
+diff --git a/runner/fixtures/test-module.mjs b/runner/fixtures/test-module.mjs
+--- a/runner/fixtures/test-module.mjs
++++ b/runner/fixtures/test-module.mjs
+@@ -1,3 +1,3 @@
+ export function runnerFixture(value = "ok") {
+-  return String(value);
++  return `fixture:${String(value)}`;
+ }

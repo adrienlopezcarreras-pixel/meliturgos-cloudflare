@@ -12,10 +12,10 @@ async function request(path,options={}){const headers=new Headers(options.header
 
 {
  const response=await request("/");assert.equal(response.status,200);const html=await response.text();
- assert.match(html,/type="file" accept="\*\/\*"/);assert.match(html,/Déposer ici/);assert.match(html,/Module vidéo/);assert.match(html,/controls playsinline hidden/);assert.match(html,/URL\.createObjectURL/);assert.match(html,/textContent/);assert.doesNotMatch(html,/href="https?:\/\//);
+ assert.match(html,/type="file" accept="\*\/\*"/);assert.match(html,/Déposer ici/);assert.match(html,/Assistant vidéo/);assert.match(html,/controls playsinline muted/);assert.match(html,/URL\.createObjectURL/);assert.match(html,/textContent/);assert.doesNotMatch(html,/href="https?:\/\//);
 }
 {
- const form=new FormData();form.append("file",new Blob(["unknown"],{type:"application/octet-stream"}),"archive.xyz");const response=await request("/api/media/root-upload",{method:"POST",body:form});const body=await response.json();assert.equal(response.status,503);assert.equal(body.code,"MEDIA_DISABLED");assert.equal(puts,0);
+ const form=new FormData();form.append("file",new Blob(["unknown"],{type:"application/octet-stream"}),"archive.xyz");const before=sql.filter(x=>/^\s*(INSERT|UPDATE|DELETE)/i.test(x)).length;const response=await request("/api/media/root-upload",{method:"POST",body:form});const body=await response.json();assert.equal(response.status,201);assert.equal(body.mime_type,"application/octet-stream");assert.equal(body.analysis_supported,false);assert.match(body.message,/analyse non disponible/);assert.equal(body.private,true);assert.equal(puts,1);assert.equal(sql.filter(x=>/^\s*(INSERT|UPDATE|DELETE)/i.test(x)).length,before);assert.equal(Object.hasOwn(body,"url"),false);
 }
 {
  const response=await request("/api/avatar/video",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:"test"})});assert.equal(response.status,503);assert.equal((await response.json()).code,"AVATAR_PROVIDER_NOT_CONFIGURED");

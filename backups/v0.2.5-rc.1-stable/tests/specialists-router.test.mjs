@@ -14,7 +14,5 @@ async function call(path,authorized=true){return worker.fetch(new Request("https
  assert.match(await (await call("/professor")).text(),/specialist-router/);
  assert.equal((await call("/api/diagnostic")).status,200);
 }
-const source=await readFile(new URL("../worker.js",import.meta.url),"utf8");
-const codeWithoutAvatar=source.replace(/const MEL_AVATAR_B64="[^"]+";?/,"");
-assert.match(codeWithoutAvatar,/SPECIALISTS/);assert.match(codeWithoutAvatar,/specialistForTask/);assert.match(codeWithoutAvatar,/general_model/);assert.match(codeWithoutAvatar,/permissions/);assert.doesNotMatch(codeWithoutAvatar,/fine[- ]?tuning|LoRA|réentraînement/i);
+const source=await readFile(new URL("../worker.js",import.meta.url),"utf8");assert.match(source,/SPECIALISTS/);assert.match(source,/specialistForTask/);assert.match(source,/general_model/);assert.match(source,/permissions/);assert.doesNotMatch(source,/fine[- ]?tuning|LoRA|réentraînement/i);
 await unlink(testWorker);console.log("specialists-router: profils, routage, permissions, fallback, désactivation et auth validés");
