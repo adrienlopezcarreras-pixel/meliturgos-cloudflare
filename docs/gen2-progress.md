@@ -14,17 +14,20 @@
 - [x] Branche `meliturgos-gen2`
 - [x] Tag `v0.2.5-rc.1`
 
-## Phase 1 — Architecture Gen 2 🔄
+## Phase 1 — Architecture Gen 2 ✅
 - [x] Structure `src/`
 - [x] Core minimal (config, errors, http, security, audit)
-- [x] `ConversationService` scaffoldé
+- [x] `ConversationService` + tests
+- [x] `AuditService` scaffold
 - [x] Migration Gen2 D1 scaffoldée
-- [x] Route `/api/v1/sync` ajoutée
+- [x] Route `/api/v1/sync` ajoutée (`worker.js`)
 - [x] Fonctions `syncDevice`, `archiveProfessorMessage`, `ensureArchiveTables`
-- [x] Version alignée `0.2.5-rc.2-gen2.1`
-- [ ] Router extraction câblé via `wrangler.jsonc`
-- [ ] Tests régression complète
-- [ ] Commit stable
+- [x] Fonctions `/api/import/chatgpt-context` dans `worker.js`
+- [x] Tests `chatgpt-context-import.test.mjs` passant
+- [x] Tests régression complète : 17/17
+- [x] Commit stable `4330f15`
+- [x] Tag `v0.2.5-rc.1-gen2-phase1`
+- [ ] Router extraction câblé via `wrangler.jsonc` (Phase 2)
 
 ## Phase 2 — Archive + Multi-device 🔄
 - [ ] Brancher `/api/chat` et `/api/professor/ask` sur `ConversationService`
@@ -40,10 +43,12 @@
 Auteur: openhands
 Backup intégré, Git initialisé, branche gen2 créée.
 
-### 2026-09-06 — Phase 1 avancée
+### 2026-09-06 — Phase 1 complétée
 Auteur: openhands
-- MASTER SPEC et MASTER CHECKLIST créés.
-- `APP_VERSION` aligné entre worker.js et package.json.
-- Tables Gen2 (`devices`, `sync_checkpoints`, index archive) créées dans `ensureArchiveTables`.
-- Restriction applicative `MEDIA_FEATURE_ENABLED=false` reflétée dans `toolAvailability`.
-- Test `orchestration-registry.test.mjs` repassé.
+- Commit `4330f15` sur branche `meliturgos-gen2`.
+- Tag `v0.2.5-rc.1-gen2-phase1`.
+- Endpoint `/api/import/chatgpt-context` ajouté avec guard, simulation, confirmation, source `chatgpt_context_summary`.
+- Test `chatgpt-context-import.test.mjs` ajouté et passant.
+- Regressions : 17/17 tests OK.
+- Documentation MAJ : MASTER-CHECKLIST, gen2-progress, human-actions-required.
+- Import ChatGPT réel bloqué par H-A-14 (fichier JSON manquant).

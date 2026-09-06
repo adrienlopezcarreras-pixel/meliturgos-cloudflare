@@ -4,7 +4,7 @@
 
 | ID | OBJECTIVE | STATUS | DEPENDENCIES | FILES | TESTS | PRODUCTION_STATUS | BLOCKER | NEXT_ACTION |
 |---|---|---|---|---|---|---|---|---|
-| GEN2-01 | Core minimal (config, errors, http, security, audit) | IN_PROGRESS | — | `src/core/*` | `conversation-service.test.mjs` (partiel) | NON_PROD | — | Finaliser helpers et tests |
+| GEN2-01 | Core minimal (config, errors, http, security, audit) | DONE | — | `src/core/*` | `conversation-service.test.mjs`, `chatgpt-context-import.test.mjs` | NON_PROD | — | Stabiliser imports circulaires |
 | GEN2-02 | Identity / System Prompt | PARTIAL | Core | `worker.js` systemPrompt, `src/identity/` | manuel | NON_PROD | identity non modularisé | Extraire persona dans `src/identity/` |
 | GEN2-03 | Model Registry | NOT_STARTED | Core | `src/models/` | — | NON_PROD | — | Créer ModelRegistry |
 | GEN2-04 | Model Router + fallback | PARTIAL | Model Registry | `worker.js` askAI/orchestrationSelection | `orchestration-registry.test.mjs` | SIMULATION_SEULEMENT | fallback par simulation | Implémenter fallback réel |
@@ -59,7 +59,7 @@
 | GEN2-53 | Canary / rollback | PARTIAL | Git | `backups/`, tags | — | PARTIAL | pas de CI/CD | Mise en place workflow manuel |
 | GEN2-54 | Control Center / Developer Dashboard | NOT_STARTED | UI | `src/ui/` | — | NON_PROD | — | — |
 | GEN2-55 | Data integrity / final maturity tests | NOT_STARTED | Tous | `tests/final-maturity.test.mjs` | — | NON_PROD | attendre stabilité | — |
-| GEN2-56 | Import contexte ChatGPT | IN_PROGRESS | Memory 2.0 | `imports/*`, endpoint import | — | NON_PROD | JSON valide, prêt | Créer endpoint d'import |
+| GEN2-56 | Import contexte ChatGPT | DONE_VERIFIED | Memory 2.0 | `src/persistence/chatgpt-import.js`, `/api/import/chatgpt-context` | `chatgpt-context-import.test.mjs` | NON_PROD | Fichier ChatGPT JSON non présent | Import réel bloqué par H-A-14 ; simulation OK |
 | GEN2-57 | Migration Gen1 sans perte | IN_PROGRESS | Archive | `worker.js` archiveMessage | — | NON_PROD | interactions toujours source primaire | Migrer legacy |
 | GEN2-58 | Build réel Android | NOT_STARTED | Android Companion | `companions/android/` | — | NON_PROD | stack non choisie |BLOCKER_HUMAN |
 | GEN2-59 | Build réel Windows | NOT_STARTED | Windows Companion | `companions/windows/` | — | NON_PROD | stack non choisie |BLOCKER_HUMAN |
@@ -70,9 +70,10 @@
 
 ## Métriques rapides
 
-- Tests passants : 15/16 (après correction orchestration-registry en cours)
-- Version actuelle code : `0.2.5-rc.2-gen2.1`
+- Tests passants : 17/17
+- Version actuelle code : `0.2.5-rc.1-gen2-phase1`
 - Branche : `meliturgos-gen2`
+- Dernier tag : `v0.2.5-rc.1-gen2-phase1`
 - Backup stable : `backups/v0.2.5-rc.1-stable/`, tag `v0.2.5-rc.1`
 
 ## Règles d'utilisation

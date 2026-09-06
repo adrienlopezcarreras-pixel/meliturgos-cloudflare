@@ -18,6 +18,7 @@
 | H-A-11 | Activer média upload en production (`MEDIA_FEATURE_ENABLED`) | Uploads R2 privés | Bloque fonctionnalité média | Adrien |
 | H-A-12 | Valider import du contexte ChatGPT avant exécution D1 réelle | Données personnelles | Risque d'import anticipé | Adrien |
 | H-A-13 | Décider modèle par défaut final : Kimi vs GLM/Gemma/Llama | Qualité/coût | Impacte expérience conversation | Adrien |
+| H-A-14 | Fournir le fichier `MELITURGOS_CONTEXT_TRANSFER_MAX_*.json` (ChatGPT context export) | Import réel du contexte | Bloque l'import ChatGPT | Adrien |
 
 ## Notes
 
