@@ -24,9 +24,19 @@
 - [x] Fonctions `syncDevice`, `archiveProfessorMessage`, `ensureArchiveTables`
 - [x] Fonctions `/api/import/chatgpt-context` dans `worker.js`
 - [x] Tests `chatgpt-context-import.test.mjs` passant
-- [x] Tests régression complète : 17/17
+- [x] Tests régression complète : 18/18
+- [x] UI moderne CORRECTEMENT implémentée : ROOT_PAGE_PATCHED_V3
+  - Avatar assistant intégré
+  - Voix mobile actif
+  - Capabilities panel ajouté
+  - Bottom actions ROOT_BOTTOM_ACTIONS_ROOT
+- [x] Fix ORCHESTRATION_LIMITS : suppression duplicate et ajout max_input_chars:12000
+- [x] Resolve LEARNING_CLASSES undefined error
+- [x] Resolve npm packages (tsx)
 - [x] Commit stable `4330f15`
 - [x] Tag `v0.2.5-rc.1-gen2-phase1`
+- [x] Commit UI fix `241fd44`
+- [x] Tag UI fix `v0.2.5-rc.2-gen2.1-gen2-ui-fixed`
 - [ ] Router extraction câblé via `wrangler.jsonc` (Phase 2)
 
 ## Phase 2 — Archive + Multi-device 🔄

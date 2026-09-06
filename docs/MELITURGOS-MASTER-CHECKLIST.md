@@ -70,11 +70,12 @@
 
 ## Métriques rapides
 
-- Tests passants : 17/17
-- Version actuelle code : `0.2.5-rc.1-gen2-phase1`
+- Tests passants : 18/18
+- Version actuelle code : v0.2.5-rc.2-gen2.1-gen2-ui-fixed
 - Branche : `meliturgos-gen2`
-- Dernier tag : `v0.2.5-rc.1-gen2-phase1`
+- Dernier tag : `v0.2.5-rc.2-gen2.1-gen2-ui-fixed`
 - Backup stable : `backups/v0.2.5-rc.1-stable/`, tag `v0.2.5-rc.1`
+- UI moderne : ROOT_PAGE_PATCHED_V3 avec avatar assistant, voix mobile, capacités
 
 ## Règles d'utilisation
 
