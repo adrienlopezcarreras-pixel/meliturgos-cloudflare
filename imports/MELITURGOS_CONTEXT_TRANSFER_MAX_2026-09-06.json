@@ -1,0 +1,267 @@
+{
+  "format": "meliturgos_chatgpt_context_transfer_v1",
+  "generated_at": "2026-09-06",
+  "owner": "Adrien Lopez",
+  "scope_note": "Contexte personnel et projets actuellement disponibles à ChatGPT. Ce n'est pas un export verbatim complet de tout l'historique ChatGPT.",
+  "security_note": "Aucun mot de passe, token, clé API ou secret d'authentification n'est inclus.",
+  "provenance": "chatgpt_context_summary",
+  "sections": {
+    "profil_identite": {
+      "nom": "Adrien Lopez",
+      "sexe": "homme",
+      "commune": "Saint-Côme-et-Maruéjols, Gard, France",
+      "situation_familiale": "marié à Danielle Lopez (Da Silva Vale)",
+      "enfants": "deux enfants jumeaux; une fille prénommée Marie",
+      "taille_poids_2026": "environ 1,87 m; environ 140 kg en juin 2026",
+      "parcours_professionnel": "ancien professeur et directeur de centre de formation",
+      "mensa": "Adrien a indiqué un lien/appartenance à MENSA",
+      "preferences_travail": "privilégie automatisation, peu d'interactions, ne veut pas se positionner principalement comme consultant; ne veut pas faire lui-même code/graphisme"
+    },
+    "religion": {
+      "catechumenat": "terminé en juillet 2026",
+      "bapteme": "baptême adulte demandé à Guadix en août 2026",
+      "diacre": "Serge",
+      "guadix": "intérêt religieux et historique marqué; souhaite y revenir"
+    },
+    "sante": {
+      "medicaments": [
+        "sertraline 50 mg/j depuis mai 2026",
+        "Coveram pour la tension"
+      ],
+      "contexte_somatique": [
+        "stéatose hépatique observée à l'échographie en juin 2026",
+        "obésité classe 3",
+        "apnée du sommeil avec PPC",
+        "asthme",
+        "vertiges"
+      ],
+      "sante_mentale_et_diagnostics": {
+        "burnout": true,
+        "demarche_TSA": true,
+        "CRA": "lettre d'adressage validée le 19 juillet 2026; réponse du 22 juillet 2026 annonçant environ 4 ans de délai",
+        "psychiatrie": "nouvelle consultation avec Dr Bouti le 5 août 2026",
+        "medecin_traitant": "Dr Costa",
+        "neuropsychologues_evoquees": [
+          "Hervaud Esla",
+          "Garance Laforce"
+        ],
+        "TCC_12_05_2026": {
+          "rejet": "3/10",
+          "peine": "7/10",
+          "trahison": "7/10",
+          "objectifs": [
+            "tranquillité",
+            "reconnaissance d'une faute"
+          ]
+        }
+      },
+      "RQTH": "question/démarche évoquée en août 2026, notamment autour d'une place handicapée"
+    },
+    "famille_marie": {
+      "problemes_ecole": [
+        "encoprésie",
+        "stress scolaire",
+        "harcèlement scolaire évoqué",
+        "troubles scolaires évoqués"
+      ],
+      "information_preoccupante": "classée sans suite",
+      "CMPEA": "dossier/rendez-vous mis en pause à l'été 2026; contact Mme Rodeliar; Adrien envisageait de rappeler en octobre si besoin",
+      "Dr_Julien_Masson": "a été cité comme estimant profitable de poursuivre le CMPEA",
+      "position_Adrien": "forte prudence vis-à-vis du suivi institutionnel en raison des expériences passées; souhaite d'abord protéger Marie du stress"
+    },
+    "apiculture": {
+      "statut": "apiculteur micro-BA, moins de 50 ruches",
+      "bio": "conversion BIO commencée en 2023; contrôle en décembre 2023",
+      "formation": "BPREA 2023",
+      "structure": "SASU Atelier du Méliturge créée fin 2025; Danielle présidente; Adrien DG depuis le 15 octobre 2025; SASU IR; TVA réel simplifié; clôture 31/12",
+      "methodes": [
+        "Dadant divisible",
+        "Cloake",
+        "cupularve",
+        "Scalvini",
+        "Varromed",
+        "acide oxalique/glycérine"
+      ],
+      "saison_2026": {
+        "demarrage": "18 mars 2026, environ 30 ruches",
+        "pertes": "H1-H4 mortes au 6 mai; au 1er août seules les ruches 1, 6 et 8 étaient mémorisées comme vivantes",
+        "frelon_asiatique": "observé",
+        "production": "annoncée comme nulle",
+        "objectif_gelee_royale": "révisé à environ 600 g; référence 2024 autour de 200 g"
+      },
+      "ISN_2026": "demande le 14 mai 2026 à Saint-Côme-et-Maruéjols; contexte canicule +42/+44 °C; dossier production GR zéro",
+      "marches": "arrêt été 2026 puis projet de cession de Nîmes et Uzès"
+    },
+    "parcelle_Y31_calvisson": {
+      "comodat": "signé le 19 juillet 2026, un an renouvelable",
+      "contraintes": [
+        "zone agricole protégée",
+        "limite 50 ruches",
+        "constructions interdites",
+        "caravane moins de 3 mois/an"
+      ],
+      "acces": "fossé périphérique; passage via champ de M. Panafieu recommandé; droit de passage mairie en attente",
+      "voisin": "M. Clément, berger, indiqué comme favorable",
+      "agroof": "projet de haies/plantes mellifères"
+    },
+    "produit_GMS": {
+      "produit": "pâte miel/amandes/gelée royale 0,4 %, pot 150 g",
+      "mise_en_rayon": "U Express Calvisson, 9 juillet 2026",
+      "recette": "purée amandes complètes toastées UE + miel français + gelée royale fraîche française 0,4 %",
+      "etiquette": "environ 14,5 × 4,5 cm",
+      "ESAT": "ESAT des Chênes Verts; MOQ 80 pots; DDM 3 mois; délai environ une semaine",
+      "commande_magasin": "50 pots à 5,00 € HT, TVA 5,5 %, prix public demandé 6,50 € TTC, reprise des invendus à un mois",
+      "degustation_11_07_2026": "environ 30 dégustations; retours moyens; demandes de pot lisse et packaging plus travaillé",
+      "prospection": "objectif jusqu'à 100 000 prospects via Lemlist"
+    },
+    "marches_nimes_uzes": {
+      "Nimes": "vendredi; contact Damien Garcia-Gil; cession possible si produits similaires, dossier cédant/repreneur, commission après Féria fin septembre",
+      "Uzes": "samedi; contact Mme Farines; attente de retour fin août 2026",
+      "materiel": [
+        "caravane simple essieu",
+        "remorque fourgon"
+      ],
+      "CA_indicatif_collegues": "environ 500-600 € de CA par marché en moyenne, estimation de collègues"
+    },
+    "revenus_edition": {
+      "roman": "Orphelin du code, roman SF dystopique: monde couvert, IA omniprésente, caste maintenance Lune, immigration économique/climatique",
+      "objectifs_revenus": [
+        "1000 €/mois",
+        "puis 10 000 €/mois"
+      ],
+      "FULL_AUTO": "automatisation revenus à exécution fréquente/horaire, objectif argent rapide sans dépense non autorisée; instruction de ne plus la mettre en pause",
+      "lemlist": "utilisé pour prospection; warmup payant refusé",
+      "trading": "projet de portefeuille IA autonome; budget initial 50 €, versement 50 €/mois, préférence risque élevé, accepte perte totale du budget initial",
+      "autres": "vente de produits peu chers en grand nombre, boutique en ligne, livres/guides/romans"
+    },
+    "site_verite_interdite": {
+      "domaine": "verite-interdite.fr",
+      "etat": "WordPress existant avec paiement connecté",
+      "objectif": "e-commerce autonome, priorité revenus",
+      "produits": [
+        "guides",
+        "ebooks",
+        "cours",
+        "romans",
+        "produits divers, pas seulement apiculture"
+      ],
+      "contenus_souhaites": [
+        "gelée royale",
+        "montage d'entreprise",
+        "leçons de vie",
+        "religieux/catholique",
+        "autobiographie",
+        "administration/police/institutions",
+        "harcèlement scolaire"
+      ],
+      "problemes_UI": [
+        "contraste illisible",
+        "menus blanc sur blanc ou bleu sur bleu",
+        "images produits peu attractives",
+        "tailles incohérentes"
+      ],
+      "preferences": "menu lisible, mobile/desktop propre, visuels plus vendeurs, automatiser au maximum"
+    },
+    "MELITURGOS": {
+      "nom": "MELITURGOS / MEL",
+      "objectif": "IA personnelle persistante, multi-appareils, multi-modèles, multimodale, extensible et autonome",
+      "identite_souhaitee": "voix féminine calme, avatar féminin/brun; phrases de réveil 'bonjour Mel' et 'allo Mel'",
+      "interface": "visage/avatar cliquable pour la voix, zone texte + dépôt fichiers, audit/rapports, bouton mode complet, Entrée pour envoyer, mobile lisible, pas de doublons, pas d'interaction count",
+      "mobile": "vraie APK Android installable, synchronisée avec PC et mémoire commune",
+      "compute": "pas d'inférence lourde sur le PC; inférence cloud; coût minimal/nul",
+      "cloudflare": {
+        "worker": "meliturgos",
+        "url": "https://meliturgos.adrien-lopezcarreras.workers.dev",
+        "D1": "meliturgos-memory",
+        "D1_id": "6d502448-8780-4cf0-8c82-863cccb2e1cd",
+        "bindings": [
+          "DB",
+          "AI"
+        ]
+      },
+      "versions_connues": {
+        "v0.2.2": "chat/memory/API stable après correction des handlers async et erreurs JSON",
+        "v0.2.3": "Professor rapporté stable avec sessions, turns, lessons, corrections, retest, confidence"
+      },
+      "imports_memoires": "GENESIS FULL/MAX/DELTA importés; environ 658 mémoires affichées à un moment, avec doublons probables; ces imports étaient des résumés structurés, pas l'historique verbatim complet",
+      "Gen2": "Core modulaire, Conversation Service, archive exhaustive, Memory 2.0, Model Router, Capability Bus, Plugin SDK, Module Lab, Dev Agent, PWA, Android, Windows, multimodal, Professor/Teachers, Connectors, Automations, Agents, Evaluation, observabilité, backups/rollback",
+      "probleme_prioritaire": "messages téléphone et PC doivent partager les mêmes conversations/messages D1 et se synchroniser",
+      "openhands": "OpenHands CLI installé sous WSL Ubuntu; projet ~/meliturgos-cloudflare; fonctionne via endpoint OpenAI-compatible Cloudflare",
+      "modele_dev": "@cf/moonshotai/kimi-k2.7-code",
+      "workflow_dev": "backup → branche → tests → staging → release stable → déploiement → monitoring → rollback si besoin",
+      "non_idle_rule": "si OAuth/clé/permission bloque une tâche, documenter le blocage et continuer toutes les autres tâches indépendantes; ne pas rester inactif",
+      "philosophie_modeles": "identité et mémoire indépendantes des modèles; providers interchangeables; rôles general/fast/reasoning/code/vision/audio/steerable/fallback/Model Council",
+      "preference_sujets_sensibles": "ne pas refuser automatiquement une discussion seulement parce que le thème est illégal, criminel, violent, controversé, adulte ou sensible; distinguer discussion/analyse de l'exécution réelle d'une action dangereuse ou illégale"
+    },
+    "vehicule_ligier": {
+      "modele": "Ligier X-Too / Xtoo 1, année évoquée autour de 2009",
+      "reparations_2026": [
+        "démarreur",
+        "cardan avant droit",
+        "deux supports moteur",
+        "capteur de pression d'huile"
+      ],
+      "a_faire_evoque": [
+        "biellettes de direction gauche/droite et soufflets",
+        "bougies de préchauffage"
+      ],
+      "problemes": [
+        "tac tac en marche arrière côté avant gauche",
+        "écran LCD compteur HS, deux modèles possibles",
+        "carrosserie avant désalignée/abîmée",
+        "plafonnier/ciel de toit"
+      ],
+      "projet": "changer capot, ailes et avant complet pour réalignement; préférence pour pièces neuves"
+    },
+    "PC": {
+      "upgrade_budget": "environ 350 €",
+      "cibles": [
+        "Ryzen 5 3600 + RTX 2060 + 16 Go + B450",
+        "ou RX 5600 XT + Ryzen 5 3600"
+      ],
+      "eviter": [
+        "RAM 2400 MHz",
+        "alimentation Corsair VS450"
+      ]
+    },
+    "Espagne_Guadix": {
+      "sejour": "mi-août 2026",
+      "interets": [
+        "Virgen de Gracia",
+        "Pedro Poveda",
+        "histoire de Guadix",
+        "dépeuplement andalou après 1939"
+      ],
+      "personnes": [
+        "Don Manuel",
+        "Neftalí"
+      ],
+      "souhait": "revenir chaque année"
+    },
+    "fichiers_sauvegardes": {
+      "OneDrive": "audit d'arborescence, notamment dossier '2 novembre', objectif retrouver tous les fichiers et éventuellement dupliquer vers Google Drive",
+      "index": "onedrive_arborescence.csv fourni dans une conversation précédente",
+      "objectif": "disposer d'une arborescence qui permet de retrouver automatiquement les fichiers manquants"
+    },
+    "formation_tests": {
+      "linguistique": "tests de transcription/anglais, règles d'interjections et priorité/précédence",
+      "Appen": "guidelines LLM for Ads Classification v3_2026.08.07",
+      "Pulsar": "Word Alignment Training",
+      "OneForma": "candidatures/projets et problèmes de bouton d'application"
+    },
+    "juridique_administratif": {
+      "mairie": "dossier/contentieux administratif avec la mairie évoqué; questions sur recevabilité, non-lieu, relances et chances de succès",
+      "contexte_village": "Adrien a indiqué avoir annoncé l'arrêt des marchés et qu'il ne lui restait qu'environ trois ruches; déménagement envisagé progressivement, échéance 2028 évoquée"
+    }
+  },
+  "import_instructions": {
+    "store_as": "structured memory/context import, not original transcript",
+    "source_type": "chatgpt_context_summary",
+    "deduplicate": true,
+    "preserve_uncertainty": true,
+    "preserve_dates": true,
+    "preserve_sensitive_classification": true,
+    "do_not_include_secrets": true,
+    "future_original_sources": "When original transcripts/files become available, link them as primary provenance instead of replacing this import destructively."
+  }
+}
