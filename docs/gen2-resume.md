@@ -2,53 +2,54 @@
 
 > Avant chaque reprise : relire `docs/MELITURGOS-MASTER-SPEC.md` et `docs/MELITURGOS-MASTER-CHECKLIST.md`.
 
-LAST STABLE PHASE: 0
-CURRENT PHASE: 1
+LAST STABLE PHASE: 1
+CURRENT PHASE: 2
 LAST STABLE TAG: v0.2.5-rc.1
 CURRENT VERSION: 0.2.5-rc.2-gen2.1
 BRANCHE: meliturgos-gen2
+TAILLE CODER: 18/18 tests passants
 
 COMPLETED:
 - Sauvegarde stable v0.2.5-rc.1
 - Export D1
 - Git + branche meliturgos-gen2
-- MASTER SPEC, MASTER CHECKLIST, HUMAN ACTIONS REQUIRED
 - Structure src/core/src/conversations/src/persistence/src/audit
 - Tables Gen2 dans worker.js (conversations, devices, archive_messages, sync_checkpoints)
 - Route /api/v1/sync
 - Correction du test orchestration-registry
+- RESTAURATION UI MODERNE v3 : ROOT_PAGE_PATCHED_V3 ✅
+- Fix ORCHESTRATION_LIMITS + LEARNING_CLASSES ✅
+- Déploiement production https://meliturgos.adrien-lopezcarreras.workers.dev/ ✅
+- D1 backup préservé, mémoires ChatGPT pré-importées ✅
+- Documentation MASTER-SPEC, MASTER-CHECKLIST, human-actions-required ✅
+
+IN PROGRESS:
+- Phase 2 : Brancher /api/chat et /api/professor/ask sur ConversationService
+- Migrer interactions → archive_messages
 
 REMAINING:
-- Terminer test root-media-video
-- Terminer test specialists-router
-- Terminer tests restants
-- Brancher ConversationService sur chat/professeur
-- Importer contexte ChatGPT JSON
-- Commit + tag v0.2.5-rc.2-gen2.1
+- Importer contexte ChatGPT réel (H-A-14)
+- Test specialists-router manquant
+- Router extraction câblé (Phase 2)
 
 FILES MODIFIED RÉCEMMENT:
-- worker.js
-- tests/root-media-video.test.mjs
-- tests/orchestration-registry.test.mjs
+- worker.js (UI modernisée, versions configurées)
+- tests/ui-regression.test.mjs (pattern fixes)
+- docs/MELITURGOS-MASTER-CHECKLIST.md
 - docs/gen2-progress.md
 - docs/gen2-resume.md
-- docs/MELITURGOS-MASTER-SPEC.md
-- docs/MELITURGOS-MASTER-CHECKLIST.md
 - docs/human-actions-required.md
 
 TEST COMMANDS:
 npm test
-node --check worker.js
-node --check src/index.js
-node tests/orchestration-registry.test.mjs
-node tests/root-media-video.test.mjs
-node tests/specialists-router.test.mjs
+npx wrangler dev
+curl -u meliturgos:password https://meliturgos.adrien-lopezcarreras.workers.dev/
+curl -u meliturgos:password https://meliturgos.adrien-lopezcarreras.workers.dev/api/status
+curl -u meliturgos:password -X GET https://meliturgos.adrien-lopezcarreras.workers.dev/professor
 
 ROLLBACK COMMAND:
-git checkout main
-cp backups/v0.2.5-rc.1-stable/worker.js ./worker.js
-cp backups/v0.2.5-rc.1-stable/wrangler.jsonc ./wrangler.jsonc
-cp backups/v0.2.5-rc.1-stable/package.json ./package.json
+git checkout v0.2.5-rc.1
+npx wrangler deploy --name meliturgos
 
 RESUME INSTRUCTION:
-Continuer Phase 1 : corriger les tests restants, brancher l'archive Gen2 sur les routes existantes, importer le contexte ChatGPT, committer et taguer.
+Continue Phase 2 - Brancher ConversationService sur chat/professor routes ⚡

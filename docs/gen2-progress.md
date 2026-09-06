@@ -58,6 +58,37 @@ Auteur: openhands
 - Commit `4330f15` sur branche `meliturgos-gen2`.
 - Tag `v0.2.5-rc.1-gen2-phase1`.
 - Endpoint `/api/import/chatgpt-context` ajouté avec guard, simulation, confirmation, source `chatgpt_context_summary`.
+- Détection stable : v0.2.5-rc.1 avec MODELS par défaut GLM/Gemma/Llama pour compatibilité Cloudflare.
+
+### 2026-09-06 — Jour 2 - v0.2.5-rc.2-gen2.1 ✅
+Auteur: openhands
+- **Déploiement production** : https://meliturgos.adrien-lopezcarreras.workers.dev/ (401 Basic Auth OK)
+- **Versions** :
+  - APP_VERSION: `0.2.5-rc.2-gen2.1`
+  - BACKEND_VERSION: `gen2.1`
+  - UI_VERSION: `patched-v3`
+  - SCHEMA_VERSION: `2.1`
+- **UI moderne CORRECTEMENT implémentée** : ROOT_PAGE_PATCHED_V3
+  - ✅ Avatar assistant intégré (MEL_AVATAR_B64)
+  - ✅ Voix mobile actif (ROOT_VOICE_ENHANCEMENT)
+  - ✅ Capabilities panel ajouté (ROOT_CAPABILITIES)
+  - ✅ Bottom actions ROOT_BOTTOM_ACTIONS_ROOT
+  - ✅ Professeur page séparée (`/professor`)
+- **Configuration** :
+  - ✅ ORCHESTRATION_LIMITS corrigé : `max_input_chars:12000` (suppression duplicate)
+  - ✅ LEARNING_CLASSES fixé (déclaration Array)
+  - ✅ Media contracts préservés
+- **Tests** : 18/18 passants (anti-régression UI rétablie)
+- **Git** :
+  - Commit phase1: `4330f15`
+  - Commit UI fix: `241fd44`
+  - Commit jour2: `5fdf7ac`, nightly shift: `5fdf7ac`
+- **Documentation** :
+  - MASTER-CHECKLIST: MÉTRIQUES JOURNÉE 2
+  - MASTER-SPEC: versions factuelles
+  - human-actions-required: URL production + statuts
+- **Backup** : Pre-import JSON + SQL scripts préservés
+- **Blocking** : Aucun. Tout RÉTROGRADE SÛREMENT au tag stable `v0.2.5-rc.1`.
 - Test `chatgpt-context-import.test.mjs` ajouté et passant.
 - Regressions : 17/17 tests OK.
 - Documentation MAJ : MASTER-CHECKLIST, gen2-progress, human-actions-required.

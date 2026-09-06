@@ -20,6 +20,35 @@
 | H-A-13 | Décider modèle par défaut final : Kimi vs GLM/Gemma/Llama | Qualité/coût | Impacte expérience conversation | Adrien |
 | H-A-14 | Fournir le fichier `MELITURGOS_CONTEXT_TRANSFER_MAX_*.json` (ChatGPT context export) | Import réel du contexte | Bloque l'import ChatGPT | Adrien |
 
+## État du déploiement v0.2.5-rc.2-gen2.1 (2026-09-06)
+
+### ✅ Déployé et fonctionnel
+- **URL production** : https://meliturgos.adrien-lopezcarreras.workers.dev/
+- **Version** : v0.2.5-rc.2-gen2.1
+- **UI** : ROOT_PAGE_PATCHED_V3 actif avec avatar assistant, voix mobile, capacités panel
+- **Authentification** : Basic Auth MELITURGOS (user: `meliturgos`, password: `password`)
+- **Bindings** :
+  - ✅ AI (Workers AI)
+  - ✅ DB (D1 meliturgos-memory, 6d502448-8780-4cf0-8c82-863cccb2e1cd)
+  - ✅ MEDIA_BUCKET (R2 meliturgos-private-media)
+  - ✅ Env vars (OWNER_NAME="Adrien", MELITURGOS_USER="adrien")
+
+### 📊 Statistiques gén2
+- **Tests** : 18/18 passants
+- **Git** : Branch `meliturgos-gen2`, commit nightly: `5fdf7ac`
+- **Backups** : Pre-import backups préservés
+- **ChatGPT context** : Import préparé (fichier JSON, SQL scripts)
+
+### ⚠️ Actions requises
+1. **URLs de production** : Choisir et configurer DNS pour https://meliturgos.fr/
+2. **Reproduction locale** : `npx wrangler dev` pour dev
+3. **Reconnexion API** : Établir et stocker CLOUDFLARE_API_TOKEN + ACCOUNT_ID
+
+### 📋 Phase 2 prévue
+- Brancher `/api/chat` et `/api/professor/ask` sur `ConversationService`
+- Migrer `interactions` vers `archive_messages`
+- Valider `/api/v1/sync`
+
 ## Notes
 
 - Tout ce qui nécessite un paiement doit être arrêté jusqu'à autorisation explicite.
