@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "id": "test_module",
+      "version": "0.1.0",
+      "dependencies": [],
+      "permissions": ["read_repo", "write_repo", "run_tests"],
+      "routes": [],
+      "bindings": [],
+      "health_check": "node --check runner/fixtures/test-module.mjs",
+      "state": "proposition",
+      "rollback": "restaurer la sauvegarde du plan"
+    }
+  ]
+}

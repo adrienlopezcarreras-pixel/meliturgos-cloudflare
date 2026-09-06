@@ -1,0 +1,9 @@
+{
+  "worker": "meliturgos",
+  "version_id": "2434c801-5951-4e26-bfcb-29cf8962ca73",
+  "deployment_id": "d674c670-edac-4c66-88d9-c426e04fead1",
+  "binding": "MEDIA_BUCKET",
+  "bucket": "meliturgos-private-media",
+  "public_access": false,
+  "r2_dev": false
+}

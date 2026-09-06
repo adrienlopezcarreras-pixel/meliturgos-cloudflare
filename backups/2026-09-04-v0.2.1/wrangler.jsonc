@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "meliturgos",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-04",
+  "workers_dev": true,
+  "ai": {
+    "binding": "AI"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "meliturgos-memory",
+      "database_id": "6d502448-8780-4cf0-8c82-863cccb2e1cd"
+    }
+  ],
+  "vars": {
+    "OWNER_NAME": "Adrien",
+    "MELITURGOS_USER": "adrien"
+  }
+}

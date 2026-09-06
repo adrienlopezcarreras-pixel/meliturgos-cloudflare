@@ -1,0 +1,3 @@
+Rollback: cp backups/2026-09-04-knowledge-candidate/worker.candidate.js worker.js
+Config rollback: cp backups/2026-09-04-knowledge-candidate/wrangler.candidate.jsonc wrangler.jsonc
+Verify: sha256sum -c SHA256SUMS

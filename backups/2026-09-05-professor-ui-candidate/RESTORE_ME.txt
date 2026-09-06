@@ -1,0 +1,4 @@
+Rollback depuis la racine du dépôt:
+cp backups/2026-09-05-professor-ui-candidate/worker.before.js worker.js
+cp backups/2026-09-05-professor-ui-candidate/wrangler.before.jsonc wrangler.jsonc
+sha256sum -c backups/2026-09-05-professor-ui-candidate/SHA256SUMS

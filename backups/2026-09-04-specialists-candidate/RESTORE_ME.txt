@@ -1,0 +1,3 @@
+Rollback: cp backups/2026-09-04-specialists-pre/worker.stable.js worker.js
+Config rollback: cp backups/2026-09-04-specialists-pre/wrangler.stable.jsonc wrangler.jsonc
+Verify from repo root: sha256sum -c backups/2026-09-04-specialists-candidate/SHA256SUMS
