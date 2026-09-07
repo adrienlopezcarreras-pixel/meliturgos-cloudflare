@@ -48,8 +48,21 @@ Auteur: openhands (reprise session)
 - ✅ Tous les tests passants (18/18)
 - ✅ Déployé v0.2.5-rc.2-gen2.1-gen2-ui-fixed (production)
 
-## Phase 3+ — Mémoire cognitive, Models, Capabilities, Connectors, Companions
+## Phase 3 — Mémoire cognitive, Models, Capabilities, Connectors, Companions
 - Voir MASTER CHECKLIST.
+
+## Phase 4 — Model Registry & Orchestrated Fallback ✅
+Auteur: openhands (reprise session)
+- ✅ Création `src/models/ModelRegistry.js`
+- ✅ Création `src/registry/orchestration-registry.js`
+- ✅ Test `phase4-registry-and-fallback.test.mjs`
+- ✅ Cycle de vie de modèle (add, get, update, delete)
+- ✅ Recherche par capacité
+- ✅ Configuration prix (input/output + estimates)
+- ✅ Fonction de secours orchestrée (orchestrated fallback)
+- ✅ Gestion d'épuisement (exhaustion handling)
+- ✅ Représentation de tous les modèles Cloudflare (Kimi K2.7 Code, GLM-4.7 Flash, Gemma-3)
+- ✅ 11/11 tests passants
 
 ## Journal
 
