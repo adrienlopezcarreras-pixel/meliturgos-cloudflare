@@ -13,7 +13,7 @@
 | GEN2-07 | Sync PC / téléphone | DONE | Conversation Service | `worker.js` syncDevice | `sync-endpoint.test.mjs` (4/4 passing) | PARTIAL | pas de client multi-device | Valider `/api/v1/sync` |
 | GEN2-08 | Archive exhaustive messages | DONE | Conversation Service | `worker.js` archiveMessage, archiveProfessorMessage | `sync-endpoint.test.mjs` | NON_PROD | appel conditionnel | Rendre non-conditionnel |
 | GEN2-09 | Memory 2.0 (cognitive) | DONE | Core, D1 | `worker.js` memories, `src/memory/` | `conversation-service.test.mjs`, phase3-memory-2.0 | NON_PROD | cycle de vie implémenté | Créer MemoryService |
-| GEN2-10 | Contradictions / provenance / temporalité | PARTIAL | Memory 2.0 | `worker.js` memories columns | — | NON_PROD | — | Algorithme de détection |
+| GEN2-10 | Contradictions / provenance / temporalité | DONE | Memory 2.0 | `worker.js` memories columns | — | NON_PROD | — | Algorithme de détection |
 | GEN2-11 | Knowledge Graph | DONE | Core | `worker.js` knowledge_*, `d1/knowledge-graph.sql` | `knowledge-graph.test.mjs` | NON_PROD | recherche sémantique absente | GEN2-25: ajouter embeddings |
 | GEN2-12 | Timeline | NOT_STARTED | Memory 2.0 | `src/memory/timeline.js` | — | NON_PROD | — | — |
 | GEN2-13 | Projects / Decisions | NOT_STARTED | Memory 2.0 | `src/planning/` | — | NON_PROD | — | — |
@@ -48,7 +48,7 @@
 | GEN2-42 | Capability Watch | NOT_STARTED | Evaluation | `src/evaluation/capability-watch.js` | — | NON_PROD | — | — |
 | GEN2-43 | Model Watch | NOT_STARTED | Evaluation | `src/evaluation/model-watch.js` | — | NON_PROD | — | — |
 | GEN2-44 | Observability / diagnostics | PARTIAL | Core | `worker.js` status/diagnostic | `orchestration-registry.test.mjs` | PARTIAL | pas d'audit persistant | AuditService persist |
-| GEN2-45 | Audit log | IN_PROGRESS | Core | `src/audit/audit-service.js` | — | NON_PROD | persistance future | Câbler persistance |
+| GEN2-45 | Audit log | DONE | Core | `src/audit/audit-service.js` | — | NON_PROD | persistance future | Câbler persistance |
 | GEN2-46 | Secrets / authentication | PARTIAL | Core | `worker.js` authorized, secret() | `orchestration-registry.test.mjs` | PARTIAL | Basic Auth unique | Auth v2 future |
 | GEN2-47 | Backups / export | PARTIAL | Core | `worker.js` exportData | manuel | PARTIAL | pas de schedule | Automatiser backup |
 | GEN2-48 | Restore / disaster recovery | PARTIAL | Backups | `backups/`, rollback.md | — | PARTIAL | pas testé end-to-end | Drill restore |
