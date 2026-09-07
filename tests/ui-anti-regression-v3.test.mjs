@@ -1,10 +1,10 @@
 /**
  * UI Anti-Regression Test - Version 5 Classic
  *
- * Vérifie que l'UI V5 Classic est correctement implantée et accessible via la racine (/).
+ * Vérifie que l'UI FROM SCRATCH actuelle est correctement implantée et accessible via la racine (/).
  *
  * Vérifications:
- * 1. PAGE '/' retourne l'UI V5 Classic (ROOT_PAGE_V5_CLASSIC)
+ * 1. PAGE '/' retourne l'UI FROM SCRATCH actuelle (ROOT_PAGE_V5_CLASSIC)
  * 2. Préserve avatar MEL (MEL_AVATAR_B64)
  * 3. Zone de texte + dépôt de fichiers
  * 4. Lien Mode complet visible
@@ -72,10 +72,10 @@ if (/return html\(ROOT_PAGE_PATCHED_V3\);/.test(workerSource)) {
 }
 
 if (!passed) {
-  console.error('\n⚠️ UI Anti-Regression V5: des vérifications ont échoué');
+  console.error('\n⚠️ UI Anti-Regression: des vérifications ont échoué');
   process.exit(1);
 }
 
 console.log('\n' + '='.repeat(60));
-console.log('✅ UI ANTI-REGRESSION V5 CLASSIC: ALL TESTS PASSED');
+console.log('✅ UI ANTI-REGRESSION: ALL TESTS PASSED');
 console.log('='.repeat(60));

@@ -156,6 +156,22 @@ Auteur: openhands
   - `MODEL_FALLBACK_CHAIN` configuration
   - Metadata tracking (attempts, duration)
 
+### ✅ Gen2-29: DeviceBus (2026-09-06)
+
+- **Test**: `phase3-device-bus.test.mjs`
+- **Feature**: Device synchronization protocol
+- **Status**: Tests passing (fleet sync, state validation)
+
+### ✅ Gen2-45: Audit Service D1 Persistence (2026-09-07)
+
+- **Test**: `audit-persistence.test.mjs` (CREATED)
+- **Feature**: Audit logs persisted to D1
+- **Status**: Tests passing (4/4)
+- **Components**:
+  - `auditService()` - Records audit entries
+  - D1 binding pattern fix (chaining)
+- **Schema**: Audit logs table created in migrations
+
 ---
 
 ## GEN2-57: Migration Gen1 sans perte de données

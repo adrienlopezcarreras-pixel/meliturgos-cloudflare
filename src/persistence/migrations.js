@@ -71,6 +71,39 @@ export const MIGRATIONS = [
       `).run();
     },
   },
+  // v3: Audit logs table
+  {
+    version: 3,
+    name: "audit_logs_table",
+    run: async (db) => {
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS audit_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          timestamp INTEGER NOT NULL,
+          action TEXT NOT NULL,
+          path TEXT,
+          details_json TEXT NOT NULL,
+          client_ip TEXT,
+          user_agent TEXT,
+          request_method TEXT,
+          response_status INTEGER,
+          error_message TEXT,
+          duration_ms INTEGER,
+          created_at INTEGER NOT NULL  -- Auto-set using default value in inserts
+        )
+      `).run();
+
+      await db.prepare(`
+        CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp
+        ON audit_logs(timestamp DESC)
+      `).run();
+
+      await db.prepare(`
+        CREATE INDEX IF NOT EXISTS idx_audit_logs_action
+        ON audit_logs(action)
+      `).run();
+    },
+  },
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {

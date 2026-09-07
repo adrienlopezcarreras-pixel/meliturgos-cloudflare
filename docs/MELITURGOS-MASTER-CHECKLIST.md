@@ -70,18 +70,12 @@
 
 ## Métriques rapides
 
-- Tests passants : 26/26 (UI-V5 classic)
-- Version actuelle code : v0.2.5-rc.3-gen2.1-gen2-ui-v5-classic
+- Tests passants : 26/26 (Phase 3 completed, Audit persistence pending)
+- Version actuelle code : v0.2.5-rc.3-gen2.1-gen2-ui-from-scratch
 - Branche : `meliturgos-gen2`
 - Dernier tag : `v0.2.5-rc.2-gen2.1-gen2-ui-fixed`
 - Backup stable : `backups/v0.2.5-rc.1-stable/`, tag `v0.2.5-rc.1`
-- UI V5 Classic : ROOT_PAGE_V5_CLASSIC basée sur la première interface validée par Adrien
-  - Avatar central MEL cliquable pour le micro
-  - Zone texte + dépôt de fichiers unifiées
-  - Lien "Mode complet" vers /professor
-  - Responsive 320/375/430/768/1024/1366/1920 ✅
-  - Pas d'overflow horizontal, avatar/composer dans viewport ✅
-- **P0-UI-V5** : Candidate en attente de validation visuelle humaine avant deploy
+- UI From Scratch Candidate : nouvelle interface avec MEL animé (cliquable → micro), transcription, auto-send, fichiers, media inline, professeur page séparée
 
 ## Règles d'utilisation
 
@@ -106,7 +100,7 @@
 
 ## Version Status
 
-- APP_VERSION: 0.2.5-rc.3-gen2.1-gen2-ui-v5-classic ✅
+- APP_VERSION: 0.2.5-rc.3-gen2.1-gen2-ui-from-scratch ✅
 - BACKEND_VERSION: gen2.1 ✅
-- UI_VERSION: v5-classic (responsive fix de la V1 validée par Adrien) ✅
+- UI_VERSION: gen2-ui-from-scratch ✅
 - SCHEMA_VERSION: 2.1 ✅

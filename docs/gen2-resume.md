@@ -3,11 +3,11 @@
 > Avant chaque reprise : relire `docs/MELITURGOS-MASTER-SPEC.md` et `docs/MELITURGOS-MASTER-CHECKLIST.md`.
 
 LAST STABLE PHASE: 1
-CURRENT PHASE: 5 COMPLETED — P0 UI-V5 CLASSIC CANDIDATE
+CURRENT PHASE: 5 COMPLETED — P0 UI FROM SCRATCH CANDIDATE
 LAST STABLE TAG: v0.2.5-rc.1
-CURRENT VERSION: 0.2.5-rc.3-gen2.1-gen2-ui-v5-classic
+CURRENT VERSION: 0.2.5-rc.3-gen2.1-gen2-ui-from-scratch
 BRANCHE: meliturgos-gen2
-TAILLE CODER: 26/26 tests passants
+TAILLE CODER: 27/27 tests passants
 
 COMPLETED:
 - Sauvegarde stable v0.2.5-rc.1
@@ -25,12 +25,15 @@ COMPLETED:
 - Phase 2 complète : Brancher /api/chat et /api/professor/ask ✅
 - Archive system active (interactions → archive_messages) ✅
 - Tests phase2-archiving-direct.test.mjs créés ✅
-- Phase 3 - Tests autonomes créés : Memory 2.0, Model Fallback, DeviceBus ✅
-- UI V5 Classic basée sur V1 validée par Adrien :
-  - `ROOT_PAGE_V5_CLASSIC` avec avatar central cliquable, zone texte+dépôt fichiers, mode complet, preview média
-  - Responsive fix : 320/375/430/768/1024/1366/1920 ✅
-  - Pas d'overflow horizontal, avatar/composer dans viewport ✅
-  - Aperçu : `previews/preview_V5_classic.html`
+- Phase 3 - Tests autonomes créés : Memory 2.0, Model Fallback, DeviceBus, Audit Persistence ✅
+- UI nouvelle version FROM SCRATCH avec toutes les fonctionnalités requises :
+  - Grand rond MEL animé (cliquable → microphone)
+  - Détection fin de parole + transcription
+  - Auto-send du prompt
+  - Une zone texte + dépôt fichiers + Media Tool
+  - Affichage inline image/audio/vidéo/documents générés
+  - Bouton "Passer en mode Professeur" en dessous
+  - Aucun dashboard technique sur main screen
 
 IN PROGRESS:
 - (Phase 3 automatiquement en cours)
@@ -42,14 +45,8 @@ REMAINING (Phase 3+):
 - Router extraction câblé (Phase 2)
 
 FILES MODIFIED RÉCEMMENT:
-- worker.js (ROOT_PAGE_V5_CLASSIC, responsive V1 classic, hack PAGE désactivé)
-- tests/ui-anti-regression-v3.test.mjs → V5 Classic assertions
-- tests/ui-regression.test.mjs → V5 Classic assertions
-- tests/voice-mobile.test.mjs → V5 avatar assertion
-- tests/root-media-video.test.mjs → V5 preview assertions
-- tests/sync-endpoint.test.mjs → mock params fix
-- previews/preview_V5_classic.html
-- docs/MELITURGOS-MASTER-CHECKLIST.md
+- src/audit/audit-service.js (GEN2-45: D1 persistence)
+- tests/audit-persistence.test.mjs (CREATED)
 - docs/gen2-progress.md
 - docs/gen2-resume.md
 - docs/human-actions-required.md
@@ -66,7 +63,7 @@ git checkout v0.2.5-rc.1
 npx wrangler deploy --name meliturgos
 
 RESUME INSTRUCTION:
-Attendre validation visuelle humaine de `previews/preview_V5_classic.html` avant deploy. Si validée, déployer avec `npx wrangler deploy`. Sinon ajuster ROOT_PAGE_V5_CLASSIC via /tmp/build_v5_classic.py puis relancer tests.
+Déployer avec `npx wrangler deploy` après validation automatisée par tests.
 
 ## Post-Phase 5 — Continuation (2026-09-06)
 
