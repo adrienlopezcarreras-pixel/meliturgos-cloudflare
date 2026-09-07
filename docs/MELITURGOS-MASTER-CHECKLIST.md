@@ -84,3 +84,23 @@
 - Utiliser `BLOCKED_EXTERNAL` pour dépendances fournisseurs/outils.
 - Utiliser `BLOCKED_HUMAN` pour secrets, OAuth, DNS, paiement, choix de stack.
 
+
+## Phase 3 Completed (2026-09-06)
+
+- Memory 2.0 Service (Gen2-09): partial → DONE_COMPLETE
+  - MemoryService CRUD, lifecycle, conflict detection
+  - Tests: phase3-memory-2.0.test.mjs ✅
+- Model Fallback (Gen2-04): PARTIAL → DONE_COMPLETE
+  - Retry chain, metadata tracking, exhaustion handling
+  - Tests: phase3-model-fallback.test.mjs ✅
+- Device Bus (Gen2-29): IN_PROGRESS → DONE_COMPLETE
+  - Device registry, sync protocol, event system
+  - Tests: phase3-device-bus.test.mjs ✅
+- Quality: All 21 tests passing (down from 22→21→21 after cleanup)
+
+## Version Status
+
+- APP_VERSION: 0.2.5-rc.2-gen2.1 ✅
+- BACKEND_VERSION: gen2.1 ✅
+- UI_VERSION: patched-v3 ✅
+- SCHEMA_VERSION: 2.1 ✅

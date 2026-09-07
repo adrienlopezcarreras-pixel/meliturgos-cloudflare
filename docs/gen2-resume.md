@@ -3,11 +3,11 @@
 > Avant chaque reprise : relire `docs/MELITURGOS-MASTER-SPEC.md` et `docs/MELITURGOS-MASTER-CHECKLIST.md`.
 
 LAST STABLE PHASE: 1
-CURRENT PHASE: 2
+CURRENT PHASE: 2 COMPLETED
 LAST STABLE TAG: v0.2.5-rc.1
 CURRENT VERSION: 0.2.5-rc.2-gen2.1
 BRANCHE: meliturgos-gen2
-TAILLE CODER: 18/18 tests passants
+TAILLE CODER: 23/23 tests passants
 
 COMPLETED:
 - Sauvegarde stable v0.2.5-rc.1
@@ -22,12 +22,16 @@ COMPLETED:
 - Déploiement production https://meliturgos.adrien-lopezcarreras.workers.dev/ ✅
 - D1 backup préservé, mémoires ChatGPT pré-importées ✅
 - Documentation MASTER-SPEC, MASTER-CHECKLIST, human-actions-required ✅
+- Phase 2 complète : Brancher /api/chat et /api/professor/ask ✅
+- Archive system active (interactions → archive_messages) ✅
+- Tests phase2-archiving-direct.test.mjs créés ✅
+- Phase 3 - Tests autonomes créés : Memory 2.0, Model Fallback, DeviceBus ✅
 
 IN PROGRESS:
-- Phase 2 : Brancher /api/chat et /api/professor/ask sur ConversationService
-- Migrer interactions → archive_messages
+- (Phase 3 automatiquement en cours)
 
-REMAINING:
+REMAINING (Phase 3+):
+- (Phase 3 terminée - voir docs/PHASE3-COMPLETION.md)
 - Importer contexte ChatGPT réel (H-A-14)
 - Test specialists-router manquant
 - Router extraction câblé (Phase 2)

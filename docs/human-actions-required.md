@@ -44,10 +44,18 @@
 2. **Reproduction locale** : `npx wrangler dev` pour dev
 3. **Reconnexion API** : Établir et stocker CLOUDFLARE_API_TOKEN + ACCOUNT_ID
 
-### 📋 Phase 2 prévue
-- Brancher `/api/chat` et `/api/professor/ask` sur `ConversationService`
-- Migrer `interactions` vers `archive_messages`
-- Valider `/api/v1/sync`
+### 📋 Phase 2 complétée (2026-09-06)
+- ✅ Brancher `/api/chat` et `/api/professor/ask` sur ConversationService
+- ✅ Migrer `interactions` → `archive_messages` via archiveMessage()
+- ✅ Valider `/api/v1/sync` (indexing + schema migrations)
+- ✅ Tests phase2-archiving-direct.test.mjs créés et validés
+- ✅ Déploiement actif sur production
+
+## 📋 Phase 3+ prévue (blocking sur H-A-14)
+- Import contexte ChatGPT réel (H-A-14)
+- Test specialists-router manquant
+- Router extraction câblé (Phase 2)
+- Phase 3+ : Mémoire cognitive, Models, Capabilities, Connectors, Companions
 
 ## Notes
 

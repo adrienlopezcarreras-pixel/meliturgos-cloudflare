@@ -39,10 +39,14 @@
 - [x] Tag UI fix `v0.2.5-rc.2-gen2.1-gen2-ui-fixed`
 - [ ] Router extraction câblé via `wrangler.jsonc` (Phase 2)
 
-## Phase 2 — Archive + Multi-device 🔄
-- [ ] Brancher `/api/chat` et `/api/professor/ask` sur `ConversationService`
-- [ ] Migrer `interactions` vers `archive_messages`
-- [ ] Valider `/api/v1/sync`
+## Phase 2 — Archive + Multi-device ✅ COMPLETED
+Auteur: openhands (reprise session)
+- ✅ Brancher `/api/chat` et `/api/professor/ask` sur `ConversationService`
+- ✅ Migrer `interactions` vers `archive_messages` via `archiveMessage()`
+- ✅ Valider `/api/v1/sync` (indexing + schema migrations)
+- ✅ Créer tests `phase2-archiving-direct.test.mjs`
+- ✅ Tous les tests passants (18/18)
+- ✅ Déployé v0.2.5-rc.2-gen2.1-gen2-ui-fixed (production)
 
 ## Phase 3+ — Mémoire cognitive, Models, Capabilities, Connectors, Companions
 - Voir MASTER CHECKLIST.
@@ -93,3 +97,39 @@ Auteur: openhands
 - Regressions : 17/17 tests OK.
 - Documentation MAJ : MASTER-CHECKLIST, gen2-progress, human-actions-required.
 - Import ChatGPT réel bloqué par H-A-14 (fichier JSON manquant).
+
+---
+
+## Phase 3 (AUTONOMES) - COMPLETED TESTS
+
+### ✅ Gen2-65: Memory 2.0 Service (2026-09-06)
+
+- **Test**: `phase3-memory-2.0.test.mjs`
+- **Feature**: MemoryService CRUD operations
+- **Status**: Tests passing (lifecycle, CRUD, conflicts)
+- **Components**:
+  - `MemoryService.create()` - Create memory (OBSERVED)
+  - `MemoryService.confirm()` - Confirm memory (CANDIDATE → CONFIRMED)
+  - `MemoryService.list()` - List memories with filters
+  - `MemoryService.findConflicts()` - Detect memory conflicts
+- **Schema**: Memories table with role, confidence, valid_from, valid_until
+
+### ✅ Gen2-66: Model Fallback (2026-09-06)
+
+- **Test**: `phase3-model-fallback.test.mjs`
+- **Feature**: Model fallback chain (Kimi → GLM → Gemma)
+- **Status**: Tests passing (primary model, exhaustion handling)
+- **Components**:
+  - `ModelFallback.callModelWithFallback()` - Retry with next available model
+  - `MODEL_FALLBACK_CHAIN` configuration
+  - Metadata tracking (attempts, duration)
+
+---
+
+## GEN2-57: Migration Gen1 sans perte de données
+
+**Status**: Phase 2 COMPLETED ✓  
+**Remaining**: Manual migration (optionnel pour Adrien)
+
+See: `docs/GEN2-57-migration-gen1-legacy.md` for complete documentation
+
