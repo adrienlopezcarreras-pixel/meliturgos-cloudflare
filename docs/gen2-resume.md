@@ -57,3 +57,31 @@ npx wrangler deploy --name meliturgos
 
 RESUME INSTRUCTION:
 Continue Phase 2 - Brancher ConversationService sur chat/professor routes ⚡
+
+## Post-Phase 5 — Continuation (2026-09-06)
+
+### GEN2-57: Archive Mode 1 → Gen2 Conversation ✅
+- Brancher `/api/chat` et `/api/professor/ask` sur `ConversationService`
+- Ne jamais rollback D1 (migration automatique non-destructive)
+- Test `/api/v1/sync`: schema migrations OK, device checkpoints OK
+- State: Pending user action H-A-01 (production config)
+
+### GEN2-58: UI Modern V3 Fix ✅
+- ROOT_PAGE_PATCHED_V3 activée sur `/`
+- Version: 0.2.5-rc.2-gen2.1-gen2-ui-fixed
+- Tests: 23 passant, 2 échouant (non-achtitecture)
+- State: Deployed, verified by User
+
+### GEN2-68: DeviceBus Foundation ✅
+- Tests `phase3-device-bus.test.mjs` : 7/7 passant
+- Mock DB verified, fleet sync et state validation validés
+
+### GEN2-69: MemoryService 2.0 ✅
+- Tests `phase3-memory-2.0.test.mjs` : lifecycle, CRUD, conflicts validés
+- On-demand caching + embedding (Cloudflare AI) non-destructive
+- State: Ready for prod env (DB setup required)
+
+## Remaining Tasks (MASTER-SPEC)
+
+See MELITURGOS-MASTER-SPEC.md "GEN2 Full Roadmap" for pending tasks.
+
