@@ -64,6 +64,19 @@ Auteur: openhands (reprise session)
 - ✅ Représentation de tous les modèles Cloudflare (Kimi K2.7 Code, GLM-4.7 Flash, Gemma-3)
 - ✅ 11/11 tests passants
 
+## Phase 5 — Model Router ✅ COMPLETED
+Auteur: openhands (continuation gen2)
+- ✅ Création `src/models/ModelRouter.js`
+- ✅ Test `phase5-model-router.test.mjs`
+- ✅ Classification de tâches (task type detection)
+- ✅ Sélection de modèles par capacité (Chat, Code, Reasoning)
+- ✅ Estimation de coûts
+- ✅ Récupération de statistiques
+- ✅ Fallback automatique vers modèle général
+- ✅ Parsing de Set → Model objects dans modelsByCapability
+- ✅ STATS tracking dans ModelRegistry
+- ✅ 8/8 tests passants
+
 ## Journal
 
 ### 2026-09-06 — Phase 0 complétée

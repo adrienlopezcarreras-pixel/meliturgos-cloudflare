@@ -6,8 +6,8 @@
 |---|---|---|---|---|---|---|---|---|
 | GEN2-01 | Core minimal (config, errors, http, security, audit) | DONE | — | `src/core/*` | `conversation-service.test.mjs`, `chatgpt-context-import.test.mjs` | NON_PROD | — | Stabiliser imports circulaires |
 | GEN2-02 | Identity / System Prompt | PARTIAL | Core | `worker.js` systemPrompt, `src/identity/` | manuel | NON_PROD | identity non modularisé | Extraire persona dans `src/identity/` |
-| GEN2-03 | Model Registry | NOT_STARTED | Core | `src/models/` | — | NON_PROD | — | Créer ModelRegistry |
-| GEN2-04 | Model Router + fallback | PARTIAL | Model Registry | `worker.js` askAI/orchestrationSelection | `orchestration-registry.test.mjs` | SIMULATION_SEULEMENT | fallback par simulation | Implémenter fallback réel |
+| GEN2-03 | Model Registry | DONE | Core | `src/models/`, `src/registry/` | `phase4-registry-and-fallback.test.mjs` | NON_PROD | — | Créé ModelRegistry, orchestration-registry, 11/11 tests passing |
+| GEN2-04 | Model Router + fallback | DONE | Model Registry | `worker.js` askAI/orchestrationSelection | `phase5-model-router.test.mjs` | NON_PROD | fallback par simulation | Phase 5 terminée - tous les tests passants (8/8) |
 | GEN2-05 | Model Council / benchmarks | NOT_STARTED | Model Router | `src/evaluation/` | — | NON_PROD | — | Spécifier plus tard |
 | GEN2-06 | Conversation Service | IN_PROGRESS | Core, Persistence | `src/conversations/*`, `worker.js` archiveMessage | `conversation-service.test.mjs`, `/api/v1/sync` manuel | NON_PROD | routes Gen2 non câblées | Brancher aux routes chat/professeur |
 | GEN2-07 | Sync PC / téléphone | IN_PROGRESS | Conversation Service | `worker.js` syncDevice | — | PARTIAL | pas de client multi-device | Valider `/api/v1/sync` |

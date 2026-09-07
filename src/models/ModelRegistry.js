@@ -201,6 +201,12 @@ export class ModelRegistry {
 // Pre-register standard models if needed
 export const standardRegistry = (function() {
   const registry = new ModelRegistry();
+  
+  // Stats tracking (optional, for monitoring)
+  registry.stats = {
+    failedCallCount: 0,
+    totalCalls: 0
+  };
 
   // Register Kimi K2.7 (code model)
   registry.register({
