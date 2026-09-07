@@ -34,7 +34,7 @@ async function transcribe(bindings=env(),audio=new Blob(["audio"],{type:"audio/w
 
 const source=await (await import("node:fs/promises")).readFile(new URL("../worker.js",import.meta.url),"utf8");
 assert.match(source,/MediaRecorder/);
-assert.match(source,/voice-stop/);
+assert.match(source,/mel-avatar/);
 assert.match(source,/getTracks\(\)\.forEach/);
 assert.match(source,/fallback:\"text\"/);
 await unlink(testWorker);

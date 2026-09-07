@@ -28,25 +28,26 @@ const ModelFallback = {
 
     while (currentIndex < modelsToTry.length && !modelSuccess) {
       const currentModel = modelsToTry[currentIndex];
+      const modelId = typeof currentModel === "object" && currentModel !== null ? currentModel.model : currentModel;
       const attemptNum = currentIndex + 1;
 
       try {
-        console.log(`[ModelFallback] Attempt ${attemptNum}/${modelsToTry.length} with model: ${currentModel}`);
+        console.log(`[ModelFallback] Attempt ${attemptNum}/${modelsToTry.length} with model: ${modelId}`);
 
         // Simulate AI model call
-        const aiResult = await this._simulateAIModel(currentModel, prompt, options);
+        const aiResult = await this._simulateAIModel(modelId, prompt, options);
         
         modelSuccess = true;
         result = aiResult;
-        model = currentModel;
+        model = modelId;
       } catch (error) {
         attempts.push({
-          model: currentModel,
+          model: modelId,
           error: error.message,
           attempt: attemptNum
         });
 
-        console.log(`[ModelFallback] Model ${currentModel} failed: ${error.message}`);
+        console.log(`[ModelFallback] Model ${modelId} failed: ${error.message}`);
 
         if (currentIndex < modelsToTry.length - 1) {
           console.log(`[ModelFallback] Retrying with next model...`);
@@ -72,10 +73,9 @@ const ModelFallback = {
   _simulateAIModel(model, prompt, options) {
     return new Promise((resolve, reject) => {
       setTimeout(() => {
-        // Simulate model failures (based on REMAINING attempts)
-        const failuresAfterPrimary = ["kimi", "gling2-v2-chat"];
-        
-        if (failuresAfterPrimary.includes(model)) {
+        // If options specifies this model should fail, fail it; otherwise succeed.
+        const forcedFailures = (options && options.failModels) || [];
+        if (forcedFailures.includes(model)) {
           reject(new Error(`${model}_model_error`));
         } else {
           resolve({
@@ -105,10 +105,19 @@ async function test() {
   assert.equal(result1.result.content, "Response from kimi");
   console.log("✓ Primary model succeeds");
 
-  // Test 2: All fail and should throw
-  console.log("\n[Test 2] All models fail (exhaustion)");
+  // Test 2: Primary fails, fallback succeeds
+  console.log("\n[Test 2] Primary fails, fallback succeeds");
+  const result2 = await ModelFallback.callModelWithFallback(null, "Hello", { failModels: ["kimi"] });
+  assert(result2.success, "Fallback model should succeed");
+  assert.equal(result2.model, "gling2-v2-chat", "Should use first fallback model");
+  assert.equal(result2.result.content, "Response from gling2-v2-chat");
+  assert.equal(result2.attempts.length, 1, "Should record one failed attempt");
+  console.log("✓ Fallback model succeeds");
+
+  // Test 3: All fail and should throw
+  console.log("\n[Test 3] All models fail (exhaustion)");
   try {
-    await ModelFallback.callModelWithFallback(null, "Test", {});
+    await ModelFallback.callModelWithFallback(null, "Test", { failModels: ["kimi", "gling2-v2-chat", "gemma-7b-it"] });
     assert.fail("Should have thrown error after all models fail");
   } catch (error) {
     console.log(`✓ Correctly threw after all models failed: ${error.message}`);

@@ -4,7 +4,7 @@
  * Test anti-régression UI - Section HOME "/"
  *
  * Cette suite de tests garantit que l'interface MELITURGOS principale
- * (ROOT_PAGE_PATCHED_V3) répond correctement sur GET / après auth.
+ * (ROOT_PAGE_V5_CLASSIC) répond correctement sur GET / après auth.
  *
  * Vérifie:
  * - Réponse HTTP 200
@@ -36,28 +36,29 @@ async function testUIRegression(workerPath) {
   const appVersion = appVersionMatch[1];
   console.log(`✅ APP_VERSION: ${appVersion}`);
   
-  // TEST 2: Activation de ROOT_PAGE_PATCHED_V3 sur /
-  console.log('\n📋 TEST 2: Vérification routing "/" → ROOT_PAGE_PATCHED_V3');
-  const rootPageResponsePattern = /return html\(ROOT_PAGE_PATCHED_V3\);/;
+  // TEST 2: Activation de ROOT_PAGE_V5_CLASSIC sur /
+  console.log('\n📋 TEST 2: Vérification routing "/" → ROOT_PAGE_V5_CLASSIC');
+  const rootPageResponsePattern = /return html\(ROOT_PAGE_V5_CLASSIC\);/;
   const hasRootPageResponse = rootPageResponsePattern.test(workerSource);
   
   if (!hasRootPageResponse) {
-    console.error('❌ Réponse ROOT_PAGE_PATCHED_V3 manquante sur /');
+    console.error('❌ Réponse ROOT_PAGE_V5_CLASSIC manquante sur /');
     return false;
   }
-  console.log('✅ Réponse ROOT_PAGE_PATCHED_V3 configurée sur /');
+  console.log('✅ Réponse ROOT_PAGE_V5_CLASSIC configurée sur /');
   
   // TEST 3: Présence de éléments UI
   console.log('\n📋 TEST 3: Présence des éléments UI essentiels');
   
   const essentialUI = [
     { name: 'MELITURGOS title', pattern: /MELITURGOS/ },
-    { name: 'Mémoire', pattern: /Mémoire|souvenirs/ },
+    { name: 'Mémoire', pattern: /souvenirs|mémoire/i },
     { name: 'Diagnostic', pattern: /Diagnostic/ },
     { name: 'Sauvegarde', pattern: /Sauvegarder|backup/ },
     { name: 'Chat', pattern: /chat/ },
     { name: 'Formulaire émission', pattern: /textarea|<form/ },
-    { name: 'Microphone', pattern: /Micro|mic|🎙/ },
+    { name: 'Avatar central MEL', pattern: /mel-avatar|meliturgos-avatar/ },
+    { name: 'Mode complet', pattern: /Passer en mode complet|professeur/ },
     { name: 'Style futuriste', pattern: /:root|color-scheme\s*:\s*dark/ },
   ];
   
@@ -99,12 +100,12 @@ async function testUIRegression(workerPath) {
     }
   }
   
-  // TEST 6: Éviter les anciennes versions de PAGE
-  console.log('\n📋 TEST 6: Version PAGE !== ROOT_PAGE_PATCHED_V3');
-  if (workerSource.includes('const PAGE=`') && !workerSource.includes('ROOT_PAGE_PATCHED_V3')) {
-    console.log('✅ PAGE est une constante différente (protège contre le clone accidentel)');
+  // TEST 6: Constante V5 Classic utilisée
+  console.log('\n📋 TEST 6: ROOT_PAGE_V5_CLASSIC est la page active');
+  if (workerSource.includes('const ROOT_PAGE_V5_CLASSIC=`')) {
+    console.log('✅ ROOT_PAGE_V5_CLASSIC est défini');
   } else {
-    console.warn('⚠️  PAGE semble identique ou mal référencé');
+    console.warn('⚠️  ROOT_PAGE_V5_CLASSIC non trouvé');
   }
   
   // TEST 7: Protection CSRF + Auth

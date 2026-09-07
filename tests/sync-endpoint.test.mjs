@@ -48,22 +48,10 @@ class MockStmt {
     }
     
     if (sqlLower.includes("insert into archive_messages")) {
-      const idx = sqlLower.indexOf("VALUES");
-      if (idx === -1) return { meta: { changes: 0 } };
-      
-      const start = sqlLower.indexOf("(", idx) + 1;
-      const end = sqlLower.indexOf(")", idx);
-      const valuesPart = sqlLower.slice(start, end);
-      
-      const parts = valuesPart.split(",").map(p => p.trim());
-      const id = parts[0];
-      const cid = parts[1];
-      const did = parts[2];
-      const role = parts[3];
-      const content = parts[4];
-      const timestamp = parseInt(parts[5]) || Date.now();
-      
-      this.db.messages.push({ id, conversation_id: cid, device_id: did, role, content, timestamp });
+      const params = this.params;
+      if (params.length < 6) return { meta: { changes: 0 } };
+      const [id, cid, did, role, content, timestamp] = params;
+      this.db.messages.push({ id, conversation_id: cid, device_id: did, role, content, timestamp: Number(timestamp) || Date.now() });
       return { meta: { changes: 1 } };
     }
     
@@ -167,8 +155,11 @@ async function testIncrementalSync() {
   await db.prepare("INSERT INTO archive_messages(id, conversation_id, device_id, role, content, timestamp) VALUES(?,?,?,?,?,?)")
     .bind("msg-3", "conv-1", "dev-1", "user", "How are you?", Date.now() + 100).run();
   
-  const messages = db.messages.filter(m => m.conversation_id === "conv-1" && m.timestamp > 0);
-  assert.equal(messages.length, 2, "Only first two messages synced with after=0");
+  const after = 0;
+  const messages = db.messages.filter(m => m.conversation_id === "conv-1" && m.timestamp > after);
+  // Les 3 messages ont timestamp > 0; le curseur after=0 signifie tout récupérer. Test initial prétendu 2 erroné.
+  // L'assertion valide le filtre conversation+timestamp.
+  assert.equal(messages.length, 3, "All conv-1 messages returned with after=0");
   console.log("/api/v1/sync: Incremental sync cursor test OK");
 }
 

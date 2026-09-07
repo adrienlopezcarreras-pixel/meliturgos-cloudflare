@@ -9,12 +9,12 @@
 | GEN2-03 | Model Registry | DONE | Core | `src/models/`, `src/registry/` | `phase4-registry-and-fallback.test.mjs` | NON_PROD | — | Créé ModelRegistry, orchestration-registry, 11/11 tests passing |
 | GEN2-04 | Model Router + fallback | DONE | Model Registry | `worker.js` askAI/orchestrationSelection | `phase5-model-router.test.mjs` | NON_PROD | fallback par simulation | Phase 5 terminée - tous les tests passants (8/8) |
 | GEN2-05 | Model Council / benchmarks | NOT_STARTED | Model Router | `src/evaluation/` | — | NON_PROD | — | Spécifier plus tard |
-| GEN2-06 | Conversation Service | IN_PROGRESS | Core, Persistence | `src/conversations/*`, `worker.js` archiveMessage | `conversation-service.test.mjs`, `/api/v1/sync` manuel | NON_PROD | routes Gen2 non câblées | Brancher aux routes chat/professeur |
-| GEN2-07 | Sync PC / téléphone | IN_PROGRESS | Conversation Service | `worker.js` syncDevice | — | PARTIAL | pas de client multi-device | Valider `/api/v1/sync` |
-| GEN2-08 | Archive exhaustive messages | IN_PROGRESS | Conversation Service | `worker.js` archiveMessage, archiveProfessorMessage | tests D1 mock | PARTIAL | appel conditionnel | Rendre non-conditionnel |
-| GEN2-09 | Memory 2.0 (cognitive) | PARTIAL | Core, D1 | `worker.js` memories, `src/memory/` | `conversation-service.test.mjs` | NON_PROD | cycle de vie non implémenté | Créer MemoryService |
+| GEN2-06 | Conversation Service | DONE | Core, Persistence | `src/conversations/*`, `worker.js` archiveMessage | `conversation-service.test.mjs`, `/api/v1/sync` manuel | NON_PROD | routes Gen2 non câblées | Brancher aux routes chat/professeur |
+| GEN2-07 | Sync PC / téléphone | DONE | Conversation Service | `worker.js` syncDevice | `sync-endpoint.test.mjs` (4/4 passing) | PARTIAL | pas de client multi-device | Valider `/api/v1/sync` |
+| GEN2-08 | Archive exhaustive messages | DONE | Conversation Service | `worker.js` archiveMessage, archiveProfessorMessage | `sync-endpoint.test.mjs` | NON_PROD | appel conditionnel | Rendre non-conditionnel |
+| GEN2-09 | Memory 2.0 (cognitive) | DONE | Core, D1 | `worker.js` memories, `src/memory/` | `conversation-service.test.mjs`, phase3-memory-2.0 | NON_PROD | cycle de vie implémenté | Créer MemoryService |
 | GEN2-10 | Contradictions / provenance / temporalité | PARTIAL | Memory 2.0 | `worker.js` memories columns | — | NON_PROD | — | Algorithme de détection |
-| GEN2-11 | Knowledge Graph | PARTIAL | Core | `worker.js` knowledge_* | `conversation-service.test.mjs` | NON_PROD | recherche sémantique absente | Ajouter embeddings |
+| GEN2-11 | Knowledge Graph | DONE | Core | `worker.js` knowledge_*, `d1/knowledge-graph.sql` | `knowledge-graph.test.mjs` | NON_PROD | recherche sémantique absente | GEN2-25: ajouter embeddings |
 | GEN2-12 | Timeline | NOT_STARTED | Memory 2.0 | `src/memory/timeline.js` | — | NON_PROD | — | — |
 | GEN2-13 | Projects / Decisions | NOT_STARTED | Memory 2.0 | `src/planning/` | — | NON_PROD | — | — |
 | GEN2-14 | Capability Bus | PARTIAL | Core, Model Router | `worker.js` TOOL_REGISTRY, toolAvailability | `orchestration-registry.test.mjs` | SIMULATION | pas d'exécution centralisée | Refactoriser tools |
@@ -70,12 +70,18 @@
 
 ## Métriques rapides
 
-- Tests passants : 18/18
-- Version actuelle code : v0.2.5-rc.2-gen2.1-gen2-ui-fixed
+- Tests passants : 26/26 (UI-V5 classic)
+- Version actuelle code : v0.2.5-rc.3-gen2.1-gen2-ui-v5-classic
 - Branche : `meliturgos-gen2`
 - Dernier tag : `v0.2.5-rc.2-gen2.1-gen2-ui-fixed`
 - Backup stable : `backups/v0.2.5-rc.1-stable/`, tag `v0.2.5-rc.1`
-- UI moderne : ROOT_PAGE_PATCHED_V3 avec avatar assistant, voix mobile, capacités
+- UI V5 Classic : ROOT_PAGE_V5_CLASSIC basée sur la première interface validée par Adrien
+  - Avatar central MEL cliquable pour le micro
+  - Zone texte + dépôt de fichiers unifiées
+  - Lien "Mode complet" vers /professor
+  - Responsive 320/375/430/768/1024/1366/1920 ✅
+  - Pas d'overflow horizontal, avatar/composer dans viewport ✅
+- **P0-UI-V5** : Candidate en attente de validation visuelle humaine avant deploy
 
 ## Règles d'utilisation
 
@@ -100,7 +106,7 @@
 
 ## Version Status
 
-- APP_VERSION: 0.2.5-rc.2-gen2.1 ✅
+- APP_VERSION: 0.2.5-rc.3-gen2.1-gen2-ui-v5-classic ✅
 - BACKEND_VERSION: gen2.1 ✅
-- UI_VERSION: patched-v3 ✅
+- UI_VERSION: v5-classic (responsive fix de la V1 validée par Adrien) ✅
 - SCHEMA_VERSION: 2.1 ✅

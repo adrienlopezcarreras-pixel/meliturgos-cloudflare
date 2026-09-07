@@ -98,6 +98,12 @@ Auteur: openhands
   - BACKEND_VERSION: `gen2.1`
   - UI_VERSION: `patched-v3`
   - SCHEMA_VERSION: `2.1`
+- **CRITICAL FIX** : CSS overflow horizontal regression (production V3)
+  - Corrupted worker.js restored from git commit `daa0dde`
+  - Applied body overflow fix: width:100%; max-width:100%; overflow-x:hidden
+  - Test: `tests/ui/css-overflow-fix.test.mjs` created
+  - Syntax validated with node --check worker.js
+  - Reverted corrupted file to working state via git checkout
 - **UI moderne CORRECTEMENT implémentée** : ROOT_PAGE_PATCHED_V3
   - ✅ Avatar assistant intégré (MEL_AVATAR_B64)
   - ✅ Voix mobile actif (ROOT_VOICE_ENHANCEMENT)

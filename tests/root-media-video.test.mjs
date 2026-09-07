@@ -12,7 +12,7 @@ async function request(path,options={}){const headers=new Headers(options.header
 
 {
  const response=await request("/");assert.equal(response.status,200);const html=await response.text();
- assert.match(html,/type="file" accept="\*\/\*"/);assert.match(html,/Déposer ici/);assert.match(html,/Module vidéo/);assert.match(html,/controls playsinline hidden/);assert.match(html,/URL\.createObjectURL/);assert.match(html,/textContent/);assert.doesNotMatch(html,/href="https?:\/\//);
+ assert.match(html,/type="file"[^>]*accept="\*\/\*"/);assert.match(html,/Déposez ici|déposer/i);assert.match(html,/mel-avatar/);assert.match(html,/<video[^>]*controls/);assert.match(html,/URL\.createObjectURL/);assert.match(html,/textContent/);assert.doesNotMatch(html,/href="https?:\/\//);
 }
 {
  const form=new FormData();form.append("file",new Blob(["unknown"],{type:"application/octet-stream"}),"archive.xyz");const response=await request("/api/media/root-upload",{method:"POST",body:form});const body=await response.json();assert.equal(response.status,503);assert.equal(body.code,"MEDIA_DISABLED");assert.equal(puts,0);

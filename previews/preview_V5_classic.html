@@ -1,0 +1,83 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0c0c0e"><link rel="manifest" href="/manifest.webmanifest"><title>MELITURGOS</title><style>
+:root{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#0c0c0e;color:#eee}main{max-width:980px;margin:auto;padding:20px 16px 100px}header{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;margin-bottom:16px}h1{font-size:clamp(28px,5vw,44px);margin:0;letter-spacing:.04em}.tag{color:#9aa0a9;margin:4px 0 0}.status{font-size:13px;color:#9aa0a9;text-align:right}.panel{background:#151518;border:1px solid #29292f;border-radius:18px;box-shadow:0 12px 40px #0005}#chat{padding:16px;min-height:48vh;max-height:65vh;overflow:auto}.msg{white-space:pre-wrap;line-height:1.52;padding:12px 14px;border-radius:15px;margin:10px 0;overflow-wrap:anywhere}.user{background:#20304b;margin-left:10%}.bot{background:#222227;margin-right:5%}.meta{font-size:11px;color:#93939c;margin-top:8px}.feedback{display:flex;gap:7px;margin:6px 0 14px}button,select,input,textarea{font:inherit}button{border:1px solid #3a3a42;background:#24242a;color:#fff;border-radius:12px;padding:10px 13px;cursor:pointer}.small{padding:6px 9px;font-size:12px}.composer{position:sticky;bottom:8px;margin-top:12px;padding:10px;display:grid;grid-template-columns:1fr auto;gap:8px}textarea{resize:none;min-height:76px;background:#0f0f12;color:#fff;border:1px solid #34343c;border-radius:13px;padding:12px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}select,input{background:#17171b;color:#eee;border:1px solid #34343c;border-radius:10px;padding:8px}details{margin-top:14px;padding:14px}.row{display:flex;gap:8px;flex-wrap:wrap}.row input{flex:1;min-width:180px}.badge{display:inline-block;border:1px solid #3b3b44;border-radius:999px;padding:3px 8px;font-size:11px;color:#aaa}.error{color:#ff9b9b}@media(max-width:600px){main{padding:12px 10px 80px}header{align-items:flex-start}.status{font-size:11px}.user{margin-left:5%}.bot{margin-right:0}#chat{min-height:54vh}}:root{--safe-top:env(safe-area-inset-top);--safe-bottom:env(safe-area-inset-bottom);--safe-left:env(safe-area-inset-left);--safe-right:env(safe-area-inset-right)}
+html,body{overflow-x:hidden}
+body{min-height:100dvh;padding:0}
+main{max-width:min(980px,calc(100vw - 28px));width:100%;margin:auto;padding:calc(14px + var(--safe-top)) 14px calc(100px + var(--safe-bottom));box-sizing:border-box}
+header{display:flex;justify-content:space-between;gap:12px;align-items:flex-end;margin-bottom:12px;flex-wrap:wrap}
+.status{text-align:left;flex:1 1 auto;min-width:120px}
+h1{margin:0}
+.avatar-wrap{display:flex;flex-direction:column;align-items:center;gap:10px;margin:0 0 14px}
+.mel-avatar{position:relative;width:min(56vw,260px);max-width:260px;aspect-ratio:1/1;border-radius:50%;overflow:hidden;background:linear-gradient(145deg,#1a2535,#0f141b);box-shadow:0 14px 44px #0008;border:1px solid #3b5066;cursor:pointer;transition:transform .15s ease,filter .15s ease}
+.mel-avatar:hover{transform:scale(1.02);filter:brightness(1.05)}
+.mel-avatar:focus-visible{outline:3px solid #70b7ff;outline-offset:3px}
+.mel-avatar img,.mel-avatar svg{display:block;width:100%;height:100%;object-fit:cover;border-radius:50%}
+.mel-avatar.speaking img{animation:mel-pulse 900ms ease-in-out infinite alternate}
+@keyframes mel-pulse{to{transform:scale(1.04);filter:brightness(1.15)}}
+.composer{position:static;bottom:auto;margin-top:0;padding:10px;display:flex;flex-direction:column;gap:8px}
+.composer .composer-row{display:flex;gap:8px;align-items:stretch;flex-wrap:nowrap}
+.composer textarea{flex:1 1 auto;min-height:64px;max-height:160px;resize:vertical;min-width:0}
+.composer button{flex:0 0 auto}
+.drop-zone{position:relative;border:2px dashed #44444d;border-radius:14px;padding:10px 12px;text-align:center;color:#9aa0a9;cursor:pointer;background:#121216;transition:border-color .15s,background .15s}
+.drop-zone.dragging,.drop-zone:hover{border-color:#6b9fc9;background:#1a202a}
+.drop-zone input[type=file]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+#local-preview{width:100%;max-height:220px;border-radius:12px;background:#07090d;margin-top:10px}
+.toolbar{justify-content:flex-end;margin:0 0 10px;gap:6px}
+.toolbar button.small,.toolbar select.small{font-size:12px;padding:6px 9px;min-height:32px}
+.mode-link-wrap{text-align:center;margin-top:16px}
+.mode-link-wrap a{display:inline-block;border:1px solid #3a3a42;background:#1b1b20;color:#bbb;border-radius:999px;padding:8px 16px;text-decoration:none;font-size:13px}
+.mode-link-wrap a:hover{background:#25252c;color:#fff}
+#chat{min-height:20vh;max-height:42vh}
+@media(max-width:600px){main{padding:calc(12px + var(--safe-top)) 12px calc(84px + var(--safe-bottom))}h1{font-size:clamp(24px,7vw,34px)}header{align-items:flex-start}.mel-avatar{width:min(62vw,220px)}.composer .composer-row{flex-wrap:wrap}.composer textarea{width:100%;min-height:70px}.composer button[type=submit]{width:100%;min-height:46px}.toolbar button.small,.toolbar select.small{min-height:38px;font-size:12px}.msg{max-width:100%}}
+@media(max-width:420px){.mel-avatar{width:min(68vw,200px)}#chat{max-height:38vh}}
+@media(min-width:601px){.composer{flex-direction:row;align-items:stretch}.composer textarea{max-width:calc(100% - 110px)}}</style></head><body><main>
+  <header><div><h1>MELITURGOS</h1><p class="tag">Cloud · mémoire persistante · mobile</p></div><div id="status" class="status">connexion…</div></header>
+  <div class="toolbar" id="top-tools">
+    <select id="model" class="small" aria-label="Modèle"><option value="@cf/zai-org/glm-4.7-flash">GLM 4.7 Flash — défaut</option><option value="@cf/google/gemma-3-12b-it">Gemma 3 12B</option><option value="@cf/meta/llama-3.3-70b-instruct-fp8-fast">Llama 3.3 70B</option></select>
+    <button class="small" id="diagnostic" type="button">Diagnostic</button>
+    <button class="small" id="backup" type="button">Sauvegarde</button>
+  </div>
+  <div id="diag" class="meta"></div>
+  <div class="avatar-wrap" aria-label="Avatar MEL">
+    <div class="mel-avatar" id="mel-avatar" role="button" tabindex="0" aria-label="Activer le microphone" title="Cliquez ou tapez pour parler">
+      <img src="/meliturgos-avatar-fille.png" alt="" onerror="this.hidden=true;this.parentNode.innerHTML='<svg viewBox=\'0 0 200 200\' aria-label=\'Avatar MELITURGOS\' preserveAspectRatio=\'xMidYMid slice\'><circle cx=100 cy=85 r=55 fill=\'#f0c7a8\'/><path d=\'M45 72 q55-90 110 0\' fill=\'#172332\'/><circle cx=78 cy=82 r=7/><circle cx=122 cy=82 r=7/><path d=\'M70 112 q30 22 60 0\' fill=\'none\' stroke=\'#172332\' stroke-width=\'6\'/></svg>'">
+    </div>
+    <div id="voice-status" class="meta" role="status">Tapez le visage de MEL pour parler · ou écrivez ci-dessous</div>
+  </div>
+  <form class="panel composer" id="form">
+    <div class="composer-row">
+      <textarea id="q" placeholder="Écrivez un message ou déposez un fichier…" aria-label="Message"></textarea>
+      <button type="submit">Envoyer</button>
+    </div>
+    <label class="drop-zone" id="drop-zone">
+      <span>Déposez ici tout fichier (image, audio, vidéo, document, PDF, archive…)</span>
+      <input type="file" id="fileInput" accept="*/*" aria-label="Joindre un fichier">
+    </label>
+    <video id="local-preview" controls playsinline hidden></video>
+  </form>
+  <section class="panel" id="chat"></section>
+  <div id="audit" class="meta" role="status"></div>
+  <div class="mode-link-wrap"><a href="/professor">Passer en mode complet</a></div>
+  <script>
+    var qs=function(s){return document.querySelector(s)},chat=qs('#chat'),q=qs('#q'),zone=qs('#drop-zone'),fileInput=qs('#fileInput'),diag=qs('#diag');
+    async function api(path,options){options=options||{};var h=new Headers(options.headers||{});if(options.body&&!h.has('content-type'))h.set('content-type','application/json');options.headers=h;var r;try{r=await fetch(path,options)}catch(e){throw new Error('Connexion impossible au service MELITURGOS.')}var raw=await r.text(),data;try{data=raw?JSON.parse(raw):{}}catch(e){var p=raw.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,160);throw new Error('Le serveur a répondu en '+r.status+' avec un format non JSON'+(p?' : '+p:''))}if(!r.ok)throw new Error(data.error||('Erreur HTTP '+r.status));return data}
+    function add(text,cls,meta,iid){var d=document.createElement('div');d.className='msg '+cls;d.textContent=text;if(meta){var m=document.createElement('div');m.className='meta';m.textContent=meta;d.appendChild(m)}chat.appendChild(d);if(iid){var f=document.createElement('div'),y=document.createElement('button'),n=document.createElement('button');f.className='feedback';y.className=n.className='small';y.textContent='👍 utile';n.textContent='👎 corriger';y.onclick=async function(){try{await api('/api/feedback',{method:'POST',body:JSON.stringify({interaction_id:iid,good:true})});f.innerHTML='<span class="badge">retour enregistré</span>'}catch(e){f.textContent='Erreur : '+e.message}};n.onclick=async function(){var c=prompt('Quelle correction doit-il retenir ?','');if(c===null)return;try{await api('/api/feedback',{method:'POST',body:JSON.stringify({interaction_id:iid,good:false,correction:c})});f.innerHTML='<span class="badge">correction prioritaire mémorisée</span>'}catch(e){f.textContent='Erreur : '+e.message}};f.append(y,n);chat.appendChild(f)}chat.scrollTop=chat.scrollHeight}
+    async function refresh(){try{var s=await api('/api/status');qs('#status').textContent=s.memories+' souvenirs · en ligne'}catch(e){qs('#status').textContent='erreur : '+e.message}}
+    qs('#form').onsubmit=async function(e){e.preventDefault();var text=q.value.trim();if(!text)return;q.value='';add(text,'user');var w=document.createElement('div');w.className='msg bot';w.textContent='MELITURGOS réfléchit…';chat.appendChild(w);try{var j=await api('/api/chat',{method:'POST',body:JSON.stringify({text:text,model:qs('#model').value})});w.remove();add(j.text,'bot',(j.model||'')+' · '+(j.memory_hits||0)+' souvenirs retrouvés',j.interaction_id);refresh()}catch(err){w.classList.add('error');w.textContent='Erreur : '+err.message}};
+    q.addEventListener('keydown',function(e){if(e.isComposing)return;if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();qs('#form').requestSubmit()}});
+    qs('#backup').onclick=function(){location.href='/api/export'};
+    qs('#diagnostic').onclick=async function(){diag.textContent='Diagnostic en cours…';try{var j=await api('/api/diagnostic');diag.textContent='v'+(j.version||'')+' · D1 '+(j.checks.d1||'')+' · AI '+(j.checks.ai_binding||'')+' · auth '+(j.checks.authentication||'')+' · '+(j.latency_ms||0)+' ms'}catch(e){diag.textContent='Erreur : '+e.message}};
+    ['dragenter','dragover','dragleave','drop'].forEach(function(ev){zone.addEventListener(ev,function(e){e.preventDefault();e.stopPropagation();})});
+    zone.addEventListener('dragenter',function(){zone.classList.add('dragging')});
+    zone.addEventListener('dragleave',function(){zone.classList.remove('dragging')});
+    zone.addEventListener('drop',function(e){zone.classList.remove('dragging');var files=e.dataTransfer.files;if(!files.length)return;showPreview(files[0]);uploadFile(files[0])});
+    fileInput.onchange=function(){if(fileInput.files.length){showPreview(fileInput.files[0]);uploadFile(fileInput.files[0])}};
+    var preview=qs('#local-preview'),previewUrl=null;
+    function showPreview(file){if(!file||!(file.type.indexOf('video')===0||file.type.indexOf('audio')===0||file.type.indexOf('image')===0))return;if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl=URL.createObjectURL(file);preview.src=previewUrl;preview.hidden=false}
+    async function uploadFile(file){diag.textContent='Analyse de '+file.name+'…';try{var fd=new FormData();fd.append('file',file);var r=await fetch('/api/files/analyze',{method:'POST',body:fd});var j=await r.json();if(!r.ok)throw new Error(j.error||'Analyse indisponible');add('📎 '+file.name,'user',j.summary||'',null);if(j.text){q.value=(q.value?q.value+'\n':'')+j.text;qs('#form').requestSubmit()}}catch(e){diag.textContent='Erreur fichier : '+e.message}}
+    var rec,stream,parts=[],avatar=qs('#mel-avatar'),vstatus=qs('#voice-status');
+    function toggleMic(){if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){vstatus.textContent='Micro indisponible · utilisez le texte';return}if(rec&&rec.state!=='inactive'){rec.stop();avatar.classList.remove('speaking');return}stream&&stream.getTracks().forEach(function(t){t.stop()});parts=[];navigator.mediaDevices.getUserMedia({audio:true}).then(function(s){stream=s;rec=new MediaRecorder(s);rec.ondataavailable=function(e){if(e.data.size)parts.push(e.data)};rec.onstop=async function(){stream.getTracks().forEach(function(t){t.stop()});vstatus.textContent='Transcription…';var fd=new FormData();fd.append('audio',new Blob(parts,{type:rec.mimeType||'audio/webm'}),'voice.webm');try{var r=await fetch('/api/voice/transcribe',{method:'POST',body:fd}),j=await r.json();if(!r.ok)throw new Error(j.error||'indisponible');q.value=j.text||'';vstatus.textContent='Transcrit · envoi…';qs('#form').requestSubmit()}catch(e){vstatus.textContent='Transcription indisponible · repli texte'}finally{avatar.classList.remove('speaking')}};rec.start();avatar.classList.add('speaking');vstatus.textContent='Écoute… tapez le visage pour arrêter'}).catch(function(e){vstatus.textContent='Micro refusé · repli texte'})}
+    avatar.onclick=toggleMic;
+    avatar.onkeydown=function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleMic()}};
+    add('Je suis MELITURGOS. Ma mémoire est prête.','bot','mémoire D1');refresh();
+  </script>
+</main></body></html>
