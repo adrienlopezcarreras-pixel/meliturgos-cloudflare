@@ -174,6 +174,27 @@ Auteur: openhands
 
 ---
 
+
+### ✅ Gen2-10: Memory Contradiction Detection (2026-09-07)
+
+- **Test**: `phase3-memory-2.0.test.mjs`
+- **Feature**: Conflict detection in memory service
+- **Status**: Tests passing, validation verified
+- **Components**:
+  - `MemoryService.findConflicts()` - Find contradictions between memories
+  - `detectContradiction()` - Helper with role-based heuristics
+  - Confidence thresholds (PREFERENCE_THRESHOLD=80, FACT_THRESHOLD=90)
+  - Metadata tracking (severity, type, sources, confidence)
+
+### ✅ Gen2-64: V5 Reference Cleanup (2026-09-07)
+
+- **Test**: `ui-anti-regression-v3.test.mjs`
+- **Feature**: Remove V5-specific references
+- **Status**: Tests passing
+- **Changes**:
+  - Updated test documentation to reflect current UI
+  - Now tests FROM SCRATCH implementation
+
 ## GEN2-57: Migration Gen1 sans perte de données
 
 **Status**: Phase 2 COMPLETED ✓  
