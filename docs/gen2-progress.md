@@ -77,7 +77,7 @@ Auteur: openhands (continuation gen2)
 - ✅ STATS tracking dans ModelRegistry
 - ✅ 8/8 tests passants
 
-## Phase 6 — RAG Search / Personal Search ✅ IN PROGRESS
+## Phase 6 — RAG Search / Personal Search ✅ COMPLETED (2026-09-08)
 Auteur: openhands (continuation gen2)
 - ✅ Création `src/search/rag-service.js`
 - ✅ Service de recherche sémantique avec embeddings
