@@ -4,6 +4,7 @@ import {ClientError } from "./core/errors.js";
 import { createConversationService } from "./conversations/conversation-service.js";
 import { withConversationArchive } from "./conversations/intercept.js";
 import handleResearch from "./api/research-api.js";
+import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
 
 let legacy;
 async function loadLegacy(env) {
@@ -127,10 +128,11 @@ export default {
 
     const url = new URL(request.url);
 
-    // Serve P0 Interface Principal - GEN2-26
-    if (request.method === "GET" && url.pathname === "/") {
-      return html(INDEX_HTML, 200, {
-        "Content-Type": "text/html; charset=utf-8",
+    // Serve MVP Interface - GEN2-26
+    if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/mvp")) {
+      return handleMvp({ env, request, params: {} }).catch(e => {
+        console.error(`[Router] MVP error: ${e.message}`, e.stack);
+        return html(`Error loading MVP: ${e.message}`, 500);
       });
     }
 
