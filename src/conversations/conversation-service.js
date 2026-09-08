@@ -5,6 +5,15 @@ export class ConversationService {
     this.db = db;
   }
 
+  async create({id=crypto.randomUUID(),owner='',title=''}={}) { await this.migrate(); await this.ensureConversation(id,owner,title); return this.get({id}); }
+  async list({owner=''}={}) { await this.migrate(); return (await this.db.prepare("SELECT * FROM conversations WHERE owner=? OR owner='' ORDER BY updated_at DESC LIMIT 100").bind(owner).all()).results; }
+  async get({id}) { await this.migrate(); return this.db.prepare('SELECT * FROM conversations WHERE id=?').bind(id).first(); }
+  async update({id,title}) { await this.migrate(); await this.db.prepare('UPDATE conversations SET title=?,updated_at=? WHERE id=?').bind(title,Date.now(),id).run(); return this.get({id}); }
+  async archive({id}) { await this.migrate(); await this.db.prepare("UPDATE conversations SET status='archived',updated_at=? WHERE id=?").bind(Date.now(),id).run(); return this.get({id}); }
+  addMessage(input) { return this.archiveMessage(input); }
+  listMessages({conversationId,...options}) { return this.getMessages(conversationId,options); }
+  sync({deviceId,conversationId}) { return this.getSyncMessages(deviceId,conversationId); }
+
   /**
    * Ensure Gen2 schema is applied (non-destructive).
    */

@@ -1,3 +1,9 @@
+## État du run Codex — 2026-09-08 (prioritaire sur les notes historiques)
+- Aucun déploiement autorisé automatiquement, aucune consommation IA payante pour les tests.
+- BROWSER_E2E_ENV_BLOCKED : libnspr4.so absente ; différé, aucun travail humain requis pour continuer P0–P5 localement.
+- IA réelle : validation fournisseur différée pour préserver le budget ; SQL réel temporaire et IA simulée autorisés.
+- OAuth/connecteurs et future mise en production : autorisation/configuration distinctes nécessaires.
+
 # MELITURGOS — ACTIONS REQUISES PAR L'HUMAIN
 
 ## Priorité IMMÉDIATE (P0 FRONTEND) 🚨

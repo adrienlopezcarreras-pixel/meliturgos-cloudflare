@@ -36,9 +36,11 @@ export function authorized(request, env) {
   if (!user && !pass) return true;
   const header = request.headers.get("Authorization") || "";
   if (!header.toLowerCase().startsWith("basic ")) return false;
-  const decoded = atob(header.slice(6));
-  const [u, p] = decoded.split(":");
-  return u === user && p === pass;
+  try {
+    const decoded = atob(header.slice(6));
+    const split = decoded.indexOf(":");
+    return split >= 0 && decoded.slice(0, split) === user && decoded.slice(split + 1) === pass;
+  } catch { return false; }
 }
 
 export function requireAuth(request, env) {

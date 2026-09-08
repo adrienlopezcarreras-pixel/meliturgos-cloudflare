@@ -3,3 +3,14 @@ node_modules/
 .runner/
 .env
 *.log
+
+# Local credentials, runtime data and editor artifacts
+.dev.vars
+.dev.vars.*
+.env.*
+!.env.example
+.wrangler/state/
+d1/
+*.swp
+*.sqlite-wal
+*.sqlite-shm

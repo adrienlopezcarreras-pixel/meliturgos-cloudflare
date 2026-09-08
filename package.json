@@ -9,7 +9,13 @@
     "tail": "wrangler tail",
     "whoami": "wrangler whoami",
     "check": "node --check worker.js && node --check src/index.js && node --check src/router.js && node --check src/conversations/conversation-service.js && node --check src/conversations/intercept.js && node --check scripts/run-tests.mjs",
-    "test": "node scripts/run-tests.mjs"
+    "test": "node scripts/run-tests.mjs",
+    "test:smoke": "node --test tests/gen2/contracts.test.mjs",
+    "test:openhands": "node --test tests/gen2/contracts.test.mjs",
+    "test:mvp": "node --test tests/mvp-product.test.mjs",
+    "test:routes": "node scripts/test-routes.mjs",
+    "test:connections": "node scripts/test-connections.mjs",
+    "test:bindings": "node scripts/test-bindings.mjs"
   },
   "devDependencies": {
     "jsdom": "^30.0.1",

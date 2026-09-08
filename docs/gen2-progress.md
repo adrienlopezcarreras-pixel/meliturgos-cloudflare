@@ -223,3 +223,8 @@ See: `docs/GEN2-57-migration-gen1-legacy.md` for complete documentation
 - Archive : capture avant consommation de Request, prise en charge de `text`, refus d'archiver une erreur comme réponse.
 - Tests : `node --test tests/mvp-product.test.mjs` 5/5, syntaxe interface/intercepteur OK. SQL SQLite en mémoire, moteur IA simulé ; aucune validation fournisseur payante.
 - Non-régression HTTP Wrangler : 401/401/200/200 confirmée.
+
+- Historique : sélection/reprise/nouvelle conversation, rafraîchissement au retour sur la fenêtre ; contexte du modèle limité à la conversation choisie.
+- Mémoire : enregistrement explicite et récupération dans le prompt vérifiés avec vrai SQL en mémoire et moteur simulé.
+- HTTP Wrangler isolé : chat statistique 200 sans appel IA et 2 messages relus dans l'archive.
+- BROWSER_E2E_ENV_BLOCKED : Chrome ne démarre pas (libnspr4.so absente). Ne pas bloquer P0–P5 dessus ; tests Node/DOM/HTTP disponibles.

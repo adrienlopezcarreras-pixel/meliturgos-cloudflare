@@ -43,6 +43,10 @@ export async function onRequestGet(context) {
     .container > * { min-width: 0; }
     .message, #chatStatus, .transcription-preview { overflow-wrap: anywhere; white-space: pre-wrap; }
     button { max-width: 100%; }
+    .history-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .history-controls select { flex: 1; min-width: 0; max-width: 100%; }
+    .history-controls button, .history-controls select { padding: 8px; border-radius: 8px; }
+    .history-controls label { width: 100%; }
     button:disabled { opacity: .6; cursor: wait; }
     :focus-visible { outline: 2px solid #b9c5ff; outline-offset: 4px; }
 
@@ -296,6 +300,11 @@ export async function onRequestGet(context) {
       <div class="volume-level" id="volumeLevel"></div>
     </div>
 
+    <div class="history-controls">
+      <label for="conversationSelect">Conversations</label>
+      <select id="conversationSelect" aria-label="Historique des conversations"><option value="">Conversation actuelle</option></select>
+      <button id="newConversation" type="button">Nouvelle conversation</button>
+    </div>
     <div class="input-area">
       <textarea id="messageInput" placeholder="Écrivez votre message..." aria-label="Message à MEL" maxlength="12000" autofocus></textarea>
       
@@ -416,12 +425,14 @@ export async function onRequestGet(context) {
     // The existing chat API accepts text and returns text.
     async function sendMessage(text) {
       text = text.trim();
-      if (!text || sending) return;
+      if (!text || sending || historyLoading) return;
       if (text.length > 12000) {
         chatStatus.textContent = 'Message trop long (12 000 caractères maximum).';
         return;
       }
       sending = true;
+      conversationSelect.disabled = true;
+      newConversation.disabled = true;
       sendBtn.disabled = true;
       messageInput.disabled = true;
       chatStatus.textContent = 'MEL réfléchit…';
@@ -442,7 +453,8 @@ export async function onRequestGet(context) {
         if (typeof data.text !== 'string' || !data.text.trim()) throw new Error('Réponse vide. Réessayez.');
         addMessage({ content: data.text }, 'ai');
         messageInput.value = '';
-        chatStatus.textContent = '';
+        chatStatus.textContent = data.archive_saved === false ? 'Réponse reçue, mais historique non sauvegardé.' : '';
+        await refreshConversations();
       } catch (error) {
         userNode.remove();
         messageInput.value = text;
@@ -450,6 +462,8 @@ export async function onRequestGet(context) {
           'Délai dépassé. Vérifiez l’historique avant de renvoyer.' : error.message;
       } finally {
         sending = false;
+        conversationSelect.disabled = false;
+        newConversation.disabled = false;
         sendBtn.disabled = false;
         messageInput.disabled = false;
         messageInput.focus();
@@ -483,6 +497,53 @@ export async function onRequestGet(context) {
       window.location.href = '/professor';
     });
 
+    // Capabilities Status Indicator
+    const capabilitiesStatus = document.createElement('div');
+    capabilitiesStatus.className = 'capabilities-status';
+    capabilitiesStatus.style.cssText = 'margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.1); border-radius: 8px; font-size: 12px;';
+    
+    function updateCapabilitiesStatus() {
+      const capabilities = [];
+      
+      // Check speech recognition
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        capabilities.push({ feature: 'Reconnaissance vocale', status: 'SUPPORTED' });
+      } else {
+        capabilities.push({ feature: 'Reconnaissance vocale', status: 'NOT_CONFIGURED' });
+      }
+      
+      // Check file upload API
+      if (window.FormData && window.XMLHttpRequest) {
+        capabilities.push({ feature: 'Upload de fichiers', status: 'SUPPORTED' });
+      } else {
+        capabilities.push({ feature: 'Upload de fichiers', status: 'NOT_CONFIGURED' });
+      }
+      
+      // Render status
+      const notConfigured = capabilities.filter(c => c.status === 'NOT_CONFIGURED').length;
+      if (notConfigured > 0) {
+        capabilitiesStatus.style.background = 'rgba(255, 150, 50, 0.2)';
+        if (capabilities[0].status === 'NOT_CONFIGURED') {
+          capabilitiesStatus.innerHTML = 'Voice Recognition: NOT CONFIGURED' + '<br>' + 'File Upload: NOT CONFIGURED';
+        } else if (capabilities[0].status === 'SUPPORTED') {
+          capabilitiesStatus.innerHTML = 'Voice Recognition: READY' + '<br>' + 'File Upload: NOT CONFIGURED';
+        }
+        chatStatus.textContent = 'Some features are not configured.';
+        return false;
+      } else {
+        capabilitiesStatus.style.background = 'rgba(50, 255, 100, 0.2)';
+        capabilitiesStatus.innerHTML = 'Voice Recognition: READY' + '<br>' + 'File Upload: READY';
+        return true;
+      }
+    }
+
+    // Initialize Conversation
+    const initConversation = async () => {
+      updateCapabilitiesStatus();
+      await refreshConversations();
+    };
+    
     // File Upload
     dropZone.addEventListener('click', () => {
       fileInput.click();
@@ -562,7 +623,64 @@ export async function onRequestGet(context) {
       }
     });
 
-    // Initialize
+    const conversationSelect = document.getElementById('conversationSelect');
+    const newConversation = document.getElementById('newConversation');
+    let historyLoading = false;
+    async function refreshConversations() {
+      try {
+        const response = await fetch('/api/gen2/conversations');
+        if (!response.ok) throw new Error('Historique indisponible.');
+        const data = await response.json();
+        conversationSelect.replaceChildren();
+        const current = document.createElement('option');
+        current.value = conversationId; current.textContent = 'Conversation actuelle';
+        conversationSelect.appendChild(current);
+        for (const conversation of data.conversations || []) {
+          if (conversation.id === conversationId) { current.textContent = conversation.title || 'Conversation'; continue; }
+          const option = document.createElement('option');
+          option.value = conversation.id; option.textContent = conversation.title || 'Conversation';
+          conversationSelect.appendChild(option);
+        }
+        conversationSelect.value = conversationId;
+      } catch { /* Keep the current conversation usable when listing is unavailable. */ }
+    }
+    async function loadHistory() {
+      if (sending || historyLoading) return;
+      historyLoading = true;
+      sendBtn.disabled = true;
+      conversationSelect.disabled = true;
+      newConversation.disabled = true;
+      try {
+        const response = await fetch('/api/gen2/conversations/messages?conversation_id=' + encodeURIComponent(conversationId));
+        if (!response.ok) throw new Error('Historique indisponible. Rechargez pour réessayer.');
+        const data = await response.json();
+        chatResults.replaceChildren();
+        for (const message of data.messages || []) addMessage(message, message.role === 'user' ? 'user' : 'ai');
+      } catch (error) { chatStatus.textContent = error.message; }
+      finally {
+        historyLoading = false; sendBtn.disabled = false;
+        conversationSelect.disabled = false; newConversation.disabled = false;
+      }
+    }
+    function saveConversation() {
+      try { localStorage.setItem('mel.conversation', conversationId); } catch {}
+    }
+    conversationSelect.addEventListener('change', async () => {
+      conversationId = conversationSelect.value; saveConversation();
+      await loadHistory();
+    });
+    newConversation.addEventListener('click', async () => {
+      if (sending || historyLoading) return;
+      conversationId = crypto.randomUUID(); saveConversation();
+      chatResults.replaceChildren(); chatStatus.textContent = ''; await refreshConversations();
+    });
+    window.addEventListener('focus', () => {
+      if (!sending && !messageInput.value.trim()) { void loadHistory(); void refreshConversations(); }
+    });
+    // Load the persisted conversation and discover those created on other devices.
+    void loadHistory();
+    void refreshConversations();
+    initConversation();
     initSpeechRecognition();
   </script>
 </body>

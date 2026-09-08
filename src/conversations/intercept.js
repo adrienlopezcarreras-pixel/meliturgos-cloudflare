@@ -12,6 +12,7 @@ export function withConversationArchive(handler, options = {}) {
       return handler(request, env, ctx);
     }
     const body = await request.clone().json().catch(() => ({}));
+    await service.migrate();
     let response;
     try {
       response = await handler(request, env, ctx);
@@ -25,6 +26,8 @@ export function withConversationArchive(handler, options = {}) {
       const conversationId = deriveConversationId(request, body, options);
       if (!conversationId) return response;
 
+      await service.migrate();
+      await service.ensureConversation(conversationId, env.MELITURGOS_USER || "", String(body.text || body.question || "Conversation").slice(0, 80));
       if (url.pathname === "/api/chat" && response) {
         await archiveChat(request, body, response, service, conversationId);
       } else if (url.pathname.startsWith("/api/professor/ask") && response) {

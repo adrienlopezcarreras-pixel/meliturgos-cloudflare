@@ -1,3 +1,4 @@
+import { conversationRoutes } from "./api/routes/conversations.js";
 import { requireAuth } from "./core/security.js";
 import { json, html } from "./core/http.js";
 import {ClientError } from "./core/errors.js";
@@ -21,9 +22,9 @@ async function handleConversationApi(request, env) {
   const path = url.pathname;
 
   if (path === "/api/gen2/conversations" && request.method === "GET") {
-    const owner = url.searchParams.get("owner") || "";
+    const owner = env.MELITURGOS_USER || "";
     const rows = await env.DB
-      .prepare("SELECT id, title, status, created_at, updated_at FROM conversations WHERE owner = ? ORDER BY updated_at DESC")
+      .prepare("SELECT id, title, status, created_at, updated_at FROM conversations WHERE owner = ? OR owner = '' ORDER BY updated_at DESC LIMIT 100")
       .bind(owner)
       .all();
     return json({ conversations: rows.results || [] });
@@ -72,7 +73,8 @@ async function handleConversationApi(request, env) {
   if (path === "/api/gen2/rag/search" && request.method === "POST") {
     try {
       const body = await request.json().catch(() => ({}));
-      const { userId, query, sources, limit, minSimilarity } = body;
+      const { query, sources, limit, minSimilarity } = body;
+      const userId = env.MELITURGOS_USER;
 
       if (!userId || !query) {
         return json({ error: "userId and query required", code: "MISSING_PARAMS" }, 400);
@@ -109,7 +111,7 @@ async function handleConversationApi(request, env) {
       const { ModuleRunner } = await import("../src/modules/module-runner.js");
       
       const runner = new ModuleRunner(env);
-      const result = await runner.run(module_uuid, input, context);
+      const result = await runner.run(module_uuid, input, {owner:env.MELITURGOS_USER, permissions:env.CAPABILITY_PERMISSIONS || [], requestId:crypto.randomUUID()});
 
       return json(result);
     } catch (e) {
@@ -140,11 +142,12 @@ export default {
     if (request.method === "GET" && url.pathname === "/professor") {
       const legacy = await loadLegacy(env);
       return legacy && legacy.fetch
-        ? html(legacy.PROFESSOR_PAGE_V5_CLASSIC, 200, {
-            "Content-Type": "text/html; charset=utf-8",
-          })
+        ? legacy.fetch(request, env, ctx)
         : html("<h1>Professor page not available</h1>", 503);
     }
+
+    const conversationResponse = await conversationRoutes(request, env);
+    if (conversationResponse) return conversationResponse;
 
     // Gen2 APIs first.
     if (url.pathname.startsWith("/api/gen2/")) {
