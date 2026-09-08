@@ -94,6 +94,29 @@ async function handleConversationApi(request, env) {
     }
   }
 
+  // Module Lab Runner - GEN2-16
+  if (path === "/api/gen2/modules/run" && request.method === "POST") {
+    try {
+      const body = await request.json().catch(() => ({}));
+      const { module_uuid, input, context } = body;
+
+      if (!module_uuid) {
+        return json({ error: "module_uuid is required", code: "MISSING_PARAMS" }, 400);
+      }
+
+      // Import ModuleRunner dynamically
+      const { ModuleRunner } = await import("../src/modules/module-runner.js");
+      
+      const runner = new ModuleRunner(env);
+      const result = await runner.run(module_uuid, input, context);
+
+      return json(result);
+    } catch (e) {
+      console.error(`[Router] Module runner error: ${e.message}`, e.stack);
+      return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500);
+    }
+  }
+
   return null;
 }
 
@@ -103,6 +126,23 @@ export default {
     if (!auth.ok) return auth.response;
 
     const url = new URL(request.url);
+
+    // Serve P0 Interface Principal - GEN2-26
+    if (request.method === "GET" && url.pathname === "/") {
+      return html(INDEX_HTML, 200, {
+        "Content-Type": "text/html; charset=utf-8",
+      });
+    }
+
+    // Serve professor page
+    if (request.method === "GET" && url.pathname === "/professor") {
+      const legacy = await loadLegacy(env);
+      return legacy && legacy.fetch
+        ? html(legacy.PROFESSOR_PAGE_V5_CLASSIC, 200, {
+            "Content-Type": "text/html; charset=utf-8",
+          })
+        : html("<h1>Professor page not available</h1>", 503);
+    }
 
     // Gen2 APIs first.
     if (url.pathname.startsWith("/api/gen2/")) {
