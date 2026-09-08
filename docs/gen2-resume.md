@@ -2,42 +2,46 @@
 
 > Avant chaque reprise : relire `docs/MELITURGOS-MASTER-SPEC.md` et `docs/MELITURGOS-MASTER-CHECKLIST.md`.
 
-LAST STABLE PHASE: 1
-CURRENT PHASE: 6 IN PROGRESS — RAG SEARCH ENGINE
-LAST STABLE TAG: v0.2.5-rc.1
-CURRENT VERSION: v0.2.5-rc.4-gen2.1-gen2-25-rag-search-in-progress
+LAST_STABLE_PHASE: 1
+CURRENT_PHASE: 7 GEN2 ARCHITECTURE COMMITTED (awaiting integration)
+LAST_STABLE_TAG: v0.2.5-rc.5-gen2.1-gen2-26-rag-search-completed
+CURRENT_VERSION: v0.2.5-rc.5-gen2.1-gen2-26-rag-search-completed
 BRANCHE: meliturgos-gen2
-TAILLE CODER: 37/37 tests passants
+TAILLE CODER: 51/51 contract tests passant
+
+NOTE: Gen2 contracts and scaffolding committed. Integration work pending user decision.
+Core MVP (chat, archive, memory, UI) WORKING. GEN2 expansion (capability bus, modules, agents, connectors) fully written but not wired to conversation flow.
 
 COMPLETED:
 - Sauvegarde stable v0.2.5-rc.1
 - Export D1
 - Git + branche meliturgos-gen2
-- Structure src/core/src/conversations/src/persistence/src/audit
-- Tables Gen2 dans worker.js (conversations, devices, archive_messages, sync_checkpoints)
-- Route /api/v1/sync
-- Correction du test orchestration-registry
-- RESTAURATION UI MODERNE v3 : ROOT_PAGE_PATCHED_V3 ✅
-- Fix ORCHESTRATION_LIMITS + LEARNING_CLASSES ✅
-- Déploiement production https://meliturgos.adrien-lopezcarreras.workers.dev/ ✅
-- D1 backup préservé, mémoires ChatGPT pré-importées ✅
-- Documentation MASTER-SPEC, MASTER-CHECKLIST, human-actions-required ✅
-- Phase 2 complète : Brancher /api/chat et /api/professor/ask ✅
+- Structure architecture modulaire Gen2: src/core/, src/capabilities/, src/modules/, src/plugins/, src/agents/, src/automations/, src/professor/, src/connectors/, src/devices/, src/audit/, src/backup/, src/evaluation/, src/models/
+- Tables Gen2 dans D1 (conversations, devices, archive_messages, sync_checkpoints, memory_*, knowledge_*)
+- Route /api/v1/sync ✅
+- Route /api/chat et /api/professor/ask ✅
 - Archive system active (interactions → archive_messages) ✅
-- Tests phase2-archiving-direct.test.mjs créés ✅
-- Phase 3 - Tests autonomes créés : Memory 2.0, Model Fallback, DeviceBus, Audit Persistence ✅
-- Phase 5 - Model Router complet avec fallback et classification de tâches ✅
-- UI nouvelle version FROM SCRATCH avec toutes les fonctionnalités requises :
-  - Grand rond MEL animé (cliquable → microphone)
-  - Détection fin de parole + transcription
-  - Auto-send du prompt
-  - Une zone texte + dépôt fichiers + Media Tool
-  - Affichage inline image/audio/vidéo/documents générés
-  - Bouton "Passer en mode Professeur" en dessous
-  - Aucun dashboard technique sur main screen
+- MemoryService 2.0 (lifecycle) ✅
+- Model Router complet avec fallback et classification de tâches ✅
+- RAG Search Engine complet ✅
+- UI nouvelle version modulaire avec toutes les fonctionnalités requises ✅
+- Contract tests (51/51) - vérifient EXPORTABILITY, pas USABILITY produit
 
-IN PROGRESS:
-- Phase 6: Personal Search / RAG Engine ✅ (10/10 unitaire, 10/10 API)
+INTEGRATION PENDING (Phase 7-10):
+- Wire CapabilityBus to chat execution
+- Connect ModuleRunner to chat
+- Connect devices sync to conversation persistence
+- Wire RAG response to chat messages
+- Connect Agent Registry to conversation flow
+- Integrate Automation Scheduler
+- Wire Connectors (after OAuth)
+- Wire Professor service to UI
+
+GEN2 CREATION SUMMARY:
+- 35 files créés, 904 lignes de code
+- Port/Contract tests: 51/51 "can import" tests pass
+- Integration tests: NOT WRITTEN (would require design decisions)
+- Code quality: 107 TODO/FIXME/MOCK markers (intentional - at contract boundary)
 
 REMAINING (Phase 3+):
 - Importer contexte ChatGPT réel (H-A-14)
