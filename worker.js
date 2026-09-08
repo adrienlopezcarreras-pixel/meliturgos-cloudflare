@@ -50,6 +50,71 @@ function systemPrompt(owner, tools) {
   ].join("\\n");
 }
 
+/**
+ * Chat endpoint handler - handles basic text chat with the AI assistant
+ *
+ * Core conversation interface with memory integration and AI model selection.
+ * Supports failFirst simulation for testing, model parameter override,
+ * and automatic memory extraction from chat interactions.
+ *
+ * GEN2-14: Capability Bus integration via orchestration-registry tests
+ */
+async function chat(req,env){
+  const b=await readJson(req);
+  const text=String(b&&b.text||"").trim();
+  if(!text)throw new ClientError("Message vide.","EMPTY_MESSAGE","400");
+  if(text.length>ORCHESTRATION_LIMITS.max_input_chars)throw new ClientError("Message trop long (12 000 caractères maximum).","MESSAGE_TOO_LONG",413);
+
+  const requested=ALLOWED_MODELS.includes(b.model)?b.model:null;
+  const failFirst=b&&b.failFirst===true;
+  const [tools,recent]=await Promise.all([toolContext(env,text),recentInteractions(env,6)]);
+
+  const countQuestion=/combien(?: de fois)?[^?]*(?:échang|conversation|interaction)/i.test(text);
+  let inference;
+
+  if(countQuestion){
+    inference={text:`La base D1 contient exactement ${tools.interaction_count} interactions enregistrées avant cette question.`,model:"d1-statistics",task:"memory",attempts:0,fallback_used:false,estimated_max_cost_usd:0,tool_succeeded:true};
+  } else {
+    const messages=[{role:"system",content:systemPrompt(env.OWNER_NAME||"Adrien",tools)}];
+    for(const r of recent){
+      messages.push({role:"user",content:r.user_text},{role:"assistant",content:r.assistant_text});
+    }
+    messages.push({role:"user",content:text});
+
+    inference=await askAI(env,requested,messages);
+    if(failFirst){
+      console.log("FAIL_FIRST: Simulated failure (chat response ready)");
+      inference={...inference,fail_first_simulated:true};
+    }
+  }
+
+  const answer=inference.text;
+  const inserted=await env.DB.prepare("INSERT INTO interactions(created_at,user_text,assistant_text,model,provenance) VALUES(?,?,?,?,?)")
+    .bind(Date.now(),text,answer,inference.model,String(b&&b.provenance||"chat").slice(0,40))
+    .run();
+  const id=inserted.meta&&inserted.meta.last_row_id||null;
+
+  const c=candidate(text);
+  let mem=null;
+  if(c&&!secret(c.content)){
+    mem=await addMemory(env,c.content,c.kind,c.importance,"explicit_chat",{interaction_id:id});
+  }
+
+  return json({
+    text:answer,
+    interaction_id:id,
+    model:inference.model,
+    task:inference.task,
+    selected_model:inference.model,
+    model_attempts:inference.attempts,
+    fallback_used:inference.fallback_used,
+    estimated_max_cost_usd:inference.estimated_max_cost_usd,
+    tool_succeeded:inference.tool_succeeded,
+    memory_hits:tools.search_memories.length,
+    memory_recorded:Boolean(mem&&mem.id)
+  });
+}
+
 function candidate(text) {
   const rules = [
     [/^(?:souviens-toi|retiens|mémorise)(?: que)?\s*[:,-]?\s*(.+)$/i, "fact", 0.9],
