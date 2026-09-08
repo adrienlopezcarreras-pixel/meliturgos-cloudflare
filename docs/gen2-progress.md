@@ -217,3 +217,9 @@ Auteur: openhands
 
 See: `docs/GEN2-57-migration-gen1-legacy.md` for complete documentation
 
+
+## Run produit Codex — 2026-09-08
+- Chat MVP : contrat `/api/chat` corrigé, réponse affichée, attente, brouillon préservé sur erreur, doubles envois bloqués.
+- Archive : capture avant consommation de Request, prise en charge de `text`, refus d'archiver une erreur comme réponse.
+- Tests : `node --test tests/mvp-product.test.mjs` 5/5, syntaxe interface/intercepteur OK. SQL SQLite en mémoire, moteur IA simulé ; aucune validation fournisseur payante.
+- Non-régression HTTP Wrangler : 401/401/200/200 confirmée.

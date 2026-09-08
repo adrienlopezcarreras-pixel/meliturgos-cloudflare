@@ -4,7 +4,7 @@
 
 ---
 
-## CURRENT_PRODUCT_PRIORITY = PRODUCT_READY_CHAT_END_TO_END
+## CURRENT_PRODUCT_PRIORITY = PRODUCT_READY_CONVERSATION_HISTORY
 
 MVP_AUTH_LOCAL_VALIDATION = PASSED
 MVP_ROUTING_FIX = DONE
@@ -20,13 +20,14 @@ MVP_ROUTING_FIX = DONE
 - CPU budget status: DEFACTO LIMITED (not blocking development)
 - **AUCUN nouveau deploy autorisé avant validation explicite utilisateur**
 
-**NOTE:** Validation locale acceptée. Prochaine tâche identifiée uniquement ; STOP avant toute nouvelle modification produit. Aucun déploiement autorisé.
+**NOTE:** Run autonome Codex autorisé. Développement local uniquement, aucun déploiement ni appel IA payant.
 
 ---
 
 ## CURRENT_OBJECTIVE:
 
-Prochaine tâche précise (non commencée) : raccorder le chat texte de l'interface MVP
+Parcours chat câblé et vérifié avec SQL en mémoire et moteur IA simulé.
+Prochaine tâche précise : raccorder le chat texte de l'interface MVP
 à la route serveur réelle et à son format de réponse, puis vérifier le parcours
 message utilisateur → réponse MEL affichée, avec état d'attente et erreur visible.
 La validation ultérieure doit utiliser un état de test isolé, sans toucher aux données D1 existantes.
@@ -56,7 +57,7 @@ Wrangler real entrypoint (wrangler.jsonc main: src/index.js)
 
 → checkpoint Git local ciblé : routeur, interface MVP et présent fichier
 → Validation utilisateur : ACCEPTÉE
-→ **STOP avant toute nouvelle modification produit**
+→ Continuer selon les priorités P0–P12 autorisées par Adrien.
 → **NE PAS DEPLOY ; NE PAS TOUCHER AUX DONNÉES D1**
 
 L'authentification précède les routes MVP ; aucune ouverture publique de l'interface.

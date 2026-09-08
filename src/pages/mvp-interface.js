@@ -40,6 +40,12 @@ export async function onRequestGet(context) {
       gap: 20px;
     }
 
+    .container > * { min-width: 0; }
+    .message, #chatStatus, .transcription-preview { overflow-wrap: anywhere; white-space: pre-wrap; }
+    button { max-width: 100%; }
+    button:disabled { opacity: .6; cursor: wait; }
+    :focus-visible { outline: 2px solid #b9c5ff; outline-offset: 4px; }
+
     /* Header */
     .header {
       text-align: center;
@@ -281,7 +287,7 @@ export async function onRequestGet(context) {
 
     <div class="mel-avatar-wrapper">
       <div class="mel-avatar" id="melAvatar" role="button" tabindex="0" aria-label="Discutez avec MEL">
-        <img src="https://meliturgos.adrien-lopezcarreras.workers.dev/mel-avatar-fille.png" alt="MEL">
+        <img src="/meliturgos-avatar-fille.png" alt="MEL">
       </div>
     </div>
 
@@ -291,22 +297,34 @@ export async function onRequestGet(context) {
     </div>
 
     <div class="input-area">
-      <textarea id="messageInput" placeholder="Écrivez votre message..." autofocus></textarea>
+      <textarea id="messageInput" placeholder="Écrivez votre message..." aria-label="Message à MEL" maxlength="12000" autofocus></textarea>
       
       <div class="drop-zone" id="dropZone">
         <span id="dropZoneText">Glissez-déposez un fichier ici ou cliquez pour parcourir</span>
         <input type="file" id="fileInput" multiple>
       </div>
 
-      <button class="professor-btn" id="professorBtn">Mode Professeur</button>
+      <button class="professor-btn" id="sendBtn" type="button">Envoyer</button>
+      <p id="chatStatus" role="status" aria-live="polite"></p>
     </div>
 
-    <div class="chat-results" id="chatResults"></div>
+    <div class="chat-results" id="chatResults" role="log" aria-label="Conversation avec MEL"></div>
+    <div class="professor-link"><button class="professor-btn" id="professorBtn">Passer en mode Professeur</button></div>
   </div>
 
   <script>
-    // API Base URL
-    const API_BASE = '/api';
+    let sending = false;
+    const sendBtn = document.getElementById('sendBtn');
+    const chatStatus = document.getElementById('chatStatus');
+    function storedId(key) {
+      try {
+        const value = localStorage.getItem(key) || crypto.randomUUID();
+        localStorage.setItem(key, value);
+        return value;
+      } catch { return crypto.randomUUID(); }
+    }
+    let conversationId = storedId('mel.conversation');
+    const deviceId = storedId('mel.device');
 
     // DOM Elements
     const melAvatar = document.getElementById('melAvatar');
@@ -395,46 +413,49 @@ export async function onRequestGet(context) {
       }
     });
 
-    // Send Message
-    async function sendMessage(text, files = []) {
-      if (!text.trim()) return;
-
-      const messageData = {
-        role: 'user',
-        content: text,
-        files: files
-      };
-
-      // Display user message
-      addMessage(messageData, 'user');
-
+    // The existing chat API accepts text and returns text.
+    async function sendMessage(text) {
+      text = text.trim();
+      if (!text || sending) return;
+      if (text.length > 12000) {
+        chatStatus.textContent = 'Message trop long (12 000 caractères maximum).';
+        return;
+      }
+      sending = true;
+      sendBtn.disabled = true;
+      messageInput.disabled = true;
+      chatStatus.textContent = 'MEL réfléchit…';
+      const userNode = addMessage({ content: text }, 'user');
       try {
-        const response = await fetch('/api/professor/chat', {
+        const response = await fetch('/api/chat', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            prompt: text,
-            files: files,
-            owner: 'meliturgos-user'
-          })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, conversation_id: conversationId, device_id: deviceId }),
+          signal: AbortSignal.timeout(65000)
         });
-
+        const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error('Erreur de communication avec le serveur');
+          throw new Error(response.status === 401 ? 'Authentification requise : rechargez la page.' :
+            response.status === 429 ? 'Limite atteinte. Réessayez plus tard.' :
+            'MEL est indisponible. Votre message est conservé pour réessayer.');
         }
-
-        const data = await response.json();
-
-        // Display AI message
-        addMessage(data, 'ai');
-
+        if (typeof data.text !== 'string' || !data.text.trim()) throw new Error('Réponse vide. Réessayez.');
+        addMessage({ content: data.text }, 'ai');
+        messageInput.value = '';
+        chatStatus.textContent = '';
       } catch (error) {
-        console.error('Error sending message:', error);
-        addMessage({ role: 'ai', content: 'Désolé, une erreur est survenue. Veuillez réessayer.' }, 'ai');
+        userNode.remove();
+        messageInput.value = text;
+        chatStatus.textContent = error.name === 'TimeoutError' ?
+          'Délai dépassé. Vérifiez l’historique avant de renvoyer.' : error.message;
+      } finally {
+        sending = false;
+        sendBtn.disabled = false;
+        messageInput.disabled = false;
+        messageInput.focus();
       }
     }
+    sendBtn.addEventListener('click', () => sendMessage(messageInput.value));
 
     // Add Message to Chat
     function addMessage(message, role) {
@@ -454,6 +475,7 @@ export async function onRequestGet(context) {
 
       chatResults.appendChild(messageDiv);
       chatResults.scrollTop = chatResults.scrollHeight;
+      return messageDiv;
     }
 
     // Professor Mode
@@ -534,10 +556,9 @@ export async function onRequestGet(context) {
 
     // Enter key to send
     messageInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && !event.shiftKey) {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
         sendMessage(messageInput.value);
-        messageInput.value = '';
       }
     });
 

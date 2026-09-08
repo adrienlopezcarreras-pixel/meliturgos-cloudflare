@@ -7,7 +7,11 @@ import { createConversationService } from "./conversation-service.js";
 export function withConversationArchive(handler, options = {}) {
   return async function (request, env, ctx) {
     const service = createConversationService(env);
-    const start = Date.now();
+    const path = new URL(request.url).pathname;
+    if (request.method !== "POST" || (path !== "/api/chat" && !path.startsWith("/api/professor/ask"))) {
+      return handler(request, env, ctx);
+    }
+    const body = await request.clone().json().catch(() => ({}));
     let response;
     try {
       response = await handler(request, env, ctx);
@@ -17,7 +21,7 @@ export function withConversationArchive(handler, options = {}) {
 
     try {
       const url = new URL(request.url);
-      const body = request.clone ? await request.clone().json().catch(() => ({})) : {};
+      if (!response?.ok) return response;
       const conversationId = deriveConversationId(request, body, options);
       if (!conversationId) return response;
 
@@ -45,7 +49,7 @@ function deriveConversationId(request, body, options) {
 async function archiveChat(request, body, response, service, conversationId) {
   const deviceId = request.headers.get("x-device-id") || body?.device_id || null;
   const messages = body?.messages || [];
-  const userMessage = messages.filter((m) => m.role === "user").pop();
+  const userMessage = typeof body.text === "string" ? { content: body.text } : messages.filter((m) => m.role === "user").pop();
   if (!userMessage) return;
 
   const cloned = response.clone ? response.clone() : response;
@@ -62,6 +66,7 @@ async function archiveChat(request, body, response, service, conversationId) {
     deviceId,
     role: "user",
     content: userMessage.content || "",
+    attachments: body.attachments || null,
     model: answer.model || null,
     timestamp: ts,
     provenance: "chat",
