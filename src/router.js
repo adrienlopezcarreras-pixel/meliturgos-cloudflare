@@ -3,6 +3,7 @@ import { json, html } from "./core/http.js";
 import {ClientError } from "./core/errors.js";
 import { createConversationService } from "./conversations/conversation-service.js";
 import { withConversationArchive } from "./conversations/intercept.js";
+import handleResearch from "./api/research-api.js";
 
 let legacy;
 async function loadLegacy(env) {
@@ -32,6 +33,16 @@ async function handleConversationApi(request, env) {
     if (!conversationId) return json({ error: "conversation_id required", code: "MISSING_CONVERSATION_ID" }, 400);
     const messages = await service.getMessages(conversationId);
     return json({ conversationId, messages });
+  }
+
+  if (path === "/api/gen2/web/research" && (request.method === "GET" || request.method === "POST")) {
+    try {
+      console.error(`[Router] Routing /api/gen2/web/research to handler`);
+      return handleResearch(request, env);
+    } catch (e) {
+      console.error(`[Router] Research error: ${e.message}`, e.stack);
+      return json({ error: e.message, code: "INTERNAL_ERROR" }, e.status || 500);
+    }
   }
 
   if (path === "/api/gen2/devices/register" && request.method === "POST") {

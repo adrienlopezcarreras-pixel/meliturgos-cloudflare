@@ -1,30 +1,53 @@
 # MELITURGOS — ACTIONS REQUISES PAR L'HUMAIN
 
-## Priorité IMMÉDIATE (BLOCKED_EXTERNAL_CREDENTIALS) 🚨
+## Priorité IMMÉDIATE (P0 FRONTEND) 🚨
 
-### H-A-01: Configuration Production Cloudflare ⚠️ (NON BLOQUANT LE PROJET)
+### P0_UI_PRODUCTION: BLOCKED_NOT_DEPLOYED (LOCAL DEV OK)
 
-**BLOCAGE**: BLOCKED_EXTERNAL_CREDENTIALS (Cloudflare API tokens + Account ID)
+**STATUS RÉEL**:
+- ✅ UI from scratch créée localement (ROOT_PAGE_V5_CLASSIC validée par Adrien)
+- ✅ Implementation fonctionnelle (tests + preview fonctionnels)
+- ❌ Production: https://meliturgos.adrien-lopezcarreras.workers.dev/ sert ENCORE ancienne UI cassée
+- ❌ Pas de déploiement sans validation visuelle Adrien
+- ❌ P0_INTERFACE_COMPLETE = FALSE
 
-**COMPLICATIONS**:
-- ❌ Cloudflare API Token manquant pour déploiement automatique
-- ❌ Cloudflare Account ID manquant
-- ❌ Wrangler env variables non configurées
-- ❌ Media bucket non attaché au Worker
+**PROBLÈME IDENTIFIÉ**:
+- ancienne UI encore visible en production
+- avatar trop grand
+- composé superposé à MEL
+- scroll horizontal
+- nouvelle UI from scratch NON visible
 
-**IMPORTANCE**: MIDDLE
-- Le code est PRÊT (GEN2 Phase 5 complete, tests 23/25)
-- Le déploiement manuel est POSSIBLE (wrangler deploy)
-- L'intégralité de la roadmap GEN2 PROGRESSERA indépendamment
+**ACTION UTILISATEUR** (ADRIEN):
+1. Identifier exactement quel HTML est servi par GET /
+2. Vérifier qu'il utilise pas ancienne ROOT_PAGE
+3. Générer preview fidèle
+4. **NE PAS déployer sans validation visuelle Adrien**
+5. Après validation:
+   - Raccouter GET / à nouvelle UI
+   - `wrangler deploy`
+   - Vérifier URL production
+   - Vérifier absence overflow/composer overlay
+6. SEULEMENT ALORS: P0_UI_PRODUCTION = DONE_VERIFIED
 
-**ACTION UTILISATEUR**:
-1. Obtenir Cloudflare API Token (`wrangler login`)
-2. Configurer `CLOUDFLARE_API_TOKEN`
-3. Configurer `CLOUDFLARE_ACCOUNT_ID`
-4. Attacher Media Buckets à Worker
-5. Exécuter `wrangler deploy` manuellement
+**IMPORTANCE**: HIGH - mais NON BLOQUANT LE RESTE DU PROJET
+- Le code est PRÊT (Phase 5 complete)
+- D1 backup préservé
+- Tous les autres P1-P7 poursuivront indépendamment
+- UI-PROD-01 séparée pour ne pas arrêter le développement
 
-**STATUS**: CODE PRÊT | Déploiement bloqué par credentials
+**STATUS**: CODE PRÊT | Déploiement et validation visuelle bloquées
+
+---
+
+## Moyenne Priorité (BLOCKED_EXTERNAL_CREDENTIALS)
+
+### H-A-01: Configuration Cloudflare API (Facultatif)
+
+**IMPORTANCE**: LOW
+- Déploiement manuel déjà possible
+- Certains features nécessitent API tokens (mais optionnels)
+- Ce tracker déplacé pour prioriser P0 Frontend
 
 ---
 
