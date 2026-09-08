@@ -77,6 +77,21 @@ Auteur: openhands (continuation gen2)
 - ✅ STATS tracking dans ModelRegistry
 - ✅ 8/8 tests passants
 
+## Phase 6 — RAG Search / Personal Search ✅ IN PROGRESS
+Auteur: openhands (continuation gen2)
+- ✅ Création `src/search/rag-service.js`
+- ✅ Service de recherche sémantique avec embeddings
+- ✅ Recherche sur archive messages, conversations, memories
+- ✅ Vector embeddings via Cloudflare Workers AI (baai/bge-base-en-v1.5)
+- ✅ Endpoint `/api/gen2/rag/search` ajouté au router
+- ✅ Génération d'embeddings batch
+- ✅ Calcul de similarité cosinus
+- ✅ Filtres: sources, limit, minSimilarity
+- ✅ Gestion d'erreurs avec fallback zero vectors
+- ✅ Tests: `phase6-rag-search.test.mjs` (10/10)
+- ✅ Tests: `phase6-rag-api.test.mjs` (10/10)
+- ⏳ Integration dans interface utilisateur future
+
 ## Journal
 
 ### 2026-09-06 — Phase 0 complétée

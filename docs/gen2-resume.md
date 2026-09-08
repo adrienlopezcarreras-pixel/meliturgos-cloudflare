@@ -3,11 +3,11 @@
 > Avant chaque reprise : relire `docs/MELITURGOS-MASTER-SPEC.md` et `docs/MELITURGOS-MASTER-CHECKLIST.md`.
 
 LAST STABLE PHASE: 1
-CURRENT PHASE: 5 COMPLETED — P0 UI FROM SCRATCH CANDIDATE
+CURRENT PHASE: 6 IN PROGRESS — RAG SEARCH ENGINE
 LAST STABLE TAG: v0.2.5-rc.1
-CURRENT VERSION: 0.2.5-rc.3-gen2.1-gen2-ui-from-scratch
+CURRENT VERSION: v0.2.5-rc.4-gen2.1-gen2-25-rag-search-in-progress
 BRANCHE: meliturgos-gen2
-TAILLE CODER: 27/27 tests passants
+TAILLE CODER: 37/37 tests passants
 
 COMPLETED:
 - Sauvegarde stable v0.2.5-rc.1
@@ -26,6 +26,7 @@ COMPLETED:
 - Archive system active (interactions → archive_messages) ✅
 - Tests phase2-archiving-direct.test.mjs créés ✅
 - Phase 3 - Tests autonomes créés : Memory 2.0, Model Fallback, DeviceBus, Audit Persistence ✅
+- Phase 5 - Model Router complet avec fallback et classification de tâches ✅
 - UI nouvelle version FROM SCRATCH avec toutes les fonctionnalités requises :
   - Grand rond MEL animé (cliquable → microphone)
   - Détection fin de parole + transcription
@@ -36,20 +37,30 @@ COMPLETED:
   - Aucun dashboard technique sur main screen
 
 IN PROGRESS:
-- (Phase 3 automatiquement en cours)
+- Phase 6: Personal Search / RAG Engine ✅ (10/10 unitaire, 10/10 API)
 
 REMAINING (Phase 3+):
-- (Phase 3 terminée - voir docs/PHASE3-COMPLETION.md)
 - Importer contexte ChatGPT réel (H-A-14)
 - Test specialists-router manquant
 - Router extraction câblé (Phase 2)
+- GEN2-52: Prompt/strategy versioning
+- GEN2-57: Migration Gen1 sans perte
+- GEN2-58: Build réel Android
+- GEN2-59: Build réel Windows
+- GEN2-60: Completion matrix
+- GEN2-61: Final status report
+- GEN2-62: human-actions-required
 
 FILES MODIFIED RÉCEMMENT:
-- src/audit/audit-service.js (GEN2-45: D1 persistence)
-- tests/audit-persistence.test.mjs (CREATED)
-- docs/gen2-progress.md
-- docs/gen2-resume.md
-- docs/human-actions-required.md
+- src/index.js (gen2 entry point)
+- src/router.js (added /api/gen2/rag/search endpoint)
+- src/search/rag-service.js (NEW - RAG service with embeddings)
+- tests/phase6-rag-search.test.mjs (NEW - 10 unit tests)
+- tests/phase6-rag-api.test.mjs (NEW - 10 integration tests)
+- docs/MELITURGOS-MASTER-CHECKLIST.md (updated status)
+- docs/gen2-progress.md (added Phase 6)
+- docs/gen2-resume.md (updated progression)
+- docs/human-actions-required.md (updated priorities)
 
 TEST COMMANDS:
 npm test

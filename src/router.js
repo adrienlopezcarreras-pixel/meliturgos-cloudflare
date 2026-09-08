@@ -67,6 +67,33 @@ async function handleConversationApi(request, env) {
     return json({ ok: true, ...sync });
   }
 
+  // RAG Search Endpoint - GEN2-25
+  if (path === "/api/gen2/rag/search" && request.method === "POST") {
+    try {
+      const body = await request.json().catch(() => ({}));
+      const { userId, query, sources, limit, minSimilarity } = body;
+
+      if (!userId || !query) {
+        return json({ error: "userId and query required", code: "MISSING_PARAMS" }, 400);
+      }
+
+      // Import RAGService dynamically to avoid issues in tests
+      const { RAGService } = await import("../src/search/rag-service.js");
+      
+      const searchResult = await RAGService.search(
+        env.DB,
+        userId,
+        query,
+        { sources, limit, minSimilarity }
+      );
+
+      return json({ ok: true, ...searchResult });
+    } catch (e) {
+      console.error(`[Router] RAG search error: ${e.message}`, e.stack);
+      return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500);
+    }
+  }
+
   return null;
 }
 

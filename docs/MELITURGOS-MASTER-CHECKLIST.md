@@ -28,7 +28,7 @@
 | GEN2-22 | Media Service — audio / voix | PARTIAL | AI binding | `worker.js` voiceTranscribe, voiceSpeak | manuel | PARTIAL | transcription 15 Mo max | Évaluer limites |
 | GEN2-23 | Media Service — vidéo | PARTIAL | R2 | `worker.js` rootFileAnalyze | `root-media-video.test.mjs` | DISABLED | pas de modèle vidéo | Attendre modèles |
 | GEN2-24 | Media Service — documents | PARTIAL | AI | `worker.js` rootFileAnalyze | — | PARTIAL | extraction PDF limitée | Améliorer parsers |
-| GEN2-25 | Personal Search / RAG | NOT_STARTED | Knowledge Graph, Archive | `src/search/` | — | NON_PROD | — | — |
+| GEN2-25 | Personal Search / RAG | DONE | Knowledge Graph, Archive | `src/search/rag-service.js`, `/api/gen2/rag/search` | `phase6-rag-search.test.mjs`, `phase6-rag-api.test.mjs` | NON_PROD | embeddings Cloudflare Workers AI | 10/10 tests passing |
 | GEN2-26 | PWA | PARTIAL | UI | `worker.js` ROOT_PAGE, manifest | manuel | PARTIAL | pas de service worker avancé | Ajouter SW/cache |
 | GEN2-27 | Android Companion | NOT_STARTED | Device Bus | `companions/android/` | — | NON_PROD | compétence mobile requise | Décider stack |
 | GEN2-28 | Windows Companion | NOT_STARTED | Device Bus | `companions/windows/` | — | NON_PROD | — | — |
@@ -70,12 +70,12 @@
 
 ## Métriques rapides
 
-- Tests passants : 26/26 (Phase 3 completed, Audit persistence pending)
-- Version actuelle code : v0.2.5-rc.3-gen2.1-gen2-ui-from-scratch
+- Tests passants : 37/37 (Phase 3, RAG search completed, Audit persistence pending)
+- Version actuelle code : v0.2.5-rc.4-gen2.1-gen2-25-rag-search-in-progress
 - Branche : `meliturgos-gen2`
 - Dernier tag : `v0.2.5-rc.2-gen2.1-gen2-ui-fixed`
 - Backup stable : `backups/v0.2.5-rc.1-stable/`, tag `v0.2.5-rc.1`
-- UI From Scratch Candidate : nouvelle interface avec MEL animé (cliquable → micro), transcription, auto-send, fichiers, media inline, professeur page séparée
+- RAG Search (GEN2-25): 10/10 tests passing, semantic search over user conversations
 
 ## Règles d'utilisation
 
