@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "statuses": ["NOT_STARTED","PARTIAL","WORKING","VERIFIED"],
+  "capabilities": {
+    "conversation": {"status":"WORKING","evidence":"existing /api/chat and integration tests"},
+    "memory": {"status":"WORKING","evidence":"conversation archive and D1 integration tests"},
+    "coding": {"status":"WORKING","evidence":"code.read/code.search CapabilityBus tests"},
+    "planning": {"status":"PARTIAL","evidence":"agent/dev job flows exist; full Work DAG not yet verified"},
+    "research": {"status":"PARTIAL","evidence":"research route exists; broad source-verification benchmark pending"},
+    "tools": {"status":"WORKING","evidence":"CapabilityBus execution and tool reinjection tests"},
+    "web_browser": {"status":"PARTIAL","evidence":"research tooling exists; autonomous browser path not verified"},
+    "files": {"status":"PARTIAL","evidence":"media/file services exist; full file workflow matrix pending"},
+    "multimodal": {"status":"PARTIAL","evidence":"media service exists; end-to-end image/audio/video capability incomplete"},
+    "voice": {"status":"NOT_STARTED","evidence":"no verified low-latency wake-word voice loop"},
+    "work": {"status":"PARTIAL","evidence":"job/dev flows exist; resumable augmentio-integrated Work not verified"},
+    "pc_agent": {"status":"PARTIAL","evidence":"LocalDevBridge exists with boundaries; general PC agent incomplete"},
+    "android": {"status":"NOT_STARTED","evidence":"no verified installable APK in current candidate"},
+    "reminders_calendar_email": {"status":"PARTIAL","evidence":"connectors/automation architecture exists; complete companion workflow not verified"},
+    "device_control": {"status":"NOT_STARTED","evidence":"no verified device ecosystem control"},
+    "resilience": {"status":"PARTIAL","evidence":"candidate CI, deployment gate, initial threat model; restore drill pending"},
+    "privacy_security": {"status":"PARTIAL","evidence":"Bastion threat model and candidate CI hardening added; adversarial benchmarks pending"},
+    "model_routing": {"status":"PARTIAL","evidence":"ModelRouter exists; augmentio parallel core added but runtime wiring pending"},
+    "cost_latency": {"status":"PARTIAL","evidence":"ZeroEuroGovernor and latency stats implemented in augmentio candidate; CI pending"},
+    "deployment_recovery": {"status":"PARTIAL","evidence":"exact-commit deployment gate exists; production rollout/rollback drill not performed"}
+  }
+}
