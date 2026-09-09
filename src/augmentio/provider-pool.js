@@ -14,7 +14,9 @@ export class ProviderPool {
       health: 'UNKNOWN',
       priority: 0,
       concurrency: 1,
-      estimatedCost: 0,
+      // Unknown cost must remain unknown. ZeroEuroGovernor is fail-closed and
+      // only permits providers whose zero cost is explicitly declared.
+      estimatedCost: null,
       ...adapter,
     };
     this.adapters.set(record.id, record);
