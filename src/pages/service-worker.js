@@ -1,0 +1,1 @@
+export const SERVICE_WORKER_SOURCE = `const CACHE='meliturgos-gen2-v1';self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.add('/'))));self.addEventListener('fetch',e=>{if(e.request.method==='GET')e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).catch(()=>caches.match('/'))))});`;

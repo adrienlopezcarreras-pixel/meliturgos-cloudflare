@@ -311,7 +311,13 @@ async function askAI(env,model,messages){
  if(!env.AI)throw new Error("AI_BINDING_MISSING");
  const Gen2ModelRouter = await getGen2ModelRouter();
  if(!Gen2ModelRouter) return askAILegacy(env,model,messages);
- const engine=new Gen2ModelRouter({invoke:(selected,input)=>env.AI.run(selected.id,{messages:input,temperature:0.35,max_tokens:1400})});
+ let finalFallback=null;
+ if(env.NINJACHAT_API_URL&&env.NINJACHAT_SECRET_REF&&env.NINJACHAT_API_KEY){
+   const {NinjaChatAdapter}=await import('./src/models/providers/ninjachat-provider.js');
+   const adapter=new NinjaChatAdapter({endpoint:env.NINJACHAT_API_URL,secretRef:env.NINJACHAT_API_KEY});
+   finalFallback=({messages})=>adapter.complete({messages});
+ }
+ const engine=new Gen2ModelRouter({invoke:(selected,input)=>env.AI.run(selected.id,{messages:input,temperature:0.35,max_tokens:1400}),finalFallback});
  const text=[...messages].reverse().find(m=>m.role==="user")?.content || "";
  return engine.execute({messages,task:engine.classifyTask(text),model:model||undefined});
 }

@@ -20,4 +20,5 @@ export const standardRegistry = new ModelRegistry([
  {id:'@cf/zai-org/glm-4.7-flash',capabilities:['GENERAL','FAST','STEERABLE','FALLBACK'],priority:30},
  {id:'@cf/meta/llama-3.3-70b-instruct-fp8-fast',capabilities:['GENERAL','REASONING','CODE','FALLBACK'],priority:20},
  {id:'@cf/google/gemma-3-12b-it',capabilities:['GENERAL','CODE','FALLBACK'],priority:10}
+ ,{id:'ninjachat-default',provider:'ninjachat',model_id:'ninjachat-default',capabilities:['GENERAL','REASONING','STEERABLE','FALLBACK'],priority:-100,health:'UNKNOWN',enabled:true,role_general:true,role_reasoning:true,role_steerable:true,fallback_final:true}
 ]);

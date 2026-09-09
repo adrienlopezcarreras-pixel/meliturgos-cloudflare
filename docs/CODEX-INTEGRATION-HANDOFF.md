@@ -3,8 +3,8 @@
 LAST_COMMIT=76320d8 (workspace changes cannot be indexed: `.git/index` is read-only)
 RUNTIME_FLOW=UI → src/index.js → src/router.js → worker chat → ConversationService archive → memory/RAG → Context Builder → ModelRouter → assistant archive
 INTEGRATED_FEATURES=conversation/archive; memory+lexical RAG chat context; ModelRouter fallback; CapabilityBus echo; device sync
-MOCK_ONLY_FEATURES=plugin; module; Module Lab; agent; DevAgent candidate workflow; MediaService bucket/D1 metadata workflow; connectors
-CONTRACT_ONLY_FEATURES=knowledge graph; timeline; model council; teachers; self healing; backup
+MOCK_ONLY_FEATURES=ModelRouter providers; NinjaChat API; MediaService storage; connectors; knowledge graph; timeline; model council; teachers; self healing; backup; Professor; automations; Web; Audit
+CONTRACT_ONLY_FEATURES=none
 BLOCKED_EXTERNAL=OAuth/provider credentials; real AI/R2; DNS/account permissions; deployment
 OPENHANDS_FIRST_TASK=M002
 TEST_MEL_RESULT=PASS (2 integration files)
