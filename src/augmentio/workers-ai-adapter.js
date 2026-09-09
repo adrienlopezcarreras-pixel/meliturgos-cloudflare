@@ -1,3 +1,5 @@
+import { ProviderAdapter } from './provider-adapter.js';
+
 function normalizeMessages(input, context = {}) {
   if (Array.isArray(input)) return input;
   const messages = [];
@@ -23,16 +25,20 @@ export function createWorkersAIAdapter({
   if (!modelId) throw new TypeError('WORKERS_AI_MODEL_REQUIRED');
   if (!env?.AI || typeof env.AI.run !== 'function') throw new TypeError('WORKERS_AI_BINDING_UNAVAILABLE');
 
-  return {
+  return new ProviderAdapter({
     id,
-    provider: 'workers-ai',
+    providerId: 'workers-ai',
     modelId,
     capabilities,
     priority,
     estimatedCost,
     concurrency,
-    health: 'UNKNOWN',
-    async invoke({ input, context = {} } = {}) {
+    authRequired: false,
+    terms: 'Cloudflare Workers AI binding; availability and quota depend on configured account/binding.',
+    healthCheck: async () => (env?.AI && typeof env.AI.run === 'function' ? 'HEALTHY' : 'UNAVAILABLE'),
+    quotaSnapshot: async () => ({ known: false, source: 'workers-ai-binding', note: 'Runtime binding does not expose an authoritative remaining quota snapshot here.' }),
+    invoke: async ({ input, context = {}, signal } = {}) => {
+      if (signal?.aborted) throw Object.assign(new Error('PROVIDER_ABORTED'), { code: 'PROVIDER_ABORTED' });
       const messages = normalizeMessages(input, context);
       const result = await env.AI.run(modelId, { messages });
       const text = extractText(result);
@@ -47,5 +53,5 @@ export function createWorkersAIAdapter({
         raw: result,
       };
     },
-  };
+  });
 }
