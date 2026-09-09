@@ -89,7 +89,7 @@ export const MIGRATIONS = [
           response_status INTEGER,
           error_message TEXT,
           duration_ms INTEGER,
-          created_at INTEGER NOT NULL  -- Auto-set using default value in inserts
+          created_at INTEGER NOT NULL
         )
       `).run();
 
@@ -120,6 +120,61 @@ export const MIGRATIONS = [
     await db.prepare(`CREATE TABLE IF NOT EXISTS dev_jobs (id TEXT PRIMARY KEY,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,status TEXT NOT NULL,requested_by TEXT,goal TEXT NOT NULL,optional_context TEXT,plan_json TEXT,files_json TEXT,patch_json TEXT,tests_json TEXT,result_json TEXT,candidate_branch TEXT,approval_status TEXT,error TEXT)`).run();
     await db.prepare(`CREATE TABLE IF NOT EXISTS dev_bridge_state (bridge_id TEXT PRIMARY KEY,last_seen INTEGER NOT NULL,status TEXT,metadata_json TEXT NOT NULL DEFAULT '{}')`).run();
   }},
+  {
+    version: 6,
+    name: 'cognitive_memory_compatibility',
+    run: async db => {
+      // Add-only compatibility layer. On old installations CREATE TABLE is a no-op,
+      // then only missing columns are appended so legacy memories are preserved.
+      await db.prepare(`CREATE TABLE IF NOT EXISTS memories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER,
+        kind TEXT NOT NULL DEFAULT 'episodic',
+        content TEXT NOT NULL,
+        importance REAL NOT NULL DEFAULT 0.5,
+        confidence REAL NOT NULL DEFAULT 0.5,
+        valid_from INTEGER,
+        valid_until INTEGER,
+        supersedes_id INTEGER,
+        source TEXT NOT NULL DEFAULT 'chat',
+        provenance TEXT NOT NULL DEFAULT '',
+        metadata TEXT NOT NULL DEFAULT '{}',
+        fingerprint TEXT
+      )`).run();
+
+      const info = await db.prepare('PRAGMA table_info(memories)').all();
+      const columns = new Set((info.results || []).map(row => row.name));
+      const additions = [
+        ['owner', "owner TEXT NOT NULL DEFAULT ''"],
+        ['updated_at', 'updated_at INTEGER'],
+        ['valid_from', 'valid_from INTEGER'],
+        ['valid_until', 'valid_until INTEGER'],
+        ['supersedes_id', 'supersedes_id INTEGER'],
+        ['provenance', "provenance TEXT NOT NULL DEFAULT ''"],
+        ['metadata', "metadata TEXT NOT NULL DEFAULT '{}'"],
+        ['fingerprint', 'fingerprint TEXT'],
+      ];
+      for (const [name, ddl] of additions) {
+        if (!columns.has(name)) await db.prepare(`ALTER TABLE memories ADD COLUMN ${ddl}`).run();
+      }
+
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_memories_owner_created ON memories(owner, created_at DESC)').run();
+      await db.prepare('CREATE INDEX IF NOT EXISTS idx_memories_fingerprint ON memories(fingerprint)').run();
+      await db.prepare(`CREATE TABLE IF NOT EXISTS memory_candidates (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 0.5,
+        source TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        created_at INTEGER NOT NULL,
+        UNIQUE(message_id,content)
+      )`).run();
+    },
+  },
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
