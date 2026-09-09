@@ -42,7 +42,7 @@ export function createDefaultCapabilityBus({ audit, env = {}, repository, branch
   bus.discover({
     id: 'augmentio.fanout', name: '.augmentio multi-AI', category: 'orchestration', version: '0.2.0', provider: 'mel',
     description: 'Runs real parallel multi-model orchestration through the explicitly zero-added-cost provider pool.',
-    input_schema: { type: 'object', properties: { capability: { type: 'string' }, input: {}, context: { type: 'object' }, maxCandidates: { type: 'integer', minimum: 1, maximum: 12 } }, required: ['input'], additionalProperties: false },
+    input_schema: { type: 'object', properties: { capability: { type: 'string', minLength: 1, maxLength: 100 }, input: { type: 'string', minLength: 1, maxLength: 12000 }, context: { type: 'object', additionalProperties: true }, maxCandidates: { type: 'integer', minimum: 1, maximum: 12 } }, required: ['input'], additionalProperties: false },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: env.AI ? 'HEALTHY' : 'DEGRADED', enabled: true
   }, async input => {
