@@ -13,7 +13,7 @@ export class ModelRouter {
   async executeParallel({task='GENERAL',messages,maxCandidates=this.maxCalls},context={}) {
     if (!this.augmentio?.fanOut) throw new DomainError('AUGMENTIO_UNCONFIGURED',503);
     this.stats.augmentioCalls++;
-    const input=Array.isArray(messages) ? messages.map(m=>`${m.role||'user'}: ${m.content||''}`).join('\n') : String(messages||'');
+    const input=Array.isArray(messages) ? messages.map(m=>({role:m.role||'user',content:String(m.content||'')})) : String(messages||'');
     const result=await this.augmentio.fanOut({capability:this.normalizeTask(task),input,context,maxCandidates});
     return {
       text: result.best.text,
