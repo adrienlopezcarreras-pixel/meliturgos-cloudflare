@@ -1,0 +1,390 @@
+[
+  {
+    "file": "src/core/events/event-bus.js",
+    "factory": "createEventBus",
+    "methods": [
+      "publish",
+      "subscribe"
+    ]
+  },
+  {
+    "file": "src/core/orchestrator/orchestrator.js",
+    "factory": "createOrchestrator",
+    "methods": [
+      "plan",
+      "execute",
+      "resume",
+      "cancel"
+    ]
+  },
+  {
+    "file": "src/core/lifecycle/recovery.js",
+    "factory": "createRecovery",
+    "methods": [
+      "checkpoint",
+      "resume",
+      "fail"
+    ]
+  },
+  {
+    "file": "src/memory/consolidation.js",
+    "factory": "createConsolidation",
+    "methods": [
+      "propose",
+      "confirm"
+    ]
+  },
+  {
+    "file": "src/memory/conflicts.js",
+    "factory": "createConflicts",
+    "methods": [
+      "findConflicts",
+      "resolve"
+    ]
+  },
+  {
+    "file": "src/memory/provenance.js",
+    "factory": "createProvenance",
+    "methods": [
+      "getProvenance",
+      "append"
+    ]
+  },
+  {
+    "file": "src/search/personal-search.js",
+    "factory": "createPersonalSearch",
+    "methods": [
+      "search"
+    ]
+  },
+  {
+    "file": "src/search/indexing.js",
+    "factory": "createIndexing",
+    "methods": [
+      "index",
+      "remove",
+      "rebuild"
+    ]
+  },
+  {
+    "file": "src/search/embeddings.js",
+    "factory": "createEmbeddings",
+    "methods": [
+      "embed",
+      "batch"
+    ]
+  },
+  {
+    "file": "src/models/model-council.js",
+    "factory": "createModelCouncil",
+    "methods": [
+      "queryMultiple",
+      "compare",
+      "score",
+      "synthesize"
+    ]
+  },
+  {
+    "file": "src/models/evaluation.js",
+    "factory": "createEvaluation",
+    "methods": [
+      "evaluate",
+      "compare"
+    ]
+  },
+  {
+    "file": "src/models/health.js",
+    "factory": "createHealth",
+    "methods": [
+      "probe",
+      "report"
+    ]
+  },
+  {
+    "file": "src/capabilities/executor.js",
+    "factory": "createExecutor",
+    "methods": [
+      "execute"
+    ]
+  },
+  {
+    "file": "src/plugins/registry.js",
+    "factory": "createRegistry",
+    "methods": [
+      "register",
+      "get",
+      "list",
+      "disable"
+    ]
+  },
+  {
+    "file": "src/plugins/loader.js",
+    "factory": "createLoader",
+    "methods": [
+      "installCandidate",
+      "load",
+      "execute",
+      "health",
+      "disable",
+      "rollback"
+    ]
+  },
+  {
+    "file": "src/modules/sandbox.js",
+    "factory": "createSandbox",
+    "methods": [
+      "run",
+      "test"
+    ]
+  },
+  {
+    "file": "src/connectors/oauth.js",
+    "factory": "createOauth",
+    "methods": [
+      "begin",
+      "callback",
+      "refresh",
+      "revoke"
+    ]
+  },
+  {
+    "file": "src/media/images.js",
+    "factory": "createImages",
+    "methods": [
+      "analyze",
+      "process"
+    ]
+  },
+  {
+    "file": "src/media/audio.js",
+    "factory": "createAudio",
+    "methods": [
+      "transcribe",
+      "synthesize"
+    ]
+  },
+  {
+    "file": "src/media/video.js",
+    "factory": "createVideo",
+    "methods": [
+      "analyze",
+      "process"
+    ]
+  },
+  {
+    "file": "src/media/documents.js",
+    "factory": "createDocuments",
+    "methods": [
+      "extract",
+      "index"
+    ]
+  },
+  {
+    "file": "src/professor/professor-service.js",
+    "factory": "createProfessorService",
+    "methods": [
+      "createSession",
+      "submitTurn",
+      "critique",
+      "correct",
+      "createLesson",
+      "score",
+      "summarizeSession"
+    ]
+  },
+  {
+    "file": "src/professor/lessons.js",
+    "factory": "createLessons",
+    "methods": [
+      "create",
+      "confirm",
+      "list"
+    ]
+  },
+  {
+    "file": "src/professor/corrections.js",
+    "factory": "createCorrections",
+    "methods": [
+      "create",
+      "apply"
+    ]
+  },
+  {
+    "file": "src/professor/evaluation.js",
+    "factory": "createEvaluation",
+    "methods": [
+      "score",
+      "retest"
+    ]
+  },
+  {
+    "file": "src/agents/agent-registry.js",
+    "factory": "createAgentRegistry",
+    "methods": [
+      "register",
+      "get",
+      "list",
+      "disable"
+    ]
+  },
+  {
+    "file": "src/agents/planner.js",
+    "factory": "createPlanner",
+    "methods": [
+      "plan"
+    ]
+  },
+  {
+    "file": "src/agents/executor.js",
+    "factory": "createExecutor",
+    "methods": [
+      "plan",
+      "executeStep",
+      "report",
+      "pause",
+      "resume",
+      "cancel"
+    ]
+  },
+  {
+    "file": "src/agents/supervisor.js",
+    "factory": "createSupervisor",
+    "methods": [
+      "monitor",
+      "pause",
+      "resume",
+      "cancel"
+    ]
+  },
+  {
+    "file": "src/automations/scheduler.js",
+    "factory": "createScheduler",
+    "methods": [
+      "schedule",
+      "due"
+    ]
+  },
+  {
+    "file": "src/automations/job-registry.js",
+    "factory": "createJobRegistry",
+    "methods": [
+      "register",
+      "get",
+      "list"
+    ]
+  },
+  {
+    "file": "src/automations/automation-runner.js",
+    "factory": "createAutomationRunner",
+    "methods": [
+      "run",
+      "resume",
+      "cancel"
+    ]
+  },
+  {
+    "file": "src/dev/branch.js",
+    "factory": "createBranch",
+    "methods": [
+      "create"
+    ]
+  },
+  {
+    "file": "src/dev/edit.js",
+    "factory": "createEdit",
+    "methods": [
+      "apply"
+    ]
+  },
+  {
+    "file": "src/dev/test.js",
+    "factory": "createTest",
+    "methods": [
+      "run"
+    ]
+  },
+  {
+    "file": "src/dev/stage.js",
+    "factory": "createStage",
+    "methods": [
+      "stage"
+    ]
+  },
+  {
+    "file": "src/dev/release-candidate.js",
+    "factory": "createReleaseCandidate",
+    "methods": [
+      "create",
+      "activate"
+    ]
+  },
+  {
+    "file": "src/dev/rollback.js",
+    "factory": "createRollback",
+    "methods": [
+      "rollback"
+    ]
+  },
+  {
+    "file": "src/evaluation/evaluator.js",
+    "factory": "createEvaluator",
+    "methods": [
+      "evaluate"
+    ]
+  },
+  {
+    "file": "src/evaluation/benchmarks.js",
+    "factory": "createBenchmarks",
+    "methods": [
+      "run",
+      "compare"
+    ]
+  },
+  {
+    "file": "src/evaluation/regression.js",
+    "factory": "createRegression",
+    "methods": [
+      "run"
+    ]
+  },
+  {
+    "file": "src/security/secrets.js",
+    "factory": "createSecrets",
+    "methods": [
+      "resolve"
+    ]
+  },
+  {
+    "file": "src/security/policy.js",
+    "factory": "createPolicy",
+    "methods": [
+      "evaluate"
+    ]
+  },
+  {
+    "file": "src/audit/events.js",
+    "factory": "createEvents",
+    "methods": [
+      "append",
+      "list"
+    ]
+  },
+  {
+    "file": "src/backup/backup-service.js",
+    "factory": "createBackupService",
+    "methods": [
+      "create",
+      "verify",
+      "list"
+    ]
+  },
+  {
+    "file": "src/backup/restore-service.js",
+    "factory": "createRestoreService",
+    "methods": [
+      "plan",
+      "verify",
+      "restore"
+    ]
+  }
+]

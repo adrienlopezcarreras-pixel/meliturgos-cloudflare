@@ -2,12 +2,13 @@ import { standardRegistry } from './ModelRegistry.js';
 import { categorize, retryable } from './fallback.js';
 import { DomainError } from '../core/contracts.js';
 export const TASK_TYPES = Object.freeze(['GENERAL','FAST','REASONING','CODE','VISION','AUDIO','STEERABLE','FALLBACK']);
-export function classifyTask(text) { return /function |class |code|\.js\b|python/i.test(text) ? 'CODE' : /raisonne|reason|démontr/i.test(text) ? 'REASONING' : 'GENERAL'; }
+export function classifyTask(text) { return /function |class |code|\.js\b|python/i.test(text) ? 'coding' : /raisonne|reason|démontr|explain|why|how/i.test(text) ? 'reasoning' : 'conversation'; }
 export class ModelRouter {
   constructor({registry=standardRegistry, invoke, timeoutMs=30000, maxCalls=2}={}) { this.registry=registry; this.invoke=invoke; this.timeoutMs=timeoutMs; this.maxCalls=Math.min(2,Math.max(1,maxCalls)); this.stats={calls:0,failures:0}; }
   classifyTask(text) { return classifyTask(text); }
-  selectModel(task, {model}={}) { const candidates=this.registry.modelsByCapability(task); const selected=model ? candidates.find(m=>m.id===model) : candidates[0]; if (!selected) throw new DomainError('capability_missing',422); return selected; }
-  fallback(task, excluded=[]) { return this.registry.modelsByCapability(task).filter(m=>!excluded.includes(m.id)); }
+  normalizeTask(task) { return ({chat:'GENERAL',general:'GENERAL',conversation:'GENERAL',coding:'CODE',code:'CODE',reasoning:'REASONING',vision:'VISION',audio:'AUDIO',fast:'FAST',steerable:'STEERABLE',fallback:'FALLBACK'})[String(task).toLowerCase()] || String(task).toUpperCase(); }
+  selectModel(task, {model}={}) { const capability=this.normalizeTask(task); let candidates=this.registry.modelsByCapability(capability); if (!candidates.length && capability==='GENERAL') candidates=this.registry.modelsByCapability('FALLBACK'); const selected=model ? candidates.find(m=>m.id===model) : candidates[0]; if (!selected) throw new DomainError('capability_missing',422); return selected; }
+  fallback(task, excluded=[]) { const capability=this.normalizeTask(task); return this.registry.modelsByCapability(capability).filter(m=>!excluded.includes(m.id)); }
   async execute({task='GENERAL',messages,model},context={}) {
     if (!this.invoke) throw new DomainError('MODEL_PROVIDER_UNCONFIGURED',503);
     const primary=this.selectModel(task,{model});
@@ -25,5 +26,8 @@ export class ModelRouter {
     }
     throw failure;
   }
-  getStats() { return {...this.stats,totalModels:this.registry.size()}; }
+  listModels(task) { return this.registry.modelsByCapability(this.normalizeTask(task)); }
+  estimateCost(task) { return this.selectModel(task).cost || 0; }
+  callModel(task, request, options={}) { return this.execute({task,messages:request.messages || request,model:options.model}); }
+  getStats() { return {...this.stats,totalModels:this.registry.size(),capabilities:this.registry.list().flatMap(m=>m.capabilities)}; }
 }

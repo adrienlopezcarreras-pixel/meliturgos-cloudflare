@@ -12,8 +12,10 @@
     "test": "node scripts/run-tests.mjs",
     "test:smoke": "node --test tests/gen2/contracts.test.mjs",
     "test:openhands": "node --test tests/gen2/contracts.test.mjs",
+    "test:integration": "node --test tests/integration/gen2-flow.test.mjs tests/integration/dev-media-flow.test.mjs",
+    "test:mel": "node --test tests/integration/gen2-flow.test.mjs tests/integration/dev-media-flow.test.mjs",
     "test:mvp": "node --test tests/mvp-product.test.mjs",
-    "test:routes": "node scripts/test-routes.mjs",
+    "test:routes": "node --test tests/gen2/route-integration.test.mjs",
     "test:connections": "node scripts/test-connections.mjs",
     "test:bindings": "node scripts/test-bindings.mjs"
   },

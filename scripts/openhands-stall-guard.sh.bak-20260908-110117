@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+
+SESSION="meliturgos"
+TARGET="meliturgos:0.0"
+
+CHECK_INTERVAL=60
+STALL_LIMIT=600
+
+LOG="$HOME/meliturgos-cloudflare/logs/watchdog/stall-guard.log"
+
+mkdir -p "$(dirname "$LOG")"
+
+last_hash=""
+unchanged=0
+rescue_level=0
+
+is_descendant() {
+    local pid="$1"
+    local root="$2"
+
+    while [ "$pid" -gt 1 ] 2>/dev/null; do
+        [ "$pid" = "$root" ] && return 0
+
+        pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+
+        [ -z "$pid" ] && break
+    done
+
+    return 1
+}
+
+kill_known_blockers() {
+
+    OPENHANDS_PID=$(pgrep -f 'openhands .*--override-with-envs' | head -1)
+
+    [ -z "$OPENHANDS_PID" ] && return
+
+    echo "$(date -Is) OpenHands PID=$OPENHANDS_PID : recherche processus bloquants" >> "$LOG"
+
+    while read -r pid cmd; do
+
+        [ -z "$pid" ] && continue
+
+        if is_descendant "$pid" "$OPENHANDS_PID"; then
+
+            case "$cmd" in
+                *"wrangler dev"*|\
+                *"python3 -m http.server"*|\
+                *"python -m http.server"*|\
+                *"cloudflared tunnel"*|\
+                *"tail -f"*|\
+                *"npm run dev"*|\
+                *"vite --host"*)
+
+                    echo "$(date -Is) STALL : arrêt enfant PID=$pid CMD=$cmd" >> "$LOG"
+
+                    kill "$pid" 2>/dev/null || true
+                    ;;
+            esac
+        fi
+
+    done < <(ps -eo pid=,args=)
+}
+
+while true; do
+
+    if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+        sleep "$CHECK_INTERVAL"
+        continue
+    fi
+
+    SCREEN=$(tmux capture-pane -p -t "$TARGET" -S -45 2>/dev/null | tail -45)
+
+    # Si OpenHands n'est pas en train de travailler,
+    # le nudge s'en occupe.
+    if ! echo "$SCREEN" | grep -q "Working ("; then
+        last_hash=""
+        unchanged=0
+        rescue_level=0
+        sleep "$CHECK_INTERVAL"
+        continue
+    fi
+
+    # Enlever les compteurs qui changent tout seuls
+    # pour détecter un écran réellement figé.
+    NORMALIZED=$(echo "$SCREEN" \
+        | sed -E 's/Working \([0-9]+s/Working (Xs/g' \
+        | sed -E 's/ctx [0-9.]+[KMG]? \/ [0-9.]+[KMG]?/ctx X \/ X/g')
+
+    HASH=$(printf '%s' "$NORMALIZED" | sha256sum | awk '{print $1}')
+
+    if [ "$HASH" = "$last_hash" ]; then
+        unchanged=$((unchanged + CHECK_INTERVAL))
+    else
+        last_hash="$HASH"
+        unchanged=0
+        rescue_level=0
+    fi
+
+    if [ "$unchanged" -ge "$STALL_LIMIT" ]; then
+
+        if [ "$rescue_level" -eq 0 ]; then
+
+            echo "$(date -Is) STALL détecté après ${unchanged}s : nettoyage enfants bloquants" >> "$LOG"
+
+            kill_known_blockers
+
+            rescue_level=1
+            unchanged=0
+
+        else
+
+            echo "$(date -Is) STALL persistant : redémarrage contrôlé OpenHands" >> "$LOG"
+
+            OPENHANDS_PID=$(pgrep -f 'openhands .*--override-with-envs' | head -1)
+
+            if [ -n "$OPENHANDS_PID" ]; then
+                kill "$OPENHANDS_PID" 2>/dev/null || true
+            fi
+
+            # interactive-watchdog doit le relancer
+            sleep 90
+
+            last_hash=""
+            unchanged=0
+            rescue_level=0
+        fi
+    fi
+
+    sleep "$CHECK_INTERVAL"
+done

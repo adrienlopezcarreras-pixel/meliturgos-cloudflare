@@ -162,6 +162,9 @@ export default {
 
     // Delegate legacy routes, wrapping chat and professor with archive.
     const legacyHandler = await loadLegacy(env);
+    // chat() archives via ConversationService before retrieval and after
+    // inference; wrapping it would duplicate both messages.
+    if (url.pathname === "/api/chat") return legacyHandler.fetch(request, env, ctx);
     const wrapped = withConversationArchive(legacyHandler.fetch.bind(legacyHandler));
     return wrapped(request, env, ctx);
   },

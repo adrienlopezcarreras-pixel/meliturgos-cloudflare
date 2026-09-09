@@ -1,0 +1,11 @@
+import {definition as d0} from './gmail.js';
+import {definition as d1} from './google-calendar.js';
+import {definition as d2} from './google-contacts.js';
+import {definition as d3} from './google-drive.js';
+import {definition as d4} from './outlook.js';
+import {definition as d5} from './onedrive.js';
+import {definition as d6} from './sharepoint.js';
+import {definition as d7} from './github.js';
+import {definition as d8} from './cloudflare.js';
+import {definition as d9} from './vercel.js';
+export const connectorDefinitions = Object.freeze([d0,d1,d2,d3,d4,d5,d6,d7,d8,d9]);
