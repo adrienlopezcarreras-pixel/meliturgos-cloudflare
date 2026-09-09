@@ -5,6 +5,7 @@ import {ClientError } from "./core/errors.js";
 import { createConversationService } from "./conversations/conversation-service.js";
 import { withConversationArchive } from "./conversations/intercept.js";
 import handleResearch from "./api/research-api.js";
+import handleAugmentio from "./api/augmentio-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
@@ -46,6 +47,15 @@ async function handleConversationApi(request, env) {
     } catch (e) {
       console.error(`[Router] Research error: ${e.message}`, e.stack);
       return json({ error: e.message, code: "INTERNAL_ERROR" }, e.status || 500);
+    }
+  }
+
+  if (path === "/api/gen2/augmentio/fanout") {
+    try {
+      return await handleAugmentio(request, env);
+    } catch (e) {
+      console.error(`[Router] Augmentio error: ${e.message}`, e.stack);
+      return json({ error: e.message, code: e.code || "AUGMENTIO_ERROR" }, e.status || 500);
     }
   }
 
