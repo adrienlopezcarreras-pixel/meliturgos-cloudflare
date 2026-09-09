@@ -37,6 +37,53 @@ test('parallel scheduler executes independent work concurrently', async () => {
   assert.ok(Date.now() - started < 220, 'expected parallel execution');
 });
 
+test('parallel scheduler enforces per-provider concurrency', async () => {
+  const scheduler = new ParallelScheduler({ globalConcurrency: 6, perProviderConcurrency: 2, timeoutMs: 1000 });
+  let active = 0;
+  let maxActive = 0;
+  const tasks = Array.from({ length: 6 }, (_, i) => ({ providerId: 'same-provider', i }));
+  const settled = await scheduler.run(tasks, async () => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    active -= 1;
+    return true;
+  });
+  assert.equal(settled.every((x) => x.status === 'fulfilled'), true);
+  assert.equal(maxActive, 2);
+});
+
+test('parallel scheduler retries transient failure and times out hung providers', async () => {
+  const scheduler = new ParallelScheduler({ globalConcurrency: 2, retries: 1, backoffMs: 1, timeoutMs: 25, circuitBreakerFailures: 5 });
+  let attempts = 0;
+  const settled = await scheduler.run([
+    { providerId: 'retry' },
+    { providerId: 'hung' },
+  ], async (task, _index, meta) => {
+    if (task.providerId === 'retry') {
+      attempts += 1;
+      if (meta.attempt === 0) throw Object.assign(new Error('transient'), { code: 'TRANSIENT' });
+      return 'recovered';
+    }
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    return 'late';
+  });
+  assert.equal(attempts, 2);
+  assert.equal(settled[0].status, 'fulfilled');
+  assert.equal(settled[0].value, 'recovered');
+  assert.equal(settled[1].status, 'rejected');
+  assert.equal(settled[1].reason.code, 'PROVIDER_TIMEOUT');
+});
+
+test('circuit breaker opens after repeated provider failures', async () => {
+  const scheduler = new ParallelScheduler({ retries: 0, circuitBreakerFailures: 2, circuitBreakerCooldownMs: 60000 });
+  const first = await scheduler.run([{ providerId: 'bad' }, { providerId: 'bad' }], async () => { throw new Error('boom'); });
+  assert.equal(first.filter((x) => x.status === 'rejected').length, 2);
+  const second = await scheduler.run([{ providerId: 'bad' }], async () => 'should-not-run');
+  assert.equal(second[0].status, 'rejected');
+  assert.equal(second[0].reason.code, 'PROVIDER_CIRCUIT_OPEN');
+});
+
 test('tournament deduplicates and prefers evidence', () => {
   const tournament = new ResultTournament();
   const ranked = tournament.rank([
@@ -57,7 +104,7 @@ test('augmentio fans out, tolerates failure, ranks, caches, and skips paid or un
     { id: 'unknown-cost', capabilities: ['GENERAL'], priority: 98, invoke: async () => { calls++; return 'should not run'; } },
     { id: 'broken', capabilities: ['GENERAL'], priority: 1, estimatedCost: 0, invoke: async () => { calls++; throw new Error('boom'); } },
   ]);
-  const augmentio = new Augmentio({ pool, scheduler: new ParallelScheduler({ globalConcurrency: 4 }) });
+  const augmentio = new Augmentio({ pool, scheduler: new ParallelScheduler({ globalConcurrency: 4, retries: 0 }) });
   const first = await augmentio.fanOut({ input: 'solve this', maxCandidates: 5 });
   assert.equal(first.best.provider, 'tested');
   assert.equal(first.failures, 1);
