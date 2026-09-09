@@ -1,6 +1,7 @@
 // Canonical Worker entrypoint. worker.js is an API compatibility dependency.
 import router from "./router.js";
 import { requireAuth } from "./core/security.js";
+import { setDefaultCapabilityEnvironment } from "./capabilities/default-bus.js";
 import { importChatGPTArchive } from "./persistence/chatgpt-archive-importer.js";
 import { runAugmentioStateOfPlay } from "./teachers/augmentio-council.js";
 import { prepareDevelopmentRequest } from "./evolution/development-preflight.js";
@@ -103,6 +104,10 @@ async function maybeHandleChatGPTArchive(request, env) {
 export default {
   async fetch(request, env, ctx) {
     try {
+      // worker.js still creates its compatibility CapabilityBus without env.
+      // Prime the shared module with only the safe runtime bindings it needs.
+      setDefaultCapabilityEnvironment(env);
+
       const readinessResponse = await maybeHandleReadiness(request, env);
       if (readinessResponse) return readinessResponse;
 
