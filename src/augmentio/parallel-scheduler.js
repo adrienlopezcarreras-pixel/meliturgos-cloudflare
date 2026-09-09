@@ -6,6 +6,11 @@ function providerKey(task, fallback = 'default') {
   return String(task?.providerId ?? task?.provider?.id ?? task?.provider_id ?? task?.id ?? fallback);
 }
 
+function providerConcurrency(task, fallback) {
+  const value = Number(task?.concurrency ?? task?.provider?.concurrency ?? fallback);
+  return Number.isFinite(value) && value > 0 ? Math.max(1, Math.floor(value)) : fallback;
+}
+
 export class ParallelScheduler {
   constructor({
     globalConcurrency = 8,
@@ -91,18 +96,26 @@ export class ParallelScheduler {
     throw lastError;
   }
 
-  async run(tasks = [], worker, { getProviderId = providerKey, signal } = {}) {
+  async run(tasks = [], worker, {
+    getProviderId = providerKey,
+    getProviderConcurrency = (task) => providerConcurrency(task, this.perProviderConcurrency),
+    signal,
+  } = {}) {
     const results = new Array(tasks.length);
-    const pending = tasks.map((task, index) => ({ task, index, provider: getProviderId(task, index) }));
+    const pending = tasks.map((task, index) => ({
+      task,
+      index,
+      provider: getProviderId(task, index),
+      providerConcurrency: getProviderConcurrency(task, index),
+    }));
     const activePerProvider = new Map();
     const active = new Set();
 
     const launchAvailable = () => {
-      let launched = false;
       for (let i = 0; i < pending.length && active.size < this.globalConcurrency;) {
         const item = pending[i];
         const count = activePerProvider.get(item.provider) || 0;
-        if (count >= this.perProviderConcurrency) { i += 1; continue; }
+        if (count >= item.providerConcurrency) { i += 1; continue; }
         pending.splice(i, 1);
         activePerProvider.set(item.provider, count + 1);
         const promise = this.attempt(item.task, item.index, worker, { provider: item.provider, signal })
@@ -113,9 +126,7 @@ export class ParallelScheduler {
             activePerProvider.set(item.provider, Math.max(0, (activePerProvider.get(item.provider) || 1) - 1));
           });
         active.add(promise);
-        launched = true;
       }
-      return launched;
     };
 
     while (pending.length || active.size) {
@@ -125,7 +136,6 @@ export class ParallelScheduler {
       launchAvailable();
       if (active.size) await Promise.race(active);
       else if (pending.length) {
-        // No task can launch only if provider slots are inconsistent; fail closed instead of spinning.
         for (const item of pending.splice(0)) results[item.index] = { status: 'rejected', reason: Object.assign(new Error('SCHEDULER_DEADLOCK'), { code: 'SCHEDULER_DEADLOCK' }) };
       }
     }
