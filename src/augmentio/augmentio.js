@@ -2,14 +2,23 @@ import { ZeroEuroGovernor } from './zero-euro-governor.js';
 import { ParallelScheduler } from './parallel-scheduler.js';
 import { ResultTournament } from './result-tournament.js';
 import { ComputeCache } from './compute-cache.js';
+import { QuotaArbitrator } from './quota-arbitrator.js';
 
 export class Augmentio {
-  constructor({ pool, governor = new ZeroEuroGovernor(), scheduler = new ParallelScheduler(), tournament = new ResultTournament(), cache = new ComputeCache() } = {}) {
+  constructor({
+    pool,
+    governor = new ZeroEuroGovernor(),
+    scheduler = new ParallelScheduler(),
+    tournament = new ResultTournament(),
+    cache = new ComputeCache(),
+    quota = new QuotaArbitrator(),
+  } = {}) {
     this.pool = pool;
     this.governor = governor;
     this.scheduler = scheduler;
     this.tournament = tournament;
     this.cache = cache;
+    this.quota = quota;
   }
 
   async fanOut({ capability = 'GENERAL', input, context = {}, maxCandidates = 4 } = {}) {
@@ -17,9 +26,9 @@ export class Augmentio {
     const cached = await this.cache.get(cacheKey);
     if (cached) return { ...cached, cacheHit: true };
 
-    const providers = this.pool.list({ capability })
-      .filter((provider) => this.governor.allows(provider))
-      .slice(0, Math.max(1, maxCandidates));
+    const providers = this.quota.filter(
+      this.pool.list({ capability }).filter((provider) => this.governor.allows(provider)),
+    ).slice(0, Math.max(1, maxCandidates));
 
     if (!providers.length) {
       const error = new Error('NO_ZERO_COST_PROVIDER_AVAILABLE');
@@ -29,19 +38,25 @@ export class Augmentio {
 
     const settled = await this.scheduler.run(providers, async (provider) => {
       const startedAt = Date.now();
-      const response = await provider.invoke({ input, context, capability });
-      const text = typeof response === 'string' ? response : response?.text ?? response?.response;
-      if (!text) throw new Error('EMPTY_PROVIDER_RESPONSE');
-      return {
-        provider: provider.id,
-        model: provider.modelId ?? provider.model_id ?? provider.id,
-        text: String(text).trim(),
-        latencyMs: Date.now() - startedAt,
-        provenance: response?.provenance ?? { provider: provider.id },
-        evidenceScore: response?.evidenceScore ?? 0,
-        testsPassed: response?.testsPassed,
-        confidence: response?.confidence ?? 0,
-      };
+      try {
+        const response = await provider.invoke({ input, context, capability });
+        const text = typeof response === 'string' ? response : response?.text ?? response?.response;
+        if (!text) throw new Error('EMPTY_PROVIDER_RESPONSE');
+        this.quota.recordSuccess(provider.id);
+        return {
+          provider: provider.id,
+          model: provider.modelId ?? provider.model_id ?? provider.id,
+          text: String(text).trim(),
+          latencyMs: Date.now() - startedAt,
+          provenance: response?.provenance ?? { provider: provider.id },
+          evidenceScore: response?.evidenceScore ?? 0,
+          testsPassed: response?.testsPassed,
+          confidence: response?.confidence ?? 0,
+        };
+      } catch (error) {
+        this.quota.recordFailure(provider.id, error);
+        throw error;
+      }
     });
 
     const candidates = settled.filter((item) => item.status === 'fulfilled').map((item) => item.value);
@@ -53,7 +68,13 @@ export class Augmentio {
     }
 
     const ranked = this.tournament.rank(candidates);
-    const result = { best: ranked[0], candidates: ranked, failures: settled.length - candidates.length, cacheHit: false };
+    const result = {
+      best: ranked[0],
+      candidates: ranked,
+      failures: settled.length - candidates.length,
+      providersAttempted: providers.map((provider) => provider.id),
+      cacheHit: false,
+    };
     await this.cache.set(cacheKey, result);
     return result;
   }
