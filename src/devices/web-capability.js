@@ -1,120 +1,73 @@
 /**
- * WebCapability — Capability for external web interactions
- * 
- * Provides safe, logged web fetch operations with origin tracking.
- * Used by orchestrator to invoke web searches, research, or external data access.
+ * WebCapability — safe, provenance-aware external web fetch operations.
  */
 
-// Lock security: no arbitrary URLs without approval
 function validateUrl(urlString) {
   try {
     const url = new URL(urlString);
-    
-    // Only allow http/https
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new Error(`Protocol ${url.protocol} not allowed`);
-    }
-    
-    // Only allow public domains (no localhost, no private IPs)
-    const hostname = url.hostname;
-    if (hostname === 'localhost' || 
-        hostname.endsWith('.local') ||
-        hostname.startsWith('127.') ||
-        hostname.startsWith('192.168.') ||
-        hostname.startsWith('10.') ||
-        hostname.startsWith('172.') ||
-        hostname.startsWith('192.0.2.') ||
-        hostname.startsWith('198.51.100.') ||
-        hostname.startsWith('203.0.113.')) {
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error(`Protocol ${url.protocol} not allowed`);
+    const hostname = url.hostname.toLowerCase();
+    if (hostname === 'localhost' || hostname.endsWith('.local') || hostname.startsWith('127.') || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.') || hostname.startsWith('192.0.2.') || hostname.startsWith('198.51.100.') || hostname.startsWith('203.0.113.')) {
       throw new Error(`Private hostname not allowed: ${hostname}`);
     }
-    
-    // Max length check
-    if (urlString.length > 2000) {
-      throw new Error(`URL too long: ${urlString.length} characters`);
-    }
-    
+    if (urlString.length > 2000) throw new Error(`URL too long: ${urlString.length} characters`);
     return { valid: true, url };
   } catch (e) {
     return { valid: false, error: e.message };
   }
 }
 
-/**
- * Safe web fetch with provenance tracking
- */
-async function fetchWebContent(sourceId, url) {
+async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 10000 } = {}) {
   const validation = validateUrl(url);
-  if (!validation.valid) {
-    throw new Error(`Invalid URL: ${validation.error}`);
-  }
-  
+  if (!validation.valid) throw new Error(`Invalid URL: ${validation.error}`);
+  if (typeof fetchImpl !== 'function') throw new Error('WEB_FETCH_UNAVAILABLE');
+
   const startTime = Date.now();
-  let content = null;
-  let error = null;
-  
+  let content = '';
+  let contentType = '';
   try {
-    const response = await fetch(url, {
+    const response = await fetchImpl(validation.url.href, {
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; MELITURGOS/1.0)',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        Accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.2',
         'Accept-Language': 'fr,en-US;q=0.7,en;q=0.3',
         'Cache-Control': 'no-cache',
       },
-      signal: AbortSignal.timeout(10000), // 10s timeout
+      signal: AbortSignal.timeout(timeoutMs),
     });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('text/html') && !contentType.includes('application/json') && !contentType.includes('text/plain')) {
+      throw new Error(`Unsupported content type: ${contentType || 'unknown'}`);
     }
-    
-    const contentType = response.headers.get('content-type') || '';  
-    if (!contentType.includes('text/html') && !contentType.includes('application/json')) {
-      throw new Error(`Unsupported content type: ${contentType}`);
-    }
-    
     content = await response.text();
-    
   } catch (e) {
-    error = e.message;
-    throw new Error(`Web fetch failed: ${error}`);
+    throw new Error(`Web fetch failed: ${e.message}`);
   }
-  
-  const duration = Date.now() - startTime;
-  
-  // Return structured provenance
+
+  const bounded = content.slice(0, 50000);
   return {
     source_id: sourceId,
     url: validation.url.href,
-    content: content.substring(0, 50000), // Limit response size
-    truncated: content.length > 50000,
+    content: bounded,
+    truncated: content.length > bounded.length,
     content_type: contentType,
-    fetch_duration_ms: duration,
+    fetch_duration_ms: Date.now() - startTime,
     timestamp: new Date().toISOString(),
   };
 }
 
-/**
- * Extract URLs from HTML content
- */
 function extractUrls(html) {
   const urlPattern = /href=["']([^"']+)["']/gi;
   const urls = new Set();
   let match;
-  
   while ((match = urlPattern.exec(html)) !== null) {
     try {
       const url = new URL(match[1]);
-      // Only keep http/https public URLs
-      if (url.protocol === 'http:' || url.protocol === 'https:') {
-        urls.add(url.href);
-      }
-    } catch (e) {
-      // Skip invalid URLs
-    }
+      if (url.protocol === 'http:' || url.protocol === 'https:') urls.add(url.href);
+    } catch {}
   }
-  
   return Array.from(urls);
 }
 
