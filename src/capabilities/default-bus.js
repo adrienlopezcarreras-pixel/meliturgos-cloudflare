@@ -10,7 +10,7 @@ import { runAugmentioStateOfPlay } from '../teachers/augmentio-council.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
-const DEFAULT_BRANCH = 'release/mel-2026-09-09-r1';
+const DEFAULT_BRANCH = 'release/mel-2026-09-09-r2';
 let inheritedRuntimeEnv = Object.freeze({});
 
 /**
