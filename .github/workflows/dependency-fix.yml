@@ -1,0 +1,39 @@
+name: dependency-fix
+
+on:
+  push:
+    branches:
+      - 'candidate/augmentio-core'
+    paths:
+      - '.github/workflows/dependency-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: candidate/augmentio-core
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Refresh Wrangler and lockfile
+        run: npm install --save-dev --save-exact wrangler@4.130.0
+      - name: Require clean high-severity audit
+        run: npm audit --audit-level=high
+      - name: Commit audited lockfile
+        run: |
+          git config user.name "MEL dependency bot"
+          git config user.email "mel-dependency-bot@users.noreply.github.com"
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo "No dependency changes"
+          else
+            git commit -m "security(deps): update Wrangler to audited 4.130.0"
+            git push origin HEAD:candidate/augmentio-core
+          fi
