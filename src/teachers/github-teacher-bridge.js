@@ -108,43 +108,29 @@ export class GitHubTeacherBridge {
     }
   }
 
-  async ask(input = {}) {
-    const requestId = String(input.request_id || this.uuid());
-    if (await this.state.hasRequest(requestId)) return { request_id: requestId, status: 'WAITING_TEACHER', duplicate: true };
-
-    // Durable deduplication: the repository queue, not process memory, is the
-    // source of truth. This survives Worker restarts and isolates at-least-once
-    // callers from accidentally duplicating the same MEL_REQUEST.
+  async queueUnique(record, message) {
+    const requestId = requireText(record.request_id, 'request_id');
+    if (await this.state.hasRequest(requestId)) return { request_id: requestId, status: record.status, duplicate: true };
     const persisted = await this.readFile(this.requestsPath);
-    const exists = parseJsonLines(persisted.text).some(row => row.type === 'MEL_REQUEST' && row.request_id === requestId);
+    const exists = parseJsonLines(persisted.text).some(row => row.request_id === requestId && row.type === record.type);
     if (exists) {
       await this.state.markRequest(requestId);
-      return { request_id: requestId, status: 'WAITING_TEACHER', duplicate: true };
+      return { request_id: requestId, status: record.status, duplicate: true };
     }
-
-    const record = {
-      type: 'MEL_REQUEST',
-      request_id: requestId,
-      created_at: this.now(),
-      area: String(input.area || 'other'),
-      priority: String(input.priority || 'medium'),
-      status: 'WAITING_TEACHER',
-      goal: requireText(input.goal, 'goal'),
-      current_state: String(input.current_state || ''),
-      evidence: String(input.evidence || ''),
-      blocker_or_question: requireText(input.blocker_or_question, 'blocker_or_question'),
-      proposed_next_step: String(input.proposed_next_step || ''),
-      safety: {
-        no_production_deploy: true,
-        no_dns_change: true,
-        no_secret_exposure: true,
-        no_destructive_d1: true,
-        candidate_branch_only: true
-      }
-    };
-    await this.appendLine(this.requestsPath, record, `teacher: MEL request ${requestId}`, persisted);
+    await this.appendLine(this.requestsPath, record, message, persisted);
     await this.state.markRequest(requestId);
-    return { request_id: requestId, status: 'WAITING_TEACHER', duplicate: false };
+    return { request_id: requestId, status: record.status, duplicate: false };
+  }
+
+  async ask(input = {}) {
+    const requestId = String(input.request_id || this.uuid());
+    const record = {
+      type: 'MEL_REQUEST', request_id: requestId, created_at: this.now(), area: String(input.area || 'other'), priority: String(input.priority || 'medium'), status: 'WAITING_TEACHER',
+      goal: requireText(input.goal, 'goal'), current_state: String(input.current_state || ''), evidence: String(input.evidence || ''),
+      blocker_or_question: requireText(input.blocker_or_question, 'blocker_or_question'), proposed_next_step: String(input.proposed_next_step || ''),
+      safety: { no_production_deploy: true, no_dns_change: true, no_secret_exposure: true, no_destructive_d1: true, candidate_branch_only: true }
+    };
+    return this.queueUnique(record, `teacher: MEL request ${requestId}`);
   }
 
   async poll(requestId) {
@@ -155,5 +141,36 @@ export class GitHubTeacherBridge {
     if (!reply) return { request_id: id, status: 'WAITING_TEACHER', reply: null };
     await this.state.markReply(id);
     return { request_id: id, status: 'ANSWERED', reply };
+  }
+
+  async requestDeployment(input = {}) {
+    const requestId = String(input.request_id || this.uuid());
+    const candidateBranch = requireText(input.candidate_branch, 'candidate_branch');
+    const candidateCommit = requireText(input.candidate_commit, 'candidate_commit');
+    if (!candidateBranch.startsWith('candidate/')) throw Object.assign(new Error('DEPLOYMENT_CANDIDATE_BRANCH_REQUIRED'), { code: 'DEPLOYMENT_CANDIDATE_BRANCH_REQUIRED' });
+    if (!/^[0-9a-f]{7,40}$/i.test(candidateCommit)) throw Object.assign(new Error('DEPLOYMENT_COMMIT_INVALID'), { code: 'DEPLOYMENT_COMMIT_INVALID' });
+    const required = ['change_summary','files_components_affected','user_visible_impact','tests_ci_results','benchmark_regression_results','security_privacy_impact','secrets_permissions_impact','data_schema_migration_impact','compatibility_risks','rollout_plan','health_checks','rollback_plan','known_unknowns_blockers'];
+    const evidence = {};
+    for (const field of required) evidence[field] = requireText(input[field], field);
+    evidence.dependency_licensing_impact = String(input.dependency_licensing_impact || 'none identified');
+    const record = {
+      type: 'DEPLOYMENT_REQUEST', request_id: requestId, created_at: this.now(), status: 'WAITING_DEPLOY_REVIEW',
+      candidate_branch: candidateBranch, candidate_commit: candidateCommit, ...evidence,
+      boundaries: { exact_commit_only: true, no_implicit_later_commit: true, no_new_credentials: true, no_billing_change: true, no_dns_auth_change: true, no_destructive_data_operation: true, no_irreversible_migration: true }
+    };
+    return this.queueUnique(record, `deploy: request review ${requestId} ${candidateCommit}`);
+  }
+
+  async pollDeployment(requestId, candidateBranch, candidateCommit) {
+    const id = requireText(requestId, 'request_id');
+    const branch = requireText(candidateBranch, 'candidate_branch');
+    const commit = requireText(candidateCommit, 'candidate_commit');
+    const current = await this.readFile(this.repliesPath);
+    const review = parseJsonLines(current.text).reverse().find(row => row.type === 'DEPLOYMENT_REVIEW' && row.request_id === id);
+    if (!review) return { request_id: id, status: 'WAITING_DEPLOY_REVIEW', review: null, authorized: false };
+    const decision = String(review.decision || 'DEPLOY_NEEDS_CHANGES');
+    const exact = review.candidate_branch === branch && review.candidate_commit === commit;
+    const authorized = exact && decision === 'DEPLOY_APPROVED';
+    return { request_id: id, status: decision, review, authorized, exact_commit_match: exact };
   }
 }
