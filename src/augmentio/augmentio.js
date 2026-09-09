@@ -21,11 +21,12 @@ export class Augmentio {
     this.quota = quota;
   }
 
-  async fanOut({ capability = 'GENERAL', input, context = {}, maxCandidates = 4 } = {}) {
+  async fanOut({ capability = 'GENERAL', input, context = {}, maxCandidates = 4, signal } = {}) {
     const cacheKey = { capability, input, context, maxCandidates };
     const cached = await this.cache.get(cacheKey);
     if (cached) return { ...cached, cacheHit: true };
 
+    await this.pool?.refreshHealth?.();
     const providers = this.quota.filter(
       this.pool.list({ capability }).filter((provider) => this.governor.allows(provider)),
     ).slice(0, Math.max(1, maxCandidates));
@@ -36,10 +37,10 @@ export class Augmentio {
       throw error;
     }
 
-    const settled = await this.scheduler.run(providers, async (provider) => {
+    const settled = await this.scheduler.run(providers, async (provider, _index, meta = {}) => {
       const startedAt = Date.now();
       try {
-        const response = await provider.invoke({ input, context, capability });
+        const response = await provider.invoke({ input, context, capability, signal: meta.signal });
         const text = typeof response === 'string' ? response : response?.text ?? response?.response;
         if (!text) throw new Error('EMPTY_PROVIDER_RESPONSE');
         this.quota.recordSuccess(provider.id);
@@ -57,7 +58,7 @@ export class Augmentio {
         this.quota.recordFailure(provider.id, error);
         throw error;
       }
-    });
+    }, { signal });
 
     const candidates = settled.filter((item) => item.status === 'fulfilled').map((item) => item.value);
     if (!candidates.length) {
@@ -73,6 +74,7 @@ export class Augmentio {
       candidates: ranked,
       failures: settled.length - candidates.length,
       providersAttempted: providers.map((provider) => provider.id),
+      providerHealth: providers.map((provider) => ({ id: provider.id, status: provider.healthStatus || 'UNKNOWN' })),
       cacheHit: false,
     };
     await this.cache.set(cacheKey, result);
