@@ -1,0 +1,35 @@
+name: MELITURGOS candidate CI
+
+on:
+  push:
+    branches:
+      - 'candidate/**'
+  pull_request:
+    branches:
+      - mel-current
+
+permissions:
+  contents: read
+
+jobs:
+  teacher-bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Syntax check
+        run: npm run check
+      - name: Teacher Bridge tests
+        run: node --test tests/integration/github-teacher-bridge.test.mjs
+      - name: Existing route tests
+        run: npm run test:routes
+      - name: Existing MEL integration tests
+        run: npm run test:mel
