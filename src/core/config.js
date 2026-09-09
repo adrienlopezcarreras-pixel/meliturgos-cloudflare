@@ -17,4 +17,4 @@ export const ALLOWED_MODELS = [
 
 export const DEFAULT_CONVERSATION_MODEL = "@cf/moonshotai/kimi-k2.7-code";
 
-export const DB_SCHEMA_VERSION = 4;
+export const DB_SCHEMA_VERSION = 5;

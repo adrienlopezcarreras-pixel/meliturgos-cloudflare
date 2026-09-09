@@ -35,3 +35,14 @@ test('professor serves self-development section in server HTML', async () => {
   const env = { DB: sqliteD1(), MELITURGOS_USER: 'test', MELITURGOS_PASSWORD: 'test-only', AI: { async run(){ return {response:'ok'} } } };
   try { const response = await worker.fetch(new Request('http://localhost/professor', {headers: auth()}), env); const body = await response.text(); assert.equal(response.status, 200); assert.ok(body.includes('id="professor-dev"')); assert.ok(body.includes('Développement de MEL')); assert.ok(body.includes('Préparer la modification')); } finally { env.DB.close(); }
 });
+
+test('dev bridge token routes before Basic Auth while professor remains protected', async () => {
+  const e = { DB: sqliteD1(), MELITURGOS_USER: 'test', MELITURGOS_PASSWORD: 'test-only', MEL_DEV_BRIDGE_TOKEN: 'bridge-test' };
+  try {
+    const headers = { authorization: 'Bearer bridge-test', 'content-type': 'application/json' };
+    assert.equal((await worker.fetch(new Request('http://localhost/api/dev-bridge/heartbeat', { method: 'POST', headers, body: '{}' }), e)).status, 200);
+    assert.equal((await worker.fetch(new Request('http://localhost/api/dev-bridge/heartbeat', { method: 'POST', headers: { authorization: 'Bearer wrong' }, body: '{}' }), e)).status, 401);
+    assert.equal((await worker.fetch(new Request('http://localhost/api/dev-bridge/heartbeat', { method: 'POST', body: '{}' }), e)).status, 401);
+    assert.equal((await worker.fetch(new Request('http://localhost/professor'), e)).status, 401);
+  } finally { e.DB.close(); }
+});

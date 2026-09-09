@@ -127,12 +127,18 @@ async function handleConversationApi(request, env) {
 
 export default {
   async fetch(request, env, ctx) {
+    // Bridge endpoints use their dedicated bearer token, never UI Basic Auth.
+    const earlyUrl = new URL(request.url);
+    if (earlyUrl.pathname.startsWith('/api/dev-bridge/')) {
+      const bridgeResponse = devRuntime(request, env);
+      if (bridgeResponse) return await bridgeResponse;
+    }
     const auth = requireAuth(request, env);
     if (!auth.ok) return auth.response;
 
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/sw.js") return new Response(SERVICE_WORKER_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" } });
-    const devResponse = devRuntime(request, env); if (devResponse) return devResponse;
+    const devResponse = devRuntime(request, env); if (devResponse) return await devResponse;
 
     // Serve MVP Interface - GEN2-26
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/mvp")) {

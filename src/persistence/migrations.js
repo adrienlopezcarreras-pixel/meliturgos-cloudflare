@@ -116,6 +116,10 @@ export const MIGRATIONS = [
       await db.prepare(`CREATE TABLE IF NOT EXISTS backup_objects (id TEXT PRIMARY KEY,object_key TEXT NOT NULL,metadata_json TEXT NOT NULL,created_at INTEGER NOT NULL)`).run();
     },
   },
+  { version: 5, name: 'self_dev_d1_state', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS dev_jobs (id TEXT PRIMARY KEY,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,status TEXT NOT NULL,requested_by TEXT,goal TEXT NOT NULL,optional_context TEXT,plan_json TEXT,files_json TEXT,patch_json TEXT,tests_json TEXT,result_json TEXT,candidate_branch TEXT,approval_status TEXT,error TEXT)`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS dev_bridge_state (bridge_id TEXT PRIMARY KEY,last_seen INTEGER NOT NULL,status TEXT,metadata_json TEXT NOT NULL DEFAULT '{}')`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
