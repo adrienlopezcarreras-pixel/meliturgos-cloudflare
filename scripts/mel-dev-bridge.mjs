@@ -1,4 +1,5 @@
 import http from 'node:http';
+import path from 'node:path';
 import { LocalDevBridge } from '../src/dev/dev-bridge.js';
 import { DevJobService } from '../src/dev/dev-job-service.js';
 import { parseSearchPaths, rankSearchPaths } from '../src/dev/search-paths.js';
@@ -41,7 +42,15 @@ async function processRemoteJob(job) {
     const text = search?.result?.stdout || search?.stdout || '';
     const paths = parseSearchPaths(text);
     const ranked = rankSearchPaths(paths); const inspected = [];
-    for (const candidate of ranked.slice(0, 5)) { const read = await bridge.bus.execute('code.read', { path: candidate, job_id: id }, context); inspected.push({ path: candidate, result: read }); steps.push({ capability: 'code.read', path: candidate, result: read }); }
+    const inspect = async (candidate) => { if (!candidate || inspected.some(x => x.path === candidate)) return; try { const read = await bridge.bus.execute('code.read', { path: candidate, job_id: id }, context); inspected.push({ path: candidate, result: read }); steps.push({ capability: 'code.read', path: candidate, result: read }); } catch {} };
+    for (const candidate of ranked.slice(0, 5)) await inspect(candidate);
+    for (let depth = 0; depth < 2; depth++) {
+      const current = inspected.slice();
+      for (const item of current) for (const target of resolveLocalImports(item.path, item.result?.content || '')) {
+        if (/^(src\/dev|src\/teachers|tests|imports|docs|migrations)\//.test(target) && !/ui|page|view|render|template|interface|mvp|main|app|home|professor/i.test(target)) continue;
+        await inspect(target);
+      }
+    }
     const candidatePath = goalAwareSelect(job.goal, inspected);
     const files = typeof job.files_json === 'string' ? JSON.parse(job.files_json || '[]') : (job.files_json || []);
     for (const file of Array.isArray(files) ? files : []) if (file?.path && typeof file.content === 'string') await bridge.bus.execute('dev.apply_change', { job_id: id, path: file.path, content: file.content }, context);
@@ -59,6 +68,7 @@ async function processRemoteJob(job) {
 }
 
 function relevance(file, content = '') { const p = String(file).toLowerCase(), c = String(content).toLowerCase(); let n = 0; if (p.startsWith('src/')) n += 20; if (/(interface|page|ui|component|route)/.test(p)) n += 15; if (/(<main|add eventlistener|fetch\(|export|<!doctype html)/.test(c)) n += 20; if (/^(imports|exports|docs|tests)\//.test(p)) n -= 40; if (/\.json$/.test(p)) n -= 20; return n; }
+function resolveLocalImports(file, content) { const out = []; const re = /(?:import\s+(?:[^'";]+?\s+from\s+)?|require\s*\(|import\s*\()(['"])(\.[^'" ]+)\1/g; let m; while ((m = re.exec(content))) { const base = path.posix.normalize(path.posix.join(path.posix.dirname(file), m[2])); for (const candidate of [base, `${base}.js`, `${base}.mjs`, `${base}.ts`, `${base}.tsx`, `${base}.jsx`, `${base}.html`, `${base}/index.js`, `${base}/index.ts`]) if (!out.includes(candidate)) out.push(candidate); } return out; }
 function goalAwareSelect(goal, inspected) { const wantsUi = /interface|interface utilisateur|ui|page|écran|html|principal/i.test(String(goal)); return inspected.slice().sort((a,b) => (relevance(b.path,b.result?.content)+(wantsUi && /router/i.test(b.path)?-35:0)+(wantsUi && /(<main|<body|doctype|document\.createelement|innerhtml|page\s*=)/i.test(b.result?.content||'')?45:0)) - (relevance(a.path,a.result?.content)+(wantsUi && /router/i.test(a.path)?-35:0)+(wantsUi && /(<main|<body|doctype|document\.createelement|innerhtml|page\s*=)/i.test(a.result?.content||'')?45:0)))[0]?.path; }
 
 async function poll() {
