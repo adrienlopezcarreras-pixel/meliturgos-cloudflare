@@ -8,7 +8,7 @@
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
     "whoami": "wrangler whoami",
-    "check": "node --check worker.js && node --check src/index.js && node --check src/router.js && node --check src/conversations/conversation-service.js && node --check src/conversations/intercept.js && node --check scripts/run-tests.mjs",
+    "check": "node --check worker.js && node --check src/index.js && node --check src/router.js && node --check src/conversations/conversation-service.js && node --check src/conversations/intercept.js && node --check src/models/providers/workers-ai-provider.js && node --check src/chat/gen2-chat-orchestrator.js && node --check src/api/chat-gen2.js && node --check scripts/run-tests.mjs",
     "test": "node scripts/run-tests.mjs",
     "test:smoke": "node --test tests/gen2/contracts.test.mjs",
     "test:openhands": "node --test tests/gen2/contracts.test.mjs",
@@ -17,7 +17,7 @@
     "test:acceptance": "node --test tests/integration/acceptance-flow.test.mjs",
     "mel:dev-bridge": "node scripts/mel-dev-bridge.mjs",
     "test:mvp": "node --test tests/mvp-product.test.mjs tests/mvp-queue.test.mjs",
-    "test:routes": "node --test tests/gen2/route-integration.test.mjs",
+    "test:routes": "node --test tests/gen2/route-integration.test.mjs tests/gen2/chat-runtime.test.mjs",
     "test:connections": "node scripts/test-connections.mjs",
     "test:bindings": "node scripts/test-bindings.mjs"
   },
