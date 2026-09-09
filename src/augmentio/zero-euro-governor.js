@@ -1,11 +1,15 @@
 export class ZeroEuroGovernor {
   constructor({ maxCost = 0 } = {}) {
-    this.maxCost = Number(maxCost) || 0;
+    const parsed = Number(maxCost);
+    this.maxCost = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
   }
 
   allows(candidate = {}) {
-    const estimatedCost = Number(candidate.estimatedCost ?? candidate.cost ?? 0);
-    if (!Number.isFinite(estimatedCost)) return false;
+    // Cost must be explicitly known. null/undefined/empty must never be coerced to 0.
+    const rawCost = candidate.estimatedCost ?? candidate.cost;
+    if (rawCost === null || rawCost === undefined || rawCost === '') return false;
+    const estimatedCost = Number(rawCost);
+    if (!Number.isFinite(estimatedCost) || estimatedCost < 0) return false;
     return estimatedCost <= this.maxCost;
   }
 
