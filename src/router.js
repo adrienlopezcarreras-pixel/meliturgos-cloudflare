@@ -16,6 +16,37 @@ async function loadLegacy(env) {
   return legacy;
 }
 
+export function stripInternalCounters(value) {
+  if (typeof value !== "string" || !value) return value;
+  const cleaned = value
+    .replace(/[^.!?\n]*\binteraction_count\b\s*[:=]?\s*\d+[^.!?\n]*[.!?]?/gi, " ")
+    .replace(/\binteraction_count\b\s*[:=]?\s*\d+/gi, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([,.;!?])/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return cleaned;
+}
+
+async function sanitizeLegacyChatResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) return response;
+
+  const raw = await response.text();
+  let payload;
+  try { payload = JSON.parse(raw); }
+  catch { return new Response(raw, { status: response.status, headers: response.headers }); }
+
+  for (const key of ["text", "response", "answer"]) {
+    if (typeof payload?.[key] === "string") payload[key] = stripInternalCounters(payload[key]);
+  }
+
+  const headers = new Headers(response.headers);
+  headers.set("content-type", "application/json; charset=utf-8");
+  headers.set("cache-control", "no-store");
+  return new Response(JSON.stringify(payload), { status: response.status, headers });
+}
+
 async function handleConversationApi(request, env) {
   const service = createConversationService(env);
   await service.migrate();
@@ -129,7 +160,10 @@ export default {
     }
 
     const legacyHandler = await loadLegacy(env);
-    if (url.pathname === "/api/chat") return legacyHandler.fetch(request, env, ctx);
+    if (url.pathname === "/api/chat") {
+      const response = await legacyHandler.fetch(request, env, ctx);
+      return sanitizeLegacyChatResponse(response);
+    }
     const wrapped = withConversationArchive(legacyHandler.fetch.bind(legacyHandler));
     return wrapped(request, env, ctx);
   },
