@@ -42,7 +42,7 @@ async function processRemoteJob(job) {
     const paths = parseSearchPaths(text);
     const ranked = rankSearchPaths(paths); const inspected = [];
     for (const candidate of ranked.slice(0, 5)) { const read = await bridge.bus.execute('code.read', { path: candidate, job_id: id }, context); inspected.push({ path: candidate, result: read }); steps.push({ capability: 'code.read', path: candidate, result: read }); }
-    const candidatePath = inspected.sort((a, b) => relevance(b.path, b.result?.content) - relevance(a.path, a.result?.content))[0]?.path;
+    const candidatePath = goalAwareSelect(job.goal, inspected);
     const files = typeof job.files_json === 'string' ? JSON.parse(job.files_json || '[]') : (job.files_json || []);
     for (const file of Array.isArray(files) ? files : []) if (file?.path && typeof file.content === 'string') await bridge.bus.execute('dev.apply_change', { job_id: id, path: file.path, content: file.content }, context);
     const tests = typeof job.tests_json === 'string' ? JSON.parse(job.tests_json || '[]') : (job.tests_json || []);
@@ -52,12 +52,14 @@ async function processRemoteJob(job) {
     const report = await bridge.bus.execute('dev.report', { job_id: id }, context);
     steps.push({ capability: 'code.diff', result: diff });
     const answer = candidatePath || (paths[0] || 'Aucun fichier trouvé');
-    const result = { answer, steps, files: candidatePath ? [candidatePath] : [], tests: [testResult], diff_summary: 'NO_CHANGES' };
-    return remote.result({ job_id: id, status: 'READY_FOR_REVIEW', candidate_branch: report.branch, files_json: candidatePath ? [candidatePath] : [], tests_json: [testResult], diff_summary: 'NO_CHANGES', result_json: result, plan_json: { steps: steps.map(s => s.capability) } });
+    const inspectedFiles = inspected.map(x => x.path);
+    const result = { answer, steps, files: inspectedFiles, tests: [testResult], diff_summary: 'NO_CHANGES' };
+    return remote.result({ job_id: id, status: 'READY_FOR_REVIEW', candidate_branch: report.branch, files_json: inspectedFiles, tests_json: [testResult], diff_summary: 'NO_CHANGES', result_json: result, plan_json: { steps: steps.map(s => s.capability) } });
   } catch (error) { return remote.result({ job_id: id, status: 'FAILED', error: error.code || error.message }); }
 }
 
 function relevance(file, content = '') { const p = String(file).toLowerCase(), c = String(content).toLowerCase(); let n = 0; if (p.startsWith('src/')) n += 20; if (/(interface|page|ui|component|route)/.test(p)) n += 15; if (/(<main|add eventlistener|fetch\(|export|<!doctype html)/.test(c)) n += 20; if (/^(imports|exports|docs|tests)\//.test(p)) n -= 40; if (/\.json$/.test(p)) n -= 20; return n; }
+function goalAwareSelect(goal, inspected) { const wantsUi = /interface|interface utilisateur|ui|page|écran|html|principal/i.test(String(goal)); return inspected.slice().sort((a,b) => (relevance(b.path,b.result?.content)+(wantsUi && /router/i.test(b.path)?-35:0)+(wantsUi && /(<main|<body|doctype|document\.createelement|innerhtml|page\s*=)/i.test(b.result?.content||'')?45:0)) - (relevance(a.path,a.result?.content)+(wantsUi && /router/i.test(a.path)?-35:0)+(wantsUi && /(<main|<body|doctype|document\.createelement|innerhtml|page\s*=)/i.test(a.result?.content||'')?45:0)))[0]?.path; }
 
 async function poll() {
   if (stopped) return;
