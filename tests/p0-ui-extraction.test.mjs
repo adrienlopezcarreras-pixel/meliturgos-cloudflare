@@ -9,7 +9,8 @@ test('current MEL interface is extracted, self-contained and serves HTML', async
   const html = await response.text();
   assert.match(html, /<!doctype html>/i);
   assert.match(html, /<title>MEL<\/title>/);
-  assert.match(html, /<div class="title">MEL<\/div>/);
+  assert.match(html, /rel="icon"[^>]+meliturgos-avatar-fille\.png/);
+  assert.doesNotMatch(html, /<div class="title">MEL<\/div>/);
   assert.match(html, /id="messages"/);
   assert.match(html, /id="input"/);
   assert.match(html, /id="send"/);
@@ -17,6 +18,7 @@ test('current MEL interface is extracted, self-contained and serves HTML', async
   assert.match(html, /id="full"/);
   assert.match(html, /id="avatar"/);
   assert.match(html, /id="fileInput"/);
+  assert.match(html, /min-width:188px/);
 });
 
 test('current interface keeps critical chat, keyboard, skills and full-mode wiring', async () => {
