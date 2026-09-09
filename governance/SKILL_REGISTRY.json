@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-09-09",
+  "foundation_model_weights_modified": false,
+  "skills": [
+    {
+      "id": "github-code-navigation",
+      "status": "demonstrated_candidate",
+      "description": "Read and search bounded non-secret source files from the configured MELITURGOS GitHub branch through CapabilityBus.",
+      "evidence": ["tests/integration/github-code-capabilities.test.mjs"],
+      "constraints": ["safe text paths only", "bounded file/search size", "requires configured repository access"]
+    },
+    {
+      "id": "health-aware-tool-execution",
+      "status": "demonstrated_candidate",
+      "description": "Refresh external capability health before execution and fail closed when the provider is offline.",
+      "evidence": ["tests/integration/github-code-capabilities.test.mjs"],
+      "constraints": ["DEGRADED may still attempt execution", "UNAVAILABLE blocks execution"]
+    },
+    {
+      "id": "assistant-teacher-bridge",
+      "status": "demonstrated_candidate",
+      "description": "Send a structured MEL_REQUEST and retrieve the matching TEACHER_REPLY without Professor UI.",
+      "evidence": ["tests/integration/github-teacher-bridge.test.mjs"],
+      "constraints": ["requires already-authorized GitHub runtime token", "no secrets in queue", "candidate workflow only"]
+    },
+    {
+      "id": "durable-teacher-request-deduplication",
+      "status": "demonstrated_candidate",
+      "description": "Avoid duplicate Teacher Bridge requests across process restarts by checking the persisted GitHub queue.",
+      "evidence": ["tests/integration/github-teacher-bridge.test.mjs"],
+      "constraints": ["request_id must remain stable for retries"]
+    },
+    {
+      "id": "cloud-candidate-regression-testing",
+      "status": "demonstrated_candidate",
+      "description": "Run syntax, Teacher Bridge, route, and MEL integration regression tests in GitHub Actions with the local PC off.",
+      "evidence": [".github/workflows/meliturgos-candidate-ci.yml"],
+      "constraints": ["candidate branch only", "CI success is not production deployment approval"]
+    }
+  ]
+}
