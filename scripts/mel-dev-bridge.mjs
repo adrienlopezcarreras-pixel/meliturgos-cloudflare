@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { LocalDevBridge } from '../src/dev/dev-bridge.js';
 import { DevJobService } from '../src/dev/dev-job-service.js';
-import { parseSearchPaths } from '../src/dev/search-paths.js';
+import { parseSearchPaths, rankSearchPaths } from '../src/dev/search-paths.js';
 
 export class RemoteWorkerClient {
   constructor({ workerUrl = process.env.MEL_DEV_WORKER_URL || 'https://meliturgos.adrien-lopezcarreras.workers.dev', token = process.env.MEL_DEV_BRIDGE_TOKEN, fetchImpl = fetch } = {}) {
@@ -19,7 +19,7 @@ export class RemoteWorkerClient {
   result(payload) { return this.request('/api/dev-bridge/result', payload); }
 }
 
-export { parseSearchPaths } from '../src/dev/search-paths.js';
+export { parseSearchPaths, rankSearchPaths } from '../src/dev/search-paths.js';
 
 const token = process.env.MEL_DEV_BRIDGE_TOKEN;
 if (!token) throw new Error('MEL_DEV_BRIDGE_TOKEN is required');
@@ -40,8 +40,9 @@ async function processRemoteJob(job) {
     steps.push({ capability: 'code.search', query, result: search });
     const text = search?.result?.stdout || search?.stdout || '';
     const paths = parseSearchPaths(text);
-    const candidatePath = paths.sort((a, b) => (/(interface|page)/i.test(b) ? 1 : 0) - (/(interface|page)/i.test(a) ? 1 : 0))[0];
-    if (candidatePath) steps.push({ capability: 'code.read', path: candidatePath, result: await bridge.bus.execute('code.read', { path: candidatePath, job_id: id }, context) });
+    const ranked = rankSearchPaths(paths); const inspected = [];
+    for (const candidate of ranked.slice(0, 5)) { const read = await bridge.bus.execute('code.read', { path: candidate, job_id: id }, context); inspected.push({ path: candidate, result: read }); steps.push({ capability: 'code.read', path: candidate, result: read }); }
+    const candidatePath = inspected.sort((a, b) => relevance(b.path, b.result?.content) - relevance(a.path, a.result?.content))[0]?.path;
     const files = typeof job.files_json === 'string' ? JSON.parse(job.files_json || '[]') : (job.files_json || []);
     for (const file of Array.isArray(files) ? files : []) if (file?.path && typeof file.content === 'string') await bridge.bus.execute('dev.apply_change', { job_id: id, path: file.path, content: file.content }, context);
     const tests = typeof job.tests_json === 'string' ? JSON.parse(job.tests_json || '[]') : (job.tests_json || []);
@@ -53,18 +54,10 @@ async function processRemoteJob(job) {
     const answer = candidatePath || (paths[0] || 'Aucun fichier trouvé');
     const result = { answer, steps, files: candidatePath ? [candidatePath] : [], tests: [testResult], diff_summary: 'NO_CHANGES' };
     return remote.result({ job_id: id, status: 'READY_FOR_REVIEW', candidate_branch: report.branch, files_json: candidatePath ? [candidatePath] : [], tests_json: [testResult], diff_summary: 'NO_CHANGES', result_json: result, plan_json: { steps: steps.map(s => s.capability) } });
-  } catch (error) {
-  console.error("MEL_DEV_JOB_ERROR", {
-    name: error?.name,
-    code: error?.code,
-    message: error?.message,
-    syscall: error?.syscall,
-    path: error?.path,
-    stack: error?.stack
-  });
-  return remote.result({ job_id: id, status: 'FAILED', error: error.code || error.message });
+  } catch (error) { return remote.result({ job_id: id, status: 'FAILED', error: error.code || error.message }); }
 }
-}
+
+function relevance(file, content = '') { const p = String(file).toLowerCase(), c = String(content).toLowerCase(); let n = 0; if (p.startsWith('src/')) n += 20; if (/(interface|page|ui|component|route)/.test(p)) n += 15; if (/(<main|add eventlistener|fetch\(|export|<!doctype html)/.test(c)) n += 20; if (/^(imports|exports|docs|tests)\//.test(p)) n -= 40; if (/\.json$/.test(p)) n -= 20; return n; }
 
 async function poll() {
   if (stopped) return;

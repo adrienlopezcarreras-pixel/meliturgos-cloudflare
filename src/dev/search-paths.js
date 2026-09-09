@@ -6,3 +6,16 @@ export function parseSearchPaths(stdout = '') {
   }
   return paths;
 }
+
+export function rankSearchPaths(paths = []) {
+  return [...new Set(paths)].sort((a, b) => score(b) - score(a) || a.localeCompare(b));
+}
+function score(file) {
+  const p = String(file).toLowerCase(); let n = 0;
+  if (p.startsWith('src/')) n += 30;
+  if (/\.(js|mjs|ts|tsx|jsx|html|css)$/.test(p)) n += 20;
+  if (/(pages|ui|component|route|interface)/.test(p)) n += 18;
+  if (/^(imports|exports|dumps|docs|tests|migrations)\//.test(p)) n -= 45;
+  if (/\.json$/.test(p)) n -= 25;
+  return n;
+}
