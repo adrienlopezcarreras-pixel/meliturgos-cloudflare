@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  teacher-bridge:
+  candidate-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -29,7 +29,11 @@ jobs:
         run: npm run check
       - name: Teacher Bridge tests
         run: node --test tests/integration/github-teacher-bridge.test.mjs
-      - name: Existing route tests
+      - name: Cloud code capability tests
+        run: node --test tests/integration/github-code-capabilities.test.mjs
+      - name: Route tests
         run: npm run test:routes
-      - name: Existing MEL integration tests
+      - name: MEL integration tests
         run: npm run test:mel
+      - name: MVP product tests
+        run: npm run test:mvp
