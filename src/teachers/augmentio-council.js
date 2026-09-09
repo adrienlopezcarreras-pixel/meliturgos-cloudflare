@@ -27,6 +27,7 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
   if (eligible.length < minResponses) {
     const error = new Error('COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS');
     error.code = 'COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS';
+    error.status = 503;
     error.eligible = eligible.map(p => p.id);
     error.required = minResponses;
     throw error;
@@ -44,7 +45,7 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
     minResponses,
     ask: async (member, brief) => {
       const provider = byId.get(member);
-      if (!provider) throw Object.assign(new Error('COUNCIL_PROVIDER_NOT_FOUND'), { code: 'COUNCIL_PROVIDER_NOT_FOUND' });
+      if (!provider) throw Object.assign(new Error('COUNCIL_PROVIDER_NOT_FOUND'), { code: 'COUNCIL_PROVIDER_NOT_FOUND', status: 503 });
       const result = await provider.invoke({
         input: promptFor(member, brief),
         context: { purpose: 'state-of-play-before-development' }
