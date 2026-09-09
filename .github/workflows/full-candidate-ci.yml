@@ -24,7 +24,8 @@ jobs:
       - name: Runtime dependency security gate
         run: npm audit --omit=dev --audit-level=high
       - name: Development dependency advisory report
-        run: npm audit --audit-level=high || echo 'DEV_DEPENDENCY_ADVISORY_PRESENT: non-runtime tooling advisory recorded; runtime gate passed.'
+        run: |
+          npm audit --audit-level=high || echo 'DEV_DEPENDENCY_ADVISORY_PRESENT - non-runtime tooling advisory recorded; runtime gate passed.'
       - name: Syntax
         run: npm run check
       - name: Full test suite
