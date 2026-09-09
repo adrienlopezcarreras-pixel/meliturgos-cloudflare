@@ -111,15 +111,15 @@ export function registerGitHubCodeCapabilities(bus, options = {}) {
     description: 'Read one bounded non-secret text source file from the configured MELITURGOS repository branch.',
     input_schema: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 } }, required: ['path'], additionalProperties: false },
     output_schema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' }, sha: { type: 'string' }, branch: { type: 'string' }, repository: { type: 'string' } }, required: ['path','content','sha','branch','repository'], additionalProperties: false },
-    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
-  }, input => reader.read(input.path));
+    risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true
+  }, input => reader.read(input.path), () => reader.health());
   bus.discover({
     id: 'code.search', name: 'GitHub code search', category: 'development', version: '1.0.0', provider: 'github',
     description: 'Search bounded non-secret MELITURGOS source files in the configured GitHub branch.',
     input_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['query'], additionalProperties: false },
     output_schema: { type: 'object', properties: { query: { type: 'string' }, path: { type: 'string' }, matches: { type: 'array', items: { type: 'object', properties: { path: { type: 'string' }, line: { type: 'integer' }, excerpt: { type: 'string' } }, required: ['path','line','excerpt'], additionalProperties: false } }, searched_files: { type: 'integer' }, branch: { type: 'string' }, repository: { type: 'string' } }, required: ['query','path','matches','searched_files','branch','repository'], additionalProperties: false },
-    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
-  }, input => reader.search(input));
+    risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true
+  }, input => reader.search(input), () => reader.health());
   return reader;
 }
 
