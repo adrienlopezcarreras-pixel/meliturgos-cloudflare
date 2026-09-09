@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GitHubTeacherBridge, MemoryTeacherBridgeState, parseJsonLines } from '../../src/teachers/github-teacher-bridge.js';
+import { CapabilityBus } from '../../src/capabilities/capability-bus.js';
+import { registerTeacherCapabilities } from '../../src/capabilities/teacher-capabilities.js';
 
 function base64(text) { return Buffer.from(text, 'utf8').toString('base64'); }
 function decode(body) { return Buffer.from(JSON.parse(body).content, 'base64').toString('utf8'); }
@@ -19,7 +21,7 @@ function fakeGitHub({ requests = '', replies = '', readStatus = 200 } = {}) {
       return new Response(JSON.stringify({ content: base64(file?.text || ''), sha: file?.sha || 'sha' }), { status: 200 });
     }
     const text = decode(options.body);
-    writes.push({ path, text });
+    writes.push({ path, text, authorization: options.headers?.authorization || '' });
     files.set(path, { text, sha: `sha-${writes.length}` });
     return new Response(JSON.stringify({ content: { sha: `sha-${writes.length}` } }), { status: 200 });
   };
@@ -63,4 +65,21 @@ test('health distinguishes online, auth failure, and transient failure', async (
   assert.equal(await bridge(fakeGitHub()).health(), 'ONLINE');
   assert.equal(await bridge(fakeGitHub({ readStatus: 403 })).health(), 'OFFLINE');
   assert.equal(await bridge(fakeGitHub({ readStatus: 500 })).health(), 'DEGRADED');
+});
+
+test('MEL can ask and receive teacher feedback through CapabilityBus without Professor UI', async () => {
+  const fake = fakeGitHub();
+  const bus = new CapabilityBus();
+  registerTeacherCapabilities(bus, { repository: 'owner/repo', branch: 'mel-current', token: 'test-only', fetchImpl: fake.fetchImpl, now: () => '2026-09-09T15:00:00.000Z', uuid: () => 'req-cap' });
+  const ctx = { owner: 'mel', permissions: [], requestId: 'capability-flow' };
+  const asked = await bus.execute('teacher.ask', { goal: 'Improve code navigation', blocker_or_question: 'Review my next step' }, ctx);
+  assert.equal(asked.request_id, 'req-cap');
+  assert.equal(asked.status, 'WAITING_TEACHER');
+  assert.equal(fake.writes.length, 1);
+  assert.equal(fake.writes[0].authorization, 'Bearer test-only');
+  assert.ok(!fake.writes[0].text.includes('test-only'));
+  fake.files.set('teacher-bridge/replies.jsonl', { text: `${JSON.stringify({ type: 'TEACHER_REPLY', request_id: 'req-cap', instruction: 'add a regression test' })}\n`, sha: 'reply-new' });
+  const polled = await bus.execute('teacher.poll', { request_id: 'req-cap' }, ctx);
+  assert.equal(polled.status, 'ANSWERED');
+  assert.equal(polled.reply.instruction, 'add a regression test');
 });
