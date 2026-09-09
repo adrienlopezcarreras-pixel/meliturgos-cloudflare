@@ -12,7 +12,9 @@ export function createDefaultAugmentioPool(env, { registry = standardRegistry } 
       modelId: model.model_id || model.id,
       capabilities: model.capabilities || ['GENERAL'],
       priority: model.priority || 0,
-      estimatedCost: model.cost ?? 0,
+      // Fail closed: a missing/unknown cost must remain unknown so the
+      // ZeroEuroGovernor can reject it instead of silently treating it as free.
+      estimatedCost: model.cost ?? null,
       concurrency: model.concurrency || 2,
     }));
 
