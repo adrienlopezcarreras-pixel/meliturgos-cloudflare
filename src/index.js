@@ -9,6 +9,8 @@ import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { handleNativeChat } from "./api/native-chat.js";
 
+let lastSafeWorkJob = null;
+
 function isArchivePayload(value) {
   if (Array.isArray(value)) return value.some(x => x && (x.mapping || x.messages || x.conversation_id || x.id));
   if (!value || typeof value !== 'object') return false;
@@ -34,6 +36,122 @@ function apiError(error, fallback = 'INTERNAL_ERROR') {
     { ok: false, error: String(error?.message || fallback), code: error?.code || fallback },
     { status: Number(error?.status) || 500, headers: { 'cache-control': 'no-store' } }
   );
+}
+
+async function safeCount(db, table) {
+  if (!db) return 0;
+  try {
+    const row = await db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first();
+    return Number(row?.count || 0);
+  } catch { return 0; }
+}
+
+async function safeRows(db, table, limit = 10000) {
+  if (!db) return [];
+  try {
+    const rows = await db.prepare(`SELECT * FROM ${table} LIMIT ?`).bind(Math.max(1, Math.min(25000, Number(limit) || 10000))).all();
+    return rows?.results || [];
+  } catch { return []; }
+}
+
+async function maybeHandleMemoryCompatibility(request, env) {
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || (url.pathname !== '/api/memory/status' && url.pathname !== '/api/export')) return null;
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+
+  if (url.pathname === '/api/memory/status') {
+    const [memoryCount, archiveCount, conversationCount] = await Promise.all([
+      safeCount(env.DB, 'memories'),
+      safeCount(env.DB, 'archive_messages'),
+      safeCount(env.DB, 'conversations')
+    ]);
+    return Response.json({
+      ok: true,
+      status: env.DB ? 'ONLINE' : 'UNAVAILABLE',
+      db_bound: Boolean(env.DB),
+      memory_count: memoryCount,
+      archive_count: archiveCount,
+      conversation_count: conversationCount,
+      portable: true,
+      provenance: true
+    }, { headers: { 'cache-control': 'no-store' } });
+  }
+
+  const [memories, archiveMessages, conversations] = await Promise.all([
+    safeRows(env.DB, 'memories'),
+    safeRows(env.DB, 'archive_messages'),
+    safeRows(env.DB, 'conversations')
+  ]);
+  const payload = {
+    format: 'meliturgos-memory-export',
+    version: 1,
+    exported_at: new Date().toISOString(),
+    owner: env.MELITURGOS_USER || '',
+    memories,
+    conversations,
+    archive_messages: archiveMessages
+  };
+  return new Response(JSON.stringify(payload, null, 2), {
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'content-disposition': `attachment; filename="meliturgos-memory-${new Date().toISOString().slice(0,10)}.json"`,
+      'cache-control': 'no-store'
+    }
+  });
+}
+
+async function maybeHandleSafeWork(request, env) {
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith('/api/dev-bridge/')) return null;
+  if (url.pathname !== '/api/dev-bridge/health' && url.pathname !== '/api/dev-bridge/jobs') return null;
+
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+
+  if (request.method === 'GET' && url.pathname === '/api/dev-bridge/health') {
+    return Response.json({
+      ok: true,
+      available: true,
+      status: 'ONLINE',
+      mode: 'preflight-only',
+      protected_write_bridge: true,
+      rule: 'AI_COUNCIL_BEFORE_CODE'
+    }, { headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/dev-bridge/jobs') {
+    return Response.json({ ok: true, jobs: lastSafeWorkJob ? [lastSafeWorkJob] : [], last_job: lastSafeWorkJob }, { headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/dev-bridge/jobs') {
+    try {
+      const body = await readJsonObject(request);
+      const mode = String(body.mode || 'prepare').toLowerCase();
+      if (mode !== 'prepare' && mode !== 'preflight') return null;
+      const goal = String(body.goal || body.objective || body.prompt || body.description || '').trim();
+      if (!goal) return Response.json({ ok: false, error: 'GOAL_REQUIRED', code: 'GOAL_REQUIRED' }, { status: 400 });
+      const preflight = await prepareDevelopmentRequest({
+        env,
+        goal,
+        context: { ...(body.context && typeof body.context === 'object' ? body.context : {}), origin: 'work-ui', rule: 'AI_COUNCIL_BEFORE_CODE' },
+        minResponses: Math.max(2, Math.min(12, Number(body.minResponses) || 2))
+      });
+      lastSafeWorkJob = {
+        id: crypto.randomUUID(),
+        mode: 'preflight-only',
+        status: 'PREPARED',
+        goal,
+        created_at: new Date().toISOString(),
+        preflight
+      };
+      return Response.json({ ok: true, ...lastSafeWorkJob }, { headers: { 'cache-control': 'no-store' } });
+    } catch (error) {
+      return apiError(error, 'WORK_PREFLIGHT_FAILED');
+    }
+  }
+
+  return null;
 }
 
 async function maybeHandleReadiness(request, env) {
@@ -107,6 +225,12 @@ export default {
   async fetch(request, env, ctx) {
     try {
       setDefaultCapabilityEnvironment(env);
+
+      const memoryResponse = await maybeHandleMemoryCompatibility(request, env);
+      if (memoryResponse) return memoryResponse;
+
+      const safeWorkResponse = await maybeHandleSafeWork(request, env);
+      if (safeWorkResponse) return safeWorkResponse;
 
       const readinessResponse = await maybeHandleReadiness(request, env);
       if (readinessResponse) return readinessResponse;
