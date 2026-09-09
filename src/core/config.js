@@ -1,5 +1,5 @@
 // MELITURGOS Gen2 — Core configuration
-export const APP_VERSION = "0.2.5-rc.2-gen2.1";
+export const APP_VERSION = "0.2.5-rc.2-gen2.2";
 export const APP_NAME = "MELITURGOS";
 
 export const DEFAULTS = {
@@ -17,4 +17,4 @@ export const ALLOWED_MODELS = [
 
 export const DEFAULT_CONVERSATION_MODEL = "@cf/moonshotai/kimi-k2.7-code";
 
-export const DB_SCHEMA_VERSION = 5;
+export const DB_SCHEMA_VERSION = 6;
