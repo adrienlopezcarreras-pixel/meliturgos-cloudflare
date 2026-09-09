@@ -6,10 +6,9 @@ import { requireValue } from '../contracts.js';
 /**
  * Local composition root for integrated Gen2 proofs. Production adapters can
  * replace handlers, but all execution still crosses the same CapabilityBus.
- * State is intentionally in-memory here; persistence adapters are separate.
  */
-export function createGen2Runtime({ audit = async () => {} } = {}) {
-  const bus = createDefaultCapabilityBus({ audit });
+export function createGen2Runtime({ audit = async () => {}, env = {} } = {}) {
+  const bus = createDefaultCapabilityBus({ audit, env });
   const plugins = new Map();
   const modules = new Map();
   const agents = new Map();
@@ -17,7 +16,7 @@ export function createGen2Runtime({ audit = async () => {} } = {}) {
   const registerExtension = (store, kind, manifest, handler) => {
     validateManifest(manifest, kind);
     requireValue(typeof handler === 'function', 'HANDLER_REQUIRED');
-    const record = { ...structuredClone(manifest), status: kind === 'plugin' ? 'TESTED' : 'TESTED', health: 'HEALTHY', created_at: Date.now(), updated_at: Date.now(), handler };
+    const record = { ...structuredClone(manifest), status: 'TESTED', health: 'HEALTHY', created_at: Date.now(), updated_at: Date.now(), handler };
     store.set(manifest.id, record);
     bus.discover({
       id: `${kind}:${manifest.id}`, name: manifest.name, category: kind, version: manifest.version,
@@ -57,7 +56,7 @@ export function createGen2Runtime({ audit = async () => {} } = {}) {
     },
     agents: {
       register: (id, steps) => { requireValue(Array.isArray(steps) && steps.length > 0, 'PLAN_REQUIRED'); agents.set(id, steps); return { id, steps: steps.length }; },
-      async run(id, context) { const steps = agents.get(id); requireValue(steps, 'AGENT_NOT_FOUND', 404); const results = []; for (const step of steps) results.push(await bus.execute(step.capability, step.input, context)); return { id, results }; }
+      async run(id, context) { const steps = agents.get(id); requireValue(steps, 'AGENT_NOT_FOUND'); const results = []; for (const step of steps) results.push(await bus.execute(step.capability, step.input, context)); return { id, results }; }
     }
   };
 }
