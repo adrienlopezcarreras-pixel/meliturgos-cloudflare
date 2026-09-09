@@ -26,6 +26,19 @@ test('chat capability path crosses CapabilityBus and returns a tool result to Mo
   try { const response = await worker.fetch(new Request('http://localhost/api/chat', { method: 'POST', headers: auth, body: JSON.stringify(body) }), env); assert.equal(response.status, 200); assert.ok(calls.at(-1).input.messages.some(m => m.role === 'tool' && m.content.includes('safe-result'))); } finally { env.DB.close(); }
 });
 
+test('Gen2 runtime composes configured GitHub code and Teacher Bridge capabilities from env', () => {
+  const runtime = createGen2Runtime({ env: {
+    MEL_GITHUB_REPOSITORY: 'owner/repo',
+    MEL_GITHUB_BRANCH: 'mel-current',
+    MEL_GITHUB_TOKEN: 'test-only',
+    MEL_GITHUB_FETCH: async () => new Response('{}', { status: 500 })
+  } });
+  assert.equal(runtime.bus.describe('code.read').provider, 'github');
+  assert.equal(runtime.bus.describe('code.search').provider, 'github');
+  assert.equal(runtime.bus.describe('teacher.ask').provider, 'github-teacher-bridge');
+  assert.equal(runtime.bus.describe('teacher.poll').provider, 'github-teacher-bridge');
+});
+
 test('plugin, module, Module Lab and agent mock runtimes execute through one CapabilityBus', async () => {
   const runtime = createGen2Runtime(); const context = { owner: 'runtime', permissions: [], requestId: crypto.randomUUID() };
   const plugin = runtime.plugins.register(manifest('mock-plugin'), async input => ({ value: input.value }));
