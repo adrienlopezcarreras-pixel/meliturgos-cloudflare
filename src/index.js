@@ -4,6 +4,7 @@ import { requireAuth } from "./core/security.js";
 import { importChatGPTArchive } from "./persistence/chatgpt-archive-importer.js";
 import { runAugmentioStateOfPlay } from "./teachers/augmentio-council.js";
 import { prepareDevelopmentRequest } from "./evolution/development-preflight.js";
+import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 
 function isArchivePayload(value) {
   if (Array.isArray(value)) return value.some(x => x && (x.mapping || x.messages || x.conversation_id || x.id));
@@ -30,6 +31,19 @@ function apiError(error, fallback = 'INTERNAL_ERROR') {
     { ok: false, error: String(error?.message || fallback), code: error?.code || fallback },
     { status: Number(error?.status) || 500, headers: { 'cache-control': 'no-store' } }
   );
+}
+
+async function maybeHandleReadiness(request, env) {
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || url.pathname !== '/api/gen2/readiness') return null;
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  try {
+    const refreshHealth = url.searchParams.get('refresh') === '1';
+    return Response.json(await getSystemReadiness({ env, refreshHealth }), { headers: { 'cache-control': 'no-store' } });
+  } catch (error) {
+    return apiError(error, 'READINESS_FAILED');
+  }
 }
 
 async function maybeHandleCouncilAndEvolution(request, env) {
@@ -89,6 +103,9 @@ async function maybeHandleChatGPTArchive(request, env) {
 export default {
   async fetch(request, env, ctx) {
     try {
+      const readinessResponse = await maybeHandleReadiness(request, env);
+      if (readinessResponse) return readinessResponse;
+
       const councilResponse = await maybeHandleCouncilAndEvolution(request, env);
       if (councilResponse) return councilResponse;
 
