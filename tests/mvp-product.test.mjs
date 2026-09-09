@@ -22,9 +22,11 @@ async function ui(chatFetch, gen2Fetch = async () => Response.json({ capabilitie
   return dom;
 }
 
-test('MEL MVP has the requested single-window interface without visible conversation selector', async () => {
+test('MEL MVP has the requested single-window interface without redundant visible title or conversation selector', async () => {
   const html = await (await onRequestGet({})).text();
-  assert.match(html, /<div class="title">MEL<\/div>/);
+  assert.match(html, /<title>MEL<\/title>/);
+  assert.match(html, /rel="icon"[^>]+meliturgos-avatar-fille\.png/);
+  assert.doesNotMatch(html, /<div class="title">MEL<\/div>/);
   assert.doesNotMatch(html, /conversationSelect|newConversation|interaction_count/i);
   assert.match(html, /id="messages"/);
   assert.match(html, /id="input"/);
@@ -32,6 +34,7 @@ test('MEL MVP has the requested single-window interface without visible conversa
   assert.match(html, /id="skills"/);
   assert.match(html, /id="full"/);
   assert.match(html, /id="fileInput"/);
+  assert.match(html, /min-width:188px/);
 });
 
 test('MVP sends text to chat, renders answer in the same window and prevents double send', async () => {
@@ -49,7 +52,7 @@ test('MVP sends text to chat, renders answer in the same window and prevents dou
   assert.equal(calls[0].path, '/api/chat');
   assert.equal(calls[0].body.text, 'Bonjour');
   assert.ok(calls[0].body.conversation_id);
-  assert.match(document.querySelector('#status').textContent, /réfléchit/);
+  assert.match(document.querySelector('#status').textContent, /Réflexion|réfléchit/i);
   finish(Response.json({ text: 'Bonjour Adrien' }));
   await tick();
   assert.match(document.querySelector('#messages').textContent, /Bonjour Adrien/);
