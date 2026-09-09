@@ -49,6 +49,18 @@ test('ask appends one structured MEL_REQUEST and prevents duplicate request ids'
   assert.equal(row.type, 'MEL_REQUEST'); assert.equal(row.request_id, 'req-1'); assert.equal(row.safety.candidate_branch_only, true);
 });
 
+test('ask deduplication survives a new bridge instance', async () => {
+  const fake = fakeGitHub();
+  const first = bridge(fake, new MemoryTeacherBridgeState());
+  await first.ask({ request_id: 'persisted-1', goal: 'Persist once', blocker_or_question: 'Can I proceed?' });
+  assert.equal(fake.writes.length, 1);
+  const restarted = bridge(fake, new MemoryTeacherBridgeState());
+  const duplicate = await restarted.ask({ request_id: 'persisted-1', goal: 'Persist once', blocker_or_question: 'Can I proceed?' });
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(duplicate.status, 'WAITING_TEACHER');
+  assert.equal(fake.writes.length, 1);
+});
+
 test('poll matches a reply once and then marks it consumed', async () => {
   const reply = JSON.stringify({ type: 'TEACHER_REPLY', request_id: 'req-1', status: 'ANSWERED', instruction: 'continue' });
   const fake = fakeGitHub({ replies: `${reply}\n` }); const client = bridge(fake);
