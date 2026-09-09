@@ -5,6 +5,7 @@ import { requireAuth } from '../core/security.js';
 import { ModelRouter, classifyTask } from '../models/ModelRouter.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
+import { buildMelIdentityPrompt } from '../identity/mel-persona.js';
 
 export function inferNativeCodeCapability(text) {
   const value = String(text || '').trim();
@@ -180,7 +181,7 @@ export async function handleNativeChat(request, env) {
   const retrieved = await loadCognitiveMemory(env);
 
   const system = [
-    'Tu es MEL, l’assistante personnelle de ton propriétaire.',
+    buildMelIdentityPrompt(),
     'Réponds en français sauf demande contraire.',
     'Tu dois être factuelle sur tes capacités réelles.',
     'Lorsqu’un résultat d’outil prouve que tu as lu ou recherché ton dépôt, dis clairement que tu as accès à ce code et cite le fichier ou la branche observée.',
