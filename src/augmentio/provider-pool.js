@@ -8,18 +8,17 @@ export class ProviderPool {
     if (!adapter?.id || typeof adapter.invoke !== 'function') {
       throw new TypeError('INVALID_PROVIDER_ADAPTER');
     }
-    const record = {
-      capabilities: [],
-      enabled: true,
-      healthStatus: typeof adapter.health === 'string' ? adapter.health : (adapter.healthStatus || 'UNKNOWN'),
-      priority: 0,
-      concurrency: 1,
-      estimatedCost: null,
-      ...adapter,
-    };
+    const record = adapter;
+    if (!Array.isArray(record.capabilities)) record.capabilities = [];
+    if (record.enabled === undefined) record.enabled = true;
+    if (record.priority === undefined) record.priority = 0;
+    if (record.concurrency === undefined) record.concurrency = 1;
+    if (record.estimatedCost === undefined) record.estimatedCost = null;
     if (typeof record.health === 'string') {
       record.healthStatus = record.health;
       delete record.health;
+    } else if (!record.healthStatus) {
+      record.healthStatus = 'UNKNOWN';
     }
     this.adapters.set(record.id, record);
     return record;
