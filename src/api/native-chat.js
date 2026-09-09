@@ -30,14 +30,72 @@ function summarizeToolResult(result) {
   } catch { return { error: 'TOOL_RESULT_SERIALIZATION_FAILED' }; }
 }
 
+function secretLike(value) {
+  return /(?:api[_ -]?key|password|mot\s+de\s+passe|bearer\s+[a-z0-9._-]+|\btoken\b|\botp\b|secret\s*[=:])/i.test(String(value || ''));
+}
+
+async function ensureNativeMemoryTable(env) {
+  if (!env?.DB) return false;
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS memories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL DEFAULT 'fact',
+      content TEXT NOT NULL,
+      importance REAL NOT NULL DEFAULT 0.8,
+      confidence REAL NOT NULL DEFAULT 1,
+      source TEXT NOT NULL DEFAULT 'explicit_user',
+      provenance TEXT NOT NULL DEFAULT 'native-chat',
+      valid_until INTEGER,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL,
+      revoked_at INTEGER
+    )`).run();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function rememberExplicit(env, text) {
+  if (!env?.DB) return { stored: false, reason: 'NO_DB' };
+  const match = String(text || '').match(/\b(?:souviens-toi|remember)\b(?:\s+que)?\s+(.{2,4000})/i);
+  if (!match) return { stored: false, reason: 'NO_EXPLICIT_MEMORY_REQUEST' };
+  const content = match[1].trim();
+  if (!content || secretLike(content)) return { stored: false, reason: 'SENSITIVE_OR_EMPTY' };
+  await ensureNativeMemoryTable(env);
+  try {
+    const existing = await env.DB.prepare('SELECT id FROM memories WHERE content = ? LIMIT 1').bind(content).first();
+    if (existing) return { stored: false, reason: 'DUPLICATE' };
+  } catch {}
+  const now = Date.now();
+  try {
+    await env.DB.prepare(`INSERT INTO memories(kind,content,importance,confidence,source,provenance,valid_until,metadata,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?)`)
+      .bind('fact', content, 0.9, 1, 'explicit_user', 'native-chat:explicit-memory', null, JSON.stringify({ learning_class: 'confirmed_fact' }), now)
+      .run();
+    return { stored: true, reason: 'EXPLICIT_USER' };
+  } catch {
+    try {
+      await env.DB.prepare('INSERT INTO memories(content) VALUES (?)').bind(content).run();
+      return { stored: true, reason: 'EXPLICIT_USER_COMPAT' };
+    } catch {
+      return { stored: false, reason: 'STORE_UNAVAILABLE' };
+    }
+  }
+}
+
 async function loadCognitiveMemory(env) {
   if (!env?.DB) return null;
+  await ensureNativeMemoryTable(env);
   try {
-    const result = await env.DB
-      .prepare('SELECT * FROM memories WHERE (valid_until IS NULL OR valid_until > ?) ORDER BY importance DESC LIMIT 12')
-      .bind(Date.now())
-      .all();
-    const rows = (result?.results || []).filter(row => typeof row?.content === 'string' && row.content.trim());
+    const result = await env.DB.prepare('SELECT * FROM memories LIMIT 100').all();
+    const now = Date.now();
+    const rows = (result?.results || [])
+      .filter(row => typeof row?.content === 'string' && row.content.trim())
+      .filter(row => row.revoked_at == null)
+      .filter(row => row.valid_until == null || Number(row.valid_until) > now)
+      .sort((a, b) => Number(b.importance ?? 0) - Number(a.importance ?? 0))
+      .slice(0, 12);
     if (!rows.length) return null;
     const prompt = rows.map((row, index) => {
       const content = String(row.content).slice(0, 2000);
@@ -118,6 +176,7 @@ export async function handleNativeChat(request, env) {
       recent = (await service.getMessages(conversationId, { limit: 20 })).slice(-20).map(m => ({ role: m.role, content: m.content }));
     } catch { recent = []; }
   }
+  const memoryWrite = await rememberExplicit(env, text);
   const retrieved = await loadCognitiveMemory(env);
 
   const system = [
@@ -153,6 +212,7 @@ export async function handleNativeChat(request, env) {
     provider_health: ai.provider_health || null,
     cache_hit: ai.cache_hit === true,
     memory_count: retrieved?.count || 0,
+    memory_stored: memoryWrite.stored === true,
     capability_used: capabilitiesUsed,
     archive_saved: archiveSaved
   }, { headers: { 'cache-control': 'no-store' } });
