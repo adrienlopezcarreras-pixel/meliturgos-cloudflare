@@ -34,6 +34,38 @@ function apiError(error, fallback = 'INTERNAL_ERROR') {
   );
 }
 
+function isEvolutionDevelopmentIntent(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  const action = /\b(d[ée]veloppe(?:r)?|ajoute(?:r)?|cr[ée]e(?:r)?|construis|construire|impl[ée]mente(?:r)?|apprends?|upgrade|am[ée]liore(?:r)?|build|develop|implement|add|learn)\b/i.test(value);
+  const target = /\b(comp[ée]tence|capacit[ée]|module|outil|int[ée]gration|connecteur|plugin|skill|capability|connector|tool)\b/i.test(value);
+  return action && target;
+}
+
+async function maybeInjectEvolutionPreflight(request) {
+  const url = new URL(request.url);
+  if (url.pathname !== '/api/chat' || request.method !== 'POST') return request;
+  if (!(request.headers.get('content-type') || '').includes('application/json')) return request;
+  let body;
+  try { body = await request.clone().json(); }
+  catch { return request; }
+  if (!body || typeof body !== 'object' || body.capability?.id) return request;
+  const text = String(body.text ?? body.message ?? body.prompt ?? '').trim();
+  if (!isEvolutionDevelopmentIntent(text)) return request;
+
+  body.capability = {
+    id: 'evolution.preflight',
+    input: {
+      goal: text.slice(0, 4000),
+      context: { origin: 'chat', rule: 'AI_COUNCIL_BEFORE_CODE' },
+      minResponses: 2
+    }
+  };
+  const headers = new Headers(request.headers);
+  headers.set('content-type', 'application/json');
+  return new Request(request.url, { method: request.method, headers, body: JSON.stringify(body), redirect: request.redirect });
+}
+
 async function maybeHandleReadiness(request, env) {
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.pathname !== '/api/gen2/readiness') return null;
@@ -117,7 +149,8 @@ export default {
       const archiveResponse = await maybeHandleChatGPTArchive(request, env);
       if (archiveResponse) return archiveResponse;
 
-      const response = await router.fetch(request, env, ctx);
+      const preparedRequest = await maybeInjectEvolutionPreflight(request);
+      const response = await router.fetch(preparedRequest, env, ctx);
       if (response) return response;
       throw new Error("Router returned null");
     } catch (error) {
