@@ -24,11 +24,6 @@ jobs:
           node-version: '22'
       - name: Syntax check
         run: |
-          node --check src/augmentio/zero-euro-governor.js
-          node --check src/augmentio/provider-pool.js
-          node --check src/augmentio/compute-cache.js
-          node --check src/augmentio/result-tournament.js
-          node --check src/augmentio/parallel-scheduler.js
-          node --check src/augmentio/augmentio.js
-      - name: Augmentio core tests
-        run: node --test tests/augmentio-core.test.mjs
+          for file in src/augmentio/*.js; do node --check "$file"; done
+      - name: Augmentio tests
+        run: node --test tests/augmentio-*.test.mjs
