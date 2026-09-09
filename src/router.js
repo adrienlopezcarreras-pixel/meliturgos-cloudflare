@@ -5,6 +5,7 @@ import {ClientError } from "./core/errors.js";
 import { createConversationService } from "./conversations/conversation-service.js";
 import { withConversationArchive } from "./conversations/intercept.js";
 import handleResearch from "./api/research-api.js";
+import { handleGen2Chat } from "./api/chat-gen2.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
@@ -158,6 +159,11 @@ export default {
 
     const conversationResponse = await conversationRoutes(request, env);
     if (conversationResponse) return conversationResponse;
+
+    // Candidate Gen2 chat endpoint. Kept separate from /api/chat until acceptance tests are green.
+    if (url.pathname === "/api/gen2/chat") {
+      return handleGen2Chat(request, env);
+    }
 
     // Gen2 APIs first.
     if (url.pathname.startsWith("/api/gen2/")) {
