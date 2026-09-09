@@ -1,5 +1,6 @@
 import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
+import { registerTeacherCapabilities } from './teacher-capabilities.js';
 
 /** Safe deterministic capability bus used by the shipped chat runtime. */
 export function createDefaultCapabilityBus({ audit, env = {}, repository, branch, token, fetchImpl } = {}) {
@@ -13,12 +14,21 @@ export function createDefaultCapabilityBus({ audit, env = {}, repository, branch
   }, async input => ({ value: input.value }));
 
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
+  const githubBranch = branch || env.MEL_GITHUB_BRANCH || 'mel-current';
+  const githubToken = token ?? env.MEL_GITHUB_TOKEN ?? '';
+  const githubFetch = fetchImpl || env.MEL_GITHUB_FETCH || fetch;
   if (githubRepository) {
-    registerGitHubCodeCapabilities(bus, {
-      repository: githubRepository,
-      branch: branch || env.MEL_GITHUB_BRANCH || 'mel-current',
-      token: token ?? env.MEL_GITHUB_TOKEN ?? '',
-      fetchImpl: fetchImpl || env.MEL_GITHUB_FETCH || fetch
+    registerGitHubCodeCapabilities(bus, { repository: githubRepository, branch: githubBranch, token: githubToken, fetchImpl: githubFetch });
+  }
+
+  const teacherRepository = env.MEL_TEACHER_GITHUB_REPOSITORY || githubRepository;
+  const teacherToken = env.MEL_TEACHER_GITHUB_TOKEN || githubToken;
+  if (teacherRepository && teacherToken) {
+    registerTeacherCapabilities(bus, {
+      repository: teacherRepository,
+      branch: env.MEL_TEACHER_GITHUB_BRANCH || githubBranch,
+      token: teacherToken,
+      fetchImpl: env.MEL_TEACHER_GITHUB_FETCH || githubFetch
     });
   }
   return bus;
