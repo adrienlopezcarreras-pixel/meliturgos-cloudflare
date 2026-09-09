@@ -6,7 +6,7 @@ import { createGitHubCodeReader, registerGitHubCodeCapabilities } from '../../sr
 const enc = value => Buffer.from(String(value), 'utf8').toString('base64');
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-function fixtureFetch({ token = 'secret-token' } = {}) {
+function fixtureFetch({ token = 'secret-token', healthStatus = 200 } = {}) {
   const calls = [];
   const files = {
     'src/router.js': 'export const route = "mvp-interface";\n',
@@ -16,7 +16,7 @@ function fixtureFetch({ token = 'secret-token' } = {}) {
   const fetchImpl = async (url, init = {}) => {
     calls.push({ url: String(url), init });
     const u = new URL(url);
-    if (u.pathname.includes('/commits/')) return json({ sha: 'head' });
+    if (u.pathname.includes('/commits/')) return json(healthStatus === 200 ? { sha: 'head' } : { message: 'health failure' }, healthStatus);
     if (u.pathname.includes('/git/trees/')) return json({ tree: Object.entries(files).map(([path, content]) => ({ path, type: 'blob', size: Buffer.byteLength(content) })) });
     const marker = '/contents/';
     const idx = u.pathname.indexOf(marker);
@@ -71,13 +71,27 @@ test('health maps success, auth failure and transient failure', async () => {
   assert.equal(await broken.health(), 'DEGRADED');
 });
 
-test('CapabilityBus executes registered code.read and code.search', async () => {
+test('CapabilityBus executes registered code.read and code.search and refreshes health', async () => {
   const fixture = fixtureFetch({ token: '' });
   const bus = new CapabilityBus();
   registerGitHubCodeCapabilities(bus, { repository: 'owner/repo', fetchImpl: fixture.fetchImpl });
   const ctx = { owner: 'owner', permissions: [], requestId: 'req-1' };
+  assert.equal(bus.health('code.read'), 'DEGRADED');
+  const refreshed = await bus.refreshHealth('code.read');
+  assert.equal(refreshed.health, 'HEALTHY');
   const read = await bus.execute('code.read', { path: 'src/router.js' }, ctx);
   assert.match(read.content, /mvp-interface/);
   const search = await bus.execute('code.search', { query: 'MELITURGOS', path: 'src' }, ctx);
   assert.equal(search.matches[0].path, 'src/pages/mvp-interface.js');
+  assert.equal(bus.health('code.search'), 'HEALTHY');
+});
+
+test('CapabilityBus fails closed when GitHub code bridge is offline', async () => {
+  const fixture = fixtureFetch({ token: '', healthStatus: 403 });
+  const bus = new CapabilityBus();
+  registerGitHubCodeCapabilities(bus, { repository: 'owner/repo', fetchImpl: fixture.fetchImpl });
+  const ctx = { owner: 'owner', permissions: [], requestId: 'req-offline' };
+  await assert.rejects(() => bus.execute('code.read', { path: 'src/router.js' }, ctx), /CAPABILITY_UNAVAILABLE/);
+  assert.equal(bus.health('code.read'), 'UNAVAILABLE');
+  assert.equal(fixture.calls.filter(call => call.url.includes('/contents/')).length, 0);
 });
