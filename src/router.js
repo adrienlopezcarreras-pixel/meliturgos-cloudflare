@@ -7,6 +7,7 @@ import { withConversationArchive } from "./conversations/intercept.js";
 import handleResearch from "./api/research-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
+import { devRuntime } from "./dev/runtime-api.js";
 
 let legacy;
 async function loadLegacy(env) {
@@ -131,6 +132,7 @@ export default {
 
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/sw.js") return new Response(SERVICE_WORKER_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" } });
+    const devResponse = devRuntime(request, env); if (devResponse) return devResponse;
 
     // Serve MVP Interface - GEN2-26
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/mvp")) {
