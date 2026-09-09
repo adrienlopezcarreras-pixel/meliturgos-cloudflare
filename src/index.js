@@ -2,12 +2,60 @@
 import router from "./router.js";
 import { requireAuth } from "./core/security.js";
 import { importChatGPTArchive } from "./persistence/chatgpt-archive-importer.js";
+import { runAugmentioStateOfPlay } from "./teachers/augmentio-council.js";
+import { prepareDevelopmentRequest } from "./evolution/development-preflight.js";
 
 function isArchivePayload(value) {
   if (Array.isArray(value)) return value.some(x => x && (x.mapping || x.messages || x.conversation_id || x.id));
   if (!value || typeof value !== 'object') return false;
   if (Array.isArray(value.conversations) || Array.isArray(value.items)) return true;
   return Boolean(value.mapping || value.messages);
+}
+
+async function readJsonObject(request) {
+  if (!(request.headers.get('content-type') || '').includes('application/json')) {
+    throw Object.assign(new Error('JSON_REQUIRED'), { code: 'JSON_REQUIRED', status: 415 });
+  }
+  try {
+    const body = await request.clone().json();
+    if (!body || typeof body !== 'object') throw new Error('not-object');
+    return body;
+  } catch {
+    throw Object.assign(new Error('INVALID_JSON'), { code: 'INVALID_JSON', status: 400 });
+  }
+}
+
+function apiError(error, fallback = 'INTERNAL_ERROR') {
+  return Response.json(
+    { ok: false, error: String(error?.message || fallback), code: error?.code || fallback },
+    { status: Number(error?.status) || 500, headers: { 'cache-control': 'no-store' } }
+  );
+}
+
+async function maybeHandleCouncilAndEvolution(request, env) {
+  if (request.method !== 'POST') return null;
+  const path = new URL(request.url).pathname;
+  if (path !== '/api/gen2/council/state-of-play' && path !== '/api/gen2/evolution/preflight') return null;
+
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+
+  try {
+    const body = await readJsonObject(request);
+    const goal = String(body.goal || body.objective || '').trim();
+    const context = body.context && typeof body.context === 'object' ? body.context : {};
+    const minResponses = Math.max(2, Math.min(12, Number(body.minResponses) || 2));
+
+    if (path === '/api/gen2/council/state-of-play') {
+      const report = await runAugmentioStateOfPlay({ env, goal, context, minResponses });
+      return Response.json({ ok: true, ...report }, { headers: { 'cache-control': 'no-store' } });
+    }
+
+    const preflight = await prepareDevelopmentRequest({ env, goal, context, minResponses });
+    return Response.json(preflight, { headers: { 'cache-control': 'no-store' } });
+  } catch (error) {
+    return apiError(error, 'AI_PREFLIGHT_FAILED');
+  }
 }
 
 async function maybeHandleChatGPTArchive(request, env) {
@@ -33,7 +81,7 @@ async function maybeHandleChatGPTArchive(request, env) {
     const result = await importChatGPTArchive(env, archive, { preview });
     return Response.json(result, { status: result.ok === false ? 207 : 200, headers: { 'cache-control': 'no-store' } });
   } catch (error) {
-    return Response.json({ ok: false, error: error.message, code: error.code || 'CHATGPT_ARCHIVE_IMPORT_FAILED' }, { status: error.status || 500 });
+    return apiError(error, 'CHATGPT_ARCHIVE_IMPORT_FAILED');
   }
 }
 
@@ -41,6 +89,9 @@ async function maybeHandleChatGPTArchive(request, env) {
 export default {
   async fetch(request, env, ctx) {
     try {
+      const councilResponse = await maybeHandleCouncilAndEvolution(request, env);
+      if (councilResponse) return councilResponse;
+
       const archiveResponse = await maybeHandleChatGPTArchive(request, env);
       if (archiveResponse) return archiveResponse;
 
