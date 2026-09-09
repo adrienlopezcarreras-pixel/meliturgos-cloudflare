@@ -48,7 +48,6 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
   const repo = text(repository, 'repository', 200);
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) throw Object.assign(new Error('INVALID_REPOSITORY'), { code: 'INVALID_REPOSITORY' });
   const ref = text(branch, 'branch', 200);
-
   const api = path => `https://api.github.com/repos/${repo}/${path}`;
 
   async function read(pathValue) {
@@ -60,7 +59,7 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
     if (Number(body.size || 0) > MAX_FILE_BYTES) throw Object.assign(new Error('CODE_FILE_TOO_LARGE'), { code: 'CODE_FILE_TOO_LARGE' });
     const content = decodeBase64(body.content || '');
     if (content.includes('\u0000')) throw Object.assign(new Error('CODE_BINARY_DENIED'), { code: 'CODE_BINARY_DENIED' });
-    return { path, content, sha: body.sha || null, branch: ref, repository: repo };
+    return { path, content, sha: String(body.sha || ''), branch: ref, repository: repo };
   }
 
   async function tree() {
@@ -90,7 +89,7 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
         matches.push({ path: file.path, line: i + 1, excerpt: lines[i].trim().slice(0, 500) });
       }
     }
-    return { query: String(query), path: prefix || null, matches, searched_files: selected.length, branch: ref, repository: repo };
+    return { query: String(query), path: prefix, matches, searched_files: selected.length, branch: ref, repository: repo };
   }
 
   async function health() {
@@ -118,7 +117,7 @@ export function registerGitHubCodeCapabilities(bus, options = {}) {
     id: 'code.search', name: 'GitHub code search', category: 'development', version: '1.0.0', provider: 'github',
     description: 'Search bounded non-secret MELITURGOS source files in the configured GitHub branch.',
     input_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['query'], additionalProperties: false },
-    output_schema: { type: 'object', properties: { query: { type: 'string' }, path: { type: ['string','null'] }, matches: { type: 'array', items: { type: 'object', properties: { path: { type: 'string' }, line: { type: 'integer' }, excerpt: { type: 'string' } }, required: ['path','line','excerpt'], additionalProperties: false } }, searched_files: { type: 'integer' }, branch: { type: 'string' }, repository: { type: 'string' } }, required: ['query','path','matches','searched_files','branch','repository'], additionalProperties: false },
+    output_schema: { type: 'object', properties: { query: { type: 'string' }, path: { type: 'string' }, matches: { type: 'array', items: { type: 'object', properties: { path: { type: 'string' }, line: { type: 'integer' }, excerpt: { type: 'string' } }, required: ['path','line','excerpt'], additionalProperties: false } }, searched_files: { type: 'integer' }, branch: { type: 'string' }, repository: { type: 'string' } }, required: ['query','path','matches','searched_files','branch','repository'], additionalProperties: false },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, input => reader.search(input));
   return reader;
