@@ -46,7 +46,7 @@ test('evolution preflight endpoint stops before code generation', async () => {
 
 test('Council endpoint requires a goal', async () => {
   const response = await post('/api/gen2/council/state-of-play', {});
-  assert.equal(response.status, 500);
+  assert.equal(response.status, 400);
   const body = await response.json();
   assert.equal(body.ok, false);
   assert.equal(body.code, 'COUNCIL_GOAL_REQUIRED');
