@@ -85,14 +85,14 @@ export class GitHubTeacherBridge {
     return { text: decodeUtf8Base64(body.content || ''), sha: body.sha || null };
   }
 
-  async appendLine(path, record, message) {
-    const current = await this.readFile(path);
-    const prefix = current.text && !current.text.endsWith('\n') ? `${current.text}\n` : current.text;
+  async appendLine(path, record, message, current = null) {
+    const existing = current || await this.readFile(path);
+    const prefix = existing.text && !existing.text.endsWith('\n') ? `${existing.text}\n` : existing.text;
     const content = `${prefix}${JSON.stringify(record)}\n`;
     const response = await this.fetch(this.contentsUrl(path), {
       method: 'PUT',
       headers: { ...this.headers(), 'content-type': 'application/json' },
-      body: JSON.stringify({ message, content: encodeUtf8Base64(content), sha: current.sha, branch: this.branch })
+      body: JSON.stringify({ message, content: encodeUtf8Base64(content), sha: existing.sha, branch: this.branch })
     });
     if (!response.ok) throw Object.assign(new Error(`GITHUB_WRITE_${response.status}`), { code: 'TEACHER_GITHUB_WRITE_FAILED', status: response.status });
     return record;
@@ -111,6 +111,17 @@ export class GitHubTeacherBridge {
   async ask(input = {}) {
     const requestId = String(input.request_id || this.uuid());
     if (await this.state.hasRequest(requestId)) return { request_id: requestId, status: 'WAITING_TEACHER', duplicate: true };
+
+    // Durable deduplication: the repository queue, not process memory, is the
+    // source of truth. This survives Worker restarts and isolates at-least-once
+    // callers from accidentally duplicating the same MEL_REQUEST.
+    const persisted = await this.readFile(this.requestsPath);
+    const exists = parseJsonLines(persisted.text).some(row => row.type === 'MEL_REQUEST' && row.request_id === requestId);
+    if (exists) {
+      await this.state.markRequest(requestId);
+      return { request_id: requestId, status: 'WAITING_TEACHER', duplicate: true };
+    }
+
     const record = {
       type: 'MEL_REQUEST',
       request_id: requestId,
@@ -131,7 +142,7 @@ export class GitHubTeacherBridge {
         candidate_branch_only: true
       }
     };
-    await this.appendLine(this.requestsPath, record, `teacher: MEL request ${requestId}`);
+    await this.appendLine(this.requestsPath, record, `teacher: MEL request ${requestId}`, persisted);
     await this.state.markRequest(requestId);
     return { request_id: requestId, status: 'WAITING_TEACHER', duplicate: false };
   }
