@@ -7,9 +7,11 @@ import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
 import handleAugmentio from "./api/augmentio-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
-import { onRequestGet as handleFullMode } from "./pages/full-interface.js";
+import { onRequestGet as handleFullModeV1 } from "./pages/full-interface.js";
+import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
+import { getRoadmapPayload } from "./roadmap/master-roadmap.js";
 
 let legacy;
 async function loadLegacy(env) {
@@ -99,11 +101,38 @@ async function injectAutomaticCapability(request) {
   return new Request(request.url, { method: request.method, headers, body: JSON.stringify(body), redirect: request.redirect });
 }
 
+async function codeSelfCheck(env) {
+  const runtime = createGen2Runtime({ env });
+  const result = await runtime.bus.execute("code.read", { path: "src/router.js" }, {
+    owner: env.MELITURGOS_USER || "owner",
+    permissions: env.CAPABILITY_PERMISSIONS || [],
+    requestId: crypto.randomUUID()
+  });
+  return {
+    ok: true,
+    capability: "code.read",
+    repository: result.repository,
+    branch: result.branch,
+    path: result.path,
+    sha: result.sha,
+    bytes: typeof result.content === "string" ? result.content.length : 0
+  };
+}
+
 async function handleConversationApi(request, env) {
   const service = createConversationService(env);
   await service.migrate();
   const url = new URL(request.url);
   const path = url.pathname;
+
+  if (path === "/api/gen2/roadmap" && request.method === "GET") {
+    return json(getRoadmapPayload());
+  }
+
+  if (path === "/api/gen2/code/self-check" && request.method === "GET") {
+    try { return json(await codeSelfCheck(env)); }
+    catch (e) { return json({ ok: false, error: e.message, code: e.code || "CODE_SELF_CHECK_FAILED" }, e.status || 503); }
+  }
 
   if (path === "/api/gen2/capabilities" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });
@@ -203,7 +232,11 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/professor") {
-      return handleFullMode({ env, request, params: {} }).catch(e => html(`Error loading full mode: ${e.message}`, 500));
+      return handleFullModeV2({ env, request, params: {} }).catch(e => html(`Error loading full mode: ${e.message}`, 500));
+    }
+
+    if (request.method === "GET" && url.pathname === "/professor-v1") {
+      return handleFullModeV1({ env, request, params: {} }).catch(e => html(`Error loading full mode v1: ${e.message}`, 500));
     }
 
     if (request.method === "GET" && url.pathname === "/professor-legacy") {
