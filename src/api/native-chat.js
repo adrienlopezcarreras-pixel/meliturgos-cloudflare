@@ -9,7 +9,7 @@ const MODELS = [
   '@cf/google/gemma-3-12b-it'
 ];
 
-function codeIntent(text) {
+export function inferNativeCodeCapability(text) {
   const value = String(text || '').trim();
   if (!value) return null;
   const path = value.match(/((?:src|tests|\.github)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)|worker\.js|package\.json|wrangler\.jsonc)/i)?.[1];
@@ -65,7 +65,7 @@ export async function handleNativeChat(request, env) {
   const conversationId = String(body.conversation_id || crypto.randomUUID());
   const deviceId = body.device_id ? String(body.device_id) : null;
   const runtime = createGen2Runtime({ env });
-  const capability = body.capability?.id ? body.capability : codeIntent(text);
+  const capability = body.capability?.id ? body.capability : inferNativeCodeCapability(text);
   const toolResults = [];
   const capabilitiesUsed = [];
 
