@@ -1,0 +1,34 @@
+name: augmentio-ci
+
+on:
+  push:
+    branches:
+      - 'candidate/augmentio-*'
+  pull_request:
+    paths:
+      - 'src/augmentio/**'
+      - 'tests/augmentio-*.test.mjs'
+      - '.github/workflows/augmentio-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  augmentio-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check
+        run: |
+          node --check src/augmentio/zero-euro-governor.js
+          node --check src/augmentio/provider-pool.js
+          node --check src/augmentio/compute-cache.js
+          node --check src/augmentio/result-tournament.js
+          node --check src/augmentio/parallel-scheduler.js
+          node --check src/augmentio/augmentio.js
+      - name: Augmentio core tests
+        run: node --test tests/augmentio-core.test.mjs
