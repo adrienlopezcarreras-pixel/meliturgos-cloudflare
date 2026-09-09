@@ -40,9 +40,9 @@ test('custom source selection excludes unrequested stores', async () => {
 });
 
 test('minSimilarity filters weak lexical matches', async () => {
-  const result = await RAGService.search(db, 'adrien', 'MEL plusieurs modèles comparaison', { minSimilarity: 0.7 });
+  const result = await RAGService.search(db, 'adrien', 'MEL apprend utiliser plusieurs modèles', { minSimilarity: 0.7 });
   assert.equal(result.total, 1);
-  assert.equal(result.results[0].source, 'memories');
+  assert.equal(result.results[0].source, 'archive_messages');
 });
 
 test('empty and invalid searches fail closed', async () => {
