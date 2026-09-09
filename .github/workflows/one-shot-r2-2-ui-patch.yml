@@ -1,0 +1,41 @@
+name: one-shot-r2-2-ui-patch
+on:
+  push:
+    branches: [candidate/augmentio-core]
+    paths: [.github/workflows/one-shot-r2-2-ui-patch.yml]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: candidate/augmentio-core
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Apply UI fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/pages/full-interface-v2.js')
+          s = p.read_text()
+          reps = [
+            ('<textarea id="chatInput" placeholder="Écris ici…"></textarea>', '<input id="chatInput" type="text" maxlength="12000" autocomplete="off" enterkeyhint="send" placeholder="Écris ici puis appuie sur Entrée pour envoyer.">'),
+            ("qs('#chatSend').onclick=sendChat;qs('#chatInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();sendChat()}});", "qs('#chatSend').onclick=sendChat;qs('#chatInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing){e.preventDefault();sendChat()}});"),
+            ("qs('#memoryCount').textContent=d.count??d.total??'—'", "const memoryCount=qs('#memoryCount');if(memoryCount)memoryCount.textContent=d.memory_count??d.count??d.total??'—'"),
+          ]
+          for old, new in reps:
+            if old not in s:
+              raise SystemExit('Expected pattern missing: ' + old[:80])
+            s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name "meliturgos-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/pages/full-interface-v2.js
+          git commit -m "fix(ui): single-line Enter send and memory status guard"
+          git push origin HEAD:candidate/augmentio-core
