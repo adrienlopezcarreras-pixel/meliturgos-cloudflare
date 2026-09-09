@@ -45,11 +45,16 @@ export class Augmentio {
         if (!text) throw new Error('EMPTY_PROVIDER_RESPONSE');
         this.quota.recordSuccess(provider.id);
         return {
-          provider: provider.id,
+          provider: provider.providerId ?? provider.provider_id ?? provider.id,
+          adapterId: provider.id,
           model: provider.modelId ?? provider.model_id ?? provider.id,
           text: String(text).trim(),
           latencyMs: Date.now() - startedAt,
-          provenance: response?.provenance ?? { provider: provider.id },
+          provenance: response?.provenance ?? {
+            provider: provider.providerId ?? provider.provider_id ?? provider.id,
+            model: provider.modelId ?? provider.model_id ?? provider.id,
+            adapter_id: provider.id,
+          },
           evidenceScore: response?.evidenceScore ?? 0,
           testsPassed: response?.testsPassed,
           confidence: response?.confidence ?? 0,
@@ -74,7 +79,12 @@ export class Augmentio {
       candidates: ranked,
       failures: settled.length - candidates.length,
       providersAttempted: providers.map((provider) => provider.id),
-      providerHealth: providers.map((provider) => ({ id: provider.id, status: provider.healthStatus || 'UNKNOWN' })),
+      providerHealth: providers.map((provider) => ({
+        id: provider.id,
+        provider: provider.providerId ?? provider.provider_id ?? provider.id,
+        model: provider.modelId ?? provider.model_id ?? provider.id,
+        status: provider.healthStatus || 'UNKNOWN',
+      })),
       cacheHit: false,
     };
     await this.cache.set(cacheKey, result);
