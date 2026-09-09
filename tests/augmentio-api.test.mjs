@@ -2,6 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import handleAugmentio from '../src/api/augmentio-api.js';
 
+test('augmentio GET serves lightweight MEL Lab interface', async () => {
+  const request = new Request('https://mel.test/api/gen2/augmentio/fanout', { method: 'GET' });
+  const response = await handleAugmentio(request, {});
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /text\/html/);
+  const html = await response.text();
+  assert.match(html, /MEL Lab/);
+  assert.match(html, /Cerveaux/);
+  assert.match(html, /teacherReview/);
+});
+
 test('augmentio API fans out across registered Workers AI models and prepares teacher review', async () => {
   const calledModels = [];
   const env = {
