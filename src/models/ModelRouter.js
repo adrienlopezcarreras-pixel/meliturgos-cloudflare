@@ -5,12 +5,33 @@ import { analyzeRefusal } from './refusal-analyzer.js';
 export const TASK_TYPES = Object.freeze(['GENERAL','FAST','REASONING','CODE','VISION','AUDIO','STEERABLE','FALLBACK']);
 export function classifyTask(text) { return /function |class |code|\.js\b|python/i.test(text) ? 'coding' : /raisonne|reason|démontr|explain|why|how/i.test(text) ? 'reasoning' : 'conversation'; }
 export class ModelRouter {
-  constructor({registry=standardRegistry, invoke, finalFallback, timeoutMs=30000, maxCalls=2}={}) { this.registry=registry; this.invoke=invoke; this.finalFallback=finalFallback; this.timeoutMs=timeoutMs; this.maxCalls=Math.min(2,Math.max(1,maxCalls)); this.stats={calls:0,failures:0}; }
+  constructor({registry=standardRegistry, invoke, finalFallback, timeoutMs=30000, maxCalls=2, augmentio=null}={}) { this.registry=registry; this.invoke=invoke; this.finalFallback=finalFallback; this.timeoutMs=timeoutMs; this.maxCalls=Math.max(1,Number(maxCalls)||2); this.augmentio=augmentio; this.stats={calls:0,failures:0,augmentioCalls:0}; }
   classifyTask(text) { return classifyTask(text); }
   normalizeTask(task) { return ({chat:'GENERAL',general:'GENERAL',conversation:'GENERAL',coding:'CODE',code:'CODE',reasoning:'REASONING',vision:'VISION',audio:'AUDIO',fast:'FAST',steerable:'STEERABLE',fallback:'FALLBACK'})[String(task).toLowerCase()] || String(task).toUpperCase(); }
   selectModel(task, {model}={}) { const capability=this.normalizeTask(task); let candidates=this.registry.modelsByCapability(capability); if (!candidates.length && capability==='GENERAL') candidates=this.registry.modelsByCapability('FALLBACK'); const selected=model ? candidates.find(m=>m.id===model) : candidates[0]; if (!selected) throw new DomainError('capability_missing',422); return selected; }
   fallback(task, excluded=[]) { const capability=this.normalizeTask(task); return this.registry.modelsByCapability(capability).filter(m=>!excluded.includes(m.id)); }
-  async execute({task='GENERAL',messages,model},context={}) {
+  async executeParallel({task='GENERAL',messages,maxCandidates=this.maxCalls},context={}) {
+    if (!this.augmentio?.fanOut) throw new DomainError('AUGMENTIO_UNCONFIGURED',503);
+    this.stats.augmentioCalls++;
+    const input=Array.isArray(messages) ? messages.map(m=>`${m.role||'user'}: ${m.content||''}`).join('\n') : String(messages||'');
+    const result=await this.augmentio.fanOut({capability:this.normalizeTask(task),input,context,maxCandidates});
+    return {
+      text: result.best.text,
+      model: result.best.model,
+      provider: result.best.provider,
+      task,
+      attempts: result.providersAttempted?.length || result.candidates?.length || 1,
+      fallback_used: (result.failures||0)>0,
+      augmentio_used: true,
+      candidates: result.candidates,
+      provenance: result.best.provenance,
+      provider_health: result.providerHealth,
+      cache_hit: result.cacheHit===true,
+      tool_succeeded: true,
+    };
+  }
+  async execute({task='GENERAL',messages,model,parallel=false,maxCandidates},context={}) {
+    if (parallel && this.augmentio?.fanOut) return this.executeParallel({task,messages,maxCandidates},context);
     if (!this.invoke) throw new DomainError('MODEL_PROVIDER_UNCONFIGURED',503);
     const primary=this.selectModel(task,{model});
     const candidates=[primary,...this.fallback(task,[primary.id])].slice(0,this.maxCalls);
@@ -33,6 +54,6 @@ export class ModelRouter {
   }
   listModels(task) { return this.registry.modelsByCapability(this.normalizeTask(task)); }
   estimateCost(task) { return this.selectModel(task).cost || 0; }
-  callModel(task, request, options={}) { return this.execute({task,messages:request.messages || request,model:options.model}); }
+  callModel(task, request, options={}) { return this.execute({task,messages:request.messages || request,model:options.model,parallel:options.parallel,maxCandidates:options.maxCandidates}); }
   getStats() { return {...this.stats,totalModels:this.registry.size(),capabilities:this.registry.list().flatMap(m=>m.capabilities)}; }
 }
