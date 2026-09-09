@@ -2,6 +2,7 @@ import { createDefaultCapabilityBus } from '../../capabilities/default-bus.js';
 import { validateManifest } from '../../plugins/validator.js';
 import { transition } from '../lifecycle/extension.js';
 import { requireValue } from '../contracts.js';
+import { requireStateOfPlayCouncil } from '../../teachers/model-council.js';
 
 /**
  * Local composition root for integrated Gen2 proofs. Production adapters can
@@ -44,14 +45,19 @@ export function createGen2Runtime({ audit = async () => {}, env = {} } = {}) {
       run: (id, input, context) => bus.execute(`module:${id}`, input, context)
     },
     moduleLab: {
-      async prove(manifest, handler) {
-        const proofs = { version: manifest.version, tests: true, sandbox: true, security: true, activation: true };
+      async prove(manifest, handler, { councilReport } = {}) {
+        const council = requireStateOfPlayCouncil(councilReport);
+        const proofs = { version: manifest.version, council: true, tests: true, sandbox: true, security: true, activation: true };
         let row = { ...manifest, status: 'DRAFT' };
         for (const next of ['GENERATED', 'VALIDATED', 'TESTED', 'CANDIDATE']) row = transition(row, next, proofs, 'module');
         registerExtension(modules, 'module', { ...row, status: 'TESTED' }, handler);
         row = transition({ ...row, status: 'CANDIDATE' }, 'ACTIVE', proofs, 'module');
         modules.get(manifest.id).status = row.status;
-        return { status: row.status, result: await bus.execute(`module:${manifest.id}`, { value: 'lab' }, { owner: 'runtime', permissions: manifest.permissions, requestId: crypto.randomUUID() }) };
+        return {
+          status: row.status,
+          council: { phase: council.phase, responses: council.responses?.length || 0 },
+          result: await bus.execute(`module:${manifest.id}`, { value: 'lab' }, { owner: 'runtime', permissions: manifest.permissions, requestId: crypto.randomUUID() })
+        };
       }
     },
     agents: {
