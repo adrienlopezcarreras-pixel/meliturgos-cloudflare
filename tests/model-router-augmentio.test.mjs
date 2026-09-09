@@ -50,7 +50,7 @@ test('ModelRouter delegates parallel requests to Augmentio with provenance', asy
   assert.equal(out.attempts, 3);
   assert.deepEqual(out.provenance, { provider: 'workers-ai', model: 'wa-1' });
   assert.equal(received.maxCandidates, 5);
-  assert.match(received.input, /user: compare/);
+  assert.deepEqual(received.input, [{ role: 'user', content: 'compare' }]);
   assert.equal(router.getStats().augmentioCalls, 1);
 });
 
