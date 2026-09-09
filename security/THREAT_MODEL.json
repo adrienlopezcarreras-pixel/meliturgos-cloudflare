@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "survival_modes": ["NORMAL", "DEGRADED", "READ_ONLY", "RECOVERY", "HALTED"],
+  "invariants": {
+    "owner_halt_wins": true,
+    "secrets_in_repo": false,
+    "default_deny_tools": true,
+    "untrusted_content_cannot_grant_permissions": true,
+    "candidate_has_production_authority": false,
+    "single_provider_authoritative_for_identity_memory_backup_build": false
+  },
+  "threats": [
+    {"id":"SCM-01","threat":"malicious or accidental protected-branch write","likelihood":"medium","blast_radius":"high","controls":["candidate branches","CI","exact-commit deployment gate","recommended branch ruleset"],"test":"unauthorized deploy blocked","residual_risk":"medium","recovery":"restore last-known-good commit and review audit trail"},
+    {"id":"SUPPLY-01","threat":"GitHub Action or dependency compromise","likelihood":"medium","blast_radius":"high","controls":["minimal GITHUB_TOKEN","pinned Actions SHAs","npm ci lockfile","npm audit"],"test":"candidate CI validates pinned actions and lockfile install","residual_risk":"medium","recovery":"freeze deploys, revert dependency/action pin, rebuild from verified commit"},
+    {"id":"SECRET-01","threat":"secret disclosure in source/log/cache/prompt","likelihood":"medium","blast_radius":"high","controls":["no secrets in repository","secret-store boundary","redaction requirement","cache excludes sensitive payloads by policy"],"test":"secret-like fixture redaction benchmark pending","residual_risk":"medium","recovery":"READ_ONLY, revoke/rotate affected credential with owner authorization"},
+    {"id":"PROMPT-01","threat":"prompt/tool injection from untrusted data","likelihood":"high","blast_radius":"high","controls":["provenance labels","capability authorization","untrusted data cannot alter control policy"],"test":"prompt injection cannot escalate tools benchmark pending","residual_risk":"medium","recovery":"disable affected capability, preserve evidence, retest policy"},
+    {"id":"PROVIDER-01","threat":"AI provider outage/rate limit/suspension","likelihood":"high","blast_radius":"medium","controls":["provider-neutral adapters","health/quota arbitration","circuit cooldown","graceful degradation","zero-euro governor"],"test":"429 cooldown fallback covered by augmentio benchmark","residual_risk":"low","recovery":"DEGRADED mode and alternate configured provider"},
+    {"id":"INTEGRITY-01","threat":"memory/config corruption","likelihood":"medium","blast_radius":"high","controls":["append-only audit intent","hash/version metadata planned","recovery bundle planned"],"test":"corrupted snapshot detection pending","residual_risk":"high","recovery":"RECOVERY mode from independently verified snapshot"}
+  ]
+}
