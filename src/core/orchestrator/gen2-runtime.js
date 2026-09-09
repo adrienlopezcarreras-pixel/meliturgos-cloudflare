@@ -8,8 +8,8 @@ import { requireValue } from '../contracts.js';
  * replace handlers, but all execution still crosses the same CapabilityBus.
  * State is intentionally in-memory here; persistence adapters are separate.
  */
-export function createGen2Runtime({ audit = async () => {} } = {}) {
-  const bus = createDefaultCapabilityBus({ audit });
+export function createGen2Runtime({ audit = async () => {}, env = {} } = {}) {
+  const bus = createDefaultCapabilityBus({ audit, env });
   const plugins = new Map();
   const modules = new Map();
   const agents = new Map();
