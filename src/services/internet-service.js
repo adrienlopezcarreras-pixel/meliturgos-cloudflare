@@ -1,107 +1,75 @@
 /**
- * InternetService — High-level service for web-based operations
- * 
- * Wraps WebCapability with provenance tracking, rate limiting, and enrichment.
- * Available capabilities:
- * - SEARCH: Search engine queries with multi-engine support
- * - RESEARCH: Rich web search with citation generation
- * - AGGREGATE: Fetch multiple sources for comparison
+ * InternetService — bounded web research with provenance, rate limiting and safe fetches.
  */
-
 class InternetService {
-  constructor(env) {
+  constructor(env = {}) {
     this.env = env;
     this.sourceId = this.generateSourceId();
     this.lastFetch = 0;
-    this.minInterval = 1000; // 1 second between fetches
+    this.minInterval = 1000;
   }
-  
-  /**
-   * Generate unique provenance source ID
-   */
+
   generateSourceId() {
-    return `web-svc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    return `web-svc-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
   }
-  
-  /**
-   * Rate limiter: ensure minimum interval between requests
-   */
+
   ensureRateLimit() {
     const now = Date.now();
     const elapsed = now - this.lastFetch;
-    console.log(`  [RateLimit] lastFetch: ${this.lastFetch}, now: ${now}, elapsed: ${elapsed}ms, minInterval: ${this.minInterval}ms`);
-    
     if (elapsed < this.minInterval) {
       const delay = this.minInterval - elapsed;
-      console.log(`  [RateLimit] Sleeping for ${delay}ms`);
-      return new Promise(resolve => setTimeout(resolve, delay));
+      return new Promise(resolve => setTimeout(() => { this.lastFetch = Date.now(); resolve(); }, delay));
     }
-    
     this.lastFetch = now;
     return Promise.resolve();
   }
-  
-  /**
-   * Detailed web research with provenance and citation
-   */
+
   async research(query, domains = null, maxDepth = 1) {
-    // Rate limit
     await this.ensureRateLimit();
-    
-    const sources = [];
-    const querySanitized = query.trim();
-    
-    // Build URLs based on depth
+    const querySanitized = String(query || '').trim();
+    if (!querySanitized) throw new Error('INVALID_QUERY');
+
     const urls = [];
-    if (maxDepth >= 1) {
-      urls.push(`https://www.google.com/search?q=${encodeURIComponent(querySanitized)}`);
-    }
-    
-    // Secondary sources for depth > 1
-    if (maxDepth >= 2) {
-      urls.push(`https://duckduckgo.com/html/?q=${encodeURIComponent(querySanitized)}`);
-    }
-    
-    if (maxDepth >= 3 && domains && Array.isArray(domains) && domains.length > 0) {
-      for (const domain of domains) {
-        urls.push(`https://${domain}/search?q=${encodeURIComponent(querySanitized)}`);
+    if (maxDepth >= 1) urls.push(`https://www.google.com/search?q=${encodeURIComponent(querySanitized)}`);
+    if (maxDepth >= 2) urls.push(`https://duckduckgo.com/html/?q=${encodeURIComponent(querySanitized)}`);
+    if (maxDepth >= 3 && Array.isArray(domains)) {
+      for (const domain of domains.slice(0, 3)) {
+        const clean = String(domain || '').trim();
+        if (clean) urls.push(`https://${clean}/search?q=${encodeURIComponent(querySanitized)}`);
       }
     }
-    
-    // Fetch in parallel with strategic waiting
-    const fetchPromises = urls.slice(0, 3).map(async (url) => {
+
+    const results = await Promise.all(urls.slice(0, 3).map(async url => {
       try {
-        const content = await this.fetchPage(url);
-        if (content === null) {
-          return null;
-        }
-        
+        const page = await this.fetchPage(url);
+        const html = typeof page === 'string' ? page : String(page?.content || '');
+        if (!html) return null;
         return {
-          url,
-          content,
-          title: this.extractTitle(content, url),
-          snippet: this.extractSnippet(content),
-          sources_count: Math.floor(Math.random() * 5) + 1, // Simulated
+          url: page?.url || url,
+          content: html,
+          title: this.extractTitle(html, page?.url || url),
+          snippet: this.extractSnippet(html),
+          provenance: typeof page === 'object' ? {
+            source_id: page.source_id,
+            fetched_at: page.timestamp,
+            content_type: page.content_type,
+            fetch_duration_ms: page.fetch_duration_ms,
+            truncated: page.truncated,
+          } : null,
         };
       } catch (e) {
         console.error(`InternetService research failed for ${url}:`, e.message);
         return null;
       }
-    });
-    
-    const results = await Promise.all(fetchPromises);
-    
-    // Filter out failures
-    sources.push(...results.filter(r => r !== null));
-    
-    // Build citation
-    const citation = this.buildCitation(sources, querySanitized);
-    
+    }));
+
+    const sources = results.filter(Boolean);
     return {
       query: querySanitized,
       sources,
       citations_count: sources.length,
       depth: maxDepth,
+      citation: this.buildCitation(sources),
       summary: this.summarizeSources(sources),
       provenance: {
         source_id: this.sourceId,
@@ -110,81 +78,41 @@ class InternetService {
       },
     };
   }
-  
-  /**
-   * Simple single-page fetch
-   */
+
   async fetchPage(url) {
-    await this.ensureRateLimit(); // Rate limit before each fetch
-    
+    await this.ensureRateLimit();
+    if (String(url).length > 500) throw new Error('URL too long');
     try {
-      // Use WebCapability (imported dynamically to avoid circular deps)
-      const webCapability = (await import('../devices/web-capability.js'));
-
-      // Don't fetch extremely long URLs
-      if (url.length > 500) {
-        throw new Error('URL too long');
-      }
-
-      return await webCapability.fetchWebContent(this.sourceId, url);
+      const webCapability = await import('../devices/web-capability.js');
+      const fetchImpl = typeof this.env?.MEL_WEB_FETCH === 'function' ? this.env.MEL_WEB_FETCH : fetch;
+      return await webCapability.fetchWebContent(this.sourceId, url, { fetchImpl });
     } catch (e) {
       throw new Error(`fetchPage(${url}) failed: ${e.message}`);
     }
   }
-  
-  /**
-   * Extract page title from HTML
-   */
+
   extractTitle(html, url) {
-    const match = html.match(/<title[^>]*>([^<]*)<\/title>/i);
-    if (match && match[1]) {
-      return match[1].trim();
-    }
-    try {
-      const urlObj = new URL(url);
-      return urlObj.hostname;
-    } catch (e) {
-      return 'Unknown';
-    }
+    const match = String(html).match(/<title[^>]*>([^<]*)<\/title>/i);
+    if (match?.[1]) return match[1].trim();
+    try { return new URL(url).hostname; } catch { return 'Unknown'; }
   }
-  
-  /**
-   * Extract page snippet from HTML
-   */
+
   extractSnippet(html) {
-    const snippet = html.match(/<[^>]+class="[^"]*description[^"]*"[^>]*>([^<]*)<\/title>/i) ||
-                    html.match(/<meta[^>]+name=["']description["'][^>]*content=["']([^"']+)["']/i);
-    
-    if (snippet && snippet[1]) {
-      return snippet[1].trim();
-    }
-    
-    // Fallback: take first 150 chars
-    return html.substring(0, 150).replace(/<[^>]+>/g, ' ').trim();
+    const source = String(html);
+    const snippet = source.match(/<meta[^>]+name=["']description["'][^>]*content=["']([^"']+)["']/i) ||
+      source.match(/<meta[^>]+content=["']([^"']+)["'][^>]*name=["']description["']/i);
+    if (snippet?.[1]) return snippet[1].trim();
+    return source.slice(0, 300).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150);
   }
-  
-  /**
-   * Build citation string for ProvenanceService
-   */
-  buildCitation(sources, query) {
-    return sources.map((s, i) => {
-      const id = i + 1;
-      return `[${id}] Source: ${s.title}\nURL: ${s.url}\nSnippet: ${s.snippet.substring(0, 200)}`;
-    }).join('\n\n');
+
+  buildCitation(sources) {
+    return sources.map((source, i) => `[${i + 1}] ${source.title}\nURL: ${source.url}\nSnippet: ${source.snippet.slice(0, 200)}`).join('\n\n');
   }
-  
-  /**
-   * Summarize sources after research
-   */
+
   summarizeSources(sources) {
-    if (sources.length === 0) {
-      return 'No sources found or all sources failed to load.';
-    }
-    
-    const titles = sources.map(s => s.title);
-    const uniqueTitles = [...new Set(titles)];
-    
-    return `Found ${sources.length} relevant sources (HTML available) covering topics: ${uniqueTitles.slice(0, 5).join(', ') || 'multiple topics'}.`;
+    if (!sources.length) return 'No sources found or all sources failed to load.';
+    const titles = [...new Set(sources.map(source => source.title))];
+    return `Found ${sources.length} relevant sources covering: ${titles.slice(0, 5).join(', ') || 'multiple topics'}.`;
   }
 }
 
