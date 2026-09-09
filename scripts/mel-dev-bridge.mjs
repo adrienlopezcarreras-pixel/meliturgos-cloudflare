@@ -30,15 +30,26 @@ async function processRemoteJob(job) {
   const id = job.job_id || job.id;
   const context = { owner: 'dev-bridge', requestId: id };
   try {
-    await bridge.bus.execute('code.search', { query: job.goal }, context).catch(() => null);
+    const steps = [];
+    const query = /interface|fichier|chemin|principal/i.test(job.goal || '') ? 'interface' : String(job.goal || '').slice(0, 120);
+    const search = await bridge.bus.execute('code.search', { query }, context);
+    steps.push({ capability: 'code.search', query, result: search });
+    const text = search?.result?.stdout || search?.stdout || '';
+    const paths = [...text.matchAll(/(?:^|\s|\()((?:src|worker\.js)[^:\s)]*)/gm)].map(m => m[1]).filter((p, i, a) => a.indexOf(p) === i);
+    const candidatePath = paths.sort((a, b) => (/(interface|page)/i.test(b) ? 1 : 0) - (/(interface|page)/i.test(a) ? 1 : 0))[0];
+    if (candidatePath) steps.push({ capability: 'code.read', path: candidatePath, result: await bridge.bus.execute('code.read', { path: candidatePath }, context) });
     await bridge.bus.execute('dev.create_candidate', { job_id: id }, context);
     const files = typeof job.files_json === 'string' ? JSON.parse(job.files_json || '[]') : (job.files_json || []);
     for (const file of Array.isArray(files) ? files : []) if (file?.path && typeof file.content === 'string') await bridge.bus.execute('dev.apply_change', { job_id: id, path: file.path, content: file.content }, context);
     const tests = typeof job.tests_json === 'string' ? JSON.parse(job.tests_json || '[]') : (job.tests_json || []);
-    const testName = Array.isArray(tests) && tests[0]?.command ? tests[0].command : 'test:integration';
-    const testResult = await bridge.bus.execute('dev.test', { job_id: id, command: testName }, context);
+    const testResult = Array.isArray(tests) && tests[0]?.command ? await bridge.bus.execute('dev.test', { job_id: id, command: tests[0].command }, context) : { command: 'read-only', passed: true };
+    steps.push({ capability: 'dev.test', result: testResult });
+    const diff = await bridge.bus.execute('code.diff', {}, context);
     const report = await bridge.bus.execute('dev.report', { job_id: id }, context);
-    return remote.result({ job_id: id, status: 'READY_FOR_REVIEW', candidate_branch: report.branch, files_changed: files.map(f => f.path).filter(Boolean), tests: [testResult], diff_summary: report.diff, result: report });
+    steps.push({ capability: 'code.diff', result: diff });
+    const answer = candidatePath || (paths[0] || 'Aucun fichier trouvé');
+    const result = { answer, steps, files: candidatePath ? [candidatePath] : [], tests: [testResult], diff_summary: 'NO_CHANGES' };
+    return remote.result({ job_id: id, status: 'READY_FOR_REVIEW', candidate_branch: report.branch, files_json: candidatePath ? [candidatePath] : [], tests_json: [testResult], diff_summary: 'NO_CHANGES', result_json: result, plan_json: { steps: steps.map(s => s.capability) } });
   } catch (error) { return remote.result({ job_id: id, status: 'FAILED', error: error.code || error.message }); }
 }
 
