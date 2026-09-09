@@ -6,6 +6,8 @@ import { RAGService } from '../search/rag-service.js';
 import { getRoadmapPayload } from '../roadmap/master-roadmap.js';
 import { normalizeChatGPTArchive } from '../persistence/chatgpt-archive-importer.js';
 import { createConversationService } from '../conversations/conversation-service.js';
+import { runAugmentioStateOfPlay } from '../teachers/augmentio-council.js';
+import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const DEFAULT_BRANCH = 'release/mel-2026-09-09-r1';
@@ -15,6 +17,17 @@ function capabilityError(message, code = message) {
   error.code = code;
   return error;
 }
+
+const councilInputSchema = {
+  type: 'object',
+  properties: {
+    goal: { type: 'string', minLength: 1, maxLength: 4000 },
+    context: { type: 'object', additionalProperties: true },
+    minResponses: { type: 'integer', minimum: 2, maximum: 12 }
+  },
+  required: ['goal'],
+  additionalProperties: false
+};
 
 /** Safe capability bus used by MEL's Gen2 runtime. Only real executable handlers are registered. */
 export function createDefaultCapabilityBus({ audit, env = {}, repository, branch, token, fetchImpl } = {}) {
@@ -53,6 +66,38 @@ export function createDefaultCapabilityBus({ audit, env = {}, repository, branch
       input: input.input,
       context: input.context || {},
       maxCandidates: Math.min(12, Math.max(1, Number(input.maxCandidates) || 4))
+    });
+  });
+
+  bus.discover({
+    id: 'council.state-of-play', name: 'Council multi-IA — état des lieux', category: 'evolution', version: '1.0.0', provider: 'mel',
+    description: 'Asks multiple explicitly zero-added-cost AIs for an independent state-of-play before development starts.',
+    input_schema: councilInputSchema,
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: env.AI ? 'HEALTHY' : 'DEGRADED', enabled: true
+  }, async input => {
+    if (!env.AI) throw capabilityError('AI_BINDING_MISSING');
+    return runAugmentioStateOfPlay({
+      env,
+      goal: input.goal,
+      context: input.context || {},
+      minResponses: Math.max(2, Number(input.minResponses) || 2)
+    });
+  });
+
+  bus.discover({
+    id: 'evolution.preflight', name: 'Préflight de nouvelle compétence', category: 'evolution', version: '1.0.0', provider: 'mel',
+    description: 'Enforces AI-first state-of-play and stops before code generation until existing code is inspected.',
+    input_schema: councilInputSchema,
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: env.AI ? 'HEALTHY' : 'DEGRADED', enabled: true
+  }, async input => {
+    if (!env.AI) throw capabilityError('AI_BINDING_MISSING');
+    return prepareDevelopmentRequest({
+      env,
+      goal: input.goal,
+      context: input.context || {},
+      minResponses: Math.max(2, Number(input.minResponses) || 2)
     });
   });
 
