@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import {copyFile,unlink} from "node:fs/promises";
-const testWorker="/tmp/meliturgos-orchestration-test.mjs";
-await copyFile(new URL("../worker.js",import.meta.url),testWorker);
-const {default:worker}=await import("file://"+testWorker+"?v="+Date.now());
+
+// Import the Worker in place so its lazy Gen2 imports resolve against the real src tree.
+// The old /tmp copy silently disabled ModelRouter and could only exercise legacy single-call inference.
+const workerUrl=new URL("../worker.js",import.meta.url);
+workerUrl.searchParams.set("v",String(Date.now()));
+const {default:worker}=await import(workerUrl.href);
 
 const auth="Basic "+Buffer.from("adrien:test").toString("base64");
 let mediaPuts=0;
@@ -51,8 +53,9 @@ async function data(path,options){const response=await call(path,options);return
  assert.equal(body.candidates.length,2);
 }
 {
+ // Bounded legacy chat: first CODE model fails, the second CODE model must answer.
  const {response,body}=await data("/api/chat",{method:"POST",body:{text:"Écris du code JavaScript"},env:makeEnv({failFirst:true})});
- assert.equal(response.status,200);
+ assert.equal(response.status,200,JSON.stringify(body));
  assert.equal(body.model,"@cf/google/gemma-3-12b-it");
  assert.equal(body.fallback_used,true);
  assert.equal(body.model_attempts,2);
@@ -95,5 +98,4 @@ async function data(path,options){const response=await call(path,options);return
  assert.equal(body.checks.media_bucket.status,"configured_private_not_probed");
 }
 
-await unlink(testWorker);
 console.log("orchestration-registry: 10 groupes de tests réussis");
