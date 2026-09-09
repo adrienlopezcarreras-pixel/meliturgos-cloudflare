@@ -2,6 +2,7 @@ import { json } from '../core/http.js';
 import { requireValue } from '../core/contracts.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { createDefaultCapabilityBus } from '../capabilities/default-bus.js';
+import { createCognitiveMemoryStore } from '../memory/cognitive-memory.js';
 import { ModelRouter } from '../models/ModelRouter.js';
 import { createWorkersAIInvoke } from '../models/providers/workers-ai-provider.js';
 import { Gen2ChatOrchestrator } from '../chat/gen2-chat-orchestrator.js';
@@ -40,6 +41,7 @@ function historyForModel(messages) {
 
 export function createGen2ChatHandler({
   conversationServiceFactory = createConversationService,
+  cognitiveMemoryFactory = createCognitiveMemoryStore,
   capabilityBusFactory = createDefaultCapabilityBus,
   modelRouterFactory,
   orchestratorFactory,
@@ -58,13 +60,14 @@ export function createGen2ChatHandler({
       const userText = text || `Fichier${attachments.length > 1 ? 's' : ''} joint${attachments.length > 1 ? 's' : ''}: ${attachments.map(file => file.name || 'fichier').join(', ')}`;
       const requestId = String(body.request_id || crypto.randomUUID()).slice(0, 200);
       const owner = String(env.MELITURGOS_USER || env.OWNER_NAME || '').slice(0, 200);
+      const userMessageId = body.message_id ? String(body.message_id).slice(0, 200) : crypto.randomUUID();
 
       const service = conversationServiceFactory(env);
       await service.migrate();
       const history = historyForModel(await service.getMessages(conversationId, { limit: HISTORY_LIMIT }));
 
       await service.archiveMessage({
-        id: body.message_id ? String(body.message_id).slice(0, 200) : crypto.randomUUID(),
+        id: userMessageId,
         conversationId,
         deviceId,
         role: 'user',
@@ -73,6 +76,37 @@ export function createGen2ChatHandler({
         provenance: 'gen2-chat:user',
         metadata: { requestId },
       });
+
+      let memoryCapture = null;
+      let memories = [];
+      let memoryContext = null;
+      const memoryProvenance = [];
+      try {
+        const memory = cognitiveMemoryFactory(env.DB);
+        memoryCapture = await memory.captureExplicit(userText, { owner, conversationId, messageId: userMessageId });
+        memories = await memory.retrieve(userText, {
+          owner,
+          limit: 8,
+          includeUnscopedLegacy: env.MEL_INCLUDE_UNSCOPED_MEMORY === '1',
+        });
+        memoryContext = memory.formatContext(memories, memoryCapture);
+        if (memoryCapture?.captured) {
+          memoryProvenance.push({
+            type: 'memory_capture',
+            id: memoryCapture.id || null,
+            deduplicated: Boolean(memoryCapture.deduplicated),
+            status: 'SUCCEEDED',
+          });
+        } else if (memoryCapture?.reason === 'SENSITIVE_CREDENTIAL') {
+          memoryProvenance.push({ type: 'memory_capture', status: 'REJECTED', reason: 'SENSITIVE_CREDENTIAL' });
+        }
+        for (const item of memories) {
+          memoryProvenance.push({ type: 'memory_recall', id: item.id, score: Number(item.score || 0).toFixed(3) });
+        }
+      } catch (error) {
+        // Memory is important but must degrade gracefully instead of taking chat down.
+        memoryProvenance.push({ type: 'memory', status: 'DEGRADED', code: error?.code || error?.message || 'MEMORY_FAILED' });
+      }
 
       const repository = env.MEL_GITHUB_REPOSITORY || DEFAULT_REPOSITORY;
       const branch = env.MEL_GITHUB_BRANCH || DEFAULT_CODE_BRANCH;
@@ -90,8 +124,12 @@ export function createGen2ChatHandler({
         ? orchestratorFactory({ modelRouter, capabilityBus })
         : new Gen2ChatOrchestrator({ modelRouter, capabilityBus, maxToolCalls: 3 });
 
+      const modelMessages = [];
+      if (memoryContext) modelMessages.push({ role: 'system', content: memoryContext });
+      modelMessages.push(...history, { role: 'user', content: userText });
+
       const result = await orchestrator.run({
-        messages: [...history, { role: 'user', content: userText }],
+        messages: modelMessages,
         model: body.model || undefined,
       }, {
         owner,
@@ -102,6 +140,7 @@ export function createGen2ChatHandler({
       });
 
       const assistantId = crypto.randomUUID();
+      const combinedProvenance = [...memoryProvenance, ...(result.provenance || [])];
       await service.archiveMessage({
         id: assistantId,
         conversationId,
@@ -110,13 +149,15 @@ export function createGen2ChatHandler({
         content: result.text,
         model: result.model || null,
         capabilitiesUsed: result.capabilitiesUsed?.length ? result.capabilitiesUsed : null,
-        provenance: JSON.stringify(result.provenance || []),
+        provenance: JSON.stringify(combinedProvenance),
         metadata: {
           requestId,
           provider: result.provider || null,
           task: result.task || null,
           toolCalls: result.toolCalls || 0,
           fallbackUsed: Boolean(result.fallbackUsed),
+          memoryIds: memories.map(item => item.id),
+          memoryCapture: memoryCapture?.captured ? { id: memoryCapture.id || null, deduplicated: Boolean(memoryCapture.deduplicated) } : null,
           runtime: 'gen2-chat',
         },
       });
@@ -129,7 +170,9 @@ export function createGen2ChatHandler({
         model: result.model || null,
         provider: result.provider || null,
         capabilities_used: result.capabilitiesUsed || [],
-        provenance: result.provenance || [],
+        memory_ids: memories.map(item => item.id),
+        memory_capture: memoryCapture?.captured ? { id: memoryCapture.id || null, deduplicated: Boolean(memoryCapture.deduplicated) } : null,
+        provenance: combinedProvenance,
         tool_calls: result.toolCalls || 0,
         archive_saved: true,
         runtime: 'gen2-chat',
