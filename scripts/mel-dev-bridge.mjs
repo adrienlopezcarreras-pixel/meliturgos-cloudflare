@@ -32,19 +32,19 @@ async function processRemoteJob(job) {
   try {
     const steps = [];
     const query = /interface|fichier|chemin|principal/i.test(job.goal || '') ? 'interface' : String(job.goal || '').slice(0, 120);
-    const search = await bridge.bus.execute('code.search', { query }, context);
+    await bridge.bus.execute('dev.create_candidate', { job_id: id }, context);
+    const search = await bridge.bus.execute('code.search', { query, job_id: id }, context);
     steps.push({ capability: 'code.search', query, result: search });
     const text = search?.result?.stdout || search?.stdout || '';
     const paths = [...text.matchAll(/(?:^|\s|\()((?:src|worker\.js)[^:\s)]*)/gm)].map(m => m[1]).filter((p, i, a) => a.indexOf(p) === i);
     const candidatePath = paths.sort((a, b) => (/(interface|page)/i.test(b) ? 1 : 0) - (/(interface|page)/i.test(a) ? 1 : 0))[0];
-    if (candidatePath) steps.push({ capability: 'code.read', path: candidatePath, result: await bridge.bus.execute('code.read', { path: candidatePath }, context) });
-    await bridge.bus.execute('dev.create_candidate', { job_id: id }, context);
+    if (candidatePath) steps.push({ capability: 'code.read', path: candidatePath, result: await bridge.bus.execute('code.read', { path: candidatePath, job_id: id }, context) });
     const files = typeof job.files_json === 'string' ? JSON.parse(job.files_json || '[]') : (job.files_json || []);
     for (const file of Array.isArray(files) ? files : []) if (file?.path && typeof file.content === 'string') await bridge.bus.execute('dev.apply_change', { job_id: id, path: file.path, content: file.content }, context);
     const tests = typeof job.tests_json === 'string' ? JSON.parse(job.tests_json || '[]') : (job.tests_json || []);
     const testResult = Array.isArray(tests) && tests[0]?.command ? await bridge.bus.execute('dev.test', { job_id: id, command: tests[0].command }, context) : { command: 'read-only', passed: true };
     steps.push({ capability: 'dev.test', result: testResult });
-    const diff = await bridge.bus.execute('code.diff', {}, context);
+    const diff = await bridge.bus.execute('code.diff', { job_id: id }, context);
     const report = await bridge.bus.execute('dev.report', { job_id: id }, context);
     steps.push({ capability: 'code.diff', result: diff });
     const answer = candidatePath || (paths[0] || 'Aucun fichier trouvé');
