@@ -19,7 +19,7 @@ export function createWorkersAIAdapter({
   id = `workers-ai:${modelId}`,
   capabilities = ['GENERAL'],
   priority = 0,
-  estimatedCost = 0,
+  estimatedCost = null,
   concurrency = 2,
 } = {}) {
   if (!modelId) throw new TypeError('WORKERS_AI_MODEL_REQUIRED');
