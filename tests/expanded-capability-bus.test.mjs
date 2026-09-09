@@ -4,13 +4,13 @@ import { createDefaultCapabilityBus } from '../src/capabilities/default-bus.js';
 
 const context = { owner: 'adrien', permissions: [], requestId: 'test' };
 
-test('default CapabilityBus exposes real planning, memory, diagnostics and orchestration capabilities', () => {
+test('default CapabilityBus exposes real planning, memory, diagnostics, Council and orchestration capabilities', () => {
   const bus = createDefaultCapabilityBus({ env: { MELITURGOS_USER: 'adrien' }, fetchImpl: async () => new Response('', { status: 503 }) });
   const ids = new Set(bus.list().map(x => x.id));
-  for (const id of ['echo','code.read','code.search','augmentio.fanout','roadmap.read','system.bindings','rag.search','conversation.list','chatgpt.archive.preview']) {
+  for (const id of ['echo','code.read','code.search','augmentio.fanout','council.state-of-play','evolution.preflight','roadmap.read','system.bindings','rag.search','conversation.list','chatgpt.archive.preview']) {
     assert.ok(ids.has(id), `missing ${id}`);
   }
-  assert.ok(ids.size >= 9);
+  assert.ok(ids.size >= 11);
 });
 
 test('roadmap and system diagnostics execute through CapabilityBus', async () => {
@@ -36,4 +36,21 @@ test('augmentio.fanout CapabilityBus handler runs actual configured zero-cost mo
   assert.ok(result.candidates.length >= 1);
   assert.ok(calls.length >= 1);
   assert.ok(result.providersAttempted.every(x => x.startsWith('workers-ai:')));
+});
+
+test('Council and evolution capabilities consult multiple AIs before permitting code inspection', async () => {
+  const calls = [];
+  const env = {
+    MELITURGOS_USER: 'adrien',
+    AI: { run: async model => { calls.push(model); return { response: 'diagnostic '+model }; } }
+  };
+  const bus = createDefaultCapabilityBus({ env, fetchImpl: async () => new Response('', { status: 503 }) });
+  const council = await bus.execute('council.state-of-play', { goal: 'ajouter agenda', minResponses: 2 }, context);
+  assert.equal(council.status, 'COMPLETE');
+  assert.ok(council.responses.length >= 2);
+  const preflight = await bus.execute('evolution.preflight', { goal: 'ajouter agenda', minResponses: 2 }, context);
+  assert.equal(preflight.stage, 'AI_STATE_OF_PLAY_COMPLETE');
+  assert.equal(preflight.code_generation_allowed, false);
+  assert.equal(preflight.code_inspection_allowed, true);
+  assert.ok(calls.length >= 4);
 });
