@@ -7,7 +7,9 @@ on:
   pull_request:
     paths:
       - 'src/augmentio/**'
+      - 'src/resilience/**'
       - 'tests/augmentio-*.test.mjs'
+      - 'tests/resilience-*.test.mjs'
       - '.github/workflows/augmentio-ci.yml'
 
 permissions:
@@ -24,6 +26,6 @@ jobs:
           node-version: '22'
       - name: Syntax check
         run: |
-          for file in src/augmentio/*.js; do node --check "$file"; done
-      - name: Augmentio tests
-        run: node --test tests/augmentio-*.test.mjs
+          for file in src/augmentio/*.js src/resilience/*.js; do node --check "$file"; done
+      - name: Augmentio and resilience tests
+        run: node --test tests/augmentio-*.test.mjs tests/resilience-*.test.mjs
