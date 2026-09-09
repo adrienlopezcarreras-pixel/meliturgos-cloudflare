@@ -37,6 +37,15 @@ function safeEvidence(value) {
   return JSON.parse(raw.length > 20000 ? raw.slice(0, 20000) : raw);
 }
 
+function validateCouncil(evidence) {
+  const responses = Array.isArray(evidence?.responses) ? evidence.responses : [];
+  const valid = responses.filter(r => r && r.zero_added_cost === true && r.provider && r.model && (r.summary || r.result));
+  const distinct = new Set(valid.map(r => `${r.provider}/${r.model}`));
+  if (distinct.size < 2) {
+    throw Object.assign(new Error('COUNCIL_ZERO_COST_EVIDENCE_REQUIRED'), { code: 'COUNCIL_ZERO_COST_EVIDENCE_REQUIRED' });
+  }
+}
+
 export function createDevelopmentJob(goal, metadata = {}) {
   const objective = boundedGoal(goal);
   const now = new Date().toISOString();
@@ -54,11 +63,7 @@ export function createDevelopmentJob(goal, metadata = {}) {
 }
 
 function requireEvidence(event, evidence) {
-  if (event === 'COUNCIL_COMPLETE') {
-    if (!evidence || typeof evidence !== 'object' || !Array.isArray(evidence.responses) || evidence.responses.length < 2) {
-      throw Object.assign(new Error('COUNCIL_EVIDENCE_REQUIRED'), { code: 'COUNCIL_EVIDENCE_REQUIRED' });
-    }
-  }
+  if (event === 'COUNCIL_COMPLETE') validateCouncil(evidence);
   if (event === 'INSPECTION_COMPLETE') {
     if (!evidence || evidence.status !== 'COMPLETE' || !Array.isArray(evidence.evidence) || evidence.evidence.length < 1) {
       throw Object.assign(new Error('CODE_INSPECTION_EVIDENCE_REQUIRED'), { code: 'CODE_INSPECTION_EVIDENCE_REQUIRED' });
@@ -70,13 +75,19 @@ function requireEvidence(event, evidence) {
     }
   }
   if (event === 'IMPLEMENTATION_COMPLETE') {
-    if (!evidence || !String(evidence.candidate_sha || '').match(/^[a-f0-9]{7,40}$/i)) {
-      throw Object.assign(new Error('CANDIDATE_SHA_REQUIRED'), { code: 'CANDIDATE_SHA_REQUIRED' });
+    if (!evidence || !String(evidence.candidate_sha || '').match(/^[a-f0-9]{7,40}$/i) || !String(evidence.candidate_branch || '').startsWith('candidate/')) {
+      throw Object.assign(new Error('CANDIDATE_EVIDENCE_REQUIRED'), { code: 'CANDIDATE_EVIDENCE_REQUIRED' });
     }
   }
   if (event === 'TESTS_PASSED') {
     if (!evidence || evidence.full_ci !== 'SUCCESS') {
       throw Object.assign(new Error('FULL_CI_SUCCESS_REQUIRED'), { code: 'FULL_CI_SUCCESS_REQUIRED' });
+    }
+    if (evidence.augmentio !== 'SUCCESS') {
+      throw Object.assign(new Error('AUGMENTIO_TESTS_SUCCESS_REQUIRED'), { code: 'AUGMENTIO_TESTS_SUCCESS_REQUIRED' });
+    }
+    if (evidence.resilience !== 'SUCCESS') {
+      throw Object.assign(new Error('RESILIENCE_TESTS_SUCCESS_REQUIRED'), { code: 'RESILIENCE_TESTS_SUCCESS_REQUIRED' });
     }
   }
   if (event === 'CRITIQUE_PASSED') {
