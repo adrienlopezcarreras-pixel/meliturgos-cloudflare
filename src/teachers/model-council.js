@@ -7,12 +7,12 @@ export { createTeacher } from './teacher-interface.js';
  */
 export async function runStateOfPlayCouncil({ goal, context = {}, members = [], ask, minResponses = 2 } = {}) {
   const objective = String(goal || '').trim();
-  if (!objective) throw Object.assign(new Error('COUNCIL_GOAL_REQUIRED'), { code: 'COUNCIL_GOAL_REQUIRED' });
-  if (typeof ask !== 'function') throw Object.assign(new Error('COUNCIL_ADAPTER_REQUIRED'), { code: 'COUNCIL_ADAPTER_REQUIRED' });
+  if (!objective) throw Object.assign(new Error('COUNCIL_GOAL_REQUIRED'), { code: 'COUNCIL_GOAL_REQUIRED', status: 400 });
+  if (typeof ask !== 'function') throw Object.assign(new Error('COUNCIL_ADAPTER_REQUIRED'), { code: 'COUNCIL_ADAPTER_REQUIRED', status: 500 });
 
   const uniqueMembers = [...new Set((Array.isArray(members) ? members : []).filter(Boolean).map(String))];
   if (uniqueMembers.length < minResponses) {
-    throw Object.assign(new Error('COUNCIL_NOT_ENOUGH_MEMBERS'), { code: 'COUNCIL_NOT_ENOUGH_MEMBERS' });
+    throw Object.assign(new Error('COUNCIL_NOT_ENOUGH_MEMBERS'), { code: 'COUNCIL_NOT_ENOUGH_MEMBERS', status: 503 });
   }
 
   const brief = {
@@ -45,7 +45,7 @@ export async function runStateOfPlayCouncil({ goal, context = {}, members = [], 
 
   if (responses.length < minResponses) {
     throw Object.assign(new Error('COUNCIL_INSUFFICIENT_RESPONSES'), {
-      code: 'COUNCIL_INSUFFICIENT_RESPONSES', responses: responses.length, required: minResponses
+      code: 'COUNCIL_INSUFFICIENT_RESPONSES', status: 503, responses: responses.length, required: minResponses
     });
   }
 
@@ -64,7 +64,7 @@ export async function runStateOfPlayCouncil({ goal, context = {}, members = [], 
 /** Hard gate: generation/coding must not begin before a completed AI council. */
 export function requireStateOfPlayCouncil(report) {
   if (!report || report.status !== 'COMPLETE' || report.phase !== 'STATE_OF_PLAY_BEFORE_DEVELOPMENT' || report.development_allowed !== true) {
-    throw Object.assign(new Error('AI_STATE_OF_PLAY_REQUIRED_BEFORE_DEVELOPMENT'), { code: 'AI_STATE_OF_PLAY_REQUIRED_BEFORE_DEVELOPMENT' });
+    throw Object.assign(new Error('AI_STATE_OF_PLAY_REQUIRED_BEFORE_DEVELOPMENT'), { code: 'AI_STATE_OF_PLAY_REQUIRED_BEFORE_DEVELOPMENT', status: 409 });
   }
   return report;
 }
