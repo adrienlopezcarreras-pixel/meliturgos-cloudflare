@@ -104,6 +104,18 @@ export const MIGRATIONS = [
       `).run();
     },
   },
+  {
+    version: 4,
+    name: "gen2_runtime_repositories",
+    run: async (db) => {
+      await db.prepare(`CREATE TABLE IF NOT EXISTS knowledge_entities (id TEXT PRIMARY KEY,type TEXT NOT NULL,name TEXT NOT NULL,source TEXT NOT NULL,confidence REAL NOT NULL,metadata TEXT NOT NULL DEFAULT '{}',created_at INTEGER NOT NULL)`).run();
+      await db.prepare(`CREATE TABLE IF NOT EXISTS knowledge_relations (id TEXT PRIMARY KEY,subject TEXT NOT NULL,relation TEXT NOT NULL,object TEXT NOT NULL,source TEXT NOT NULL,confidence REAL NOT NULL,created_at INTEGER NOT NULL)`).run();
+      await db.prepare(`CREATE TABLE IF NOT EXISTS timeline_events (event_id TEXT PRIMARY KEY,type TEXT NOT NULL,title TEXT NOT NULL,description TEXT NOT NULL,occurred_at INTEGER NOT NULL,source TEXT NOT NULL,confidence REAL NOT NULL,metadata TEXT NOT NULL DEFAULT '{}')`).run();
+      await db.prepare(`CREATE TABLE IF NOT EXISTS automations (id TEXT PRIMARY KEY,owner TEXT NOT NULL,type TEXT NOT NULL,trigger_json TEXT NOT NULL,actions_json TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 0,next_run_at INTEGER,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL)`).run();
+      await db.prepare(`CREATE TABLE IF NOT EXISTS automation_runs (id TEXT PRIMARY KEY,automation_id TEXT NOT NULL,status TEXT NOT NULL,result_json TEXT,created_at INTEGER NOT NULL)`).run();
+      await db.prepare(`CREATE TABLE IF NOT EXISTS backup_objects (id TEXT PRIMARY KEY,object_key TEXT NOT NULL,metadata_json TEXT NOT NULL,created_at INTEGER NOT NULL)`).run();
+    },
+  },
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {

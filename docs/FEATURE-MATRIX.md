@@ -7,8 +7,8 @@
 | CONVERSATIONS | WORKING_INTEGRATED | `src/conversations/conversation-service.js` | `test:routes`, `test:mel` | M002 | none |
 | ARCHIVE | WORKING_INTEGRATED | `ConversationService.archiveMessage` | `test:mel` | M002 | none |
 | MEMORY | WORKING_INTEGRATED | `worker.js:toolContext`, `src/memory/` | `test:mel` | M003 | legacy adapter |
-| KNOWLEDGE GRAPH | WORKING_MOCK_ONLY | `src/memory/knowledge-graph.js` + local adapters | `test:integration` | M008 | persistent adapter |
-| TIMELINE | WORKING_MOCK_ONLY | `src/memory/timeline.js` + local adapters | `test:integration` | M008 | persistent adapter |
+| KNOWLEDGE GRAPH | WORKING_INTEGRATED | `src/memory/knowledge-graph.js` + `src/core/orchestrator/d1-runtime.js` | `test:integration` | M008 | none locally |
+| TIMELINE | WORKING_INTEGRATED | `src/memory/timeline.js` + `src/core/orchestrator/d1-runtime.js` | `test:integration` | M008 | none locally |
 | RAG | WORKING_MOCK_ONLY | `src/search/rag-service.js` | `test:mel` | M003 | lexical; embeddings optional |
 | MODEL REGISTRY | WORKING_MOCK_ONLY | `src/models/ModelRegistry.js` | phase5/contracts | M004 | provider health |
 | MODEL ROUTER | WORKING_MOCK_ONLY | `src/models/ModelRouter.js`, `src/models/providers/ninjachat-provider.js`, `worker.js:askAI` | `test:mel` | M004 | AI/NinjaChat API credentials |
@@ -24,11 +24,11 @@
 | AGENTS | WORKING_INTEGRATED | `gen2-runtime.js`, `src/agents/` | `test:mel` | M008 | persistent executor |
 | DEV AGENT | WORKING_INTEGRATED | `src/dev/dev-agent.js` | `tests/integration/dev-media-flow.test.mjs` | M014 | host Git adapter |
 | SELF HEALING | WORKING_MOCK_ONLY | `src/core/lifecycle/self-healing.js` + local adapters | `test:integration` | M014 | human activation |
-| AUTOMATIONS | WORKING_MOCK_ONLY | `src/automations/automation-service.js` + local adapters | `test:integration` | M009 | scheduler/persistence |
+| AUTOMATIONS | WORKING_INTEGRATED | `src/automations/automation-service.js` + `src/core/orchestrator/d1-runtime.js` | `test:integration` | M009 | Cron deployment |
 | DEVICES | WORKING_INTEGRATED | `src/devices/device-service.js`, sync service | `test:mel` | M002 | reconciliation hardening |
 | PWA | WORKING_INTEGRATED | manifest route + `src/pages/service-worker.js` | `test:routes` | M014 | browser install verification |
 | WEB | WORKING_MOCK_ONLY | `src/services/web-tool.js` | contracts | M014 | provider adapter |
-| BACKUP | WORKING_MOCK_ONLY | `src/backup/backup-service.js` + local adapters | `test:integration` | M014 | storage adapter |
-| AUDIT | WORKING_MOCK_ONLY | `src/audit/audit-service.js` | `test:integration` | M005 | durable production persistence |
+| BACKUP | WORKING_INTEGRATED | `src/backup/backup-service.js` + D1 metadata adapter | `test:integration` | M014 | R2 binding for binaries |
+| AUDIT | WORKING_INTEGRATED | `src/audit/audit-service.js` + D1 audit_logs | `test:integration` | M005 | binding at deployment |
 
 `WORKING_MOCK_ONLY` means the local path is real but provider behavior is mocked. No row is promoted to production-ready by file existence alone.
