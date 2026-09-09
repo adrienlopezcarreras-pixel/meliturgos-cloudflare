@@ -1,9 +1,15 @@
-const DEFAULT_BRANCH = 'mel-current';
+const DEFAULT_BRANCH = 'release/mel-2026-09-09-r2';
 const MAX_FILE_BYTES = 180_000;
 const MAX_SEARCH_FILES = 24;
 const MAX_MATCHES = 20;
 const DENIED_PATH = /(^|\/)(?:\.env(?:\.|$)|\.dev\.vars(?:$|\/)|\.wrangler(?:$|\/)|backups?(?:$|\/)|node_modules(?:$|\/)|\.git(?:$|\/)|secrets?(?:$|\/)|credentials?(?:$|\/)|tokens?(?:$|\/))/i;
 const TEXT_EXT = /\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)$/i;
+const FALLBACK_FILES = [
+  'src/index.js','src/router.js','src/api/native-chat.js','src/capabilities/default-bus.js',
+  'src/capabilities/github-code-capabilities.js','src/core/orchestrator/gen2-runtime.js',
+  'src/core/orchestrator/context-builder.js','src/pages/mvp-interface.js','src/pages/full-interface-v2.js',
+  'wrangler.jsonc','package.json','README.md'
+];
 
 function text(value, name, max = 500) {
   const out = String(value ?? '').trim();
@@ -26,6 +32,16 @@ function headers(token) {
   return h;
 }
 function githubError(response, code) { const error = new Error(`${code}_${response.status}`); error.code = code; error.status = response.status; return error; }
+function rawUrl(repo, ref, path) {
+  const enc = value => String(value).split('/').map(encodeURIComponent).join('/');
+  return `https://raw.githubusercontent.com/${enc(repo)}/${enc(ref)}/${enc(path)}`;
+}
+function ensureTextSize(content) {
+  const bytes = new TextEncoder().encode(String(content || '')).length;
+  if (bytes > MAX_FILE_BYTES) throw Object.assign(new Error('CODE_FILE_TOO_LARGE'), { code: 'CODE_FILE_TOO_LARGE' });
+  if (String(content || '').includes('\u0000')) throw Object.assign(new Error('CODE_BINARY_DENIED'), { code: 'CODE_BINARY_DENIED' });
+  return String(content || '');
+}
 
 export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, token = '', fetchImpl = fetch } = {}) {
   const repo = text(repository, 'repository', 200);
@@ -33,26 +49,44 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
   const ref = text(branch, 'branch', 200);
   const api = path => `https://api.github.com/repos/${repo}/${path}`;
 
+  async function readRaw(path) {
+    const response = await fetchImpl(rawUrl(repo, ref, path), { headers: { 'user-agent': 'meliturgos-code-reader' } });
+    if (!response.ok) throw githubError(response, 'CODE_READ_FAILED');
+    const content = ensureTextSize(await response.text());
+    return { path, content, sha: response.headers?.get?.('etag') || '', branch: ref, repository: repo };
+  }
+
   async function read(pathValue) {
     const path = safePath(pathValue);
-    const response = await fetchImpl(`${api(`contents/${path}`)}?ref=${encodeURIComponent(ref)}`, { headers: headers(token) });
-    if (!response.ok) throw githubError(response, 'CODE_READ_FAILED');
+    let response;
+    try {
+      response = await fetchImpl(`${api(`contents/${path}`)}?ref=${encodeURIComponent(ref)}`, { headers: headers(token) });
+    } catch {
+      return readRaw(path);
+    }
+    if (!response.ok) {
+      if (response.status === 404) throw githubError(response, 'CODE_READ_FAILED');
+      return readRaw(path);
+    }
     const body = await response.json();
     if (body.type && body.type !== 'file') throw Object.assign(new Error('CODE_NOT_A_FILE'), { code: 'CODE_NOT_A_FILE' });
     if (Number(body.size || 0) > MAX_FILE_BYTES) throw Object.assign(new Error('CODE_FILE_TOO_LARGE'), { code: 'CODE_FILE_TOO_LARGE' });
-    const content = decodeBase64(body.content || '');
-    if (content.includes('\u0000')) throw Object.assign(new Error('CODE_BINARY_DENIED'), { code: 'CODE_BINARY_DENIED' });
+    const content = ensureTextSize(decodeBase64(body.content || ''));
     return { path, content, sha: String(body.sha || ''), branch: ref, repository: repo };
   }
 
   async function tree() {
-    const response = await fetchImpl(`${api(`git/trees/${encodeURIComponent(ref)}`)}?recursive=1`, { headers: headers(token) });
-    if (!response.ok) throw githubError(response, 'CODE_TREE_FAILED');
-    const body = await response.json();
-    return (Array.isArray(body.tree) ? body.tree : [])
-      .filter(x => x && x.type === 'blob' && typeof x.path === 'string')
-      .map(x => ({ path: x.path, size: Number(x.size || 0) }))
-      .filter(x => x.size <= MAX_FILE_BYTES && !DENIED_PATH.test(x.path) && TEXT_EXT.test(x.path));
+    try {
+      const response = await fetchImpl(`${api(`git/trees/${encodeURIComponent(ref)}`)}?recursive=1`, { headers: headers(token) });
+      if (response.ok) {
+        const body = await response.json();
+        return (Array.isArray(body.tree) ? body.tree : [])
+          .filter(x => x && x.type === 'blob' && typeof x.path === 'string')
+          .map(x => ({ path: x.path, size: Number(x.size || 0) }))
+          .filter(x => x.size <= MAX_FILE_BYTES && !DENIED_PATH.test(x.path) && TEXT_EXT.test(x.path));
+      }
+    } catch {}
+    return FALLBACK_FILES.map(path => ({ path, size: 0 })).filter(x => !DENIED_PATH.test(x.path));
   }
 
   async function search({ query, path = '' } = {}) {
@@ -79,7 +113,13 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
     try {
       const response = await fetchImpl(api('commits/' + encodeURIComponent(ref)), { headers: headers(token) });
       if (response.ok) return 'ONLINE';
-      if (response.status === 401 || response.status === 403) return 'OFFLINE';
+      if (response.status === 401) return 'OFFLINE';
+      if (response.status === 403 || response.status === 429) {
+        try {
+          const probe = await fetchImpl(rawUrl(repo, ref, 'package.json'), { headers: { 'user-agent': 'meliturgos-code-reader' } });
+          return probe.ok ? 'ONLINE' : 'DEGRADED';
+        } catch { return 'DEGRADED'; }
+      }
       return 'DEGRADED';
     } catch { return 'DEGRADED'; }
   }
@@ -88,7 +128,7 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
 
 export function registerGitHubCodeCapabilities(bus, options = {}) {
   const reader = createGitHubCodeReader(options);
-  bus.discover({ id: 'code.read', name: 'GitHub code read', category: 'development', version: '1.0.0', provider: 'github', description: 'Read one bounded non-secret text source file from the configured MELITURGOS repository branch.', input_schema: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 } }, required: ['path'], additionalProperties: false }, output_schema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' }, sha: { type: 'string' }, branch: { type: 'string' }, repository: { type: 'string' } }, required: ['path','content','sha','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.read(input.path), () => reader.health());
-  bus.discover({ id: 'code.search', name: 'GitHub code search', category: 'development', version: '1.0.0', provider: 'github', description: 'Search bounded non-secret MELITURGOS source files in the configured GitHub branch.', input_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['query'], additionalProperties: false }, output_schema: { type: 'object', properties: { query: { type: 'string' }, path: { type: 'string' }, matches: { type: 'array', items: { type: 'object', properties: { path: { type: 'string' }, line: { type: 'integer' }, excerpt: { type: 'string' } }, required: ['path','line','excerpt'], additionalProperties: false } }, searched_files: { type: 'integer' }, branch: { type: 'string' }, repository: { type: 'string' } }, required: ['query','path','matches','searched_files','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.search(input), () => reader.health());
+  bus.discover({ id: 'code.read', name: 'GitHub code read', category: 'development', version: '1.1.0', provider: 'github', description: 'Read one bounded non-secret text source file from the configured MELITURGOS repository branch.', input_schema: { type: 'object', properties: { path: { type: 'string', minLength: 1, maxLength: 1000 } }, required: ['path'], additionalProperties: false }, output_schema: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' }, sha: { type: 'string' }, branch: { type: 'string' }, repository: { type: 'string' } }, required: ['path','content','sha','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.read(input.path), () => reader.health());
+  bus.discover({ id: 'code.search', name: 'GitHub code search', category: 'development', version: '1.1.0', provider: 'github', description: 'Search bounded non-secret MELITURGOS source files in the configured GitHub branch.', input_schema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 300 }, path: { type: 'string', minLength: 0, maxLength: 1000 } }, required: ['query'], additionalProperties: false }, output_schema: { type: 'object', properties: { query: { type: 'string' }, path: { type: 'string' }, matches: { type: 'array', items: { type: 'object', properties: { path: { type: 'string' }, line: { type: 'integer' }, excerpt: { type: 'string' } }, required: ['path','line','excerpt'], additionalProperties: false } }, searched_files: { type: 'integer' }, branch: { type: 'string' }, repository: { type: 'string' } }, required: ['query','path','matches','searched_files','branch','repository'], additionalProperties: false }, risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true }, input => reader.search(input), () => reader.health());
   return reader;
 }
