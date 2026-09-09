@@ -2,7 +2,7 @@ import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
-const DEFAULT_BRANCH = 'candidate/augmentio-core';
+const DEFAULT_BRANCH = 'release/mel-2026-09-09-r1';
 
 /** Safe capability bus used by MEL's Gen2 runtime. */
 export function createDefaultCapabilityBus({ audit, env = {}, repository, branch, token, fetchImpl } = {}) {
