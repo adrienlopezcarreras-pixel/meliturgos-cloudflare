@@ -1,4 +1,4 @@
-// Canonical Worker entrypoint. worker.js is an API compatibility dependency.
+// Canonical Worker entrypoint. worker.js remains only for compatibility routes.
 import router from "./router.js";
 import { requireAuth } from "./core/security.js";
 import { setDefaultCapabilityEnvironment } from "./capabilities/default-bus.js";
@@ -7,6 +7,7 @@ import { runAugmentioStateOfPlay } from "./teachers/augmentio-council.js";
 import { prepareDevelopmentRequest } from "./evolution/development-preflight.js";
 import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
+import { handleNativeChat } from "./api/native-chat.js";
 
 function isArchivePayload(value) {
   if (Array.isArray(value)) return value.some(x => x && (x.mapping || x.messages || x.conversation_id || x.id));
@@ -105,8 +106,6 @@ async function maybeHandleChatGPTArchive(request, env) {
 export default {
   async fetch(request, env, ctx) {
     try {
-      // worker.js still creates its compatibility CapabilityBus without env.
-      // Prime the shared module with only the safe runtime bindings it needs.
       setDefaultCapabilityEnvironment(env);
 
       const readinessResponse = await maybeHandleReadiness(request, env);
@@ -119,6 +118,10 @@ export default {
       if (archiveResponse) return archiveResponse;
 
       const preparedRequest = await injectEvolutionPreflightCapability(request);
+      if (new URL(preparedRequest.url).pathname === '/api/chat') {
+        return await handleNativeChat(preparedRequest, env);
+      }
+
       const response = await router.fetch(preparedRequest, env, ctx);
       if (response) return response;
       throw new Error("Router returned null");
