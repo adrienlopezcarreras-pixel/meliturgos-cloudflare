@@ -16,7 +16,7 @@
     "test:mel": "node --test tests/integration/gen2-flow.test.mjs tests/integration/dev-media-flow.test.mjs tests/integration/local-services.test.mjs tests/integration/ninjachat-fallback.test.mjs tests/integration/d1-runtime.test.mjs tests/integration/dev-bridge.test.mjs tests/integration/dev-runtime-api.test.mjs tests/integration/self-dev-e2e.test.mjs",
     "test:acceptance": "node --test tests/integration/acceptance-flow.test.mjs",
     "mel:dev-bridge": "node scripts/mel-dev-bridge.mjs",
-    "test:mvp": "node --test tests/mvp-product.test.mjs",
+    "test:mvp": "node --test tests/mvp-product.test.mjs tests/mvp-queue.test.mjs",
     "test:routes": "node --test tests/gen2/route-integration.test.mjs",
     "test:connections": "node scripts/test-connections.mjs",
     "test:bindings": "node scripts/test-bindings.mjs"
