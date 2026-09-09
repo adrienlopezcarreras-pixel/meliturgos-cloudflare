@@ -11,22 +11,37 @@ export class ProviderPool {
     const record = {
       capabilities: [],
       enabled: true,
-      health: 'UNKNOWN',
+      healthStatus: typeof adapter.health === 'string' ? adapter.health : (adapter.healthStatus || 'UNKNOWN'),
       priority: 0,
       concurrency: 1,
-      // Unknown cost must remain unknown. ZeroEuroGovernor is fail-closed and
-      // only permits providers whose zero cost is explicitly declared.
       estimatedCost: null,
       ...adapter,
     };
+    if (typeof record.health === 'string') {
+      record.healthStatus = record.health;
+      delete record.health;
+    }
     this.adapters.set(record.id, record);
     return record;
+  }
+
+  async refreshHealth() {
+    await Promise.all([...this.adapters.values()].map(async (item) => {
+      if (typeof item.health === 'function') {
+        try {
+          item.healthStatus = await item.health();
+        } catch {
+          item.healthStatus = 'DEGRADED';
+        }
+      }
+    }));
+    return this;
   }
 
   list({ capability } = {}) {
     return [...this.adapters.values()]
       .filter((item) => item.enabled !== false)
-      .filter((item) => item.health !== 'UNAVAILABLE')
+      .filter((item) => item.healthStatus !== 'UNAVAILABLE')
       .filter((item) => !capability || item.capabilities.includes(capability))
       .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
   }
