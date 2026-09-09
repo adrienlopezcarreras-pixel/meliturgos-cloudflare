@@ -17,20 +17,25 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
           cache: npm
-      - name: Install dependencies
+      - name: Install dependencies from lockfile
         run: npm ci
+      - name: Dependency vulnerability audit
+        continue-on-error: true
+        run: npm audit --audit-level=high
       - name: Syntax check
         run: npm run check
       - name: Teacher Bridge tests
         run: node --test tests/integration/github-teacher-bridge.test.mjs
       - name: Cloud code capability tests
         run: node --test tests/integration/github-code-capabilities.test.mjs
+      - name: Augmentio orchestration benchmarks
+        run: node --test tests/integration/augmentio-core.test.mjs
       - name: Route tests
         run: npm run test:routes
       - name: MEL integration tests
