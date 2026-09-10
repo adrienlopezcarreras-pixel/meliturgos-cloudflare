@@ -86,6 +86,50 @@ test('cloud autonomy heartbeat consumes the matching canonical GitHub Teacher re
   assert.equal(resumed.job.status, 'TEACHER_APPROVED');
 });
 
+test('NEEDS_CHANGES automatically re-runs Council and emits a new Teacher request for the same job', async () => {
+  const fixture = runtimeFixture();
+  const first = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  const firstRequestId = first.teacher.request_id;
+  const initialAiCalls = fixture.aiCalls.length;
+  fixture.setReplies(JSON.stringify({
+    kind: 'TEACHER_REPLY',
+    request_id: firstRequestId,
+    verdict: 'NEEDS_CHANGES',
+    feedback: 'Inspect the completion reconciler and revise the plan.',
+  }));
+
+  const revised = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  assert.equal(revised.reconciliation.applied.length, 1);
+  assert.equal(revised.job.id, first.job.id);
+  assert.equal(revised.job.status, 'WAITING_TEACHER');
+  assert.ok(revised.teacher?.request_id);
+  assert.notEqual(revised.teacher.request_id, firstRequestId);
+  assert.ok(fixture.aiCalls.length >= initialAiCalls + 2, 'revision must perform a fresh multi-AI Council');
+  const stored = await fixture.repository.get(first.job.id);
+  assert.equal(stored.result_json.teacher_bridge_history.length, 1);
+  assert.equal(stored.result_json.last_teacher_review.request_id, firstRequestId);
+  assert.equal(stored.result_json.teacher_bridge.request.provenance.revision_of, firstRequestId);
+});
+
+test('Teacher REJECT terminates only the rejected item and immediately moves autonomy to the next safe roadmap item', async () => {
+  const fixture = runtimeFixture();
+  const first = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  fixture.setReplies(JSON.stringify({
+    kind: 'TEACHER_REPLY',
+    request_id: first.teacher.request_id,
+    verdict: 'REJECT',
+    feedback: 'This plan must not be implemented.',
+  }));
+
+  const advanced = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  const rejected = await fixture.repository.get(first.job.id);
+  assert.equal(rejected.status, 'FAILED');
+  assert.equal(rejected.result_json.autonomy_blocked, true);
+  assert.notEqual(advanced.job.id, first.job.id);
+  assert.equal(advanced.job.roadmap_id, 'MEL-WORK-02');
+  assert.equal(advanced.job.status, 'WAITING_TEACHER');
+});
+
 test('verified completion closes the approved job and releases the next roadmap job in the same heartbeat', async () => {
   const fixture = runtimeFixture();
   const first = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
