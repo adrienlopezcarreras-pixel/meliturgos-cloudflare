@@ -117,6 +117,10 @@ function completionProof(job) {
 }
 
 function coherentLoopProof(job) {
+  // Owner-chat work proves that MEL can execute a supervised request, but
+  // SELF_DEVELOPMENT_READY requires at least one job MEL selected herself from
+  // the roadmap without the owner explicitly creating that development job.
+  if (String(job?.requested_by || '') !== 'mel-autonomy') return null;
   const council = councilProof(job);
   const workDag = workDagProof(job);
   const teacher = teacherRoundTripProof(job);
@@ -132,6 +136,7 @@ function coherentLoopProof(job) {
   // branch + request-id correlation is the invariant, not SHA equality.
   return {
     job_id: job.id,
+    requested_by: 'mel-autonomy',
     request_id: completion.request_id,
     candidate_branch: completion.candidate_branch,
     implementation_base_sha: implementation.candidate_sha,
