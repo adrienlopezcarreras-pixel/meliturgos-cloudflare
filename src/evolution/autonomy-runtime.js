@@ -5,6 +5,7 @@ import { createGitHubCodeReader } from '../capabilities/github-code-capabilities
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest } from '../teachers/runtime-teacher-bridge.js';
 import { reconcileRuntimeTeacherReplies } from '../teachers/github-reply-reconciler.js';
+import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 
 const INSPECTION_FILES = [
   'AUTONOMY_STATE.json',
@@ -15,6 +16,7 @@ const INSPECTION_FILES = [
   'src/work/work-dag.js',
   'src/work/autonomous-work-loop.js',
   'src/teachers/runtime-teacher-bridge.js',
+  'src/teachers/github-completion-reconciler.js',
 ];
 
 function codeConfig(env = {}) {
@@ -141,9 +143,12 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
 
 /**
  * One bounded autonomous heartbeat. It reconciles trusted GitHub Teacher
- * replies, ensures one P0 autonomy job exists, and advances QUEUED/COUNCIL jobs
- * to a real runtime-generated Teacher request. It never edits production code,
- * deploys, or commits GitHub changes by itself.
+ * replies and CI-verified candidate completions first, then ensures the next
+ * P0 autonomy job exists and advances QUEUED/COUNCIL jobs to a real
+ * runtime-generated Teacher request. Completion reconciliation happens before
+ * selection so a finished job can release the next roadmap item in the same
+ * heartbeat. It never edits production code, deploys, or commits GitHub
+ * changes by itself.
  */
 export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
@@ -151,6 +156,13 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     ok: false,
     error: error?.code || error?.message || 'TEACHER_RECONCILE_FAILED',
     applied: [],
+  }));
+
+  const completions = await reconcileRuntimeCompletions({ repository: jobRepository, env, fetchImpl }).catch((error) => ({
+    ok: false,
+    error: error?.code || error?.message || 'COMPLETION_RECONCILE_FAILED',
+    completed: [],
+    rejected: [],
   }));
 
   const supervisor = new AutonomySupervisor({ repository: jobRepository });
@@ -167,6 +179,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   return {
     ok: true,
     reconciliation,
+    completions,
     ensured: { created: ensured.created, complete: ensured.complete || false, next: ensured.next || null },
     job: job ? { id: job.id, status: job.status, goal: job.goal, roadmap_id: job.optional_context?.roadmap_id || null } : null,
     teacher: teacher ? { status: teacher.status, request_id: teacher.request?.request_id || null } : null,
