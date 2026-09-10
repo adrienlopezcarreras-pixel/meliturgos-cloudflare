@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
 
+const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
 function runtimeFixture() {
   let replies = '';
   let completions = '';
@@ -14,10 +16,11 @@ function runtimeFixture() {
     fetchCalls.push(target);
     if (target.includes('teacher-bridge/replies.jsonl')) return new Response(replies, { status: 200 });
     if (target.includes('teacher-bridge/completions.jsonl')) return new Response(completions, { status: 200 });
+    if (target.includes('/commits/candidate%2Faugmentio-core')) return Response.json({ sha: CANDIDATE_HEAD_SHA });
     if (target.includes('/actions/runs/4242')) {
       return Response.json({
         name: 'full-candidate-ci',
-        head_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        head_sha: CANDIDATE_HEAD_SHA,
         head_branch: 'candidate/augmentio-core',
         status: 'completed',
         conclusion: 'success',
@@ -150,7 +153,7 @@ test('verified completion closes the approved job and releases the next roadmap 
     status: 'COMPLETED',
     job_id: first.job.id,
     request_id: requestId,
-    candidate_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    candidate_sha: CANDIDATE_HEAD_SHA,
     candidate_branch: 'candidate/augmentio-core',
     ci_run_id: 4242,
     tests: [
