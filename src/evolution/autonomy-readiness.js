@@ -85,6 +85,7 @@ function implementationPlanProof(job) {
     job_id: job.id,
     request_id: requestId,
     candidate_branch: proposal.candidate_branch,
+    candidate_sha: /^[a-f0-9]{40}$/i.test(String(proposal.candidate_sha || '')) ? String(proposal.candidate_sha) : null,
     providers_attempted: proposal.providers_attempted.length,
     inspected_files: proposal.inspected_files.map((row) => row?.path).filter(Boolean).slice(0, 8),
     selected_model: proposal.selected.model,
@@ -115,6 +116,33 @@ function completionProof(job) {
   };
 }
 
+function coherentLoopProof(job) {
+  const council = councilProof(job);
+  const workDag = workDagProof(job);
+  const teacher = teacherRoundTripProof(job);
+  const implementation = implementationPlanProof(job);
+  const completion = completionProof(job);
+  if (!council || !workDag || !teacher || !implementation || !completion) return null;
+  if (teacher.verdict !== 'APPROVE_PLAN') return null;
+  const requestIds = [teacher.request_id, implementation.request_id, completion.request_id].filter(Boolean);
+  if (requestIds.length !== 3 || new Set(requestIds).size !== 1) return null;
+  if (implementation.candidate_branch !== completion.candidate_branch) return null;
+  if (implementation.candidate_sha && implementation.candidate_sha !== completion.candidate_sha) return null;
+  return {
+    job_id: job.id,
+    request_id: completion.request_id,
+    candidate_branch: completion.candidate_branch,
+    candidate_sha: completion.candidate_sha,
+    ci_run_id: completion.ci_run_id,
+    council_members: council.distinct_members,
+    work_dag_resume_verified: true,
+    teacher_round_trip_correlated: true,
+    implementation_plan_correlated: true,
+    full_candidate_ci_verified: true,
+    full_loop_correlated: true,
+  };
+}
+
 function firstProof(jobs, finder) {
   for (const job of jobs) {
     const proof = finder(job);
@@ -134,6 +162,7 @@ export async function getAutonomyReadiness({ repository } = {}) {
   const teacherRoundTrip = firstProof(jobs, teacherRoundTripProof);
   const implementationPlan = firstProof(jobs, implementationPlanProof);
   const completion = firstProof(jobs, completionProof);
+  const coherentLoop = firstProof(jobs, coherentLoopProof);
   const supervisor = new AutonomySupervisor({ repository });
   const state = await supervisor.state();
 
@@ -143,6 +172,7 @@ export async function getAutonomyReadiness({ repository } = {}) {
     runtime_teacher_round_trip: Boolean(teacherRoundTrip),
     mel_multi_ai_implementation_plan: Boolean(implementationPlan),
     ci_verified_candidate_completion: Boolean(completion),
+    coherent_single_job_loop: Boolean(coherentLoop),
   };
   const blockers = [];
   if (!gates.live_council_zero_cost) blockers.push('LIVE_COUNCIL_ZERO_COST_NOT_PROVEN');
@@ -150,6 +180,7 @@ export async function getAutonomyReadiness({ repository } = {}) {
   if (!gates.runtime_teacher_round_trip) blockers.push('LIVE_TEACHER_ROUND_TRIP_NOT_PROVEN');
   if (!gates.mel_multi_ai_implementation_plan) blockers.push('MEL_APPROVED_IMPLEMENTATION_PLAN_NOT_PROVEN');
   if (!gates.ci_verified_candidate_completion) blockers.push('CI_VERIFIED_AUTONOMOUS_COMPLETION_NOT_PROVEN');
+  if (!gates.coherent_single_job_loop) blockers.push('COHERENT_SINGLE_JOB_AUTONOMOUS_LOOP_NOT_PROVEN');
 
   const ready = blockers.length === 0;
   const current = state.active
@@ -159,7 +190,7 @@ export async function getAutonomyReadiness({ repository } = {}) {
   return {
     ok: true,
     schema: 'mel.autonomy-readiness',
-    version: 2,
+    version: 3,
     evaluated_at: new Date().toISOString(),
     status: ready ? 'SELF_DEVELOPMENT_READY' : 'BUILDING_AUTONOMY',
     self_development_ready: ready,
@@ -171,6 +202,7 @@ export async function getAutonomyReadiness({ repository } = {}) {
       runtime_teacher_round_trip: teacherRoundTrip,
       mel_multi_ai_implementation_plan: implementationPlan,
       ci_verified_candidate_completion: completion,
+      coherent_single_job_loop: coherentLoop,
     },
     jobs: {
       supervised_total: jobs.length,
@@ -203,3 +235,5 @@ export async function getAutonomyReadiness({ repository } = {}) {
     },
   };
 }
+
+export { coherentLoopProof };
