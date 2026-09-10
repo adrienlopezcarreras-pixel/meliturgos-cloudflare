@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { createTeacherReviewRequest } from '../src/teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest } from '../src/teachers/runtime-teacher-bridge.js';
-import { maybeHandlePublicTeacherBridge } from '../src/teachers/public-teacher-api.js';
+import { maybeHandlePublicTeacherBridge, summarizeAutonomyJobs } from '../src/teachers/public-teacher-api.js';
 
 test('public Teacher feed is read-only and omits full council/inspection/private evidence', async () => {
   const repo = new D1DevJobRepository(null);
@@ -38,13 +38,44 @@ test('public Teacher feed is read-only and omits full council/inspection/private
   assert.equal(serialized.includes('bounded public patch summary'), true);
 });
 
-test('public Teacher status discloses only channel/count metadata', async () => {
+test('autonomy status exposes only technical lifecycle metadata, never goals', () => {
+  const summary = summarizeAutonomyJobs([
+    {
+      id: 'job-1',
+      requested_by: 'mel-autonomy',
+      status: 'WAITING_TEACHER',
+      goal: 'PRIVATE GOAL MUST NOT LEAK',
+      created_at: 1,
+      optional_context: { roadmap_id: 'MEL-WORK-01' },
+    },
+    {
+      id: 'job-2',
+      requested_by: 'mel-autonomy',
+      status: 'COMPLETED',
+      goal: 'ANOTHER PRIVATE GOAL',
+      created_at: 2,
+      optional_context: { roadmap_id: 'MEL-WORK-00' },
+    },
+    { id: 'manual', requested_by: 'professor', status: 'WAITING_TEACHER', goal: 'MANUAL PRIVATE GOAL' },
+  ]);
+  assert.equal(summary.total, 2);
+  assert.equal(summary.active_count, 1);
+  assert.equal(summary.waiting_teacher_count, 1);
+  assert.equal(summary.completed_count, 1);
+  assert.deepEqual(summary.current, { job_id: 'job-1', status: 'WAITING_TEACHER', roadmap_id: 'MEL-WORK-01' });
+  assert.equal(JSON.stringify(summary).includes('PRIVATE GOAL'), false);
+});
+
+test('public Teacher status discloses channel/count and minimized autonomy metadata only', async () => {
   const response = await maybeHandlePublicTeacherBridge(new Request('http://x/api/teacher/status'), {});
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.equal(body.exposes_secrets, false);
+  assert.equal(body.exposes_goals, false);
   assert.equal(body.mutation_allowed, false);
   assert.equal(typeof body.pending_count, 'number');
+  assert.equal(typeof body.autonomy.active_count, 'number');
+  assert.equal('goal' in (body.autonomy.current || {}), false);
 });
 
 test('public Teacher API refuses mutation by not handling non-GET requests', async () => {
