@@ -1,6 +1,6 @@
 import { requireAuth } from '../core/security.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
-import { AutonomySupervisor } from './autonomy-supervisor.js';
+import { AutonomySupervisor, isSupervisedAutonomyJob } from './autonomy-supervisor.js';
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
@@ -18,7 +18,7 @@ function safeJob(job) {
     candidate_branch: job?.candidate_branch || null,
     teacher: bridge ? {
       status: bridge.status || null,
-      request_id: bridge.request?.request_id || null,
+      request_id: bridge.request?.request_id || bridge.review?.request_id || null,
       verdict: bridge.review?.verdict || null,
     } : null,
     completion: completion ? {
@@ -49,7 +49,7 @@ export async function getAutonomyState(env, { repository = null } = {}) {
   const repo = repository || new D1DevJobRepository(env.DB);
   const supervisor = new AutonomySupervisor({ repository: repo });
   const state = await supervisor.state();
-  const autonomyJobs = state.jobs.filter((job) => job?.requested_by === 'mel-autonomy');
+  const autonomyJobs = state.jobs.filter(isSupervisedAutonomyJob);
   const active = autonomyJobs.filter((job) => !TERMINAL.has(String(job.status || '').toUpperCase()));
   return {
     ok: true,
@@ -62,13 +62,18 @@ export async function getAutonomyState(env, { repository = null } = {}) {
     deployed_code_branch: env.MEL_GITHUB_BRANCH || null,
     counts: {
       total_autonomy_jobs: autonomyJobs.length,
+      owner_requested: autonomyJobs.filter((job) => job?.requested_by === 'owner-chat').length,
+      roadmap_requested: autonomyJobs.filter((job) => job?.requested_by === 'mel-autonomy').length,
       active: active.length,
       completed: autonomyJobs.filter((job) => ['COMPLETED', 'COMMITTED'].includes(String(job.status || '').toUpperCase())).length,
       waiting_teacher: autonomyJobs.filter((job) => String(job.status || '').toUpperCase() === 'WAITING_TEACHER').length,
       teacher_approved: autonomyJobs.filter((job) => String(job.status || '').toUpperCase() === 'TEACHER_APPROVED').length,
       failed: autonomyJobs.filter((job) => String(job.status || '').toUpperCase() === 'FAILED').length,
     },
-    active_jobs: active.map(safeJob),
+    active_jobs: active
+      .slice()
+      .sort((a, b) => (a?.requested_by === 'owner-chat' ? 0 : 1) - (b?.requested_by === 'owner-chat' ? 0 : 1) || Number(a.created_at || 0) - Number(b.created_at || 0))
+      .map(safeJob),
     next: safeRoadmapItem(state.next),
   };
 }
