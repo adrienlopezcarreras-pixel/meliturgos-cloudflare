@@ -9,6 +9,7 @@ import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { handleNativeChat } from "./api/native-chat.js";
 import { maybeHandlePublicTeacherBridge } from "./teachers/public-teacher-api.js";
+import { runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
 
 let lastSafeWorkJob = null;
 
@@ -221,7 +222,7 @@ async function maybeHandleChatGPTArchive(request, env) {
   }
 }
 
-/** Main fetch handler. */
+/** Main fetch and scheduled handlers. */
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -265,5 +266,14 @@ export default {
         }
       );
     }
+  },
+
+  async scheduled(_controller, env, ctx) {
+    const work = runAutonomyRuntimeTick(env).catch((error) => {
+      console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
+      return null;
+    });
+    if (ctx?.waitUntil) ctx.waitUntil(work);
+    else await work;
   }
 };
