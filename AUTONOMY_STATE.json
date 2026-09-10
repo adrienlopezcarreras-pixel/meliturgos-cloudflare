@@ -1,7 +1,7 @@
 {
   "schema": "mel.autonomy-state",
   "version": 1,
-  "updated_at": "2026-09-10T04:07:00Z",
+  "updated_at": "2026-09-10T13:46:20Z",
   "branch": "candidate/augmentio-core",
   "priority": "P0",
   "objective": "Fermer la boucle MEL -> travail -> Teacher Bridge -> ChatGPT -> reprise automatique, puis continuer le prochain travail sans attente humaine inutile.",
@@ -9,16 +9,37 @@
     {
       "capability": "resumable_work_dag",
       "status": "VERIFIED",
-      "evidence_commit": "1efeb36c6c01c358f723056501062dc089f3ea83",
-      "ci": "full-candidate-ci success",
-      "notes": "Dépendances, checkpoints signés, idempotence, fail-closed des noeuds interrompus non idempotents."
+      "evidence_commit": "e2f546892f2767360b02b6d57e1802146e05a603",
+      "ci": "full-candidate-ci success inherited in tested HEAD dd69f2acc1378cac271f7b8b885b88b90c5ea2ed",
+      "notes": "Dépendances, checkpoints signés, idempotence, fail-closed des noeuds interrompus non idempotents et artefacts bornés persistants."
     },
     {
-      "capability": "autonomous_teacher_resume_loop",
-      "status": "VERIFIED_IN_TESTS",
-      "evidence_commit": "251fe745d8bcef994961a47791f9abbc42278dea",
-      "ci": "full-candidate-ci success",
-      "notes": "Publication d'une demande Teacher, attente, consommation d'une réponse avec request_id strict, reprise automatique sans rejouer le travail terminé."
+      "capability": "runtime_teacher_request_roundtrip",
+      "status": "VERIFIED",
+      "evidence_request_id": "a82ad1ec-af5a-4b14-bb4c-60329cd60787",
+      "job_id": "mel-autonomy-mel-work-01-1",
+      "notes": "Demande issue du runtime MEL, réponse Teacher corrélée APPROVE_PLAN, puis état runtime TEACHER_APPROVED avec pending vide."
+    },
+    {
+      "capability": "runtime_multi_ai_work_package",
+      "status": "VERIFIED",
+      "candidate_sha": "dd69f2acc1378cac271f7b8b885b88b90c5ea2ed",
+      "providers_attempted": 2,
+      "notes": "Le runtime a exposé un MEL_INTERNAL_WORK_PACKAGE corrélé au même request_id, candidate-only et production_deploy_allowed=false."
+    },
+    {
+      "capability": "verified_candidate_completion_record",
+      "status": "RUNTIME_RECONCILED",
+      "candidate_sha": "dd69f2acc1378cac271f7b8b885b88b90c5ea2ed",
+      "full_candidate_ci_run_id": 34475439606,
+      "notes": "Le runtime compte désormais MEL-WORK-01 comme COMPLETED après vérification du MEL_WORK_COMPLETION."
+    },
+    {
+      "capability": "automatic_next_job_selection",
+      "status": "VERIFIED_FIRST_TRANSITION",
+      "job_id": "mel-autonomy-mel-work-02-1",
+      "request_id": "4518a3ec-6dbf-4184-9025-bd8191b4cfe1",
+      "notes": "Après completion de MEL-WORK-01, le runtime a sélectionné MEL-WORK-02 automatiquement et publié une nouvelle demande Teacher sans owner-chat."
     },
     {
       "capability": "jsonl_teacher_channel",
@@ -36,18 +57,30 @@
     }
   ],
   "not_yet_proven": [
-    "Une demande Teacher produite par le runtime MEL réel et non par un test.",
-    "Le round-trip runtime réel MEL -> GitHub Teacher Bridge -> ChatGPT -> reprise du même job.",
-    "L'édition autonome de code de bout en bout depuis un job MEL avec génération de patch, tests, critique et checkpoint sans intervention humaine ordinaire.",
-    "La continuité cloud de ce cycle lorsque le bridge local n'est pas disponible."
+    "La réconciliation runtime de la réponse Teacher de MEL-WORK-02 et la production de son MEL_INTERNAL_WORK_PACKAGE multi-IA corrélé.",
+    "La fermeture complète d'un deuxième cycle consécutif MEL-WORK-02 jusqu'au completion record vérifié.",
+    "Plusieurs cycles consécutifs démontrant la continuité autonome au-delà du premier changement de job."
   ],
   "next_p0": [
-    "Brancher AutonomousWorkLoop sur les vrais dev_jobs et le flux dev-bridge.",
-    "Produire et publier une vraie MEL_TEACHER_REVIEW_REQUEST runtime avec request_id durable.",
-    "Faire consommer automatiquement la réponse correspondante et reprendre le même job.",
-    "Relier .augmentio au plan de modification de code borné, puis candidate -> tests -> critique -> checkpoint.",
-    "Après preuve E2E, ajouter un superviseur non-idle qui sélectionne le prochain manque P0 tant qu'un travail sûr existe."
+    "Vérifier au prochain heartbeat que la réponse Teacher 4518a3ec-6dbf-4184-9025-bd8191b4cfe1 est consommée, pending vide et état TEACHER_APPROVED.",
+    "Lire /api/teacher/work et exiger un MEL_INTERNAL_WORK_PACKAGE corrélé à mel-autonomy-mel-work-02-1 et au HEAD candidate courant.",
+    "Appliquer seulement le plus petit diff sûr proposé pour MEL-WORK-02, tests ciblés puis full-candidate-ci exact avant tout completion."
   ],
+  "last_checkpoint": {
+    "recorded_at": "2026-09-10T13:46:20Z",
+    "head_before_checkpoint": "782a04f9604ab77783e5f7ee0e3b3a8ef83d32c7",
+    "completed_job": "mel-autonomy-mel-work-01-1",
+    "next_job": "mel-autonomy-mel-work-02-1",
+    "teacher_request_id": "4518a3ec-6dbf-4184-9025-bd8191b4cfe1",
+    "teacher_reply": "APPROVE_PLAN",
+    "teacher_reply_commit": "782a04f9604ab77783e5f7ee0e3b3a8ef83d32c7",
+    "reply_ci_full_candidate_run_id": 34484630159,
+    "reply_ci_success": true,
+    "runtime_reconciled_reply": false,
+    "work_available": false,
+    "production_changed": false,
+    "blocker": "Attente de la réconciliation runtime de la réponse Teacher MEL-WORK-02 avant tout handoff /work."
+  },
   "invariants": {
     "zero_added_cost": true,
     "unknown_cost_fail_closed": true,

@@ -35,6 +35,7 @@ function codeReader(env, fetchImpl) {
     reader: createGitHubCodeReader({
       repository: config.repository,
       branch: config.branch,
+      token: String(env?.MEL_GITHUB_TOKEN || ''),
       fetchImpl,
     }),
   };
