@@ -30,7 +30,7 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
     media_bucket: Boolean(env.MEDIA_BUCKET),
     owner: Boolean(env.MELITURGOS_USER),
     github_repository: Boolean(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare'),
-    github_branch: String(env.MEL_GITHUB_BRANCH || 'release/mel-2026-09-09-r2-2')
+    github_branch: String(env.MEL_GITHUB_BRANCH || 'release/mel-2026-09-10-r3')
   };
 
   const health = capabilities.reduce((acc, cap) => {
