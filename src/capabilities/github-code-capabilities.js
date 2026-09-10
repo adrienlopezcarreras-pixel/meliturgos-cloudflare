@@ -1,4 +1,4 @@
-const DEFAULT_BRANCH = 'release/mel-2026-09-09-r2-2';
+const DEFAULT_BRANCH = 'release/mel-2026-09-10-r3';
 const MAX_FILE_BYTES = 180_000;
 const MAX_SEARCH_FILES = 24;
 const MAX_MATCHES = 20;
