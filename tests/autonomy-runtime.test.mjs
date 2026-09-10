@@ -92,6 +92,31 @@ test('cloud autonomy heartbeat consumes the matching canonical GitHub Teacher re
   assert.equal(resumed.job.status, 'TEACHER_APPROVED');
 });
 
+test('planner failure persists only a sanitized diagnostic code for later runtime inspection', async () => {
+  const fixture = runtimeFixture();
+  const first = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  fixture.setReplies(JSON.stringify({
+    kind: 'TEACHER_REPLY',
+    request_id: first.teacher.request_id,
+    verdict: 'APPROVE_PLAN',
+    feedback: 'Proceed on candidate only.',
+  }));
+  fixture.env.AI.run = async () => {
+    const error = new Error('Bearer private-token-must-never-be-persisted');
+    error.code = 'ALL_PROVIDERS_FAILED';
+    throw error;
+  };
+
+  const resumed = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  assert.equal(resumed.job.status, 'TEACHER_APPROVED');
+  assert.equal(resumed.implementation.status, 'NOT_READY');
+  assert.equal(resumed.implementation.code, 'ALL_PROVIDERS_FAILED');
+  const stored = await fixture.repository.get(first.job.id);
+  assert.equal(stored.result_json.implementation_planning_diagnostic.status, 'NOT_READY');
+  assert.equal(stored.result_json.implementation_planning_diagnostic.code, 'ALL_PROVIDERS_FAILED');
+  assert.equal(JSON.stringify(stored.result_json).includes('private-token-must-never-be-persisted'), false);
+});
+
 test('NEEDS_CHANGES automatically re-runs Council and emits a new Teacher request for the same job', async () => {
   const fixture = runtimeFixture();
   const first = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
