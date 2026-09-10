@@ -45,26 +45,60 @@ function utf8Base64(text) {
   return btoa(binary);
 }
 
+function technicalCandidate(candidate) {
+  if (!candidate || typeof candidate !== 'object') return null;
+  const out = {
+    repository: candidate.repository || null,
+    branch: candidate.branch || null,
+    sha: candidate.sha || candidate.commit_sha || candidate.candidate_sha || null,
+  };
+  return clean(out);
+}
+
+function technicalTests(tests) {
+  if (!Array.isArray(tests)) return [];
+  return tests.slice(0, 50).map((test) => {
+    if (typeof test === 'string') return { name: clean(test).slice(0, 200) };
+    if (!test || typeof test !== 'object') return null;
+    return clean({
+      name: test.name || null,
+      status: test.status || null,
+      passed: typeof test.passed === 'boolean' ? test.passed : null,
+      ci_run_id: test.ci_run_id || test.run_id || null,
+      head_sha: test.head_sha || null,
+    });
+  }).filter(Boolean);
+}
+
+function technicalProvenance(provenance) {
+  if (!provenance || typeof provenance !== 'object') return {};
+  return clean({
+    roadmap_id: provenance.roadmap_id || null,
+    source: provenance.source || null,
+    generated_by: provenance.generated_by || null,
+  });
+}
+
 export function buildRuntimeTeacherMirror(job, state) {
   if (!job || job.requested_by !== 'mel-autonomy') return null;
   const request = state?.request;
   if (!request?.request_id) return null;
+
+  // GitHub is only a discovery/audit mirror. Keep all review narratives,
+  // objectives, Council detail and code evidence in D1/public Teacher views.
+  // An allowlist here prevents future request fields from leaking by default.
   return clean({
     kind: 'MEL_RUNTIME_REQUEST',
-    schema_version: 1,
+    schema_version: 2,
     request_id: request.request_id,
     job_id: job.id,
     roadmap_id: job.optional_context?.roadmap_id || request.provenance?.roadmap_id || null,
     priority: job.optional_context?.priority || 'P0',
     created_at: request.created_at || state.queued_at || new Date().toISOString(),
     stage: request.stage || 'TEACHER_REVIEW_REQUIRED',
-    objective: String(job.goal || request.objective || '').slice(0, 4000),
-    candidate: request.candidate || null,
-    patch_summary: request.patch_summary || null,
-    tests: request.tests || [],
-    unknowns: request.unknowns || [],
-    requested_review: request.requested_review || [],
-    provenance: request.provenance || {},
+    candidate: technicalCandidate(request.candidate),
+    tests: technicalTests(request.tests),
+    provenance: technicalProvenance(request.provenance),
     constraints: {
       candidate_only: true,
       zero_added_cost: true,
