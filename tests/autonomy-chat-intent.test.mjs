@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { inferAutonomyControlIntent, injectEvolutionPreflightCapability } from '../src/evolution/chat-intent.js';
+import { shouldSemanticIntentCheck } from '../src/evolution/semantic-intent.js';
 
 test('autonomy status language maps to evidence-based status capability', () => {
   for (const text of [
@@ -27,6 +28,29 @@ test('explicit continue-development language maps to one bounded autonomy tick',
 test('generic continue does not trigger autonomous development without a clear autonomy domain', () => {
   for (const text of ['continue', 'avance', 'reprends', 'où en es-tu ?', 'travaille là-dessus']) {
     assert.equal(inferAutonomyControlIntent(text), null, text);
+  }
+});
+
+test('elliptical owner follow-ups are admitted to semantic routing when recent context is about MEL', () => {
+  const context = 'Nous modifions le thème et le code de MEL sur la branche candidate. Le portrait et le bouton sont en cours de développement.';
+  for (const text of [
+    'fais-le',
+    'continue',
+    'reprends',
+    'enlève ça',
+    'plus doré',
+    'corrige tout',
+    'développe-toi',
+    'où en es-tu ?',
+    'peux-tu faire ça ?',
+  ]) {
+    assert.equal(shouldSemanticIntentCheck(text, context), true, text);
+  }
+});
+
+test('elliptical follow-ups stay out of semantic self-routing without relevant recent context', () => {
+  for (const text of ['fais-le', 'plus doré', 'peux-tu faire ça ?']) {
+    assert.equal(shouldSemanticIntentCheck(text, 'Discussion générale sans rapport avec le système ou le web.'), false, text);
   }
 });
 
