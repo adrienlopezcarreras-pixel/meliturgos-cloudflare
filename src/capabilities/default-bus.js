@@ -8,6 +8,7 @@ import { normalizeChatGPTArchive } from '../persistence/chatgpt-archive-importer
 import { createConversationService } from '../conversations/conversation-service.js';
 import { runAugmentioStateOfPlay } from '../teachers/augmentio-council.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
+import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const DEFAULT_BRANCH = 'release/mel-2026-09-09-r2-2';
@@ -26,6 +27,7 @@ export function setDefaultCapabilityEnvironment(env = {}) {
     MELITURGOS_USER: env.MELITURGOS_USER,
     MEL_GITHUB_REPOSITORY: env.MEL_GITHUB_REPOSITORY,
     MEL_GITHUB_BRANCH: env.MEL_GITHUB_BRANCH,
+    MEL_TEACHER_BRANCH: env.MEL_TEACHER_BRANCH,
     MEL_GITHUB_TOKEN: env.MEL_GITHUB_TOKEN,
     MEL_GITHUB_FETCH: env.MEL_GITHUB_FETCH,
   });
@@ -36,6 +38,7 @@ export function setDefaultCapabilityEnvironment(env = {}) {
     owner: Boolean(inheritedRuntimeEnv.MELITURGOS_USER),
     github_repository: inheritedRuntimeEnv.MEL_GITHUB_REPOSITORY || DEFAULT_REPOSITORY,
     github_branch: inheritedRuntimeEnv.MEL_GITHUB_BRANCH || DEFAULT_BRANCH,
+    teacher_branch: inheritedRuntimeEnv.MEL_TEACHER_BRANCH || 'candidate/augmentio-core',
   };
 }
 
@@ -51,6 +54,17 @@ const councilInputSchema = {
     goal: { type: 'string', minLength: 1, maxLength: 4000 },
     context: { type: 'object', additionalProperties: true },
     minResponses: { type: 'integer', minimum: 2, maximum: 12 }
+  },
+  required: ['goal'],
+  additionalProperties: false
+};
+
+const enqueueInputSchema = {
+  type: 'object',
+  properties: {
+    goal: { type: 'string', minLength: 1, maxLength: 4000 },
+    conversationId: { type: 'string', minLength: 0, maxLength: 200 },
+    requestKey: { type: 'string', minLength: 0, maxLength: 200 }
   },
   required: ['goal'],
   additionalProperties: false
@@ -126,6 +140,24 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       goal: input.goal,
       context: input.context || {},
       minResponses: Math.max(2, Number(input.minResponses) || 2)
+    });
+  });
+
+  bus.discover({
+    id: 'evolution.enqueue', name: 'Lancer un développement autonome supervisé', category: 'evolution', version: '1.0.0', provider: 'mel',
+    description: 'Persists an owner-requested development job, runs the mandatory multi-AI Council and candidate inspection, then queues the Teacher review so work can continue asynchronously.',
+    input_schema: enqueueInputSchema,
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'MEDIUM', permissions: [], health: runtimeEnv.AI && runtimeEnv.DB ? 'HEALTHY' : 'DEGRADED', enabled: true
+  }, async input => {
+    if (!runtimeEnv.AI) throw capabilityError('AI_BINDING_MISSING');
+    if (!runtimeEnv.DB) throw capabilityError('DB_BINDING_MISSING');
+    return enqueueOwnerDevelopmentRequest({
+      env: runtimeEnv,
+      goal: input.goal,
+      conversationId: input.conversationId || '',
+      requestKey: input.requestKey || '',
+      fetchImpl: githubFetch,
     });
   });
 
