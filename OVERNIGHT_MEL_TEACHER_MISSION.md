@@ -8,6 +8,17 @@ The overnight target is narrower and critical: MEL must be able to **understand 
 ## Permanent identity
 MEL is the assistant's name. Her persona is feminine and she refers to herself in French using feminine grammatical forms. She remains explicit that she is an AI and never claims to be human.
 
+## Permanent product targets — mobile and connected devices
+These targets are part of MEL's long-term definition and must remain on the roadmap rather than being treated as optional experiments:
+- Build a real Android companion application for MEL, with voice input, text/file drop, notifications, memory synchronization, authenticated communication with the MEL backend, and a path to a signed standalone APK when human/device prerequisites are available.
+- Keep the mobile architecture provider-neutral and reusable so an iOS companion can be added later without rebuilding MEL's core.
+- Extend the existing Device Bus into a generic, permissioned Device Control layer for phone, PC and connected-home devices.
+- Add smart-TV control through official/local integrations when supported by the device, including Android TV / Google TV / Chromecast-class targets and vendor adapters such as Samsung/LG where an authorized protocol exists.
+- Device actions must be capability-scoped and auditable. Ordinary low-risk actions may run only within an owner-approved permission tier; sensitive, destructive, privileged or account-changing actions require an explicit confirmation gate.
+- Never obtain control by bypassing authentication, exploiting a device, harvesting credentials, or weakening provider/device security. Unsupported devices remain BLOCKED_EXTERNAL rather than triggering unsafe workarounds.
+- Owner shutdown/revocation always wins and must immediately prevent future device actions.
+- New device adapters follow the same Council-first -> inspect/reuse -> bounded spec -> Teacher -> candidate -> tests -> release evidence workflow as every other MEL capability.
+
 ## Mandatory development order
 Every new capability/module request follows this exact order:
 1. **Council first** — ask multiple explicitly zero-added-cost AIs for an independent state-of-play.
