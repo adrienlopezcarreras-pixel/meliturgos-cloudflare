@@ -112,20 +112,22 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
   async function head() {
     let response;
     try {
-      response = await fetchImpl(api('commits/' + encodeURIComponent(ref)), { headers: headers(token) });
+      // Use the Git ref endpoint rather than /commits/{branch}. The latter has
+      // proven unreliable from the Worker for slash-containing branch names.
+      response = await fetchImpl(api('git/ref/heads/' + ref.split('/').map(encodeURIComponent).join('/')), { headers: headers(token) });
     } catch {
       throw Object.assign(new Error('CODE_HEAD_READ_FAILED'), { code: 'CODE_HEAD_READ_FAILED' });
     }
     if (!response.ok) throw githubError(response, 'CODE_HEAD_READ_FAILED');
     const body = await response.json();
-    const sha = String(body?.sha || '').trim();
+    const sha = String(body?.object?.sha || '').trim();
     if (!/^[0-9a-f]{40}$/i.test(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
     return { sha, branch: ref, repository: repo };
   }
 
   async function health() {
     try {
-      const response = await fetchImpl(api('commits/' + encodeURIComponent(ref)), { headers: headers(token) });
+      const response = await fetchImpl(api('git/ref/heads/' + ref.split('/').map(encodeURIComponent).join('/')), { headers: headers(token) });
       if (response.ok) return 'ONLINE';
       if (response.status === 401) return 'OFFLINE';
       if (response.status === 403 || response.status === 429) {
