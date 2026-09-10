@@ -25,11 +25,11 @@ function workDagProof() {
   };
 }
 
-async function completeEvidenceRepository({ secondCost = 0, includeImplementation = true } = {}) {
+async function completeEvidenceRepository({ secondCost = 0, includeImplementation = true, requestedBy = 'mel-autonomy' } = {}) {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const job = await repository.create({
     id: 'ready-job',
-    requested_by: 'mel-autonomy',
+    requested_by: requestedBy,
     goal: 'prove autonomy',
     optional_context: { roadmap_id: 'MEL-WORK-01' },
   });
@@ -102,7 +102,7 @@ test('readiness is fail-closed when runtime evidence is absent', async () => {
   assert.ok(state.blockers.includes('COHERENT_SINGLE_JOB_AUTONOMOUS_LOOP_NOT_PROVEN'));
 });
 
-test('readiness becomes true only from one correlated Council, Work DAG, Teacher, MEL planning and CI loop', async () => {
+test('readiness becomes true only from one internally selected Council, Work DAG, Teacher, MEL planning and CI loop', async () => {
   const repository = await completeEvidenceRepository();
   const state = await getAutonomyReadiness({ repository });
   assert.equal(state.self_development_ready, true);
@@ -118,9 +118,23 @@ test('readiness becomes true only from one correlated Council, Work DAG, Teacher
   assert.equal(state.evidence.mel_multi_ai_implementation_plan.request_id, 'runtime-request-1');
   assert.equal(state.evidence.ci_verified_candidate_completion.ci_run_id, 4242);
   assert.equal(state.evidence.coherent_single_job_loop.job_id, 'ready-job');
+  assert.equal(state.evidence.coherent_single_job_loop.requested_by, 'mel-autonomy');
   assert.equal(state.evidence.coherent_single_job_loop.implementation_base_sha, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
   assert.equal(state.evidence.coherent_single_job_loop.candidate_sha, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
   assert.equal(state.evidence.coherent_single_job_loop.full_loop_correlated, true);
+});
+
+test('owner-chat loop can prove capabilities but cannot prove independent self-development', async () => {
+  const repository = await completeEvidenceRepository({ requestedBy: 'owner-chat' });
+  const state = await getAutonomyReadiness({ repository });
+  assert.equal(state.gates.live_council_zero_cost, true);
+  assert.equal(state.gates.runtime_work_dag_resume, true);
+  assert.equal(state.gates.runtime_teacher_round_trip, true);
+  assert.equal(state.gates.mel_multi_ai_implementation_plan, true);
+  assert.equal(state.gates.ci_verified_candidate_completion, true);
+  assert.equal(state.gates.coherent_single_job_loop, false);
+  assert.equal(state.self_development_ready, false);
+  assert.ok(state.blockers.includes('COHERENT_SINGLE_JOB_AUTONOMOUS_LOOP_NOT_PROVEN'));
 });
 
 test('proofs spread across different jobs cannot falsely declare self-development ready', async () => {
