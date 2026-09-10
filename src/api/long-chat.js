@@ -1,6 +1,7 @@
 import { createConversationService } from '../conversations/conversation-service.js';
 import { requireAuth } from '../core/security.js';
 import { LEGACY_CHAT_INPUT_CHARS, MAX_CHAT_INPUT_CHARS, MAX_CHAT_REQUEST_BYTES } from '../core/limits.js';
+import { selfAwarenessSystemContext } from '../context/self-awareness.js';
 
 export { LEGACY_CHAT_INPUT_CHARS, MAX_CHAT_INPUT_CHARS } from '../core/limits.js';
 
@@ -39,7 +40,7 @@ async function archive(env, { conversationId, deviceId, userText, assistantText,
       role: 'user',
       content: userText,
       provenance: 'gen2-long-chat',
-      metadata: { long_input: true, input_chars: userText.length },
+      metadata: { long_input: true, input_chars: userText.length, self_awareness_context: true },
     });
     await service.archiveMessage({
       conversationId,
@@ -48,7 +49,7 @@ async function archive(env, { conversationId, deviceId, userText, assistantText,
       content: assistantText,
       model,
       provenance: 'gen2-long-chat',
-      metadata: { response_to_long_input: true },
+      metadata: { response_to_long_input: true, self_awareness_context: true },
     });
     return true;
   } catch (error) {
@@ -57,19 +58,14 @@ async function archive(env, { conversationId, deviceId, userText, assistantText,
   }
 }
 
-/**
- * Handles only prompts that exceed the legacy 12k ceiling.
- * Shorter messages deliberately continue through the proven legacy chat path.
- */
+/** Handles prompts that exceed the legacy 12k ceiling. */
 export async function maybeHandleLongChat(request, env) {
   const url = new URL(request.url);
   if (url.pathname !== '/api/chat' || request.method !== 'POST') return null;
   if (!(request.headers.get('content-type') || '').toLowerCase().includes('application/json')) return null;
 
   const declaredBytes = Number(request.headers.get('content-length') || 0);
-  if (declaredBytes > MAX_CHAT_REQUEST_BYTES) {
-    return errorResponse('Requête de chat trop volumineuse.', 'REQUEST_TOO_LARGE', 413);
-  }
+  if (declaredBytes > MAX_CHAT_REQUEST_BYTES) return errorResponse('Requête de chat trop volumineuse.', 'REQUEST_TOO_LARGE', 413);
 
   let body;
   try { body = await request.clone().json(); }
@@ -80,14 +76,11 @@ export async function maybeHandleLongChat(request, env) {
 
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
+  if (text.length > MAX_CHAT_INPUT_CHARS) return errorResponse(`Message trop long (${MAX_CHAT_INPUT_CHARS.toLocaleString('fr-FR')} caractères maximum).`, 'MESSAGE_TOO_LONG', 413);
+  if (!env?.AI || typeof env.AI.run !== 'function') return errorResponse('Le moteur IA long contexte est indisponible.', 'AI_BINDING_MISSING', 503);
 
-  if (text.length > MAX_CHAT_INPUT_CHARS) {
-    return errorResponse(`Message trop long (${MAX_CHAT_INPUT_CHARS.toLocaleString('fr-FR')} caractères maximum).`, 'MESSAGE_TOO_LONG', 413);
-  }
-  if (!env?.AI || typeof env.AI.run !== 'function') {
-    return errorResponse('Le moteur IA long contexte est indisponible.', 'AI_BINDING_MISSING', 503);
-  }
-
+  const theme = ['classic', 'crusade', 'religious'].includes(body?.ui_theme) ? body.ui_theme : 'classic';
+  const awareness = await selfAwarenessSystemContext(env, { full: looksLikeDevelopment(text), theme });
   const models = looksLikeDevelopment(text) ? CODE_MODELS : GENERAL_MODELS;
   const messages = [
     {
@@ -96,7 +89,9 @@ export async function maybeHandleLongChat(request, env) {
         'Tu es MEL, l’assistante personnelle de MELITURGOS.',
         'Le message utilisateur suivant est un prompt long accepté volontairement par le système.',
         'Lis-le en entier avant de répondre. Ne l’ignore pas, ne le résume pas à la place de l’exécuter et conserve toutes ses contraintes compatibles entre elles.',
-        'Quand il s’agit de développement de MEL, distingue ce qui est réellement codé/testé de ce qui est seulement proposé.'
+        'Quand il s’agit de développement de MEL, distingue ce qui est réellement codé/testé de ce qui est seulement proposé.',
+        'Tu disposes aussi de ton état interne actuel ci-dessous. Appuie-toi dessus lorsque le prompt parle de tes propres capacités, de ta roadmap ou de ce que tu développes.',
+        awareness,
       ].join(' '),
     },
     { role: 'user', content: text },
@@ -121,6 +116,7 @@ export async function maybeHandleLongChat(request, env) {
         text: answer,
         model,
         long_input: true,
+        self_aware: true,
         input_chars: text.length,
         max_input_chars: MAX_CHAT_INPUT_CHARS,
         archive_saved: archiveSaved,
