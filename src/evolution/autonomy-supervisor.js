@@ -61,6 +61,7 @@ export class AutonomySupervisor {
   async state() {
     const jobs = await this.repository.list();
     const active = jobs.filter((job) => !TERMINAL_JOB.has(String(job.status || '').toUpperCase()));
+    const activeIds = active.map(roadmapIdFromJob).filter(Boolean);
     const completedIds = jobs
       .filter((job) => ['COMPLETED', 'COMMITTED'].includes(String(job.status || '').toUpperCase()))
       .map(roadmapIdFromJob)
@@ -69,8 +70,12 @@ export class AutonomySupervisor {
       .filter((job) => String(job.status || '').toUpperCase() === 'FAILED' && job?.result_json?.autonomy_blocked === true)
       .map(roadmapIdFromJob)
       .filter(Boolean);
-    const next = selectNextAutonomyItem({ roadmap: this.roadmap, completedIds, blockedIds });
-    return { jobs, active, completedIds, blockedIds, next };
+    const next = selectNextAutonomyItem({
+      roadmap: this.roadmap,
+      completedIds,
+      blockedIds: [...blockedIds, ...activeIds],
+    });
+    return { jobs, active, activeIds, completedIds, blockedIds, next };
   }
 
   async ensureNextJob() {
