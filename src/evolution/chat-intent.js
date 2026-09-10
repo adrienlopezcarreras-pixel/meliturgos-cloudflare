@@ -1,3 +1,5 @@
+import { classifySemanticOwnerIntent } from './semantic-intent.js';
+
 export function isEvolutionDevelopmentIntent(text) {
   const value = String(text || '').trim();
   if (!value) return false;
@@ -26,12 +28,22 @@ export function inferAutonomyControlIntent(text) {
   return null;
 }
 
+function enqueueCapability(goal, body, requestKey) {
+  return {
+    id: 'evolution.enqueue',
+    input: {
+      goal: String(goal || '').trim().slice(0, 4000),
+      conversationId: String(body.conversation_id ?? body.conversationId ?? '').slice(0, 200),
+      requestKey: String(requestKey || '').slice(0, 200),
+    }
+  };
+}
+
 /**
- * Explicit owner development requests become durable supervised-autonomy jobs,
- * not one-shot planning answers. Explicit autonomy control requests can inspect
- * or advance the same bounded runtime loop. The enqueue capability itself
- * enforces the mandatory multi-AI Council before candidate code inspection and
- * Teacher review. An explicitly supplied capability is never overwritten.
+ * Owner development requests become durable supervised-autonomy jobs rather
+ * than one-shot planning answers. Fast deterministic rules handle obvious
+ * commands; a zero-added-cost FAST semantic classifier handles natural,
+ * elliptical and contextual formulations supplied by the active UI.
  */
 export async function injectEvolutionPreflightCapability(request) {
   const url = new URL(request.url);
@@ -42,21 +54,37 @@ export async function injectEvolutionPreflightCapability(request) {
   catch { return request; }
   if (!body || typeof body !== 'object' || body.capability?.id) return request;
   const text = String(body.text ?? body.message ?? body.prompt ?? '').trim();
+  if (!text) return request;
 
   const requestKey = body.client_message_id ?? body.message_id ?? body.request_id ?? body.id ?? '';
+
   if (isEvolutionDevelopmentIntent(text)) {
-    body.capability = {
-      id: 'evolution.enqueue',
-      input: {
-        goal: text.slice(0, 4000),
-        conversationId: String(body.conversation_id ?? body.conversationId ?? '').slice(0, 200),
-        requestKey: String(requestKey || '').slice(0, 200),
-      }
-    };
+    body.capability = enqueueCapability(text, body, requestKey);
   } else {
     const autonomy = inferAutonomyControlIntent(text);
-    if (!autonomy) return request;
-    body.capability = autonomy;
+    if (autonomy) {
+      body.capability = autonomy;
+    } else {
+      const semantic = await classifySemanticOwnerIntent({
+        text,
+        context: String(body.intent_context || '').slice(-8000),
+      });
+      if (!semantic || semantic.intent === 'NONE') return request;
+      if (semantic.intent === 'DEVELOPMENT_REQUEST') {
+        body.capability = enqueueCapability(semantic.resolvedGoal || text, body, requestKey);
+      } else if (semantic.intent === 'AUTONOMY_ADVANCE') {
+        body.capability = { id: 'autonomy.tick', input: {} };
+      } else if (semantic.intent === 'AUTONOMY_STATUS') {
+        body.capability = { id: 'autonomy.status', input: {} };
+      } else {
+        return request;
+      }
+      body.intent_routing = {
+        mode: 'semantic',
+        intent: semantic.intent,
+        confidence: semantic.confidence,
+      };
+    }
   }
 
   const headers = new Headers(request.headers);
