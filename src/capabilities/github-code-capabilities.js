@@ -110,17 +110,26 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
   }
 
   async function head() {
-    let response;
-    try {
-      // Use the Git ref endpoint rather than /commits/{branch}. The latter has
-      // proven unreliable from the Worker for slash-containing branch names.
-      response = await fetchImpl(api('git/ref/heads/' + ref.split('/').map(encodeURIComponent).join('/')), { headers: headers(token) });
-    } catch {
-      throw Object.assign(new Error('CODE_HEAD_READ_FAILED'), { code: 'CODE_HEAD_READ_FAILED' });
+    const request = async path => {
+      try { return await fetchImpl(api(path), { headers: headers(token) }); }
+      catch { return null; }
+    };
+
+    // Prefer the Git ref endpoint because it handles slash-containing branch
+    // names reliably in the Worker. Keep the historical commits lookup as a
+    // compatibility fallback for restricted GitHub tokens and existing mocks.
+    const refResponse = await request('git/ref/heads/' + ref.split('/').map(encodeURIComponent).join('/'));
+    if (refResponse?.ok) {
+      const body = await refResponse.json();
+      const sha = String(body?.object?.sha || '').trim();
+      if (!/^[0-9a-f]{40}$/i.test(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
+      return { sha, branch: ref, repository: repo };
     }
-    if (!response.ok) throw githubError(response, 'CODE_HEAD_READ_FAILED');
-    const body = await response.json();
-    const sha = String(body?.object?.sha || '').trim();
+
+    const commitResponse = await request('commits/' + encodeURIComponent(ref));
+    if (!commitResponse?.ok) throw githubError(commitResponse || { status: 0 }, 'CODE_HEAD_READ_FAILED');
+    const body = await commitResponse.json();
+    const sha = String(body?.sha || '').trim();
     if (!/^[0-9a-f]{40}$/i.test(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
     return { sha, branch: ref, repository: repo };
   }
