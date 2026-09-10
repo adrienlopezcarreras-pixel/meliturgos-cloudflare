@@ -56,6 +56,7 @@ async function completeEvidenceRepository({ secondCost = 0, includeImplementatio
         status: 'READY',
         teacher_request_id: 'runtime-request-1',
         candidate_branch: 'candidate/augmentio-core',
+        candidate_sha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
         created_at: '2026-09-10T05:01:30Z',
         inspected_files: [{ path: 'src/evolution/autonomy-runtime.js', sha: 'source' }],
         providers_attempted: ['workers-ai:a', 'workers-ai:b'],
@@ -117,6 +118,8 @@ test('readiness becomes true only from one correlated Council, Work DAG, Teacher
   assert.equal(state.evidence.mel_multi_ai_implementation_plan.request_id, 'runtime-request-1');
   assert.equal(state.evidence.ci_verified_candidate_completion.ci_run_id, 4242);
   assert.equal(state.evidence.coherent_single_job_loop.job_id, 'ready-job');
+  assert.equal(state.evidence.coherent_single_job_loop.implementation_base_sha, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+  assert.equal(state.evidence.coherent_single_job_loop.candidate_sha, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
   assert.equal(state.evidence.coherent_single_job_loop.full_loop_correlated, true);
 });
 
