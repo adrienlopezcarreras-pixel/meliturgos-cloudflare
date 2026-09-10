@@ -91,15 +91,53 @@ export async function applyRuntimeTeacherReply(repository, reply) {
 
   const review = applyTeacherReview(state.request, reply);
   const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
-  result.teacher_bridge = {
+  const answeredState = {
     ...state,
     status: 'ANSWERED',
     review: clean(review),
     reviewed_at: new Date().toISOString(),
   };
-  const status = review.development_allowed ? 'TEACHER_APPROVED' : 'BLOCKED';
-  const updated = await repository.update(job.id, { status, result_json: result });
-  return { job: updated, state: result.teacher_bridge, duplicate: false };
+
+  if (review.development_allowed) {
+    result.teacher_bridge = answeredState;
+    const updated = await repository.update(job.id, { status: 'TEACHER_APPROVED', result_json: result });
+    return { job: updated, state: answeredState, duplicate: false, revision_required: false, terminal: false };
+  }
+
+  if (review.verdict === 'NEEDS_CHANGES') {
+    const history = Array.isArray(result.teacher_bridge_history) ? [...result.teacher_bridge_history] : [];
+    history.push(clean(answeredState));
+    result.teacher_bridge_history = history.slice(-20);
+    result.last_teacher_review = clean({
+      request_id: requestId,
+      verdict: review.verdict,
+      feedback: review.feedback || '',
+      evidence: review.evidence || [],
+      reviewed_at: answeredState.reviewed_at,
+    });
+    result.teacher_bridge = null;
+
+    const plan = job.plan_json && typeof job.plan_json === 'object' ? { ...job.plan_json } : {};
+    plan.preflight = null;
+    plan.revision = {
+      requested_at: answeredState.reviewed_at,
+      previous_request_id: requestId,
+      reason: 'TEACHER_NEEDS_CHANGES',
+    };
+    const updated = await repository.update(job.id, {
+      status: 'QUEUED',
+      plan_json: plan,
+      result_json: result,
+      error: null,
+    });
+    return { job: updated, state: answeredState, duplicate: false, revision_required: true, terminal: false };
+  }
+
+  result.teacher_bridge = answeredState;
+  result.autonomy_blocked = true;
+  result.autonomy_block_reason = 'TEACHER_REJECT';
+  const updated = await repository.update(job.id, { status: 'FAILED', result_json: result, error: 'TEACHER_REJECT' });
+  return { job: updated, state: answeredState, duplicate: false, revision_required: false, terminal: true };
 }
 
 export function teacherBridgePublicView(pending) {
