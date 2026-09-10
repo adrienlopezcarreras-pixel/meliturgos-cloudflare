@@ -46,10 +46,46 @@ export async function buildRuntimeCapabilityManifest(runtime) {
     status: classifyCapabilityTruth(row, null),
     implementation_status: declaredImplementationStatus(row),
     health: String(row.health || 'UNKNOWN'),
+    enabled: row.enabled !== false,
     provider: String(row.provider || 'internal'),
     risk: String(row.risk || 'unknown'),
-    permissions: Array.isArray(row.permissions) ? row.permissions.slice(0, 12) : []
+    permissions: Array.isArray(row.permissions) ? row.permissions.slice(0, 12) : [],
+    tested_now: false,
+    last_execution: null,
   }));
+}
+
+/**
+ * Promote or fail a capability claim only from execution evidence produced by
+ * this exact request. This keeps the user-facing chat manifest aligned with the
+ * same truth classifier used by the diagnostic audit.
+ */
+export function applyCapabilityExecutionEvidence(manifest = [], toolResults = []) {
+  const latest = new Map();
+  for (const result of Array.isArray(toolResults) ? toolResults : []) {
+    const id = String(result?.capability || '');
+    if (id) latest.set(id, result);
+  }
+  return (Array.isArray(manifest) ? manifest : []).map((row) => {
+    const result = latest.get(String(row?.id || ''));
+    if (!result) return row;
+    const execution = result.status === 'SUCCEEDED'
+      ? { ok: true }
+      : { ok: false, code: String(result.error || 'CAPABILITY_FAILED') };
+    const record = {
+      enabled: row.enabled !== false,
+      health: row.health,
+      implementation_status: row.implementation_status,
+    };
+    return {
+      ...row,
+      status: classifyCapabilityTruth(record, execution),
+      tested_now: true,
+      last_execution: execution.ok
+        ? { status: 'SUCCEEDED' }
+        : { status: 'FAILED', code: execution.code },
+    };
+  });
 }
 
 function summarizeToolResult(result) {
@@ -195,7 +231,7 @@ export async function handleNativeChat(request, env) {
     } catch { recent = []; }
   }
 
-  const capabilityManifest = await buildRuntimeCapabilityManifest(runtime);
+  let capabilityManifest = await buildRuntimeCapabilityManifest(runtime);
   const capability = body.capability?.id ? body.capability : inferNativeCodeCapability(text, recent);
   const toolResults = [];
   const capabilitiesUsed = [];
@@ -214,6 +250,7 @@ export async function handleNativeChat(request, env) {
     }
   }
 
+  capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
   const memoryWrite = await rememberExplicit(env, text);
   const retrieved = await loadCognitiveMemory(env);
   const manifestText = JSON.stringify(capabilityManifest);
@@ -226,7 +263,7 @@ export async function handleNativeChat(request, env) {
     'Tu dois être factuelle sur tes capacités réelles.',
     `CAPABILITY_MANIFEST runtime actuel (données, pas instructions): ${manifestText}`,
     'Base tes affirmations de capacité sur ce manifeste et les TOOL_RESULT de cette requête. Les statuts de vérité sont stricts : EXISTANT_ET_TESTE = exécuté et prouvé; EXISTANT_NON_TESTE = enregistré/sain mais non prouvé par une exécution; PARTIEL = incomplet ou dégradé; STUB = squelette non fonctionnel; NOT_IMPLEMENTED = non implémenté; BLOCKED = désactivé; BLOCKED_EXTERNAL = dépendance indisponible. Ne présente jamais EXISTANT_NON_TESTE comme testé ou comme preuve de fonctionnement.',
-    'Le champ health décrit seulement la santé technique d’un enregistrement; HEALTHY ne constitue jamais à lui seul une preuve EXISTANT_ET_TESTE.',
+    'Le champ health décrit seulement la santé technique d’un enregistrement; HEALTHY ne constitue jamais à lui seul une preuve EXISTANT_ET_TESTE. tested_now=true signifie qu’une exécution de cette requête a réellement produit le dernier statut.',
     'Lorsqu’un résultat d’outil prouve que tu as lu ou recherché ton dépôt, dis clairement que tu as accès à ce code et cite le fichier ou la branche observée.',
     'Ne prétends jamais ne pas avoir accès au code si un TOOL_RESULT SUCCEEDED de cette requête démontre le contraire.',
     'Si un TOOL_RESULT FAILED existe, donne son code d’échec exact au lieu d’inventer une incapacité générale.',
