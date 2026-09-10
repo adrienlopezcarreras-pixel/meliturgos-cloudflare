@@ -164,11 +164,12 @@ test('bridge preparation fails closed on stale candidate or missing Teacher appr
   );
 
   await repository.update(job.id, { status: 'WAITING_TEACHER' });
+  const waitingJob = await repository.get(job.id);
   await assert.rejects(
     () => prepareApprovedBridgePackage({
       env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
       repository,
-      job: await repository.get(job.id),
+      job: waitingJob,
       fetchImpl: fetchImpl(),
       mentorEngine: mentorEngine([]),
     }),
