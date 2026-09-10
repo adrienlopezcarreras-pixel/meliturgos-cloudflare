@@ -151,7 +151,12 @@ test('a failed bridge test invalidates the old package and creates one repair pa
 test('bridge preparation fails closed on stale candidate or missing Teacher approval', async () => {
   const repository = await approvedRepository();
   const job = await repository.get('bridge-prep-job');
-  const staleFetch = async (url) => String(url).includes('/commits/') ? Response.json({ sha: 'dddddddddddddddddddddddddddddddddddddddd' }) : new Response('x');
+  const staleFetch = async (url) => {
+    const target = String(url);
+    if (target.includes('/git/ref/heads/')) return new Response('ref unavailable', { status: 404 });
+    if (target.includes('/commits/')) return Response.json({ sha: 'dddddddddddddddddddddddddddddddddddddddd' });
+    return fetchImpl()(url);
+  };
   await assert.rejects(
     () => prepareApprovedBridgePackage({
       env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
