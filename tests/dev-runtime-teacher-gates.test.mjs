@@ -75,7 +75,7 @@ test('matching runtime Teacher reply resumes candidate development but cannot ap
   }), env);
   const teacher = await requestResponse.json();
 
-  let response = await devRuntime(new Request('http://x/api/dev-bridge/teacher/reply', {
+  const response = await devRuntime(new Request('http://x/api/dev-bridge/teacher/reply', {
     method: 'POST', headers: auth, body: JSON.stringify({
       request_id: teacher.request.request_id,
       verdict: 'APPROVE_PLAN',
@@ -86,26 +86,24 @@ test('matching runtime Teacher reply resumes candidate development but cannot ap
   assert.equal(applied.status, 'TEACHER_APPROVED');
   assert.equal(applied.review.development_allowed, true);
 
-  response = await devRuntime(new Request(`http://x/api/professor/dev/jobs/${job.id}/approve`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
-  }), env);
-  await assert.rejects(() => response.json().then((body) => { if (response.status >= 400) throw Object.assign(new Error(body.code), body); }));
-  assert.equal(response.status, 409);
+  await assert.rejects(
+    () => devRuntime(new Request(`http://x/api/professor/dev/jobs/${job.id}/approve`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    }), env),
+    (error) => error?.code === 'JOB_NOT_READY',
+  );
 });
 
 test('Teacher request cannot be created without a completed live Council', async () => {
   const { env } = envWithAi();
   const job = await createJob(env, 'Council required');
-  await assert.rejects(async () => {
-    const response = await devRuntime(new Request('http://x/api/dev-bridge/teacher/request', {
+  await assert.rejects(
+    () => devRuntime(new Request('http://x/api/dev-bridge/teacher/request', {
       method: 'POST', headers: auth, body: JSON.stringify({
         job_id: job.id,
         inspection: { status: 'COMPLETE', evidence: [{ path: 'src/dev/runtime-api.js' }] },
       }),
-    }), env);
-    if (response.status >= 400) {
-      const body = await response.json();
-      throw Object.assign(new Error(body.code || body.error), body);
-    }
-  }, (error) => error?.message === 'AI_PREFLIGHT_REQUIRED');
+    }), env),
+    (error) => error?.code === 'AI_PREFLIGHT_REQUIRED',
+  );
 });
