@@ -5,6 +5,7 @@ const BLOCKED_ROADMAP = new Set([ROADMAP_STATUSES.BLOCKED_HUMAN, ROADMAP_STATUSE
 const DONE_ROADMAP = new Set([ROADMAP_STATUSES.DONE, ROADMAP_STATUSES.VERIFIED, 'DONE', 'DONE_VERIFIED']);
 const PRIORITY_WEIGHT = Object.freeze({ P0: 0, P1: 10, P2: 20, P3: 30 });
 const STATUS_WEIGHT = Object.freeze({ IN_PROGRESS: 0, PARTIAL: 1, PLANNED: 2 });
+const SUPERVISED_REQUESTERS = new Set(['owner-chat', 'mel-autonomy']);
 
 // Autonomy-first ordering: finish the ability to keep working before cosmetics or devices.
 const AUTONOMY_ORDER = [
@@ -34,6 +35,12 @@ function score(item) {
   return autonomy * 100 + priority * 10 + status;
 }
 
+function activeJobScore(job) {
+  // An explicit owner request always outranks background roadmap work.
+  const requester = job?.requested_by === 'owner-chat' ? 0 : 1;
+  return requester * 1e15 + Number(job?.created_at || 0);
+}
+
 export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], blockedIds = [] } = {}) {
   const completed = new Set(completedIds);
   const blocked = new Set(blockedIds);
@@ -51,6 +58,10 @@ function roadmapIdFromJob(job) {
 
 function jobAttemptId(itemId, attempt) {
   return `mel-autonomy-${String(itemId).toLowerCase().replace(/[^a-z0-9-]+/g, '-')}-${attempt}`.slice(0, 180);
+}
+
+export function isSupervisedAutonomyJob(job) {
+  return SUPERVISED_REQUESTERS.has(String(job?.requested_by || ''));
 }
 
 export class AutonomySupervisor {
@@ -85,8 +96,8 @@ export class AutonomySupervisor {
   async ensureNextJob() {
     const current = await this.state();
     const existing = current.active
-      .filter((job) => job.requested_by === 'mel-autonomy')
-      .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0))[0];
+      .filter(isSupervisedAutonomyJob)
+      .sort((a, b) => activeJobScore(a) - activeJobScore(b))[0];
     if (existing) return { created: false, job: existing, next: current.next };
     if (!current.next) return { created: false, job: null, next: null, complete: true };
 
