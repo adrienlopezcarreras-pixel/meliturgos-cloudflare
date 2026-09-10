@@ -57,3 +57,32 @@ test('deep audit executes bounded LOW-risk samples and reports failures instead 
   assert.equal(medium.tested_now, false);
   assert.equal(medium.truth_status, 'EXISTANT_NON_TESTE');
 });
+
+test('declared STUB and NOT_IMPLEMENTED capabilities cannot masquerade as healthy or be smoke-executed', async () => {
+  const calls = [];
+  const records = [
+    { id:'stub', name:'Stub', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY', implementation_status:'STUB' },
+    { id:'missing', name:'Missing', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY', implementation_status:'NOT_IMPLEMENTED' },
+    { id:'partial', name:'Partial', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY', implementation_status:'PARTIAL' },
+  ];
+  const fake = {
+    bus: {
+      refreshHealthAll: async () => records,
+      list: () => records,
+      execute: async (id) => { calls.push(id); return { ok:true }; },
+    },
+  };
+  const report = await auditRuntimeCapabilities(fake, {
+    deep:true,
+    samples:{ stub:{}, missing:{}, partial:{} },
+  });
+  const stub = report.capabilities.find(x => x.id === 'stub');
+  const missing = report.capabilities.find(x => x.id === 'missing');
+  const partial = report.capabilities.find(x => x.id === 'partial');
+  assert.equal(stub.truth_status, 'STUB');
+  assert.equal(stub.tested_now, false);
+  assert.equal(missing.truth_status, 'NOT_IMPLEMENTED');
+  assert.equal(missing.tested_now, false);
+  assert.equal(partial.truth_status, 'EXISTANT_ET_TESTE');
+  assert.deepEqual(calls, ['partial']);
+});
