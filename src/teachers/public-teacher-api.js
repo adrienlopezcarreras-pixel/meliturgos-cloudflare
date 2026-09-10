@@ -3,6 +3,7 @@ import { listPendingRuntimeTeacherRequests, teacherBridgePublicView } from './ru
 import { isSupervisedAutonomyJob } from '../evolution/autonomy-supervisor.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
+const PUBLIC_PATHS = new Set(['/api/teacher/pending', '/api/teacher/status', '/api/teacher/work', '/api/teacher/bridge.txt']);
 const SECRET_VALUE = /(bearer\s+[a-z0-9._~+/=-]{8,}|\bsk-[a-z0-9_-]{8,}|\bgh[pousr]_[a-z0-9]{12,}|(?:api[_ -]?key|token|password|secret|cookie|otp)\s*[:=]\s*[^\s,;]{6,})/gi;
 
 function redactPlanText(value) {
@@ -108,6 +109,23 @@ function safeInternalWorkPackage(jobs = []) {
   };
 }
 
+function bridgeSnapshot(pending, jobs) {
+  const work = safeInternalWorkPackage(jobs);
+  return {
+    ok: true,
+    channel: 'github-teacher-bridge',
+    pending,
+    autonomy: summarizeAutonomyJobs(jobs),
+    work,
+    work_available: Boolean(work),
+    exposes_secrets: false,
+    exposes_goals: false,
+    exposes_owner_chat_work: false,
+    exposes_internal_implementation_text: Boolean(work),
+    mutation_allowed: false,
+  };
+}
+
 /**
  * Deliberately public, read-only and aggressively minimized so the external
  * ChatGPT Teacher can discover pending technical requests without receiving a
@@ -119,11 +137,16 @@ function safeInternalWorkPackage(jobs = []) {
  * was generated internally from the public MEL roadmap (`mel-autonomy`) and a
  * correlated Teacher approval already exists. Owner-chat jobs are never
  * eligible for this public work-package endpoint.
+ *
+ * /api/teacher/bridge.txt is the same sanitized read-only bridge represented as
+ * plain text. It exists for generic browser/extractor clients that do not
+ * reliably preserve application/json response bodies; it grants no mutation
+ * capability and contains no additional fields beyond the safe public views.
  */
 export async function maybeHandlePublicTeacherBridge(request, env) {
   if (request.method !== 'GET') return null;
   const url = new URL(request.url);
-  if (!['/api/teacher/pending', '/api/teacher/status', '/api/teacher/work'].includes(url.pathname)) return null;
+  if (!PUBLIC_PATHS.has(url.pathname)) return null;
 
   const repository = new D1DevJobRepository(env.DB);
   const [pendingRows, jobs] = await Promise.all([
@@ -132,11 +155,23 @@ export async function maybeHandlePublicTeacherBridge(request, env) {
   ]);
   const pending = minimizePending(pendingRows);
   const autonomy = summarizeAutonomyJobs(jobs);
-  const headers = {
+  const jsonHeaders = {
     'cache-control': 'no-store, max-age=0',
     'content-type': 'application/json; charset=utf-8',
     'x-content-type-options': 'nosniff',
   };
+
+  if (url.pathname === '/api/teacher/bridge.txt') {
+    const snapshot = bridgeSnapshot(pending, jobs);
+    return new Response(`${JSON.stringify(snapshot, null, 2)}\n`, {
+      status: 200,
+      headers: {
+        'cache-control': 'no-store, max-age=0',
+        'content-type': 'text/plain; charset=utf-8',
+        'x-content-type-options': 'nosniff',
+      },
+    });
+  }
 
   if (url.pathname === '/api/teacher/status') {
     return new Response(JSON.stringify({
@@ -150,7 +185,7 @@ export async function maybeHandlePublicTeacherBridge(request, env) {
       exposes_implementation_text: false,
       exposes_owner_chat_work: false,
       mutation_allowed: false,
-    }), { status: 200, headers });
+    }), { status: 200, headers: jsonHeaders });
   }
 
   if (url.pathname === '/api/teacher/work') {
@@ -166,7 +201,7 @@ export async function maybeHandlePublicTeacherBridge(request, env) {
       exposes_internal_implementation_text: Boolean(work),
       owner_chat_exposed: false,
       mutation_allowed: false,
-    }), { status: 200, headers });
+    }), { status: 200, headers: jsonHeaders });
   }
 
   return new Response(JSON.stringify({
@@ -179,7 +214,7 @@ export async function maybeHandlePublicTeacherBridge(request, env) {
     exposes_implementation_text: false,
     exposes_owner_chat_work: false,
     mutation_allowed: false,
-  }), { status: 200, headers });
+  }), { status: 200, headers: jsonHeaders });
 }
 
-export { summarizeAutonomyJobs, safeInternalWorkPackage, redactPlanText };
+export { summarizeAutonomyJobs, safeInternalWorkPackage, redactPlanText, bridgeSnapshot };
