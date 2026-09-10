@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { safeInternalWorkPackage, redactPlanText } from '../src/teachers/public-teacher-api.js';
 
+const CANDIDATE_SHA = '1111111111111111111111111111111111111111';
+
 function approvedJob(overrides = {}) {
   return {
     id: 'internal-job-1',
@@ -19,6 +21,7 @@ function approvedJob(overrides = {}) {
         status: 'READY',
         teacher_request_id: 'req-1',
         candidate_branch: 'candidate/augmentio-core',
+        candidate_sha: CANDIDATE_SHA,
         created_at: '2026-09-10T05:00:00Z',
         inspected_files: [{ path: 'src/example.js', sha: 'abc123' }],
         providers_attempted: ['workers-ai:a', 'workers-ai:b'],
@@ -46,7 +49,17 @@ test('public work package refuses any non-candidate implementation branch', () =
   assert.equal(safeInternalWorkPackage([job]), null);
 });
 
-test('valid internal roadmap work is bounded, secret-redacted and can never authorize production deploy', () => {
+test('public work package refuses proposals without an exact 40-character candidate sha', () => {
+  const missing = approvedJob();
+  delete missing.result_json.implementation_proposal.candidate_sha;
+  assert.equal(safeInternalWorkPackage([missing]), null);
+
+  const invalid = approvedJob();
+  invalid.result_json.implementation_proposal.candidate_sha = 'abc123';
+  assert.equal(safeInternalWorkPackage([invalid]), null);
+});
+
+test('valid internal roadmap work is bounded, secret-redacted and pinned to an exact candidate sha', () => {
   const job = approvedJob();
   job.result_json.implementation_proposal.selected.text = 'Use token=supersecretvalue only as an example; never deploy production.';
   const work = safeInternalWorkPackage([job]);
@@ -56,6 +69,7 @@ test('valid internal roadmap work is bounded, secret-redacted and can never auth
   assert.equal(work.request_id, 'req-1');
   assert.equal(work.roadmap_id, 'GEN2-17');
   assert.equal(work.candidate_branch, 'candidate/augmentio-core');
+  assert.equal(work.candidate_sha, CANDIDATE_SHA);
   assert.equal(work.production_deploy_allowed, false);
   assert.equal(work.providers_attempted, 2);
   assert.equal(work.inspected_files.length, 1);
