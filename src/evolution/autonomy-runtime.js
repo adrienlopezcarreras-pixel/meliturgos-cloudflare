@@ -6,12 +6,14 @@ import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest } from '../teachers/runtime-teacher-bridge.js';
 import { reconcileRuntimeTeacherReplies } from '../teachers/github-reply-reconciler.js';
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
+import { runRuntimeWorkDagResumeProof } from './autonomy-proof.js';
 
 const INSPECTION_FILES = [
   'AUTONOMY_STATE.json',
   'TEACHER_BRIDGE.md',
   'src/roadmap/master-roadmap.js',
   'src/evolution/autonomy-supervisor.js',
+  'src/evolution/autonomy-proof.js',
   'src/dev/runtime-api.js',
   'src/work/work-dag.js',
   'src/work/autonomous-work-loop.js',
@@ -156,13 +158,16 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
 /**
  * One bounded autonomous heartbeat. It reconciles trusted GitHub Teacher
  * replies and CI-verified candidate completions first, then ensures the next
- * P0 autonomy job exists and advances QUEUED/COUNCIL jobs to a real
- * runtime-generated Teacher request. A NEEDS_CHANGES review is converted back
- * to QUEUED with the previous Teacher feedback injected into a fresh Council
- * preflight, so the loop revises instead of idling. Completion reconciliation
- * happens before selection so a finished job can release the next roadmap
- * item in the same heartbeat. It never edits production code, deploys, or
- * commits GitHub changes by itself.
+ * P0 autonomy job exists. The first available autonomy job also receives a
+ * one-time live Work DAG resume proof using .augmentio; once a proof is stored,
+ * future ticks reuse it without consuming more model calls. QUEUED/COUNCIL jobs
+ * then advance to a real runtime-generated Teacher request.
+ *
+ * A NEEDS_CHANGES review is converted back to QUEUED with the previous Teacher
+ * feedback injected into a fresh Council preflight, so the loop revises instead
+ * of idling. Completion reconciliation happens before selection so a finished
+ * job can release the next roadmap item in the same heartbeat. Production code
+ * is never edited or deployed by this heartbeat.
  */
 export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
@@ -183,6 +188,22 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   const ensured = await supervisor.ensureNextJob();
   let job = ensured.job;
   let teacher = null;
+  let runtimeProof = null;
+
+  if (job) {
+    try {
+      runtimeProof = await runRuntimeWorkDagResumeProof(env, {
+        repository: jobRepository,
+        targetJobId: job.id,
+      });
+      job = await jobRepository.get(job.id);
+    } catch (error) {
+      runtimeProof = {
+        status: 'NOT_VERIFIED',
+        code: error?.code || error?.message || 'RUNTIME_WORK_DAG_PROOF_FAILED',
+      };
+    }
+  }
 
   if (job && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE'].includes(String(job.status || '').toUpperCase())) {
     teacher = await prepareAutonomyTeacherRequest({ env, repository: jobRepository, job, fetchImpl });
@@ -194,6 +215,14 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     ok: true,
     reconciliation,
     completions,
+    runtime_proof: runtimeProof ? {
+      status: runtimeProof.status,
+      reused: runtimeProof.reused === true,
+      recovered_interrupted_node: runtimeProof.recovered_interrupted_node === true,
+      providers_attempted: Number(runtimeProof.providers_attempted || 0),
+      successful_candidates: Number(runtimeProof.successful_candidates || 0),
+      code: runtimeProof.code || null,
+    } : null,
     ensured: { created: ensured.created, complete: ensured.complete || false, next: ensured.next || null },
     job: job ? { id: job.id, status: job.status, goal: job.goal, roadmap_id: job.optional_context?.roadmap_id || null } : null,
     teacher: teacher ? { status: teacher.status, request_id: teacher.request?.request_id || null } : null,
