@@ -1,5 +1,6 @@
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { listPendingRuntimeTeacherRequests, teacherBridgePublicView } from './runtime-teacher-bridge.js';
+import { isSupervisedAutonomyJob } from '../evolution/autonomy-supervisor.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 
@@ -14,21 +15,27 @@ function currentTeacherMetadata(job) {
 }
 
 function summarizeAutonomyJobs(jobs = []) {
-  const autonomy = jobs.filter((job) => job?.requested_by === 'mel-autonomy');
+  const autonomy = jobs.filter(isSupervisedAutonomyJob);
   const active = autonomy.filter((job) => !TERMINAL.has(String(job.status || '').toUpperCase()));
   const current = active
     .slice()
-    .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0))[0] || null;
+    .sort((a, b) => {
+      const ownerA = a?.requested_by === 'owner-chat' ? 0 : 1;
+      const ownerB = b?.requested_by === 'owner-chat' ? 0 : 1;
+      return ownerA - ownerB || Number(a.created_at || 0) - Number(b.created_at || 0);
+    })[0] || null;
   const teacher = current ? currentTeacherMetadata(current) : null;
   return {
     total: autonomy.length,
     active_count: active.length,
+    owner_requested_count: autonomy.filter((job) => job?.requested_by === 'owner-chat').length,
     waiting_teacher_count: autonomy.filter((job) => String(job.status || '').toUpperCase() === 'WAITING_TEACHER').length,
     teacher_approved_count: autonomy.filter((job) => String(job.status || '').toUpperCase() === 'TEACHER_APPROVED').length,
     completed_count: autonomy.filter((job) => ['COMPLETED', 'COMMITTED'].includes(String(job.status || '').toUpperCase())).length,
     failed_count: autonomy.filter((job) => String(job.status || '').toUpperCase() === 'FAILED').length,
     current: current ? {
       job_id: String(current.id || ''),
+      requested_by: current.requested_by === 'owner-chat' ? 'owner-chat' : 'mel-autonomy',
       status: String(current.status || ''),
       roadmap_id: current?.optional_context?.roadmap_id || null,
       teacher_status: teacher.teacher_status,
