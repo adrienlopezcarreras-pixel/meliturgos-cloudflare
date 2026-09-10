@@ -7,6 +7,7 @@ export const FAST_CHAT_MODEL = '@cf/zai-org/glm-4.7-flash';
 export const FAST_CHAT_CONTEXT_MESSAGES = 6;
 
 const COMPLEX_INTENT = /\b(?:d[ée]velop|code|programme|module|github|bridge|mentor|roadmap|feuille\s+de\s+route|fichier|document|pdf|image|audio|vid[ée]o|mail|gmail|agenda|calendar|drive|plugin|connecteur|outil|capacit[ée]|recherche|cherche|internet|web|source|actualit[ée]|news|aujourd'hui|actuel|r[ée]cent|m[ée]t[ée]o|prix|cours|bourse|compare|analyse|raisonne|d[ée]montre|calcule|diagnostic|audit|souviens|m[ée]moire|rappelle|historique|conversation\s+pr[ée]c[ée]dente)\b/i;
+const PERSONAL_MEMORY_INTENT = /\b(?:mon|ma|mes|notre|nos)\s+(?:projet|objectif|pr[ée]f[ée]rence|habitude|d[ée]cision|plan|travail|fichier|document|souvenir|historique|information|donn[ée]e|contexte)\b/i;
 const MULTI_STEP = /\b(?:[ée]tape|plan|proc[ée]dure|exhaustif|complet|d[ée]taill[ée]|approfondi|plusieurs|toutes?\s+les|workflow)\b/i;
 
 function extractText(result) {
@@ -17,7 +18,7 @@ function extractText(result) {
 export function isFastChatEligible(text) {
   const value = String(text || '').trim();
   if (!value || value.length > FAST_CHAT_MAX_CHARS) return false;
-  if (COMPLEX_INTENT.test(value) || MULTI_STEP.test(value)) return false;
+  if (COMPLEX_INTENT.test(value) || PERSONAL_MEMORY_INTENT.test(value) || MULTI_STEP.test(value)) return false;
   return true;
 }
 
@@ -68,7 +69,7 @@ async function persistExchange(env, { conversationId, deviceId, text, answer, mo
 /**
  * Low-latency path for ordinary short conversation. MEL still receives a
  * compact cached snapshot of her own real state so she never becomes a generic
- * assistant unaware of her capabilities. Heavy intents fall through.
+ * assistant unaware of her capabilities. Heavy or personal-memory intents fall through.
  */
 export async function maybeHandleFastChat(request, env, ctx) {
   const url = new URL(request.url);
