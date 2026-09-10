@@ -56,8 +56,9 @@ test('runtime generates live zero-added-cost Council evidence before creating a 
   assert.equal(teacher.ok, true);
   assert.equal(teacher.status, 'WAITING_TEACHER');
   assert.equal(teacher.request.type, 'MEL_TEACHER_REVIEW_REQUEST');
-  assert.equal(teacher.request.provenance.producer, 'MEL_RUNTIME');
+  assert.equal(teacher.request.provenance.producer, 'MEL');
   assert.equal(teacher.request.provenance.job_id, job.id);
+  assert.equal(teacher.request.provenance.contract, 'teacher-review/v1');
 });
 
 test('matching runtime Teacher reply resumes candidate development but cannot approve production commit', async () => {
