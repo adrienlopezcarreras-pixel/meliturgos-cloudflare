@@ -165,6 +165,11 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
  * MEL also performs her own bounded multi-AI CODE planning pass over inspected
  * candidate sources in the same heartbeat and persists that work product.
  *
+ * READY_FOR_REVIEW is accepted as a recoverable pre-Teacher state because
+ * legacy/dev-agent work can legitimately leave an autonomy job there before
+ * the Teacher bridge has been queued. The bridge itself remains the authority:
+ * an existing WAITING_TEACHER/ANSWERED package is never regenerated.
+ *
  * A NEEDS_CHANGES review is converted back to QUEUED with the previous Teacher
  * feedback injected into a fresh Council preflight. Completion reconciliation
  * happens before selection so a finished job can release the next roadmap item
@@ -207,7 +212,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     }
   }
 
-  if (job && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE'].includes(String(job.status || '').toUpperCase())) {
+  if (job && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'READY_FOR_REVIEW'].includes(String(job.status || '').toUpperCase())) {
     teacher = await prepareAutonomyTeacherRequest({ env, repository: jobRepository, job, fetchImpl });
     job = await jobRepository.get(job.id);
   }
