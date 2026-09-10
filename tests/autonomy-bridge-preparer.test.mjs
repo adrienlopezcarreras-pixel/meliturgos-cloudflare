@@ -48,12 +48,13 @@ function mentorEngine(calls) {
   return {
     async propose(input) {
       calls.push(input);
+      const repairing = input.mode === 'repair';
       return {
         mode: input.mode,
         council: { selected_provider: 'fixture' },
         proposal: {
-          summary: 'Turn the inspected file into a tested implementation.',
-          changes: [{ path: 'src/example.js', content: 'export const ready = true;\n', reason: 'Implement feature' }],
+          summary: repairing ? 'Repair failed candidate tests.' : 'Turn the inspected file into a tested implementation.',
+          changes: [{ path: 'src/example.js', content: repairing ? 'export const ready = "repaired";\n' : 'export const ready = true;\n', reason: repairing ? 'Repair failing test' : 'Implement feature' }],
           tests: ['test:smoke', 'test:integration'],
           confidence: 0.94,
           lessons: ['Keep the change bounded.'],
@@ -91,6 +92,7 @@ test('approved Teacher + multi-AI plan becomes an applyable structured bridge pa
   assert.match(stored.files_json[0].content, /ready = true/);
   assert.deepEqual(stored.tests_json.map(row => row.command), ['test:smoke', 'test:integration']);
   assert.equal(stored.patch_json.source, 'MentorEngine');
+  assert.equal(stored.patch_json.mode, 'implement');
 });
 
 test('bridge package is reused without asking Mentor twice when approval and candidate SHA are unchanged', async () => {
@@ -108,6 +110,42 @@ test('bridge package is reused without asking Mentor twice when approval and can
   const reused = await prepareApprovedBridgePackage({ ...args, job: await repository.get('bridge-prep-job') });
   assert.equal(reused.reused, true);
   assert.equal(calls.length, 1);
+});
+
+test('a failed bridge test invalidates the old package and creates one repair package for that exact result', async () => {
+  const repository = await approvedRepository();
+  const calls = [];
+  const engine = mentorEngine(calls);
+  const baseArgs = {
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+    repository,
+    fetchImpl: fetchImpl(),
+    mentorEngine: engine,
+  };
+  await prepareApprovedBridgePackage({ ...baseArgs, job: await repository.get('bridge-prep-job') });
+  let current = await repository.get('bridge-prep-job');
+  await repository.update(current.id, {
+    result_json: {
+      ...current.result_json,
+      dev_bridge: {
+        status: 'READY_FOR_REVIEW',
+        needs_repair: true,
+        received_at: '2026-09-10T21:45:00.000Z',
+        tests: [{ name: 'test:smoke', passed: false, exit_code: 1, stderr: 'assertion failed' }],
+      },
+    },
+  });
+  const repair = await prepareApprovedBridgePackage({ ...baseArgs, job: await repository.get('bridge-prep-job') });
+  assert.equal(repair.mentor.mode, 'repair');
+  assert.equal(repair.repair_for_received_at, '2026-09-10T21:45:00.000Z');
+  assert.equal(calls.length, 2);
+  current = await repository.get('bridge-prep-job');
+  assert.match(current.files_json[0].content, /repaired/);
+  assert.equal(current.patch_json.mode, 'repair');
+
+  const reusedRepair = await prepareApprovedBridgePackage({ ...baseArgs, job: current });
+  assert.equal(reusedRepair.reused, true);
+  assert.equal(calls.length, 2);
 });
 
 test('bridge preparation fails closed on stale candidate or missing Teacher approval', async () => {
