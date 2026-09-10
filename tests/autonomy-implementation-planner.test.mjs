@@ -131,8 +131,9 @@ test('persisted READY proposal cannot bypass a revoked or mismatched Teacher app
     result_json: current.result_json,
   });
   const headReads = f.getHeadReads();
+  const revokedJob = await f.repository.get(job.id);
   await assert.rejects(
-    () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job: await f.repository.get(job.id), fetchImpl: f.fetchImpl }),
+    () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job: revokedJob, fetchImpl: f.fetchImpl }),
     (error) => error?.code === 'TEACHER_APPROVAL_REQUIRED',
   );
   assert.equal(f.getHeadReads(), headReads);
