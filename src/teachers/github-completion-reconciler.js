@@ -1,3 +1,5 @@
+import { createMentorEngine } from '../learning/mentor-engine.js';
+
 const COMPLETION_KIND = 'MEL_WORK_COMPLETION';
 const SHA_RE = /^[a-f0-9]{40}$/i;
 
@@ -128,6 +130,34 @@ function validateMelImplementationProposal(job, record) {
   return proposal;
 }
 
+async function recordVerifiedCompletionLesson(env, job, record, proposal, ci) {
+  if (!env?.DB) return { recorded: false, reason: 'DB_BINDING_MISSING' };
+  try {
+    const engine = createMentorEngine(env);
+    await engine.recordOutcome({
+      jobId: job.id,
+      goal: job.goal || '',
+      outcome: 'SUCCEEDED',
+      lesson: record.summary || `Le job ${job.id} a été validé par la CI complète sur la candidate ${record.candidate_branch}.`,
+      evidence: {
+        request_id: record.request_id,
+        candidate_sha: record.candidate_sha,
+        candidate_branch: record.candidate_branch,
+        ci,
+        tests: record.tests,
+        providers_attempted: proposal.providers_attempted.length,
+        selected_model: String(proposal.selected.model || '').slice(0, 200),
+        inspected_files: proposal.inspected_files.map((row) => row?.path).filter(Boolean).slice(0, 8),
+      },
+      score: 1,
+      tags: ['autonomy', 'verified-completion', 'full-candidate-ci'],
+    });
+    return { recorded: true, kind: 'DEVELOPMENT_OUTCOME' };
+  } catch (error) {
+    return { recorded: false, reason: String(error?.code || error?.message || 'MENTOR_LEARNING_FAILED').slice(0, 160) };
+  }
+}
+
 export async function reconcileRuntimeCompletions({ repository, env = {}, fetchImpl = fetch } = {}) {
   if (!repository) throw Object.assign(new Error('COMPLETION_JOB_REPOSITORY_REQUIRED'), { code: 'COMPLETION_JOB_REPOSITORY_REQUIRED' });
   const records = await fetchCompletionRecords(env, { fetchImpl });
@@ -157,6 +187,7 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
 
     try {
       const ci = await verifyCompletionEvidence(record, env, { fetchImpl });
+      const mentorLearning = await recordVerifiedCompletionLesson(env, job, record, proposal, ci);
       const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
       result.autonomy_completion = {
         status: 'VERIFIED',
@@ -171,6 +202,7 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
           selected_model: String(proposal.selected.model || '').slice(0, 200),
           inspected_files: proposal.inspected_files.map((row) => row?.path).filter(Boolean).slice(0, 8),
         },
+        mentor_learning: mentorLearning,
         ci,
         completed_at: new Date().toISOString(),
       };
@@ -180,7 +212,7 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
         result_json: result,
         candidate_branch: record.candidate_branch,
       });
-      completed.push({ job_id: updated.id, request_id: record.request_id, candidate_sha: record.candidate_sha, ci_run_id: record.ci_run_id });
+      completed.push({ job_id: updated.id, request_id: record.request_id, candidate_sha: record.candidate_sha, ci_run_id: record.ci_run_id, mentor_learning: mentorLearning.recorded === true });
     } catch (error) {
       rejected.push({ job_id: job.id, request_id: record.request_id, code: error?.code || 'COMPLETION_VERIFY_FAILED' });
     }
