@@ -53,8 +53,8 @@ function relevance(file, content = '') {
   const c = String(content).toLowerCase();
   let n = 0;
   if (p.startsWith('src/')) n += 20;
-  if (/(interface|page|ui|component|route|dev|learning|mentor)/.test(p)) n += 15;
-  if (/(<main|add eventlistener|fetch\(|export|<!doctype html|class |function )/.test(c)) n += 20;
+  if (/(interface|page|ui|component|route|dev|learning|mentor|roadmap)/.test(p)) n += 15;
+  if (/(<main|add eventlistener|fetch\(|export|<!doctype html|class |function |not_implemented|todo|stub)/.test(c)) n += 20;
   if (/^(imports|exports|docs)\//.test(p)) n -= 40;
   if (/\.json$/.test(p)) n -= 20;
   return n;
@@ -74,11 +74,14 @@ function resolveLocalImports(file, content) {
 }
 
 function goalAwareSelect(goal, inspected) {
-  const wantsUi = /interface|interface utilisateur|ui|page|écran|html|principal/i.test(String(goal));
+  const value = String(goal || '');
+  const wantsUi = /interface|interface utilisateur|ui|page|écran|html|principal/i.test(value);
+  const wantsRoadmap = /roadmap|feuille\s+de\s+route|continue.*d[ée]veloppement|poursuis.*d[ée]veloppement/i.test(value);
   return inspected.slice().sort((a, b) => {
     const score = item => relevance(item.path, item.content)
       + (wantsUi && /router/i.test(item.path) ? -35 : 0)
-      + (wantsUi && /(<main|<body|doctype|document\.createelement|innerhtml|page\s*=)/i.test(item.content || '') ? 45 : 0);
+      + (wantsUi && /(<main|<body|doctype|document\.createelement|innerhtml|page\s*=)/i.test(item.content || '') ? 45 : 0)
+      + (wantsRoadmap && /roadmap\/master-roadmap\.js$/i.test(item.path) ? 70 : 0);
     return score(b) - score(a);
   })[0]?.path;
 }
@@ -150,7 +153,11 @@ async function processRemoteJob(job) {
     await bridge.bus.execute('dev.create_candidate', { job_id: id }, context);
     steps.push({ capability: 'dev.create_candidate' });
 
-    const query = /interface|fichier|chemin|principal/i.test(job.goal || '') ? 'interface' : String(job.goal || '').slice(0, 120);
+    const goal = String(job.goal || '');
+    const wantsRoadmap = /roadmap|feuille\s+de\s+route|continue.*d[ée]veloppement|poursuis.*d[ée]veloppement/i.test(goal);
+    const query = wantsRoadmap
+      ? '(?i)roadmap|NOT_IMPLEMENTED|TODO|stub|planned'
+      : (/interface|fichier|chemin|principal/i.test(goal) ? 'interface' : goal.slice(0, 120));
     const search = await bridge.bus.execute('code.search', { query, job_id: id }, context);
     steps.push({ capability: 'code.search', query });
     const text = search?.result?.stdout || search?.stdout || '';
@@ -158,14 +165,17 @@ async function processRemoteJob(job) {
     const ranked = rankSearchPaths(paths);
     const inspected = [];
 
+    // A roadmap continuation always starts from the canonical roadmap, even if
+    // a textual search returns no match or ranks another source first.
+    if (wantsRoadmap) await inspectFile('src/roadmap/master-roadmap.js', id, inspected, steps);
     for (const candidate of ranked.slice(0, 6)) await inspectFile(candidate, id, inspected, steps);
     for (let depth = 0; depth < 2 && inspected.length < 8; depth++) {
       const current = inspected.slice();
       for (const item of current) {
         for (const target of resolveLocalImports(item.path, item.content)) {
           if (inspected.length >= 8) break;
-          if (/^(src\/dev|src\/teachers|src\/learning|tests|migrations)\//.test(target)
-            || /ui|page|view|render|template|interface|mvp|main|app|home|professor|mentor/i.test(target)) {
+          if (/^(src\/dev|src\/teachers|src\/learning|src\/roadmap|tests|migrations)\//.test(target)
+            || /ui|page|view|render|template|interface|mvp|main|app|home|professor|mentor|roadmap/i.test(target)) {
             await inspectFile(target, id, inspected, steps);
           }
         }
@@ -173,7 +183,7 @@ async function processRemoteJob(job) {
     }
 
     if (!inspected.length) {
-      for (const fallback of ['src/index.js', 'src/router.js', 'src/pages/mvp-interface.js', 'src/dev/runtime-api.js']) {
+      for (const fallback of ['src/roadmap/master-roadmap.js', 'src/index.js', 'src/router.js', 'src/pages/mvp-interface.js', 'src/dev/runtime-api.js']) {
         await inspectFile(fallback, id, inspected, steps);
       }
     }
