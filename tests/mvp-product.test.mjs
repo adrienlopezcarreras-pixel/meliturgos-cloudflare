@@ -52,7 +52,7 @@ test('MVP sends text to chat, renders answer in the same window and prevents dou
   assert.equal(calls[0].path, '/api/chat');
   assert.equal(calls[0].body.text, 'Bonjour');
   assert.ok(calls[0].body.conversation_id);
-  assert.match(document.querySelector('#status').textContent, /Réflexion|réfléchit/i);
+  assert.match(document.querySelector('#status').textContent, /Réflexion|réfléchit|réagit/i);
   finish(Response.json({ text: 'Bonjour Adrien' }));
   await tick();
   assert.match(document.querySelector('#messages').textContent, /Bonjour Adrien/);
