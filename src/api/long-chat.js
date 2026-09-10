@@ -1,4 +1,5 @@
 import { createConversationService } from '../conversations/conversation-service.js';
+import { requireAuth } from '../core/security.js';
 
 export const LEGACY_CHAT_INPUT_CHARS = 12_000;
 export const MAX_CHAT_INPUT_CHARS = 100_000;
@@ -71,6 +72,10 @@ export async function maybeHandleLongChat(request, env) {
 
   const text = String(body?.text || '').trim();
   if (text.length <= LEGACY_CHAT_INPUT_CHARS) return null;
+
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+
   if (text.length > MAX_CHAT_INPUT_CHARS) {
     return errorResponse(`Message trop long (${MAX_CHAT_INPUT_CHARS.toLocaleString('fr-FR')} caractères maximum).`, 'MESSAGE_TOO_LONG', 413);
   }
