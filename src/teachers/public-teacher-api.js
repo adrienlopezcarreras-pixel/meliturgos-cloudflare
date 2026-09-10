@@ -6,9 +6,15 @@ const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const PUBLIC_PATHS = new Set(['/api/teacher/pending', '/api/teacher/status', '/api/teacher/work', '/api/teacher/bridge.txt']);
 const SECRET_VALUE = /(bearer\s+[a-z0-9._~+/=-]{8,}|\bsk-[a-z0-9_-]{8,}|\bgh[pousr]_[a-z0-9]{12,}|(?:api[_ -]?key|token|password|secret|cookie|otp)\s*[:=]\s*[^\s,;]{6,})/gi;
 const SHA40 = /^[0-9a-f]{40}$/i;
+const SAFE_DIAGNOSTIC_CODE = /^[A-Z0-9_]{1,80}$/;
 
 function redactPlanText(value) {
   return String(value || '').replace(SECRET_VALUE, '[REDACTED]').slice(0, 12000);
+}
+
+function publicDiagnosticCode(job) {
+  const code = String(job?.result_json?.implementation_planning_diagnostic?.code || '').trim();
+  return SAFE_DIAGNOSTIC_CODE.test(code) ? code : null;
 }
 
 function currentTeacherMetadata(job) {
@@ -51,6 +57,7 @@ function summarizeAutonomyJobs(jobs = []) {
       verdict: teacher.verdict,
       implementation_proposal_ready: proposal?.status === 'READY',
       implementation_models: proposal?.status === 'READY' && Array.isArray(proposal.providers_attempted) ? proposal.providers_attempted.length : 0,
+      implementation_diagnostic_code: publicDiagnosticCode(current),
     } : null,
   };
 }
@@ -220,4 +227,4 @@ export async function maybeHandlePublicTeacherBridge(request, env) {
   }), { status: 200, headers: jsonHeaders });
 }
 
-export { summarizeAutonomyJobs, safeInternalWorkPackage, redactPlanText, bridgeSnapshot };
+export { summarizeAutonomyJobs, safeInternalWorkPackage, redactPlanText, bridgeSnapshot, publicDiagnosticCode };
