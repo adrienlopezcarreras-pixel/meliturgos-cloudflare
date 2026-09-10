@@ -11,6 +11,7 @@ import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { maybeHandleLongChat } from "./api/long-chat.js";
 import { maybeHandleFastChat } from "./api/fast-chat.js";
 import { maybeHandleSelfAwareChat, maybeHandleSelfAwarenessApi } from "./api/self-aware-chat.js";
+import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
 
 function isArchivePayload(value) {
   if (Array.isArray(value)) return value.some(x => x && (x.mapping || x.messages || x.conversation_id || x.id));
@@ -109,6 +110,10 @@ async function maybeHandleChatGPTArchive(request, env) {
 export default {
   async fetch(request, env, ctx) {
     try {
+      const url = new URL(request.url);
+      const avatarResponse = serveMelAvatar(url.pathname);
+      if (avatarResponse) return avatarResponse;
+
       setDefaultCapabilityEnvironment(env);
 
       const readinessResponse = await maybeHandleReadiness(request, env);
