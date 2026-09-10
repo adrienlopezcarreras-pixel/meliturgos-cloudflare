@@ -24,6 +24,23 @@ const INSPECTION_FILES = [
   'src/teachers/github-completion-reconciler.js',
 ];
 
+function safeDiagnosticCode(error, fallback = 'IMPLEMENTATION_PLANNING_FAILED') {
+  const raw = String(error?.code || fallback).toUpperCase();
+  return /^[A-Z0-9_:-]{1,120}$/.test(raw) ? raw : fallback;
+}
+
+async function persistImplementationDiagnostic(repository, jobId, diagnostic) {
+  const latest = await repository.get(jobId);
+  if (!latest) return null;
+  const result = latest.result_json && typeof latest.result_json === 'object' ? { ...latest.result_json } : {};
+  result.implementation_planning_diagnostic = {
+    status: diagnostic.status === 'READY' ? 'READY' : 'NOT_READY',
+    code: diagnostic.status === 'READY' ? null : safeDiagnosticCode({ code: diagnostic.code }),
+    observed_at: new Date().toISOString(),
+  };
+  return repository.update(jobId, { result_json: result });
+}
+
 function codeConfig(env = {}) {
   const repository = String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
   const branch = String(env.MEL_TEACHER_BRANCH || 'candidate/augmentio-core');
@@ -262,12 +279,15 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         job,
         fetchImpl,
       });
+      await persistImplementationDiagnostic(jobRepository, job.id, { status: 'READY' });
       job = await jobRepository.get(job.id);
     } catch (error) {
       implementation = {
         status: 'NOT_READY',
-        code: error?.code || error?.message || 'IMPLEMENTATION_PLANNING_FAILED',
+        code: safeDiagnosticCode(error),
       };
+      await persistImplementationDiagnostic(jobRepository, job.id, implementation);
+      job = await jobRepository.get(job.id);
     }
   }
 
