@@ -1,0 +1,2 @@
+Purpose: trigger an observable post-heartbeat smoke probe of the deployed MEL Teacher Bridge after the first live APPROVE_PLAN reply.
+No secrets. No production mutation. Candidate-only diagnostic evidence.

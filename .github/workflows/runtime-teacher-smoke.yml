@@ -1,0 +1,27 @@
+name: runtime-teacher-smoke
+
+on:
+  push:
+    branches:
+      - candidate/augmentio-core
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Probe live Teacher Bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://meliturgos.adrien-lopezcarreras.workers.dev/api/teacher"
+          for endpoint in status pending work bridge.txt; do
+            echo "===== ${endpoint} ====="
+            curl --fail-with-body --silent --show-error \
+              --connect-timeout 10 --max-time 30 \
+              "${base}/${endpoint}"
+            echo
+          done
