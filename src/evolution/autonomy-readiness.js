@@ -127,11 +127,14 @@ function coherentLoopProof(job) {
   const requestIds = [teacher.request_id, implementation.request_id, completion.request_id].filter(Boolean);
   if (requestIds.length !== 3 || new Set(requestIds).size !== 1) return null;
   if (implementation.candidate_branch !== completion.candidate_branch) return null;
-  if (implementation.candidate_sha && implementation.candidate_sha !== completion.candidate_sha) return null;
+  // implementation.candidate_sha is the inspected PRE-EDIT base. A successful
+  // implementation necessarily produces a different completion SHA, so the
+  // branch + request-id correlation is the invariant, not SHA equality.
   return {
     job_id: job.id,
     request_id: completion.request_id,
     candidate_branch: completion.candidate_branch,
+    implementation_base_sha: implementation.candidate_sha,
     candidate_sha: completion.candidate_sha,
     ci_run_id: completion.ci_run_id,
     council_members: council.distinct_members,
