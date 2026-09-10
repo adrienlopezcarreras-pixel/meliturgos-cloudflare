@@ -99,10 +99,12 @@ function planningPrompt(job, bridge, code) {
  * CODE planning pass over the candidate source and persists the best proposal.
  * It deliberately does not write GitHub or deploy; the external Teacher/dev
  * channel can apply the reviewed candidate change and provide exact CI proof.
+ * The lifecycle status stays TEACHER_APPROVED because this internal proposal is
+ * evidence/work product, not a second authorization state.
  */
 export async function prepareApprovedImplementationProposal({ env, repository, job, fetchImpl = fetch } = {}) {
   if (!repository || !job) throw Object.assign(new Error('AUTONOMY_IMPLEMENTATION_INPUT_REQUIRED'), { code: 'AUTONOMY_IMPLEMENTATION_INPUT_REQUIRED' });
-  let current = await repository.get(job.id);
+  const current = await repository.get(job.id);
   if (!current) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
   const existing = current?.result_json?.implementation_proposal;
   if (existing?.status === 'READY' && existing?.teacher_request_id) return { ...existing, reused: true };
@@ -154,9 +156,6 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
 
   const result = current.result_json && typeof current.result_json === 'object' ? { ...current.result_json } : {};
   result.implementation_proposal = proposal;
-  current = await repository.update(current.id, {
-    status: 'IMPLEMENTATION_PLANNED',
-    result_json: result,
-  });
-  return current.result_json.implementation_proposal;
+  const updated = await repository.update(current.id, { result_json: result });
+  return updated.result_json.implementation_proposal;
 }
