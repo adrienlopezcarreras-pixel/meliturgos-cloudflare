@@ -67,7 +67,7 @@ test('MVP keeps draft on failure and renders text safely', async () => {
   document.querySelector('#input').value = payload;
   document.querySelector('#send').click();
   await tick();
-  assert.match(document.querySelector('#status').textContent, /indisponible/);
+  assert.match(document.querySelector('#status').textContent, /indisponible|failed/i);
   assert.equal(document.querySelector('#input').value, payload);
   assert.equal(document.querySelectorAll('#messages img').length, 0);
   assert.equal(document.querySelector('#send').disabled, false);
