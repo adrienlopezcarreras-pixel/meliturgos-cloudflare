@@ -12,6 +12,37 @@ function boundedInspection(value) {
   return value;
 }
 
+function objectOrEmpty(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function normalizeBridgeTests(body, existing = []) {
+  const raw = Array.isArray(body?.tests_json) ? body.tests_json : Array.isArray(body?.tests) ? body.tests : existing;
+  return Array.isArray(raw) ? raw.slice(0, 50) : [];
+}
+
+function mergeBridgeResult(job, body) {
+  const existingResult = objectOrEmpty(job?.result_json);
+  const submitted = objectOrEmpty(body?.result_json || body?.result);
+  const bridgeResult = {
+    ...submitted,
+    status: String(body?.status || job?.status || '').slice(0, 80),
+    candidate_branch: String(body?.candidate_branch || job?.candidate_branch || '').slice(0, 300) || null,
+    diff_summary: String(body?.diff_summary ?? submitted?.diff_summary ?? '').slice(0, 20_000),
+    files: Array.isArray(body?.files_json) ? body.files_json.slice(0, 50) : Array.isArray(submitted?.files) ? submitted.files.slice(0, 50) : [],
+    tests: normalizeBridgeTests(body, job?.tests_json),
+    needs_repair: body?.needs_repair === true || normalizeBridgeTests(body, job?.tests_json).some((test) => test?.passed === false || Number(test?.exit_code) > 0 || Number(test?.result?.exit_code) > 0),
+    received_at: new Date().toISOString(),
+  };
+  return { ...existingResult, dev_bridge: bridgeResult };
+}
+
+function mergeBridgePlan(job, body) {
+  const existingPlan = objectOrEmpty(job?.plan_json);
+  const submitted = objectOrEmpty(body?.plan_json);
+  return Object.keys(submitted).length ? { ...existingPlan, dev_bridge: submitted } : existingPlan;
+}
+
 export function devRuntime(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -149,30 +180,56 @@ export function devRuntime(request, env) {
     if (path === '/api/dev-bridge/claim' && request.method === 'POST') {
       const job = await repo.claim();
       if (!job) return Response.json({ job: null });
+      // A supervised job already carries its Council/Teacher/Mentor plan. Do not
+      // overwrite that evidence with the legacy one-shot diagnostic plan.
+      if (job?.result_json?.bridge_preparation?.status === 'READY') {
+        return Response.json(job);
+      }
       const agent = new DevAgent({
         diagnose: async (input) => ({ goal: input.goal, source: 'dev-agent' }),
         plan: async (input) => ({ goal: input.goal, steps: ['code.search', 'code.read', 'dev.create_candidate', 'dev.test', 'code.diff'] }),
       });
       const diagnosis = await agent.diagnose({ goal: job.goal });
-      return Response.json(await repo.update(job.id, { plan_json: await agent.plan(diagnosis), status: 'CLAIMED' }));
+      const existingPlan = objectOrEmpty(job.plan_json);
+      return Response.json(await repo.update(job.id, { plan_json: { ...existingPlan, legacy_dev_agent: await agent.plan(diagnosis) }, status: 'CLAIMED' }));
     }
 
     if (path === '/api/dev-bridge/result' && request.method === 'POST') {
-      if (body.status === 'READY_FOR_REVIEW') {
-        body.result_json = body.result_json || body.result || ((body.tests || body.diff_summary)
-          ? { steps: [], tests: body.tests || [], diff_summary: body.diff_summary || 'NO_CHANGES' }
-          : null);
-        requireValue(body.result_json, 'RESULT_REQUIRED', 422);
+      const job = await repo.get(body.job_id);
+      requireValue(job, 'JOB_NOT_FOUND', 404);
+      let submitted = body.result_json || body.result || null;
+      if (body.status === 'READY_FOR_REVIEW' && !submitted) {
+        submitted = (body.tests || body.tests_json || body.diff_summary)
+          ? { steps: [], tests: body.tests_json || body.tests || [], diff_summary: body.diff_summary || 'NO_CHANGES' }
+          : null;
+        requireValue(submitted, 'RESULT_REQUIRED', 422);
       }
-      return Response.json(await repo.update(body.job_id, body));
+      const normalizedBody = { ...body, result_json: submitted || {} };
+      const tests = normalizeBridgeTests(normalizedBody, job.tests_json);
+      const patch = {
+        status: String(body.status || job.status || '').slice(0, 80) || job.status,
+        candidate_branch: body.candidate_branch || job.candidate_branch,
+        tests_json: tests,
+        result_json: mergeBridgeResult(job, normalizedBody),
+        plan_json: mergeBridgePlan(job, normalizedBody),
+        patch_json: {
+          ...objectOrEmpty(job.patch_json),
+          dev_bridge_diff_summary: String(body.diff_summary || '').slice(0, 20_000),
+          dev_bridge_received_at: new Date().toISOString(),
+        },
+        error: body.error ? String(body.error).slice(0, 500) : null,
+      };
+      return Response.json(await repo.update(job.id, patch));
     }
 
     if (path === '/api/dev-bridge/commit' && request.method === 'POST') {
       const job = await repo.get(body.job_id);
       requireValue(job && job.status === 'APPROVED', 'APPROVAL_REQUIRED', 409);
-      return Response.json(await repo.update(job.id, { status: 'COMMITTED', result_json: { commit: body.commit || null } }));
+      return Response.json(await repo.update(job.id, { status: 'COMMITTED', result_json: { ...objectOrEmpty(job.result_json), commit: body.commit || null } }));
     }
 
     return Response.json({ error: 'NOT_FOUND', code: 'NOT_FOUND' }, { status: 404 });
   })();
 }
+
+export { mergeBridgeResult, mergeBridgePlan, normalizeBridgeTests };
