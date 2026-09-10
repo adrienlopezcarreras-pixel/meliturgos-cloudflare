@@ -1,5 +1,6 @@
 import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
+import { registerWorkCapabilities } from './work-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { RAGService } from '../search/rag-service.js';
@@ -216,5 +217,6 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ ok: true, preview: true, ...normalizeChatGPTArchive(input.archive ?? input).summary }));
 
+  registerWorkCapabilities(bus, { db: runtimeEnv.DB });
   return bus;
 }
