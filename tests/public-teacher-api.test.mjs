@@ -157,7 +157,27 @@ test('public Teacher status discloses channel/count and minimized autonomy metad
   assert.equal('goal' in (body.autonomy.current || {}), false);
 });
 
+test('plain-text Teacher bridge is extractor-friendly, read-only and does not expose owner-chat goals', async () => {
+  const response = await maybeHandlePublicTeacherBridge(new Request('http://x/api/teacher/bridge.txt'), {});
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /^text\/plain/);
+  assert.equal(response.headers.get('cache-control').includes('no-store'), true);
+  const text = await response.text();
+  const body = JSON.parse(text);
+  assert.equal(body.ok, true);
+  assert.equal(body.channel, 'github-teacher-bridge');
+  assert.equal(body.mutation_allowed, false);
+  assert.equal(body.exposes_secrets, false);
+  assert.equal(body.exposes_goals, false);
+  assert.equal(body.exposes_owner_chat_work, false);
+  assert.equal(Array.isArray(body.pending), true);
+  assert.equal('work_available' in body, true);
+  assert.equal(text.includes('MELITURGOS_PASSWORD'), false);
+});
+
 test('public Teacher API refuses mutation by not handling non-GET requests', async () => {
   const response = await maybeHandlePublicTeacherBridge(new Request('http://x/api/teacher/pending', { method: 'POST', body: '{}' }), {});
   assert.equal(response, null);
+  const textResponse = await maybeHandlePublicTeacherBridge(new Request('http://x/api/teacher/bridge.txt', { method: 'POST', body: '{}' }), {});
+  assert.equal(textResponse, null);
 });
