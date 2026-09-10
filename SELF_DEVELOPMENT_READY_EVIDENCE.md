@@ -4,6 +4,7 @@ Status: **NOT_READY (fail-closed)**
 
 Branch assessed: `candidate/augmentio-core`
 Baseline SHA assessed: `d6656e9ee1eac0bc4189e7daaa13301ea7340afa`
+Latest Teacher contract exercise: request commit `186657f7897396202a8cd59f7a283c2ecd89102f`, reply commit `fcd2e17d4d053ad1b31e839550a79b1a9500fb77`
 
 This file is evidence, not an authorization mechanism. It does not authorize merge or production deployment.
 
@@ -17,6 +18,7 @@ This file is evidence, not an authorization mechanism. It does not authorize mer
 - Current assessed SHA passed both GitHub cloud gates:
   - `augmentio-ci` run `34423678658`: SUCCESS.
   - `full-candidate-ci` run `34423678592`: SUCCESS.
+- The later readiness-evidence SHA `ec02f6bc80a484c33e83d1b2a941f2b261a868e0` also completed `augmentio-ci` successfully.
 
 ## Council-first assessment
 
@@ -28,9 +30,15 @@ Unknown cost is not treated as free. `ninjachat-default` remains excluded from z
 
 ## Teacher execution assessment
 
-The Teacher Bridge queue files are present and currently contain no real `MEL_REQUEST` / `TEACHER_REPLY` round-trip evidence. Presence of the files and contract does not prove runtime transport.
+A bounded file-level Teacher Bridge contract exercise is now recorded:
 
-Missing proof: runtime `MEL -> GitHub MEL_REQUEST -> Teacher reply matched by request_id -> MEL resume` with the reply persisted into the development job's auditable evidence.
+- `teacher-bridge/requests.jsonl` contains request `mel-selfdev-readiness-ec02f6bc`, explicitly marked `runtime_generated: false` and `live_council_zero_cost_proven: false`.
+- `teacher-bridge/replies.jsonl` contains the matching `TEACHER_REPLY` with verdict `NEEDS_CHANGES`.
+- The reply preserves the three required end-to-end proofs and does not authorize deployment.
+
+This verifies the durable JSONL request/reply contract and `request_id` matching at repository level. It **does not** satisfy `LIVE_TEACHER_ROUND_TRIP_NOT_PROVEN`, because MEL's runtime did not generate/consume this exercise and no development job resumed from it.
+
+Missing proof remains: runtime `MEL -> GitHub MEL_REQUEST -> Teacher reply matched by request_id -> MEL resume` with the reply persisted into the development job's auditable evidence.
 
 ## Work execution assessment
 
@@ -43,12 +51,12 @@ Resumable development-job checkpoints are working in automated tests. A general 
 Fail-closed blockers:
 
 1. `LIVE_COUNCIL_ZERO_COST_NOT_PROVEN` — no captured live two-AI zero-added-cost Council execution evidence.
-2. `LIVE_TEACHER_ROUND_TRIP_NOT_PROVEN` — no real runtime request/reply/resume evidence.
+2. `LIVE_TEACHER_ROUND_TRIP_NOT_PROVEN` — repository-level request/reply matching is exercised, but no real runtime request/reply/resume evidence exists.
 3. `GENERAL_WORK_DAG_RESUME_NOT_VERIFIED` — development-job resume is tested, but the general Work + `.augmentio` path is not verified end-to-end.
 
 ## Next highest-priority bounded task
 
-Once the Council gate can be satisfied with actually configured, authorized and explicitly zero-added-cost routes, run the smallest real Council state-of-play for the existing Teacher/Work integration. Then inspect/reuse the current Teacher and dev-job code, produce a bounded spec, generate a real structured Teacher request, verify request-id-matched reply consumption and checkpoint resume, and run targeted tests plus `augmentio-ci` and `full-candidate-ci`.
+Once the Council gate can be satisfied with actually configured, authorized and explicitly zero-added-cost routes, run the smallest real Council state-of-play for the existing Teacher/Work integration. Then inspect/reuse the current Teacher and dev-job code, produce a bounded spec, generate a runtime structured Teacher request, verify request-id-matched reply consumption and checkpoint resume, and run targeted tests plus `augmentio-ci` and `full-candidate-ci`.
 
 ## Production status
 
