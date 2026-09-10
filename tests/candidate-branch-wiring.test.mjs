@@ -8,6 +8,17 @@ function loadWrangler() {
   return JSON.parse(raw);
 }
 
+const runtimeBranchSources = [
+  '../wrangler.jsonc',
+  '../src/capabilities/default-bus.js',
+  '../src/evolution/autonomy-runtime.js',
+  '../src/evolution/autonomy-implementation-planner.js',
+  '../src/evolution/autonomy-bridge-preparer.js',
+  '../src/teachers/github-completion-reconciler.js',
+  '../src/teachers/github-request-mirror.js',
+  '../src/teachers/github-reply-reconciler.js',
+];
+
 test('candidate deployment reads and develops the exact clean MEL branch', () => {
   const config = loadWrangler();
   assert.equal(config.vars.MEL_GITHUB_BRANCH, 'candidate/mel-clean-autonomy');
@@ -22,12 +33,12 @@ test('capability bus safe defaults also remain on the clean candidate when bindi
   assert.match(state.github_repository, /meliturgos-cloudflare$/);
 });
 
-test('candidate config and capability bus never silently point autonomy back to superseded branches', () => {
-  const wrangler = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
-  const bus = readFileSync(new URL('../src/capabilities/default-bus.js', import.meta.url), 'utf8');
-  for (const source of [wrangler, bus]) {
+test('runtime autonomy and Teacher transports never silently point back to superseded branches', () => {
+  for (const relative of runtimeBranchSources) {
+    const source = readFileSync(new URL(relative, import.meta.url), 'utf8');
     assert.doesNotMatch(source, /release\/mel-2026-09-10-r3-3/);
     assert.doesNotMatch(source, /release\/mel-2026-09-10-r3['"]/);
     assert.doesNotMatch(source, /candidate\/augmentio-core/);
+    assert.match(source, /candidate\/mel-clean-autonomy/, relative);
   }
 });
