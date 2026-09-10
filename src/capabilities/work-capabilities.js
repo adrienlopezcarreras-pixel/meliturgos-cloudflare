@@ -12,7 +12,7 @@ const WORK_NODE_SCHEMA = {
   properties: {
     id: { type: 'string', minLength: 1, maxLength: 200 },
     kind: { type: 'string', minLength: 1, maxLength: 32 },
-    depends_on: { type: 'array', maxItems: 64, items: { type: 'string', minLength: 1, maxLength: 200 } },
+    depends_on: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 200 } },
     idempotent: { type: 'boolean' },
     payload: { type: 'object', additionalProperties: true },
   },
@@ -22,6 +22,13 @@ const WORK_NODE_SCHEMA = {
 
 function assertDb(db) {
   if (!db) throw workError('WORK_DAG_DB_REQUIRED');
+}
+
+function assertBoundedNodes(nodes) {
+  if (!Array.isArray(nodes) || nodes.length < 1 || nodes.length > 64) throw workError('WORK_NODE_COUNT_INVALID');
+  for (const node of nodes) {
+    if (Array.isArray(node?.depends_on) && node.depends_on.length > 64) throw workError('WORK_DEPENDENCY_COUNT_INVALID');
+  }
 }
 
 function childExecutor(bus, context) {
@@ -87,7 +94,7 @@ export function registerWorkCapabilities(bus, { db } = {}) {
         goal: { type: 'string', minLength: 1, maxLength: 4000 },
         candidateBranch: { type: 'string', minLength: 1, maxLength: 200 },
         candidateSha: { type: 'string', minLength: 1, maxLength: 100 },
-        nodes: { type: 'array', minItems: 1, maxItems: 64, items: WORK_NODE_SCHEMA },
+        nodes: { type: 'array', items: WORK_NODE_SCHEMA },
       },
       required: ['goal', 'nodes'], additionalProperties: false,
     },
@@ -95,6 +102,7 @@ export function registerWorkCapabilities(bus, { db } = {}) {
     risk: 'MEDIUM', permissions: [], health, enabled: true,
   }, async (input) => {
     assertDb(db);
+    assertBoundedNodes(input.nodes);
     const dagId = input.id || crypto.randomUUID();
     const nodes = input.nodes.map((node) => {
       const kind = String(node.kind || 'TASK').toUpperCase();
