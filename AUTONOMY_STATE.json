@@ -1,0 +1,60 @@
+{
+  "schema": "mel.autonomy-state",
+  "version": 1,
+  "updated_at": "2026-09-10T04:07:00Z",
+  "branch": "candidate/augmentio-core",
+  "priority": "P0",
+  "objective": "Fermer la boucle MEL -> travail -> Teacher Bridge -> ChatGPT -> reprise automatique, puis continuer le prochain travail sans attente humaine inutile.",
+  "verified": [
+    {
+      "capability": "resumable_work_dag",
+      "status": "VERIFIED",
+      "evidence_commit": "1efeb36c6c01c358f723056501062dc089f3ea83",
+      "ci": "full-candidate-ci success",
+      "notes": "Dépendances, checkpoints signés, idempotence, fail-closed des noeuds interrompus non idempotents."
+    },
+    {
+      "capability": "autonomous_teacher_resume_loop",
+      "status": "VERIFIED_IN_TESTS",
+      "evidence_commit": "251fe745d8bcef994961a47791f9abbc42278dea",
+      "ci": "full-candidate-ci success",
+      "notes": "Publication d'une demande Teacher, attente, consommation d'une réponse avec request_id strict, reprise automatique sans rejouer le travail terminé."
+    },
+    {
+      "capability": "jsonl_teacher_channel",
+      "status": "VERIFIED_IN_TESTS",
+      "evidence_commit": "251fe745d8bcef994961a47791f9abbc42278dea",
+      "ci": "full-candidate-ci success",
+      "notes": "Déduplication de demandes et filtrage des champs ressemblant à des secrets."
+    },
+    {
+      "capability": "chatgpt_teacher_automation",
+      "status": "ENABLED",
+      "automation": "MEL Autonomie Continue",
+      "cadence": "hourly",
+      "notes": "Canal ChatGPT sans API OpenAI payante; travaille sur candidate et traite les demandes Teacher Bridge."
+    }
+  ],
+  "not_yet_proven": [
+    "Une demande Teacher produite par le runtime MEL réel et non par un test.",
+    "Le round-trip runtime réel MEL -> GitHub Teacher Bridge -> ChatGPT -> reprise du même job.",
+    "L'édition autonome de code de bout en bout depuis un job MEL avec génération de patch, tests, critique et checkpoint sans intervention humaine ordinaire.",
+    "La continuité cloud de ce cycle lorsque le bridge local n'est pas disponible."
+  ],
+  "next_p0": [
+    "Brancher AutonomousWorkLoop sur les vrais dev_jobs et le flux dev-bridge.",
+    "Produire et publier une vraie MEL_TEACHER_REVIEW_REQUEST runtime avec request_id durable.",
+    "Faire consommer automatiquement la réponse correspondante et reprendre le même job.",
+    "Relier .augmentio au plan de modification de code borné, puis candidate -> tests -> critique -> checkpoint.",
+    "Après preuve E2E, ajouter un superviseur non-idle qui sélectionne le prochain manque P0 tant qu'un travail sûr existe."
+  ],
+  "invariants": {
+    "zero_added_cost": true,
+    "unknown_cost_fail_closed": true,
+    "candidate_branch_only_for_autonomous_development": true,
+    "no_secret_commits": true,
+    "no_destructive_d1": true,
+    "owner_shutdown_wins": true,
+    "no_uncontrolled_replication": true
+  }
+}
