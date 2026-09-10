@@ -41,6 +41,19 @@ export function inferCapabilityInspectionIntent(text) {
   return { id: 'capability.audit', input: { deep } };
 }
 
+export function inferWebResearchIntent(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  if (/\b(?:mail|email|gmail|outlook|agenda|calendrier|drive|onedrive|fichier(?:s)?\s+priv[ée]s?|mes\s+fichiers|mes\s+mails)\b/i.test(value)) return null;
+
+  const explicitWeb = /\b(?:internet|web|en\s+ligne|online|sur\s+le\s+net|sources?\s+web)\b/i.test(value);
+  const explicitAction = /\b(?:cherche|chercher|recherche|rechercher|regarde|regarder|v[ée]rifie|v[ée]rifier|trouve|trouver|consulte|consulter|search|look\s*up|check|find)\b/i.test(value);
+  const freshness = /\b(?:actualit[ée]s?|news|derni[eè]res?\s+(?:infos?|nouvelles?|donn[ée]es?)|latest|r[ée]cent(?:e|es|s)?|aujourd['’]hui|today|en\s+ce\s+moment|current)\b/i.test(value);
+  if (!((explicitAction && explicitWeb) || (explicitAction && freshness) || (explicitWeb && freshness))) return null;
+
+  return { id: 'web.research', input: { query: value.slice(0, 2000), depth: 2 } };
+}
+
 function enqueueCapability(goal, body, requestKey) {
   return {
     id: 'evolution.enqueue',
@@ -76,11 +89,15 @@ export async function injectEvolutionPreflightCapability(request) {
   } else {
     const autonomy = inferAutonomyControlIntent(text);
     const capabilityInspection = autonomy ? null : inferCapabilityInspectionIntent(text);
+    const webResearch = autonomy || capabilityInspection ? null : inferWebResearchIntent(text);
     if (autonomy) {
       body.capability = autonomy;
     } else if (capabilityInspection) {
       body.capability = capabilityInspection;
       body.intent_routing = { mode: 'deterministic', intent: 'CAPABILITY_STATUS', confidence: 1 };
+    } else if (webResearch) {
+      body.capability = webResearch;
+      body.intent_routing = { mode: 'deterministic', intent: 'WEB_RESEARCH', confidence: 1 };
     } else {
       const semantic = await classifySemanticOwnerIntent({
         text,
@@ -95,6 +112,8 @@ export async function injectEvolutionPreflightCapability(request) {
         body.capability = { id: 'autonomy.status', input: {} };
       } else if (semantic.intent === 'CAPABILITY_STATUS') {
         body.capability = { id: 'capability.audit', input: { deep: /\b(?:teste|test|v[ée]rifie|audit\s+complet|audit\s+profond|r[ée]ellement|smoke|ex[ée]cute)\b/i.test(text) } };
+      } else if (semantic.intent === 'WEB_RESEARCH') {
+        body.capability = { id: 'web.research', input: { query: String(semantic.resolvedQuery || text).slice(0, 2000), depth: 2 } };
       } else {
         return request;
       }
