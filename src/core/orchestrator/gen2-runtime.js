@@ -1,4 +1,5 @@
 import { createDefaultCapabilityBus } from '../../capabilities/default-bus.js';
+import { registerAutonomyCapabilities } from '../../capabilities/autonomy-capabilities.js';
 import { validateManifest } from '../../plugins/validator.js';
 import { transition } from '../lifecycle/extension.js';
 import { requireValue } from '../contracts.js';
@@ -10,6 +11,7 @@ import { requireStateOfPlayCouncil } from '../../teachers/model-council.js';
  */
 export function createGen2Runtime({ audit = async () => {}, env = {} } = {}) {
   const bus = createDefaultCapabilityBus({ audit, env });
+  registerAutonomyCapabilities(bus, env);
   const plugins = new Map();
   const modules = new Map();
   const agents = new Map();
