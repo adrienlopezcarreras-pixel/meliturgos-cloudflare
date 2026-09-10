@@ -9,6 +9,7 @@ import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
 import { maybeQueueAutonomousDevelopment } from "./evolution/development-chat.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { maybeHandleLongChat } from "./api/long-chat.js";
+import { maybeHandleFastChat } from "./api/fast-chat.js";
 
 function isArchivePayload(value) {
   if (Array.isArray(value)) return value.some(x => x && (x.mapping || x.messages || x.conversation_id || x.id));
@@ -107,8 +108,6 @@ async function maybeHandleChatGPTArchive(request, env) {
 export default {
   async fetch(request, env, ctx) {
     try {
-      // worker.js still creates its compatibility CapabilityBus without env.
-      // Prime the shared module with only the safe runtime bindings it needs.
       setDefaultCapabilityEnvironment(env);
 
       const readinessResponse = await maybeHandleReadiness(request, env);
@@ -120,13 +119,14 @@ export default {
       const archiveResponse = await maybeHandleChatGPTArchive(request, env);
       if (archiveResponse) return archiveResponse;
 
-      // Explicit commands to continue MEL's own development become real queued
-      // Mentor/Dev-Bridge jobs instead of conversational promises.
       const developmentResponse = await maybeQueueAutonomousDevelopment(request, env);
       if (developmentResponse) return developmentResponse;
 
-      // Prompts above the legacy 12k ceiling are handled directly by Gen2.
-      // Short messages still use the existing proven route unchanged.
+      // Simple short conversation uses the fastest zero-added-cost model and
+      // only a tiny recent context. Complex/tool/memory/code intents fall through.
+      const fastChatResponse = await maybeHandleFastChat(request, env, ctx);
+      if (fastChatResponse) return fastChatResponse;
+
       const longChatResponse = await maybeHandleLongChat(request, env);
       if (longChatResponse) return longChatResponse;
 
