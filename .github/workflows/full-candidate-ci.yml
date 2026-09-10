@@ -5,6 +5,7 @@ on:
     branches:
       - 'candidate/augmentio-core'
       - 'candidate/mel-ui-selfaware-integration'
+      - 'candidate/mel-clean-autonomy'
   workflow_dispatch:
 
 permissions:
