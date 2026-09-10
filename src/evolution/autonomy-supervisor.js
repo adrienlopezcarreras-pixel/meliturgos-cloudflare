@@ -75,13 +75,17 @@ export class AutonomySupervisor {
 
   async state() {
     const jobs = await this.repository.list();
-    const active = jobs.filter((job) => !TERMINAL_JOB.has(String(job.status || '').toUpperCase()));
+    // Only jobs created by the supervised autonomy channels may advance, block
+    // or consume roadmap attempts. Legacy/manual Professor jobs remain visible
+    // in the repository but cannot forge roadmap completion evidence.
+    const supervisedJobs = jobs.filter(isSupervisedAutonomyJob);
+    const active = supervisedJobs.filter((job) => !TERMINAL_JOB.has(String(job.status || '').toUpperCase()));
     const activeIds = active.map(roadmapIdFromJob).filter(Boolean);
-    const completedIds = jobs
+    const completedIds = supervisedJobs
       .filter((job) => ['COMPLETED', 'COMMITTED'].includes(String(job.status || '').toUpperCase()))
       .map(roadmapIdFromJob)
       .filter(Boolean);
-    const blockedIds = jobs
+    const blockedIds = supervisedJobs
       .filter((job) => String(job.status || '').toUpperCase() === 'FAILED' && job?.result_json?.autonomy_blocked === true)
       .map(roadmapIdFromJob)
       .filter(Boolean);
@@ -90,7 +94,7 @@ export class AutonomySupervisor {
       completedIds,
       blockedIds: [...blockedIds, ...activeIds],
     });
-    return { jobs, active, activeIds, completedIds, blockedIds, next };
+    return { jobs, supervisedJobs, active, activeIds, completedIds, blockedIds, next };
   }
 
   async ensureNextJob() {
@@ -102,7 +106,7 @@ export class AutonomySupervisor {
     if (!current.next) return { created: false, job: null, next: null, complete: true };
 
     const item = current.next;
-    const attempts = current.jobs.filter((job) => roadmapIdFromJob(job) === item.id).length;
+    const attempts = current.supervisedJobs.filter((job) => roadmapIdFromJob(job) === item.id).length;
     const deterministicId = jobAttemptId(item.id, attempts + 1);
     const goal = `[${item.id}] ${item.title}${item.next ? ` — ${item.next}` : ''}`;
     const input = {
