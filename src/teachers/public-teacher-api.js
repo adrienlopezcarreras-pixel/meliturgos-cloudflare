@@ -3,12 +3,23 @@ import { listPendingRuntimeTeacherRequests, teacherBridgePublicView } from './ru
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 
+function currentTeacherMetadata(job) {
+  const bridge = job?.result_json?.teacher_bridge || null;
+  if (!bridge) return { teacher_status: null, request_id: null, verdict: null };
+  return {
+    teacher_status: bridge.status || null,
+    request_id: bridge.request?.request_id || bridge.review?.request_id || null,
+    verdict: bridge.review?.verdict || null,
+  };
+}
+
 function summarizeAutonomyJobs(jobs = []) {
   const autonomy = jobs.filter((job) => job?.requested_by === 'mel-autonomy');
   const active = autonomy.filter((job) => !TERMINAL.has(String(job.status || '').toUpperCase()));
   const current = active
     .slice()
     .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0))[0] || null;
+  const teacher = current ? currentTeacherMetadata(current) : null;
   return {
     total: autonomy.length,
     active_count: active.length,
@@ -20,6 +31,9 @@ function summarizeAutonomyJobs(jobs = []) {
       job_id: String(current.id || ''),
       status: String(current.status || ''),
       roadmap_id: current?.optional_context?.roadmap_id || null,
+      teacher_status: teacher.teacher_status,
+      request_id: teacher.request_id,
+      verdict: teacher.verdict,
     } : null,
   };
 }
@@ -27,8 +41,9 @@ function summarizeAutonomyJobs(jobs = []) {
 /**
  * Deliberately public, read-only and aggressively minimized so the external
  * ChatGPT Teacher can discover pending technical requests without receiving a
- * MEL secret. Full job state, council text, inspection contents, goals and user
- * data remain behind authenticated/runtime channels.
+ * MEL secret. Opaque job/request ids are exposed for reliable correlation;
+ * full job state, council text, inspection contents, goals and user data remain
+ * behind authenticated/runtime channels.
  */
 export async function maybeHandlePublicTeacherBridge(request, env) {
   if (request.method !== 'GET') return null;
