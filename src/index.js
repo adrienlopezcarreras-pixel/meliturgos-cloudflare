@@ -10,6 +10,7 @@ import { maybeQueueAutonomousDevelopment } from "./evolution/development-chat.js
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { maybeHandleLongChat } from "./api/long-chat.js";
 import { maybeHandleFastChat } from "./api/fast-chat.js";
+import { maybeHandleSelfAwareChat, maybeHandleSelfAwarenessApi } from "./api/self-aware-chat.js";
 
 function isArchivePayload(value) {
   if (Array.isArray(value)) return value.some(x => x && (x.mapping || x.messages || x.conversation_id || x.id));
@@ -113,20 +114,28 @@ export default {
       const readinessResponse = await maybeHandleReadiness(request, env);
       if (readinessResponse) return readinessResponse;
 
+      const awarenessApiResponse = await maybeHandleSelfAwarenessApi(request, env);
+      if (awarenessApiResponse) return awarenessApiResponse;
+
       const councilResponse = await maybeHandleCouncilAndEvolution(request, env);
       if (councilResponse) return councilResponse;
 
       const archiveResponse = await maybeHandleChatGPTArchive(request, env);
       if (archiveResponse) return archiveResponse;
 
+      // Explicit self-development commands create real queued Mentor/Dev-Bridge jobs.
       const developmentResponse = await maybeQueueAutonomousDevelopment(request, env);
       if (developmentResponse) return developmentResponse;
 
-      // Simple short conversation uses the fastest zero-added-cost model and
-      // only a tiny recent context. Complex/tool/memory/code intents fall through.
+      // Questions about MEL herself use a full live self-state instead of model guesses.
+      const selfAwareResponse = await maybeHandleSelfAwareChat(request, env, ctx);
+      if (selfAwareResponse) return selfAwareResponse;
+
+      // Simple short conversation uses a compact cached self-state and fast model.
       const fastChatResponse = await maybeHandleFastChat(request, env, ctx);
       if (fastChatResponse) return fastChatResponse;
 
+      // Large prompts get the same grounded self-state through Gen2 long-context routing.
       const longChatResponse = await maybeHandleLongChat(request, env);
       if (longChatResponse) return longChatResponse;
 
