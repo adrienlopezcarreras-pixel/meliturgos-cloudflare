@@ -10,11 +10,12 @@ Fermer une boucle réellement reprenable :
 Sans API OpenAI payante, MEL ne parle pas directement et en continu à une instance ChatGPT. Le canal gratuit actuel est le Teacher Bridge + l'automatisation ChatGPT `MEL Autonomie Continue`. Entre deux passages du Professeur, MEL continue avec ses propres modèles/outils, checkpointant chaque étape et ne s'arrêtant que sur un vrai blocage.
 
 ## Composants candidate
-- `src/evolution/autonomy-runtime.js` : heartbeat cloud ; réconcilie les réponses Teacher et les fins de travail validées par CI avant de sélectionner le prochain objectif.
+- `src/evolution/autonomy-runtime.js` : heartbeat cloud ; réconcilie les réponses Teacher et les fins de travail validées par CI avant de sélectionner le prochain objectif. Il récupère aussi les états historiques `READY_FOR_REVIEW` et les transforme en demande Teacher au lieu de laisser le job bloqué.
 - `src/evolution/autonomy-supervisor.js` : choisit le prochain manque P0 et ne garde pas un job terminé comme job actif.
 - `src/work/work-dag.js` : DAG de travail persistant, dépendances, checkpoints signés, reprise idempotente et fail-closed pour les effets non idempotents.
 - `src/work/autonomous-work-loop.js` : publie les demandes Teacher, cherche une réponse correspondante puis reprend le DAG.
-- `src/teachers/public-teacher-api.js` : flux public read-only minimisé (`/api/teacher/pending`, `/api/teacher/status`) sans secrets, contenu Council complet, code source ou objectifs privés.
+- `src/teachers/public-teacher-api.js` : flux public read-only minimisé (`/api/teacher/pending`, `/api/teacher/status`, `/api/teacher/work`, `/api/teacher/bridge.txt`) sans secrets, contenu Council complet, code source ou objectifs privés.
+- `src/teachers/github-request-mirror.js` : miroir optionnel et idempotent des demandes internes `mel-autonomy` vers `teacher-bridge/runtime-requests/<request_id>.json` lorsque le token GitHub est déjà configuré ; D1 reste la source de vérité et `owner-chat` n'est jamais reflété.
 - `src/teachers/runtime-teacher-bridge.js` : demande/revue runtime stockée dans `dev_jobs` avec correspondance stricte du `request_id`.
 - `src/teachers/github-reply-reconciler.js` : lit les réponses GitHub et applique uniquement celles correspondant à une demande en attente.
 - `src/teachers/github-completion-reconciler.js` : accepte uniquement une fin de travail liée à une réponse Teacher approuvée et vérifie sur GitHub que `full-candidate-ci` a réellement réussi sur le même SHA et la même branche candidate.
@@ -23,12 +24,15 @@ Sans API OpenAI payante, MEL ne parle pas directement et en continu à une insta
 - `src/dev/*` : jobs, bridge de développement local, lecture/recherche de code, candidate isolée, tests et rapports.
 
 ## Découverte des demandes runtime
-Après déploiement d'une release contenant `public-teacher-api.js`, ChatGPT/Professeur consulte :
+Après déploiement d'une release contenant le Teacher Bridge, ChatGPT/Professeur peut utiliser plusieurs chemins indépendants :
 
 - `GET /api/teacher/status` : compteurs techniques minimisés (attente Teacher, Teacher approuvé, terminé, job autonomie courant), sans objectif textuel.
 - `GET /api/teacher/pending` : demandes Teacher minimisées nécessaires à la revue ; aucune mutation n'est possible sur cette route.
+- `GET /api/teacher/work` : au plus un paquet d'implémentation interne déjà approuvé, jamais un travail `owner-chat`.
+- `GET /api/teacher/bridge.txt` : instantané texte des vues publiques précédentes pour les navigateurs/extracteurs qui préservent mal les corps `application/json`.
+- `teacher-bridge/runtime-requests/<request_id>.json` : miroir GitHub facultatif d'une demande issue exclusivement de la feuille de route interne, si MEL dispose déjà d'un token GitHub autorisé.
 
-Le contenu Council complet, les données utilisateur, les états privés de job et les secrets ne sont jamais exposés par ce flux public.
+Le contenu Council complet, les données utilisateur, les états privés de job et les secrets ne sont jamais exposés par ce flux public. Le miroir GitHub est un transport secondaire : son absence ou son échec ne bloque jamais le job D1.
 
 ## Réponses Professeur
 ChatGPT écrit une réponse structurée dans `teacher-bridge/replies.jsonl`. MEL ne consomme qu'une réponse portant exactement le même `request_id` qu'une demande runtime en attente.
@@ -63,9 +67,10 @@ Dans un même heartbeat cloud, l'ordre est :
 4. fermer les jobs réellement terminés ;
 5. sélectionner immédiatement le prochain objectif P0 ;
 6. lancer son Council zéro-coût et l'inspection candidate ;
-7. produire la prochaine demande Teacher.
+7. produire la prochaine demande Teacher ;
+8. rendre cette demande récupérable par le flux public et, si disponible, par son miroir GitHub idempotent.
 
-Ainsi un travail validé ne laisse pas MEL bloquée sur un job déjà terminé.
+Ainsi un travail validé ne laisse pas MEL bloquée sur un job déjà terminé et une panne d'un transport de lecture ne supprime pas l'état persistant du travail.
 
 ## Règles de sécurité et vérité
 - Aucun mot de passe, clé API, token, cookie, OTP ou secret dans les fichiers du bridge.
@@ -80,6 +85,6 @@ Ainsi un travail validé ne laisse pas MEL bloquée sur un job déjà terminé.
 
 ## Priorité immédiate
 1. Garder les tests E2E du runtime, du Work DAG et du Teacher Bridge verts.
-2. Déployer une release contenant le flux public Teacher et le reconciler de completions.
+2. Déployer une release contenant la récupération `READY_FOR_REVIEW`, les flux publics Teacher et le reconciler de completions.
 3. Capturer le premier vrai round-trip production : demande runtime MEL -> lecture par ChatGPT -> `TEACHER_REPLY` -> changement candidate -> CI réelle -> `MEL_WORK_COMPLETION` -> job suivant créé automatiquement.
 4. Une fois cette preuve acquise, poursuivre la feuille de route par petits lots autonomes, en privilégiant code tools, Module Lab, tests/critique, mémoire, connecteurs puis multimodal/appareils.
