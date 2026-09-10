@@ -9,6 +9,8 @@ test('each MEL visual mode resolves to its stable embedded avatar route', async 
     ['crusade', '/assets/avatars/mel-crusade.webp', 'crusade'],
     ['religious', '/assets/avatars/mel-religious-andalusian.webp', 'religious'],
     ['granada', '/assets/avatars/mel-granada.webp', 'granada'],
+    ['aviation', '/assets/avatars/mel-aviation-1940s.webp', 'aviation'],
+    ['paladin', '/assets/avatars/mel-paladin-light-full-plate.webp', 'paladin'],
   ];
   for (const [theme, path, header] of cases) {
     assert.equal(getMelAvatarRoute(theme), path);
@@ -25,6 +27,12 @@ test('each MEL visual mode resolves to its stable embedded avatar route', async 
   assert.equal(serveMelAvatar('/assets/avatars/unknown.webp'), null);
 });
 
+test('temporary theme portrait fallbacks are explicit and replaceable without changing routes', () => {
+  assert.equal(serveMelAvatar('/assets/avatars/mel-aviation-1940s.webp').headers.get('x-mel-avatar-fallback'), 'classic');
+  assert.equal(serveMelAvatar('/assets/avatars/mel-paladin-light-full-plate.webp').headers.get('x-mel-avatar-fallback'), 'crusade');
+  assert.equal(serveMelAvatar('/assets/avatars/mel-granada.webp').headers.get('x-mel-avatar-fallback'), 'religious');
+});
+
 test('HTML enhancer locks the final MEL visual contract', async () => {
   const source = '<!doctype html><html data-theme="classic"><body><div class="theme-switch"><button id="themeButton"></button><div id="themePanel"><button data-theme-choice="classic"></button><button data-theme-choice="crusade"></button><button data-theme-choice="religious"></button></div></div><main class="app"><div class="avatar-wrap"><div class="avatar"><img src="/meliturgos-avatar-fille.png" alt="MEL"></div></div><div id="voiceStatus"></div><section class="window"><div id="messages"></div><div class="composer"><textarea id="input" maxlength="100000"></textarea><div class="controls"><button id="send">Envoyer</button><button id="skills">Compétences</button><button id="full">Mode complet</button></div></div><div id="skillsPanel" class="skills"></div></section></main></body></html>';
   const response = await enhanceThemeAvatars(new Response(source, { headers: { 'content-type': 'text/html; charset=utf-8' } }));
@@ -35,12 +43,20 @@ test('HTML enhancer locks the final MEL visual contract', async () => {
   assert.match(html, /mel-crusade\.webp/);
   assert.match(html, /mel-religious-andalusian\.webp/);
   assert.match(html, /mel-granada\.webp/);
-  assert.match(html, /data-theme-choice=\"granada\"/);
+  assert.match(html, /mel-aviation-1940s\.webp/);
+  assert.match(html, /mel-paladin-light-full-plate\.webp/);
   assert.match(html, /Cathédrale de Grenade/);
   assert.match(html, /Grand retable/);
+  assert.match(html, /Aviation 1940s/);
+  assert.match(html, /cockpit/i);
+  assert.match(html, /Paladin Light Full Plate/);
+  assert.match(html, /Armure claire/);
+  assert.doesNotMatch(html, /Dark Full Plate/);
   assert.match(html, /MEL veille et prie en silence/);
   assert.match(html, /MEL demeure dans une prière paisible/);
   assert.match(html, /MEL demeure dans la lumière du sanctuaire/);
+  assert.match(html, /MEL garde le cap/);
+  assert.match(html, /MEL veille dans la lumière/);
   assert.match(html, /#skills,#skillsPanel\{display:none!important\}/);
   assert.match(html, /\.window:after[^}]*content:none!important/);
   assert.match(html, /document\.getElementById\('skills'\)\?\.remove/);
