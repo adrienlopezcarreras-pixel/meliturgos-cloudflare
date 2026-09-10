@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
-import { AutonomySupervisor, selectNextAutonomyItem } from '../src/evolution/autonomy-supervisor.js';
+import { AutonomySupervisor, selectNextAutonomyItem, isSupervisedAutonomyJob } from '../src/evolution/autonomy-supervisor.js';
 
 function isolatedRepo() {
   return new D1DevJobRepository(null, { memoryStore: new Map() });
@@ -37,6 +37,41 @@ test('autonomy supervisor creates one persistent deterministic job and does not 
   assert.equal(second.created, false);
   assert.equal(second.job.id, first.job.id);
   assert.equal((await repo.list()).length, 1);
+});
+
+test('explicit owner-chat development is supervised autonomy and outranks background roadmap work', async () => {
+  const repo = isolatedRepo();
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  const background = await supervisor.ensureNextJob();
+  assert.equal(background.job.requested_by, 'mel-autonomy');
+
+  const owner = await repo.create({
+    id: 'owner-chat-priority',
+    requested_by: 'owner-chat',
+    goal: 'Développe une compétence calendrier',
+    optional_context: { source: 'owner-chat', priority: 'P0' },
+  });
+  assert.equal(isSupervisedAutonomyJob(owner), true);
+
+  const selected = await supervisor.ensureNextJob();
+  assert.equal(selected.created, false);
+  assert.equal(selected.job.id, owner.id);
+  assert.equal(selected.job.requested_by, 'owner-chat');
+});
+
+test('owner-chat work prevents creation of a new background roadmap job while it is active', async () => {
+  const repo = isolatedRepo();
+  await repo.create({
+    id: 'owner-only',
+    requested_by: 'owner-chat',
+    goal: 'Ajouter un module demandé par le propriétaire',
+    optional_context: { source: 'owner-chat', priority: 'P0' },
+  });
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  const selected = await supervisor.ensureNextJob();
+  assert.equal(selected.created, false);
+  assert.equal(selected.job.id, 'owner-only');
+  assert.equal((await repo.list()).filter((job) => job.requested_by === 'mel-autonomy').length, 0);
 });
 
 test('two simultaneous autonomy supervisors converge on the same deterministic job', async () => {
