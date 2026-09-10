@@ -4,6 +4,7 @@ import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { prepareApprovedImplementationProposal } from '../src/evolution/autonomy-implementation-planner.js';
 
 const HEAD_SHA = '1111111111111111111111111111111111111111';
+const NEW_HEAD_SHA = '2222222222222222222222222222222222222222';
 
 function fixture({ headSequence = [HEAD_SHA] } = {}) {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
@@ -88,7 +89,7 @@ test('after Teacher approval MEL independently builds and persists a bounded mul
   assert.equal(stored.result_json.implementation_proposal.candidate_sha, HEAD_SHA);
 });
 
-test('approved implementation proposal is idempotently reused only with an exact candidate sha', async () => {
+test('approved implementation proposal is reused only after revalidating the exact live candidate head', async () => {
   const f = fixture();
   const job = await approvedJob(f.repository);
   await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
@@ -99,6 +100,41 @@ test('approved implementation proposal is idempotently reused only with an exact
   assert.equal(reused.reused, true);
   assert.equal(reused.candidate_sha, HEAD_SHA);
   assert.equal(f.aiCalls.length, calls);
+  assert.equal(f.getHeadReads(), headReads + 1);
+});
+
+test('READY proposal is regenerated when the candidate branch advanced after planning', async () => {
+  const f = fixture({ headSequence: [HEAD_SHA, HEAD_SHA, NEW_HEAD_SHA, NEW_HEAD_SHA, NEW_HEAD_SHA] });
+  const job = await approvedJob(f.repository);
+  const initial = await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
+  assert.equal(initial.candidate_sha, HEAD_SHA);
+  const firstCalls = f.aiCalls.length;
+
+  const refreshed = await prepareApprovedImplementationProposal({
+    env: f.env,
+    repository: f.repository,
+    job: await f.repository.get(job.id),
+    fetchImpl: f.fetchImpl,
+  });
+  assert.notEqual(refreshed.reused, true);
+  assert.equal(refreshed.candidate_sha, NEW_HEAD_SHA);
+  assert.ok(f.aiCalls.length >= firstCalls + 2);
+});
+
+test('persisted READY proposal cannot bypass a revoked or mismatched Teacher approval', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository);
+  await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
+  const current = await f.repository.get(job.id);
+  await f.repository.update(job.id, {
+    status: 'WAITING_TEACHER',
+    result_json: current.result_json,
+  });
+  const headReads = f.getHeadReads();
+  await assert.rejects(
+    () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job: await f.repository.get(job.id), fetchImpl: f.fetchImpl }),
+    (error) => error?.code === 'TEACHER_APPROVAL_REQUIRED',
+  );
   assert.equal(f.getHeadReads(), headReads);
 });
 
@@ -122,7 +158,7 @@ test('legacy READY proposal without candidate sha is regenerated instead of bein
 });
 
 test('planner fails closed if candidate head moves during code inspection', async () => {
-  const f = fixture({ headSequence: [HEAD_SHA, '2222222222222222222222222222222222222222'] });
+  const f = fixture({ headSequence: [HEAD_SHA, NEW_HEAD_SHA] });
   const job = await approvedJob(f.repository);
   await assert.rejects(
     () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl }),
