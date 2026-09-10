@@ -147,6 +147,7 @@ export async function maybeHandlePublicTeacherBridge(request, env) {
       internal_work_package_ready: Boolean(safeInternalWorkPackage(jobs)),
       exposes_secrets: false,
       exposes_goals: false,
+      exposes_implementation_text: false,
       exposes_owner_chat_work: false,
       mutation_allowed: false,
     }), { status: 200, headers });
@@ -159,6 +160,10 @@ export async function maybeHandlePublicTeacherBridge(request, env) {
       channel: 'github-teacher-bridge',
       work,
       work_available: Boolean(work),
+      exposes_secrets: false,
+      exposes_goals: false,
+      exposes_owner_chat_work: false,
+      exposes_internal_implementation_text: Boolean(work),
       owner_chat_exposed: false,
       mutation_allowed: false,
     }), { status: 200, headers });
@@ -169,7 +174,9 @@ export async function maybeHandlePublicTeacherBridge(request, env) {
     channel: 'github-teacher-bridge',
     pending,
     autonomy,
+    exposes_secrets: false,
     exposes_goals: false,
+    exposes_implementation_text: false,
     exposes_owner_chat_work: false,
     mutation_allowed: false,
   }), { status: 200, headers });
