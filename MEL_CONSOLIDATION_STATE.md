@@ -1,15 +1,15 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`
-Last fully green checkpoint: `38d2bebc442a41f436d09e14617d23f39333c83c` (`full-candidate-ci` success, 2026-09-10).
+Last fully green checkpoint: `2ede70f34a84c7095e7714f127c3ab609f475c17` (`full-candidate-ci` run `34543842348`, success, 2026-09-11).
 
 ## Integrated / already contained
 
-- `candidate/mel-ui-selfaware-integration` — ALREADY_CONTAINED. No whole-branch recovery.
-- `candidate/augmentio-core` — ALREADY_CONTAINED. Fresh compare from clean-autonomy confirms the older branch has no commits ahead; no recovery needed.
-- `candidate/dev-bridge-fetch-fix` / PR #5 — ALREADY_CONTAINED. Fresh compare confirms the transport/capability-registration fix is in clean lineage; no recovery needed.
-- `candidate/device-control-core` / PR #4 — INTEGRATED_BY_COMPARISON. Fail-closed device-control policy/tests are present; do not cherry-pick divergent branch wholesale.
-- `candidate/mel-work-02-state-final2` — ALREADY_CONTAINED.
+- `candidate/mel-ui-selfaware-integration` — ALREADY_CONTAINED by selected functionality. Fresh comparison remains divergent; no whole-branch recovery.
+- `candidate/augmentio-core` — ALREADY_CONTAINED by selected functionality. Fresh comparison remains divergent; no whole-branch recovery.
+- `candidate/dev-bridge-fetch-fix` / PR #5 — ALREADY_CONTAINED. The local transport/capability-registration fix is present in clean lineage; no recovery needed.
+- `candidate/device-control-core` — INTEGRATED_BY_COMPARISON. Fail-closed device-control policy/tests are present; do not cherry-pick divergent branch wholesale.
+- `candidate/mel-work-02-state-final2` — ALREADY_CONTAINED by selected functionality; fresh comparison remains divergent.
 - Mentor core — INTEGRATED: `src/learning/mentor-engine.js`, `src/learning/mentor-memory.js`, schema v6/additive `mentor_lessons`, Mentor capabilities/tests.
 - Autonomy handoff — INTEGRATED: natural chat/evolution enqueue -> durable job -> Council -> Teacher correlation -> MEL implementation proposal -> structured Dev Bridge package -> apply/test/diff -> repair evidence -> CI completion gate -> Mentor learning.
 - Capability truth audit — INTEGRATED and tested for bounded LOW-risk smoke execution without pretending untested capabilities are healthy.
@@ -44,6 +44,7 @@ Seven visual themes are registered end-to-end:
 - `feature/mel-autonomy-mentor` / PR #6/#7 — REFERENCE_ONLY. Highly divergent; Mentor functionality already integrated on clean. Recover only a specifically missing behavior proven by a failing test.
 - `hotfix/prompt-limit-100k` — REFERENCE_ONLY. Current composer/runtime supports the 100000-character contract; do not import stale package changes without evidence.
 - `release/mel-2026-09-10-r3-3` — REFERENCE_ONLY. Never replace candidate with release; recover only a specific release-only behavior backed by a test.
+- PR #4/#5/#6 remain references/open work history where applicable; PR #7 is closed/unmerged and its useful equivalent functionality is already present. No PR or divergent branch was merged blindly in this run.
 
 ## Abandoned / superseded
 
@@ -62,10 +63,18 @@ Seven visual themes are registered end-to-end:
 - Before each write: refetch `candidate/mel-clean-autonomy`; never overwrite an advanced HEAD.
 - Recovery unit is the smallest missing file/function/test, followed by targeted tests and exact-SHA `full-candidate-ci` verification.
 - A capability is not `EXISTANT_ET_TESTE` merely because it is registered; require execution/test evidence.
+- Runtime dependency audit is currently clear at high severity; three high advisories remain confined to development tooling (`sharp`/`miniflare`/`wrangler`). No forced audit repair was attempted.
+
+## Night checkpoint — 2026-09-11
+
+- Fresh comparisons were performed before recovery against `release/mel-2026-09-10-r3-3`, `candidate/mel-ui-selfaware-integration`, `candidate/augmentio-core`, `candidate/dev-bridge-fetch-fix`, `candidate/device-control-core`, `candidate/mel-work-02-state-final2`, `feature/mel-autonomy-mentor`, and `hotfix/prompt-limit-100k`. All remain divergent references; no whole-branch recovery was justified.
+- Comprehension regression coverage now explicitly exercises `fais-le`, `continue`, `reprends`, `enlève ça`, `plus doré`, `corrige tout`, `développe-toi`, `où en es-tu ?`, and `peux-tu faire ça ?` with recent MEL-development context. Context-only ellipses remain outside semantic self-routing when history is absent, while an explicit second-person ambiguous request is deliberately admitted to the semantic classifier so it can resolve to a safe intent or NONE.
+- Two intermediate CI failures exposed incorrect test assumptions only; the behavioral implementation was not weakened and no useful test was deleted. Final code/test SHA `2ede70f34a84c7095e7714f127c3ab609f475c17` passed exact `full-candidate-ci` run `34543842348`.
+- Production deployment, release, DNS, D1 destructive migration, secrets, bindings, authentication and billing were untouched.
 
 ## Next concrete blocks
 
 1. Continue the P0 autonomy proof on the real Dev Bridge: generated files -> local candidate mutation -> exact tests -> repair -> READY_FOR_REVIEW -> correlated CI -> Mentor lesson, while preserving Teacher/Mentor evidence merge semantics.
-2. Run the truth audit against every registered capability and fix bounded LOW-risk failures before moving to higher-risk connectors/device execution.
-3. Exercise natural/elliptical/faulty formulations against semantic context routing and add only missing regression coverage.
+2. Use the existing truth-audit machinery to isolate the next genuine PARTIEL / EXISTANT_NON_TESTE capability; execute only bounded LOW-risk non-mutating smoke evidence and fix a concrete failure rather than writing another broad audit.
+3. Extend semantic-context coverage only when a real natural/elliptical/faulty formulation exposes a missing route; the requested nine-formulation gate now has regression coverage.
 4. Revisit selective branch/PR references only when a concrete failing test demonstrates a missing behavior.
