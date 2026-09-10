@@ -85,6 +85,7 @@ test('autonomy status exposes opaque Teacher correlation but never goals or priv
     verdict: null,
     implementation_proposal_ready: false,
     implementation_models: 0,
+    implementation_diagnostic_code: null,
   });
   const serialized = JSON.stringify(summary);
   assert.equal(serialized.includes('PRIVATE GOAL'), false);
@@ -111,6 +112,7 @@ test('explicit owner-chat work is included and becomes the public current techni
   assert.equal(summary.current.requested_by, 'owner-chat');
   assert.equal(summary.current.request_id, 'owner-r');
   assert.equal(summary.current.implementation_proposal_ready, false);
+  assert.equal(summary.current.implementation_diagnostic_code, null);
   assert.equal(JSON.stringify(summary).includes('PRIVATE OWNER'), false);
 });
 
@@ -139,9 +141,27 @@ test('autonomy status preserves approved request id and only a boolean/count for
   assert.equal(summary.current.verdict, 'APPROVE_PLAN');
   assert.equal(summary.current.implementation_proposal_ready, true);
   assert.equal(summary.current.implementation_models, 2);
+  assert.equal(summary.current.implementation_diagnostic_code, null);
   const serialized = JSON.stringify(summary);
   assert.equal(serialized.includes('PRIVATE FEEDBACK'), false);
   assert.equal(serialized.includes('PRIVATE IMPLEMENTATION PLAN'), false);
+});
+
+test('autonomy status exposes only a strict sanitized planner diagnostic code', () => {
+  const base = {
+    id: 'approved-job', requested_by: 'mel-autonomy', status: 'TEACHER_APPROVED', created_at: 1,
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+    result_json: {
+      teacher_bridge: { status: 'ANSWERED', request: { request_id: 'r1' }, review: { request_id: 'r1', verdict: 'APPROVE_PLAN' } },
+      implementation_planning_diagnostic: { status: 'NOT_READY', code: 'ALL_PROVIDERS_FAILED' },
+    },
+  };
+  assert.equal(summarizeAutonomyJobs([base]).current.implementation_diagnostic_code, 'ALL_PROVIDERS_FAILED');
+  const unsafe = structuredClone(base);
+  unsafe.result_json.implementation_planning_diagnostic.code = 'Bearer secret-must-not-leak';
+  const summary = summarizeAutonomyJobs([unsafe]);
+  assert.equal(summary.current.implementation_diagnostic_code, null);
+  assert.equal(JSON.stringify(summary).includes('secret-must-not-leak'), false);
 });
 
 test('public Teacher status discloses channel/count and minimized autonomy metadata only', async () => {
