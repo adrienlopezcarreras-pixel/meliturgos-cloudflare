@@ -7,6 +7,14 @@ const THEME_AVATAR_SCRIPT = `<script id="mel-theme-avatar-runtime">
   };
   function theme(){const value=document.documentElement.dataset.theme;return avatars[value]?value:'classic'}
   function syncAvatar(){const img=document.querySelector('.avatar img');if(!img)return;const src=avatars[theme()];if(img.getAttribute('src')!==src)img.setAttribute('src',src)}
+  function recentIntentContext(){
+    try{
+      return Array.from(document.querySelectorAll('#messages .msg')).slice(-8).map(function(node){
+        const role=node.classList.contains('user')?'USER':'MEL';
+        return role+': '+String(node.textContent||'').replace(/\s+/g,' ').trim().slice(0,1200);
+      }).join('\n').slice(-8000);
+    }catch{return ''}
+  }
   syncAvatar();
   new MutationObserver(syncAvatar).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
   const nativeFetch=window.fetch.bind(window);
@@ -15,7 +23,12 @@ const THEME_AVATAR_SCRIPT = `<script id="mel-theme-avatar-runtime">
       const path=typeof resource==='string'?resource:resource&&resource.url;
       if(path&&path.includes('/api/chat')&&init&&typeof init.body==='string'){
         const body=JSON.parse(init.body);
-        if(body&&typeof body==='object'&&!body.ui_theme){body.ui_theme=theme();init={...init,body:JSON.stringify(body)}}
+        if(body&&typeof body==='object'){
+          let changed=false;
+          if(!body.ui_theme){body.ui_theme=theme();changed=true}
+          if(!body.intent_context){const context=recentIntentContext();if(context){body.intent_context=context;changed=true}}
+          if(changed)init={...init,body:JSON.stringify(body)};
+        }
       }
     }catch{}
     return nativeFetch(resource,init);
