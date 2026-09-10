@@ -49,6 +49,10 @@ function roadmapIdFromJob(job) {
   return job?.optional_context?.roadmap_id || null;
 }
 
+function jobAttemptId(itemId, attempt) {
+  return `mel-autonomy-${String(itemId).toLowerCase().replace(/[^a-z0-9-]+/g, '-')}-${attempt}`.slice(0, 180);
+}
+
 export class AutonomySupervisor {
   constructor({ repository, roadmap = flattenRoadmap() } = {}) {
     if (!repository || typeof repository.list !== 'function' || typeof repository.create !== 'function') {
@@ -87,8 +91,11 @@ export class AutonomySupervisor {
     if (!current.next) return { created: false, job: null, next: null, complete: true };
 
     const item = current.next;
+    const attempts = current.jobs.filter((job) => roadmapIdFromJob(job) === item.id).length;
+    const deterministicId = jobAttemptId(item.id, attempts + 1);
     const goal = `[${item.id}] ${item.title}${item.next ? ` — ${item.next}` : ''}`;
-    const job = await this.repository.create({
+    const input = {
+      id: deterministicId,
       requested_by: 'mel-autonomy',
       goal,
       optional_context: {
@@ -99,8 +106,16 @@ export class AutonomySupervisor {
         source: 'autonomy-supervisor',
         candidate_branch_only: true,
         zero_added_cost: true,
+        attempt: attempts + 1,
       },
-    });
+    };
+
+    if (typeof this.repository.createIfAbsent === 'function') {
+      const result = await this.repository.createIfAbsent(input);
+      return { created: result.created, job: result.job, next: item };
+    }
+
+    const job = await this.repository.create(input);
     return { created: true, job, next: item };
   }
 }
