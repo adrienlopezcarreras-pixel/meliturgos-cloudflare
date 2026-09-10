@@ -3,6 +3,14 @@ import { DevAgent } from './dev-agent.js';
 import { D1DevJobRepository } from './d1-dev-job-repository.js';
 import { D1BridgeRepository } from './d1-bridge-repository.js';
 import { AutonomySupervisor } from '../evolution/autonomy-supervisor.js';
+import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
+import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
+import { queueRuntimeTeacherRequest, applyRuntimeTeacherReply } from '../teachers/runtime-teacher-bridge.js';
+
+function boundedInspection(value) {
+  requireValue(value && value.status === 'COMPLETE' && Array.isArray(value.evidence) && value.evidence.length > 0, 'CODE_INSPECTION_REQUIRED', 422);
+  return value;
+}
 
 export function devRuntime(request, env) {
   const url = new URL(request.url);
@@ -26,6 +34,7 @@ export function devRuntime(request, env) {
           'code.status', 'code.tree', 'code.search', 'code.read', 'code.diff',
           'dev.plan', 'dev.create_candidate', 'dev.apply_change', 'dev.test',
           'dev.report', 'dev.rollback', 'dev.commit', 'dev.autonomy.next',
+          'dev.council.preflight', 'dev.teacher.request', 'dev.teacher.reply',
         ],
       });
     }
@@ -73,6 +82,68 @@ export function devRuntime(request, env) {
       const supervisor = new AutonomySupervisor({ repository: repo });
       const result = await supervisor.ensureNextJob();
       return Response.json({ ok: true, ...result });
+    }
+
+    if (path === '/api/dev-bridge/council' && request.method === 'POST') {
+      const job = await repo.get(body.job_id);
+      requireValue(job, 'JOB_NOT_FOUND', 404);
+      const preflight = await prepareDevelopmentRequest({
+        env,
+        goal: job.goal,
+        context: {
+          ...(job.optional_context && typeof job.optional_context === 'object' ? job.optional_context : {}),
+          job_id: job.id,
+          origin: 'dev-bridge-runtime',
+        },
+        minResponses: Math.max(2, Math.min(12, Number(body.minResponses) || 2)),
+      });
+      const plan = job.plan_json && typeof job.plan_json === 'object' ? { ...job.plan_json } : {};
+      plan.preflight = preflight;
+      const updated = await repo.update(job.id, { plan_json: plan, status: 'COUNCIL_COMPLETE' });
+      return Response.json({ ok: true, job_id: job.id, status: updated.status, preflight });
+    }
+
+    if (path === '/api/dev-bridge/teacher/request' && request.method === 'POST') {
+      const job = await repo.get(body.job_id);
+      requireValue(job, 'JOB_NOT_FOUND', 404);
+      const preflight = job.plan_json?.preflight;
+      requireValue(preflight?.stage === 'AI_STATE_OF_PLAY_COMPLETE' && preflight?.council, 'AI_PREFLIGHT_REQUIRED', 409);
+      const inspection = boundedInspection(body.inspection);
+      const requestPackage = createTeacherReviewRequest({
+        goal: job.goal,
+        council: preflight.council,
+        inspection,
+        spec: body.spec || {},
+        candidate: body.candidate || null,
+        patchSummary: body.patch_summary || null,
+        tests: body.tests || [],
+        security: body.security || null,
+        unknowns: body.unknowns || [],
+        rollback: body.rollback || null,
+        provenance: {
+          ...(body.provenance && typeof body.provenance === 'object' ? body.provenance : {}),
+          job_id: job.id,
+          producer: 'MEL_RUNTIME',
+          branch: job.candidate_branch || body.candidate?.branch || null,
+        },
+      });
+      const state = await queueRuntimeTeacherRequest(repo, job.id, requestPackage, {
+        inspection_status: inspection.status,
+        runtime_generated: true,
+        preflight_stage: preflight.stage,
+      });
+      return Response.json({ ok: true, job_id: job.id, status: state.status, request: state.request });
+    }
+
+    if (path === '/api/dev-bridge/teacher/reply' && request.method === 'POST') {
+      const applied = await applyRuntimeTeacherReply(repo, body.review || body);
+      return Response.json({
+        ok: true,
+        job_id: applied.job.id,
+        status: applied.job.status,
+        duplicate: applied.duplicate,
+        review: applied.state.review,
+      });
     }
 
     if (path === '/api/dev-bridge/claim' && request.method === 'POST') {
