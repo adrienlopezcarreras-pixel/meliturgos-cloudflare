@@ -23,6 +23,7 @@ test('safe web fetch preserves content type, bounds content and provenance', asy
   assert.equal(page.content_type, 'text/html; charset=utf-8');
   assert.match(page.content, /Contenu fiable/);
   assert.equal(page.truncated, false);
+  assert.equal(page.redirect_count, 0);
   assert.ok(page.timestamp);
   assert.ok(Number.isFinite(page.fetch_duration_ms));
 });
@@ -98,11 +99,59 @@ test('web research rejects empty query', async () => {
   await assert.rejects(() => service().research('   '), /INVALID_QUERY/);
 });
 
-test('URL guard rejects private, local and dangerous schemes', async () => {
-  for (const url of ['http://localhost:3000', 'https://192.168.1.1', "javascript:alert('xss')", 'file:///etc/passwd']) {
+test('URL guard rejects local, metadata, private, reserved, credentialed and dangerous destinations without blocking public 172 space', async () => {
+  const blocked = [
+    'http://localhost:3000',
+    'https://192.168.1.1',
+    'http://169.254.169.254/latest/meta-data',
+    'http://100.64.0.1',
+    'http://172.16.0.1',
+    'http://[::1]/',
+    'http://[fd00::1]/',
+    'http://metadata.google.internal/',
+    'https://user:password@example.com/',
+    "javascript:alert('xss')",
+    'file:///etc/passwd',
+  ];
+  for (const url of blocked) {
     assert.equal(validateUrl(url).valid, false, url);
     await assert.rejects(() => service().fetchPage(url));
   }
+  assert.equal(validateUrl('https://172.40.1.1/').valid, true, 'public 172 addresses outside 172.16/12 must remain usable');
+});
+
+test('manual redirect validation blocks a public URL from bouncing MEL into a private metadata address', async () => {
+  const calls = [];
+  const fetchImpl = async url => {
+    calls.push(String(url));
+    if (String(url) === 'https://example.com/start') {
+      return new Response('', { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data' } });
+    }
+    throw new Error(`private redirect should never be fetched: ${url}`);
+  };
+  await assert.rejects(
+    () => fetchWebContent('redirect-test', 'https://example.com/start', { fetchImpl }),
+    /Private hostname not allowed/,
+  );
+  assert.deepEqual(calls, ['https://example.com/start']);
+});
+
+test('public redirects are followed only after validation and final provenance records the resolved URL', async () => {
+  const calls = [];
+  const fetchImpl = async url => {
+    calls.push(String(url));
+    if (String(url) === 'https://example.com/start') {
+      return new Response('', { status: 302, headers: { location: '/final' } });
+    }
+    if (String(url) === 'https://example.com/final') {
+      return new Response('<html><head><title>Final</title></head><body>ok</body></html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    }
+    return new Response('missing', { status: 404, headers: { 'content-type': 'text/plain' } });
+  };
+  const page = await fetchWebContent('redirect-public', 'https://example.com/start', { fetchImpl });
+  assert.equal(page.url, 'https://example.com/final');
+  assert.equal(page.redirect_count, 1);
+  assert.deepEqual(calls, ['https://example.com/start', 'https://example.com/final']);
 });
 
 test('rate limiter serializes near-simultaneous requests', async () => {
