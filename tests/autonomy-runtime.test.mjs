@@ -63,6 +63,9 @@ test('cloud autonomy heartbeat creates P0 work, runs live Council, inspects cand
   assert.ok(first.teacher.request_id);
   assert.ok(fixture.aiCalls.length >= 2, 'live Council must call at least two configured zero-cost models');
   assert.ok(fixture.fetchCalls.some((url) => url.includes('raw.githubusercontent.com')), 'candidate code must be inspected');
+  const stored = await fixture.repository.get(first.job.id);
+  assert.equal(stored.result_json.teacher_bridge.request.candidate.sha, CANDIDATE_HEAD_SHA, 'Teacher request must be bound to the exact inspected candidate HEAD');
+  assert.equal(stored.result_json.teacher_bridge.request.provenance.candidate_sha, CANDIDATE_HEAD_SHA);
 
   const aiCallCount = fixture.aiCalls.length;
   const second = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
