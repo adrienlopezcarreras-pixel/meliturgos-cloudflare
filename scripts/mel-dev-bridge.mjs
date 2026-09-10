@@ -4,6 +4,7 @@ import dns from 'node:dns';
 import { LocalDevBridge } from '../src/dev/dev-bridge.js';
 import { DevJobService } from '../src/dev/dev-job-service.js';
 import { parseSearchPaths, rankSearchPaths } from '../src/dev/search-paths.js';
+import { runStructuredBridgeJob } from '../src/dev/bridge-job-runner.js';
 
 // WSL/Windows hosts can resolve AAAA first even when IPv6 egress is unusable.
 // Prefer IPv4 without disabling IPv6 entirely; this matches the working curl path
@@ -71,6 +72,12 @@ async function processRemoteJob(job) {
   const id = job.job_id || job.id;
   const context = { owner: 'dev-bridge', requestId: id };
   try {
+    // Supervised autonomy now arrives as a structured Mentor package. Prefer
+    // that exact package over the legacy heuristic path so approved source
+    // files are actually written and every bounded requested test is executed.
+    const structured = await runStructuredBridgeJob({ bridge, job });
+    if (structured) return remote.result(structured);
+
     const steps = [];
     const query = /interface|fichier|chemin|principal/i.test(job.goal || '') ? 'interface' : String(job.goal || '').slice(0, 120);
     await bridge.bus.execute('dev.create_candidate', { job_id: id }, context);
@@ -90,18 +97,35 @@ async function processRemoteJob(job) {
     }
     const candidatePath = goalAwareSelect(job.goal, inspected);
     const files = typeof job.files_json === 'string' ? JSON.parse(job.files_json || '[]') : (job.files_json || []);
-    for (const file of Array.isArray(files) ? files : []) if (file?.path && typeof file.content === 'string') await bridge.bus.execute('dev.apply_change', { job_id: id, path: file.path, content: file.content }, context);
-    const tests = typeof job.tests_json === 'string' ? JSON.parse(job.tests_json || '[]') : (job.tests_json || []);
-    const testResult = Array.isArray(tests) && tests[0]?.command ? await bridge.bus.execute('dev.test', { job_id: id, command: tests[0].command }, context) : { command: 'read-only', passed: true };
-    steps.push({ capability: 'dev.test', result: testResult });
+    const appliedFiles = [];
+    for (const file of Array.isArray(files) ? files : []) if (file?.path && typeof file.content === 'string') {
+      await bridge.bus.execute('dev.apply_change', { job_id: id, path: file.path, content: file.content }, context);
+      appliedFiles.push(file.path);
+    }
+    const testSpecs = typeof job.tests_json === 'string' ? JSON.parse(job.tests_json || '[]') : (job.tests_json || []);
+    const testResults = [];
+    for (const spec of Array.isArray(testSpecs) ? testSpecs.slice(0, 4) : []) {
+      if (!spec?.command) continue;
+      try {
+        const result = await bridge.bus.execute('dev.test', { job_id: id, command: spec.command }, context);
+        testResults.push({ name: spec.name || spec.command, command: spec.command, passed: Number(result?.exit_code ?? result?.result?.exit_code ?? 1) === 0, exit_code: Number(result?.exit_code ?? result?.result?.exit_code ?? 1), stdout: String(result?.stdout ?? result?.result?.stdout ?? '').slice(0, 8000), stderr: String(result?.stderr ?? result?.result?.stderr ?? '').slice(0, 8000) });
+      } catch (error) {
+        testResults.push({ name: spec.name || spec.command, command: spec.command, passed: false, exit_code: 1, error: error.code || error.message });
+      }
+    }
+    if (!testResults.length) testResults.push({ name: 'read-only', command: null, passed: true, exit_code: 0 });
+    steps.push({ capability: 'dev.test', results: testResults });
     const diff = await bridge.bus.execute('code.diff', { job_id: id }, context);
     const report = await bridge.bus.execute('dev.report', { job_id: id }, context);
     steps.push({ capability: 'code.diff', result: diff });
     const answer = candidatePath || (paths[0] || 'Aucun fichier trouvé');
     const inspectedFiles = inspected.map(x => x.path);
-    const result = { answer, steps, files: inspectedFiles, tests: [testResult], diff_summary: 'NO_CHANGES' };
-    return remote.result({ job_id: id, status: 'READY_FOR_REVIEW', candidate_branch: report.branch, files_json: inspectedFiles, tests_json: [testResult], diff_summary: 'NO_CHANGES', result_json: result, plan_json: { steps: steps.map(s => s.capability) } });
-  } catch (error) { return remote.result({ job_id: id, status: 'FAILED', error: error.code || error.message }); }
+    const actualDiff = String(diff?.result?.stdout || diff?.stdout || '').slice(0, 20000);
+    const diffSummary = actualDiff.trim() ? actualDiff : 'NO_CHANGES';
+    const needsRepair = testResults.some(result => result.passed === false);
+    const result = { answer, steps, files: inspectedFiles, applied_files: appliedFiles, tests: testResults, diff_summary: diffSummary, changed: actualDiff.trim().length > 0, needs_repair: needsRepair };
+    return remote.result({ job_id: id, status: 'READY_FOR_REVIEW', candidate_branch: report.branch, tests_json: testResults, diff_summary: diffSummary, needs_repair: needsRepair, result_json: result, plan_json: { mode: 'LEGACY_HEURISTIC', steps: steps.map(s => s.capability) } });
+  } catch (error) { return remote.result({ job_id: id, status: 'FAILED', error: error.code || error.message, result_json: { mode: 'DEV_BRIDGE_FAILURE', error: String(error.code || error.message || 'UNKNOWN').slice(0, 300) } }); }
 }
 
 function relevance(file, content = '') { const p = String(file).toLowerCase(), c = String(content).toLowerCase(); let n = 0; if (p.startsWith('src/')) n += 20; if (/(interface|page|ui|component|route)/.test(p)) n += 15; if (/(<main|add eventlistener|fetch\(|export|<!doctype html)/.test(c)) n += 20; if (/^(imports|exports|docs|tests)\//.test(p)) n -= 40; if (/\.json$/.test(p)) n -= 20; return n; }
