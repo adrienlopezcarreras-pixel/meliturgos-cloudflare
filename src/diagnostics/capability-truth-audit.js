@@ -26,7 +26,7 @@ function statusFrom(record, execution) {
  * MEDIUM/HIGH or mutating capabilities are never auto-executed here; they are
  * still inventoried and reported with their real health/status.
  */
-export async function auditRuntimeCapabilities(runtime, { deep = false, context = {} } = {}) {
+export async function auditRuntimeCapabilities(runtime, { deep = false, context = {}, samples = SAFE_SAMPLES } = {}) {
   if (!runtime?.bus) throw new TypeError('CAPABILITY_BUS_REQUIRED');
   let records = [];
   try { records = await runtime.bus.refreshHealthAll(); }
@@ -35,7 +35,7 @@ export async function auditRuntimeCapabilities(runtime, { deep = false, context 
   const rows = [];
   for (const record of records) {
     let execution = null;
-    const sample = SAFE_SAMPLES[record.id];
+    const sample = samples?.[record.id];
     const executable = deep && record.enabled !== false && record.risk === 'LOW' && sample !== undefined;
     if (executable) {
       try {
