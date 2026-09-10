@@ -18,16 +18,18 @@ test('follow-up access question without code context does not invent code intent
   assert.equal(inferNativeCodeCapability("Tu m'as dit que tu avais accès ?", recent), null);
 });
 
-test('runtime capability manifest refreshes health and exposes bounded truthful states', async () => {
+test('runtime capability manifest refreshes health and uses the same strict truth vocabulary as audits', async () => {
   let refreshed = false;
   const runtime = {
     bus: {
       async refreshHealthAll() {
         refreshed = true;
         return [
-          { id: 'code.read', enabled: true, health: 'HEALTHY', provider: 'github', risk: 'low', permissions: ['code.read'] },
-          { id: 'code.search', enabled: true, health: 'DEGRADED', provider: 'github', risk: 'low', permissions: ['code.read'] },
-          { id: 'teacher.ask', enabled: false, health: 'HEALTHY', provider: 'teacher', risk: 'low', permissions: [] }
+          { id: 'code.read', enabled: true, health: 'HEALTHY', provider: 'github', risk: 'LOW', permissions: ['code.read'] },
+          { id: 'code.search', enabled: true, health: 'DEGRADED', implementation_status: 'PARTIAL', provider: 'github', risk: 'LOW', permissions: ['code.read'] },
+          { id: 'prototype', enabled: true, health: 'HEALTHY', implementation_status: 'STUB', provider: 'mel', risk: 'LOW', permissions: [] },
+          { id: 'future', enabled: true, health: 'HEALTHY', implementation_status: 'NOT_IMPLEMENTED', provider: 'mel', risk: 'LOW', permissions: [] },
+          { id: 'teacher.ask', enabled: false, health: 'HEALTHY', provider: 'teacher', risk: 'LOW', permissions: [] }
         ];
       }
     }
@@ -35,8 +37,13 @@ test('runtime capability manifest refreshes health and exposes bounded truthful 
   const manifest = await buildRuntimeCapabilityManifest(runtime);
   assert.equal(refreshed, true);
   assert.deepEqual(manifest.map(x => [x.id, x.status]), [
-    ['code.read', 'HEALTHY'],
-    ['code.search', 'DEGRADED'],
-    ['teacher.ask', 'BLOCKED_EXTERNAL']
+    ['code.read', 'EXISTANT_NON_TESTE'],
+    ['code.search', 'PARTIEL'],
+    ['prototype', 'STUB'],
+    ['future', 'NOT_IMPLEMENTED'],
+    ['teacher.ask', 'BLOCKED']
   ]);
+  assert.equal(manifest.find(x => x.id === 'prototype').implementation_status, 'STUB');
+  assert.equal(manifest.find(x => x.id === 'code.read').implementation_status, null);
+  assert.equal(manifest.find(x => x.id === 'code.read').health, 'HEALTHY');
 });
