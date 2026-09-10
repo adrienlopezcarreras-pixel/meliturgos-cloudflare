@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGen2Runtime } from '../src/core/orchestrator/gen2-runtime.js';
-import { auditRuntimeCapabilities, SAFE_SAMPLES } from '../src/diagnostics/capability-truth-audit.js';
+import { auditRuntimeCapabilities, SAFE_SAMPLES, classifyCapabilityTruth } from '../src/diagnostics/capability-truth-audit.js';
 
 test('truth audit inventories every registered runtime capability without omission', async () => {
   const runtime = createGen2Runtime({ env: {} });
@@ -19,10 +19,20 @@ test('truth audit inventories every registered runtime capability without omissi
   }
 });
 
-test('safe smoke catalogue covers core read-only capabilities used by normal chat', () => {
-  for (const id of ['echo','roadmap.read','system.bindings','code.read','code.search','conversation.list','rag.search','chatgpt.archive.preview','autonomy.status']) {
+test('safe smoke catalogue covers core read-only and preview-only capabilities', () => {
+  for (const id of [
+    'echo','roadmap.read','system.bindings','code.read','code.search','conversation.list','rag.search',
+    'chatgpt.archive.preview','autonomy.status','mentor.recent','evolution.gap.detect','device.policy.preview','web.research'
+  ]) {
     assert.ok(Object.hasOwn(SAFE_SAMPLES, id), `missing bounded smoke sample for ${id}`);
   }
+});
+
+test('shared truth classifier never promotes healthy registration to tested proof', () => {
+  assert.equal(classifyCapabilityTruth({ enabled:true, health:'HEALTHY' }), 'EXISTANT_NON_TESTE');
+  assert.equal(classifyCapabilityTruth({ enabled:true, health:'HEALTHY' }, { ok:true }), 'EXISTANT_ET_TESTE');
+  assert.equal(classifyCapabilityTruth({ enabled:true, health:'HEALTHY', implementation_status:'STUB' }, { ok:true }), 'STUB');
+  assert.equal(classifyCapabilityTruth({ enabled:false, health:'HEALTHY' }), 'BLOCKED');
 });
 
 test('deep audit executes bounded LOW-risk samples and reports failures instead of inventing success', async () => {
