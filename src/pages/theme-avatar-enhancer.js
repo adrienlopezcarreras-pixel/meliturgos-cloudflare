@@ -1,101 +1,97 @@
 const THEME_AVATAR_SCRIPT = `<style id="mel-theme-decor-style">
-/* Final themed interface layer. Decorative elements never overlap chat/input surfaces. */
-#skills,#skillsPanel{display:none!important}.controls{grid-template-columns:1fr 1fr!important}.skills{display:none!important}
-html[data-theme="crusade"] .window:after,html[data-theme="religious"] .window:after,html[data-theme="granada"] .window:after,html[data-theme="aviation"] .window:after,html[data-theme="paladin"] .window:after{content:none!important;display:none!important}
-.app{position:relative!important;z-index:2}.theme-switch{z-index:60!important}.theme-ambient{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden;display:none}.theme-ambient:before,.theme-ambient:after{content:"";position:absolute;pointer-events:none}.mel-theme-shrine{display:none;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:clamp(206px,27vw,278px);height:clamp(206px,27vw,278px);pointer-events:none;z-index:0}.mel-theme-shrine:before,.mel-theme-shrine:after{content:"";position:absolute;inset:0;pointer-events:none}.avatar{z-index:1}#themeIdleCaption{display:none;text-align:center;margin:-3px 0 12px;font-size:.82rem;letter-spacing:.035em;opacity:.84;color:var(--text);text-shadow:0 1px 5px rgba(0,0,0,.55)}
-html[data-theme="crusade"] .theme-ambient,html[data-theme="religious"] .theme-ambient,html[data-theme="granada"] .theme-ambient,html[data-theme="aviation"] .theme-ambient,html[data-theme="paladin"] .theme-ambient,html[data-theme="crusade"] .mel-theme-shrine,html[data-theme="religious"] .mel-theme-shrine,html[data-theme="granada"] .mel-theme-shrine,html[data-theme="aviation"] .mel-theme-shrine,html[data-theme="paladin"] .mel-theme-shrine,html[data-theme="crusade"] #themeIdleCaption,html[data-theme="religious"] #themeIdleCaption,html[data-theme="granada"] #themeIdleCaption,html[data-theme="aviation"] #themeIdleCaption,html[data-theme="paladin"] #themeIdleCaption{display:block}
-html[data-theme="crusade"] .mel-theme-shrine,html[data-theme="religious"] .mel-theme-shrine,html[data-theme="granada"] .mel-theme-shrine,html[data-theme="aviation"] .mel-theme-shrine,html[data-theme="paladin"] .mel-theme-shrine{animation:melIdlePrayer 7s ease-in-out infinite}@keyframes melIdlePrayer{0%,100%{filter:brightness(.96);opacity:.88}50%{filter:brightness(1.08);opacity:1}}
-
-/* CROISÉS / MEDIEVAL IDLE PRAYER */
-html[data-theme="crusade"] body{background-color:#180c06!important;background-image:radial-gradient(circle at 50% 14%,rgba(255,191,79,.17),transparent 18%),linear-gradient(90deg,#32170d 0,#160a05 18%,#2a140a 50%,#160a05 82%,#32170d 100%),repeating-linear-gradient(90deg,rgba(226,174,84,.025) 0 2px,transparent 2px 9px)!important}
-html[data-theme="crusade"] .theme-ambient:before{inset:0;background:linear-gradient(90deg,rgba(72,25,12,.82) 0 10%,transparent 13% 87%,rgba(72,25,12,.82) 90% 100%),repeating-linear-gradient(90deg,transparent 0 31px,rgba(218,167,75,.028) 32px 33px)}
-html[data-theme="crusade"] .theme-ambient:after{width:72vw;height:38vh;left:14vw;top:-19vh;border-radius:0 0 48% 48%;border:2px solid rgba(199,149,62,.28);box-shadow:0 0 80px rgba(255,171,54,.12),inset 0 -25px 70px rgba(125,32,22,.12)}
-html[data-theme="crusade"] .mel-theme-shrine:before{inset:3%;border-radius:52% 52% 45% 45%;border:6px double #bd9347;box-shadow:0 0 0 5px #592216,0 0 38px rgba(255,173,61,.27),inset 0 0 28px rgba(255,203,103,.14)}
-html[data-theme="crusade"] .mel-theme-shrine:after{inset:-12% -30%;background:radial-gradient(ellipse at 11% 82%,rgba(255,165,54,.3),transparent 12%),radial-gradient(ellipse at 89% 82%,rgba(255,165,54,.3),transparent 12%);filter:blur(2px)}
-html[data-theme="crusade"] .window{border:6px double #775023!important;box-shadow:0 0 0 3px #c29a4b,0 0 0 8px #35170b,0 28px 90px rgba(0,0,0,.78)!important}
-html[data-theme="crusade"] .window:before{height:7px!important;background:linear-gradient(90deg,#5d1712,#d0a44f 12%,#7a1717 26%,#e4c06a 50%,#7a1717 74%,#d0a44f 88%,#5d1712)!important}
-html[data-theme="crusade"] #messages{background-image:radial-gradient(circle at 4% 6%,rgba(122,23,23,.075),transparent 16%),radial-gradient(circle at 96% 94%,rgba(90,52,16,.075),transparent 18%)}
-html[data-theme="crusade"] .composer{box-shadow:inset 0 9px 18px rgba(87,49,16,.08)}
-html[data-theme="crusade"] .app:after{content:"✠  ·  ✠  ·  ✠"!important;display:block;text-align:center;color:#d4aa52;letter-spacing:.65em;margin-top:10px;text-shadow:0 1px #30140a}
-
-/* BAROQUE ANDALOU RELIGIEUX — cueva / sanctuaire marial */
-html[data-theme="religious"]{--bg:#100d0c;--bg2:#3b251b;--glow:#c79a52;--glow2:#76523c;--panel:#f3ead1;--panel2:#e6d6ac;--composer:rgba(250,242,218,.9);--border:#bd9137;--accent:#315d93;--accent2:#183a69;--button:#274d7a;--button-text:#fff8df}
-html[data-theme="religious"] body{background-color:#120f0d!important;background-image:radial-gradient(ellipse at 50% 12%,rgba(255,222,151,.22),transparent 19%),radial-gradient(ellipse at 50% 0,#5a4331 0,#2f2119 31%,#19130f 65%,#0d0b0a 100%),repeating-radial-gradient(ellipse at 50% 4%,rgba(233,211,171,.034) 0 2px,transparent 3px 10px)!important}
-html[data-theme="religious"] .theme-ambient:before{width:88vw;height:78vh;left:6vw;top:-15vh;border-radius:47% 47% 15% 15%/52% 52% 12% 12%;border:5px solid rgba(213,194,157,.17);box-shadow:inset 0 -60px 130px rgba(29,20,16,.7),0 0 0 13px rgba(105,79,57,.13),0 0 70px rgba(255,211,110,.11);background:repeating-radial-gradient(ellipse at 50% 8%,rgba(235,218,184,.035) 0 3px,rgba(69,48,36,.025) 4px 12px)}
-html[data-theme="religious"] .theme-ambient:after{width:42vw;height:48vh;left:29vw;top:-10vh;border-radius:45% 45% 16% 16%;background:radial-gradient(ellipse at 50% 20%,rgba(255,229,158,.25),transparent 28%),linear-gradient(90deg,transparent 0 8%,rgba(202,162,71,.11) 9% 11%,transparent 12% 88%,rgba(202,162,71,.11) 89% 91%,transparent 92%);box-shadow:0 0 60px rgba(255,202,88,.13)}
-html[data-theme="religious"] .mel-theme-shrine:before{inset:-5% -7%;border-radius:50% 50% 43% 43%/38% 38% 57% 57%;border:8px double #d4b25c;box-shadow:0 0 0 8px rgba(109,82,55,.72),0 0 0 13px rgba(201,180,142,.25),0 0 55px rgba(255,210,105,.34),inset 0 0 34px rgba(255,238,188,.24)}
-html[data-theme="religious"] .mel-theme-shrine:after{inset:-21% -38% -15%;background:radial-gradient(ellipse at 8% 78%,rgba(255,183,66,.3),transparent 9%),radial-gradient(ellipse at 92% 78%,rgba(255,183,66,.3),transparent 9%),linear-gradient(90deg,transparent 0 8%,rgba(215,190,145,.08) 9% 11%,transparent 12% 88%,rgba(215,190,145,.08) 89% 91%,transparent 92%)}
-html[data-theme="religious"] .window{border:5px double #c5a04a!important;box-shadow:0 0 0 3px #f7ebbd,0 0 0 8px #6a4b30,0 28px 90px rgba(0,0,0,.72)!important}
-html[data-theme="religious"] .window:before{height:8px!important;background:linear-gradient(90deg,#6b4a2d,#d6b75c 14%,#f6e7aa 32%,#b78b31 50%,#f6e7aa 68%,#d6b75c 86%,#6b4a2d)!important}
-html[data-theme="religious"] #messages{background-image:radial-gradient(circle at 50% -15%,rgba(255,221,132,.13),transparent 33%)}
-html[data-theme="religious"] .app:after{content:"❦  IHS  ❦"!important;display:block;text-align:center;color:#e2c477;letter-spacing:.45em;margin-top:10px;text-shadow:0 2px 8px #000}
-
-/* CATHÉDRALE DE GRENADE — pierre ivoire et grand retable doré */
-html[data-theme="granada"]{color-scheme:light;--bg:#15120d;--bg2:#55452e;--glow:#d1ae57;--glow2:#9d7d34;--text:#fff6d6;--ink:#3a2a16;--muted:#73603b;--soft:#6a5737;--panel:#f7efd4;--panel2:#e8d39d;--composer:rgba(255,249,226,.93);--border:#b88927;--accent:#8b6518;--accent2:#5f420e;--user:#8b6518;--mel:rgba(255,255,255,.78);--button:#6c4b14;--button-text:#fff5d4;--radius:10px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#b88a27 10%,#f7dd84 28%,#8b6518 50%,#f7dd84 72%,#b88a27 90%,transparent);--paper:radial-gradient(circle at 50% 0,rgba(255,244,199,.24),transparent 35%)}
-html[data-theme="granada"] body{background-color:#17130d!important;background-image:radial-gradient(ellipse at 50% 7%,rgba(255,224,126,.23),transparent 24%),linear-gradient(#51422f,#211a12 70%,#17130d)!important}
-html[data-theme="granada"] .theme-ambient:before{inset:0;background:repeating-linear-gradient(90deg,rgba(33,27,19,.9) 0 8%,rgba(234,224,196,.12) 8.5% 9.2%,transparent 9.5% 19%,rgba(229,216,181,.08) 19.5% 20.2%,transparent 20.5% 79.5%,rgba(229,216,181,.08) 79.8% 80.5%,transparent 81% 90.5%,rgba(234,224,196,.12) 90.8% 91.5%,rgba(33,27,19,.9) 92% 100%)}
-html[data-theme="granada"] .theme-ambient:after{width:48vw;height:64vh;left:26vw;top:-14vh;border-radius:48% 48% 12% 12%/30% 30% 10% 10%;border:7px double rgba(220,181,78,.35);background:linear-gradient(90deg,rgba(126,87,22,.14),rgba(255,233,163,.12) 18%,rgba(166,117,25,.17) 35%,rgba(255,239,184,.2) 50%,rgba(166,117,25,.17) 65%,rgba(255,233,163,.12) 82%,rgba(126,87,22,.14)),radial-gradient(ellipse at 50% 18%,rgba(255,235,166,.29),transparent 30%);box-shadow:0 0 0 8px rgba(245,231,190,.08),0 0 72px rgba(255,211,91,.16)}
-html[data-theme="granada"] .mel-theme-shrine:before{inset:-9% -12%;border-radius:50% 50% 12% 12%/34% 34% 11% 11%;border:9px double #d4ad45;box-shadow:0 0 0 5px #f1e1ae,0 0 0 10px #8f6a21,0 0 54px rgba(255,211,91,.36),inset 0 0 32px rgba(255,244,194,.22)}
-html[data-theme="granada"] .mel-theme-shrine:after{inset:-29% -48%;background:linear-gradient(90deg,transparent 0 11%,rgba(246,225,166,.11) 12% 14%,transparent 15% 31%,rgba(207,165,62,.12) 32% 34%,transparent 35% 65%,rgba(207,165,62,.12) 66% 68%,transparent 69% 85%,rgba(246,225,166,.11) 86% 88%,transparent 89%),radial-gradient(ellipse at 50% 3%,rgba(255,230,153,.18),transparent 24%)}
-html[data-theme="granada"] .avatar{border:6px double #d7b451!important;box-shadow:0 0 0 4px #f5e8bc,0 0 0 9px #7e5c1b,0 22px 70px rgba(0,0,0,.7)!important}
-html[data-theme="granada"] .window{border:7px double #b98b28!important;box-shadow:0 0 0 3px #f8edc9,0 0 0 9px #75561b,0 30px 95px rgba(0,0,0,.75)!important}
-html[data-theme="granada"] .window:before{height:10px!important;background:linear-gradient(90deg,#725016,#d8b54e 13%,#fff0a7 29%,#aa7b1f 50%,#fff0a7 71%,#d8b54e 87%,#725016)!important}
-html[data-theme="granada"] #messages{background-image:linear-gradient(90deg,rgba(176,133,36,.05),transparent 12% 88%,rgba(176,133,36,.05)),radial-gradient(ellipse at 50% -20%,rgba(255,221,117,.18),transparent 35%)}
-html[data-theme="granada"] .msg{border-radius:7px;border-color:rgba(150,109,25,.3)}
-html[data-theme="granada"] .app:after{content:"✦  RETABLO  ✦"!important;display:block;text-align:center;color:#e3c66f;letter-spacing:.42em;margin-top:10px;text-shadow:0 2px 8px #000}
-
-/* AVIATION 1940s — cockpit historique, sans iconographie de propagande */
-html[data-theme="aviation"]{color-scheme:dark;--bg:#111813;--bg2:#293329;--glow:#93a68f;--glow2:#b8a477;--text:#f3ecd9;--ink:#f0ead9;--muted:#b6b09c;--soft:#d6d0bc;--panel:rgba(33,39,32,.94);--panel2:rgba(22,27,23,.97);--composer:rgba(12,16,14,.72);--border:#7f876f;--accent:#9f8b5f;--accent2:#6f603e;--user:rgba(130,143,115,.24);--mel:rgba(255,255,255,.05);--button:#394238;--button-text:#f4edd8;--radius:10px;--font:Inter,ui-sans-serif,system-ui,sans-serif;--ornament:linear-gradient(90deg,transparent,#85917b 15%,#c4b486 50%,#85917b 85%,transparent);--paper:repeating-linear-gradient(90deg,rgba(255,255,255,.018) 0 1px,transparent 1px 6px)}
-html[data-theme="aviation"] body{background-color:#121812!important;background-image:radial-gradient(circle at 50% 18%,rgba(190,179,135,.12),transparent 22%),linear-gradient(115deg,#0e1410 0,#263027 28%,#111713 50%,#263027 72%,#0e1410 100%)!important}
-html[data-theme="aviation"] .theme-ambient:before{inset:0;background:radial-gradient(circle at 12% 78%,transparent 0 42px,rgba(204,197,166,.13) 43px 45px,transparent 46px),radial-gradient(circle at 88% 78%,transparent 0 42px,rgba(204,197,166,.13) 43px 45px,transparent 46px),linear-gradient(90deg,rgba(7,10,8,.72) 0 8%,transparent 13% 87%,rgba(7,10,8,.72) 92% 100%)}
-html[data-theme="aviation"] .theme-ambient:after{width:66vw;height:31vh;left:17vw;top:-13vh;border:4px solid rgba(174,181,160,.19);border-radius:0 0 48% 48%;box-shadow:inset 0 -18px 45px rgba(178,190,168,.08),0 0 50px rgba(0,0,0,.45)}
-html[data-theme="aviation"] .mel-theme-shrine:before{inset:0;border-radius:50%;border:6px double #919982;box-shadow:0 0 0 5px #2d342b,0 0 0 8px #b09b69,0 0 35px rgba(188,181,147,.2)}
-html[data-theme="aviation"] .mel-theme-shrine:after{inset:-18%;border-radius:50%;background:repeating-conic-gradient(from 0deg,rgba(190,184,151,.09) 0 1deg,transparent 1deg 30deg);mask:radial-gradient(circle,transparent 0 61%,#000 62% 68%,transparent 69%)}
-html[data-theme="aviation"] .window{border:4px solid #707866!important;box-shadow:0 0 0 3px #252c25,0 0 0 6px #9c8b61,0 25px 80px rgba(0,0,0,.72)!important}
-html[data-theme="aviation"] .window:before{height:6px!important;background:linear-gradient(90deg,#252c25,#a39266 18%,#d1c79f 50%,#a39266 82%,#252c25)!important}
-html[data-theme="aviation"] #messages{background-image:radial-gradient(circle at 8% 92%,rgba(194,188,157,.055),transparent 16%),radial-gradient(circle at 92% 92%,rgba(194,188,157,.055),transparent 16%)}
-html[data-theme="aviation"] .app:after{content:"✈  ·  1940s AVIATION  ·  ✈"!important;display:block;text-align:center;color:#c6b98e;letter-spacing:.28em;margin-top:10px;text-shadow:0 2px 8px #000}
-
-/* PALADIN LIGHT FULL PLATE — argent, ivoire, or et lumière sacrée */
-html[data-theme="paladin"]{color-scheme:light;--bg:#dfe7ef;--bg2:#f4f0df;--glow:#f7df89;--glow2:#aac4de;--text:#fffaf0;--ink:#26384a;--muted:#6c7280;--soft:#4e6172;--panel:#fbf8eb;--panel2:#e9eef2;--composer:rgba(255,255,255,.87);--border:#c6a64b;--accent:#d0ad47;--accent2:#8d712b;--user:#a78936;--mel:rgba(255,255,255,.82);--button:#d6bd68;--button-text:#26384a;--radius:14px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#aebbc7 9%,#f0d16f 28%,#f8f5e8 50%,#f0d16f 72%,#aebbc7 91%,transparent);--paper:radial-gradient(circle at 50% 0,rgba(255,241,177,.22),transparent 32%)}
-html[data-theme="paladin"] body{background-color:#d8e0e8!important;background-image:radial-gradient(ellipse at 50% 7%,rgba(255,235,159,.55),transparent 25%),linear-gradient(115deg,#9fb4c7 0,#eef2f4 21%,#d2dce6 48%,#f8f4df 70%,#9fb4c7 100%)!important}
-html[data-theme="paladin"] .theme-ambient:before{inset:0;background:linear-gradient(90deg,rgba(58,81,101,.28) 0 7%,transparent 10% 90%,rgba(58,81,101,.28) 93% 100%),linear-gradient(115deg,transparent 0 43%,rgba(76,119,159,.08) 44% 47%,transparent 48% 52%,rgba(169,81,75,.07) 53% 56%,transparent 57%)}
-html[data-theme="paladin"] .theme-ambient:after{width:52vw;height:60vh;left:24vw;top:-19vh;border:7px double rgba(227,198,102,.45);border-radius:48% 48% 12% 12%/33% 33% 10% 10%;background:radial-gradient(ellipse at 50% 24%,rgba(255,244,191,.58),transparent 28%),linear-gradient(90deg,rgba(89,124,158,.07),rgba(255,255,255,.14) 45% 55%,rgba(89,124,158,.07));box-shadow:0 0 80px rgba(255,229,134,.38),inset 0 0 45px rgba(255,255,255,.18)}
-html[data-theme="paladin"] .mel-theme-shrine:before{inset:-7%;border-radius:50% 50% 20% 20%/42% 42% 18% 18%;border:8px double #dfc260;box-shadow:0 0 0 5px #eef3f6,0 0 0 9px #8fa5b7,0 0 52px rgba(255,228,130,.55),inset 0 0 30px rgba(255,255,255,.4)}
-html[data-theme="paladin"] .mel-theme-shrine:after{inset:-28% -42%;background:radial-gradient(ellipse at 50% 8%,rgba(255,239,169,.38),transparent 25%),linear-gradient(90deg,transparent 0 18%,rgba(115,151,185,.12) 19% 21%,transparent 22% 78%,rgba(115,151,185,.12) 79% 81%,transparent 82%)}
-html[data-theme="paladin"] .avatar{border:6px double #e5ca70!important;box-shadow:0 0 0 4px #f7fbfd,0 0 0 9px #93a9bb,0 20px 65px rgba(50,68,84,.45)!important}
-html[data-theme="paladin"] .window{border:6px double #caaa4c!important;box-shadow:0 0 0 3px #ffffff,0 0 0 8px #9eafbd,0 26px 82px rgba(56,71,84,.38)!important}
-html[data-theme="paladin"] .window:before{height:9px!important;background:linear-gradient(90deg,#8fa4b5,#e4c667 16%,#fff8d7 36%,#d2ad45 50%,#fff8d7 64%,#e4c667 84%,#8fa4b5)!important}
-html[data-theme="paladin"] #messages{background-image:linear-gradient(90deg,rgba(75,118,158,.035),transparent 18% 82%,rgba(157,85,79,.03)),radial-gradient(ellipse at 50% -15%,rgba(255,226,113,.19),transparent 35%)}
-html[data-theme="paladin"] .app:after{content:"⚜  ·  PALADIN  ·  ⚜"!important;display:block;text-align:center;color:#f3d879;letter-spacing:.48em;margin-top:10px;text-shadow:0 1px 4px rgba(48,61,73,.6)}
-
-@media(max-width:600px){.theme-ambient:after{transform:scale(1.15);transform-origin:50% 0}.controls{grid-template-columns:1fr 1fr!important}.mel-theme-shrine{width:238px;height:238px}#themeIdleCaption{font-size:.76rem;margin-top:-2px}.theme-panel{max-height:72vh;overflow:auto}}
-@media(prefers-reduced-motion:reduce){.mel-theme-shrine{animation:none!important}}
-</style>
-<script id="mel-theme-avatar-runtime">
+/* MEL visual contract v3 — one geometry, theme-specific materials. */
+#skills,#skillsBtn,#skillsPanel,.skills{display:none!important}
+.window:after{content:none!important;display:none!important}
+.avatar img{width:100%!important;height:100%!important;object-fit:cover!important;object-position:center 24%!important}
+.avatar,.window,button,textarea,.theme-panel,#themePanel{transition:background .28s ease,border-color .28s ease,box-shadow .28s ease,color .28s ease}
+.mel-idle-status{text-align:center;min-height:22px;margin:-6px 0 9px;font-size:.82rem;color:var(--text);opacity:.76;letter-spacing:.02em}
+.theme-choice-v3{width:100%;display:flex;align-items:center;gap:10px;text-align:left;margin:5px 0;padding:10px 11px;border:1px solid rgba(255,255,255,.10);border-radius:10px;background:rgba(255,255,255,.07);color:inherit;cursor:pointer}
+.theme-choice-v3.active{outline:2px solid color-mix(in srgb,var(--accent) 70%,white);outline-offset:1px}
+.theme-choice-v3 .mel-theme-icon{width:24px;height:24px;display:grid;place-items:center;flex:0 0 24px;border-radius:50%;background:rgba(0,0,0,.16)}
+.theme-choice-v3 strong{display:block;font-size:.91rem}.theme-choice-v3 small{display:block;opacity:.7;font-size:.72rem;margin-top:2px}
+html[data-theme="crusade"]{--bg:#24120a;--bg2:#4b2514;--text:#f6e7bd;--ink:#2d1b0f;--panel:#d9bb79;--panel2:#c7a566;--composer:rgba(244,220,160,.74);--border:#7b4d22;--accent:#8b1e1e;--accent2:#5d1111;--button:#4b2e17;--button-text:#f8e9be;--radius:8px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#d6aa4e 18%,#7a1717 50%,#d6aa4e 82%,transparent)}
+html[data-theme="religious"]{--bg:#19120e;--bg2:#332116;--text:#fff0cc;--ink:#342415;--panel:#eee0bd;--panel2:#d9c397;--composer:rgba(255,247,221,.84);--border:#b58b2f;--accent:#294a73;--accent2:#162e50;--button:#294a73;--button-text:#fff8df;--radius:14px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#d8b85f 16%,#fff1af 31%,#b88c2f 50%,#fff1af 69%,#d8b85f 84%,transparent)}
+html[data-theme="granada"]{--bg:#171411;--bg2:#423626;--text:#fff6d7;--ink:#302718;--panel:#f1e7c9;--panel2:#d9c69c;--composer:rgba(255,250,231,.86);--border:#b88929;--accent:#8a651c;--accent2:#543a10;--button:#6f4c13;--button-text:#fff5d0;--radius:9px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#a8761b 10%,#ffeaa0 28%,#c79a32 50%,#ffeaa0 72%,#a8761b 90%,transparent)}
+html[data-theme="aviation"]{--bg:#141017;--bg2:#33213b;--text:#f2e9dd;--ink:#181419;--panel:#c7b9a8;--panel2:#998a7c;--composer:rgba(226,216,204,.82);--border:#a37839;--accent:#6d315f;--accent2:#391a35;--button:#3e2d30;--button-text:#f5eadb;--radius:10px;--font:Inter,ui-sans-serif,system-ui,sans-serif;--ornament:linear-gradient(90deg,transparent,#b5904c 18%,#6d315f 50%,#b5904c 82%,transparent)}
+html[data-theme="paladin"]{--bg:#151c27;--bg2:#36485f;--text:#fff9df;--ink:#263144;--panel:#f5f0dd;--panel2:#ddd4ba;--composer:rgba(255,252,239,.88);--border:#d0ac4b;--accent:#c39a37;--accent2:#85631c;--button:#465d7c;--button-text:#fff9e8;--radius:13px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#fff1a9 13%,#c5962e 36%,#fff8d0 50%,#c5962e 64%,#fff1a9 87%,transparent)}
+html[data-theme="amazon"]{--bg:#17100f;--bg2:#3a1818;--text:#f8e8c7;--ink:#2a1c16;--panel:#d5bd91;--panel2:#aa8a61;--composer:rgba(232,214,178,.84);--border:#9b6d2f;--accent:#8f2e2e;--accent2:#52201f;--button:#4a2a20;--button-text:#f9e6bd;--radius:9px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#b88735 12%,#6f2422 35%,#d7b45c 50%,#6f2422 65%,#b88735 88%,transparent)}
+html[data-theme="crusade"] body{background-color:#201007!important;background-image:linear-gradient(rgba(16,7,2,.34),rgba(16,7,2,.34)),repeating-linear-gradient(93deg,rgba(255,219,146,.025) 0 2px,transparent 2px 8px),radial-gradient(circle at 50% -20%,#6a351c 0,#29150c 48%,#160b06 100%)!important}
+html[data-theme="religious"] body{background-color:#17100d!important;background-image:radial-gradient(ellipse at 50% 10%,rgba(255,194,93,.20),transparent 26%),radial-gradient(circle at 12% 42%,rgba(242,154,54,.10),transparent 18%),radial-gradient(circle at 88% 47%,rgba(242,154,54,.10),transparent 18%),linear-gradient(120deg,#0f0b09,#392419 46%,#17100d)!important}
+html[data-theme="granada"] body{background-color:#15120f!important;background-image:linear-gradient(90deg,rgba(205,164,76,.08) 0 1px,transparent 1px 19%),radial-gradient(ellipse at 50% -7%,rgba(255,239,178,.31),transparent 30%),linear-gradient(115deg,#15120f,#453724 50%,#15120f)!important}
+html[data-theme="aviation"] body{background-color:#141017!important;background-image:radial-gradient(circle at 78% 12%,rgba(240,167,91,.18),transparent 23%),repeating-linear-gradient(90deg,rgba(181,144,76,.035) 0 1px,transparent 1px 42px),linear-gradient(135deg,#11151a,#3a203f 52%,#1c1418)!important}
+html[data-theme="paladin"] body{background-color:#151c27!important;background-image:radial-gradient(ellipse at 50% 0,rgba(255,243,185,.30),transparent 32%),linear-gradient(115deg,rgba(255,255,255,.04),transparent 35%),linear-gradient(135deg,#121925,#425671 52%,#171d27)!important}
+html[data-theme="amazon"] body{background-color:#17100f!important;background-image:radial-gradient(circle at 78% 8%,rgba(255,234,157,.18),transparent 18%),linear-gradient(116deg,transparent 0 58%,rgba(229,213,171,.08) 59%,transparent 60%),radial-gradient(ellipse at 50% -8%,#5b2b29 0,#291619 43%,#100c0d 92%)!important}
+html[data-theme="crusade"] .avatar{border:5px double #d5ad55!important;box-shadow:0 0 0 5px #5a1b16,0 20px 55px #000!important}
+html[data-theme="religious"] .avatar{border:5px double #d9b95d!important;box-shadow:0 0 0 5px #352112,0 0 0 8px #b18a42,0 20px 65px #000!important}
+html[data-theme="granada"] .avatar{border:6px double #e4c266!important;box-shadow:0 0 0 4px #f7ecc8,0 0 0 8px #795618,0 22px 70px #000!important}
+html[data-theme="aviation"] .avatar{border:5px solid #a37a3b!important;box-shadow:0 0 0 3px #34262a,0 0 0 7px #6b315d,0 22px 60px #000!important}html[data-theme="aviation"] .avatar img{object-position:center 23%!important}
+html[data-theme="paladin"] .avatar{border:5px double #efd986!important;box-shadow:0 0 0 4px #f7f2db,0 0 0 8px #6c819d,0 0 36px rgba(255,232,141,.34)!important}
+html[data-theme="amazon"] .avatar{border:5px double #c79a47!important;box-shadow:0 0 0 4px #552422,0 0 0 8px #241412,0 22px 66px #000!important}html[data-theme="amazon"] .avatar img{object-position:center 22%!important}
+html[data-theme="crusade"] .window{border:5px double #775023!important;box-shadow:0 0 0 3px #b78a42,0 0 0 8px #3a1b0d,0 25px 80px #000!important}
+html[data-theme="religious"] .window{border:5px double #b88b35!important;box-shadow:0 0 0 3px #ead9a4,0 0 0 8px #362316,0 25px 85px #000!important}
+html[data-theme="granada"] .window{border:6px double #bd8f2f!important;box-shadow:0 0 0 3px #fff0b2,0 0 0 9px #624715,0 25px 90px #000!important}
+html[data-theme="aviation"] .window{border:4px double #92703c!important;box-shadow:0 0 0 3px #3c3031,0 0 0 7px #271a25,0 24px 78px #000!important}
+html[data-theme="paladin"] .window{border:5px double #d1ab48!important;box-shadow:0 0 0 3px #fff9df,0 0 0 8px #536a87,0 0 46px rgba(255,236,163,.22)!important}
+html[data-theme="amazon"] .window{border:5px double #966b31!important;box-shadow:0 0 0 3px #c39a53,0 0 0 8px #351917,0 25px 85px #000!important}
+.app:after{display:block;text-align:center;margin:10px auto 0;color:var(--text);opacity:.65;letter-spacing:.7em;font-family:Georgia,serif;pointer-events:none}
+html[data-theme="crusade"] .app:after{content:'✠  ✠  ✠'}html[data-theme="religious"] .app:after{content:'❦  ✝  ❦'}html[data-theme="granada"] .app:after{content:'✦  ✠  ✦'}html[data-theme="aviation"] .app:after{content:'✦  ✈  ✦'}html[data-theme="paladin"] .app:after{content:'✦  ⚜  ✦'}html[data-theme="amazon"] .app:after{content:'⚡  ◈  ⚡'}
+@media(max-width:700px){.theme-panel,#themePanel{max-height:70vh;overflow:auto}.theme-choice-v3{padding:8px 9px}.avatar img{object-position:center 22%!important}}
+@media(prefers-reduced-motion:reduce){.avatar,.window,button,textarea{transition:none!important;animation:none!important}}
+</style><script id="mel-theme-avatar-runtime">
 (function(){
-  const THEMES=['classic','crusade','religious','granada','aviation','paladin'];
-  const avatars={classic:'/assets/avatars/mel-classic.webp',crusade:'/assets/avatars/mel-crusade.webp',religious:'/assets/avatars/mel-religious-andalusian.webp',granada:'/assets/avatars/mel-granada.webp',aviation:'/assets/avatars/mel-aviation-1940s.webp',paladin:'/assets/avatars/mel-paladin-light-full-plate.webp'};
-  const icons={classic:'✦',crusade:'✠',religious:'✝',granada:'♛',aviation:'✈',paladin:'⚜'};
-  const idle={classic:'',crusade:'MEL veille et prie en silence.',religious:'MEL demeure dans une prière paisible.',granada:'MEL demeure dans la lumière du sanctuaire.',aviation:'MEL garde le cap.',paladin:'MEL veille dans la lumière.'};
-  const extraChoices=[
-    {id:'granada',icon:'♛',title:'Cathédrale de Grenade',subtitle:'Grand retable · pierre ivoire · or monumental'},
-    {id:'aviation',icon:'✈',title:'Aviation 1940s',subtitle:'Cockpit · cuir · aluminium · instruments analogiques'},
-    {id:'paladin',icon:'⚜',title:'Paladin Light Full Plate',subtitle:'Armure claire · argent · ivoire · or · lumière sacrée'}
+  const THEMES=['classic','crusade','religious','granada','aviation','paladin','amazon'];
+  const avatars={classic:'/assets/avatars/mel-classic.webp',crusade:'/assets/avatars/mel-crusade.webp',religious:'/assets/avatars/mel-religious-andalusian.webp',granada:'/assets/avatars/mel-granada.webp',aviation:'/assets/avatars/mel-aviation-1940s.webp',paladin:'/assets/avatars/mel-paladin-light-full-plate.webp',amazon:'/assets/avatars/mel-amazon-griffon.webp'};
+  const idle={classic:'',crusade:'MEL veille et prie en silence.',religious:'MEL demeure dans une prière paisible.',granada:'MEL demeure dans la lumière du sanctuaire.',aviation:'MEL garde le cap.',paladin:'MEL veille dans la lumière.',amazon:'MEL guette l’orage.'};
+  const choices=[
+    ['classic','✦','Classique','Bleu nuit · interface moderne'],
+    ['crusade','✠','Croisés · Parchemin','Medieval Idle Prayer · cuir · or vieilli'],
+    ['religious','✝','Baroque andalou religieux','Cueva · pierre · cierges · dorures'],
+    ['granada','♛','Cathédrale de Grenade','Grand retable · ivoire · or monumental'],
+    ['aviation','✈','Aviation 1940s','cockpit · cuir violet · instruments analogiques'],
+    ['paladin','⚜','Paladin Light Full Plate','Armure claire · argent · ivoire · or'],
+    ['amazon','⚡','Amazon · Diadème du Griffon','bronze · grenat · orage · ruines']
   ];
-  function currentTheme(){const value=document.documentElement.dataset.theme;return THEMES.includes(value)?value:'classic'}
-  function recentIntentContext(){try{return Array.from(document.querySelectorAll('#messages .msg')).slice(-8).map(function(node){const role=node.classList.contains('user')?'USER':'MEL';return role+': '+String(node.textContent||'').replace(/[\\n\\r\\t ]+/g,' ').trim().slice(0,1200)}).join('\\n').slice(-8000)}catch{return ''}}
-  function removeSkills(){document.getElementById('skills')?.remove();document.getElementById('skillsPanel')?.remove();document.querySelectorAll('.skills').forEach(function(node){node.remove()})}
-  function ensureAmbient(){if(!document.querySelector('.theme-ambient')){const node=document.createElement('div');node.className='theme-ambient';node.setAttribute('aria-hidden','true');document.body.prepend(node)}}
-  function ensureDecor(){const wrap=document.querySelector('.avatar-wrap');if(wrap&&!wrap.querySelector('.mel-theme-shrine')){const shrine=document.createElement('div');shrine.className='mel-theme-shrine';shrine.setAttribute('aria-hidden','true');wrap.prepend(shrine)}const voice=document.getElementById('voiceStatus');if(voice&&!document.getElementById('themeIdleCaption')){const caption=document.createElement('div');caption.id='themeIdleCaption';voice.insertAdjacentElement('afterend',caption)}}
-  function ensureExtraChoices(){const panel=document.getElementById('themePanel');if(!panel)return;for(const item of extraChoices){if(panel.querySelector('[data-theme-choice="'+item.id+'"]'))continue;const b=document.createElement('button');b.type='button';b.className='theme-choice';b.dataset.themeChoice=item.id;const icon=document.createElement('span');icon.className='theme-icon';icon.textContent=item.icon;const copy=document.createElement('span');copy.className='theme-copy';const strong=document.createElement('strong');strong.textContent=item.title;const small=document.createElement('span');small.textContent=item.subtitle;copy.append(strong,small);b.append(icon,copy);panel.appendChild(b)}}
-  function syncVisuals(){const theme=currentTheme();const img=document.querySelector('.avatar img');if(img&&img.getAttribute('src')!==avatars[theme])img.setAttribute('src',avatars[theme]);const caption=document.getElementById('themeIdleCaption');if(caption)caption.textContent=idle[theme]||'';const button=document.getElementById('themeButton');if(button)button.textContent=icons[theme]||'✦';document.querySelectorAll('[data-theme-choice]').forEach(function(node){node.classList.toggle('active',node.dataset.themeChoice===theme)})}
-  function applyTheme(theme){const value=THEMES.includes(theme)?theme:'classic';document.documentElement.dataset.theme=value;try{localStorage.setItem('mel.theme',value);localStorage.setItem('mel.theme.v2',value)}catch{}syncVisuals();const panel=document.getElementById('themePanel');if(panel)panel.classList.remove('open');document.getElementById('themeButton')?.setAttribute('aria-expanded','false')}
-  function installThemeEvents(){const panel=document.getElementById('themePanel');if(!panel||panel.dataset.melThemeRuntime==='1')return;panel.dataset.melThemeRuntime='1';panel.addEventListener('click',function(event){const choice=event.target.closest('[data-theme-choice]');if(!choice)return;event.preventDefault();event.stopImmediatePropagation();applyTheme(choice.dataset.themeChoice)},true)}
-  function boot(){removeSkills();ensureAmbient();ensureDecor();ensureExtraChoices();installThemeEvents();let saved='classic';try{const preferred=localStorage.getItem('mel.theme.v2')||localStorage.getItem('mel.theme');if(THEMES.includes(preferred))saved=preferred}catch{}applyTheme(saved);syncVisuals()}
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
-  new MutationObserver(function(){removeSkills();syncVisuals()}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
-  const nativeFetch=window.fetch.bind(window);window.fetch=function(resource,init){try{const path=typeof resource==='string'?resource:resource&&resource.url;if(path&&path.includes('/api/chat')&&init&&typeof init.body==='string'){const body=JSON.parse(init.body);if(body&&typeof body==='object'){let changed=false;if(!body.ui_theme){body.ui_theme=currentTheme();changed=true}if(!body.intent_context){const context=recentIntentContext();if(context){body.intent_context=context;changed=true}}if(changed)init={...init,body:JSON.stringify(body)}}}}catch{}return nativeFetch(resource,init)};
+  const storage='mel.theme.v3';
+  function normalize(value){return THEMES.includes(String(value||''))?String(value):'classic'}
+  function theme(){return normalize(document.documentElement.dataset.theme)}
+  function panel(){return document.getElementById('themePanel')||document.querySelector('.theme-panel')}
+  function ensureIdle(){let node=document.querySelector('.mel-idle-status');if(node)return node;const voice=document.getElementById('voiceStatus');if(!voice)return null;node=document.createElement('div');node.className='mel-idle-status';node.setAttribute('aria-live','polite');voice.insertAdjacentElement('afterend',node);return node}
+  function sync(){
+    const value=theme();
+    const img=document.querySelector('.avatar img');if(img&&img.getAttribute('src')!==avatars[value])img.setAttribute('src',avatars[value]);
+    const idleNode=ensureIdle();if(idleNode)idleNode.textContent=idle[value]||'';
+    document.querySelectorAll('[data-theme-choice]').forEach(btn=>btn.classList.toggle('active',btn.dataset.themeChoice===value));
+  }
+  function choose(value){const next=normalize(value);document.documentElement.dataset.theme=next;try{localStorage.setItem(storage,next);localStorage.setItem('mel.theme.v2',next)}catch{}sync()}
+  function renderChoices(){
+    const target=panel();if(!target)return;
+    target.innerHTML='<div style="font-weight:700;margin:2px 2px 7px">Apparence de MEL</div>'+choices.map(c=>'<button type="button" class="theme-choice-v3" data-theme-choice="'+c[0]+'"><span class="mel-theme-icon">'+c[1]+'</span><span><strong>'+c[2]+'</strong><small>'+c[3]+'</small></span></button>').join('');
+    target.querySelectorAll('[data-theme-choice]').forEach(btn=>btn.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();choose(btn.dataset.themeChoice);target.classList.remove('open')}));
+  }
+  function removeSkills(){document.getElementById('skills')?.remove();document.getElementById('skillsBtn')?.remove();document.getElementById('skillsPanel')?.remove();document.querySelectorAll('.skills').forEach(el=>el.remove())}
+  function normalizeComposer(){const area=document.querySelector('textarea');if(area){area.maxLength=100000;area.setAttribute('maxlength','100000')}}
+  function init(){
+    removeSkills();normalizeComposer();renderChoices();
+    let saved='';try{saved=localStorage.getItem(storage)||localStorage.getItem('mel.theme.v2')||''}catch{}
+    choose(saved||document.documentElement.dataset.theme||'classic');
+    new MutationObserver(()=>sync()).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+  }
+  const nativeFetch=window.fetch.bind(window);
+  window.fetch=function(resource,init){
+    try{
+      const path=typeof resource==='string'?resource:resource&&resource.url;
+      if(path&&path.includes('/api/chat')&&init&&typeof init.body==='string'){
+        const body=JSON.parse(init.body);
+        if(body&&typeof body==='object'){
+          body.ui_theme=theme();
+          if(!body.intent_context)body.intent_context={ui_theme:theme(),surface:'mel-mvp'};
+          init={...init,body:JSON.stringify(body)};
+        }
+      }
+    }catch{}
+    return nativeFetch(resource,init);
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();
 </script>`;
 
@@ -104,14 +100,11 @@ export async function enhanceThemeAvatars(response) {
   const type = response.headers.get('content-type') || '';
   if (!type.includes('text/html')) return response;
   const html = await response.text();
-  if (!html.includes('data-theme=') || html.includes('mel-theme-avatar-runtime')) {
+  if (html.includes('mel-theme-avatar-runtime')) {
     return new Response(html, { status: response.status, statusText: response.statusText, headers: response.headers });
   }
   const body = html.includes('</body>') ? html.replace('</body>', `${THEME_AVATAR_SCRIPT}</body>`) : html + THEME_AVATAR_SCRIPT;
   const headers = new Headers(response.headers);
   headers.set('content-length', String(new TextEncoder().encode(body).length));
-  headers.set('cache-control', 'no-store');
   return new Response(body, { status: response.status, statusText: response.statusText, headers });
 }
-
-export { THEME_AVATAR_SCRIPT };
