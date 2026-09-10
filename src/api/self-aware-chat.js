@@ -4,6 +4,7 @@ import { selfAwarenessSystemContext, getSelfAwarenessSnapshot } from '../context
 
 const MODEL = '@cf/zai-org/glm-4.7-flash';
 const CONTEXT_MESSAGES = 8;
+const SELF_STATE_MAX_CHARS = 4000;
 
 const SELF_STATE_INTENT = /\b(?:que\s+(?:sais|peux)[- ]?tu\s+faire|qu['’]est[- ]?ce\s+que\s+tu\s+(?:sais|peux|fais|d[ée]veloppes?)|tes?\s+(?:capacit[ée]s?|comp[ée]tences?|outils?|modules?|connecteurs?|fonctions?)|quels?\s+(?:outils?|modules?|connecteurs?|mod[èe]les?|capacit[ée]s?|comp[ée]tences?)|o[uù]\s+en\s+es[- ]?tu|ton\s+[ée]tat|ta\s+roadmap|ta\s+feuille\s+de\s+route|ton\s+d[ée]veloppement|ce\s+que\s+tu\s+d[ée]veloppes?|sur\s+quoi\s+tu\s+travailles?|qu['’]est[- ]?ce\s+qui\s+est\s+(?:actif|connect[ée]|disponible)|es[- ]?tu\s+capable|ton\s+propre\s+code|ta\s+version|comment\s+fonctionnes[- ]?tu)\b/i;
 
@@ -14,7 +15,7 @@ function extractText(result) {
 
 export function isSelfStateQuestion(text) {
   const value = String(text || '').trim();
-  return Boolean(value && SELF_STATE_INTENT.test(value));
+  return Boolean(value && value.length <= SELF_STATE_MAX_CHARS && SELF_STATE_INTENT.test(value));
 }
 
 async function recentContext(env, conversationId) {
