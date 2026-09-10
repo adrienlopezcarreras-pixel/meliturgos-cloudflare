@@ -5,6 +5,7 @@ import { isSupervisedAutonomyJob } from '../evolution/autonomy-supervisor.js';
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const PUBLIC_PATHS = new Set(['/api/teacher/pending', '/api/teacher/status', '/api/teacher/work', '/api/teacher/bridge.txt']);
 const SECRET_VALUE = /(bearer\s+[a-z0-9._~+/=-]{8,}|\bsk-[a-z0-9_-]{8,}|\bgh[pousr]_[a-z0-9]{12,}|(?:api[_ -]?key|token|password|secret|cookie|otp)\s*[:=]\s*[^\s,;]{6,})/gi;
+const SHA40 = /^[0-9a-f]{40}$/i;
 
 function redactPlanText(value) {
   return String(value || '').replace(SECRET_VALUE, '[REDACTED]').slice(0, 12000);
@@ -78,6 +79,7 @@ function safeInternalWorkPackage(jobs = []) {
     .filter((job) => job?.result_json?.teacher_bridge?.status === 'ANSWERED')
     .filter((job) => job?.result_json?.teacher_bridge?.review?.verdict === 'APPROVE_PLAN')
     .filter((job) => job?.result_json?.implementation_proposal?.status === 'READY')
+    .filter((job) => SHA40.test(String(job?.result_json?.implementation_proposal?.candidate_sha || '')))
     .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0));
   const job = eligible[0];
   if (!job) return null;
@@ -96,6 +98,7 @@ function safeInternalWorkPackage(jobs = []) {
     roadmap_id: String(job.optional_context.roadmap_id || ''),
     priority: String(job.optional_context.priority || 'P0'),
     candidate_branch: String(proposal.candidate_branch || ''),
+    candidate_sha: String(proposal.candidate_sha || ''),
     created_at: proposal.created_at || null,
     inspected_files: Array.isArray(proposal.inspected_files)
       ? proposal.inspected_files.map((row) => ({ path: String(row?.path || '').slice(0, 500), sha: String(row?.sha || '').slice(0, 100) })).filter((row) => row.path).slice(0, 8)
