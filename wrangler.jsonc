@@ -8,6 +8,9 @@
     "enabled": true,
     "logs": { "head_sampling_rate": 1 }
   },
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
   "ai": {
     "binding": "AI"
   },
@@ -28,6 +31,7 @@
     "OWNER_NAME": "Adrien",
     "MELITURGOS_USER": "adrien",
     "MEL_GITHUB_REPOSITORY": "adrienlopezcarreras-pixel/meliturgos-cloudflare",
-    "MEL_GITHUB_BRANCH": "release/mel-2026-09-09-r2-2"
+    "MEL_GITHUB_BRANCH": "release/mel-2026-09-09-r2-2",
+    "MEL_TEACHER_BRANCH": "candidate/augmentio-core"
   }
 }
