@@ -47,6 +47,30 @@ export class D1DevJobRepository {
     return j;
   }
 
+  /**
+   * Idempotent creation for deterministic autonomy job ids. D1 primary-key
+   * uniqueness is the cross-isolate lock; the in-memory fallback performs the
+   * same check explicitly for deterministic tests/local runs.
+   */
+  async createIfAbsent(input) {
+    if (!input?.id) throw Object.assign(new Error('ID_REQUIRED'), { code: 'ID_REQUIRED' });
+    await this.init();
+    if (!this.db) {
+      const existing = this.memory.get(input.id);
+      if (existing) return { created: false, job: existing };
+      const job = await this.create(input);
+      return { created: true, job };
+    }
+    try {
+      const job = await this.create(input);
+      return { created: true, job };
+    } catch (error) {
+      const existing = await this.get(input.id);
+      if (existing) return { created: false, job: existing };
+      throw error;
+    }
+  }
+
   _row(r) {
     if (!r) return null;
     r.job_id = r.id;
