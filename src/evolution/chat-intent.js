@@ -6,7 +6,12 @@ export function isEvolutionDevelopmentIntent(text) {
   return action && target;
 }
 
-/** Inject only the mandatory preflight; never code generation. */
+/**
+ * Explicit owner development requests become durable supervised-autonomy jobs,
+ * not one-shot planning answers. The enqueue capability itself enforces the
+ * mandatory multi-AI Council before candidate code inspection/Teacher review.
+ * An explicitly supplied capability is never overwritten.
+ */
 export async function injectEvolutionPreflightCapability(request) {
   const url = new URL(request.url);
   if (url.pathname !== '/api/chat' || request.method !== 'POST') return request;
@@ -18,12 +23,13 @@ export async function injectEvolutionPreflightCapability(request) {
   const text = String(body.text ?? body.message ?? body.prompt ?? '').trim();
   if (!isEvolutionDevelopmentIntent(text)) return request;
 
+  const requestKey = body.client_message_id ?? body.message_id ?? body.request_id ?? body.id ?? '';
   body.capability = {
-    id: 'evolution.preflight',
+    id: 'evolution.enqueue',
     input: {
       goal: text.slice(0, 4000),
-      context: { origin: 'chat', rule: 'AI_COUNCIL_BEFORE_CODE' },
-      minResponses: 2
+      conversationId: String(body.conversation_id ?? body.conversationId ?? '').slice(0, 200),
+      requestKey: String(requestKey || '').slice(0, 200),
     }
   };
   const headers = new Headers(request.headers);
