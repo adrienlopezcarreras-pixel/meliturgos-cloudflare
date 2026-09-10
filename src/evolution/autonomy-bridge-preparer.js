@@ -92,6 +92,11 @@ function normalizeTests(tests = []) {
   return values.map((name) => ({ name, command: name, passed: false }));
 }
 
+function repairMarker(job) {
+  const bridge = job?.result_json?.dev_bridge;
+  return bridge?.needs_repair === true ? String(bridge.received_at || '') : '';
+}
+
 function reusablePackage(job, proposal) {
   const existing = job?.result_json?.bridge_preparation;
   if (existing?.status !== 'READY') return null;
@@ -100,6 +105,8 @@ function reusablePackage(job, proposal) {
   if (String(existing.candidate_sha || '').toLowerCase() !== String(proposal.candidate_sha || '').toLowerCase()) return null;
   if (!Array.isArray(job.files_json) || !job.files_json.length) return null;
   if (!Array.isArray(job.tests_json) || !job.tests_json.length) return null;
+  const marker = repairMarker(job);
+  if (marker && existing.repair_for_received_at !== marker) return null;
   return { ...existing, reused: true };
 }
 
@@ -107,7 +114,9 @@ function reusablePackage(job, proposal) {
  * Converts an approved, already-inspected multi-AI implementation plan into a
  * bounded structured package that the local Dev Bridge can actually apply.
  * It never commits or deploys production. All generated paths are revalidated
- * by MentorEngine and later again by LocalDevBridge.
+ * by MentorEngine and later again by LocalDevBridge. A failed bridge test may
+ * trigger a repair proposal for the same approved goal, but never expands the
+ * Teacher-approved scope or bypasses the release gate.
  */
 export async function prepareApprovedBridgePackage({
   env,
@@ -126,13 +135,15 @@ export async function prepareApprovedBridgePackage({
 
   const code = await inspectSources(env, implementation, { fetchImpl });
   const engine = mentorEngine || createMentorEngine(env);
+  const repairFor = repairMarker(current);
+  const mode = repairFor ? 'repair' : 'implement';
   const mentor = await engine.propose({
     env,
     jobId: current.id,
     goal: current.goal,
     inspectedFiles: code.files,
     previousAttempts: current?.result_json?.dev_bridge?.tests || [],
-    mode: current?.result_json?.dev_bridge?.needs_repair === true ? 'repair' : 'implement',
+    mode,
   });
   const proposal = mentor?.proposal;
   if (!proposal || !Array.isArray(proposal.changes) || !proposal.changes.length) {
@@ -156,22 +167,27 @@ export async function prepareApprovedBridgePackage({
     source_files: code.files.map((file) => file.path),
     files: files.map((file) => file.path),
     tests: tests.map((test) => test.name),
+    repair_for_received_at: repairFor || null,
     mentor: {
       confidence: Number(proposal.confidence || 0),
       provenance: proposal.provenance || null,
       council: mentor.council || null,
-      mode: mentor.mode || 'implement',
+      mode: mentor.mode || mode,
     },
     production_deploy_allowed: false,
     human_release_approval_required: true,
   };
   const result = current.result_json && typeof current.result_json === 'object' ? { ...current.result_json } : {};
   result.bridge_preparation = bridgePreparation;
+  if (repairFor && result.dev_bridge) {
+    result.dev_bridge = { ...result.dev_bridge, repair_package_created_at: bridgePreparation.created_at };
+  }
   const patch = {
     summary: String(proposal.summary || '').slice(0, 4000),
     risks: Array.isArray(proposal.risks) ? proposal.risks.slice(0, 8) : [],
     lessons: Array.isArray(proposal.lessons) ? proposal.lessons.slice(0, 8) : [],
     source: 'MentorEngine',
+    mode,
   };
   const updated = await repository.update(current.id, {
     files_json: files,
@@ -182,4 +198,4 @@ export async function prepareApprovedBridgePackage({
   return updated.result_json.bridge_preparation;
 }
 
-export { normalizeTests };
+export { normalizeTests, repairMarker };
