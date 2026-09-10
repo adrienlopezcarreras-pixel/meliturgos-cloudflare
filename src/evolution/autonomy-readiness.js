@@ -10,7 +10,10 @@ function councilProof(job) {
   const responses = asArray(council.responses);
   const usable = responses.filter((row) => row?.member && row?.answer != null);
   const members = [...new Set(usable.map((row) => String(row.member)))];
-  const allExplicitZero = usable.length >= 2 && usable.every((row) => Number(row?.answer?.estimated_cost) === 0);
+  const allExplicitZero = usable.length >= 2 && usable.every((row) => {
+    const cost = row?.answer?.estimated_cost;
+    return typeof cost === 'number' && Number.isFinite(cost) && cost === 0;
+  });
   if (members.length < 2 || !allExplicitZero) return null;
   return {
     job_id: job.id,
