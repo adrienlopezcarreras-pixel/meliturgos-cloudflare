@@ -10,6 +10,7 @@ import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { handleNativeChat } from "./api/native-chat.js";
 import { maybeHandlePublicTeacherBridge } from "./teachers/public-teacher-api.js";
 import { runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
+import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 
 let lastSafeWorkJob = null;
 
@@ -236,6 +237,9 @@ export default {
 
       const safeWorkResponse = await maybeHandleSafeWork(request, env);
       if (safeWorkResponse) return safeWorkResponse;
+
+      const autonomyResponse = await maybeHandleAutonomyApi(request, env);
+      if (autonomyResponse) return autonomyResponse;
 
       const readinessResponse = await maybeHandleReadiness(request, env);
       if (readinessResponse) return readinessResponse;
