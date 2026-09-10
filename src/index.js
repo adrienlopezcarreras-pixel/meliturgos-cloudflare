@@ -6,6 +6,7 @@ import { importChatGPTArchive } from "./persistence/chatgpt-archive-importer.js"
 import { runAugmentioStateOfPlay } from "./teachers/augmentio-council.js";
 import { prepareDevelopmentRequest } from "./evolution/development-preflight.js";
 import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
+import { maybeQueueAutonomousDevelopment } from "./evolution/development-chat.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { maybeHandleLongChat } from "./api/long-chat.js";
 
@@ -118,6 +119,11 @@ export default {
 
       const archiveResponse = await maybeHandleChatGPTArchive(request, env);
       if (archiveResponse) return archiveResponse;
+
+      // Explicit commands to continue MEL's own development become real queued
+      // Mentor/Dev-Bridge jobs instead of conversational promises.
+      const developmentResponse = await maybeQueueAutonomousDevelopment(request, env);
+      if (developmentResponse) return developmentResponse;
 
       // Prompts above the legacy 12k ceiling are handled directly by Gen2.
       // Short messages still use the existing proven route unchanged.
