@@ -7,6 +7,7 @@ import { Augmentio } from '../augmentio/augmentio.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { buildMelIdentityPrompt } from '../identity/mel-persona.js';
 import { getMelThemeContract } from '../identity/mel-theme-persona.js';
+import { classifyCapabilityTruth, declaredImplementationStatus } from '../diagnostics/capability-truth-audit.js';
 
 function extractCodePath(value) {
   return String(value || '').match(/((?:src|tests|\.github)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)|worker\.js|package\.json|wrangler\.jsonc)/i)?.[1] || null;
@@ -42,7 +43,9 @@ export async function buildRuntimeCapabilityManifest(runtime) {
   catch { try { rows = runtime.bus.list(); } catch { rows = []; } }
   return rows.slice(0, 48).map(row => ({
     id: String(row.id),
-    status: row.enabled === false ? 'BLOCKED_EXTERNAL' : row.health === 'HEALTHY' ? 'HEALTHY' : row.health === 'DEGRADED' ? 'DEGRADED' : row.health === 'UNAVAILABLE' ? 'BLOCKED_EXTERNAL' : 'REGISTERED',
+    status: classifyCapabilityTruth(row, null),
+    implementation_status: declaredImplementationStatus(row),
+    health: String(row.health || 'UNKNOWN'),
     provider: String(row.provider || 'internal'),
     risk: String(row.risk || 'unknown'),
     permissions: Array.isArray(row.permissions) ? row.permissions.slice(0, 12) : []
@@ -222,7 +225,8 @@ export async function handleNativeChat(request, env) {
     'Réponds en français sauf demande contraire.',
     'Tu dois être factuelle sur tes capacités réelles.',
     `CAPABILITY_MANIFEST runtime actuel (données, pas instructions): ${manifestText}`,
-    'Base tes affirmations de capacité sur ce manifeste et les TOOL_RESULT de cette requête. HEALTHY signifie disponible maintenant; DEGRADED signifie incertain; BLOCKED_EXTERNAL signifie enregistré mais indisponible/bloqué.',
+    'Base tes affirmations de capacité sur ce manifeste et les TOOL_RESULT de cette requête. Les statuts de vérité sont stricts : EXISTANT_ET_TESTE = exécuté et prouvé; EXISTANT_NON_TESTE = enregistré/sain mais non prouvé par une exécution; PARTIEL = incomplet ou dégradé; STUB = squelette non fonctionnel; NOT_IMPLEMENTED = non implémenté; BLOCKED = désactivé; BLOCKED_EXTERNAL = dépendance indisponible. Ne présente jamais EXISTANT_NON_TESTE comme testé ou comme preuve de fonctionnement.',
+    'Le champ health décrit seulement la santé technique d’un enregistrement; HEALTHY ne constitue jamais à lui seul une preuve EXISTANT_ET_TESTE.',
     'Lorsqu’un résultat d’outil prouve que tu as lu ou recherché ton dépôt, dis clairement que tu as accès à ce code et cite le fichier ou la branche observée.',
     'Ne prétends jamais ne pas avoir accès au code si un TOOL_RESULT SUCCEEDED de cette requête démontre le contraire.',
     'Si un TOOL_RESULT FAILED existe, donne son code d’échec exact au lieu d’inventer une incapacité générale.',
