@@ -9,6 +9,7 @@ import { reconcileRuntimeTeacherReplies } from '../teachers/github-reply-reconci
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 import { runRuntimeWorkDagResumeProof } from './autonomy-proof.js';
 import { prepareApprovedImplementationProposal } from './autonomy-implementation-planner.js';
+import { prepareApprovedBridgePackage } from './autonomy-bridge-preparer.js';
 
 const INSPECTION_FILES = [
   'AUTONOMY_STATE.json',
@@ -17,7 +18,9 @@ const INSPECTION_FILES = [
   'src/evolution/autonomy-supervisor.js',
   'src/evolution/autonomy-proof.js',
   'src/evolution/autonomy-implementation-planner.js',
+  'src/evolution/autonomy-bridge-preparer.js',
   'src/dev/runtime-api.js',
+  'src/dev/bridge-job-runner.js',
   'src/work/work-dag.js',
   'src/work/autonomous-work-loop.js',
   'src/teachers/runtime-teacher-bridge.js',
@@ -36,6 +39,18 @@ async function persistImplementationDiagnostic(repository, jobId, diagnostic) {
   result.implementation_planning_diagnostic = {
     status: diagnostic.status === 'READY' ? 'READY' : 'NOT_READY',
     code: diagnostic.status === 'READY' ? null : safeDiagnosticCode({ code: diagnostic.code }),
+    observed_at: new Date().toISOString(),
+  };
+  return repository.update(jobId, { result_json: result });
+}
+
+async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic) {
+  const latest = await repository.get(jobId);
+  if (!latest) return null;
+  const result = latest.result_json && typeof latest.result_json === 'object' ? { ...latest.result_json } : {};
+  result.bridge_preparation_diagnostic = {
+    status: diagnostic.status === 'READY' ? 'READY' : 'NOT_READY',
+    code: diagnostic.status === 'READY' ? null : safeDiagnosticCode({ code: diagnostic.code }, 'BRIDGE_PREPARATION_FAILED'),
     observed_at: new Date().toISOString(),
   };
   return repository.update(jobId, { result_json: result });
@@ -191,25 +206,11 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
 /**
  * One bounded autonomous heartbeat. It reconciles trusted GitHub Teacher
  * replies and CI-verified candidate completions first, then ensures the next
- * P0 autonomy job exists. The first available autonomy job receives a one-time
- * live Work DAG resume proof using .augmentio. After a correlated APPROVE_PLAN,
- * MEL also performs her own bounded multi-AI CODE planning pass over inspected
- * candidate sources in the same heartbeat and persists that work product.
- *
- * READY_FOR_REVIEW is accepted as a recoverable pre-Teacher state because
- * legacy/dev-agent work can legitimately leave an autonomy job there before
- * the Teacher bridge has been queued. The bridge itself remains the authority:
- * an existing WAITING_TEACHER/ANSWERED package is never regenerated.
- *
- * Internally generated roadmap requests are optionally mirrored to one unique
- * GitHub file when MEL_GITHUB_TOKEN exists. The D1 bridge remains authoritative;
- * mirroring is only a connector-friendly transport for the external Teacher and
- * never blocks autonomy if unavailable.
- *
- * A NEEDS_CHANGES review is converted back to QUEUED with the previous Teacher
- * feedback injected into a fresh Council preflight. Completion reconciliation
- * happens before selection so a finished job can release the next roadmap item
- * immediately. Production code is never edited or deployed by this heartbeat.
+ * P0 autonomy job exists. After correlated Teacher approval MEL produces her
+ * own multi-AI implementation plan and a second bounded Mentor pass converts
+ * that plan into complete source files + allowed tests for the local Dev Bridge.
+ * Failed local tests are retained as evidence and may trigger one repair package
+ * for that exact bridge result. Production is never committed or deployed here.
  */
 export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
@@ -233,6 +234,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   let teacherMirror = null;
   let runtimeProof = null;
   let implementation = null;
+  let bridgePreparation = null;
 
   if (job) {
     try {
@@ -246,6 +248,23 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         status: 'NOT_VERIFIED',
         code: error?.code || error?.message || 'RUNTIME_WORK_DAG_PROOF_FAILED',
       };
+    }
+  }
+
+  // A local candidate whose tests failed stays inside the same approved goal.
+  // Reopen only the implementation stage; never bypass or replace the existing
+  // correlated Teacher approval, and never widen the original objective.
+  if (job && String(job.status || '').toUpperCase() === 'READY_FOR_REVIEW' && job.result_json?.dev_bridge?.needs_repair === true) {
+    const teacherState = job.result_json?.teacher_bridge;
+    if (teacherState?.status === 'ANSWERED' && teacherState?.review?.verdict === 'APPROVE_PLAN' && teacherState?.review?.development_allowed === true) {
+      const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
+      result.repair_cycle = {
+        status: 'REQUESTED',
+        source: 'DEV_BRIDGE_TEST_FAILURE',
+        failed_result_received_at: job.result_json.dev_bridge.received_at || null,
+        requested_at: new Date().toISOString(),
+      };
+      job = await jobRepository.update(job.id, { status: 'TEACHER_APPROVED', result_json: result });
     }
   }
 
@@ -289,6 +308,26 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       await persistImplementationDiagnostic(jobRepository, job.id, implementation);
       job = await jobRepository.get(job.id);
     }
+
+    if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
+      try {
+        bridgePreparation = await prepareApprovedBridgePackage({
+          env,
+          repository: jobRepository,
+          job,
+          fetchImpl,
+        });
+        await persistBridgePreparationDiagnostic(jobRepository, job.id, { status: 'READY' });
+        job = await jobRepository.get(job.id);
+      } catch (error) {
+        bridgePreparation = {
+          status: 'NOT_READY',
+          code: safeDiagnosticCode(error, 'BRIDGE_PREPARATION_FAILED'),
+        };
+        await persistBridgePreparationDiagnostic(jobRepository, job.id, bridgePreparation);
+        job = await jobRepository.get(job.id);
+      }
+    }
   }
 
   const state = await supervisor.state();
@@ -319,6 +358,16 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       selected_provider: implementation.selected?.provider || null,
       selected_model: implementation.selected?.model || null,
       code: implementation.code || null,
+    } : null,
+    bridge_preparation: bridgePreparation ? {
+      status: bridgePreparation.status,
+      reused: bridgePreparation.reused === true,
+      candidate_branch: bridgePreparation.candidate_branch || null,
+      candidate_sha: bridgePreparation.candidate_sha || null,
+      files: Array.isArray(bridgePreparation.files) ? bridgePreparation.files.slice(0, 10) : [],
+      tests: Array.isArray(bridgePreparation.tests) ? bridgePreparation.tests.slice(0, 4) : [],
+      mentor_mode: bridgePreparation.mentor?.mode || null,
+      code: bridgePreparation.code || null,
     } : null,
     ensured: { created: ensured.created, complete: ensured.complete || false, next: ensured.next || null },
     job: job ? { id: job.id, status: job.status, goal: job.goal, roadmap_id: job.optional_context?.roadmap_id || null } : null,
