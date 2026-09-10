@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isEvolutionDevelopmentIntent, injectEvolutionPreflightCapability } from '../src/evolution/chat-intent.js';
+import { isEvolutionDevelopmentIntent, inferWebResearchIntent, injectEvolutionPreflightCapability } from '../src/evolution/chat-intent.js';
 import { shouldSemanticIntentCheck, classifySemanticOwnerIntent } from '../src/evolution/semantic-intent.js';
 import { setDefaultCapabilityEnvironment } from '../src/capabilities/default-bus.js';
 
@@ -45,12 +45,52 @@ test('chat injector turns an explicit interface edit order into evolution.enqueu
   assert.match(body.capability?.input?.goal || '', /Modifie l.interface/i);
 });
 
+test('explicit current web requests route to sourced web research but private connected-data requests do not', () => {
+  for (const text of [
+    'Cherche sur internet les dernières informations sur Cloudflare Workers',
+    'Vérifie sur le web les actualités récentes concernant ce projet',
+    'Regarde en ligne les dernières nouvelles disponibles',
+  ]) {
+    const routed = inferWebResearchIntent(text);
+    assert.equal(routed?.id, 'web.research', text);
+    assert.equal(routed?.input?.depth, 2);
+    assert.match(routed?.input?.query || '', /./);
+  }
+  for (const text of [
+    'Regarde mes mails Gmail',
+    'Cherche dans mon OneDrive les dernières factures',
+    'Vérifie mon calendrier en ligne',
+    'Explique-moi la photosynthèse',
+  ]) assert.equal(inferWebResearchIntent(text), null, text);
+});
+
+test('chat injector routes an explicit web lookup through web.research', async () => {
+  const request = new Request('https://mel.example/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      text: 'Cherche sur internet les dernières infos sur les Workers Cloudflare',
+      conversation_id: 'conv-web-1',
+    }),
+  });
+  const prepared = await injectEvolutionPreflightCapability(request);
+  const body = await prepared.json();
+  assert.equal(body.capability?.id, 'web.research');
+  assert.equal(body.intent_routing?.mode, 'deterministic');
+  assert.equal(body.intent_routing?.intent, 'WEB_RESEARCH');
+});
+
 test('semantic gate recognizes elliptical formulations when recent context is MEL development', () => {
   const context = 'USER: Je veux modifier l’interface de MEL et son thème médiéval.\nMEL: Nous pouvons rendre le cadre plus riche.';
   for (const text of ['fais-le', 'oui', 'plus doré', 'comme ça mais moins sombre', 'je préfère sans ce bouton']) {
     assert.equal(shouldSemanticIntentCheck(text, context), true, text);
   }
   assert.equal(shouldSemanticIntentCheck('Bonjour', ''), false);
+});
+
+test('semantic gate recognizes freshness and contextual web follow-ups', () => {
+  assert.equal(shouldSemanticIntentCheck('Quelles sont les dernières infos aujourd’hui ?', ''), true);
+  assert.equal(shouldSemanticIntentCheck('et maintenant ?', 'USER: Fais une recherche web sur Cloudflare Workers.'), true);
 });
 
 test('semantic classifier uses FAST model and resolves a vague follow-up into a self-contained development goal', async () => {
@@ -62,6 +102,7 @@ test('semantic classifier uses FAST model and resolves a vague follow-up into a 
         return { response: JSON.stringify({
           intent: 'DEVELOPMENT_REQUEST',
           resolved_goal: 'Modifier le thème médiéval de MEL pour ajouter davantage de dorures sans changer la lisibilité.',
+          resolved_query: '',
           confidence: 0.97,
         }) };
       }
@@ -77,6 +118,27 @@ test('semantic classifier uses FAST model and resolves a vague follow-up into a 
   assert.equal(calls[0].model, '@cf/zai-org/glm-4.7-flash');
 });
 
+test('semantic classifier can resolve a contextual freshness request into web research', async () => {
+  setDefaultCapabilityEnvironment({
+    AI: {
+      async run() {
+        return { response: JSON.stringify({
+          intent: 'WEB_RESEARCH',
+          resolved_goal: '',
+          resolved_query: 'dernières informations publiques sur Cloudflare Workers',
+          confidence: 0.95,
+        }) };
+      }
+    }
+  });
+  const result = await classifySemanticOwnerIntent({
+    text: 'et maintenant ?',
+    context: 'USER: Cherche sur le web les dernières informations publiques sur Cloudflare Workers.',
+  });
+  assert.equal(result?.intent, 'WEB_RESEARCH');
+  assert.match(result?.resolvedQuery || '', /Cloudflare Workers/i);
+});
+
 test('chat injector semantically routes a contextual formulation instead of answering as generic chat', async () => {
   setDefaultCapabilityEnvironment({
     AI: {
@@ -84,6 +146,7 @@ test('chat injector semantically routes a contextual formulation instead of answ
         return { response: JSON.stringify({
           intent: 'DEVELOPMENT_REQUEST',
           resolved_goal: 'Supprimer le bouton Compétences de l’interface active de MEL.',
+          resolved_query: '',
           confidence: 0.99,
         }) };
       }
@@ -104,4 +167,34 @@ test('chat injector semantically routes a contextual formulation instead of answ
   assert.equal(body.capability?.id, 'evolution.enqueue');
   assert.equal(body.intent_routing?.mode, 'semantic');
   assert.match(body.capability?.input?.goal || '', /Supprimer le bouton Compétences/i);
+});
+
+test('chat injector semantically routes a contextual web follow-up', async () => {
+  setDefaultCapabilityEnvironment({
+    AI: {
+      async run() {
+        return { response: JSON.stringify({
+          intent: 'WEB_RESEARCH',
+          resolved_goal: '',
+          resolved_query: 'dernières informations publiques sur Cloudflare Workers',
+          confidence: 0.96,
+        }) };
+      }
+    }
+  });
+  const request = new Request('https://mel.example/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      text: 'et maintenant ?',
+      intent_context: 'USER: Cherche sur le web les dernières informations publiques sur Cloudflare Workers.',
+      conversation_id: 'conv-web-2',
+    }),
+  });
+  const prepared = await injectEvolutionPreflightCapability(request);
+  const body = await prepared.json();
+  assert.equal(body.capability?.id, 'web.research');
+  assert.equal(body.intent_routing?.mode, 'semantic');
+  assert.equal(body.intent_routing?.intent, 'WEB_RESEARCH');
+  assert.match(body.capability?.input?.query || '', /Cloudflare Workers/i);
 });
