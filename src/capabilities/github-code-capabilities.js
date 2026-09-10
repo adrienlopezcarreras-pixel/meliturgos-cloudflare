@@ -114,23 +114,32 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
       try { return await fetchImpl(api(path), { headers: headers(token) }); }
       catch { return null; }
     };
+    const validSha = value => /^[0-9a-f]{40}$/i.test(String(value || '').trim());
 
     // Prefer the Git ref endpoint because it handles slash-containing branch
-    // names reliably in the Worker. Keep the historical commits lookup as a
-    // compatibility fallback for restricted GitHub tokens and existing mocks.
+    // names reliably in the Worker. Keep both commits forms as bounded
+    // compatibility fallbacks for token/proxy environments and existing mocks.
     const refResponse = await request('git/ref/heads/' + ref.split('/').map(encodeURIComponent).join('/'));
     if (refResponse?.ok) {
       const body = await refResponse.json();
       const sha = String(body?.object?.sha || '').trim();
-      if (!/^[0-9a-f]{40}$/i.test(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
+      if (!validSha(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
       return { sha, branch: ref, repository: repo };
     }
 
     const commitResponse = await request('commits/' + encodeURIComponent(ref));
-    if (!commitResponse?.ok) throw githubError(commitResponse || { status: 0 }, 'CODE_HEAD_READ_FAILED');
-    const body = await commitResponse.json();
-    const sha = String(body?.sha || '').trim();
-    if (!/^[0-9a-f]{40}$/i.test(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
+    if (commitResponse?.ok) {
+      const body = await commitResponse.json();
+      const sha = String(body?.sha || '').trim();
+      if (!validSha(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
+      return { sha, branch: ref, repository: repo };
+    }
+
+    const listResponse = await request('commits?sha=' + encodeURIComponent(ref) + '&per_page=1');
+    if (!listResponse?.ok) throw githubError(listResponse || commitResponse || refResponse || { status: 0 }, 'CODE_HEAD_READ_FAILED');
+    const listBody = await listResponse.json();
+    const sha = String(Array.isArray(listBody) ? listBody[0]?.sha : '').trim();
+    if (!validSha(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
     return { sha, branch: ref, repository: repo };
   }
 
