@@ -2,15 +2,55 @@
  * WebCapability — safe, provenance-aware external web fetch operations.
  */
 
+function privateIpv4(hostname) {
+  const parts = String(hostname || '').split('.');
+  if (parts.length !== 4 || parts.some(part => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return false;
+  const [a, b] = parts.map(Number);
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT
+  if (a === 169 && b === 254) return true; // link local / cloud metadata IP range
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 192 && b === 0 && parts[2] === '0') return true;
+  if (a === 192 && b === 0 && parts[2] === '2') return true; // TEST-NET-1
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmark networks
+  if (a === 198 && b === 51 && parts[2] === '100') return true; // TEST-NET-2
+  if (a === 203 && b === 0 && parts[2] === '113') return true; // TEST-NET-3
+  if (a >= 224) return true; // multicast / reserved
+  return false;
+}
+
+function privateIpv6(hostname) {
+  const host = String(hostname || '').toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+  if (!host.includes(':')) return false;
+  if (host === '::' || host === '::1') return true;
+  if (host.startsWith('fc') || host.startsWith('fd')) return true; // unique local fc00::/7
+  if (/^fe[89ab]/.test(host)) return true; // link-local fe80::/10
+  if (host.startsWith('::ffff:')) {
+    const mapped = host.slice('::ffff:'.length);
+    return privateIpv4(mapped);
+  }
+  return false;
+}
+
 function validateUrl(urlString) {
   try {
     const url = new URL(urlString);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error(`Protocol ${url.protocol} not allowed`);
-    const hostname = url.hostname.toLowerCase();
-    if (hostname === 'localhost' || hostname.endsWith('.local') || hostname.startsWith('127.') || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.') || hostname.startsWith('192.0.2.') || hostname.startsWith('198.51.100.') || hostname.startsWith('203.0.113.')) {
+    if (url.username || url.password) throw new Error('Embedded URL credentials are not allowed');
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
+    const bareHostname = hostname.replace(/^\[/, '').replace(/\]$/, '');
+    if (
+      bareHostname === 'localhost' ||
+      bareHostname.endsWith('.localhost') ||
+      bareHostname.endsWith('.local') ||
+      bareHostname.endsWith('.internal') ||
+      privateIpv4(bareHostname) ||
+      privateIpv6(bareHostname)
+    ) {
       throw new Error(`Private hostname not allowed: ${hostname}`);
     }
-    if (urlString.length > 2000) throw new Error(`URL too long: ${urlString.length} characters`);
+    if (String(urlString).length > 2000) throw new Error(`URL too long: ${String(urlString).length} characters`);
     return { valid: true, url };
   } catch (e) {
     return { valid: false, error: e.message };
@@ -35,6 +75,7 @@ async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 1
         'Cache-Control': 'no-cache',
       },
       signal: AbortSignal.timeout(timeoutMs),
+      redirect: 'follow',
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     contentType = response.headers.get('content-type') || '';
@@ -65,7 +106,7 @@ function extractUrls(html) {
   while ((match = urlPattern.exec(html)) !== null) {
     try {
       const url = new URL(match[1]);
-      if (url.protocol === 'http:' || url.protocol === 'https:') urls.add(url.href);
+      if (validateUrl(url.href).valid) urls.add(url.href);
     } catch {}
   }
   return Array.from(urls);
