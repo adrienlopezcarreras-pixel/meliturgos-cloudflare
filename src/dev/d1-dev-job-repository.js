@@ -1,11 +1,12 @@
 import { migrate } from '../persistence/migrations.js';
 import { createDevJobCheckpoint, verifyDevJobCheckpoint } from './dev-job-checkpoint.js';
 
-const memory = new Map();
+const sharedMemory = new Map();
 
 export class D1DevJobRepository {
-  constructor(db) {
+  constructor(db, { memoryStore = sharedMemory } = {}) {
     this.db = db;
+    this.memory = memoryStore;
     this.ready = null;
   }
 
@@ -37,7 +38,7 @@ export class D1DevJobRepository {
     };
     j.job_id = j.id;
     if (!this.db) {
-      memory.set(j.id, j);
+      this.memory.set(j.id, j);
       return j;
     }
     await this.db.prepare('INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
@@ -61,14 +62,14 @@ export class D1DevJobRepository {
     await this.init();
     return this.db
       ? this._row(await this.db.prepare('SELECT * FROM dev_jobs WHERE id=?').bind(id).first())
-      : memory.get(id) || null;
+      : this.memory.get(id) || null;
   }
 
   async list() {
     await this.init();
     return this.db
       ? ((await this.db.prepare('SELECT * FROM dev_jobs ORDER BY created_at DESC LIMIT 100').all()).results || []).map(x => this._row(x))
-      : [...memory.values()];
+      : [...this.memory.values()];
   }
 
   async update(id, patch) {
@@ -77,7 +78,7 @@ export class D1DevJobRepository {
     if (!j) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
     const n = { ...j, ...patch, updated_at: Date.now() };
     if (!this.db) {
-      memory.set(id, n);
+      this.memory.set(id, n);
       return n;
     }
     await this.db.prepare('UPDATE dev_jobs SET updated_at=?,status=?,plan_json=?,files_json=?,patch_json=?,tests_json=?,result_json=?,candidate_branch=?,approval_status=?,error=? WHERE id=?')
@@ -114,7 +115,7 @@ export class D1DevJobRepository {
   async claim() {
     await this.init();
     if (!this.db) {
-      const j = [...memory.values()].find(x => x.status === 'QUEUED');
+      const j = [...this.memory.values()].find(x => x.status === 'QUEUED');
       return j ? this.update(j.id, { status: 'CLAIMED' }) : null;
     }
     const row = await this.db.prepare("SELECT id FROM dev_jobs WHERE status='QUEUED' ORDER BY created_at ASC LIMIT 1").first();
