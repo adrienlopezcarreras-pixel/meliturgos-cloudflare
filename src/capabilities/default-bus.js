@@ -12,7 +12,8 @@ import { prepareDevelopmentRequest } from '../evolution/development-preflight.js
 import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
-const DEFAULT_BRANCH = 'release/mel-2026-09-10-r3';
+const DEFAULT_BRANCH = 'candidate/mel-clean-autonomy';
+const DEFAULT_TEACHER_BRANCH = 'candidate/mel-clean-autonomy';
 let inheritedRuntimeEnv = Object.freeze({});
 
 /**
@@ -39,7 +40,7 @@ export function setDefaultCapabilityEnvironment(env = {}) {
     owner: Boolean(inheritedRuntimeEnv.MELITURGOS_USER),
     github_repository: inheritedRuntimeEnv.MEL_GITHUB_REPOSITORY || DEFAULT_REPOSITORY,
     github_branch: inheritedRuntimeEnv.MEL_GITHUB_BRANCH || DEFAULT_BRANCH,
-    teacher_branch: inheritedRuntimeEnv.MEL_TEACHER_BRANCH || 'candidate/augmentio-core',
+    teacher_branch: inheritedRuntimeEnv.MEL_TEACHER_BRANCH || DEFAULT_TEACHER_BRANCH,
   };
 }
 
