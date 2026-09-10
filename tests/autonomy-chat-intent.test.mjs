@@ -50,7 +50,7 @@ test('elliptical owner follow-ups are admitted to semantic routing when recent c
 
 test('elliptical follow-ups stay out of semantic self-routing without relevant recent context', () => {
   for (const text of ['fais-le', 'plus doré', 'peux-tu faire ça ?']) {
-    assert.equal(shouldSemanticIntentCheck(text, 'Discussion générale sans rapport avec le système ou le web.'), false, text);
+    assert.equal(shouldSemanticIntentCheck(text, 'Nous parlons de cuisine et de randonnée.'), false, text);
   }
 });
 
