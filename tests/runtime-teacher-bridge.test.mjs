@@ -65,18 +65,42 @@ test('matching runtime Teacher reply advances only to candidate development appr
   assert.equal(duplicate.duplicate, true);
 });
 
-test('negative Teacher review blocks the runtime job fail-closed', async () => {
-  const repo = new D1DevJobRepository(null);
-  const job = await repo.create({ id: `teacher-block-${crypto.randomUUID()}`, goal: 'Block unsafe plan' });
+test('NEEDS_CHANGES requeues the same runtime job for a fresh Council instead of idling blocked', async () => {
+  const repo = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const job = await repo.create({ id: `teacher-revise-${crypto.randomUUID()}`, goal: 'Revise incomplete plan', plan_json: { preflight: { stale: true } } });
   const request = requestFor(job.id);
   await queueRuntimeTeacherRequest(repo, job.id, request);
   const applied = await applyRuntimeTeacherReply(repo, {
     request_id: request.request_id,
     verdict: 'NEEDS_CHANGES',
-    feedback: 'More evidence required.',
+    feedback: 'Inspect the completion reconciler before asking again.',
   });
-  assert.equal(applied.job.status, 'BLOCKED');
+  assert.equal(applied.job.status, 'QUEUED');
+  assert.equal(applied.revision_required, true);
+  assert.equal(applied.terminal, false);
+  assert.equal(applied.job.result_json.teacher_bridge, null);
+  assert.equal(applied.job.result_json.last_teacher_review.request_id, request.request_id);
+  assert.equal(applied.job.result_json.last_teacher_review.verdict, 'NEEDS_CHANGES');
+  assert.equal(applied.job.result_json.teacher_bridge_history.length, 1);
+  assert.equal(applied.job.plan_json.preflight, null);
   assert.equal(applied.state.review.development_allowed, false);
+});
+
+test('REJECT marks the unsafe runtime job terminal and autonomy-blocked', async () => {
+  const repo = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const job = await repo.create({ id: `teacher-reject-${crypto.randomUUID()}`, goal: 'Unsafe plan' });
+  const request = requestFor(job.id);
+  await queueRuntimeTeacherRequest(repo, job.id, request);
+  const applied = await applyRuntimeTeacherReply(repo, {
+    request_id: request.request_id,
+    verdict: 'REJECT',
+    feedback: 'Do not implement this plan.',
+  });
+  assert.equal(applied.job.status, 'FAILED');
+  assert.equal(applied.terminal, true);
+  assert.equal(applied.job.result_json.autonomy_blocked, true);
+  assert.equal(applied.job.result_json.autonomy_block_reason, 'TEACHER_REJECT');
+  assert.equal(applied.job.error, 'TEACHER_REJECT');
 });
 
 test('unmatched Teacher reply is rejected and cannot unlock another job', async () => {
