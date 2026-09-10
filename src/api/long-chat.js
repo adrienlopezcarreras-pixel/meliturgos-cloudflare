@@ -1,8 +1,8 @@
 import { createConversationService } from '../conversations/conversation-service.js';
 import { requireAuth } from '../core/security.js';
+import { LEGACY_CHAT_INPUT_CHARS, MAX_CHAT_INPUT_CHARS, MAX_CHAT_REQUEST_BYTES } from '../core/limits.js';
 
-export const LEGACY_CHAT_INPUT_CHARS = 12_000;
-export const MAX_CHAT_INPUT_CHARS = 100_000;
+export { LEGACY_CHAT_INPUT_CHARS, MAX_CHAT_INPUT_CHARS } from '../core/limits.js';
 
 const GENERAL_MODELS = [
   '@cf/zai-org/glm-4.7-flash',
@@ -65,6 +65,11 @@ export async function maybeHandleLongChat(request, env) {
   const url = new URL(request.url);
   if (url.pathname !== '/api/chat' || request.method !== 'POST') return null;
   if (!(request.headers.get('content-type') || '').toLowerCase().includes('application/json')) return null;
+
+  const declaredBytes = Number(request.headers.get('content-length') || 0);
+  if (declaredBytes > MAX_CHAT_REQUEST_BYTES) {
+    return errorResponse('Requête de chat trop volumineuse.', 'REQUEST_TOO_LARGE', 413);
+  }
 
   let body;
   try { body = await request.clone().json(); }
