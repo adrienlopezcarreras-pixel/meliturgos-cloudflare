@@ -41,9 +41,19 @@ test('deep audit executes bounded LOW-risk samples and reports failures instead 
       },
     },
   };
-  // Inject temporary samples through IDs already defined by the audit engine is
-  // intentionally avoided: this test verifies fail-closed reporting mechanics.
-  const report = await auditRuntimeCapabilities(fake, { deep:true });
+  const report = await auditRuntimeCapabilities(fake, {
+    deep:true,
+    samples:{ ok:{}, bad:{}, medium:{} },
+  });
   assert.equal(report.total, 3);
-  assert.equal(report.capabilities.find(x => x.id === 'medium').tested_now, false);
+  const ok = report.capabilities.find(x => x.id === 'ok');
+  const bad = report.capabilities.find(x => x.id === 'bad');
+  const medium = report.capabilities.find(x => x.id === 'medium');
+  assert.equal(ok.tested_now, true);
+  assert.equal(ok.truth_status, 'EXISTANT_ET_TESTE');
+  assert.equal(bad.tested_now, true);
+  assert.equal(bad.truth_status, 'EXISTANT_MAIS_ECHEC_RUNTIME');
+  assert.equal(bad.execution.code, 'EXPECTED_FAILURE');
+  assert.equal(medium.tested_now, false);
+  assert.equal(medium.truth_status, 'EXISTANT_NON_TESTE');
 });
