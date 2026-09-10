@@ -8,7 +8,7 @@
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
     "whoami": "wrangler whoami",
-    "check": "node --check worker.js && node --check src/index.js && node --check src/router.js && node --check src/core/limits.js && node --check src/api/long-chat.js && node --check src/conversations/conversation-service.js && node --check src/conversations/intercept.js && node --check src/evolution/chat-intent.js && node --check src/evolution/development-chat.js && node --check src/learning/mentor-memory.js && node --check src/learning/mentor-engine.js && node --check src/dev/runtime-api.js && node --check src/dev/dev-bridge.js && node --check scripts/mel-dev-bridge.mjs && node --check scripts/run-tests.mjs",
+    "check": "node --check worker.js && node --check src/index.js && node --check src/router.js && node --check src/core/limits.js && node --check src/api/fast-chat.js && node --check src/api/long-chat.js && node --check src/conversations/conversation-service.js && node --check src/conversations/intercept.js && node --check src/evolution/chat-intent.js && node --check src/evolution/development-chat.js && node --check src/learning/mentor-memory.js && node --check src/learning/mentor-engine.js && node --check src/dev/runtime-api.js && node --check src/dev/dev-bridge.js && node --check scripts/mel-dev-bridge.mjs && node --check scripts/run-tests.mjs",
     "test": "node scripts/run-tests.mjs",
     "test:smoke": "node --test tests/gen2/contracts.test.mjs",
     "test:openhands": "node --test tests/gen2/contracts.test.mjs",
