@@ -67,10 +67,12 @@ test('autonomy status exposes opaque Teacher correlation but never goals or priv
   ]);
   assert.equal(summary.total, 2);
   assert.equal(summary.active_count, 1);
+  assert.equal(summary.owner_requested_count, 0);
   assert.equal(summary.waiting_teacher_count, 1);
   assert.equal(summary.completed_count, 1);
   assert.deepEqual(summary.current, {
     job_id: 'job-1',
+    requested_by: 'mel-autonomy',
     status: 'WAITING_TEACHER',
     roadmap_id: 'MEL-WORK-01',
     teacher_status: 'WAITING_TEACHER',
@@ -81,6 +83,27 @@ test('autonomy status exposes opaque Teacher correlation but never goals or priv
   assert.equal(serialized.includes('PRIVATE GOAL'), false);
   assert.equal(serialized.includes('PRIVATE OBJECTIVE'), false);
   assert.equal(serialized.includes('PRIVATE EVIDENCE'), false);
+});
+
+test('explicit owner-chat work is included and becomes the public current technical lifecycle item', () => {
+  const summary = summarizeAutonomyJobs([
+    {
+      id: 'background', requested_by: 'mel-autonomy', status: 'WAITING_TEACHER', created_at: 1,
+      optional_context: { roadmap_id: 'MEL-WORK-01' },
+      result_json: { teacher_bridge: { status: 'WAITING_TEACHER', request: { request_id: 'background-r' } } },
+    },
+    {
+      id: 'owner-job', requested_by: 'owner-chat', status: 'WAITING_TEACHER', created_at: 2,
+      goal: 'PRIVATE OWNER GOAL', optional_context: { priority: 'P0' },
+      result_json: { teacher_bridge: { status: 'WAITING_TEACHER', request: { request_id: 'owner-r', objective: 'PRIVATE OWNER OBJECTIVE' } } },
+    },
+  ]);
+  assert.equal(summary.total, 2);
+  assert.equal(summary.owner_requested_count, 1);
+  assert.equal(summary.current.job_id, 'owner-job');
+  assert.equal(summary.current.requested_by, 'owner-chat');
+  assert.equal(summary.current.request_id, 'owner-r');
+  assert.equal(JSON.stringify(summary).includes('PRIVATE OWNER'), false);
 });
 
 test('autonomy status preserves the approved request id so a later Teacher run can correlate CI work', () => {
