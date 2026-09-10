@@ -78,6 +78,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
   if (current.result_json?.teacher_bridge?.status === 'WAITING_TEACHER') return current.result_json.teacher_bridge;
   if (current.result_json?.teacher_bridge?.status === 'ANSWERED') return current.result_json.teacher_bridge;
 
+  const priorReview = current.result_json?.last_teacher_review || null;
   let preflight = current.plan_json?.preflight || null;
   if (!preflight) {
     preflight = await prepareDevelopmentRequest({
@@ -88,6 +89,11 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
         job_id: current.id,
         origin: 'autonomy-runtime-cron',
         rule: 'AI_COUNCIL_BEFORE_CODE',
+        teacher_revision: priorReview ? {
+          previous_request_id: priorReview.request_id || null,
+          verdict: priorReview.verdict || null,
+          feedback: priorReview.feedback || '',
+        } : null,
       },
       minResponses: 2,
     });
@@ -108,6 +114,10 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
       candidate_only: true,
       zero_added_cost: true,
       objective: current.goal,
+      teacher_revision: priorReview ? {
+        previous_request_id: priorReview.request_id || null,
+        feedback: priorReview.feedback || '',
+      } : null,
       next: 'ChatGPT Teacher reviews repository evidence and may implement the smallest tested candidate change.',
     },
     candidate: { repository: repoName, branch, sha: null },
@@ -131,6 +141,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
       roadmap_id: current.optional_context?.roadmap_id || null,
       repository: repoName,
       branch,
+      revision_of: priorReview?.request_id || null,
     },
   });
 
@@ -138,6 +149,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
     runtime_generated: true,
     council_status: preflight.council?.status,
     inspection_files: inspection.evidence.filter((item) => item.kind === 'CODE_READ').map((item) => item.path),
+    revision_of: priorReview?.request_id || null,
   });
 }
 
@@ -145,10 +157,12 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
  * One bounded autonomous heartbeat. It reconciles trusted GitHub Teacher
  * replies and CI-verified candidate completions first, then ensures the next
  * P0 autonomy job exists and advances QUEUED/COUNCIL jobs to a real
- * runtime-generated Teacher request. Completion reconciliation happens before
- * selection so a finished job can release the next roadmap item in the same
- * heartbeat. It never edits production code, deploys, or commits GitHub
- * changes by itself.
+ * runtime-generated Teacher request. A NEEDS_CHANGES review is converted back
+ * to QUEUED with the previous Teacher feedback injected into a fresh Council
+ * preflight, so the loop revises instead of idling. Completion reconciliation
+ * happens before selection so a finished job can release the next roadmap
+ * item in the same heartbeat. It never edits production code, deploys, or
+ * commits GitHub changes by itself.
  */
 export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
