@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { maybeHandleAutonomyApi } from '../src/evolution/autonomy-api.js';
 
+const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
 function authHeader(user = 'test', password = 'pw') {
   return `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
 }
@@ -27,6 +29,7 @@ function fixture() {
     const target = String(url);
     if (target.includes('teacher-bridge/replies.jsonl')) return new Response('', { status: 200 });
     if (target.includes('teacher-bridge/completions.jsonl')) return new Response('', { status: 200 });
+    if (target.includes('/commits/candidate%2Faugmentio-core')) return Response.json({ sha: CANDIDATE_HEAD_SHA });
     if (target.startsWith('https://api.github.com/')) return new Response('rate limit fixture', { status: 403 });
     if (target.startsWith('https://raw.githubusercontent.com/')) {
       return new Response('export const fixture = true;\n// candidate source\n', { status: 200, headers: { etag: 'fixture' } });
