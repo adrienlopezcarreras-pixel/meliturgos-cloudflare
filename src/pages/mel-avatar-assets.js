@@ -1,19 +1,21 @@
 import classic from './avatar-data-classic.js';
 import crusade from './avatar-data-crusade.js';
 import religious from './avatar-data-religious.js';
+import aviation from './avatar-data-aviation.js';
+import paladin from './avatar-data-paladin.js';
+import amazon from './avatar-data-amazon.js';
 
-// Theme-specific routes are stable interface contracts. Until dedicated portrait
-// assets are produced, Granada reuses the Andalusian mantilla portrait,
-// Aviation 1940s reuses classic MEL, and Paladin Light Full Plate reuses the
-// medieval MEL portrait. The route contract lets those assets be replaced later
-// without changing the UI or stored theme preference.
+// Stable theme routes are interface contracts. Granada currently reuses the
+// approved Andalusian religious portrait; Aviation, Paladin and Amazon now use
+// their dedicated owner-approved embedded portraits.
 const AVATAR_BASE64 = Object.freeze({
   classic,
   crusade,
   religious,
   granada: religious,
-  aviation: classic,
-  paladin: crusade,
+  aviation,
+  paladin,
+  amazon,
 });
 
 const ROUTES = Object.freeze({
@@ -23,6 +25,7 @@ const ROUTES = Object.freeze({
   '/assets/avatars/mel-granada.webp': 'granada',
   '/assets/avatars/mel-aviation-1940s.webp': 'aviation',
   '/assets/avatars/mel-paladin-light-full-plate.webp': 'paladin',
+  '/assets/avatars/mel-amazon-griffon.webp': 'amazon',
 });
 
 const THEME_ROUTES = Object.freeze({
@@ -32,6 +35,7 @@ const THEME_ROUTES = Object.freeze({
   granada: '/assets/avatars/mel-granada.webp',
   aviation: '/assets/avatars/mel-aviation-1940s.webp',
   paladin: '/assets/avatars/mel-paladin-light-full-plate.webp',
+  amazon: '/assets/avatars/mel-amazon-griffon.webp',
 });
 
 function decodeBase64(value) {
@@ -53,7 +57,7 @@ export function serveMelAvatar(pathname) {
       'content-type': 'image/webp',
       'cache-control': 'public,max-age=31536000,immutable',
       'x-mel-avatar': key,
-      'x-mel-avatar-fallback': key === 'aviation' ? 'classic' : key === 'paladin' ? 'crusade' : key === 'granada' ? 'religious' : 'none',
+      'x-mel-avatar-fallback': key === 'granada' ? 'religious' : 'none',
     },
   });
 }
