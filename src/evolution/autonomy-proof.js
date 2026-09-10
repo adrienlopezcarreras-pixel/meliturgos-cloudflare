@@ -16,14 +16,30 @@ function proofFromJob(job) {
   return job?.result_json?.autonomy_proofs?.[PROOF_KEY] || null;
 }
 
-export async function findVerifiedRuntimeWorkProof(repository) {
+function isVerifiedProof(proof) {
+  return proof?.status === 'VERIFIED'
+    && proof?.recovered_interrupted_node === true
+    && Number(proof?.providers_attempted || 0) >= 2;
+}
+
+/**
+ * With targetJobId, reuse is deliberately scoped to that exact job. A proof
+ * persisted by an older autonomous job cannot silently satisfy a new loop.
+ * Without targetJobId this preserves the historical repository-wide lookup for
+ * diagnostic callers that only need to know whether any proof ever existed.
+ */
+export async function findVerifiedRuntimeWorkProof(repository, { targetJobId = null } = {}) {
   if (!repository || typeof repository.list !== 'function') return null;
+  if (targetJobId) {
+    if (typeof repository.get !== 'function') return null;
+    const job = await repository.get(targetJobId);
+    const proof = proofFromJob(job);
+    return isVerifiedProof(proof) ? { job_id: job.id, proof } : null;
+  }
   const jobs = await repository.list();
   for (const job of jobs) {
     const proof = proofFromJob(job);
-    if (proof?.status === 'VERIFIED' && proof?.recovered_interrupted_node === true && Number(proof?.providers_attempted || 0) >= 2) {
-      return { job_id: job.id, proof };
-    }
+    if (isVerifiedProof(proof)) return { job_id: job.id, proof };
   }
   return null;
 }
@@ -60,7 +76,7 @@ export async function runRuntimeWorkDagResumeProof(env = {}, {
   }
 
   if (repository) {
-    const existing = await findVerifiedRuntimeWorkProof(repository);
+    const existing = await findVerifiedRuntimeWorkProof(repository, { targetJobId });
     if (existing) return { ...existing.proof, reused: true, evidence_job_id: existing.job_id };
   }
 
@@ -137,8 +153,9 @@ export async function runRuntimeWorkDagResumeProof(env = {}, {
   const proof = {
     status: 'VERIFIED',
     schema: 'mel.autonomy-proof/work-dag-resume',
-    version: 1,
+    version: 2,
     verified_at: new Date().toISOString(),
+    target_job_id: targetJobId || null,
     recovered_interrupted_node: true,
     interrupted_node_id: 'multi-ai-state',
     attempts_after_recovery: Number(multi.attempts || 0),
