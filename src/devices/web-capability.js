@@ -5,17 +5,16 @@
 function privateIpv4(hostname) {
   const parts = String(hostname || '').split('.');
   if (parts.length !== 4 || parts.some(part => !/^\d{1,3}$/.test(part) || Number(part) > 255)) return false;
-  const [a, b] = parts.map(Number);
+  const [a, b, c] = parts.map(Number);
   if (a === 0 || a === 10 || a === 127) return true;
   if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT
   if (a === 169 && b === 254) return true; // link local / cloud metadata IP range
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
-  if (a === 192 && b === 0 && parts[2] === '0') return true;
-  if (a === 192 && b === 0 && parts[2] === '2') return true; // TEST-NET-1
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true;
   if (a === 198 && (b === 18 || b === 19)) return true; // benchmark networks
-  if (a === 198 && b === 51 && parts[2] === '100') return true; // TEST-NET-2
-  if (a === 203 && b === 0 && parts[2] === '113') return true; // TEST-NET-3
+  if (a === 198 && b === 51 && c === 100) return true; // TEST-NET-2
+  if (a === 203 && b === 0 && c === 113) return true; // TEST-NET-3
   if (a >= 224) return true; // multicast / reserved
   return false;
 }
@@ -57,15 +56,11 @@ function validateUrl(urlString) {
   }
 }
 
-async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 10000 } = {}) {
-  const validation = validateUrl(url);
-  if (!validation.valid) throw new Error(`Invalid URL: ${validation.error}`);
-  if (typeof fetchImpl !== 'function') throw new Error('WEB_FETCH_UNAVAILABLE');
-
-  const startTime = Date.now();
-  let content = '';
-  let contentType = '';
-  try {
+async function fetchValidatedRedirectChain(initialUrl, { fetchImpl, timeoutMs, maxRedirects = 4 } = {}) {
+  let current = initialUrl;
+  for (let hop = 0; hop <= maxRedirects; hop += 1) {
+    const validation = validateUrl(current);
+    if (!validation.valid) throw new Error(`Invalid URL: ${validation.error}`);
     const response = await fetchImpl(validation.url.href, {
       method: 'GET',
       headers: {
@@ -75,8 +70,36 @@ async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 1
         'Cache-Control': 'no-cache',
       },
       signal: AbortSignal.timeout(timeoutMs),
-      redirect: 'follow',
+      redirect: 'manual',
     });
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (!location) throw new Error(`Redirect ${response.status} without location`);
+      if (hop >= maxRedirects) throw new Error('Too many redirects');
+      current = new URL(location, validation.url).href;
+      continue;
+    }
+    return { response, finalUrl: validation.url.href, redirectCount: hop };
+  }
+  throw new Error('Too many redirects');
+}
+
+async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 10000 } = {}) {
+  const validation = validateUrl(url);
+  if (!validation.valid) throw new Error(`Invalid URL: ${validation.error}`);
+  if (typeof fetchImpl !== 'function') throw new Error('WEB_FETCH_UNAVAILABLE');
+
+  const startTime = Date.now();
+  let content = '';
+  let contentType = '';
+  let finalUrl = validation.url.href;
+  let redirectCount = 0;
+  try {
+    const fetched = await fetchValidatedRedirectChain(finalUrl, { fetchImpl, timeoutMs });
+    const response = fetched.response;
+    finalUrl = fetched.finalUrl;
+    redirectCount = fetched.redirectCount;
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('text/html') && !contentType.includes('application/json') && !contentType.includes('text/plain')) {
@@ -90,10 +113,11 @@ async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 1
   const bounded = content.slice(0, 50000);
   return {
     source_id: sourceId,
-    url: validation.url.href,
+    url: finalUrl,
     content: bounded,
     truncated: content.length > bounded.length,
     content_type: contentType,
+    redirect_count: redirectCount,
     fetch_duration_ms: Date.now() - startTime,
     timestamp: new Date().toISOString(),
   };
