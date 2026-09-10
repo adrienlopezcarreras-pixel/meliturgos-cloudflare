@@ -5,7 +5,7 @@ const SHA_RE = /^[a-f0-9]{40}$/i;
 
 function repoAndBranch(env = {}) {
   const repository = String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
-  const branch = String(env.MEL_TEACHER_BRANCH || 'candidate/augmentio-core');
+  const branch = String(env.MEL_TEACHER_BRANCH || 'candidate/mel-clean-autonomy');
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
     throw Object.assign(new Error('COMPLETION_REPOSITORY_INVALID'), { code: 'COMPLETION_REPOSITORY_INVALID' });
   }
