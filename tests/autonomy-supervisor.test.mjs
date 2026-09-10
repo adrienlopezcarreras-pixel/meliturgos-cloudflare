@@ -126,6 +126,43 @@ test('an explicitly autonomy-blocked failure is skipped and the supervisor advan
   assert.equal(next.job.id, 'mel-autonomy-gen2-17-1');
 });
 
+test('manual unsupervised completion cannot forge roadmap completion or consume an attempt', async () => {
+  const repo = isolatedRepo();
+  const manual = await repo.create({
+    id: 'manual-professor-job',
+    requested_by: 'professor-manual',
+    goal: 'manual experiment',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+  await repo.update(manual.id, { status: 'COMPLETED' });
+
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  const state = await supervisor.state();
+  assert.deepEqual(state.completedIds, []);
+  assert.equal(state.supervisedJobs.length, 0);
+
+  const created = await supervisor.ensureNextJob();
+  assert.equal(created.job.id, 'mel-autonomy-mel-work-01-1');
+  assert.equal(created.job.optional_context.attempt, 1);
+});
+
+test('manual unsupervised active roadmap job cannot block the real autonomy queue', async () => {
+  const repo = isolatedRepo();
+  await repo.create({
+    id: 'manual-active',
+    requested_by: 'professor-manual',
+    goal: 'manual work engine experiment',
+    optional_context: { roadmap_id: 'MEL-WORK-01' },
+  });
+
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  const state = await supervisor.state();
+  assert.deepEqual(state.activeIds, []);
+  const created = await supervisor.ensureNextJob();
+  assert.equal(created.created, true);
+  assert.equal(created.job.id, 'mel-autonomy-mel-work-01-1');
+});
+
 test('autonomy supervisor skips roadmap items blocked by a real human dependency', () => {
   const next = selectNextAutonomyItem({
     roadmap: [
