@@ -130,10 +130,12 @@ export function createWorkDag({ id = crypto.randomUUID(), jobId, goal, candidate
       status: WORK_NODE_STATUS.PENDING,
       attempts: 0,
       result: null,
+      artifacts: [],
       error: null,
       teacher_request: null,
       teacher_review: null,
     })),
+    artifacts: [],
     audit: [{ event: 'WORK_DAG_CREATED', at: Date.now() }],
     created_at: Date.now(),
     updated_at: Date.now(),
@@ -218,6 +220,9 @@ export class WorkDagRunner {
         return this.persist(dag, 'WORK_DAG_FAIL_CLOSED_ON_INTERRUPTED_NODE', { node_id: node.id });
       }
       node.status = WORK_NODE_STATUS.PENDING;
+      node.result = null;
+      node.artifacts = [];
+      dag.artifacts = (dag.artifacts || []).filter((item) => item?.node_id !== node.id);
       node.error = null;
       dag = await this.persist(dag, 'WORK_NODE_RECOVERED_FOR_RETRY', { node_id: node.id });
     }
@@ -263,10 +268,17 @@ export class WorkDagRunner {
 
         const executor = this.executors[node.kind] || this.executors[node.kind.toLowerCase()];
         if (!executor) throw Object.assign(new Error(`WORK_EXECUTOR_REQUIRED:${node.kind}`), { code: 'WORK_EXECUTOR_REQUIRED' });
-        node.result = clean(await executor(node, dag));
+        const result = clean(await executor(node, dag));
+        const artifacts = Array.isArray(result?.artifacts) ? clean(result.artifacts) : [];
+        node.result = result;
+        node.artifacts = artifacts;
+        dag.artifacts = [
+          ...(dag.artifacts || []).filter((item) => item?.node_id !== node.id),
+          ...artifacts.map((artifact) => clean({ node_id: node.id, artifact })),
+        ].slice(0, 100);
         node.status = WORK_NODE_STATUS.COMPLETED;
         node.error = null;
-        dag = await this.persist(dag, 'WORK_NODE_COMPLETED', { node_id: node.id, kind: node.kind });
+        dag = await this.persist(dag, 'WORK_NODE_COMPLETED', { node_id: node.id, kind: node.kind, artifact_count: artifacts.length });
       } catch (error) {
         node.status = WORK_NODE_STATUS.FAILED;
         node.error = String(error?.code || error?.message || error).slice(0, 1000);
