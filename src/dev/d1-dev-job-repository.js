@@ -3,6 +3,28 @@ import { createDevJobCheckpoint, verifyDevJobCheckpoint } from './dev-job-checkp
 
 const sharedMemory = new Map();
 
+function buildJob(input = {}) {
+  const j = {
+    id: input.id || crypto.randomUUID(),
+    created_at: Date.now(),
+    updated_at: Date.now(),
+    status: 'QUEUED',
+    requested_by: input.requested_by || 'professor',
+    goal: input.goal,
+    optional_context: input.optional_context || null,
+    plan_json: null,
+    files_json: [],
+    patch_json: null,
+    tests_json: [],
+    result_json: null,
+    candidate_branch: null,
+    approval_status: 'PENDING',
+    error: null,
+  };
+  j.job_id = j.id;
+  return j;
+}
+
 export class D1DevJobRepository {
   constructor(db, { memoryStore = sharedMemory } = {}) {
     this.db = db;
@@ -19,24 +41,7 @@ export class D1DevJobRepository {
 
   async create(input) {
     await this.init();
-    const j = {
-      id: input.id || crypto.randomUUID(),
-      created_at: Date.now(),
-      updated_at: Date.now(),
-      status: 'QUEUED',
-      requested_by: input.requested_by || 'professor',
-      goal: input.goal,
-      optional_context: input.optional_context || null,
-      plan_json: null,
-      files_json: [],
-      patch_json: null,
-      tests_json: [],
-      result_json: null,
-      candidate_branch: null,
-      approval_status: 'PENDING',
-      error: null,
-    };
-    j.job_id = j.id;
+    const j = buildJob(input);
     if (!this.db) {
       this.memory.set(j.id, j);
       return j;
@@ -50,7 +55,8 @@ export class D1DevJobRepository {
   /**
    * Idempotent creation for deterministic autonomy job ids. D1 primary-key
    * uniqueness is the cross-isolate lock; the in-memory fallback performs the
-   * same check explicitly for deterministic tests/local runs.
+   * check and insertion without an intervening await so concurrent callers
+   * cannot create two logical copies of the same deterministic job.
    */
   async createIfAbsent(input) {
     if (!input?.id) throw Object.assign(new Error('ID_REQUIRED'), { code: 'ID_REQUIRED' });
@@ -58,7 +64,8 @@ export class D1DevJobRepository {
     if (!this.db) {
       const existing = this.memory.get(input.id);
       if (existing) return { created: false, job: existing };
-      const job = await this.create(input);
+      const job = buildJob(input);
+      this.memory.set(job.id, job);
       return { created: true, job };
     }
     try {
