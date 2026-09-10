@@ -48,10 +48,14 @@ test('elliptical owner follow-ups are admitted to semantic routing when recent c
   }
 });
 
-test('elliptical follow-ups stay out of semantic self-routing without recent context', () => {
-  for (const text of ['fais-le', 'plus doré', 'peux-tu faire ça ?']) {
+test('context-only ellipses stay out of semantic self-routing without recent context', () => {
+  for (const text of ['fais-le', 'plus doré']) {
     assert.equal(shouldSemanticIntentCheck(text, ''), false, text);
   }
+});
+
+test('explicit second-person ambiguity is admitted to semantic classification even without history', () => {
+  assert.equal(shouldSemanticIntentCheck('peux-tu faire ça ?', ''), true);
 });
 
 test('specific capability development keeps evolution.enqueue priority over autonomy control', async () => {
