@@ -1,7 +1,7 @@
 {
   "schema": "mel.autonomy-state",
   "version": 1,
-  "updated_at": "2026-09-10T12:49:30Z",
+  "updated_at": "2026-09-10T13:46:20Z",
   "branch": "candidate/augmentio-core",
   "priority": "P0",
   "objective": "Fermer la boucle MEL -> travail -> Teacher Bridge -> ChatGPT -> reprise automatique, puis continuer le prochain travail sans attente humaine inutile.",
@@ -25,14 +25,21 @@
       "status": "VERIFIED",
       "candidate_sha": "dd69f2acc1378cac271f7b8b885b88b90c5ea2ed",
       "providers_attempted": 2,
-      "notes": "Le runtime expose un MEL_INTERNAL_WORK_PACKAGE corrélé au même request_id, candidate-only et production_deploy_allowed=false."
+      "notes": "Le runtime a exposé un MEL_INTERNAL_WORK_PACKAGE corrélé au même request_id, candidate-only et production_deploy_allowed=false."
     },
     {
       "capability": "verified_candidate_completion_record",
-      "status": "RECORDED_PENDING_RUNTIME_RECONCILIATION",
+      "status": "RUNTIME_RECONCILED",
       "candidate_sha": "dd69f2acc1378cac271f7b8b885b88b90c5ea2ed",
       "full_candidate_ci_run_id": 34475439606,
-      "notes": "MEL_WORK_COMPLETION écrit dans teacher-bridge/completions.jsonl après vérification full-candidate-ci completed/success sur le SHA et la branche exacts."
+      "notes": "Le runtime compte désormais MEL-WORK-01 comme COMPLETED après vérification du MEL_WORK_COMPLETION."
+    },
+    {
+      "capability": "automatic_next_job_selection",
+      "status": "VERIFIED_FIRST_TRANSITION",
+      "job_id": "mel-autonomy-mel-work-02-1",
+      "request_id": "4518a3ec-6dbf-4184-9025-bd8191b4cfe1",
+      "notes": "Après completion de MEL-WORK-01, le runtime a sélectionné MEL-WORK-02 automatiquement et publié une nouvelle demande Teacher sans owner-chat."
     },
     {
       "capability": "jsonl_teacher_channel",
@@ -50,25 +57,29 @@
     }
   ],
   "not_yet_proven": [
-    "La réconciliation runtime du MEL_WORK_COMPLETION nouvellement écrit et le passage effectif de mel-autonomy-mel-work-01-1 à COMPLETED.",
-    "La sélection automatique observable du chantier suivant après cette réconciliation.",
-    "Un deuxième cycle complet consécutif sans intervention humaine ordinaire."
+    "La réconciliation runtime de la réponse Teacher de MEL-WORK-02 et la production de son MEL_INTERNAL_WORK_PACKAGE multi-IA corrélé.",
+    "La fermeture complète d'un deuxième cycle consécutif MEL-WORK-02 jusqu'au completion record vérifié.",
+    "Plusieurs cycles consécutifs démontrant la continuité autonome au-delà du premier changement de job."
   ],
   "next_p0": [
-    "Au prochain heartbeat runtime, vérifier que le completion record dd69f2acc1378cac271f7b8b885b88b90c5ea2ed est accepté et que MEL-WORK-01 devient COMPLETED.",
-    "Vérifier que le superviseur sélectionne immédiatement le prochain manque réel sans créer de doublon.",
-    "Traiter la nouvelle demande Teacher/runtime selon le même protocole et fermer un deuxième cycle si le work package et la CI exacts le permettent."
+    "Vérifier au prochain heartbeat que la réponse Teacher 4518a3ec-6dbf-4184-9025-bd8191b4cfe1 est consommée, pending vide et état TEACHER_APPROVED.",
+    "Lire /api/teacher/work et exiger un MEL_INTERNAL_WORK_PACKAGE corrélé à mel-autonomy-mel-work-02-1 et au HEAD candidate courant.",
+    "Appliquer seulement le plus petit diff sûr proposé pour MEL-WORK-02, tests ciblés puis full-candidate-ci exact avant tout completion."
   ],
   "last_checkpoint": {
-    "recorded_at": "2026-09-10T12:49:30Z",
-    "head_before_checkpoint": "c8bafa3646912b01b6c3e61f30b74ac6ab5f6dca",
-    "verified_work_sha": "dd69f2acc1378cac271f7b8b885b88b90c5ea2ed",
-    "teacher_request_id": "a82ad1ec-af5a-4b14-bb4c-60329cd60787",
-    "full_candidate_ci_run_id": 34475439606,
-    "completion_recorded": true,
-    "runtime_reconciled": false,
+    "recorded_at": "2026-09-10T13:46:20Z",
+    "head_before_checkpoint": "782a04f9604ab77783e5f7ee0e3b3a8ef83d32c7",
+    "completed_job": "mel-autonomy-mel-work-01-1",
+    "next_job": "mel-autonomy-mel-work-02-1",
+    "teacher_request_id": "4518a3ec-6dbf-4184-9025-bd8191b4cfe1",
+    "teacher_reply": "APPROVE_PLAN",
+    "teacher_reply_commit": "782a04f9604ab77783e5f7ee0e3b3a8ef83d32c7",
+    "reply_ci_full_candidate_run_id": 34484630159,
+    "reply_ci_success": true,
+    "runtime_reconciled_reply": false,
+    "work_available": false,
     "production_changed": false,
-    "blocker": "Attente du prochain heartbeat runtime pour réconciliation du completion record et sélection du job suivant."
+    "blocker": "Attente de la réconciliation runtime de la réponse Teacher MEL-WORK-02 avant tout handoff /work."
   },
   "invariants": {
     "zero_added_cost": true,
