@@ -11,7 +11,7 @@ import { prepareDevelopmentRequest } from '../evolution/development-preflight.js
 import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
-const DEFAULT_BRANCH = 'release/mel-2026-09-09-r2-2';
+const DEFAULT_BRANCH = 'release/mel-2026-09-10-r3';
 let inheritedRuntimeEnv = Object.freeze({});
 
 /**
