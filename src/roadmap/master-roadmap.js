@@ -70,8 +70,8 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P06', 'Module Lab, évolution et apprentissage', [
     item('GEN2-16', 'Module Lab', 'PARTIAL', 'Brancher préflight Council -> spec -> code -> tests', 'P0'),
-    item('GEN2-17', 'Dev Agent / auto-évolution supervisée', 'PLANNED', 'Créer workflow Git isolé et contrôlé', 'P0'),
-    item('MEL-EVOL-01', 'Détecter une compétence manquante à partir d’une demande', 'PLANNED', 'Créer gap detector', 'P0'),
+    item('GEN2-17', 'Dev Agent / auto-évolution supervisée', 'PARTIAL', 'Prouver plusieurs cycles cohérents complets sur candidate avant toute promotion', 'P0'),
+    item('MEL-EVOL-01', 'Détecter une compétence manquante à partir d’une demande', 'PARTIAL', 'Valider le gap detector dans le chat et le relier au développement sans doublon', 'P0'),
     item('MEL-EVOL-02', 'Proposer ou générer un module', 'PLANNED', 'Relier gap detector au Module Lab', 'P0'),
     item('MEL-EVOL-03', 'Tests, benchmark, critique et correction en boucle', 'PARTIAL', 'Unifier runner de preuves', 'P0'),
     item('MEL-EVOL-04', 'EVOLUTION_LEDGER immuable et explicable', 'PARTIAL', 'Persister chaque évolution et ses preuves', 'P1'),
@@ -87,7 +87,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-39', 'Agents / automations', 'PLANNED', 'Exécution par capacités et permission tiers', 'P1'),
     item('GEN2-40', 'Event Bus / follow-ups / open loops', 'PLANNED', 'Créer événements idempotents', 'P1'),
     item('GEN2-41', 'Notifications', 'PLANNED', 'Web Push + compagnons', 'P2'),
-    item('MEL-WORK-02', 'Planifier, reprendre et terminer un travail multi-étapes', 'PLANNED', 'Orchestrateur durable avec checkpoints', 'P0'),
+    item('MEL-WORK-02', 'Planifier, reprendre et terminer un travail multi-étapes', 'PARTIAL', 'Prouver reprise et terminaison sur plusieurs cycles autonomes cohérents', 'P0'),
     item('MEL-WORK-03', 'Actions destructives avec confirmation explicite', 'PARTIAL', 'Centraliser les approval gates', 'P0')
   ]),
 
@@ -97,7 +97,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-34', 'Outlook / Microsoft', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P2'),
     item('GEN2-35', 'OneDrive / SharePoint', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
     item('GEN2-36', 'GitHub / Cloudflare / Vercel', 'PARTIAL', 'Étendre au-delà de la lecture GitHub', 'P0'),
-    item('GEN2-37', 'Web / recherche', 'PARTIAL', 'Provider web interchangeable avec sources', 'P1'),
+    item('GEN2-37', 'Web / recherche', 'PARTIAL', 'Valider en production la recherche sourcée, les redirections et la qualité des sources', 'P1'),
     item('MEL-CONN-01', 'WordPress Vérité Interdite', 'PLANNED', 'Créer MEL publique isolée de la mémoire privée', 'P3'),
     item('MEL-CONN-02', 'Catalogue de connecteurs installables', 'PLANNED', 'Découverte, permissions, test santé, désactivation', 'P2')
   ]),
