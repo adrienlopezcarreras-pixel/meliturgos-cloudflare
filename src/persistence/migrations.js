@@ -120,6 +120,23 @@ export const MIGRATIONS = [
     await db.prepare(`CREATE TABLE IF NOT EXISTS dev_jobs (id TEXT PRIMARY KEY,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,status TEXT NOT NULL,requested_by TEXT,goal TEXT NOT NULL,optional_context TEXT,plan_json TEXT,files_json TEXT,patch_json TEXT,tests_json TEXT,result_json TEXT,candidate_branch TEXT,approval_status TEXT,error TEXT)`).run();
     await db.prepare(`CREATE TABLE IF NOT EXISTS dev_bridge_state (bridge_id TEXT PRIMARY KEY,last_seen INTEGER NOT NULL,status TEXT,metadata_json TEXT NOT NULL DEFAULT '{}')`).run();
   }},
+  { version: 6, name: 'mentor_learning_memory', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS mentor_lessons (
+      id TEXT PRIMARY KEY,
+      job_id TEXT,
+      goal TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'LESSON',
+      lesson TEXT NOT NULL,
+      evidence_json TEXT,
+      outcome TEXT NOT NULL DEFAULT 'UNKNOWN',
+      score REAL NOT NULL DEFAULT 0,
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mentor_lessons_created ON mentor_lessons(created_at DESC)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mentor_lessons_outcome ON mentor_lessons(outcome)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mentor_lessons_job ON mentor_lessons(job_id)`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
