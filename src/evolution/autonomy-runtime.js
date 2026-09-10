@@ -4,6 +4,7 @@ import { prepareDevelopmentRequest } from './development-preflight.js';
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest } from '../teachers/runtime-teacher-bridge.js';
+import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
 import { reconcileRuntimeTeacherReplies } from '../teachers/github-reply-reconciler.js';
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 import { runRuntimeWorkDagResumeProof } from './autonomy-proof.js';
@@ -170,6 +171,11 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
  * the Teacher bridge has been queued. The bridge itself remains the authority:
  * an existing WAITING_TEACHER/ANSWERED package is never regenerated.
  *
+ * Internally generated roadmap requests are optionally mirrored to one unique
+ * GitHub file when MEL_GITHUB_TOKEN exists. The D1 bridge remains authoritative;
+ * mirroring is only a connector-friendly transport for the external Teacher and
+ * never blocks autonomy if unavailable.
+ *
  * A NEEDS_CHANGES review is converted back to QUEUED with the previous Teacher
  * feedback injected into a fresh Council preflight. Completion reconciliation
  * happens before selection so a finished job can release the next roadmap item
@@ -194,6 +200,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   const ensured = await supervisor.ensureNextJob();
   let job = ensured.job;
   let teacher = null;
+  let teacherMirror = null;
   let runtimeProof = null;
   let implementation = null;
 
@@ -215,6 +222,23 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   if (job && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'READY_FOR_REVIEW'].includes(String(job.status || '').toUpperCase())) {
     teacher = await prepareAutonomyTeacherRequest({ env, repository: jobRepository, job, fetchImpl });
     job = await jobRepository.get(job.id);
+  }
+
+  if (job && String(job.status || '').toUpperCase() === 'WAITING_TEACHER' && job.result_json?.teacher_bridge) {
+    try {
+      teacherMirror = await mirrorRuntimeTeacherRequestToGitHub({
+        env,
+        job,
+        state: job.result_json.teacher_bridge,
+        fetchImpl,
+      });
+    } catch (error) {
+      teacherMirror = {
+        status: 'FAILED',
+        code: error?.code || error?.message || 'TEACHER_MIRROR_FAILED',
+        request_id: job.result_json.teacher_bridge?.request?.request_id || null,
+      };
+    }
   }
 
   if (job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
@@ -246,6 +270,12 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       providers_attempted: Number(runtimeProof.providers_attempted || 0),
       successful_candidates: Number(runtimeProof.successful_candidates || 0),
       code: runtimeProof.code || null,
+    } : null,
+    teacher_mirror: teacherMirror ? {
+      status: teacherMirror.status,
+      request_id: teacherMirror.request_id || null,
+      path: teacherMirror.path || null,
+      code: teacherMirror.code || null,
     } : null,
     implementation: implementation ? {
       status: implementation.status,
