@@ -137,7 +137,11 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-SEC-02', 'Permissions par capacité', 'PARTIAL', 'Enforcement systématique', 'P0'),
     item('MEL-SEC-03', 'Supply-chain / dépendances / CI', 'PARTIAL', 'SBOM et dépendances runtime fail-closed', 'P1'),
     item('MEL-SEC-04', 'Owner shutdown always wins', 'DONE_VERIFIED', 'Conserver invariant dans toutes les évolutions', 'P0'),
-    item('MEL-SEC-05', 'Pas de réplication cachée ni récolte de secrets', 'DONE_VERIFIED', 'Conserver tests de sécurité', 'P0')
+    item('MEL-SEC-05', 'Pas de réplication cachée ni récolte de secrets', 'DONE_VERIFIED', 'Conserver tests de sécurité', 'P0'),
+    item('MEL-CYBER-01', 'Comprendre les méthodes d’attaque et le cycle d’un intrus', 'PLANNED', 'Construire un corpus pédagogique: reconnaissance, failles, abus d’authentification, persistance, exfiltration et traces, avec contre-mesures associées', 'P1'),
+    item('MEL-CYBER-02', 'Simulation offensive autorisée en labo / CTF / sandbox', 'PLANNED', 'Créer des exercices reproductibles uniquement sur cibles volontairement vulnérables ou explicitement autorisées, avec preuves et journalisation', 'P1'),
+    item('MEL-CYBER-03', 'Blue Team: détection, défense et réponse à incident', 'PLANNED', 'Apprendre à détecter les signaux, contenir, investiguer, corriger, restaurer et vérifier la disparition de la vulnérabilité', 'P0'),
+    item('MEL-CYBER-04', 'Purple Team: attaque simulée -> défense -> remédiation -> re-test', 'PLANNED', 'Automatiser une boucle pédagogique contrôlée qui compare attaque simulée et efficacité des protections sans viser de systèmes tiers', 'P1')
   ]),
 
   phase('P12', 'Résilience, sauvegarde et indépendance', [
