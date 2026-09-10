@@ -69,6 +69,29 @@ function teacherRoundTripProof(job) {
   return null;
 }
 
+function implementationPlanProof(job) {
+  const bridge = job?.result_json?.teacher_bridge;
+  const proposal = job?.result_json?.implementation_proposal;
+  if (!proposal || proposal.status !== 'READY') return null;
+  const requestId = String(proposal.teacher_request_id || '');
+  if (!requestId || requestId !== String(bridge?.request?.request_id || '')) return null;
+  if (bridge?.status !== 'ANSWERED' || bridge?.review?.verdict !== 'APPROVE_PLAN' || bridge?.review?.development_allowed !== true) return null;
+  if (!String(proposal.candidate_branch || '').startsWith('candidate/')) return null;
+  if (!Array.isArray(proposal.providers_attempted) || proposal.providers_attempted.length < 2) return null;
+  if (!Array.isArray(proposal.inspected_files) || proposal.inspected_files.length < 1) return null;
+  if (!proposal.selected?.text || !proposal.selected?.model) return null;
+  if (proposal.production_touched !== false || proposal.candidate_write_performed !== false) return null;
+  return {
+    job_id: job.id,
+    request_id: requestId,
+    candidate_branch: proposal.candidate_branch,
+    providers_attempted: proposal.providers_attempted.length,
+    inspected_files: proposal.inspected_files.map((row) => row?.path).filter(Boolean).slice(0, 8),
+    selected_model: proposal.selected.model,
+    created_at: proposal.created_at || null,
+  };
+}
+
 function completionProof(job) {
   const completion = job?.result_json?.autonomy_completion;
   if (!completion || completion.status !== 'VERIFIED') return null;
@@ -77,10 +100,12 @@ function completionProof(job) {
   const sha = String(completion.candidate_sha || ci.head_sha || '');
   const branch = String(completion.candidate_branch || ci.head_branch || '');
   if (!/^[a-f0-9]{40}$/i.test(sha) || !branch.startsWith('candidate/')) return null;
-  if (String(completion.request_id || '') !== String(job?.result_json?.teacher_bridge?.request?.request_id || '')) return null;
+  const requestId = String(completion.request_id || '');
+  if (!requestId || requestId !== String(job?.result_json?.teacher_bridge?.request?.request_id || '')) return null;
+  if (job?.result_json?.implementation_proposal?.teacher_request_id !== requestId) return null;
   return {
     job_id: job.id,
-    request_id: completion.request_id,
+    request_id: requestId,
     candidate_sha: sha,
     candidate_branch: branch,
     ci_run_id: ci.run_id || null,
@@ -107,6 +132,7 @@ export async function getAutonomyReadiness({ repository } = {}) {
   const council = firstProof(jobs, councilProof);
   const workDag = firstProof(jobs, workDagProof);
   const teacherRoundTrip = firstProof(jobs, teacherRoundTripProof);
+  const implementationPlan = firstProof(jobs, implementationPlanProof);
   const completion = firstProof(jobs, completionProof);
   const supervisor = new AutonomySupervisor({ repository });
   const state = await supervisor.state();
@@ -115,12 +141,14 @@ export async function getAutonomyReadiness({ repository } = {}) {
     live_council_zero_cost: Boolean(council),
     runtime_work_dag_resume: Boolean(workDag),
     runtime_teacher_round_trip: Boolean(teacherRoundTrip),
+    mel_multi_ai_implementation_plan: Boolean(implementationPlan),
     ci_verified_candidate_completion: Boolean(completion),
   };
   const blockers = [];
   if (!gates.live_council_zero_cost) blockers.push('LIVE_COUNCIL_ZERO_COST_NOT_PROVEN');
   if (!gates.runtime_work_dag_resume) blockers.push('GENERAL_WORK_DAG_RESUME_NOT_VERIFIED');
   if (!gates.runtime_teacher_round_trip) blockers.push('LIVE_TEACHER_ROUND_TRIP_NOT_PROVEN');
+  if (!gates.mel_multi_ai_implementation_plan) blockers.push('MEL_APPROVED_IMPLEMENTATION_PLAN_NOT_PROVEN');
   if (!gates.ci_verified_candidate_completion) blockers.push('CI_VERIFIED_AUTONOMOUS_COMPLETION_NOT_PROVEN');
 
   const ready = blockers.length === 0;
@@ -131,7 +159,7 @@ export async function getAutonomyReadiness({ repository } = {}) {
   return {
     ok: true,
     schema: 'mel.autonomy-readiness',
-    version: 1,
+    version: 2,
     evaluated_at: new Date().toISOString(),
     status: ready ? 'SELF_DEVELOPMENT_READY' : 'BUILDING_AUTONOMY',
     self_development_ready: ready,
@@ -141,6 +169,7 @@ export async function getAutonomyReadiness({ repository } = {}) {
       live_council_zero_cost: council,
       runtime_work_dag_resume: workDag,
       runtime_teacher_round_trip: teacherRoundTrip,
+      mel_multi_ai_implementation_plan: implementationPlan,
       ci_verified_candidate_completion: completion,
     },
     jobs: {
@@ -154,6 +183,7 @@ export async function getAutonomyReadiness({ repository } = {}) {
         status: current.status,
         roadmap_id: current.optional_context?.roadmap_id || null,
         teacher_request_id: current.result_json?.teacher_bridge?.request?.request_id || null,
+        implementation_proposal_ready: current.result_json?.implementation_proposal?.status === 'READY',
       } : null,
       next_roadmap_item: state.next ? {
         id: state.next.id,
