@@ -109,6 +109,20 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
     return { query: String(query), path: prefix, matches, searched_files: selected.length, branch: ref, repository: repo };
   }
 
+  async function head() {
+    let response;
+    try {
+      response = await fetchImpl(api('commits/' + encodeURIComponent(ref)), { headers: headers(token) });
+    } catch {
+      throw Object.assign(new Error('CODE_HEAD_READ_FAILED'), { code: 'CODE_HEAD_READ_FAILED' });
+    }
+    if (!response.ok) throw githubError(response, 'CODE_HEAD_READ_FAILED');
+    const body = await response.json();
+    const sha = String(body?.sha || '').trim();
+    if (!/^[0-9a-f]{40}$/i.test(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
+    return { sha, branch: ref, repository: repo };
+  }
+
   async function health() {
     try {
       const response = await fetchImpl(api('commits/' + encodeURIComponent(ref)), { headers: headers(token) });
@@ -123,7 +137,7 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
       return 'DEGRADED';
     } catch { return 'DEGRADED'; }
   }
-  return { read, search, health, repository: repo, branch: ref };
+  return { read, search, head, health, repository: repo, branch: ref };
 }
 
 export function registerGitHubCodeCapabilities(bus, options = {}) {
