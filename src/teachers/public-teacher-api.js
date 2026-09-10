@@ -25,6 +25,7 @@ function summarizeAutonomyJobs(jobs = []) {
       return ownerA - ownerB || Number(a.created_at || 0) - Number(b.created_at || 0);
     })[0] || null;
   const teacher = current ? currentTeacherMetadata(current) : null;
+  const proposal = current?.result_json?.implementation_proposal || null;
   return {
     total: autonomy.length,
     active_count: active.length,
@@ -41,16 +42,35 @@ function summarizeAutonomyJobs(jobs = []) {
       teacher_status: teacher.teacher_status,
       request_id: teacher.request_id,
       verdict: teacher.verdict,
+      implementation_proposal_ready: proposal?.status === 'READY',
+      implementation_models: proposal?.status === 'READY' && Array.isArray(proposal.providers_attempted) ? proposal.providers_attempted.length : 0,
     } : null,
   };
+}
+
+function minimizePending(rows) {
+  return teacherBridgePublicView(rows).map((item) => ({
+    request_id: item.request_id,
+    type: item.type,
+    created_at: item.created_at,
+    job_id: item.job_id,
+    stage: item.stage,
+    candidate: item.candidate,
+    patch_summary: item.patch_summary,
+    tests: item.tests,
+    unknowns: item.unknowns,
+    requested_review: item.requested_review,
+    provenance: item.provenance,
+  }));
 }
 
 /**
  * Deliberately public, read-only and aggressively minimized so the external
  * ChatGPT Teacher can discover pending technical requests without receiving a
- * MEL secret. Opaque job/request ids are exposed for reliable correlation;
- * full job state, council text, inspection contents, goals and user data remain
- * behind authenticated/runtime channels.
+ * MEL secret. Opaque job/request ids and roadmap ids are exposed for reliable
+ * correlation; free-form goals/objectives, council text, inspection contents,
+ * implementation proposal text and user data remain behind authenticated or
+ * runtime channels.
  */
 export async function maybeHandlePublicTeacherBridge(request, env) {
   if (request.method !== 'GET') return null;
@@ -62,7 +82,7 @@ export async function maybeHandlePublicTeacherBridge(request, env) {
     listPendingRuntimeTeacherRequests(repository, { limit: 20 }),
     repository.list(),
   ]);
-  const pending = teacherBridgePublicView(pendingRows);
+  const pending = minimizePending(pendingRows);
   const autonomy = summarizeAutonomyJobs(jobs);
   const headers = {
     'cache-control': 'no-store, max-age=0',
@@ -78,6 +98,7 @@ export async function maybeHandlePublicTeacherBridge(request, env) {
       autonomy,
       exposes_secrets: false,
       exposes_goals: false,
+      exposes_implementation_text: false,
       mutation_allowed: false,
     }), { status: 200, headers });
   }
@@ -87,6 +108,8 @@ export async function maybeHandlePublicTeacherBridge(request, env) {
     channel: 'github-teacher-bridge',
     pending,
     autonomy,
+    exposes_goals: false,
+    exposes_implementation_text: false,
     mutation_allowed: false,
   }), { status: 200, headers });
 }
