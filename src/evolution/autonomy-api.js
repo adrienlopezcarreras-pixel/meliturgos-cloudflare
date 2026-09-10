@@ -2,12 +2,14 @@ import { requireAuth } from '../core/security.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, isSupervisedAutonomyJob } from './autonomy-supervisor.js';
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
+import { getAutonomyReadiness } from './autonomy-readiness.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 
 function safeJob(job) {
   const bridge = job?.result_json?.teacher_bridge || null;
   const completion = job?.result_json?.autonomy_completion || null;
+  const workProof = job?.result_json?.autonomy_proofs?.work_dag_resume || null;
   return {
     id: String(job?.id || ''),
     status: String(job?.status || ''),
@@ -24,8 +26,14 @@ function safeJob(job) {
     completion: completion ? {
       status: completion.status || null,
       candidate_sha: completion.candidate_sha || null,
-      ci_run_id: completion.ci_run_id || null,
-      verified_at: completion.verified_at || null,
+      ci_run_id: completion.ci?.run_id || null,
+      verified_at: completion.completed_at || null,
+    } : null,
+    work_dag_resume_proof: workProof?.status === 'VERIFIED' ? {
+      status: 'VERIFIED',
+      recovered_interrupted_node: workProof.recovered_interrupted_node === true,
+      providers_attempted: Number(workProof.providers_attempted || 0),
+      verified_at: workProof.verified_at || null,
     } : null,
     created_at: job?.created_at || null,
     updated_at: job?.updated_at || null,
@@ -49,6 +57,7 @@ export async function getAutonomyState(env, { repository = null } = {}) {
   const repo = repository || new D1DevJobRepository(env.DB);
   const supervisor = new AutonomySupervisor({ repository: repo });
   const state = await supervisor.state();
+  const readiness = await getAutonomyReadiness({ repository: repo });
   const autonomyJobs = state.jobs.filter(isSupervisedAutonomyJob);
   const active = autonomyJobs.filter((job) => !TERMINAL.has(String(job.status || '').toUpperCase()));
   return {
@@ -60,6 +69,13 @@ export async function getAutonomyState(env, { repository = null } = {}) {
     repository: env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare',
     candidate_branch: env.MEL_TEACHER_BRANCH || 'candidate/augmentio-core',
     deployed_code_branch: env.MEL_GITHUB_BRANCH || null,
+    readiness: {
+      status: readiness.status,
+      self_development_ready: readiness.self_development_ready,
+      gates: readiness.gates,
+      blockers: readiness.blockers,
+      next_action: readiness.next_action,
+    },
     counts: {
       total_autonomy_jobs: autonomyJobs.length,
       owner_requested: autonomyJobs.filter((job) => job?.requested_by === 'owner-chat').length,
@@ -85,7 +101,7 @@ export async function getAutonomyState(env, { repository = null } = {}) {
  */
 export async function maybeHandleAutonomyApi(request, env, { repository = null, fetchImpl = fetch } = {}) {
   const url = new URL(request.url);
-  const isState = url.pathname === '/api/gen2/autonomy/state';
+  const isState = url.pathname === '/api/gen2/autonomy/state' || url.pathname === '/api/gen2/autonomy/status';
   const isTick = url.pathname === '/api/gen2/autonomy/tick';
   if (!isState && !isTick) return null;
 
