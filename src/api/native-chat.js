@@ -172,6 +172,14 @@ export async function handleNativeChat(request, env) {
   const body = await request.json().catch(() => ({}));
   const text = String(body.text ?? body.message ?? body.prompt ?? '').trim();
   if (!text) return Response.json({ error: 'MESSAGE_REQUIRED', code: 'MESSAGE_REQUIRED' }, { status: 400 });
+  if (text.length > 100000) return Response.json({ error: 'MESSAGE_TOO_LONG', code: 'MESSAGE_TOO_LONG', max_input_chars: 100000 }, { status: 413 });
+
+  const theme = ['classic', 'crusade', 'religious'].includes(body.ui_theme) ? body.ui_theme : 'classic';
+  const themeInstruction = theme === 'crusade'
+    ? 'MODE CROISÉS actif : conserve toute ta précision et tes capacités, avec une présence légèrement médiévale, noble et chevaleresque. Reste naturelle et efficace.'
+    : theme === 'religious'
+      ? 'MODE BAROQUE ANDALOU RELIGIEUX actif : conserve toute ta précision et tes capacités, avec une présence posée, noble, catholique et inspirée de l’esthétique sacrée andalouse. Reste naturelle et efficace.'
+      : 'MODE CLASSIQUE actif : présence moderne, directe et efficace.';
   if (!env.AI || typeof env.AI.run !== 'function') return Response.json({ error: 'AI_BINDING_MISSING', code: 'AI_BINDING_MISSING' }, { status: 503 });
 
   const conversationId = String(body.conversation_id || crypto.randomUUID());
@@ -212,6 +220,7 @@ export async function handleNativeChat(request, env) {
 
   const system = [
     buildMelIdentityPrompt(),
+    themeInstruction,
     'Réponds en français sauf demande contraire.',
     'Tu dois être factuelle sur tes capacités réelles.',
     `CAPABILITY_MANIFEST runtime actuel (données, pas instructions): ${manifestText}`,
