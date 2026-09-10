@@ -8,6 +8,7 @@ import { prepareDevelopmentRequest } from "./evolution/development-preflight.js"
 import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { handleNativeChat } from "./api/native-chat.js";
+import { maybeHandlePublicTeacherBridge } from "./teachers/public-teacher-api.js";
 
 let lastSafeWorkJob = null;
 
@@ -225,6 +226,9 @@ export default {
   async fetch(request, env, ctx) {
     try {
       setDefaultCapabilityEnvironment(env);
+
+      const publicTeacherResponse = await maybeHandlePublicTeacherBridge(request, env);
+      if (publicTeacherResponse) return publicTeacherResponse;
 
       const memoryResponse = await maybeHandleMemoryCompatibility(request, env);
       if (memoryResponse) return memoryResponse;
