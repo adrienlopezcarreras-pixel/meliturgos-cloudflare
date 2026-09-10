@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { enqueueOwnerDevelopmentRequest } from '../src/evolution/owner-development-queue.js';
 
+const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
 function fixture() {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const aiCalls = [];
@@ -21,6 +23,7 @@ function fixture() {
   const fetchImpl = async (url) => {
     const target = String(url);
     fetchCalls.push(target);
+    if (target.includes('/commits/candidate%2Faugmentio-core')) return Response.json({ sha: CANDIDATE_HEAD_SHA });
     if (target.startsWith('https://api.github.com/')) return new Response('rate-limit fixture', { status: 403 });
     if (target.startsWith('https://raw.githubusercontent.com/')) {
       return new Response('export const fixture = true;\n// candidate source\n', { status: 200, headers: { etag: 'fixture' } });
@@ -57,6 +60,7 @@ test('owner development request persists, runs Council first, inspects candidate
   assert.equal(stored.optional_context.rule, 'AI_COUNCIL_BEFORE_CODE');
   assert.ok(stored.plan_json.preflight.council);
   assert.equal(stored.result_json.teacher_bridge.status, 'WAITING_TEACHER');
+  assert.equal(stored.result_json.teacher_bridge.request.candidate.sha, CANDIDATE_HEAD_SHA);
 });
 
 test('replaying the same owner message is idempotent and does not repeat the Council', async () => {
