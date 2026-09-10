@@ -28,6 +28,18 @@ function codeConfig(env = {}) {
   return { repository, branch };
 }
 
+function codeReader(env, fetchImpl) {
+  const config = codeConfig(env);
+  return {
+    config,
+    reader: createGitHubCodeReader({
+      repository: config.repository,
+      branch: config.branch,
+      fetchImpl,
+    }),
+  };
+}
+
 function uniquePaths(values) {
   const out = [];
   for (const value of values) {
@@ -40,12 +52,7 @@ function uniquePaths(values) {
 }
 
 async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) {
-  const config = codeConfig(env);
-  const reader = createGitHubCodeReader({
-    repository: config.repository,
-    branch: config.branch,
-    fetchImpl,
-  });
+  const { config, reader } = codeReader(env, fetchImpl);
   const headBefore = await reader.head();
   const roadmapId = String(job?.optional_context?.roadmap_id || '').trim();
   const fromInspection = Array.isArray(bridge?.evidence?.inspection_files) ? bridge.evidence.inspection_files : [];
@@ -83,6 +90,22 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
   return { ...config, candidate_sha: headAfter.sha, files };
 }
 
+async function reusableProposal(env, existing, bridge, { fetchImpl = fetch } = {}) {
+  if (existing?.status !== 'READY') return null;
+  if (!existing?.teacher_request_id || existing.teacher_request_id !== bridge.request.request_id) return null;
+  if (!SHA40.test(String(existing?.candidate_sha || ''))) return null;
+  const { config, reader } = codeReader(env, fetchImpl);
+  if (String(existing.candidate_branch || '') !== config.branch) return null;
+  if (!Array.isArray(existing.providers_attempted) || existing.providers_attempted.length < 2) return null;
+
+  const head = await reader.head();
+  if (!SHA40.test(String(head?.sha || ''))) {
+    throw Object.assign(new Error('CANDIDATE_HEAD_INVALID'), { code: 'CANDIDATE_HEAD_INVALID' });
+  }
+  if (String(existing.candidate_sha).toLowerCase() !== String(head.sha).toLowerCase()) return null;
+  return { ...existing, reused: true };
+}
+
 function planningPrompt(job, bridge, code) {
   return [
     'Tu es un ingénieur participant au développement supervisé de MELITURGOS.',
@@ -113,12 +136,14 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
   if (!repository || !job) throw Object.assign(new Error('AUTONOMY_IMPLEMENTATION_INPUT_REQUIRED'), { code: 'AUTONOMY_IMPLEMENTATION_INPUT_REQUIRED' });
   const current = await repository.get(job.id);
   if (!current) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
-  const existing = current?.result_json?.implementation_proposal;
-  if (existing?.status === 'READY' && existing?.teacher_request_id && SHA40.test(String(existing?.candidate_sha || ''))) {
-    return { ...existing, reused: true };
-  }
 
+  // Revalidate Teacher authority before considering persisted work reusable.
+  // A READY payload is only an optimization, never an authorization shortcut.
   const bridge = requireApproved(current);
+  const existing = current?.result_json?.implementation_proposal;
+  const reusable = await reusableProposal(env, existing, bridge, { fetchImpl });
+  if (reusable) return reusable;
+
   const code = await collectCodeContext(env, current, bridge, { fetchImpl });
   const augmentio = new Augmentio({ pool: createDefaultAugmentioPool(env) });
   const fanout = await augmentio.fanOut({
