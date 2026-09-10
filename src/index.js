@@ -7,6 +7,7 @@ import { runAugmentioStateOfPlay } from "./teachers/augmentio-council.js";
 import { prepareDevelopmentRequest } from "./evolution/development-preflight.js";
 import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
+import { maybeHandleLongChat } from "./api/long-chat.js";
 
 function isArchivePayload(value) {
   if (Array.isArray(value)) return value.some(x => x && (x.mapping || x.messages || x.conversation_id || x.id));
@@ -117,6 +118,11 @@ export default {
 
       const archiveResponse = await maybeHandleChatGPTArchive(request, env);
       if (archiveResponse) return archiveResponse;
+
+      // Prompts above the legacy 12k ceiling are handled directly by Gen2.
+      // Short messages still use the existing proven route unchanged.
+      const longChatResponse = await maybeHandleLongChat(request, env);
+      if (longChatResponse) return longChatResponse;
 
       const preparedRequest = await injectEvolutionPreflightCapability(request);
       const response = await router.fetch(preparedRequest, env, ctx);
