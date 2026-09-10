@@ -25,6 +25,26 @@ function buildJob(input = {}) {
   return j;
 }
 
+export function isPreparedDevBridgeJob(job) {
+  if (String(job?.status || '').toUpperCase() !== 'TEACHER_APPROVED') return false;
+  const teacher = job?.result_json?.teacher_bridge;
+  const preparation = job?.result_json?.bridge_preparation;
+  if (teacher?.status !== 'ANSWERED' || teacher?.review?.verdict !== 'APPROVE_PLAN' || teacher?.review?.development_allowed !== true) return false;
+  if (!teacher?.request?.request_id || teacher.request.request_id !== teacher.review.request_id) return false;
+  if (preparation?.status !== 'READY' || preparation.teacher_request_id !== teacher.request.request_id) return false;
+  if (!String(preparation.candidate_branch || '').startsWith('candidate/')) return false;
+  if (!Array.isArray(job.files_json) || !job.files_json.length) return false;
+  if (!job.files_json.every((file) => file && typeof file.path === 'string' && typeof file.content === 'string')) return false;
+  if (!Array.isArray(job.tests_json) || !job.tests_json.length) return false;
+  return job.tests_json.every((test) => test && typeof test.command === 'string');
+}
+
+function bridgeClaimPriority(job) {
+  if (isPreparedDevBridgeJob(job)) return 0;
+  if (String(job?.status || '').toUpperCase() === 'QUEUED') return 1;
+  return 99;
+}
+
 export class D1DevJobRepository {
   constructor(db, { memoryStore = sharedMemory } = {}) {
     this.db = db;
@@ -143,17 +163,29 @@ export class D1DevJobRepository {
     return { job, checkpoint };
   }
 
+  /**
+   * The local bridge may claim either a legacy QUEUED job or, with priority,
+   * a TEACHER_APPROVED job that has a correlated structured bridge package.
+   * Approval alone is never enough to make a job claimable.
+   */
   async claim() {
     await this.init();
     if (!this.db) {
-      const j = [...this.memory.values()].find(x => x.status === 'QUEUED');
-      return j ? this.update(j.id, { status: 'CLAIMED' }) : null;
+      const candidates = [...this.memory.values()]
+        .filter((job) => bridgeClaimPriority(job) < 99)
+        .sort((a, b) => bridgeClaimPriority(a) - bridgeClaimPriority(b) || Number(a.created_at || 0) - Number(b.created_at || 0));
+      const job = candidates[0];
+      if (!job) return null;
+      return this.update(job.id, { status: 'CLAIMED' });
     }
-    const row = await this.db.prepare("SELECT id FROM dev_jobs WHERE status='QUEUED' ORDER BY created_at ASC LIMIT 1").first();
-    if (!row) return null;
-    const r = await this.db.prepare("UPDATE dev_jobs SET status='CLAIMED',updated_at=? WHERE id=? AND status='QUEUED'")
-      .bind(Date.now(), row.id)
+
+    const rows = ((await this.db.prepare("SELECT * FROM dev_jobs WHERE status IN ('TEACHER_APPROVED','QUEUED') ORDER BY CASE status WHEN 'TEACHER_APPROVED' THEN 0 ELSE 1 END, created_at ASC LIMIT 25").all()).results || []).map((row) => this._row(row));
+    const candidate = rows.find((job) => isPreparedDevBridgeJob(job)) || rows.find((job) => String(job.status || '').toUpperCase() === 'QUEUED');
+    if (!candidate) return null;
+    const expectedStatus = String(candidate.status || '').toUpperCase();
+    const r = await this.db.prepare('UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=?')
+      .bind('CLAIMED', Date.now(), candidate.id, expectedStatus)
       .run();
-    return r.meta?.changes === 1 ? this.get(row.id) : null;
+    return r.meta?.changes === 1 ? this.get(candidate.id) : null;
   }
 }
