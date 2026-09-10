@@ -1,5 +1,6 @@
 import { requireAuth } from '../core/security.js';
 import { createConversationService } from '../conversations/conversation-service.js';
+import { selfAwarenessSystemContext } from '../context/self-awareness.js';
 
 export const FAST_CHAT_MAX_CHARS = 800;
 export const FAST_CHAT_MODEL = '@cf/zai-org/glm-4.7-flash';
@@ -46,7 +47,7 @@ async function persistExchange(env, { conversationId, deviceId, text, answer, mo
       role: 'user',
       content: text,
       provenance: 'fast-chat',
-      metadata: { fast_lane: true },
+      metadata: { fast_lane: true, self_awareness_context: true },
     });
     await service.archiveMessage({
       conversationId,
@@ -55,7 +56,7 @@ async function persistExchange(env, { conversationId, deviceId, text, answer, mo
       content: answer,
       model,
       provenance: 'fast-chat',
-      metadata: { fast_lane: true, latency_ms: elapsedMs },
+      metadata: { fast_lane: true, self_awareness_context: true, latency_ms: elapsedMs },
     });
     return true;
   } catch (error) {
@@ -65,8 +66,9 @@ async function persistExchange(env, { conversationId, deviceId, text, answer, mo
 }
 
 /**
- * Low-latency path for ordinary short conversation. Anything ambiguous or
- * tool/development/memory heavy deliberately falls through to the full router.
+ * Low-latency path for ordinary short conversation. MEL still receives a
+ * compact cached snapshot of her own real state so she never becomes a generic
+ * assistant unaware of her capabilities. Heavy intents fall through.
  */
 export async function maybeHandleFastChat(request, env, ctx) {
   const url = new URL(request.url);
@@ -87,11 +89,20 @@ export async function maybeHandleFastChat(request, env, ctx) {
 
   const conversationId = String(body?.conversation_id || '').slice(0, 200);
   const deviceId = String(body?.device_id || '').slice(0, 200) || null;
-  const history = await recentContext(env, conversationId);
+  const theme = ['classic', 'crusade', 'religious'].includes(body?.ui_theme) ? body.ui_theme : 'classic';
+  const [history, awareness] = await Promise.all([
+    recentContext(env, conversationId),
+    selfAwarenessSystemContext(env, { full: false, theme }),
+  ]);
   const messages = [
     {
       role: 'system',
-      content: 'Tu es MEL. Réponds immédiatement, naturellement et de façon concise. Si la demande nécessite un outil, des données actuelles, une analyse approfondie ou une mémoire non présente dans le contexte fourni, dis-le brièvement au lieu d’inventer.'
+      content: [
+        'Tu es MEL. Réponds immédiatement, naturellement et de façon concise.',
+        'Tu connais ton propre système grâce au CONTEXTE INTERNE ci-dessous. Utilise-le quand c’est pertinent et ne prétends jamais disposer d’une capacité absente ou seulement planifiée.',
+        'Si la demande nécessite un outil, des données actuelles, une analyse approfondie ou une mémoire non présente dans le contexte fourni, dis-le brièvement au lieu d’inventer.',
+        awareness,
+      ].join('\n'),
     },
     ...history,
     { role: 'user', content: text },
@@ -124,6 +135,7 @@ export async function maybeHandleFastChat(request, env, ctx) {
       text: answer,
       model: FAST_CHAT_MODEL,
       fast_lane: true,
+      self_aware: true,
       latency_ms: elapsedMs,
       context_messages: history.length,
       archive_saved: archiveSaved,
