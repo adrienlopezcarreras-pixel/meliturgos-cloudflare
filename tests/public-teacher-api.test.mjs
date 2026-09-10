@@ -5,11 +5,11 @@ import { createTeacherReviewRequest } from '../src/teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest } from '../src/teachers/runtime-teacher-bridge.js';
 import { maybeHandlePublicTeacherBridge, summarizeAutonomyJobs } from '../src/teachers/public-teacher-api.js';
 
-test('public Teacher feed is read-only and omits full council/inspection/private evidence', async () => {
+test('public Teacher feed is read-only and omits goals, full council/inspection and private evidence', async () => {
   const repo = new D1DevJobRepository(null);
-  const job = await repo.create({ id: `public-teacher-${crypto.randomUUID()}`, goal: 'Public minimal Teacher request' });
+  const job = await repo.create({ id: `public-teacher-${crypto.randomUUID()}`, goal: 'PRIVATE JOB GOAL MUST NOT LEAK' });
   const request = createTeacherReviewRequest({
-    goal: 'Technical review only',
+    goal: 'PRIVATE TECHNICAL OBJECTIVE MUST NOT LEAK',
     council: { responses: [
       { provider: 'workers-ai', model: 'a', zero_added_cost: true, summary: 'PRIVATE COUNCIL DETAIL' },
       { provider: 'workers-ai', model: 'b', zero_added_cost: true, summary: 'PRIVATE COUNCIL DETAIL 2' },
@@ -29,9 +29,14 @@ test('public Teacher feed is read-only and omits full council/inspection/private
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.equal(body.mutation_allowed, false);
+  assert.equal(body.exposes_goals, false);
+  assert.equal(body.exposes_implementation_text, false);
   const row = body.pending.find((item) => item.request_id === request.request_id);
   assert.ok(row);
+  assert.equal('objective' in row, false);
   const serialized = JSON.stringify(row);
+  assert.equal(serialized.includes('PRIVATE JOB GOAL'), false);
+  assert.equal(serialized.includes('PRIVATE TECHNICAL OBJECTIVE'), false);
   assert.equal(serialized.includes('PRIVATE COUNCIL DETAIL'), false);
   assert.equal(serialized.includes('PRIVATE INSPECTION DETAIL'), false);
   assert.equal(serialized.includes('PRIVATE SPEC DETAIL'), false);
@@ -78,6 +83,8 @@ test('autonomy status exposes opaque Teacher correlation but never goals or priv
     teacher_status: 'WAITING_TEACHER',
     request_id: 'opaque-request-1',
     verdict: null,
+    implementation_proposal_ready: false,
+    implementation_models: 0,
   });
   const serialized = JSON.stringify(summary);
   assert.equal(serialized.includes('PRIVATE GOAL'), false);
@@ -103,10 +110,11 @@ test('explicit owner-chat work is included and becomes the public current techni
   assert.equal(summary.current.job_id, 'owner-job');
   assert.equal(summary.current.requested_by, 'owner-chat');
   assert.equal(summary.current.request_id, 'owner-r');
+  assert.equal(summary.current.implementation_proposal_ready, false);
   assert.equal(JSON.stringify(summary).includes('PRIVATE OWNER'), false);
 });
 
-test('autonomy status preserves the approved request id so a later Teacher run can correlate CI work', () => {
+test('autonomy status preserves approved request id and only a boolean/count for MEL implementation work', () => {
   const summary = summarizeAutonomyJobs([{
     id: 'approved-job',
     requested_by: 'mel-autonomy',
@@ -119,12 +127,21 @@ test('autonomy status preserves the approved request id so a later Teacher run c
         request: { request_id: 'opaque-approved-request' },
         review: { request_id: 'opaque-approved-request', verdict: 'APPROVE_PLAN', feedback: 'PRIVATE FEEDBACK' },
       },
+      implementation_proposal: {
+        status: 'READY',
+        providers_attempted: ['workers-ai:a', 'workers-ai:b'],
+        selected: { text: 'PRIVATE IMPLEMENTATION PLAN', model: 'a' },
+      },
     },
   }]);
   assert.equal(summary.current.request_id, 'opaque-approved-request');
   assert.equal(summary.current.teacher_status, 'ANSWERED');
   assert.equal(summary.current.verdict, 'APPROVE_PLAN');
-  assert.equal(JSON.stringify(summary).includes('PRIVATE FEEDBACK'), false);
+  assert.equal(summary.current.implementation_proposal_ready, true);
+  assert.equal(summary.current.implementation_models, 2);
+  const serialized = JSON.stringify(summary);
+  assert.equal(serialized.includes('PRIVATE FEEDBACK'), false);
+  assert.equal(serialized.includes('PRIVATE IMPLEMENTATION PLAN'), false);
 });
 
 test('public Teacher status discloses channel/count and minimized autonomy metadata only', async () => {
@@ -133,6 +150,7 @@ test('public Teacher status discloses channel/count and minimized autonomy metad
   assert.equal(body.ok, true);
   assert.equal(body.exposes_secrets, false);
   assert.equal(body.exposes_goals, false);
+  assert.equal(body.exposes_implementation_text, false);
   assert.equal(body.mutation_allowed, false);
   assert.equal(typeof body.pending_count, 'number');
   assert.equal(typeof body.autonomy.active_count, 'number');
