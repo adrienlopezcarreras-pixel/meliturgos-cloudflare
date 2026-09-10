@@ -139,14 +139,19 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
       const response = await fetchImpl(api('git/ref/heads/' + ref.split('/').map(encodeURIComponent).join('/')), { headers: headers(token) });
       if (response.ok) return 'ONLINE';
       if (response.status === 401) return 'OFFLINE';
-      if (response.status === 403 || response.status === 429) {
-        try {
-          const probe = await fetchImpl(rawUrl(repo, ref, 'package.json'), { headers: { 'user-agent': 'meliturgos-code-reader' } });
-          return probe.ok ? 'ONLINE' : 'DEGRADED';
-        } catch { return 'DEGRADED'; }
-      }
-      return 'DEGRADED';
-    } catch { return 'DEGRADED'; }
+      // Any non-auth REST failure can still leave raw.githubusercontent.com
+      // usable. Probe the same bounded public file used by the historical
+      // compatibility path before reporting degraded health.
+      try {
+        const probe = await fetchImpl(rawUrl(repo, ref, 'package.json'), { headers: { 'user-agent': 'meliturgos-code-reader' } });
+        return probe.ok ? 'ONLINE' : 'DEGRADED';
+      } catch { return 'DEGRADED'; }
+    } catch {
+      try {
+        const probe = await fetchImpl(rawUrl(repo, ref, 'package.json'), { headers: { 'user-agent': 'meliturgos-code-reader' } });
+        return probe.ok ? 'ONLINE' : 'DEGRADED';
+      } catch { return 'DEGRADED'; }
+    }
   }
   return { read, search, head, health, repository: repo, branch: ref };
 }
