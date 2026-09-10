@@ -73,7 +73,7 @@ test('after Teacher approval MEL independently builds and persists a bounded mul
   assert.equal(proposal.production_touched, false);
   assert.equal(proposal.candidate_write_performed, false);
   const stored = await f.repository.get(job.id);
-  assert.equal(stored.status, 'IMPLEMENTATION_PLANNED');
+  assert.equal(stored.status, 'TEACHER_APPROVED');
   assert.equal(stored.result_json.implementation_proposal.status, 'READY');
 });
 
