@@ -6,7 +6,7 @@ function fixture() {
   const job = {
     id: 'mel-autonomy-mel-work-01-1',
     requested_by: 'mel-autonomy',
-    goal: '[MEL-WORK-01] Work Engine persistant',
+    goal: '[MEL-WORK-01] PRIVATE_JOB_GOAL_SENTINEL',
     optional_context: { roadmap_id: 'MEL-WORK-01', priority: 'P0' },
   };
   const state = {
@@ -16,25 +16,80 @@ function fixture() {
       request_id: 'req-runtime-123',
       created_at: '2026-09-10T06:00:00.000Z',
       stage: 'TEACHER_REVIEW_REQUIRED',
-      objective: 'internal roadmap work',
-      candidate: { repository: 'owner/repo', branch: 'candidate/augmentio-core' },
-      patch_summary: 'No patch yet.',
-      tests: [],
-      unknowns: ['CI pending'],
-      requested_review: ['Review plan'],
-      provenance: { roadmap_id: 'MEL-WORK-01', source: 'MEL_RUNTIME_CRON' },
+      objective: 'PRIVATE_OBJECTIVE_SENTINEL',
+      candidate: {
+        repository: 'owner/repo',
+        branch: 'candidate/augmentio-core',
+        commit_sha: '0123456789abcdef0123456789abcdef01234567',
+        private_note: 'PRIVATE_CANDIDATE_SENTINEL',
+      },
+      patch_summary: 'PRIVATE_PATCH_SENTINEL',
+      tests: [{
+        name: 'full-candidate-ci',
+        status: 'completed',
+        passed: true,
+        run_id: 123,
+        head_sha: '0123456789abcdef0123456789abcdef01234567',
+        logs: 'PRIVATE_TEST_LOG_SENTINEL',
+      }],
+      unknowns: ['PRIVATE_UNKNOWN_SENTINEL'],
+      requested_review: ['PRIVATE_REVIEW_SENTINEL'],
+      provenance: {
+        roadmap_id: 'MEL-WORK-01',
+        source: 'MEL_RUNTIME_CRON',
+        generated_by: 'autonomy-runtime',
+        private_context: 'PRIVATE_PROVENANCE_SENTINEL',
+      },
+      future_unreviewed_field: 'PRIVATE_FUTURE_FIELD_SENTINEL',
     },
   };
   return { job, state };
 }
 
-test('buildRuntimeTeacherMirror exposes only internal roadmap work', () => {
+test('buildRuntimeTeacherMirror exposes only allowlisted technical discovery metadata', () => {
   const { job, state } = fixture();
   const mirror = buildRuntimeTeacherMirror(job, state);
   assert.equal(mirror.kind, 'MEL_RUNTIME_REQUEST');
+  assert.equal(mirror.schema_version, 2);
   assert.equal(mirror.request_id, 'req-runtime-123');
   assert.equal(mirror.roadmap_id, 'MEL-WORK-01');
   assert.equal(mirror.constraints.production_deploy_allowed, false);
+  assert.deepEqual(mirror.candidate, {
+    repository: 'owner/repo',
+    branch: 'candidate/augmentio-core',
+    sha: '0123456789abcdef0123456789abcdef01234567',
+  });
+  assert.deepEqual(mirror.tests, [{
+    name: 'full-candidate-ci',
+    status: 'completed',
+    passed: true,
+    ci_run_id: 123,
+    head_sha: '0123456789abcdef0123456789abcdef01234567',
+  }]);
+  assert.deepEqual(mirror.provenance, {
+    roadmap_id: 'MEL-WORK-01',
+    source: 'MEL_RUNTIME_CRON',
+    generated_by: 'autonomy-runtime',
+  });
+
+  const serialized = JSON.stringify(mirror);
+  for (const forbidden of [
+    'PRIVATE_JOB_GOAL_SENTINEL',
+    'PRIVATE_OBJECTIVE_SENTINEL',
+    'PRIVATE_CANDIDATE_SENTINEL',
+    'PRIVATE_PATCH_SENTINEL',
+    'PRIVATE_TEST_LOG_SENTINEL',
+    'PRIVATE_UNKNOWN_SENTINEL',
+    'PRIVATE_REVIEW_SENTINEL',
+    'PRIVATE_PROVENANCE_SENTINEL',
+    'PRIVATE_FUTURE_FIELD_SENTINEL',
+  ]) {
+    assert.doesNotMatch(serialized, new RegExp(forbidden));
+  }
+  assert.equal(Object.hasOwn(mirror, 'objective'), false);
+  assert.equal(Object.hasOwn(mirror, 'patch_summary'), false);
+  assert.equal(Object.hasOwn(mirror, 'unknowns'), false);
+  assert.equal(Object.hasOwn(mirror, 'requested_review'), false);
 
   const ownerJob = { ...job, requested_by: 'owner-chat', goal: 'private owner goal' };
   assert.equal(buildRuntimeTeacherMirror(ownerJob, state), null);
@@ -53,7 +108,7 @@ test('mirror skips safely when no GitHub token is configured', async () => {
   assert.equal(calls, 0);
 });
 
-test('mirror writes a unique sanitized request file without leaking the token', async () => {
+test('mirror writes a unique technical request file without leaking tokens or freeform private content', async () => {
   const { job, state } = fixture();
   const calls = [];
   const token = 'github-token-fixture-value';
@@ -81,8 +136,10 @@ test('mirror writes a unique sanitized request file without leaking the token', 
   const decoded = Buffer.from(body.content, 'base64').toString('utf8');
   assert.match(decoded, /MEL_RUNTIME_REQUEST/);
   assert.match(decoded, /MEL-WORK-01/);
+  assert.match(decoded, /full-candidate-ci/);
   assert.doesNotMatch(decoded, new RegExp(token));
   assert.doesNotMatch(decoded, /must-never-leak/);
+  assert.doesNotMatch(decoded, /PRIVATE_/);
   assert.equal(body.branch, 'candidate/augmentio-core');
 });
 
