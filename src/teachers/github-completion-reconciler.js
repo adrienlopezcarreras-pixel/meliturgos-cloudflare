@@ -116,6 +116,18 @@ export async function fetchCompletionRecords(env = {}, { fetchImpl = fetch } = {
   return parseCompletionJsonl(await response.text());
 }
 
+function validateMelImplementationProposal(job, record) {
+  const proposal = job?.result_json?.implementation_proposal;
+  if (!proposal || proposal.status !== 'READY') return null;
+  if (String(proposal.teacher_request_id || '') !== record.request_id) return null;
+  if (String(proposal.candidate_branch || '') !== record.candidate_branch) return null;
+  if (!Array.isArray(proposal.providers_attempted) || proposal.providers_attempted.length < 2) return null;
+  if (!Array.isArray(proposal.inspected_files) || proposal.inspected_files.length < 1) return null;
+  if (!proposal.selected?.text || !proposal.selected?.model) return null;
+  if (proposal.production_touched !== false || proposal.candidate_write_performed !== false) return null;
+  return proposal;
+}
+
 export async function reconcileRuntimeCompletions({ repository, env = {}, fetchImpl = fetch } = {}) {
   if (!repository) throw Object.assign(new Error('COMPLETION_JOB_REPOSITORY_REQUIRED'), { code: 'COMPLETION_JOB_REPOSITORY_REQUIRED' });
   const records = await fetchCompletionRecords(env, { fetchImpl });
@@ -132,8 +144,14 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
     if (String(job.status || '').toUpperCase() === 'COMPLETED' && job.result_json?.autonomy_completion?.candidate_sha === record.candidate_sha) continue;
 
     const teacher = job.result_json?.teacher_bridge;
-    if (teacher?.status !== 'ANSWERED' || teacher?.review?.development_allowed !== true || teacher?.request?.request_id !== record.request_id) {
+    if (teacher?.status !== 'ANSWERED' || teacher?.review?.development_allowed !== true || teacher?.review?.verdict !== 'APPROVE_PLAN' || teacher?.request?.request_id !== record.request_id) {
       rejected.push({ job_id: job.id, request_id: record.request_id, code: 'COMPLETION_TEACHER_APPROVAL_REQUIRED' });
+      continue;
+    }
+
+    const proposal = validateMelImplementationProposal(job, record);
+    if (!proposal) {
+      rejected.push({ job_id: job.id, request_id: record.request_id, code: 'COMPLETION_MEL_IMPLEMENTATION_PROPOSAL_REQUIRED' });
       continue;
     }
 
@@ -147,6 +165,12 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
         candidate_branch: record.candidate_branch,
         summary: record.summary,
         tests: record.tests,
+        mel_implementation: {
+          verified: true,
+          providers_attempted: proposal.providers_attempted.length,
+          selected_model: String(proposal.selected.model || '').slice(0, 200),
+          inspected_files: proposal.inspected_files.map((row) => row?.path).filter(Boolean).slice(0, 8),
+        },
         ci,
         completed_at: new Date().toISOString(),
       };
