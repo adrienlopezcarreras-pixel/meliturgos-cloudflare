@@ -8,13 +8,13 @@ import worker from '../src/index.js';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 30));
 
-async function ui(chatFetch, gen2Fetch = async () => Response.json({ capabilities: [] })) {
+async function ui(chatFetch) {
   const html = await (await onRequestGet({})).text();
   const dom = new JSDOM(html, {
     url: 'http://localhost',
     runScripts: 'dangerously',
     beforeParse(window) {
-      window.fetch = (path, init) => String(path).startsWith('/api/gen2/') ? gen2Fetch(path, init) : chatFetch(path, init);
+      window.fetch = chatFetch;
       window.AbortSignal = AbortSignal;
     },
   });
@@ -22,7 +22,7 @@ async function ui(chatFetch, gen2Fetch = async () => Response.json({ capabilitie
   return dom;
 }
 
-test('MEL MVP has the requested single-window interface without redundant visible title or conversation selector', async () => {
+test('MEL MVP has the requested single-window interface without redundant title, conversation selector or skills button', async () => {
   const html = await (await onRequestGet({})).text();
   assert.match(html, /<title>MEL<\/title>/);
   assert.match(html, /rel="icon"[^>]+meliturgos-avatar-fille\.png/);
@@ -31,13 +31,16 @@ test('MEL MVP has the requested single-window interface without redundant visibl
   assert.match(html, /id="messages"/);
   assert.match(html, /id="input"/);
   assert.match(html, /id="send"/);
-  assert.match(html, /id="skills"/);
   assert.match(html, /id="full"/);
   assert.match(html, /id="fileInput"/);
+  assert.doesNotMatch(html, /id="skills"|id="skillsPanel"|id="skillsList"/);
   assert.match(html, /min-width:188px/);
+  assert.match(html, /maxlength="100000"/);
+  assert.match(html, /Paladin Light Full Plate/);
+  assert.match(html, /Amazon · Diadème du Griffon/);
 });
 
-test('MVP sends text to chat, renders answer in the same window and prevents double send', async () => {
+test('MVP sends text with current theme/context, renders answer in the same window and prevents double send', async () => {
   const calls = [];
   let finish;
   const dom = await ui((path, init) => {
@@ -52,6 +55,8 @@ test('MVP sends text to chat, renders answer in the same window and prevents dou
   assert.equal(calls[0].path, '/api/chat');
   assert.equal(calls[0].body.text, 'Bonjour');
   assert.ok(calls[0].body.conversation_id);
+  assert.equal(calls[0].body.ui_theme, 'classic');
+  assert.equal(calls[0].body.intent_context?.surface, 'mel-mvp');
   assert.match(document.querySelector('#status').textContent, /Réflexion|réfléchit|réagit/i);
   finish(Response.json({ text: 'Bonjour Adrien' }));
   await tick();
@@ -74,18 +79,13 @@ test('MVP keeps draft on failure and renders text safely', async () => {
   dom.window.close();
 });
 
-test('MVP exposes real server capabilities through the Compétences button', async () => {
-  const paths = [];
-  const dom = await ui(async () => Response.json({ text: 'ok' }), async path => {
-    paths.push(path);
-    return Response.json({ capabilities: [{ id: 'code.read', name: 'Lecture du code', description: 'Lit le code MEL', enabled: true, health: 'HEALTHY' }] });
-  });
+test('MVP exposes all seven visual choices while capability inspection remains a chat/runtime concern', async () => {
+  const dom = await ui(async () => Response.json({ text: 'ok' }));
   const document = dom.window.document;
-  document.querySelector('#skills').click();
-  await tick();
-  assert.ok(paths.includes('/api/gen2/capabilities'));
-  assert.match(document.querySelector('#skillsList').textContent, /Lecture du code/);
-  assert.match(document.querySelector('#skillsList').textContent, /ACTIF/);
+  const choices = [...document.querySelectorAll('[data-theme-choice]')].map(node => node.dataset.themeChoice);
+  assert.deepEqual(choices, ['classic','crusade','religious','granada','aviation','paladin','amazon']);
+  assert.equal(document.querySelector('#skills'), null);
+  assert.equal(document.querySelector('#skillsPanel'), null);
   dom.window.close();
 });
 
