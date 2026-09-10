@@ -5,6 +5,7 @@ import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 const MAX_FILES = 5;
 const MAX_EXCERPT = 3500;
 const MAX_PLAN_TEXT = 12000;
+const SHA40 = /^[0-9a-f]{40}$/i;
 
 function requireApproved(job) {
   const bridge = job?.result_json?.teacher_bridge;
@@ -45,6 +46,7 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
     branch: config.branch,
     fetchImpl,
   });
+  const headBefore = await reader.head();
   const roadmapId = String(job?.optional_context?.roadmap_id || '').trim();
   const fromInspection = Array.isArray(bridge?.evidence?.inspection_files) ? bridge.evidence.inspection_files : [];
   const fromSearch = [];
@@ -74,7 +76,11 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
     } catch {}
   }
   if (!files.length) throw Object.assign(new Error('APPROVED_IMPLEMENTATION_CODE_CONTEXT_REQUIRED'), { code: 'APPROVED_IMPLEMENTATION_CODE_CONTEXT_REQUIRED' });
-  return { ...config, files };
+  const headAfter = await reader.head();
+  if (headBefore.sha !== headAfter.sha) {
+    throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), { code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
+  }
+  return { ...config, candidate_sha: headAfter.sha, files };
 }
 
 function planningPrompt(job, bridge, code) {
@@ -89,6 +95,7 @@ function planningPrompt(job, bridge, code) {
     `ROADMAP_ID: ${String(job?.optional_context?.roadmap_id || '')}`,
     `TEACHER_FEEDBACK: ${String(bridge?.review?.feedback || '').slice(0, 4000)}`,
     `BRANCHE_CANDIDATE: ${code.branch}`,
+    `SHA_CANDIDAT_INSPECTÉ: ${code.candidate_sha}`,
     'CONTEXTE_CODE:',
     ...code.files.map((file) => `--- ${file.path} @ ${file.sha || 'unknown'} ---\n${file.excerpt}`),
   ].join('\n');
@@ -107,7 +114,9 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
   const current = await repository.get(job.id);
   if (!current) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
   const existing = current?.result_json?.implementation_proposal;
-  if (existing?.status === 'READY' && existing?.teacher_request_id) return { ...existing, reused: true };
+  if (existing?.status === 'READY' && existing?.teacher_request_id && SHA40.test(String(existing?.candidate_sha || ''))) {
+    return { ...existing, reused: true };
+  }
 
   const bridge = requireApproved(current);
   const code = await collectCodeContext(env, current, bridge, { fetchImpl });
@@ -121,6 +130,7 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
       request_id: bridge.request.request_id,
       roadmap_id: current.optional_context?.roadmap_id || null,
       candidate_branch: code.branch,
+      candidate_sha: code.candidate_sha,
     },
     maxCandidates: 2,
   });
@@ -136,6 +146,7 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
     created_at: new Date().toISOString(),
     teacher_request_id: bridge.request.request_id,
     candidate_branch: code.branch,
+    candidate_sha: code.candidate_sha,
     roadmap_id: current.optional_context?.roadmap_id || null,
     inspected_files: code.files.map((file) => ({ path: file.path, sha: file.sha || '' })),
     providers_attempted: fanout.providersAttempted.slice(0, 8),
