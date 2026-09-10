@@ -33,10 +33,11 @@ function priorityScore(row) {
 async function developmentState(env, full) {
   if (!env?.DB) return { available: false, active: [], recent: [], mentor_lessons: [] };
   try {
-    const [jobs, lessons] = await Promise.all([
-      new D1DevJobRepository(env.DB).list(),
-      new MentorMemoryRepository(env.DB).recent({ limit: full ? 6 : 2 }),
-    ]);
+    // Do not initialize two schema-aware repositories concurrently against the
+    // same D1/SQLite connection. Parallel migration attempts can race on the
+    // schema_migrations primary key even though each migration is idempotent.
+    const jobs = await new D1DevJobRepository(env.DB).list();
+    const lessons = await new MentorMemoryRepository(env.DB).recent({ limit: full ? 6 : 2 });
     const normalized = jobs.slice(0, full ? 10 : 4).map(job => ({
       id: job.job_id || job.id,
       status: job.status,
