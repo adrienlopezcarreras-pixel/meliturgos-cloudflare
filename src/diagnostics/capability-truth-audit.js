@@ -17,22 +17,28 @@ const DECLARED_IMPLEMENTATION_STATUSES = new Set([
   'NOT_IMPLEMENTED',
 ]);
 
-function declaredImplementationStatus(record) {
+export function declaredImplementationStatus(record) {
   const raw = String(record?.implementation_status || '').trim().toUpperCase();
   return DECLARED_IMPLEMENTATION_STATUSES.has(raw) ? raw : null;
 }
 
-function statusFrom(record, execution) {
+/**
+ * Single source of truth for capability claims exposed to diagnostics and chat.
+ * A HEALTHY registration without a current execution proof stays explicitly
+ * EXISTANT_NON_TESTE; only a successful execution may become EXISTANT_ET_TESTE.
+ */
+export function classifyCapabilityTruth(record, execution = null) {
   const declared = declaredImplementationStatus(record);
   if (declared === 'STUB') return 'STUB';
   if (declared === 'NOT_IMPLEMENTED') return 'NOT_IMPLEMENTED';
-  if (record.enabled === false) return 'BLOCKED';
-  if (record.health === 'UNAVAILABLE') return 'BLOCKED_EXTERNAL';
+  if (record?.enabled === false) return 'BLOCKED';
+  if (String(record?.health || '').toUpperCase() === 'UNAVAILABLE') return 'BLOCKED_EXTERNAL';
   if (execution?.ok) return 'EXISTANT_ET_TESTE';
   if (execution && !execution.ok) return 'EXISTANT_MAIS_ECHEC_RUNTIME';
   if (declared === 'PARTIAL') return 'PARTIEL';
-  if (record.health === 'HEALTHY') return 'EXISTANT_NON_TESTE';
-  if (record.health === 'DEGRADED') return 'PARTIEL';
+  const health = String(record?.health || '').toUpperCase();
+  if (health === 'HEALTHY') return 'EXISTANT_NON_TESTE';
+  if (health === 'DEGRADED') return 'PARTIEL';
   return 'EXISTANT_NON_TESTE';
 }
 
@@ -80,7 +86,7 @@ export async function auditRuntimeCapabilities(runtime, { deep = false, context 
       implementation_status: declared,
       tested_now: Boolean(execution),
       execution,
-      truth_status: statusFrom(record, execution),
+      truth_status: classifyCapabilityTruth(record, execution),
     });
   }
 
