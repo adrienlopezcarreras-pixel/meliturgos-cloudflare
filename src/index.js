@@ -12,6 +12,7 @@ import { maybeHandleLongChat } from "./api/long-chat.js";
 import { maybeHandleFastChat } from "./api/fast-chat.js";
 import { maybeHandleSelfAwareChat, maybeHandleSelfAwarenessApi } from "./api/self-aware-chat.js";
 import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
+import { enhanceThemeAvatars } from "./pages/theme-avatar-enhancer.js";
 
 function isArchivePayload(value) {
   if (Array.isArray(value)) return value.some(x => x && (x.mapping || x.messages || x.conversation_id || x.id));
@@ -146,7 +147,7 @@ export default {
 
       const preparedRequest = await injectEvolutionPreflightCapability(request);
       const response = await router.fetch(preparedRequest, env, ctx);
-      if (response) return response;
+      if (response) return enhanceThemeAvatars(response);
       throw new Error("Router returned null");
     } catch (error) {
       if (error?.status >= 400 && error.status < 600 && typeof error.code === "string") return Response.json({error:error.code,code:error.code},{status:Number(error.status)});
