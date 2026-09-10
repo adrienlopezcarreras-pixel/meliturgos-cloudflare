@@ -14,7 +14,7 @@ function council(costB = 0) {
   };
 }
 
-async function completeEvidenceRepository({ secondCost = 0 } = {}) {
+async function completeEvidenceRepository({ secondCost = 0, includeImplementation = true } = {}) {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const job = await repository.create({
     id: 'ready-job',
@@ -47,8 +47,20 @@ async function completeEvidenceRepository({ secondCost = 0 } = {}) {
         review: {
           request_id: 'runtime-request-1',
           verdict: 'APPROVE_PLAN',
+          development_allowed: true,
         },
       },
+      implementation_proposal: includeImplementation ? {
+        status: 'READY',
+        teacher_request_id: 'runtime-request-1',
+        candidate_branch: 'candidate/augmentio-core',
+        created_at: '2026-09-10T05:01:30Z',
+        inspected_files: [{ path: 'src/evolution/autonomy-runtime.js', sha: 'source' }],
+        providers_attempted: ['workers-ai:a', 'workers-ai:b'],
+        selected: { model: 'a', provider: 'workers-ai', text: 'bounded plan' },
+        production_touched: false,
+        candidate_write_performed: false,
+      } : null,
       autonomy_completion: {
         status: 'VERIFIED',
         request_id: 'runtime-request-1',
@@ -78,12 +90,13 @@ test('readiness is fail-closed when runtime evidence is absent', async () => {
     live_council_zero_cost: false,
     runtime_work_dag_resume: false,
     runtime_teacher_round_trip: false,
+    mel_multi_ai_implementation_plan: false,
     ci_verified_candidate_completion: false,
   });
   assert.ok(state.blockers.includes('LIVE_COUNCIL_ZERO_COST_NOT_PROVEN'));
 });
 
-test('readiness becomes true only from correlated runtime Teacher, Work DAG and CI evidence', async () => {
+test('readiness becomes true only from correlated Council, Work DAG, Teacher, MEL planning and CI evidence', async () => {
   const repository = await completeEvidenceRepository();
   const state = await getAutonomyReadiness({ repository });
   assert.equal(state.self_development_ready, true);
@@ -92,9 +105,20 @@ test('readiness becomes true only from correlated runtime Teacher, Work DAG and 
   assert.equal(state.gates.live_council_zero_cost, true);
   assert.equal(state.gates.runtime_work_dag_resume, true);
   assert.equal(state.gates.runtime_teacher_round_trip, true);
+  assert.equal(state.gates.mel_multi_ai_implementation_plan, true);
   assert.equal(state.gates.ci_verified_candidate_completion, true);
   assert.equal(state.evidence.runtime_teacher_round_trip.request_id, 'runtime-request-1');
+  assert.equal(state.evidence.mel_multi_ai_implementation_plan.request_id, 'runtime-request-1');
   assert.equal(state.evidence.ci_verified_candidate_completion.ci_run_id, 4242);
+});
+
+test('CI completion alone cannot substitute for MEL doing the approved implementation planning work', async () => {
+  const repository = await completeEvidenceRepository({ includeImplementation: false });
+  const state = await getAutonomyReadiness({ repository });
+  assert.equal(state.self_development_ready, false);
+  assert.equal(state.gates.mel_multi_ai_implementation_plan, false);
+  assert.equal(state.gates.ci_verified_candidate_completion, false, 'completion is correlated to the implementation proposal too');
+  assert.ok(state.blockers.includes('MEL_APPROVED_IMPLEMENTATION_PLAN_NOT_PROVEN'));
 });
 
 test('unknown Council cost is never accepted as zero-cost readiness evidence', async () => {
