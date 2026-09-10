@@ -39,8 +39,7 @@ function workDagProof(job) {
   };
 }
 
-function teacherRoundTripProof(job) {
-  const bridge = job?.result_json?.teacher_bridge;
+function proofFromAnsweredBridge(job, bridge, source = 'current') {
   if (!bridge || bridge.status !== 'ANSWERED') return null;
   const request = bridge.request;
   const review = bridge.review;
@@ -55,7 +54,19 @@ function teacherRoundTripProof(job) {
     reviewed_at: bridge.reviewed_at || review.reviewed_at || null,
     runtime_generated: true,
     request_reply_correlated: true,
+    source,
   };
+}
+
+function teacherRoundTripProof(job) {
+  const current = proofFromAnsweredBridge(job, job?.result_json?.teacher_bridge, 'current');
+  if (current) return current;
+  const history = asArray(job?.result_json?.teacher_bridge_history);
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const proof = proofFromAnsweredBridge(job, history[index], 'history');
+    if (proof) return proof;
+  }
+  return null;
 }
 
 function completionProof(job) {
