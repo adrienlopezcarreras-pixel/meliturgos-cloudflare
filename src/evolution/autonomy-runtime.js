@@ -7,6 +7,7 @@ import { queueRuntimeTeacherRequest } from '../teachers/runtime-teacher-bridge.j
 import { reconcileRuntimeTeacherReplies } from '../teachers/github-reply-reconciler.js';
 import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 import { runRuntimeWorkDagResumeProof } from './autonomy-proof.js';
+import { prepareApprovedImplementationProposal } from './autonomy-implementation-planner.js';
 
 const INSPECTION_FILES = [
   'AUTONOMY_STATE.json',
@@ -14,6 +15,7 @@ const INSPECTION_FILES = [
   'src/roadmap/master-roadmap.js',
   'src/evolution/autonomy-supervisor.js',
   'src/evolution/autonomy-proof.js',
+  'src/evolution/autonomy-implementation-planner.js',
   'src/dev/runtime-api.js',
   'src/work/work-dag.js',
   'src/work/autonomous-work-loop.js',
@@ -158,16 +160,15 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
 /**
  * One bounded autonomous heartbeat. It reconciles trusted GitHub Teacher
  * replies and CI-verified candidate completions first, then ensures the next
- * P0 autonomy job exists. The first available autonomy job also receives a
- * one-time live Work DAG resume proof using .augmentio; once a proof is stored,
- * future ticks reuse it without consuming more model calls. QUEUED/COUNCIL jobs
- * then advance to a real runtime-generated Teacher request.
+ * P0 autonomy job exists. The first available autonomy job receives a one-time
+ * live Work DAG resume proof using .augmentio. After a correlated APPROVE_PLAN,
+ * MEL also performs her own bounded multi-AI CODE planning pass over inspected
+ * candidate sources in the same heartbeat and persists that work product.
  *
  * A NEEDS_CHANGES review is converted back to QUEUED with the previous Teacher
- * feedback injected into a fresh Council preflight, so the loop revises instead
- * of idling. Completion reconciliation happens before selection so a finished
- * job can release the next roadmap item in the same heartbeat. Production code
- * is never edited or deployed by this heartbeat.
+ * feedback injected into a fresh Council preflight. Completion reconciliation
+ * happens before selection so a finished job can release the next roadmap item
+ * immediately. Production code is never edited or deployed by this heartbeat.
  */
 export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
@@ -189,6 +190,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   let job = ensured.job;
   let teacher = null;
   let runtimeProof = null;
+  let implementation = null;
 
   if (job) {
     try {
@@ -210,6 +212,23 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     job = await jobRepository.get(job.id);
   }
 
+  if (job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
+    try {
+      implementation = await prepareApprovedImplementationProposal({
+        env,
+        repository: jobRepository,
+        job,
+        fetchImpl,
+      });
+      job = await jobRepository.get(job.id);
+    } catch (error) {
+      implementation = {
+        status: 'NOT_READY',
+        code: error?.code || error?.message || 'IMPLEMENTATION_PLANNING_FAILED',
+      };
+    }
+  }
+
   const state = await supervisor.state();
   return {
     ok: true,
@@ -222,6 +241,16 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
       providers_attempted: Number(runtimeProof.providers_attempted || 0),
       successful_candidates: Number(runtimeProof.successful_candidates || 0),
       code: runtimeProof.code || null,
+    } : null,
+    implementation: implementation ? {
+      status: implementation.status,
+      reused: implementation.reused === true,
+      teacher_request_id: implementation.teacher_request_id || null,
+      inspected_files: Array.isArray(implementation.inspected_files) ? implementation.inspected_files.map((row) => row.path).slice(0, 8) : [],
+      providers_attempted: Array.isArray(implementation.providers_attempted) ? implementation.providers_attempted.length : 0,
+      selected_provider: implementation.selected?.provider || null,
+      selected_model: implementation.selected?.model || null,
+      code: implementation.code || null,
     } : null,
     ensured: { created: ensured.created, complete: ensured.complete || false, next: ensured.next || null },
     job: job ? { id: job.id, status: job.status, goal: job.goal, roadmap_id: job.optional_context?.roadmap_id || null } : null,
