@@ -28,6 +28,19 @@ export function inferAutonomyControlIntent(text) {
   return null;
 }
 
+export function inferCapabilityInspectionIntent(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+
+  const self = /\b(?:mel|toi|tu|tes|ton|ta|elle|ses)\b/i.test(value);
+  const capabilityDomain = /\b(?:capacit[ée]s?|comp[ée]tences?|outils?|modules?|fonctions?|fonctionnalit[ée]s?|skills?|capabilities?|ce\s+que\s+tu\s+sais\s+faire|que\s+sais[- ]?tu\s+faire|que\s+peux[- ]?tu\s+faire)\b/i.test(value);
+  const asksInventory = /\b(?:quelles?|liste|inventaire|montre|affiche|connais|connaitre|sais|peux|fonctionne|marchent?|actives?|disponibles?|r[ée]elles?|[ée]tat|status|statut|audit|teste?|tester|v[ée]rifie|v[ée]rifier)\b/i.test(value);
+  if (!(capabilityDomain && (self || /\btu\b/i.test(value)) && asksInventory)) return null;
+
+  const deep = /\b(?:teste|tester|testes|v[ée]rifie|v[ée]rifier|audit\s+complet|audit\s+profond|r[ée]ellement|pour\s+de\s+vrai|smoke|ex[ée]cute|ex[ée]cuter)\b/i.test(value);
+  return { id: 'capability.audit', input: { deep } };
+}
+
 function enqueueCapability(goal, body, requestKey) {
   return {
     id: 'evolution.enqueue',
@@ -62,8 +75,12 @@ export async function injectEvolutionPreflightCapability(request) {
     body.capability = enqueueCapability(text, body, requestKey);
   } else {
     const autonomy = inferAutonomyControlIntent(text);
+    const capabilityInspection = autonomy ? null : inferCapabilityInspectionIntent(text);
     if (autonomy) {
       body.capability = autonomy;
+    } else if (capabilityInspection) {
+      body.capability = capabilityInspection;
+      body.intent_routing = { mode: 'deterministic', intent: 'CAPABILITY_STATUS', confidence: 1 };
     } else {
       const semantic = await classifySemanticOwnerIntent({
         text,
@@ -76,6 +93,8 @@ export async function injectEvolutionPreflightCapability(request) {
         body.capability = { id: 'autonomy.tick', input: {} };
       } else if (semantic.intent === 'AUTONOMY_STATUS') {
         body.capability = { id: 'autonomy.status', input: {} };
+      } else if (semantic.intent === 'CAPABILITY_STATUS') {
+        body.capability = { id: 'capability.audit', input: { deep: /\b(?:teste|test|v[ée]rifie|audit\s+complet|audit\s+profond|r[ée]ellement|smoke|ex[ée]cute)\b/i.test(text) } };
       } else {
         return request;
       }
