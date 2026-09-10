@@ -124,7 +124,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
     ],
     rollback: { strategy: 'candidate branch only; revert candidate commit if tests regress' },
     provenance: {
-      producer: 'MEL_RUNTIME_CRON',
+      source: 'MEL_RUNTIME_CRON',
       job_id: current.id,
       roadmap_id: current.optional_context?.roadmap_id || null,
       repository: repoName,
@@ -145,22 +145,22 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
  * to a real runtime-generated Teacher request. It never edits production code,
  * deploys, or commits GitHub changes by itself.
  */
-export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch } = {}) {
-  const repository = new D1DevJobRepository(env.DB);
-  const reconciliation = await reconcileRuntimeTeacherReplies({ repository, env, fetchImpl }).catch((error) => ({
+export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null } = {}) {
+  const jobRepository = repository || new D1DevJobRepository(env.DB);
+  const reconciliation = await reconcileRuntimeTeacherReplies({ repository: jobRepository, env, fetchImpl }).catch((error) => ({
     ok: false,
     error: error?.code || error?.message || 'TEACHER_RECONCILE_FAILED',
     applied: [],
   }));
 
-  const supervisor = new AutonomySupervisor({ repository });
+  const supervisor = new AutonomySupervisor({ repository: jobRepository });
   const ensured = await supervisor.ensureNextJob();
   let job = ensured.job;
   let teacher = null;
 
   if (job && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE'].includes(String(job.status || '').toUpperCase())) {
-    teacher = await prepareAutonomyTeacherRequest({ env, repository, job, fetchImpl });
-    job = await repository.get(job.id);
+    teacher = await prepareAutonomyTeacherRequest({ env, repository: jobRepository, job, fetchImpl });
+    job = await jobRepository.get(job.id);
   }
 
   const state = await supervisor.state();
