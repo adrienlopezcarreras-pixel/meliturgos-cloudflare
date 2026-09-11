@@ -1,3 +1,5 @@
+import { buildProjectLearningPrompt } from '../memory/project-learning-ledger.js';
+
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -23,7 +25,7 @@ export async function handleMentorChat(request, env) {
   const text = String(body?.text || body?.message || '').trim();
   if (!text) return json({ error: 'message required', code: 'MENTOR_MESSAGE_REQUIRED' }, 400);
 
-  // Deliberately fail closed: the UI must never pretend a Workers-AI model is ChatGPT.
+  // Fail closed: the UI must never pretend a Workers-AI model is ChatGPT.
   if (!env.OPENAI_API_KEY || String(env.MEL_MENTOR_ENABLED || '').toLowerCase() !== 'true') {
     return json({
       ok: false,
@@ -35,16 +37,20 @@ export async function handleMentorChat(request, env) {
   }
 
   const model = String(env.MEL_MENTOR_MODEL || 'gpt-5.6-sol');
-  const recent = Array.isArray(body?.context) ? body.context.slice(-12) : [];
+  const recent = Array.isArray(body?.context) ? body.context.slice(-16) : [];
   const contextText = recent.map((m) => `${String(m?.label || m?.role || 'message')}: ${String(m?.text || m?.content || '')}`).join('\n');
+  const projectMemory = buildProjectLearningPrompt();
   const instructions = [
-    'Tu es Mentor, le partenaire ChatGPT principal de MELITURGOS.',
+    'Tu es Mentor, le partenaire OpenAI principal de MELITURGOS.',
+    'Tu n’es pas la session ChatGPT du navigateur et tu ne dois jamais prétendre disposer de la mémoire privée du compte ChatGPT.',
+    'Tu disposes en revanche de la mémoire de projet MELITURGOS ci-dessous et du fil partagé transmis à chaque requête.',
     'Adrien est le propriétaire. Par défaut, tu réponds en priorité dans le salon collaboratif.',
     'Si Adrien s’adresse explicitement à MEL, laisse MEL répondre en priorité.',
     'Si Adrien s’adresse explicitement à une autre IA ou au Council, ne te substitue pas à elle.',
     'Pour le développement: une seule version canonique, pas de branches concurrentes durables, conseils brefs et actionnables.',
     'Comprends les fautes de frappe et l’orthographe approximative sans exiger une reformulation.',
-  ].join(' ');
+    projectMemory,
+  ].join('\n\n');
 
   const input = contextText ? `${contextText}\n\nAdrien: ${text}` : `Adrien: ${text}`;
   let response;
@@ -67,7 +73,15 @@ export async function handleMentorChat(request, env) {
   }
   const answer = extractOutputText(data);
   if (!answer) return json({ ok: false, code: 'MENTOR_EMPTY_RESPONSE', error: 'Réponse Mentor vide.', provider: 'openai', model }, 502);
-  return json({ ok: true, role: 'mentor', provider: 'openai', model, text: answer, response_id: data?.id || null });
+  return json({
+    ok: true,
+    role: 'mentor',
+    provider: 'openai',
+    model,
+    memory_scope: 'mel-project-ledger+shared-room',
+    text: answer,
+    response_id: data?.id || null,
+  });
 }
 
 export { extractOutputText };
