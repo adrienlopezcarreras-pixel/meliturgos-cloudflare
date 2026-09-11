@@ -8,12 +8,16 @@ const githubCodeRecords = [
   { id:'code.integrity', name:'Code integrity', category:'code', provider:'mel', risk:'LOW', enabled:true, health:'HEALTHY' },
 ];
 
-test('deep truth audit refuses GitHub-backed code operations until exact zero-added-cost proof is supplied', async () => {
+test('deep truth audit refuses GitHub-backed execution and health probes until exact zero-added-cost proof is supplied', async () => {
   const calls = [];
+  const healthCalls = [];
   const fake = {
     bus: {
-      refreshHealthAll: async () => githubCodeRecords,
       list: () => githubCodeRecords,
+      refreshHealth: async id => {
+        healthCalls.push(id);
+        return githubCodeRecords.find(record => record.id === id);
+      },
       execute: async id => { calls.push(id); return { ok:true }; },
     },
   };
@@ -27,6 +31,7 @@ test('deep truth audit refuses GitHub-backed code operations until exact zero-ad
     },
   });
 
+  assert.deepEqual(healthCalls, []);
   assert.deepEqual(calls, []);
   for (const id of ['code.read','code.search','code.integrity']) {
     const row = blocked.capabilities.find(item => item.id === id);
@@ -41,6 +46,7 @@ test('deep truth audit refuses GitHub-backed code operations until exact zero-ad
     zeroCostCapabilityIds: ['code.read'],
   });
 
+  assert.deepEqual(healthCalls, ['code.read']);
   assert.deepEqual(calls, ['code.read']);
   assert.equal(approved.capabilities.find(item => item.id === 'code.read').truth_status, 'EXISTANT_ET_TESTE');
   assert.equal(approved.capabilities.find(item => item.id === 'code.search').auto_execution_blocked, 'NO_BOUNDED_SAMPLE');
