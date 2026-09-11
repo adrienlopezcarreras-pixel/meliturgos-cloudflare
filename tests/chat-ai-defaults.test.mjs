@@ -43,8 +43,9 @@ test('chat AI wrapper automatically continues a response stopped by token length
   assert.equal(result.mel_auto_continued, true);
   assert.equal(result.mel_continuation_segments, 2);
   assert.equal(result.mel_response_incomplete, false);
-  assert.equal(calls[1].messages.at(-2).role, 'assistant');
-  assert.match(calls[1].messages.at(-1).content, /Continue exactement/);
+  assert.equal(calls[1].messages.at(-3).role, 'assistant');
+  assert.match(calls[1].messages.at(-2).content, /Continue exactement/);
+  assert.equal(calls[1].messages.at(-1).role, 'assistant');
 });
 
 test('chat AI wrapper bounds repeated truncation to configured continuation segments', async () => {
