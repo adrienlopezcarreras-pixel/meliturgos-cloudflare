@@ -39,8 +39,10 @@ test('runtime Teacher outbox queues a sanitized request and exposes only a bound
   const publicView = teacherBridgePublicView(pending);
   assert.equal(publicView[0].objective.includes('Runtime Teacher proof'), false);
   assert.equal(publicView[0].objective.includes(job.id), true);
-  assert.equal(JSON.stringify(publicView).includes('inspection'), false);
-  assert.equal(JSON.stringify(publicView).includes('council'), false);
+  assert.equal(Object.hasOwn(publicView[0], 'inspection'), false);
+  assert.equal(Object.hasOwn(publicView[0], 'council'), false);
+  assert.equal(Object.hasOwn(publicView[0], 'governance'), false);
+  assert.equal(JSON.stringify(publicView).includes('must-not-survive'), false);
 });
 
 test('matching runtime Teacher reply advances only to candidate development approval, never production deployment', async () => {
@@ -55,6 +57,8 @@ test('matching runtime Teacher reply advances only to candidate development appr
   });
   assert.equal(applied.job.status, 'TEACHER_APPROVED');
   assert.equal(applied.state.review.development_allowed, true);
+  assert.equal(applied.state.review.final_authority, 'CHATGPT_TEACHER');
+  assert.equal(applied.state.review.parallel_implementations_allowed, false);
   assert.notEqual(applied.job.status, 'APPROVED');
   assert.notEqual(applied.job.status, 'COMMITTED');
 
