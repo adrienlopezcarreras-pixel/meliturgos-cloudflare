@@ -1,17 +1,17 @@
 {
   "schema": "mel.autonomy-state",
   "version": 2,
-  "updated_at": "2026-09-10T22:55:43Z",
-  "branch": "candidate/mel-clean-autonomy",
+  "updated_at": "2026-09-11T08:30:00Z",
+  "branch": "candidate/augmentio-core",
   "priority": "P0",
   "objective": "Fermer la boucle MEL -> travail -> Teacher Bridge -> ChatGPT -> reprise automatique, puis continuer le prochain travail sans attente humaine inutile.",
   "candidate_code_checkpoint": {
-    "status": "VERIFIED_CI",
-    "last_verified_ci_head_before_state_update": "ae83dcde0939b0aa3e485089528c6efdc2fcf227",
-    "full_candidate_ci_run_id": 34539751467,
+    "status": "VERIFIED_PRE_CLEANUP_CI",
+    "last_verified_ci_head_before_state_update": "9a482e039151fad9914f7b6506a4090d4c8dcc7d",
+    "full_candidate_ci_run_id": 34577952847,
     "workflow": "full-candidate-ci",
     "conclusion": "success",
-    "notes": "Le HEAD vérifié inclut le routage conversationnel vers web.research, le suivi borné de sources publiques directes, le garde SSRF avec validation de chaque redirection, et l'alignement des fallbacks runtime/Teacher sur candidate/mel-clean-autonomy."
+    "notes": "Palier pré-nettoyage vérifié. Le câblage de branche est désormais consolidé sur candidate/augmentio-core; le HEAD final doit encore repasser la CI complète avant fusion vers main."
   },
   "verified": [
     {
@@ -87,27 +87,27 @@
     },
     {
       "capability": "clean_candidate_branch_wiring",
-      "status": "VERIFIED_IN_CURRENT_FULL_SUITE",
-      "evidence_commit": "ae83dcde0939b0aa3e485089528c6efdc2fcf227",
-      "full_candidate_ci_run_id": 34539751467,
-      "notes": "Wrangler, CapabilityBus, runtime autonomie, planificateur, Bridge preparer et transports Teacher utilisent candidate/mel-clean-autonomy comme branche de repli; les fallbacks candidate/augmentio-core et anciennes releases sont interdits par test."
+      "status": "PENDING_FINAL_CI",
+      "evidence_commit": "9a482e039151fad9914f7b6506a4090d4c8dcc7d",
+      "full_candidate_ci_run_id": 34577952847,
+      "notes": "Wrangler, CapabilityBus, runtime autonomie, planificateur, Bridge preparer et transports Teacher sont consolidés sur candidate/augmentio-core; l'ancienne candidate/mel-clean-autonomy est désormais interdite par le test de câblage."
     },
     {
       "capability": "chatgpt_teacher_automation",
-      "status": "ENABLED",
+      "status": "HISTORICAL_CONFIGURATION",
       "automation": "MEL Autonomie Continue",
       "cadence": "hourly",
-      "notes": "Canal ChatGPT sans API OpenAI payante; travaille sur candidate/mel-clean-autonomy. L'existence de l'automatisation ne constitue pas à elle seule une preuve de cycle runtime D1 courant."
+      "notes": "L'automatisation historique est conservée comme contexte mais ne constitue pas une preuve de branche runtime courante ni de cycle D1 courant."
     }
   ],
   "not_yet_proven": [
-    "La fermeture complète d'un deuxième cycle consécutif MEL-WORK-02 jusqu'au completion record vérifié sur candidate/mel-clean-autonomy.",
+    "La fermeture complète d'un deuxième cycle consécutif MEL-WORK-02 jusqu'au completion record vérifié sur candidate/augmentio-core.",
     "L'état live D1 du job autonomie courant après la consolidation de branche; GitHub seul ne doit pas être utilisé pour l'inventer.",
     "Plusieurs cycles consécutifs démontrant la continuité autonome au-delà du premier changement de job.",
     "Le déploiement production des changements candidate récents; aucune preuve de wrangler deploy n'est enregistrée ici."
   ],
   "next_p0": [
-    "Exécuter/reprendre le heartbeat runtime sur candidate/mel-clean-autonomy et relire l'état D1 courant.",
+    "Exécuter/reprendre le heartbeat runtime sur candidate/augmentio-core et relire l'état D1 courant.",
     "Exiger pour tout paquet d'implémentation un candidate_sha égal exactement au HEAD observé avant application; un paquet stale doit être régénéré, jamais forcé.",
     "Après Teacher approval corrélée, appliquer seulement le plus petit diff sûr via Dev Bridge, exécuter les tests, réparer dans le même scope si nécessaire, puis exiger full-candidate-ci exact avant completion.",
     "Conserver production_deploy_allowed=false jusqu'à validation humaine explicite."

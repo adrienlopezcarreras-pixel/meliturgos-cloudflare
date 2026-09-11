@@ -37,7 +37,7 @@ function requireImplementationProposal(job, teacher) {
 
 function codeConfig(env = {}, proposal) {
   const repository = String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
-  const branch = String(proposal?.candidate_branch || env.MEL_TEACHER_BRANCH || 'candidate/mel-clean-autonomy');
+  const branch = String(proposal?.candidate_branch || env.MEL_TEACHER_BRANCH || 'candidate/augmentio-core');
   if (!branch.startsWith('candidate/')) throw Object.assign(new Error('BRIDGE_PREPARATION_BRANCH_NOT_CANDIDATE'), { code: 'BRIDGE_PREPARATION_BRANCH_NOT_CANDIDATE' });
   if (env.MEL_TEACHER_BRANCH && String(env.MEL_TEACHER_BRANCH) !== branch) {
     throw Object.assign(new Error('BRIDGE_PREPARATION_BRANCH_MISMATCH'), { code: 'BRIDGE_PREPARATION_BRANCH_MISMATCH' });

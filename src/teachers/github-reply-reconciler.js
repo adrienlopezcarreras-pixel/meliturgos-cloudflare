@@ -8,7 +8,7 @@ function encodePath(value) {
 
 export function defaultTeacherRepliesUrl(env = {}) {
   const repository = String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
-  const branch = String(env.MEL_TEACHER_BRANCH || 'candidate/mel-clean-autonomy');
+  const branch = String(env.MEL_TEACHER_BRANCH || 'candidate/augmentio-core');
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
     throw Object.assign(new Error('TEACHER_REPOSITORY_INVALID'), { code: 'TEACHER_REPOSITORY_INVALID' });
   }

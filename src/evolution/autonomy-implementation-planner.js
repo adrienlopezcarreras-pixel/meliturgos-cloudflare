@@ -21,7 +21,7 @@ function requireApproved(job) {
 
 function codeConfig(env = {}) {
   const repository = String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
-  const branch = String(env.MEL_TEACHER_BRANCH || 'candidate/mel-clean-autonomy');
+  const branch = String(env.MEL_TEACHER_BRANCH || 'candidate/augmentio-core');
   if (!branch.startsWith('candidate/')) {
     throw Object.assign(new Error('AUTONOMY_BRANCH_NOT_CANDIDATE'), { code: 'AUTONOMY_BRANCH_NOT_CANDIDATE' });
   }
