@@ -6,6 +6,7 @@ import { registerDevicePolicyCapabilities } from '../../capabilities/device-poli
 import { registerGapDetectorCapability } from '../../capabilities/gap-detector-capability.js';
 import { registerWebResearchCapability } from '../../capabilities/web-research-capability.js';
 import { registerCodeIntegrityCapability } from '../../capabilities/code-integrity-capability.js';
+import { registerModuleProposalCapability } from '../../capabilities/module-proposal-capability.js';
 import { validateManifest } from '../../plugins/validator.js';
 import { transition } from '../lifecycle/extension.js';
 import { requireValue } from '../contracts.js';
@@ -24,6 +25,7 @@ export function createGen2Runtime({ audit = async () => {}, env = {} } = {}) {
   registerGapDetectorCapability(bus);
   registerWebResearchCapability(bus, env);
   registerCodeIntegrityCapability(bus, env);
+  registerModuleProposalCapability(bus);
   const plugins = new Map();
   const modules = new Map();
   const agents = new Map();
