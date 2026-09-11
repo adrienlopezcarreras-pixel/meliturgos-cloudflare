@@ -1,0 +1,13 @@
+{
+  "schema": "mel.deployment-policy",
+  "version": 1,
+  "updated_on": "2026-09-11",
+  "canonical_candidate_branch": "candidate/mel-clean-autonomy",
+  "single_deployable_candidate": true,
+  "single_release_path": true,
+  "parallel_deployable_duplicates_forbidden": true,
+  "secondary_branch_policy": "integrate_unique_work_then_retire",
+  "prototype_policy": "do_not_reintroduce_superseded_implementations",
+  "pre_deploy_check": "verify_canonical_contains_all_relevant_unique_work",
+  "reason": "Prevent competing versions, ambiguous deployments, duplicate runtime paths and unnecessary load across MEL and development agents."
+}
