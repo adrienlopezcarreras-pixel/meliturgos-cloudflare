@@ -58,7 +58,10 @@ test('runtime generates live zero-added-cost Council evidence before creating a 
   assert.equal(teacher.request.type, 'MEL_TEACHER_REVIEW_REQUEST');
   assert.equal(teacher.request.provenance.producer, 'MEL');
   assert.equal(teacher.request.provenance.job_id, job.id);
-  assert.equal(teacher.request.provenance.contract, 'teacher-review/v1');
+  assert.equal(teacher.request.provenance.contract, 'teacher-review/v2');
+  assert.equal(teacher.request.governance.final_authority, 'CHATGPT_TEACHER');
+  assert.equal(teacher.request.governance.parallel_implementations_allowed, false);
+  assert.equal(teacher.request.governance.persistent_implementation_plans, 1);
 });
 
 test('matching runtime Teacher reply resumes candidate development but cannot approve production commit', async () => {
@@ -86,6 +89,8 @@ test('matching runtime Teacher reply resumes candidate development but cannot ap
   const applied = await response.json();
   assert.equal(applied.status, 'TEACHER_APPROVED');
   assert.equal(applied.review.development_allowed, true);
+  assert.equal(applied.review.final_authority, 'CHATGPT_TEACHER');
+  assert.equal(applied.review.canonical_plan_count_allowed, 1);
 
   await assert.rejects(
     () => devRuntime(new Request(`http://x/api/professor/dev/jobs/${job.id}/approve`, {
