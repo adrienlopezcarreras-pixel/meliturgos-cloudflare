@@ -1,7 +1,7 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`
-Last fully green code/test checkpoint: `5032631b5e829b868ef32b2468fb8445bfab33ca` (`full-candidate-ci` run `34567055665`, completed/success, 2026-09-11).
+Last fully green code/test checkpoint: `0c5dc503b09a1ea998567b9d6d438b67c94a7a78` (`full-candidate-ci` run `34571486153`, completed/success, 2026-09-11).
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -42,9 +42,17 @@ Seven themes are registered end-to-end:
 - Capability truth audit — INTEGRATED: classifications distinguish `EXISTANT_ET_TESTE`, `EXISTANT_NON_TESTE`, `PARTIEL`, `STUB`, `NOT_IMPLEMENTED`, and blocked/runtime-failure states. Automatic deep execution remains restricted to bounded LOW-risk capabilities with explicit samples and fails closed for provider/external-cost-sensitive capabilities unless the exact capability is explicitly proven zero-added-cost for that run.
 - `.github/workflows/full-candidate-ci.yml` covers `candidate/mel-clean-autonomy`.
 
-## Latest concrete hardening — bounded self-audit proof
+## Latest concrete hardening — deterministic read-only intent proof
 
-- `src/diagnostics/capability-truth-audit.js` now gives `capability.audit` its own bounded sample `{ deep: false }`.
+- `tests/autonomy-chat-intent.test.mjs` now proves the deterministic, zero-provider fast paths for `code.integrity`, `work.open`, and `evolution.module.propose`, including bounded work limits and negative cases that keep ambiguous bare follow-ups out of regex routing.
+- Existing context-aware semantic-routing tests remain intact for elliptical commands such as `fais-le`, `continue`, `reprends`, `plus doré`, and `peux-tu faire ça ?`.
+- The full suite exposed one stale assertion that still expected the historical `TRUNCATED` token. `tests/tool-context-grounding.test.mjs` now asserts the current bounded head/tail marker emitted by `context-builder.js` (`CONTEXTE PARTIEL — … caractères intermédiaires omis`) without weakening the prompt-size bound.
+- Exact code/test SHA `0c5dc503b09a1ea998567b9d6d438b67c94a7a78` passed `full-candidate-ci` run `34571486153` (`completed`, `success`).
+- No production/release deployment, persistent mutation, provider call, added-cost operation, secret change, DNS/auth/billing change, or destructive migration occurred.
+
+## Earlier hardening — bounded self-audit proof
+
+- `src/diagnostics/capability-truth-audit.js` gives `capability.audit` its own bounded sample `{ deep: false }`.
 - The outer deep audit can therefore execute and classify the audit capability itself without recursive deep execution, mutation, provider calls or added cost.
 - `tests/capability-truth-audit.test.mjs` constructs an isolated `CapabilityBus`, registers only `capability.audit`, executes the deep truth audit and proves that the capability becomes `EXISTANT_ET_TESTE` with a real successful execution result.
 - Unknown/external-cost safeguards remain unchanged: provider-facing capabilities still require exact `zeroCostCapabilityIds` proof before automatic execution.
