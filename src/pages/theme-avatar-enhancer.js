@@ -1,5 +1,5 @@
 const THEME_AVATAR_SCRIPT = `<style id="mel-theme-decor-style">
-/* MEL visual contract v3 — one geometry, theme-specific materials. */
+/* MEL visual contract v4 — one geometry, theme-specific materials and pointer language. */
 #skills,#skillsBtn,#skillsPanel,.skills{display:none!important}
 .window:after{content:none!important;display:none!important}
 .avatar img{width:100%!important;height:100%!important;object-fit:cover!important;object-position:center 24%!important}
@@ -35,6 +35,16 @@ html[data-theme="paladin"] .window{border:5px double #d1ab48!important;box-shado
 html[data-theme="amazon"] .window{border:5px double #966b31!important;box-shadow:0 0 0 3px #c39a53,0 0 0 8px #351917,0 25px 85px #000!important}
 .app:after{display:block;text-align:center;margin:10px auto 0;color:var(--text);opacity:.65;letter-spacing:.7em;font-family:Georgia,serif;pointer-events:none}
 html[data-theme="crusade"] .app:after{content:'✠  ✠  ✠'}html[data-theme="religious"] .app:after{content:'❦  ✝  ❦'}html[data-theme="granada"] .app:after{content:'✦  ✠  ✦'}html[data-theme="aviation"] .app:after{content:'✦  ✈  ✦'}html[data-theme="paladin"] .app:after{content:'✦  ⚜  ✦'}html[data-theme="amazon"] .app:after{content:'⚡  ◈  ⚡'}
+@media(pointer:fine){
+html[data-theme="classic"] :is(button,a,.avatar,[role="button"],[data-theme-choice]){cursor:pointer!important}
+html[data-theme="crusade"] :is(button,a,.avatar,[role="button"],[data-theme-choice]){cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M9 27c-1-4 0-8 1-11l1-9c.2-2 3-2 3 0v7h1V4c0-2 3-2 3 0v10h1V6c0-2 3-2 3 0v9h1v-6c0-2 3-2 3 0v9c0 7-4 11-10 11-3 0-5-1-7-2z' fill='%236b4226' stroke='%23d6aa4e' stroke-width='1.5'/%3E%3Cpath d='M10 23h15' stroke='%238b1e1e' stroke-width='2'/%3E%3C/svg%3E") 12 5,pointer!important}
+html[data-theme="religious"] :is(button,a,.avatar,[role="button"],[data-theme-choice]){cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M9 27c-1-4 0-8 1-11l1-9c.2-2 3-2 3 0v7h1V4c0-2 3-2 3 0v10h1V6c0-2 3-2 3 0v9h1v-6c0-2 3-2 3 0v9c0 7-4 11-10 11-3 0-5-1-7-2z' fill='%23f3e1b8' stroke='%23b58b2f' stroke-width='1.5'/%3E%3Cpath d='M17 19v6m-3-3h6' stroke='%23294a73' stroke-width='1.7'/%3E%3C/svg%3E") 12 5,pointer!important}
+html[data-theme="granada"] :is(button,a,.avatar,[role="button"],[data-theme-choice]){cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M9 27c-1-4 0-8 1-11l1-9c.2-2 3-2 3 0v7h1V4c0-2 3-2 3 0v10h1V6c0-2 3-2 3 0v9h1v-6c0-2 3-2 3 0v9c0 7-4 11-10 11-3 0-5-1-7-2z' fill='%23fff3ce' stroke='%23a8761b' stroke-width='1.6'/%3E%3Cpath d='M10 23h15' stroke='%23c79a32' stroke-width='2'/%3E%3Ccircle cx='17.5' cy='23' r='1.5' fill='%23a8761b'/%3E%3C/svg%3E") 12 5,pointer!important}
+html[data-theme="aviation"] :is(button,a,.avatar,[role="button"],[data-theme-choice]){cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M9 27c-1-4 0-8 1-11l1-9c.2-2 3-2 3 0v7h1V4c0-2 3-2 3 0v10h1V6c0-2 3-2 3 0v9h1v-6c0-2 3-2 3 0v9c0 7-4 11-10 11-3 0-5-1-7-2z' fill='%23362a2b' stroke='%23b5904c' stroke-width='1.5'/%3E%3Cpath d='M10 23h15M12 26h11' stroke='%236d315f' stroke-width='1.6'/%3E%3C/svg%3E") 12 5,pointer!important}
+html[data-theme="paladin"] :is(button,a,.avatar,[role="button"],[data-theme-choice]){cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M9 27c-1-4 0-8 1-11l1-9c.2-2 3-2 3 0v7h1V4c0-2 3-2 3 0v10h1V6c0-2 3-2 3 0v9h1v-6c0-2 3-2 3 0v9c0 7-4 11-10 11-3 0-5-1-7-2z' fill='%23dce3e9' stroke='%2385631c' stroke-width='1.5'/%3E%3Cpath d='M11 15h14M10 20h15M11 24h13' stroke='%236c819d' stroke-width='1.3'/%3E%3Cpath d='M10 27h14' stroke='%23d0ac4b' stroke-width='2'/%3E%3C/svg%3E") 12 5,pointer!important}
+html[data-theme="amazon"] :is(button,a,.avatar,[role="button"],[data-theme-choice]){cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Cpath d='M9 27c-1-4 0-8 1-11l1-9c.2-2 3-2 3 0v7h1V4c0-2 3-2 3 0v10h1V6c0-2 3-2 3 0v9h1v-6c0-2 3-2 3 0v9c0 7-4 11-10 11-3 0-5-1-7-2z' fill='%23805a38' stroke='%23c79a47' stroke-width='1.5'/%3E%3Cpath d='M10 22h15v5H10z' fill='%23552222' stroke='%23b88735' stroke-width='1.2'/%3E%3Cpath d='M14 22l3 5 3-5' stroke='%23d7b45c' fill='none'/%3E%3C/svg%3E") 12 5,pointer!important}
+:is(textarea,input,[contenteditable="true"]){cursor:text!important}
+}
 @media(max-width:700px){.theme-panel,#themePanel{max-height:70vh;overflow:auto}.theme-choice-v3{padding:8px 9px}.avatar img{object-position:center 22%!important}}
 @media(prefers-reduced-motion:reduce){.avatar,.window,button,textarea{transition:none!important;animation:none!important}}
 </style><script id="mel-theme-avatar-runtime">
@@ -42,19 +52,9 @@ html[data-theme="crusade"] .app:after{content:'✠  ✠  ✠'}html[data-theme="r
   const THEMES=['classic','crusade','religious','granada','aviation','paladin','amazon'];
   const avatars={classic:'/assets/avatars/mel-classic.webp',crusade:'/assets/avatars/mel-crusade.webp',religious:'/assets/avatars/mel-religious-andalusian.webp',granada:'/assets/avatars/mel-granada.webp',aviation:'/assets/avatars/mel-aviation-1940s.webp',paladin:'/assets/avatars/mel-paladin-light-full-plate.webp',amazon:'/assets/avatars/mel-amazon-griffon.webp'};
   const idle={classic:'',crusade:'MEL veille et prie en silence.',religious:'MEL demeure dans une prière paisible.',granada:'MEL demeure dans la lumière du sanctuaire.',aviation:'MEL garde le cap.',paladin:'MEL veille dans la lumière.',amazon:'MEL guette l’orage.'};
-  const choices=[
-    ['classic','✦','Classique','Bleu nuit · interface moderne'],
-    ['crusade','✠','Croisés · Parchemin','Medieval Idle Prayer · cuir · or vieilli'],
-    ['religious','✝','Baroque andalou religieux','Cueva · pierre · cierges · dorures'],
-    ['granada','♛','Cathédrale de Grenade','Grand retable · ivoire · or monumental'],
-    ['aviation','✈','Aviation 1940s','cockpit · cuir violet · instruments analogiques'],
-    ['paladin','⚜','Paladin Light Full Plate','Armure claire · argent · ivoire · or'],
-    ['amazon','⚡','Amazon · Diadème du Griffon','bronze · grenat · orage · ruines']
-  ];
   const storage='mel.theme.v3';
   function normalize(value){return THEMES.includes(String(value||''))?String(value):'classic'}
   function theme(){return normalize(document.documentElement.dataset.theme)}
-  function panel(){return document.getElementById('themePanel')||document.querySelector('.theme-panel')}
   function ensureIdle(){let node=document.querySelector('.mel-idle-status');if(node)return node;const voice=document.getElementById('voiceStatus');if(!voice)return null;node=document.createElement('div');node.className='mel-idle-status';node.setAttribute('aria-live','polite');voice.insertAdjacentElement('afterend',node);return node}
   function sync(){
     const value=theme();
@@ -63,15 +63,10 @@ html[data-theme="crusade"] .app:after{content:'✠  ✠  ✠'}html[data-theme="r
     document.querySelectorAll('[data-theme-choice]').forEach(btn=>btn.classList.toggle('active',btn.dataset.themeChoice===value));
   }
   function choose(value){const next=normalize(value);document.documentElement.dataset.theme=next;try{localStorage.setItem(storage,next);localStorage.setItem('mel.theme.v2',next)}catch{}sync()}
-  function renderChoices(){
-    const target=panel();if(!target)return;
-    target.innerHTML='<div style="font-weight:700;margin:2px 2px 7px">Apparence de MEL</div>'+choices.map(c=>'<button type="button" class="theme-choice-v3" data-theme-choice="'+c[0]+'"><span class="mel-theme-icon">'+c[1]+'</span><span><strong>'+c[2]+'</strong><small>'+c[3]+'</small></span></button>').join('');
-    target.querySelectorAll('[data-theme-choice]').forEach(btn=>btn.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();choose(btn.dataset.themeChoice);target.classList.remove('open')}));
-  }
   function removeSkills(){document.getElementById('skills')?.remove();document.getElementById('skillsBtn')?.remove();document.getElementById('skillsPanel')?.remove();document.querySelectorAll('.skills').forEach(el=>el.remove())}
   function normalizeComposer(){const area=document.querySelector('textarea');if(area){area.maxLength=100000;area.setAttribute('maxlength','100000')}}
   function init(){
-    removeSkills();normalizeComposer();renderChoices();
+    removeSkills();normalizeComposer();
     let saved='';try{saved=localStorage.getItem(storage)||localStorage.getItem('mel.theme.v2')||''}catch{}
     choose(saved||document.documentElement.dataset.theme||'classic');
     new MutationObserver(()=>sync()).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
