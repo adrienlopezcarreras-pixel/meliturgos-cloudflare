@@ -11,6 +11,10 @@ test('deep truth audit proves bounded zero-cost local capabilities without touch
     'system.bindings': {},
     'chatgpt.archive.preview': { archive: { conversations: [] } },
     'capability.audit': { deep: false },
+    'evolution.module.propose': {
+      goal: 'prévisualiser une capacité locale de diagnostic sans écrire ni activer de code',
+      threshold: 2,
+    },
     'device.policy.preview': {
       deviceId: 'local-smoke-proof',
       capabilities: ['status.read'],
