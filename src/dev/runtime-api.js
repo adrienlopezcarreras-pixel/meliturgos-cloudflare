@@ -21,17 +21,25 @@ function normalizeBridgeTests(body, existing = []) {
   return Array.isArray(raw) ? raw.slice(0, 50) : [];
 }
 
+function bridgeTestsNeedRepair(tests = []) {
+  return tests.some((test) => test?.passed === false || Number(test?.exit_code) > 0 || Number(test?.result?.exit_code) > 0);
+}
+
 function mergeBridgeResult(job, body) {
   const existingResult = objectOrEmpty(job?.result_json);
   const submitted = objectOrEmpty(body?.result_json || body?.result);
+  const tests = normalizeBridgeTests(body, job?.tests_json);
+  const needsRepair = body?.needs_repair === true || bridgeTestsNeedRepair(tests);
+  const requestedStatus = String(body?.status || job?.status || '').slice(0, 80);
+  const effectiveStatus = requestedStatus === 'READY_FOR_REVIEW' && needsRepair ? 'REPAIR_REQUIRED' : requestedStatus;
   const bridgeResult = {
     ...submitted,
-    status: String(body?.status || job?.status || '').slice(0, 80),
+    status: effectiveStatus,
     candidate_branch: String(body?.candidate_branch || job?.candidate_branch || '').slice(0, 300) || null,
     diff_summary: String(body?.diff_summary ?? submitted?.diff_summary ?? '').slice(0, 20_000),
     files: Array.isArray(body?.files_json) ? body.files_json.slice(0, 50) : Array.isArray(submitted?.files) ? submitted.files.slice(0, 50) : [],
-    tests: normalizeBridgeTests(body, job?.tests_json),
-    needs_repair: body?.needs_repair === true || normalizeBridgeTests(body, job?.tests_json).some((test) => test?.passed === false || Number(test?.exit_code) > 0 || Number(test?.result?.exit_code) > 0),
+    tests,
+    needs_repair: needsRepair,
     received_at: new Date().toISOString(),
   };
   return { ...existingResult, dev_bridge: bridgeResult };
@@ -206,11 +214,13 @@ export function devRuntime(request, env) {
       }
       const normalizedBody = { ...body, result_json: submitted || {} };
       const tests = normalizeBridgeTests(normalizedBody, job.tests_json);
+      const mergedResult = mergeBridgeResult(job, normalizedBody);
+      const effectiveStatus = mergedResult.dev_bridge?.status || String(body.status || job.status || '').slice(0, 80) || job.status;
       const patch = {
-        status: String(body.status || job.status || '').slice(0, 80) || job.status,
+        status: effectiveStatus,
         candidate_branch: body.candidate_branch || job.candidate_branch,
         tests_json: tests,
-        result_json: mergeBridgeResult(job, normalizedBody),
+        result_json: mergedResult,
         plan_json: mergeBridgePlan(job, normalizedBody),
         patch_json: {
           ...objectOrEmpty(job.patch_json),
@@ -232,4 +242,4 @@ export function devRuntime(request, env) {
   })();
 }
 
-export { mergeBridgeResult, mergeBridgePlan, normalizeBridgeTests };
+export { mergeBridgeResult, mergeBridgePlan, normalizeBridgeTests, bridgeTestsNeedRepair };
