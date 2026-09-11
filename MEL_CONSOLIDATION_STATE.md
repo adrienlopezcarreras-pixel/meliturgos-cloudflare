@@ -1,7 +1,7 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`
-Last fully green checkpoint: `4b8cc7b7174d5fbee1f63c1564bcf07e0037d685` (`full-candidate-ci` run `34559521984`, completed/success, 2026-09-11).
+Last fully green checkpoint: `35b051c9d39470ae12f8c90ef4adf92d8974e14a` (`full-candidate-ci` run `34563434857`, completed/success, 2026-09-11).
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -39,15 +39,16 @@ Seven themes are registered end-to-end:
 - Natural comprehension — INTEGRATED regression coverage for `fais-le`, `continue`, `reprends`, `enlève ça`, `plus doré`, `corrige tout`, `développe-toi`, `où en es-tu ?`, `peux-tu faire ça ?` with bounded context-aware semantic fallback; regex remains a fast path only.
 - Autonomy handoff — INTEGRATED: natural chat/evolution enqueue -> durable job -> Council/Mentor evidence -> Teacher correlation -> structured Dev Bridge package -> candidate apply/test/diff -> repair/retest evidence -> READY_FOR_REVIEW -> CI completion gate -> Mentor learning.
 - Repair continuity — INTEGRATED: a repair pass reuses a live isolated candidate when available, records `bridge_pass=repair` and `candidate_reused=true`, and safely falls back to fresh candidate creation only when no recoverable state exists.
-- Capability truth audit — INTEGRATED: classifications distinguish `EXISTANT_ET_TESTE`, `EXISTANT_NON_TESTE`, `PARTIEL`, `STUB`, `NOT_IMPLEMENTED`, and blocked/runtime-failure states. Automatic deep execution remains restricted to bounded LOW-risk capabilities with explicit samples.
+- Capability truth audit — INTEGRATED: classifications distinguish `EXISTANT_ET_TESTE`, `EXISTANT_NON_TESTE`, `PARTIEL`, `STUB`, `NOT_IMPLEMENTED`, and blocked/runtime-failure states. Automatic deep execution remains restricted to bounded LOW-risk capabilities with explicit samples and now fails closed for provider/external-cost-sensitive capabilities unless the exact capability is explicitly proven zero-added-cost for that run.
 - `.github/workflows/full-candidate-ci.yml` covers `candidate/mel-clean-autonomy`.
 
-## Latest concrete hardening — Dev Bridge restart continuity
+## Latest concrete hardening — capability audit cost fail-closed
 
-- `src/dev/dev-bridge.js` persists bounded candidate state under the configured candidate root, validates job id / exact expected branch / isolated-copy marker / non-symlink directory before recovery, restores the existing isolated candidate without recreating it, persists state changes, and removes the state record on rollback.
-- Recovery does not trust arbitrary paths from persisted data; the candidate directory and branch are derived from the validated job id. Invalid or tampered state fails closed as `CANDIDATE_STATE_INVALID`.
-- `tests/integration/dev-bridge.test.mjs` now proves the complete local repair sequence with real `LocalDevBridge` instances: an implementation pass writes an intentionally invalid isolated `package.json`, real `test:smoke` fails and leaves `READY_FOR_REVIEW` + `needs_repair=true`; a new bridge instance simulates process restart, recovers the same candidate, a Mentor `mode=repair` package restores the original file, reruns real `test:smoke` to green, preserves `bridge_pass=repair` + `candidate_reused=true`, reports `recovered=true`, then rolls the isolated fixture back cleanly.
-- Exact code/test SHA `4b8cc7b7174d5fbee1f63c1564bcf07e0037d685` passed `full-candidate-ci` run `34559521984` (`completed`, `success`). This closes the previously listed restart-boundary repair proof gap.
+- `src/diagnostics/capability-truth-audit.js` no longer auto-executes cost-sensitive/provider-facing capabilities merely because they are declared LOW risk and have a sample.
+- Council/Augmentio/evolution/web research related capabilities remain inventoried truthfully but automatic execution is blocked as `UNKNOWN_OR_EXTERNAL_COST` until that exact capability is passed in `zeroCostCapabilityIds` for the current run.
+- Local bounded previews such as `device.policy.preview` remain eligible for deep LOW-risk smoke execution.
+- `tests/capability-truth-audit.test.mjs` proves unknown-cost `web.research` is not called, while the local device preview is called; the same web capability executes only after explicit zero-cost proof.
+- Exact code/test SHA `35b051c9d39470ae12f8c90ef4adf92d8974e14a` passed `full-candidate-ci` run `34563434857` (`completed`, `success`).
 
 ## Safety / verification rules
 
@@ -62,6 +63,6 @@ Seven themes are registered end-to-end:
 
 ## Next concrete blocks
 
-1. Inspect the truth-audit output for the next genuine `PARTIEL` / `EXISTANT_NON_TESTE` capability. Execute only a bounded LOW-risk non-mutating smoke where a safe sample exists; do not auto-execute Council/Augmentio merely because their declared risk is LOW when provider cost/availability is not explicitly proven zero for that run.
+1. Use the truth audit to select the next genuinely `PARTIEL` / `EXISTANT_NON_TESTE` local capability and add a bounded non-mutating proof; do not mark provider-facing capabilities tested without explicit zero-cost evidence.
 2. Preserve the seven approved themes/avatar geometry and 100k composer while autonomy remains the higher priority; no cosmetic rework without a failing regression.
 3. Keep validating the durable chat -> Mentor/Council -> Teacher -> Dev Bridge -> repair/retest -> READY_FOR_REVIEW -> memory chain with small reproducible proofs, without any production deployment.
