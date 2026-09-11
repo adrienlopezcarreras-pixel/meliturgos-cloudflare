@@ -1,19 +1,19 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`
-Last fully green checkpoint: `35b051c9d39470ae12f8c90ef4adf92d8974e14a` (`full-candidate-ci` run `34563434857`, completed/success, 2026-09-11).
+Last fully green code/test checkpoint: `5032631b5e829b868ef32b2468fb8445bfab33ca` (`full-candidate-ci` run `34567055665`, completed/success, 2026-09-11).
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
-- `release/mel-2026-09-10-r3-3` — REFERENCE_ONLY / DIVERGED (`ahead_by=10`, `behind_by=161`). Never replace candidate with release; recover only a specific release-only behavior backed by a failing regression test.
-- `candidate/mel-ui-selfaware-integration` — ALREADY_CONTAINED; branch is now strictly behind clean (`behind_by=120`, no unique commits).
-- `candidate/augmentio-core` — ALREADY_CONTAINED; strictly behind clean (`behind_by=140`, no unique commits).
-- `candidate/dev-bridge-fetch-fix` / PR #5 — ALREADY_CONTAINED; strictly behind clean (`behind_by=138`, no unique commits). Transport/capability-registration fix remains in clean lineage.
-- `candidate/device-control-core` / PR #4 — INTEGRATED_BY_COMPARISON. Source branch is divergent (`ahead_by=2`, `behind_by=141`), but its fail-closed policy exists on clean in `src/devices/device-control-policy.js` with tests; do not cherry-pick the divergent branch wholesale.
-- `candidate/mel-work-02-state-final2` — ALREADY_CONTAINED; strictly behind clean (`behind_by=144`, no unique commits).
-- `feature/mel-autonomy-mentor` / PR #6/#7 — REFERENCE_ONLY / highly divergent (`ahead_by=53`, `behind_by=354`). Mentor/runtime/UI equivalents already integrated on clean; recover only a specifically missing behavior proven by evidence. PR #6 and PR #7 are currently open drafts, not merge authorities.
-- `hotfix/prompt-limit-100k` — REFERENCE_ONLY / DIVERGED (`ahead_by=2`, `behind_by=354`). Current composer/runtime already enforces the 100000-character contract; do not import stale package/script changes without evidence.
-- PR #4 and PR #5 remain open historical candidate PRs. No PR or divergent branch was merged blindly.
+- `release/mel-2026-09-10-r3-3` — REFERENCE_ONLY / DIVERGED (`ahead_by=10`, `behind_by=171`). Never replace candidate with release; recover only a specific release-only behavior backed by a failing regression test.
+- `candidate/mel-ui-selfaware-integration` — ALREADY_CONTAINED; strictly behind clean (`behind_by=130`, no unique commits).
+- `candidate/augmentio-core` — ALREADY_CONTAINED; strictly behind clean (`behind_by=150`, no unique commits).
+- `candidate/dev-bridge-fetch-fix` / PR #5 — ALREADY_CONTAINED; strictly behind clean (`behind_by=148`, no unique commits). PR #5 remains open historical context only.
+- `candidate/device-control-core` / PR #4 — INTEGRATED_BY_COMPARISON. Source branch remains divergent (`ahead_by=2`, `behind_by=151`), but its fail-closed policy and tests exist on clean; do not cherry-pick the divergent branch wholesale. PR #4 remains open historical context only.
+- `candidate/mel-work-02-state-final2` — ALREADY_CONTAINED; strictly behind clean (`behind_by=154`, no unique commits).
+- `feature/mel-autonomy-mentor` / PR #6/#7 — REFERENCE_ONLY / highly divergent (`ahead_by=53`, `behind_by=364`). Mentor/runtime/UI equivalents are already integrated on clean; recover only a specifically missing behavior proven by evidence. PR #6 and PR #7 remain open drafts, with PR #7 currently non-mergeable.
+- `hotfix/prompt-limit-100k` — REFERENCE_ONLY / DIVERGED (`ahead_by=2`, `behind_by=364`). Current composer/runtime already enforces the 100000-character contract; do not import stale package/script changes without evidence.
+- No PR or divergent branch was merged blindly in this run.
 
 ## Integrated product contract
 
@@ -39,16 +39,16 @@ Seven themes are registered end-to-end:
 - Natural comprehension — INTEGRATED regression coverage for `fais-le`, `continue`, `reprends`, `enlève ça`, `plus doré`, `corrige tout`, `développe-toi`, `où en es-tu ?`, `peux-tu faire ça ?` with bounded context-aware semantic fallback; regex remains a fast path only.
 - Autonomy handoff — INTEGRATED: natural chat/evolution enqueue -> durable job -> Council/Mentor evidence -> Teacher correlation -> structured Dev Bridge package -> candidate apply/test/diff -> repair/retest evidence -> READY_FOR_REVIEW -> CI completion gate -> Mentor learning.
 - Repair continuity — INTEGRATED: a repair pass reuses a live isolated candidate when available, records `bridge_pass=repair` and `candidate_reused=true`, and safely falls back to fresh candidate creation only when no recoverable state exists.
-- Capability truth audit — INTEGRATED: classifications distinguish `EXISTANT_ET_TESTE`, `EXISTANT_NON_TESTE`, `PARTIEL`, `STUB`, `NOT_IMPLEMENTED`, and blocked/runtime-failure states. Automatic deep execution remains restricted to bounded LOW-risk capabilities with explicit samples and now fails closed for provider/external-cost-sensitive capabilities unless the exact capability is explicitly proven zero-added-cost for that run.
+- Capability truth audit — INTEGRATED: classifications distinguish `EXISTANT_ET_TESTE`, `EXISTANT_NON_TESTE`, `PARTIEL`, `STUB`, `NOT_IMPLEMENTED`, and blocked/runtime-failure states. Automatic deep execution remains restricted to bounded LOW-risk capabilities with explicit samples and fails closed for provider/external-cost-sensitive capabilities unless the exact capability is explicitly proven zero-added-cost for that run.
 - `.github/workflows/full-candidate-ci.yml` covers `candidate/mel-clean-autonomy`.
 
-## Latest concrete hardening — capability audit cost fail-closed
+## Latest concrete hardening — bounded self-audit proof
 
-- `src/diagnostics/capability-truth-audit.js` no longer auto-executes cost-sensitive/provider-facing capabilities merely because they are declared LOW risk and have a sample.
-- Council/Augmentio/evolution/web research related capabilities remain inventoried truthfully but automatic execution is blocked as `UNKNOWN_OR_EXTERNAL_COST` until that exact capability is passed in `zeroCostCapabilityIds` for the current run.
-- Local bounded previews such as `device.policy.preview` remain eligible for deep LOW-risk smoke execution.
-- `tests/capability-truth-audit.test.mjs` proves unknown-cost `web.research` is not called, while the local device preview is called; the same web capability executes only after explicit zero-cost proof.
-- Exact code/test SHA `35b051c9d39470ae12f8c90ef4adf92d8974e14a` passed `full-candidate-ci` run `34563434857` (`completed`, `success`).
+- `src/diagnostics/capability-truth-audit.js` now gives `capability.audit` its own bounded sample `{ deep: false }`.
+- The outer deep audit can therefore execute and classify the audit capability itself without recursive deep execution, mutation, provider calls or added cost.
+- `tests/capability-truth-audit.test.mjs` constructs an isolated `CapabilityBus`, registers only `capability.audit`, executes the deep truth audit and proves that the capability becomes `EXISTANT_ET_TESTE` with a real successful execution result.
+- Unknown/external-cost safeguards remain unchanged: provider-facing capabilities still require exact `zeroCostCapabilityIds` proof before automatic execution.
+- Exact code/test SHA `5032631b5e829b868ef32b2468fb8445bfab33ca` passed `full-candidate-ci` run `34567055665` (`completed`, `success`).
 
 ## Safety / verification rules
 
@@ -63,6 +63,6 @@ Seven themes are registered end-to-end:
 
 ## Next concrete blocks
 
-1. Use the truth audit to select the next genuinely `PARTIEL` / `EXISTANT_NON_TESTE` local capability and add a bounded non-mutating proof; do not mark provider-facing capabilities tested without explicit zero-cost evidence.
-2. Preserve the seven approved themes/avatar geometry and 100k composer while autonomy remains the higher priority; no cosmetic rework without a failing regression.
-3. Keep validating the durable chat -> Mentor/Council -> Teacher -> Dev Bridge -> repair/retest -> READY_FOR_REVIEW -> memory chain with small reproducible proofs, without any production deployment.
+1. Select the next genuinely local `PARTIEL` / `EXISTANT_NON_TESTE` capability that can be exercised without mutation, provider/network cost or persistent writes; add one bounded proof at a time.
+2. Keep validating the durable chat -> Mentor/Council -> Teacher -> Dev Bridge -> repair/retest -> READY_FOR_REVIEW -> memory chain with small reproducible proofs, without any production deployment.
+3. Preserve the seven approved themes/avatar geometry and 100k composer; no cosmetic rework without a failing regression.
