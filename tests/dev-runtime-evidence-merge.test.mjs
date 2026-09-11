@@ -33,12 +33,13 @@ test('Dev Bridge result is nested without erasing Teacher, multi-AI or preparati
   assert.equal(merged.dev_bridge.needs_repair, false);
 });
 
-test('failed bridge tests are retained as repair evidence rather than hidden', () => {
+test('failed bridge tests are retained as repair evidence and cannot masquerade as ready for review', () => {
   const merged = mergeBridgeResult(job, {
     status: 'READY_FOR_REVIEW',
     tests_json: [{ name: 'test:smoke', command: 'test:smoke', passed: false, exit_code: 1, stderr: 'assertion failed' }],
     result_json: { answer: 'candidate failed tests' },
   });
+  assert.equal(merged.dev_bridge.status, 'REPAIR_REQUIRED');
   assert.equal(merged.dev_bridge.needs_repair, true);
   assert.equal(merged.dev_bridge.tests[0].passed, false);
 });
