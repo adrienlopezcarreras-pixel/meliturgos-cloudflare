@@ -1,5 +1,5 @@
 export const MEL_PROJECT_LEARNING_LEDGER = Object.freeze({
-  schema_version: '1.0',
+  schema_version: '1.1',
   updated_at: '2026-09-11',
   purpose: 'Mémoire durable de développement de MELITURGOS : décisions, réussites, erreurs, corrections et leçons. À utiliser comme contexte de projet, jamais comme source de secrets ni comme autorisation implicite.',
   owner: 'Adrien',
@@ -7,6 +7,8 @@ export const MEL_PROJECT_LEARNING_LEDGER = Object.freeze({
     'MEL est l’IA personnelle d’Adrien, avec identité féminine stable et tutoiement systématique.',
     'Priorité à une architecture réellement fonctionnelle, observable et testable plutôt qu’aux déclarations de capacité non prouvées.',
     'Éviter les doublons : une seule source de vérité, un seul chemin actif par fonction, et dédupliquer avant de créer un nouveau module.',
+    'RÈGLE ABSOLUE DE FIN DE SESSION : avant de considérer une session terminée, nettoyer systématiquement les artefacts temporaires, doublons, branches candidates périmées, sorties Council non retenues, fichiers temporaires et jobs obsolètes. Ne jamais supprimer la mémoire canonique, les décisions validées, les preuves de tests, les journaux utiles, les artefacts nécessaires à un rollback ni les données utilisateur.',
+    'RÈGLE ABSOLUE DE DÉPLOIEMENT : ne jamais prétendre avoir déployé sur une machine Ubuntu sans accès réel à cette machine. Le runner GitHub Actions peut être Ubuntu sans que la cible de production soit un serveur Ubuntu. Si un accès SSH ou un connecteur serveur manque, le demander explicitement à Adrien.',
     'Ne jamais prétendre qu’un développement est terminé sans preuve : code présent, tests, état runtime ou déploiement vérifié.',
     'Conserver un mode de fonctionnement à coût nul par défaut ; toute dépense ou ressource payante nécessite l’accord explicite d’Adrien.',
     'L’arrêt/contrôle du propriétaire doit toujours avoir priorité. Pas de réplication cachée, pas de collecte de secrets.',
@@ -121,7 +123,8 @@ export const MEL_PROJECT_LEARNING_LEDGER = Object.freeze({
   current_truths: [
     'Le dépôt principal utilisé pour ce travail est adrienlopezcarreras-pixel/meliturgos-cloudflare.',
     'Le runtime Cloudflare sert l’interface MEL et conserve encore un fallback legacy worker pour certaines routes.',
-    'Le workflow de déploiement production décrit dans .github/workflows/deploy-cloudflare-release.yml refuse un déploiement hors branche release/* et se lance manuellement.',
+    'Les workflows GitHub Actions s’exécutent sur des runners Ubuntu. Cela ne signifie pas que MEL est hébergée sur un serveur Ubuntu : la production actuelle cible Cloudflare Worker.',
+    'Le workflow de déploiement production .github/workflows/deploy-cloudflare-release.yml est configuré pour déployer depuis release/* ; son exécution doit toujours rester conditionnée aux tests et à la présence des secrets Cloudflare requis.',
     'La feuille de route complète est dans src/roadmap/master-roadmap.js et doit rester la source de vérité des états produit.',
     'Le catalogue des outils externes accessibles via ChatGPT est séparé dans src/memory/chatgpt-plugin-catalog.js.'
   ]
