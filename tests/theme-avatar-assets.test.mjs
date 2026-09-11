@@ -35,7 +35,7 @@ test('owner-approved theme portraits are dedicated and remaining fallback is exp
   assert.equal(serveMelAvatar('/assets/avatars/mel-granada.webp').headers.get('x-mel-avatar-fallback'), 'religious');
 });
 
-test('HTML enhancer exposes seven uniform themes and keeps the composer clean', async () => {
+test('HTML enhancer decorates all seven themes without duplicating the theme menu', async () => {
   const source = '<!doctype html><html data-theme="classic"><body><div class="theme-switch"><button id="themeButton"></button><div id="themePanel"><button data-theme-choice="classic"></button></div></div><main class="app"><div class="avatar-wrap"><div class="avatar"><img src="/meliturgos-avatar-fille.png" alt="MEL"></div></div><div id="voiceStatus"></div><section class="window"><div id="messages"></div><div class="composer"><textarea id="input" maxlength="100000"></textarea><div class="controls"><button id="send">Envoyer</button><button id="skills">Compétences</button><button id="full">Mode complet</button></div></div><div id="skillsPanel" class="skills"></div></section></main></body></html>';
   const response = await enhanceThemeAvatars(new Response(source, { headers: { 'content-type': 'text/html; charset=utf-8' } }));
   const html = await response.text();
@@ -48,26 +48,29 @@ test('HTML enhancer exposes seven uniform themes and keeps the composer clean', 
   assert.match(html, /mel-aviation-1940s\.webp/);
   assert.match(html, /mel-paladin-light-full-plate\.webp/);
   assert.match(html, /mel-amazon-griffon\.webp/);
-  assert.match(html, /Cathédrale de Grenade/);
-  assert.match(html, /Grand retable/);
-  assert.match(html, /Aviation 1940s/);
-  assert.match(html, /cuir violet/i);
-  assert.match(html, /Paladin Light Full Plate/);
-  assert.match(html, /Armure claire/);
-  assert.match(html, /Amazon · Diadème du Griffon/);
-  assert.match(html, /bronze · grenat · orage · ruines/);
-  assert.doesNotMatch(html, /Dark Full Plate/);
+  assert.match(html, /data-theme=\"crusade\"/);
+  assert.match(html, /data-theme=\"religious\"/);
+  assert.match(html, /data-theme=\"granada\"/);
+  assert.match(html, /data-theme=\"aviation\"/);
+  assert.match(html, /data-theme=\"paladin\"/);
+  assert.match(html, /data-theme=\"amazon\"/);
   assert.match(html, /MEL veille et prie en silence/);
   assert.match(html, /MEL demeure dans une prière paisible/);
   assert.match(html, /MEL demeure dans la lumière du sanctuaire/);
   assert.match(html, /MEL garde le cap/);
   assert.match(html, /MEL veille dans la lumière/);
   assert.match(html, /MEL guette l’orage/);
+  assert.match(html, /@media\(pointer:fine\)/);
+  assert.match(html, /cursor:url\("data:image\/svg\+xml/);
+  assert.match(html, /stroke='%23d0ac4b'/);
+  assert.match(html, /stroke='%23b88735'/);
+  assert.doesNotMatch(html, /Cathédrale de Grenade/);
+  assert.doesNotMatch(html, /choices\.map/);
+  assert.doesNotMatch(html, /renderChoices/);
   assert.match(html, /#skills,#skillsBtn,#skillsPanel,\.skills\{display:none!important\}/);
   assert.match(html, /\.window:after\{content:none!important/);
   assert.match(html, /document\.getElementById\('skills'\)\?\.remove/);
   assert.match(html, /mel\.theme\.v3/);
-  assert.match(html, /event\.stopImmediatePropagation/);
   assert.match(html, /body\.ui_theme/);
   assert.match(html, /body\.intent_context/);
   assert.match(html, /object-fit:cover!important/);
