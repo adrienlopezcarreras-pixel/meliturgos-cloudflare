@@ -1,17 +1,30 @@
 {
   "schema": "mel.autonomy-state",
   "version": 2,
-  "updated_at": "2026-09-11T08:30:00Z",
+  "updated_at": "2026-09-11T09:14:34Z",
   "branch": "candidate/augmentio-core",
   "priority": "P0",
   "objective": "Fermer la boucle MEL -> travail -> Teacher Bridge -> ChatGPT -> reprise automatique, puis continuer le prochain travail sans attente humaine inutile.",
   "candidate_code_checkpoint": {
-    "status": "VERIFIED_PRE_CLEANUP_CI",
-    "last_verified_ci_head_before_state_update": "9a482e039151fad9914f7b6506a4090d4c8dcc7d",
-    "full_candidate_ci_run_id": 34577952847,
+    "status": "VERIFIED_FINAL_CI_AND_MERGED",
+    "last_verified_ci_head": "0907caaabfa3cea7c48105963cf8bf86ac695768",
+    "full_candidate_ci_run_id": 34579376844,
     "workflow": "full-candidate-ci",
     "conclusion": "success",
-    "notes": "Palier pré-nettoyage vérifié. Le câblage de branche est désormais consolidé sur candidate/augmentio-core; le HEAD final doit encore repasser la CI complète avant fusion vers main."
+    "notes": "Le HEAD nettoyé a passé la CI complète. main et candidate/augmentio-core étaient strictement identiques à ce SHA avant création de la release R4."
+  },
+  "production_release_checkpoint": {
+    "status": "DEPLOYED",
+    "release_branch": "release/mel-2026-09-11-r4",
+    "release_commit": "0cb7de9027f30c46170b83c696a98b4d0655bfbd",
+    "source_main_sha": "0907caaabfa3cea7c48105963cf8bf86ac695768",
+    "deploy_workflow": "deploy-cloudflare-release",
+    "deploy_run_id": 34583104252,
+    "deploy_attempt": 2,
+    "conclusion": "success",
+    "worker_version_id": "ef0fc34d-9bde-4d07-abfe-d0ffc60cfa48",
+    "worker_url": "https://meliturgos.adrien-lopezcarreras.workers.dev",
+    "notes": "Le premier essai a échoué sur un fetch réseau Wrangler. La relance du job a déployé avec succès sans modification du code applicatif."
   },
   "verified": [
     {
@@ -87,10 +100,10 @@
     },
     {
       "capability": "clean_candidate_branch_wiring",
-      "status": "PENDING_FINAL_CI",
-      "evidence_commit": "9a482e039151fad9914f7b6506a4090d4c8dcc7d",
-      "full_candidate_ci_run_id": 34577952847,
-      "notes": "Wrangler, CapabilityBus, runtime autonomie, planificateur, Bridge preparer et transports Teacher sont consolidés sur candidate/augmentio-core; l'ancienne candidate/mel-clean-autonomy est désormais interdite par le test de câblage."
+      "status": "VERIFIED_FINAL_CI",
+      "evidence_commit": "0907caaabfa3cea7c48105963cf8bf86ac695768",
+      "full_candidate_ci_run_id": 34579376844,
+      "notes": "Wrangler, CapabilityBus, runtime autonomie, planificateur, Bridge preparer et transports Teacher sont consolidés sur candidate/augmentio-core; l'ancienne candidate/mel-clean-autonomy est interdite par le test de câblage."
     },
     {
       "capability": "chatgpt_teacher_automation",
@@ -103,14 +116,13 @@
   "not_yet_proven": [
     "La fermeture complète d'un deuxième cycle consécutif MEL-WORK-02 jusqu'au completion record vérifié sur candidate/augmentio-core.",
     "L'état live D1 du job autonomie courant après la consolidation de branche; GitHub seul ne doit pas être utilisé pour l'inventer.",
-    "Plusieurs cycles consécutifs démontrant la continuité autonome au-delà du premier changement de job.",
-    "Le déploiement production des changements candidate récents; aucune preuve de wrangler deploy n'est enregistrée ici."
+    "Plusieurs cycles consécutifs démontrant la continuité autonome au-delà du premier changement de job."
   ],
   "next_p0": [
     "Exécuter/reprendre le heartbeat runtime sur candidate/augmentio-core et relire l'état D1 courant.",
     "Exiger pour tout paquet d'implémentation un candidate_sha égal exactement au HEAD observé avant application; un paquet stale doit être régénéré, jamais forcé.",
     "Après Teacher approval corrélée, appliquer seulement le plus petit diff sûr via Dev Bridge, exécuter les tests, réparer dans le même scope si nécessaire, puis exiger full-candidate-ci exact avant completion.",
-    "Conserver production_deploy_allowed=false jusqu'à validation humaine explicite."
+    "Conserver production_deploy_allowed=false jusqu'à validation humaine explicite d'une nouvelle release."
   ],
   "historical_runtime_checkpoint": {
     "recorded_at": "2026-09-10T14:45:30Z",

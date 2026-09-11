@@ -1,153 +1,70 @@
-# MELITURGOS - Security Cleanup Roadmap
+# MELITURGOS — Cleanup Roadmap
 
-## Introduction
+## Current checkpoint — 2026-09-11
 
-**GEN2-64: Structural Code Cleanup Phase**
-- Remove dead code and obsolete interfaces from security, audit, and middleware
-- Improve maintainability and reduce cognitive load
-- Align codebase with current Gen2 architecture
+The active MEL path has completed its first structural cleanup and was validated before release.
 
-## Cleanup Objectives
+### Completed
 
-1. **Remove obsolete functions**: Functions no longer called or superseded
-2. **Clean up unused imports**: Dependencies imported but not used
-3. **Modernize patterns**: Replace deprecated patterns with Gen2 standards
-4. **Remove legacy code**: Code from Gen1 or deprecated phases
-5. **Document deprecations**: Clearly mark what's being removed and why
+- Removed obsolete `/professor-v1` routing and the retired V1 full interface.
+- Kept `/professor` on Full Mode V2.
+- Kept `/professor-legacy` as an explicit rollback/fallback path.
+- Removed dead legacy `/api/chat` routing from `src/router.js`; native chat owns the active path.
+- Slimmed the theme/avatar enhancer while preserving all current themes, avatars and themed cursors.
+- Rewired UI/code capability tests to the current architecture.
+- Removed tracked `.wrangler/state/` runtime data and added ignore rules preventing it from returning.
+- Consolidated autonomous development wiring on `candidate/augmentio-core`; stale `candidate/mel-clean-autonomy` references are rejected by tests.
+- Final pre-release SHA `0907caaabfa3cea7c48105963cf8bf86ac695768` passed `augmentio-ci`, `runtime-teacher-smoke` and `full-candidate-ci`.
+- Released R4 through `release/mel-2026-09-11-r4`; Cloudflare deployment completed successfully on workflow run `34583104252` (attempt 2).
+- Production Worker version from that release: `ef0fc34d-9bde-4d07-abfe-d0ffc60cfa48`.
+- Post-release cleanup removed obsolete root checkpoints, ad-hoc debug scripts and three full `worker.js` backup copies. Historical versions remain recoverable from Git history and release branches.
 
-## Phase 1: Security Layer Cleanup
+## Intentionally retained
 
-### Files to Review
+### `worker.js`
 
-#### `src/security/` (if exists)
-- Check for obsolete security patterns
-- Remove deprecated functions
-- Clean up unused imports
+`worker.js` is **not dead code yet**. It remains required by the explicit `/professor-legacy` route and unmatched legacy fallback. Do not delete it until those fallback paths are formally retired and equivalent behavior is covered by the Gen2 path.
 
-#### `worker.js` - Security Functions
+### Release branches
 
-Current functions looking for cleanup:
+Existing release branches are retained as immutable rollback/history points. Cleanup must not rewrite old releases.
 
-| Function | Status | Action |
-|----------|--------|--------|
-| `authorized(req,env)` | USED | Keep (Basic Auth) |
-| `secret()` | USED | Keep (secret filtering) |
-| `securityGate(request)` | USED | Keep (CSRF, rate limit) |
-| `safeEqual(a,b)` | USED | Keep (timing-safe comparison) |
+## Remaining cleanup
 
-### Tests to Create
+### P0 — Dependency/security hygiene
 
-1. **`tests/security-cleanup.test.mjs`**
-   - Verify all security functions are used
-   - Run linter to find unused imports
-   - Document findings
+- Investigate the `3 high severity vulnerabilities` reported by `npm ci` during the R4 deployment.
+- Confirm whether direct dependency `tsx` is still needed. No current code-search usage has been identified, but it must only be removed together with a coherent `package-lock.json` update and passing CI.
+- Re-run the full suite after dependency changes.
 
-## Phase 2: Audit Layer Cleanup
+### P1 — Repository organization
 
-### Files to Review
+- Review `/backups/` and remove only artifacts that are duplicated by Git history/releases and are not used by restore tooling.
+- Review remaining root handoff/resume documents and move or retire obsolete session-only material.
+- Keep migrations, restore instructions and current capability/state documents until their consumers are verified.
 
-#### `src/audit/audit-service.js`
+### P2 — Legacy retirement
 
-Current state: GEN2-45 COMPLETE
-- ✅ Uses D1 persistence (not console)
-- ✅ Uses `db.prepare().bind().run()` pattern
-- ✅ Error handling in try-catch
+- Inventory the actual behavior still reachable through `/professor-legacy` and the unmatched legacy fallback.
+- Migrate required behavior to Gen2/native modules.
+- Add regression coverage for each migrated behavior.
+- Only then remove the fallback routes and shrink or remove `worker.js`.
 
-Further cleanup opportunities:
-- Remove old console.log statements (left as fallback)
-- Clean up unused variables
-- Remove commented-out legacy code
+## Definition of “clean”
 
-#### Test files
-- `tests/audit-persistence.test.mjs` - Needs cleanup if old tests remain
+A cleanup checkpoint can be called complete only when:
 
-## Phase 3: Connector Registry Cleanup
+- active routes contain no known obsolete interface path;
+- temporary runtime state and ad-hoc backups are not tracked;
+- package and lockfile are coherent;
+- dependency audit has no unresolved high-severity finding that can be safely fixed in scope;
+- all configured CI workflows pass on the exact candidate SHA;
+- documentation/state files describe the actual deployed architecture;
+- production deployment remains a separate human-approved release action.
 
-### Files to Review
+## Current status
 
-#### `worker.js` - CONNECTOR_REGISTRY
-
-Current connectors:
-```js
-const CONNECTOR_REGISTRY = [
-  { type: "google", name: "Gmail", status: "disabled" },
-  { type: "google", name: "Google Agenda", status: "disabled" },
-  { type: "google", name: "Google Drive", status: "disabled" },
-  { type: "microsoft", name: "Outlook", status: "disabled" },
-  { type: "microsoft", name: "OneDrive", status: "disabled" },
-  { type: "microsoft", name: "SharePoint", status: "disabled" },
-  { type: "github", name: "GitHub", status: "disabled" },
-  { type: "cloudflare", name: "Cloudflare", status: "disabled" },
-  { type: "vercel", name: "Vercel", status: "disabled" }
-];
-```
-
-Cleanup actions:
-1. Remove disabled connectors (document in README)
-2. Remove OAuth placeholders that will never be implemented
-3. Keep only requirements list in documentation
-
-## Phase 4: Middleware Cleanup
-
-### Files to Review
-
-#### Potential middleware in `src/core/`
-
-Identify and clean up:
-- Mark deprecated middleware patterns
-- Remove unused wrappers
-- Document migration path for any supervised HTTP functions
-
-## Phase 5: Migration Cleanup
-
-### Files in `/backups/`
-
-Review and potentially remove:
-- Old migration scripts (after they've been applied to actual migrations)
-- Overlapping backup directories
-- Old rollback scripts
-
-## Action Items
-
-### Immediate Actions
-
-1. **Run linter** to identify unused imports
-   ```bash
-   npm run lint  # if configured
-   node --check worker.js
-   ```
-
-2. **Audit security functions** in `worker.js`
-   - List all functions
-   - Mark which are used in routes
-   - Document unused functions for removal
-
-3. **Create migration checklist** for each cleanup phase
-
-### Documentation Updates
-
-1. Update `docs/MELITURGOS-MASTER-SPEC.md` to reflect cleanup
-2. Update `docs/MELITURGOS-MASTER-CHECKLIST.md` with cleanup tasks
-3. Add note in `docs/gen2-resume.md` about code hygiene
-
-## Success Criteria
-
-✅ No unused imports or functions detected
-✅ Code runs without warnings (node --check)
-✅ All security functions remain functional
-✅ Documentation updated with cleanup history
-✅ Tests still pass after cleanup
-
-## Status
-
-- [ ] Phase 1: Security Cleanup
-- [ ] Phase 2: Audit Cleanup
-- [ ] Phase 3: Connector Cleanup
-- [ ] Phase 4: Middleware Cleanup
-- [ ] Phase 5: Migration Cleanup
-
-## Notes
-
-Cette phase est NON-BLOQUANTE - une fois la validation UI terminée, continuer immédiatement le code cleanup.
-
-Tant qu'une tâche réalisable existe, continuer.
+- Active application cleanup: **complete for R4**.
+- Repository clutter cleanup: **in progress on `cleanup/post-r4`**.
+- Dependency/security cleanup: **pending investigation**.
+- Full legacy retirement: **not started; fallback intentionally retained**.
