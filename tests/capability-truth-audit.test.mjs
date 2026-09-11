@@ -26,7 +26,7 @@ test('safe smoke catalogue covers core read-only and preview-only capabilities',
   for (const id of [
     'echo','roadmap.read','system.bindings','code.read','code.search','conversation.list','rag.search',
     'chatgpt.archive.preview','capability.audit','autonomy.status','mentor.recent','evolution.gap.detect',
-    'device.policy.preview','web.research'
+    'evolution.module.propose','device.policy.preview','web.research'
   ]) {
     assert.ok(Object.hasOwn(SAFE_SAMPLES, id), `missing bounded smoke sample for ${id}`);
   }
