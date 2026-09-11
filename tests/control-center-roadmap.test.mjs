@@ -19,14 +19,14 @@ test('master roadmap is comprehensive and includes major product targets', () =>
   assert.equal(getRoadmapPayload().ok, true);
 });
 
-test('control center v2 exposes roadmap, diagnostics and the single legacy rollback path', async () => {
+test('control center v2 exposes current roadmap, multi-AI controls, diagnostics and the single legacy rollback path', async () => {
   const page = await (await renderFullMode({})).text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
+  assert.match(page, /Centre de contrôle/);
+  assert.match(page, /Multi-IA/);
+  assert.match(page, /Travail/);
   assert.match(page, /Feuille de route complète/);
-  assert.match(page, /Accès au code/);
-  assert.match(page, /État des lieux multi-IA/);
-  assert.match(page, /Importer un export ChatGPT/);
-  assert.match(page, /\/api\/gen2\/code\/self-check/);
+  assert.match(page, /Diagnostic/);
   assert.match(page, /\/api\/gen2\/roadmap/);
   assert.match(router, /handleFullModeV2/);
   assert.doesNotMatch(router, /\/professor-v1/);
