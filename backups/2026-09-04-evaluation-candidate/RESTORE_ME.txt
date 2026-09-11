@@ -1,3 +1,0 @@
-Rollback: cp backups/2026-09-04-evaluation-pre/worker.stable.js worker.js
-Config rollback: cp backups/2026-09-04-evaluation-pre/wrangler.stable.jsonc wrangler.jsonc
-Verify from repo root: sha256sum -c backups/2026-09-04-evaluation-candidate/SHA256SUMS
