@@ -32,6 +32,31 @@ function normalizeTests(value) {
   })).filter((test) => test.name);
 }
 
+function completionProvenanceSnapshot(job) {
+  const teacher = job?.result_json?.teacher_bridge || {};
+  const review = teacher?.review || {};
+  const request = teacher?.request || {};
+  const bridge = job?.result_json?.dev_bridge || {};
+  return {
+    teacher: {
+      request_id: String(request.request_id || review.request_id || '').slice(0, 200) || null,
+      status: String(teacher.status || '').slice(0, 80) || null,
+      verdict: String(review.verdict || '').slice(0, 80) || null,
+      development_allowed: review.development_allowed === true,
+      producer: String(request?.provenance?.producer || request?.provenance?.source || '').slice(0, 120) || null,
+      candidate_sha: String(request?.provenance?.candidate_sha || request?.candidate?.sha || '').slice(0, 80) || null,
+    },
+    dev_bridge: {
+      status: String(bridge.status || job?.status || '').slice(0, 80) || null,
+      candidate_branch: String(bridge.candidate_branch || job?.candidate_branch || '').slice(0, 300) || null,
+      diff_summary: String(bridge.diff_summary || '').slice(0, 1000),
+      needs_repair: bridge.needs_repair === true,
+      received_at: String(bridge.received_at || '').slice(0, 100) || null,
+      tests: normalizeTests(bridge.tests),
+    },
+  };
+}
+
 export function parseCompletionJsonl(text) {
   const completions = [];
   for (const line of String(text || '').split(/\r?\n/)) {
@@ -148,6 +173,7 @@ async function recordVerifiedCompletionLesson(env, job, record, proposal, ci) {
         providers_attempted: proposal.providers_attempted.length,
         selected_model: String(proposal.selected.model || '').slice(0, 200),
         inspected_files: proposal.inspected_files.map((row) => row?.path).filter(Boolean).slice(0, 8),
+        provenance: completionProvenanceSnapshot(job),
       },
       score: 1,
       tags: ['autonomy', 'verified-completion', 'full-candidate-ci'],
