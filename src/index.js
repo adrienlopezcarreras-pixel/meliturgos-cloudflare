@@ -44,19 +44,98 @@ function apiError(error, fallback = 'INTERNAL_ERROR') {
   );
 }
 
+function aiResultText(result) {
+  if (typeof result === 'string') return result;
+  return result?.response
+    ?? result?.text
+    ?? result?.message?.content
+    ?? result?.choices?.[0]?.message?.content
+    ?? result?.choices?.[0]?.text
+    ?? '';
+}
+
+function aiFinishReason(result) {
+  if (!result || typeof result === 'string') return null;
+  const value = result.finish_reason
+    ?? result.finishReason
+    ?? result.stop_reason
+    ?? result.stopReason
+    ?? result.message?.finish_reason
+    ?? result.message?.finishReason
+    ?? result.choices?.[0]?.finish_reason
+    ?? result.choices?.[0]?.stop_reason
+    ?? null;
+  return value == null ? null : String(value).trim().toLowerCase();
+}
+
+function aiWasTruncated(result) {
+  const reason = aiFinishReason(result);
+  if (!reason) return false;
+  return ['length','max_tokens','max_token','max_output_tokens','token_limit','context_length','max_length'].includes(reason)
+    || /(?:max|token|length).*(?:limit|length|tokens?)/i.test(reason);
+}
+
+function mergeContinuationResult(first, last, text, segments, incomplete) {
+  if (typeof first === 'string' && segments === 1) return first;
+  const base = first && typeof first === 'object' ? first : {};
+  const tail = last && typeof last === 'object' ? last : {};
+  return {
+    ...base,
+    ...tail,
+    response: text,
+    finish_reason: aiFinishReason(last),
+    mel_auto_continued: segments > 1,
+    mel_continuation_segments: segments,
+    mel_response_incomplete: Boolean(incomplete),
+  };
+}
+
 export function withChatAiDefaults(env) {
   if (!env?.AI || typeof env.AI.run !== 'function') return env;
   const configured = Number(env.MEL_MAX_OUTPUT_TOKENS);
   const maxTokens = Math.max(512, Math.min(8192, Number.isFinite(configured) && configured > 0 ? configured : 4096));
+  const configuredSegments = Number(env.MEL_MAX_CONTINUATION_SEGMENTS);
+  const maxSegments = Math.max(1, Math.min(4, Number.isFinite(configuredSegments) && configuredSegments > 0 ? configuredSegments : 3));
+  const configuredChars = Number(env.MEL_MAX_COMBINED_OUTPUT_CHARS);
+  const maxCombinedChars = Math.max(8000, Math.min(120000, Number.isFinite(configuredChars) && configuredChars > 0 ? configuredChars : 50000));
   const base = env.AI;
+
   return {
     ...env,
     AI: {
-      run(model, input = {}, ...rest) {
+      async run(model, input = {}, ...rest) {
         const payload = input && typeof input === 'object' && !Array.isArray(input)
           ? { ...input, max_tokens: Number(input.max_tokens) > 0 ? input.max_tokens : maxTokens }
           : input;
-        return base.run.call(base, model, payload, ...rest);
+        const first = await base.run.call(base, model, payload, ...rest);
+        if (!payload || typeof payload !== 'object' || !Array.isArray(payload.messages) || !aiWasTruncated(first) || maxSegments <= 1) return first;
+
+        let last = first;
+        let combined = String(aiResultText(first) || '').trim();
+        let segments = 1;
+        const continuationMessages = payload.messages.map(message => ({ ...message }));
+        if (combined) continuationMessages.push({ role: 'assistant', content: combined });
+
+        while (aiWasTruncated(last) && segments < maxSegments && combined.length < maxCombinedChars) {
+          continuationMessages.push({
+            role: 'user',
+            content: 'Continue exactement à partir de la dernière phrase, sans répéter ce qui précède. Termine complètement la réponse.'
+          });
+          let next;
+          try {
+            next = await base.run.call(base, model, { ...payload, messages: continuationMessages }, ...rest);
+          } catch {
+            break;
+          }
+          const segment = String(aiResultText(next) || '').trim();
+          if (!segment) break;
+          combined = `${combined}${combined ? '\n' : ''}${segment}`.slice(0, maxCombinedChars);
+          continuationMessages.push({ role: 'assistant', content: segment });
+          last = next;
+          segments++;
+        }
+
+        return mergeContinuationResult(first, last, combined, segments, aiWasTruncated(last));
       }
     }
   };
