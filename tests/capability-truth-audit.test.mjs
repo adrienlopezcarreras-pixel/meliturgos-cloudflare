@@ -17,6 +17,7 @@ test('truth audit inventories every registered runtime capability without omissi
   for (const row of report.capabilities) {
     assert.ok(row.truth_status);
     assert.equal(row.tested_now, false);
+    assert.equal(row.auto_execution_blocked, null);
     assert.ok(['LOW','MEDIUM','HIGH'].includes(row.risk), `unexpected risk for ${row.id}: ${row.risk}`);
   }
 });
@@ -39,6 +40,7 @@ test('capability.audit can prove itself through a bounded non-recursive smoke sa
   const row = report.capabilities.find(item => item.id === 'capability.audit');
   assert.equal(report.total, 1);
   assert.equal(row.tested_now, true);
+  assert.equal(row.auto_execution_blocked, null);
   assert.equal(row.truth_status, 'EXISTANT_ET_TESTE');
   assert.equal(row.execution.ok, true);
   assert.equal(row.execution.result_type, 'object');
@@ -76,12 +78,41 @@ test('deep audit executes bounded LOW-risk samples and reports failures instead 
   const bad = report.capabilities.find(x => x.id === 'bad');
   const medium = report.capabilities.find(x => x.id === 'medium');
   assert.equal(ok.tested_now, true);
+  assert.equal(ok.auto_execution_blocked, null);
   assert.equal(ok.truth_status, 'EXISTANT_ET_TESTE');
   assert.equal(bad.tested_now, true);
+  assert.equal(bad.auto_execution_blocked, null);
   assert.equal(bad.truth_status, 'EXISTANT_MAIS_ECHEC_RUNTIME');
   assert.equal(bad.execution.code, 'EXPECTED_FAILURE');
   assert.equal(medium.tested_now, false);
+  assert.equal(medium.auto_execution_blocked, 'RISK_NOT_LOW');
   assert.equal(medium.truth_status, 'EXISTANT_NON_TESTE');
+});
+
+test('deep audit explains every local reason that prevents bounded automatic execution', async () => {
+  const calls = [];
+  const records = [
+    { id:'disabled', name:'Disabled', category:'test', provider:'test', risk:'LOW', enabled:false, health:'HEALTHY' },
+    { id:'missing-sample', name:'No sample', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY' },
+    { id:'high', name:'High risk', category:'test', provider:'test', risk:'HIGH', enabled:true, health:'HEALTHY' },
+    { id:'stub', name:'Stub', category:'test', provider:'test', risk:'LOW', enabled:true, health:'HEALTHY', implementation_status:'STUB' },
+  ];
+  const fake = {
+    bus: {
+      refreshHealthAll: async () => records,
+      list: () => records,
+      execute: async (id) => { calls.push(id); return { ok:true }; },
+    },
+  };
+  const report = await auditRuntimeCapabilities(fake, {
+    deep:true,
+    samples:{ disabled:{}, high:{}, stub:{} },
+  });
+  assert.equal(report.capabilities.find(x => x.id === 'disabled').auto_execution_blocked, 'DISABLED');
+  assert.equal(report.capabilities.find(x => x.id === 'missing-sample').auto_execution_blocked, 'NO_BOUNDED_SAMPLE');
+  assert.equal(report.capabilities.find(x => x.id === 'high').auto_execution_blocked, 'RISK_NOT_LOW');
+  assert.equal(report.capabilities.find(x => x.id === 'stub').auto_execution_blocked, 'DECLARED_NON_EXECUTABLE');
+  assert.deepEqual(calls, []);
 });
 
 test('deep audit fails closed on provider/cost-sensitive samples until exact zero-cost proof is supplied', async () => {
@@ -108,6 +139,7 @@ test('deep audit fails closed on provider/cost-sensitive samples until exact zer
   assert.equal(webBlocked.auto_execution_blocked, 'UNKNOWN_OR_EXTERNAL_COST');
   assert.equal(webBlocked.truth_status, 'EXISTANT_NON_TESTE');
   assert.equal(device.tested_now, true);
+  assert.equal(device.auto_execution_blocked, null);
   assert.deepEqual(calls, ['device.policy.preview']);
 
   const approved = await auditRuntimeCapabilities(fake, {
@@ -145,8 +177,11 @@ test('declared STUB and NOT_IMPLEMENTED capabilities cannot masquerade as health
   const partial = report.capabilities.find(x => x.id === 'partial');
   assert.equal(stub.truth_status, 'STUB');
   assert.equal(stub.tested_now, false);
+  assert.equal(stub.auto_execution_blocked, 'DECLARED_NON_EXECUTABLE');
   assert.equal(missing.truth_status, 'NOT_IMPLEMENTED');
   assert.equal(missing.tested_now, false);
+  assert.equal(missing.auto_execution_blocked, 'DECLARED_NON_EXECUTABLE');
   assert.equal(partial.truth_status, 'EXISTANT_ET_TESTE');
+  assert.equal(partial.auto_execution_blocked, null);
   assert.deepEqual(calls, ['partial']);
 });
