@@ -33,7 +33,7 @@ function fixture() {
   return { repository, env, aiCalls, fetchCalls, fetchImpl };
 }
 
-test('owner development request persists, runs Council first, inspects candidate code and waits for Teacher', async () => {
+test('owner development request persists one unified job, runs Council first, inspects candidate code and waits for Teacher', async () => {
   const f = fixture();
   const result = await enqueueOwnerDevelopmentRequest({
     env: f.env,
@@ -51,13 +51,18 @@ test('owner development request persists, runs Council first, inspects candidate
   assert.ok(result.teacher.request_id);
   assert.equal(result.candidate_only, true);
   assert.equal(result.zero_added_cost, true);
+  assert.equal(result.unified_update, true);
+  assert.equal(result.policy, 'SINGLE_CANONICAL_WRITER');
   assert.ok(f.aiCalls.length >= 2, 'Council-first must call at least two explicitly zero-cost configured models');
   assert.ok(f.fetchCalls.some((url) => url.includes('raw.githubusercontent.com')), 'candidate code must be inspected before Teacher review');
 
   const stored = await f.repository.get(result.job_id);
   assert.equal(stored.status, 'WAITING_TEACHER');
   assert.equal(stored.requested_by, 'owner-chat');
-  assert.equal(stored.optional_context.rule, 'AI_COUNCIL_BEFORE_CODE');
+  assert.equal(stored.optional_context.rule, 'AI_COUNCIL_ADVISORY_ONLY_THEN_ONE_CANONICAL_UPDATE');
+  assert.equal(stored.optional_context.unified_update, true);
+  assert.equal(stored.optional_context.parallel_implementations_allowed, false);
+  assert.equal(stored.optional_context.provider_direct_writes_allowed, false);
   assert.ok(stored.plan_json.preflight.council);
   assert.equal(stored.result_json.teacher_bridge.status, 'WAITING_TEACHER');
   assert.equal(stored.result_json.teacher_bridge.request.candidate.sha, CANDIDATE_HEAD_SHA);
@@ -84,7 +89,7 @@ test('replaying the same owner message is idempotent and does not repeat the Cou
   assert.equal(jobs.length, 1);
 });
 
-test('two distinct owner message ids can intentionally request two distinct jobs', async () => {
+test('different owner messages for the same objective converge on the same canonical job', async () => {
   const f = fixture();
   const first = await enqueueOwnerDevelopmentRequest({
     env: f.env,
@@ -94,16 +99,20 @@ test('two distinct owner message ids can intentionally request two distinct jobs
     repository: f.repository,
     fetchImpl: f.fetchImpl,
   });
+  const calls = f.aiCalls.length;
   const second = await enqueueOwnerDevelopmentRequest({
     env: f.env,
     goal: 'Ajoute un module calendrier',
-    conversationId: 'conversation-3',
+    conversationId: 'conversation-99',
     requestKey: 'message-b',
     repository: f.repository,
     fetchImpl: f.fetchImpl,
   });
-  assert.notEqual(second.job_id, first.job_id);
-  assert.equal(second.created, true);
+  assert.equal(second.job_id, first.job_id);
+  assert.equal(second.created, false);
+  assert.equal(f.aiCalls.length, calls, 'same objective from another message must reuse existing Council/job');
+  const jobs = (await f.repository.list()).filter((job) => job.requested_by === 'owner-chat');
+  assert.equal(jobs.length, 1);
 });
 
 test('owner queue requires durable D1 when no test repository is injected', async () => {
