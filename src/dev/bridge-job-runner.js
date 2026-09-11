@@ -40,6 +40,22 @@ function bridgePass(job) {
   return String(job?.patch_json?.mode || '').toLowerCase() === 'repair' ? 'repair' : 'implement';
 }
 
+async function prepareCandidate(bridge, id, pass, context, steps) {
+  if (pass === 'repair') {
+    try {
+      await bridge.bus.execute('code.status', { job_id: id }, context);
+      steps.push({ capability: 'dev.resume_candidate', passed: true });
+      return true;
+    } catch {
+      // A missing candidate is expected after a bridge restart. Fall back to a
+      // fresh isolated candidate rather than inventing previous local state.
+    }
+  }
+  await bridge.bus.execute('dev.create_candidate', { job_id: id }, context);
+  steps.push({ capability: 'dev.create_candidate', passed: true });
+  return false;
+}
+
 /**
  * Runs an already-approved structured work package in an isolated local
  * candidate. No commit or production deployment occurs here. The returned
@@ -56,8 +72,7 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
   const pass = bridgePass(job);
   const context = { owner: 'dev-bridge', requestId: id };
   const steps = [];
-  await bridge.bus.execute('dev.create_candidate', { job_id: id }, context);
-  steps.push({ capability: 'dev.create_candidate', passed: true });
+  const candidateReused = await prepareCandidate(bridge, id, pass, context, steps);
 
   for (const file of files) {
     let before = null;
@@ -107,6 +122,7 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
   const result = {
     mode: 'STRUCTURED_MENTOR_WORK',
     bridge_pass: pass,
+    candidate_reused: candidateReused,
     applied_files: files.map((file) => file.path),
     steps,
     tests,
@@ -128,10 +144,11 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
     plan_json: {
       mode: 'STRUCTURED_MENTOR_WORK',
       bridge_pass: pass,
+      candidate_reused: candidateReused,
       applied_files: files.map((file) => file.path),
       requested_tests: requestedTests(job).map((test) => test.command),
     },
   };
 }
 
-export { parseArray, structuredFiles, requestedTests, resultExitCode, diffText, bridgePass };
+export { parseArray, structuredFiles, requestedTests, resultExitCode, diffText, bridgePass, prepareCandidate };
