@@ -1,7 +1,7 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`
-Last fully green checkpoint: `2ede70f34a84c7095e7714f127c3ab609f475c17` (`full-candidate-ci` run `34543842348`, success, 2026-09-11).
+Last fully green checkpoint: `4c3b7989dd63a5f82579b3a104f3afae8604060e` (`full-candidate-ci` run `34547940894`, success, 2026-09-11).
 
 ## Integrated / already contained
 
@@ -76,14 +76,22 @@ Seven visual themes are registered end-to-end:
 
 - Refetched branch HEAD `cb2a21c3cbdf30ee2ce5f95980a5ea41b2701a04` before the next write; no concurrent advancement was overwritten.
 - The existing runtime already reopens a `READY_FOR_REVIEW` job with failed Dev Bridge tests back to `TEACHER_APPROVED` and `prepareApprovedBridgePackage()` already asks MentorEngine for a bounded `mode=repair` package tied to the failed result timestamp. No duplicate repair engine was added.
-- `src/dev/bridge-job-runner.js` now preserves whether the package actually executed an `implement` or `repair` pass in both `result_json.bridge_pass` and `plan_json.bridge_pass`, so Teacher/Mentor/Dev Bridge evidence can prove the repair/retest stage rather than infer it from mutable state.
-- `tests/bridge-job-runner.test.mjs` adds a repair-package regression proving repaired files are applied, requested tests are rerun, all tests can pass, and the repair-pass marker survives in both result and plan evidence.
-- Code/test SHA: `89f8142b67abe93f0087ff0d116f309c311d8960`. Exact `full-candidate-ci` run `34547893173` was still `in_progress` at checkpoint time; no green claim was recorded prematurely.
-- Production/release/DNS/secrets/bindings/auth/billing/D1 remained untouched; no cost was added.
+- `src/dev/bridge-job-runner.js` preserves whether the package actually executed an `implement` or `repair` pass in both `result_json.bridge_pass` and `plan_json.bridge_pass`, so Teacher/Mentor/Dev Bridge evidence can prove the repair/retest stage rather than infer it from mutable state.
+- `tests/bridge-job-runner.test.mjs` adds repair-package regression coverage proving repaired files are applied, requested tests are rerun, all tests can pass, and the repair-pass marker survives in both result and plan evidence.
+- Checkpoint SHA `4c3b7989dd63a5f82579b3a104f3afae8604060e` passed exact `full-candidate-ci` run `34547940894`.
+
+### Repair candidate-continuity checkpoint
+
+- Refetched HEAD `4c3b7989dd63a5f82579b3a104f3afae8604060e` before changes and `ad92fdafff803148fa783407bcaa2843006be15e` before the test write; no concurrent HEAD advancement was overwritten.
+- Concrete P0 gap found: every structured repair pass previously called `dev.create_candidate`, which can recreate the isolated candidate and discard the failed implementation state that Mentor is supposed to repair.
+- `src/dev/bridge-job-runner.js` now probes `code.status` for a repair pass and reuses the live isolated candidate when available; if local state is unavailable it fails safely to the existing fresh-candidate path rather than inventing state.
+- Evidence now records `candidate_reused` in both result and plan. `tests/bridge-job-runner.test.mjs` verifies live repair reuse performs no second `dev.create_candidate`, while unavailable state performs exactly one fresh candidate creation.
+- Code/test SHA `4956ce2d17bd897018d0eb1d59be1c57d63bea9f`; exact `full-candidate-ci` run `34551741048` is `in_progress` at this checkpoint, so no green claim is made for this SHA yet.
+- Production/release/DNS/secrets/bindings/auth/billing/D1 remain untouched; no cost added.
 
 ## Next concrete blocks
 
-1. On the next run, verify exact-SHA `full-candidate-ci` for `89f8142b67abe93f0087ff0d116f309c311d8960`; if green, advance the last-green checkpoint, otherwise fix the concrete failing job without weakening tests.
-2. Continue the P0 real-bridge proof through a genuine failed test -> Mentor repair package -> repaired local candidate -> retest -> READY_FOR_REVIEW, now with explicit `bridge_pass=repair` evidence preserved end-to-end.
-3. Use the existing truth-audit machinery to isolate the next genuine PARTIEL / EXISTANT_NON_TESTE capability; execute only bounded LOW-risk non-mutating smoke evidence and fix a concrete failure rather than writing another broad audit.
-4. Revisit selective branch/PR references only when a concrete failing test demonstrates a missing behavior.
+1. Verify exact-SHA `full-candidate-ci` for `4956ce2d17bd897018d0eb1d59be1c57d63bea9f`; if green, advance the last-green checkpoint, otherwise fix the concrete failing job without weakening tests.
+2. Extend continuity across a Dev Bridge process restart only if a failing/reproducible test proves persisted isolated candidate state cannot be recovered; do not invent prior local state.
+3. Continue the P0 real-bridge proof through a genuine failed test -> Mentor repair package -> same repaired local candidate -> retest -> READY_FOR_REVIEW with explicit `bridge_pass=repair` and `candidate_reused=true` evidence.
+4. Use the existing truth-audit machinery to isolate the next genuine PARTIEL / EXISTANT_NON_TESTE capability; execute only bounded LOW-risk non-mutating smoke evidence and fix a concrete failure rather than writing another broad audit.
