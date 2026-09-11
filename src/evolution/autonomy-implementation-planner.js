@@ -1,6 +1,7 @@
 import { createGitHubCodeReader } from '../capabilities/github-code-capabilities.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
+import { canonicalizeImplementationFanout, UNIFIED_DEVELOPMENT_POLICY } from './unified-development-policy.js';
 
 const MAX_FILES = 5;
 const MAX_EXCERPT = 3500;
@@ -98,6 +99,7 @@ async function reusableProposal(env, existing, bridge, { fetchImpl = fetch } = {
   const { config, reader } = codeReader(env, fetchImpl);
   if (String(existing.candidate_branch || '') !== config.branch) return null;
   if (!Array.isArray(existing.providers_attempted) || existing.providers_attempted.length < 2) return null;
+  if (existing.persistence !== 'ONE_SELECTED_PLAN_ONLY') return null;
 
   const head = await reader.head();
   if (!SHA40.test(String(head?.sha || ''))) {
@@ -111,14 +113,16 @@ function planningPrompt(job, bridge, code) {
   return [
     'Tu es un ingénieur participant au développement supervisé de MELITURGOS.',
     'Le plan a déjà reçu une approbation Teacher. Tu ne déploies rien et tu ne modifies aucun compte.',
-    'Conçois le plus petit changement réversible sur candidate uniquement.',
-    'Réutilise l’existant; n’invente pas une capacité déjà présente.',
+    'Conçois le plus petit changement réversible sur la branche candidate canonique uniquement.',
+    'Réutilise et modifie l’existant; n’invente pas une capacité, un module ou une architecture parallèle déjà couverte.',
+    'Tu es une voix consultative parmi plusieurs. Ta proposition ne doit créer aucune branche ou version alternative permanente.',
+    'Après comparaison des avis, MEL ne conservera qu’un seul plan canonique.',
     'Aucun secret, aucun DNS, aucune facturation, aucune migration D1 destructive.',
-    'Réponds en texte structuré avec: FICHIERS, CHANGEMENTS, TESTS, RISQUES, ROLLBACK, CRITÈRES_DE_FIN.',
+    'Réponds en texte structuré avec: FICHIERS_EXISTANTS_À_MODIFIER, CHANGEMENTS, TESTS, RISQUES, ROLLBACK, CRITÈRES_DE_FIN.',
     `OBJECTIF: ${String(job.goal || '').slice(0, 4000)}`,
     `ROADMAP_ID: ${String(job?.optional_context?.roadmap_id || '')}`,
     `TEACHER_FEEDBACK: ${String(bridge?.review?.feedback || '').slice(0, 4000)}`,
-    `BRANCHE_CANDIDATE: ${code.branch}`,
+    `BRANCHE_CANDIDATE_CANONIQUE: ${code.branch}`,
     `SHA_CANDIDAT_INSPECTÉ: ${code.candidate_sha}`,
     'CONTEXTE_CODE:',
     ...code.files.map((file) => `--- ${file.path} @ ${file.sha || 'unknown'} ---\n${file.excerpt}`),
@@ -126,20 +130,18 @@ function planningPrompt(job, bridge, code) {
 }
 
 /**
- * After a correlated Teacher approval, MEL itself performs a bounded multi-AI
- * CODE planning pass over the candidate source and persists the best proposal.
- * It deliberately does not write GitHub or deploy; the external Teacher/dev
- * channel can apply the reviewed candidate change and provide exact CI proof.
- * The lifecycle status stays TEACHER_APPROVED because this internal proposal is
- * evidence/work product, not a second authorization state.
+ * After a correlated Teacher approval, MEL performs a bounded multi-AI CODE
+ * planning pass over the same candidate source. Provider responses are
+ * advisory only. Exactly ONE selected plan is persisted; alternative provider
+ * plans are discarded after comparison and can never become parallel branches,
+ * modules or jobs. The external Teacher/dev channel may apply only that single
+ * canonical candidate change and provide exact CI proof.
  */
 export async function prepareApprovedImplementationProposal({ env, repository, job, fetchImpl = fetch } = {}) {
   if (!repository || !job) throw Object.assign(new Error('AUTONOMY_IMPLEMENTATION_INPUT_REQUIRED'), { code: 'AUTONOMY_IMPLEMENTATION_INPUT_REQUIRED' });
   const current = await repository.get(job.id);
   if (!current) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
 
-  // Revalidate Teacher authority before considering persisted work reusable.
-  // A READY payload is only an optimization, never an authorization shortcut.
   const bridge = requireApproved(current);
   const existing = current?.result_json?.implementation_proposal;
   const reusable = await reusableProposal(env, existing, bridge, { fetchImpl });
@@ -157,38 +159,40 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
       roadmap_id: current.optional_context?.roadmap_id || null,
       candidate_branch: code.branch,
       candidate_sha: code.candidate_sha,
+      persistence: 'advisory-until-single-selection',
+      provider_direct_write_allowed: false,
+      parallel_implementations_allowed: false,
     },
     maxCandidates: 2,
   });
   if (!Array.isArray(fanout.providersAttempted) || fanout.providersAttempted.length < 2) {
     throw Object.assign(new Error('IMPLEMENTATION_MULTI_AI_NOT_PROVEN'), { code: 'IMPLEMENTATION_MULTI_AI_NOT_PROVEN' });
   }
-  if (!fanout.best?.text) throw Object.assign(new Error('IMPLEMENTATION_PROPOSAL_EMPTY'), { code: 'IMPLEMENTATION_PROPOSAL_EMPTY' });
 
+  const canonical = canonicalizeImplementationFanout(fanout);
   const proposal = {
     status: 'READY',
     schema: 'mel.approved-implementation-proposal',
-    version: 1,
+    version: 2,
     created_at: new Date().toISOString(),
     teacher_request_id: bridge.request.request_id,
     candidate_branch: code.branch,
     candidate_sha: code.candidate_sha,
     roadmap_id: current.optional_context?.roadmap_id || null,
     inspected_files: code.files.map((file) => ({ path: file.path, sha: file.sha || '' })),
-    providers_attempted: fanout.providersAttempted.slice(0, 8),
+    providers_attempted: canonical.providers_attempted,
     selected: {
-      provider: fanout.best.provider,
-      model: fanout.best.model,
-      text: String(fanout.best.text).slice(0, MAX_PLAN_TEXT),
+      ...canonical.selected,
+      text: canonical.selected.text.slice(0, MAX_PLAN_TEXT),
     },
-    alternatives: fanout.candidates.slice(1, 3).map((candidate) => ({
-      provider: candidate.provider,
-      model: candidate.model,
-      text: String(candidate.text || '').slice(0, 4000),
-    })),
+    discarded_alternative_count: canonical.discarded_alternative_count,
+    persistence: canonical.persistence,
+    unified_update_policy: UNIFIED_DEVELOPMENT_POLICY.mode,
+    provider_direct_writes_allowed: false,
+    parallel_implementations_allowed: false,
     production_touched: false,
     candidate_write_performed: false,
-    next: 'EXTERNAL_TEACHER_APPLY_SMALLEST_CANDIDATE_DIFF_AND_VERIFY_FULL_CI',
+    next: 'EXTERNAL_TEACHER_APPLY_ONE_CANONICAL_CANDIDATE_DIFF_AND_VERIFY_FULL_CI',
   };
 
   const result = current.result_json && typeof current.result_json === 'object' ? { ...current.result_json } : {};
