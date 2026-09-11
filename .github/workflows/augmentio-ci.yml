@@ -3,14 +3,26 @@ name: augmentio-ci
 on:
   push:
     branches:
-      - 'candidate/augmentio-*'
-  pull_request:
+      - main
+      - 'candidate/**'
+      - 'cleanup/**'
+      - 'feature/**'
     paths:
       - 'src/augmentio/**'
       - 'src/resilience/**'
       - 'tests/augmentio-*.test.mjs'
       - 'tests/resilience-*.test.mjs'
       - '.github/workflows/augmentio-ci.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/augmentio/**'
+      - 'src/resilience/**'
+      - 'tests/augmentio-*.test.mjs'
+      - 'tests/resilience-*.test.mjs'
+      - '.github/workflows/augmentio-ci.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,10 +32,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
       - name: Syntax check
         run: |
           for file in src/augmentio/*.js src/resilience/*.js; do node --check "$file"; done
