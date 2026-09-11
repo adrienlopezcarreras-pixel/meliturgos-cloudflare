@@ -3,7 +3,7 @@ name: deploy-cloudflare-release
 on:
   push:
     branches:
-      - release/mel-2026-09-10-r3-3
+      - release/mel-2026-09-11-r4
   workflow_dispatch:
 
 permissions:
@@ -33,7 +33,7 @@ jobs:
       - name: Verify release branch
         shell: bash
         run: |
-          test "${GITHUB_REF_NAME}" = "release/mel-2026-09-10-r3-3"
+          test "${GITHUB_REF_NAME}" = "release/mel-2026-09-11-r4"
           echo "Deploying ${GITHUB_SHA} from ${GITHUB_REF_NAME}"
 
       - name: Deploy Cloudflare Worker
