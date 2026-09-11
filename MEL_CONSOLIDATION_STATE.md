@@ -1,7 +1,7 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`
-Last fully green code/test checkpoint: `0c5dc503b09a1ea998567b9d6d438b67c94a7a78` (`full-candidate-ci` run `34571486153`, completed/success, 2026-09-11).
+Last fully green code/test checkpoint: `13e61a1f9436b2103e91301e06feca598e82c0e2` (`full-candidate-ci` run `34580628766`, completed/success, 2026-09-11).
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -42,7 +42,15 @@ Seven themes are registered end-to-end:
 - Capability truth audit — INTEGRATED: classifications distinguish `EXISTANT_ET_TESTE`, `EXISTANT_NON_TESTE`, `PARTIEL`, `STUB`, `NOT_IMPLEMENTED`, and blocked/runtime-failure states. Automatic deep execution remains restricted to bounded LOW-risk capabilities with explicit samples and fails closed for provider/external-cost-sensitive capabilities unless the exact capability is explicitly proven zero-added-cost for that run.
 - `.github/workflows/full-candidate-ci.yml` covers `candidate/mel-clean-autonomy`.
 
-## Latest concrete hardening — deterministic read-only intent proof
+## Latest concrete hardening — local zero-cost capability execution proof
+
+- `tests/capability-local-smoke-proof.test.mjs` now executes the real Gen2 `CapabilityBus` with a deliberately restricted sample set and proves successful runtime execution for local bounded capabilities without provider calls or persistent writes: `echo`, `roadmap.read`, `system.bindings`, `chatgpt.archive.preview`, `capability.audit`, `device.policy.preview`, and `evolution.module.propose`.
+- Provider-sensitive paths (`augmentio.fanout`, `council.state-of-play`, `evolution.preflight`, `web.research`) remain unexecuted in this proof, and `evolution.enqueue` remains blocked by its MEDIUM risk classification.
+- `evolution.module.propose` now has a default bounded audit sample because it is proposal-only, local, non-mutating, activates nothing and makes no provider request. This converts that capability from registration-only evidence to executable truth when deep audit is requested.
+- Exact code/test SHA `13e61a1f9436b2103e91301e06feca598e82c0e2` passed `full-candidate-ci` run `34580628766` (`completed`, `success`). Runtime dependency high-severity gate, syntax and full tests passed.
+- No production/release deployment, persistent mutation, provider call, added-cost operation, secret change, DNS/auth/billing change, destructive migration or force audit fix occurred.
+
+## Earlier hardening — deterministic read-only intent proof
 
 - `tests/autonomy-chat-intent.test.mjs` now proves the deterministic, zero-provider fast paths for `code.integrity`, `work.open`, and `evolution.module.propose`, including bounded work limits and negative cases that keep ambiguous bare follow-ups out of regex routing.
 - Existing context-aware semantic-routing tests remain intact for elliptical commands such as `fais-le`, `continue`, `reprends`, `plus doré`, and `peux-tu faire ça ?`.
