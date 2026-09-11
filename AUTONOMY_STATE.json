@@ -10,7 +10,7 @@
       "capability": "resumable_work_dag",
       "status": "VERIFIED",
       "evidence_commit": "e2f546892f2767360b02b6d57e1802146e05a603",
-      "ci": "full-candidate-ci success inherited in tested HEAD dd69f2acc1378cac271f7b8b885b88b90c5ea2ed",
+      "ci": "full-candidate-ci success inherited in tested HEAD dd69f2acc1378cac271f7b885b88b90c5ea2ed",
       "notes": "Dépendances, checkpoints signés, idempotence, fail-closed des noeuds interrompus non idempotents et artefacts bornés persistants."
     },
     {
@@ -93,10 +93,23 @@
     "production_changed": false,
     "blocker": "Le paquet /work est corrélé au bon job/request_id mais cible 0b98f348... alors que candidate a avancé à 6f3e4274...; aucune application forcée."
   },
+  "deployment_policy": {
+    "recorded_on": "2026-09-11",
+    "canonical_candidate_branch": "candidate/augmentio-core",
+    "single_deployable_candidate": true,
+    "single_release_path": true,
+    "parallel_deployable_duplicates_forbidden": true,
+    "secondary_branch_rule": "Toute branche secondaire doit soit apporter un diff unique à intégrer dans la branche canonique, soit être fermée/archivée/supprimée. Aucun travail fonctionnel ne doit rester suspendu dans une branche parallèle.",
+    "reason": "Eviter les versions concurrentes, les déploiements ambigus, les doublons fonctionnels et la surcharge qui ralentit MEL et les agents de développement."
+  },
   "invariants": {
     "zero_added_cost": true,
     "unknown_cost_fail_closed": true,
     "candidate_branch_only_for_autonomous_development": true,
+    "single_deployable_candidate": true,
+    "single_release_path": true,
+    "no_parallel_deployable_duplicates": true,
+    "secondary_branches_must_merge_or_close": true,
     "no_secret_commits": true,
     "no_destructive_d1": true,
     "owner_shutdown_wins": true,
