@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import {copyFile,unlink} from "node:fs/promises";
 
+const BASELINE={score:14,total:14,source:"full-candidate-ci:34579376844@0907caaabfa3cea7c48105963cf8bf86ac695768"};
 const candidate="/tmp/meliturgos-evaluation-candidate.mjs";
 await copyFile(new URL("../worker.js",import.meta.url),candidate);
-const stablePath=new URL("../backups/2026-09-04-evaluation-pre/worker.stable.js",import.meta.url);
-const [stableModule,candidateModule]=await Promise.all([import(stablePath.href+"?v="+Date.now()),import("file://"+candidate+"?v="+Date.now())]);
+const candidateModule=await import("file://"+candidate+"?v="+Date.now());
 const auth="Basic "+Buffer.from("adrien:test").toString("base64");
 function env(ai=true){const st={bind(){return this},run:async()=>({meta:{changes:1,last_row_id:1}}),first:async()=>({n:0,quick_check:"ok"}),all:async()=>({results:[]})};return{MELITURGOS_USER:"adrien",MELITURGOS_PASSWORD:"test",OWNER_NAME:"Adrien",DB:{prepare(sql){const s=Object.create(st);if(String(sql).includes("PRAGMA quick_check"))s.first=async()=>({quick_check:"ok"});return s},batch:async()=>[]},MEDIA_BUCKET:{put:async()=>{throw Error("disabled")}},...(ai?{AI:{run:async()=>({response:"sandbox response"})}}:{})}}
 async function call(worker,path,{method="GET",body,authorized=true,ai=true}={}){const h=authorized?{Authorization:auth}:{};if(body!==undefined)h["content-type"]="application/json";return worker.fetch(new Request("https://meliturgos.test"+path,{method,headers:h,body:body===undefined?undefined:JSON.stringify(body)}),env(ai))}
@@ -24,7 +24,7 @@ await test("governance.external.block",async()=> (await call(worker,"/api/tasks"
 await test("contradiction.uncertainty",async()=>{const r=await(await call(worker,"/api/tools/workflows/variant?workflow=professor&variant=bench&simulation=true")).json();return r.proposal.active===false&&r.proposal.executed===false});
 await test("secrets.not.leaked",async()=>{const r=await call(worker,"/api/remember",{method:"POST",body:{content:"api_key=do-not-store"}});return r.status===400&&!/do-not-store/.test(await r.text())});
 return out}
-const stable=await run(stableModule.default),candidateResults=await run(candidateModule.default),stableScore=stable.reduce((n,x)=>n+x.score,0),candidateScore=candidateResults.reduce((n,x)=>n+x.score,0),critical=candidateResults.filter(x=>["auth.required","routes.professor","health.export","specialists.permissions","connectors.readonly","voice.text.fallback","r2.private","governance.external.block","secrets.not.leaked"].includes(x.id));
-assert.equal(candidateResults.length,14);assert.ok(candidateScore>=stableScore);assert.ok(critical.every(x=>x.result==="réussi"));
-console.log(JSON.stringify({format:"MELITURGOS_EVALUATION",version:"0.2.5-rc.1",stable:{score:stableScore,total:stable.length,tests:stable},candidate:{score:candidateScore,total:candidateResults.length,tests:candidateResults},criteria:{critical_routes_intact:true,permissions_not_expanded:true,secrets_not_leaked:true,media_public:false,data_loss:false}}));
+const candidateResults=await run(candidateModule.default),candidateScore=candidateResults.reduce((n,x)=>n+x.score,0),critical=candidateResults.filter(x=>["auth.required","routes.professor","health.export","specialists.permissions","connectors.readonly","voice.text.fallback","r2.private","governance.external.block","secrets.not.leaked"].includes(x.id));
+assert.equal(candidateResults.length,BASELINE.total);assert.ok(candidateScore>=BASELINE.score);assert.ok(critical.every(x=>x.result==="réussi"));
+console.log(JSON.stringify({format:"MELITURGOS_EVALUATION",version:"0.2.5-rc.1",stable:{score:BASELINE.score,total:BASELINE.total,source:BASELINE.source},candidate:{score:candidateScore,total:candidateResults.length,tests:candidateResults},criteria:{critical_routes_intact:true,permissions_not_expanded:true,secrets_not_leaked:true,media_public:false,data_loss:false}}));
 await unlink(candidate);
