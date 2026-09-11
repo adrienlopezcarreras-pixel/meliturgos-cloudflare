@@ -17,8 +17,19 @@ async function approvedRepository() {
     result_json: {
       teacher_bridge: {
         status: 'ANSWERED',
-        request: { request_id: REQUEST },
+        request: {
+          request_id: REQUEST,
+          provenance: { producer: 'MEL_RUNTIME_CRON', candidate_sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+        },
         review: { request_id: REQUEST, verdict: 'APPROVE_PLAN', development_allowed: true },
+      },
+      dev_bridge: {
+        status: 'READY_FOR_REVIEW',
+        candidate_branch: BRANCH,
+        diff_summary: 'Mentor completion provenance test change',
+        needs_repair: false,
+        received_at: '2026-09-11T12:00:00.000Z',
+        tests: [{ name: 'targeted bridge test', passed: true }],
       },
       implementation_proposal: {
         status: 'READY',
@@ -64,7 +75,7 @@ function fetchImpl() {
   };
 }
 
-test('verified candidate completion becomes persistent Mentor development memory', async () => {
+test('verified candidate completion becomes persistent Mentor development memory with additive provenance', async () => {
   const DB = sqliteD1();
   try {
     const repository = await approvedRepository();
@@ -80,10 +91,22 @@ test('verified candidate completion becomes persistent Mentor development memory
     assert.ok(lesson);
     assert.equal(lesson.outcome, 'SUCCEEDED');
     assert.match(lesson.lesson, /Reprise autonome validée/i);
+    const evidence = JSON.parse(lesson.evidence_json);
+    assert.equal(evidence.provenance.teacher.request_id, REQUEST);
+    assert.equal(evidence.provenance.teacher.verdict, 'APPROVE_PLAN');
+    assert.equal(evidence.provenance.teacher.development_allowed, true);
+    assert.equal(evidence.provenance.teacher.producer, 'MEL_RUNTIME_CRON');
+    assert.equal(evidence.provenance.dev_bridge.status, 'READY_FOR_REVIEW');
+    assert.equal(evidence.provenance.dev_bridge.candidate_branch, BRANCH);
+    assert.equal(evidence.provenance.dev_bridge.tests[0].name, 'targeted bridge test');
+    assert.equal(evidence.provenance.dev_bridge.tests[0].passed, true);
 
     const stored = await repository.get(JOB);
     assert.equal(stored.result_json.autonomy_completion.mentor_learning.recorded, true);
     assert.equal(stored.result_json.autonomy_completion.mentor_learning.kind, 'DEVELOPMENT_OUTCOME');
+    assert.equal(stored.result_json.teacher_bridge.review.verdict, 'APPROVE_PLAN');
+    assert.equal(stored.result_json.dev_bridge.status, 'READY_FOR_REVIEW');
+    assert.equal(stored.result_json.dev_bridge.tests[0].passed, true);
   } finally {
     DB.close();
   }
