@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { inferNativeCodeCapability } from '../src/api/native-chat.js';
-import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v2.js';
+import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v4.js';
 import { MEL_AVATAR_URL, MEL_INTERFACE_FINALIZER } from '../src/pages/mvp-interface-finalizer.js';
 
 test('code questions are routed by the native chat capability path', () => {
@@ -30,10 +30,10 @@ test('native code routing understands follow-up access questions from recent con
 
 test('simple mode finalizer uses the new avatar and only essential daily/full-mode controls', () => {
   assert.equal(MEL_AVATAR_URL, '/assets/avatars/mel-spanish-20260911.webp');
-  assert.match(MEL_INTERFACE_FINALIZER, /Évangile du jour/);
-  assert.match(MEL_INTERFACE_FINALIZER, /Psaume du jour/);
+  assert.match(MEL_INTERFACE_FINALIZER, /Lectures du jour/);
   assert.match(MEL_INTERFACE_FINALIZER, /Mode complet/);
   assert.match(MEL_INTERFACE_FINALIZER, /aelf\.org/);
+  assert.match(MEL_INTERFACE_FINALIZER, /theme-switch\{display:block/);
   assert.doesNotMatch(MEL_INTERFACE_FINALIZER, /MEL veille et prie en silence/);
 });
 
@@ -43,9 +43,11 @@ test('full mode uses the current collaborative control center while legacy Profe
   assert.match(page, /MEL Control Room|Control Room/);
   assert.match(page, /Adrien · MEL · Mentor/);
   assert.match(page, /Salon Adrien · MEL · Mentor/);
+  assert.match(page, /Mentor répond par défaut/);
   assert.match(page, /Multi-IA/);
   assert.match(page, /Feuille de route/);
   assert.match(page, /mel-spanish-20260911\.webp/);
-  assert.match(router, /handleFullModeV2/);
+  assert.match(router, /full-interface-v4/);
+  assert.match(router, /\/api\/gen2\/mentor\/chat/);
   assert.match(router, /\/professor-legacy/);
 });
