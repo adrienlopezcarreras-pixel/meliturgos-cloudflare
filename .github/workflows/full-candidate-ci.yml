@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'candidate/augmentio-core'
+      - 'candidate/mel-ui-selfaware-integration'
   workflow_dispatch:
 
 permissions:

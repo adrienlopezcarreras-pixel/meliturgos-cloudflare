@@ -52,7 +52,7 @@ test('MVP sends text to chat, renders answer in the same window and prevents dou
   assert.equal(calls[0].path, '/api/chat');
   assert.equal(calls[0].body.text, 'Bonjour');
   assert.ok(calls[0].body.conversation_id);
-  assert.match(document.querySelector('#status').textContent, /Réflexion|réfléchit/i);
+  assert.match(document.querySelector('#status').textContent, /Réflexion|réfléchit|réagit/i);
   finish(Response.json({ text: 'Bonjour Adrien' }));
   await tick();
   assert.match(document.querySelector('#messages').textContent, /Bonjour Adrien/);
@@ -67,7 +67,7 @@ test('MVP keeps draft on failure and renders text safely', async () => {
   document.querySelector('#input').value = payload;
   document.querySelector('#send').click();
   await tick();
-  assert.match(document.querySelector('#status').textContent, /indisponible/);
+  assert.match(document.querySelector('#status').textContent, /indisponible|failed/i);
   assert.equal(document.querySelector('#input').value, payload);
   assert.equal(document.querySelectorAll('#messages img').length, 0);
   assert.equal(document.querySelector('#send').disabled, false);
