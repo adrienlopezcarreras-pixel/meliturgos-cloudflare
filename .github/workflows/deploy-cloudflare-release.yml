@@ -2,6 +2,9 @@ name: deploy-cloudflare-release
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - release/mel-2026-09-11-r6
 
 permissions:
   contents: read
