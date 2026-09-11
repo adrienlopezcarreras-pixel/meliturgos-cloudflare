@@ -1,8 +1,8 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`.
-Current reviewed HEAD before this checkpoint: `a82ad840cdc28b1659ea85d153bd436a1620008c`.
-Latest verified full-candidate CI for that HEAD: run `34600739542`, `completed/success` on 2026-09-11.
+Current reviewed HEAD before this checkpoint: `6c6ec8fe3108a9022f4a25008b458587b3888f64`.
+Latest verified full-candidate CI for that HEAD: run `34606034934`, `completed/success` on 2026-09-11.
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -64,7 +64,7 @@ Regression coverage exists for contextual/elliptical French including `fais-le`,
 
 Truth statuses remain explicit: `EXISTANT_ET_TESTE`, `EXISTANT_NON_TESTE`, `PARTIEL`, `STUB`, `NOT_IMPLEMENTED`, plus blocked/runtime-failure states.
 
-Automatic audit execution is restricted to bounded LOW-risk non-mutating samples. Unknown or provider-sensitive added cost fails closed unless zero-added-cost is explicitly proven for the exact capability in the current run. This also gates dynamic provider health probes, so an unapproved external/provider path is inventoried from registered state without being contacted merely for the audit.
+Automatic audit execution is restricted to bounded LOW-risk non-mutating samples. Unknown, provider-sensitive, or metered-runtime added cost fails closed unless zero-added-cost is explicitly proven for the exact capability in the current run. This also gates dynamic health probes, so unapproved provider or metered-resource paths are inventoried from registered state without being contacted merely for the audit.
 
 Current local zero-cost execution proof covers real CapabilityBus execution for:
 
@@ -76,7 +76,7 @@ Current local zero-cost execution proof covers real CapabilityBus execution for:
 - `device.policy.preview`
 - `evolution.module.propose`
 
-Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.search` and `code.integrity` require explicit exact-capability zero-added-cost proof before automatic deep execution or health probing. `evolution.enqueue` remains blocked from automatic deep audit by its MEDIUM risk classification.
+Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.search` and `code.integrity` require explicit exact-capability zero-added-cost proof before automatic deep execution or health probing. D1-backed reads `conversation.list`, `rag.search`, `autonomy.status` and `mentor.recent` now follow the same fail-closed rule because runtime metering is a potential added cost unless explicitly proven zero for that exact run. `evolution.enqueue` remains blocked from automatic deep audit by its MEDIUM risk classification.
 
 ## Safety invariants
 
@@ -119,8 +119,18 @@ Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.sea
 - Safety: only bounded identifiers/statuses/test summaries are copied into Mentor memory; no secrets, production deploy, DNS/auth/billing changes or destructive migration introduced.
 - Blockers: none introduced.
 
+## Checkpoint 2026-09-11 — metered runtime audit guard
+
+- Branch: `candidate/mel-clean-autonomy`.
+- Reviewed implementation/test SHA: `6c6ec8fe3108a9022f4a25008b458587b3888f64`.
+- Real changes: the truth-audit zero-cost gate now includes D1-backed LOW-risk reads `conversation.list`, `rag.search`, `autonomy.status` and `mentor.recent`; their execution and dynamic health probes remain blocked with `UNKNOWN_OR_EXTERNAL_COST` until exact-capability zero-added-cost proof is supplied for that run.
+- Regression: `tests/capability-metered-runtime-cost-guard.test.mjs` proves no execution or health probe occurs by default and that explicit proof unlocks only the exact approved capability.
+- CI: `full-candidate-ci` run `34606034934` completed successfully on the exact SHA; runtime dependency security gate, syntax and full test suite all green.
+- Verified safety property: low risk/read-only is no longer treated as equivalent to free; unknown runtime metering fails closed.
+- Blockers: none introduced. No production deployment, D1 mutation, provider call, secret, DNS/auth/billing change or destructive migration performed.
+
 ## Next concrete blocks
 
-1. Continue truthful bounded proofs for genuinely local LOW-risk capabilities that do not mutate state, require provider/network cost, or need persistent writes; add a regression only for a concrete observable gap.
+1. Continue truthful bounded proofs only for genuinely local LOW-risk capabilities that neither mutate state nor cross provider/network/persistent-runtime metering; require exact zero-cost proof for anything ambiguous.
 2. Re-check the end-to-end autonomy chain only where new evidence reveals a missing transition; do not duplicate the now-verified repair/retest or completion-memory proofs.
 3. Preserve the approved seven-theme/avatar/composer contract; no cosmetic rework without a failing regression.
