@@ -61,7 +61,7 @@ function completionMetadata(result) {
 }
 
 export class ModelRouter {
-  constructor({registry=standardRegistry, invoke, finalFallback, timeoutMs=30000, maxCalls=2, augmentio=null}={}) {
+  constructor({registry=standardRegistry, invoke, finalFallback, timeoutMs=120000, maxCalls=2, augmentio=null}={}) {
     this.registry=registry;
     this.invoke=invoke;
     this.finalFallback=finalFallback;
