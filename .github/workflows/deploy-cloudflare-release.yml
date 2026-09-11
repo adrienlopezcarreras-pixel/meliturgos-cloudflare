@@ -2,6 +2,9 @@ name: deploy-cloudflare-release
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - release/2026-09-11-vnext
 
 permissions:
   contents: read
