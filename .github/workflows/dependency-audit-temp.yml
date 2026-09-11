@@ -6,15 +6,17 @@ on:
       - cleanup/dependency-audit
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  audit:
+  fix-and-verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: cleanup/dependency-audit
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -25,10 +27,26 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
 
-      - name: Audit dependencies
+      - name: Remove unused tsx and update Wrangler
+        run: |
+          npm uninstall tsx
+          npm install --save-dev wrangler@^4.131.0
+
+      - name: Verify dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Syntax checks
+        run: npm run check
+
+      - name: Full tests
+        run: npm test
+
+      - name: Commit verified dependency cleanup
         shell: bash
         run: |
-          set +e
-          npm audit --json
-          echo "audit_exit=$?"
-          exit 0
+          rm .github/workflows/dependency-audit-temp.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json .github/workflows/dependency-audit-temp.yml
+          git commit -m "chore: fix dependency audit and remove unused tsx"
+          git push origin HEAD:cleanup/dependency-audit
