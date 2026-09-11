@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { flattenRoadmap, roadmapSummary, getRoadmapPayload } from '../src/roadmap/master-roadmap.js';
+import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v2.js';
 
 test('master roadmap is comprehensive and includes major product targets', () => {
   const rows = flattenRoadmap();
@@ -19,7 +20,7 @@ test('master roadmap is comprehensive and includes major product targets', () =>
 });
 
 test('control center v2 exposes roadmap, diagnostics and the single legacy rollback path', async () => {
-  const page = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+  const page = await (await renderFullMode({})).text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
   assert.match(page, /Feuille de route complète/);
   assert.match(page, /Accès au code/);
