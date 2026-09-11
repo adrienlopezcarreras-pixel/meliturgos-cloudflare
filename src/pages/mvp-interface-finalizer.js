@@ -15,8 +15,6 @@ const MEL_INTERFACE_FINALIZER = `<style id="mel-interface-finalizer-style">
   document.querySelectorAll('link[rel="icon"],link[rel="apple-touch-icon"]').forEach(function(link){link.href='${MEL_AVATAR_URL}'});
   document.querySelector('.theme-switch')?.remove();
   document.querySelectorAll('.mel-topline,.mel-recall-row,.mel-motto,.mel-idle-status').forEach(function(node){node.remove()});
-  const banned=['Présente, attentive, prête à avancer avec toi.','Touchez le visage de MEL pour parler · le texte reste toujours disponible','MEL veille et prie en silence.','Touchez son visage pour parler'];
-  document.querySelectorAll('body *').forEach(function(node){if(node.children.length===0&&banned.includes((node.textContent||'').trim()))node.textContent=''});
   if(voiceStatus)voiceStatus.textContent='';
   function aelfUrl(){const d=new Date();const date=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');return 'https://www.aelf.org/'+date+'/france/messe'}
   function addDaily(id,label){if(document.getElementById(id))return;const b=document.createElement('button');b.type='button';b.id=id;b.className='daily';b.textContent=label;b.addEventListener('click',function(){window.open(aelfUrl(),'_blank','noopener,noreferrer')});controls.insertBefore(b,full)}
@@ -33,7 +31,8 @@ export async function finalizeMvpInterface(response){
   html=html
     .replaceAll('Présente, attentive, prête à avancer avec toi.','')
     .replaceAll('Touchez le visage de MEL pour parler · le texte reste toujours disponible','')
-    .replaceAll('MEL veille et prie en silence.','');
+    .replaceAll('MEL veille et prie en silence.','')
+    .replaceAll('Touchez son visage pour parler','');
   if(html.includes('id="mel-interface-finalizer-runtime"'))return new Response(html,{status:response.status,statusText:response.statusText,headers:response.headers});
   const next=html.includes('</body>')?html.replace('</body>',MEL_INTERFACE_FINALIZER+'</body>'):html+MEL_INTERFACE_FINALIZER;
   const headers=new Headers(response.headers);headers.delete('content-length');headers.set('cache-control','no-store, max-age=0');
