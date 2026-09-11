@@ -1,8 +1,8 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`.
-Current reviewed HEAD before this checkpoint: `0ebba451bee449d928f894109da0faefc35a3e30`.
-Latest verified full-candidate CI for the consolidation HEAD: run `34640861612`, `completed/success` on 2026-09-11.
+Current reviewed HEAD before this checkpoint: `aa63471ed55d2ac5f4dc460274d3e288218b9943`.
+Latest verified full-candidate CI for the consolidation HEAD: run `34651025764`, `completed/success` on 2026-09-11.
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -81,6 +81,8 @@ Current local zero-cost execution proof covers real CapabilityBus execution for:
 
 Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.search` and `code.integrity` require explicit exact-capability zero-added-cost proof before automatic deep execution or health probing. D1-backed reads `conversation.list`, `rag.search`, `autonomy.status` and `mentor.recent` follow the same fail-closed rule because runtime metering is a potential added cost unless explicitly proven zero for that exact run. `evolution.enqueue` remains blocked from automatic deep audit by its MEDIUM risk classification.
 
+`work.status` and `work.artifacts` now have an explicit zero-external-call negative-path proof: in a Gen2 runtime without a D1 binding they remain registered as enabled LOW-risk/no-permission read capabilities, advertise `DEGRADED`, and fail closed with `WORK_DAG_DB_REQUIRED`. This proves the safe no-binding boundary only; it does not promote live D1-backed execution to zero-added-cost or `EXISTANT_ET_TESTE` for a metered runtime.
+
 ## Safety invariants
 
 - no production deployment;
@@ -130,6 +132,18 @@ Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.sea
 - Cost/safety: all provider behavior is mocked; no external inference call, deployment, mutation, secret, DNS/auth/billing change, destructive migration or paid action.
 - Blockers: none discovered in this block. No production promotion was attempted.
 - Next action: only pursue another transition when evidence shows a genuine unverified gap; preserve the already-green natural routing, evidence merge, mentor memory, theme/avatar and fail-closed guards.
+
+## Checkpoint 2026-09-11 — Work read capability fail-closed verified
+
+- Branch: `candidate/mel-clean-autonomy`.
+- Functional commit: `aa63471ed55d2ac5f4dc460274d3e288218b9943`.
+- Full-candidate CI: run `34651025764`, exact SHA `aa63471ed55d2ac5f4dc460274d3e288218b9943`, `completed/success` with `127 passed, 0 failed`.
+- Real change: added `tests/work-capabilities-truth.test.mjs` for the exact `work.status` and `work.artifacts` runtime registrations and no-D1 execution boundary.
+- Verified behavior: both are enabled LOW-risk/no-permission reads, report `DEGRADED` without D1, and fail closed with `WORK_DAG_DB_REQUIRED` instead of manufacturing state.
+- Truth boundary: this is a local negative-path proof only. Live D1-backed reads remain `PARTIEL`/unexecuted for deep audit until exact zero-added-cost execution is proven for that run.
+- Cost/safety: no provider call, no D1 access, no mutation, deployment, secret, DNS/auth/billing change, destructive migration or paid action. Runtime dependency audit also remained clean; dev-only Wrangler/Miniflare/Sharp advisories were recorded without forcing an update.
+- Blockers: none discovered in this block.
+- Next action: inspect for a genuinely unverified local LOW-risk non-mutating transition; do not duplicate already-closed Work DAG, truth-audit, Mentor, natural-routing, device-policy, theme/avatar or evidence-merging coverage.
 
 ## Next concrete blocks
 
