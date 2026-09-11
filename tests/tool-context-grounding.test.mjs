@@ -21,6 +21,6 @@ test('successful code tool results are promoted into trusted runtime context', (
 test('tool context truncates oversized strings instead of exploding prompt size', () => {
   const huge = 'x'.repeat(12000);
   const messages = buildContext({ system: 'MEL', toolResults: [{ content: huge }], current: 'analyse' });
-  assert.match(messages[0].content, /TRUNCATED/);
+  assert.match(messages[0].content, /CONTEXTE PARTIEL — \d+ caractères intermédiaires omis/);
   assert.ok(messages[0].content.length < 11500);
 });
