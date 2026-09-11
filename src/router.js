@@ -7,7 +7,6 @@ import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
 import handleAugmentio from "./api/augmentio-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
-import { onRequestGet as handleFullModeV1 } from "./pages/full-interface.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
@@ -163,10 +162,6 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/professor") {
       return handleFullModeV2({ env, request, params: {} }).catch(e => html(`Error loading full mode: ${e.message}`, 500));
-    }
-
-    if (request.method === "GET" && url.pathname === "/professor-v1") {
-      return handleFullModeV1({ env, request, params: {} }).catch(e => html(`Error loading full mode v1: ${e.message}`, 500));
     }
 
     if (request.method === "GET" && url.pathname === "/professor-legacy") {
