@@ -19,10 +19,12 @@ test('master roadmap is comprehensive and includes major product targets', () =>
   assert.equal(getRoadmapPayload().ok, true);
 });
 
-test('control center v2 exposes current roadmap, multi-AI controls, diagnostics and the single legacy rollback path', async () => {
+test('control center v2 exposes collaborative room, roadmap, multi-AI controls, diagnostics and rollback path', async () => {
   const page = await (await renderFullMode({})).text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
-  assert.match(page, /Centre de contrôle/);
+  assert.match(page, /MEL Control Room|Control Room/);
+  assert.match(page, /Adrien · MEL · Mentor/);
+  assert.match(page, /Salon Adrien · MEL · Mentor/);
   assert.match(page, /Multi-IA/);
   assert.match(page, /Travail/);
   assert.match(page, /Feuille de route complète/);
