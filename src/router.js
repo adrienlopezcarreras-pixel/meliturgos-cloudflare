@@ -32,6 +32,19 @@ export function stripInternalCounters(value) {
   return cleaned;
 }
 
+async function serveBundledAsset(request, env) {
+  if (request.method !== 'GET' || !env?.ASSETS) return null;
+  const url = new URL(request.url);
+  if (!url.pathname.startsWith('/assets/')) return null;
+  const assetUrl = new URL(request.url);
+  assetUrl.pathname = url.pathname.slice('/assets'.length) || '/';
+  const response = await env.ASSETS.fetch(new Request(assetUrl.toString(), request));
+  if (response.status === 404) return null;
+  const headers = new Headers(response.headers);
+  headers.set('cache-control', 'public, max-age=3600');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 async function codeSelfCheck(env) {
   const runtime = createGen2Runtime({ env });
   const result = await runtime.bus.execute("code.read", { path: "src/router.js" }, {
@@ -150,6 +163,9 @@ export default {
       const bridgeResponse = devRuntime(request, env);
       if (bridgeResponse) return await bridgeResponse;
     }
+
+    const assetResponse = await serveBundledAsset(request, env);
+    if (assetResponse) return assetResponse;
 
     const auth = requireAuth(request, env);
     if (!auth.ok) return auth.response;
