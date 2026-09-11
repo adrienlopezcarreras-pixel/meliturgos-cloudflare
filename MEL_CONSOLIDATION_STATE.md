@@ -1,8 +1,8 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`.
-Current reviewed HEAD before this checkpoint: `aa63471ed55d2ac5f4dc460274d3e288218b9943`.
-Latest verified full-candidate CI for the consolidation HEAD: run `34651025764`, `completed/success` on 2026-09-11.
+Current reviewed HEAD before this checkpoint: `d07f813f0f694c3c3b3116a9e41dc0e7c0ab9ff3`.
+Latest verified full-candidate CI for the consolidation HEAD: run `34655145464`, `completed/success` on 2026-09-11.
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -83,6 +83,8 @@ Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.sea
 
 `work.status` and `work.artifacts` now have an explicit zero-external-call negative-path proof: in a Gen2 runtime without a D1 binding they remain registered as enabled LOW-risk/no-permission read capabilities, advertise `DEGRADED`, and fail closed with `WORK_DAG_DB_REQUIRED`. This proves the safe no-binding boundary only; it does not promote live D1-backed execution to zero-added-cost or `EXISTANT_ET_TESTE` for a metered runtime.
 
+Provider-bound LOW-risk capabilities `augmentio.fanout`, `council.state-of-play` and `evolution.preflight` now also have an explicit no-AI-binding negative-path proof: without `AI` they remain enabled, advertise `DEGRADED`, and fail closed with `AI_BINDING_MISSING` without making an external/provider call. This proves the safe missing-binding boundary only and does not promote live provider-backed execution to zero-added-cost. `evolution.enqueue` remains MEDIUM risk and is deliberately not deep-executed by this proof.
+
 ## Safety invariants
 
 - no production deployment;
@@ -144,6 +146,18 @@ Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.sea
 - Cost/safety: no provider call, no D1 access, no mutation, deployment, secret, DNS/auth/billing change, destructive migration or paid action. Runtime dependency audit also remained clean; dev-only Wrangler/Miniflare/Sharp advisories were recorded without forcing an update.
 - Blockers: none discovered in this block.
 - Next action: inspect for a genuinely unverified local LOW-risk non-mutating transition; do not duplicate already-closed Work DAG, truth-audit, Mentor, natural-routing, device-policy, theme/avatar or evidence-merging coverage.
+
+## Checkpoint 2026-09-11 — provider capability missing-binding fail-closed verified
+
+- Branch: `candidate/mel-clean-autonomy`.
+- Functional commit: `d07f813f0f694c3c3b3116a9e41dc0e7c0ab9ff3`.
+- Full-candidate CI: run `34655145464`, exact SHA `d07f813f0f694c3c3b3116a9e41dc0e7c0ab9ff3`, `completed/success`.
+- Real change: added `tests/provider-capabilities-fail-closed.test.mjs`.
+- Verified behavior: `augmentio.fanout`, `council.state-of-play` and `evolution.preflight` are enabled LOW-risk/no-permission capabilities, advertise `DEGRADED` without `AI`, and reject locally with `AI_BINDING_MISSING` rather than attempting provider execution. `evolution.enqueue` remains `MEDIUM` and was metadata-checked only, not deep-executed.
+- Truth boundary: this is a zero-external-call negative-path proof only; live provider-backed execution remains `PARTIEL` until an exact zero-added-cost provider path is established for that run.
+- Cost/safety: no provider call, no D1 access, no mutation, production deployment, secret, DNS/auth/billing change, destructive migration or paid action.
+- Blockers: none discovered in this block.
+- Next action: continue only with another genuinely local LOW-risk non-mutating boundary that has not already been proved; do not re-audit closed consolidation/theme/Mentor/natural-routing/evidence/device-policy blocks.
 
 ## Next concrete blocks
 
