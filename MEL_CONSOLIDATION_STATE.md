@@ -1,8 +1,8 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`.
-Current reviewed HEAD before this checkpoint: `2df90934077cde0b812835c445fd98647714d69d`.
-Latest verified full-candidate CI for that HEAD: run `34580703412`, `completed/success` on 2026-09-11.
+Current reviewed HEAD before this checkpoint: `50c22256dc4175a6fd391cbda4f09518cd9b0149`.
+Latest verified full-candidate CI for that HEAD: run `34595848059`, `completed/success` on 2026-09-11.
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -63,7 +63,7 @@ Regression coverage exists for contextual/elliptical French including `fais-le`,
 
 Truth statuses remain explicit: `EXISTANT_ET_TESTE`, `EXISTANT_NON_TESTE`, `PARTIEL`, `STUB`, `NOT_IMPLEMENTED`, plus blocked/runtime-failure states.
 
-Automatic audit execution is restricted to bounded LOW-risk non-mutating samples. Unknown or provider-sensitive added cost fails closed unless zero-added-cost is explicitly proven for the exact capability in the current run.
+Automatic audit execution is restricted to bounded LOW-risk non-mutating samples. Unknown or provider-sensitive added cost fails closed unless zero-added-cost is explicitly proven for the exact capability in the current run. This now also gates dynamic provider health probes, so an unapproved external/provider path is inventoried from registered state without being contacted merely for the audit.
 
 Current local zero-cost execution proof covers real CapabilityBus execution for:
 
@@ -75,7 +75,7 @@ Current local zero-cost execution proof covers real CapabilityBus execution for:
 - `device.policy.preview`
 - `evolution.module.propose`
 
-Provider-sensitive paths remain unexecuted by that proof. `evolution.enqueue` remains blocked from automatic deep audit by its MEDIUM risk classification.
+Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.search` and `code.integrity` now require explicit exact-capability zero-added-cost proof before automatic deep execution or health probing. `evolution.enqueue` remains blocked from automatic deep audit by its MEDIUM risk classification.
 
 ## Safety invariants
 
@@ -87,6 +87,16 @@ Provider-sensitive paths remain unexecuted by that proof. `evolution.enqueue` re
 - do not weaken/remove useful tests to obtain green CI;
 - before every write, refetch clean HEAD and never overwrite an advanced HEAD;
 - smallest missing behavior/test/file is the recovery unit; never cherry-pick a divergent branch wholesale.
+
+## Checkpoint 2026-09-11 — provider cost guard
+
+- Branch: `candidate/mel-clean-autonomy`.
+- Reviewed implementation SHA: `50c22256dc4175a6fd391cbda4f09518cd9b0149`.
+- Real changes: `code.read`, `code.search` and `code.integrity` added to the provider/cost-sensitive audit gate; unapproved cost-sensitive capabilities no longer receive dynamic health probes from the truth audit; dedicated regression test added in `tests/capability-provider-cost-guard.test.mjs`.
+- Tests/CI: `full-candidate-ci` run `34595848059` completed successfully on the exact implementation SHA; syntax, runtime dependency security gate and full test suite all green.
+- Verified capability: truth audit remains fail-closed for provider-backed code operations until exact zero-added-cost proof is supplied, including health probing.
+- Blockers: none introduced by this block. No production deployment or persistent mutation performed.
+- Next action: inspect the durable autonomy chain for the smallest still-unproven transition between Dev Bridge repair/retest evidence, `READY_FOR_REVIEW`, and durable Mentor/Teacher memory; add only a targeted regression if a concrete gap is observed.
 
 ## Next concrete blocks
 
