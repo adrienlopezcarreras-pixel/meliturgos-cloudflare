@@ -1,8 +1,8 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`.
-Current reviewed HEAD before this checkpoint: `6c6ec8fe3108a9022f4a25008b458587b3888f64`.
-Latest verified full-candidate CI for that HEAD: run `34606034934`, `completed/success` on 2026-09-11.
+Current reviewed HEAD before this checkpoint: `1a155497350a75818ae8b47cff7ec54eed3f5491`.
+Latest verified full-candidate CI for that HEAD: run `34612051542`, `completed/success` on 2026-09-11.
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -75,6 +75,7 @@ Current local zero-cost execution proof covers real CapabilityBus execution for:
 - `capability.audit`
 - `device.policy.preview`
 - `evolution.module.propose`
+- `evolution.gap.detect`
 
 Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.search` and `code.integrity` require explicit exact-capability zero-added-cost proof before automatic deep execution or health probing. D1-backed reads `conversation.list`, `rag.search`, `autonomy.status` and `mentor.recent` now follow the same fail-closed rule because runtime metering is a potential added cost unless explicitly proven zero for that exact run. `evolution.enqueue` remains blocked from automatic deep audit by its MEDIUM risk classification.
 
@@ -128,6 +129,16 @@ Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.sea
 - CI: `full-candidate-ci` run `34606034934` completed successfully on the exact SHA; runtime dependency security gate, syntax and full test suite all green.
 - Verified safety property: low risk/read-only is no longer treated as equivalent to free; unknown runtime metering fails closed.
 - Blockers: none introduced. No production deployment, D1 mutation, provider call, secret, DNS/auth/billing change or destructive migration performed.
+
+## Checkpoint 2026-09-11 — local gap detector zero-cost proof
+
+- Branch: `candidate/mel-clean-autonomy`.
+- Reviewed implementation/test SHA: `1a155497350a75818ae8b47cff7ec54eed3f5491`.
+- Real changes: `evolution.gap.detect` removed from the cost-sensitive audit deny-by-default set after code inspection proved it only compares the supplied natural-language goal with the in-memory `CapabilityBus` registration list; no provider, network, D1, secret or mutation path is touched by the capability itself.
+- Regression: `tests/capability-local-gap-audit.test.mjs` proves a deep truth audit dynamically health-checks and executes this exact LOW-risk bounded local capability without requiring a zero-cost override, and records `EXISTANT_ET_TESTE`.
+- CI: `full-candidate-ci` run `34612051542` completed successfully on the exact SHA; runtime dependency security gate, syntax and full test suite all green.
+- Verified capability: the audit can now truthfully exercise `evolution.gap.detect` automatically while preserving fail-closed treatment for provider-backed, metered, mutating or otherwise ambiguous capabilities.
+- Blockers: none introduced. No production deployment, persistent mutation, provider call, secret, DNS/auth/billing change or destructive migration performed.
 
 ## Next concrete blocks
 
