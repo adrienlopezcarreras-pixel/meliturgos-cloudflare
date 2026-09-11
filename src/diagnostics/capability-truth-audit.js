@@ -24,6 +24,9 @@ const COST_SENSITIVE_CAPABILITIES = new Set([
   'evolution.enqueue',
   'evolution.gap.detect',
   'web.research',
+  'code.read',
+  'code.search',
+  'code.integrity',
 ]);
 
 const DECLARED_IMPLEMENTATION_STATUSES = new Set([
