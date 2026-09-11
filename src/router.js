@@ -6,6 +6,7 @@ import { withConversationArchive } from "./conversations/intercept.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
 import handleAugmentio from "./api/augmentio-api.js";
+import { handleMentorChat } from "./api/mentor-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v3.js";
 import { finalizeMvpInterface } from "./pages/mvp-interface-finalizer.js";
@@ -55,9 +56,7 @@ async function handleConversationApi(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
 
-  if (path === "/api/gen2/roadmap" && request.method === "GET") {
-    return json(getRoadmapPayload());
-  }
+  if (path === "/api/gen2/roadmap" && request.method === "GET") return json(getRoadmapPayload());
 
   if (path === "/api/gen2/code/self-check" && request.method === "GET") {
     try { return json(await codeSelfCheck(env)); }
@@ -77,6 +76,8 @@ async function handleConversationApi(request, env) {
     const result = await runtime.bus.execute(String(body.id), body.input || {}, { owner: env.MELITURGOS_USER || "owner", permissions: env.CAPABILITY_PERMISSIONS || [], requestId: crypto.randomUUID() });
     return json({ ok: true, capability: body.id, result });
   }
+
+  if (path === "/api/gen2/mentor/chat") return handleMentorChat(request, env);
 
   if (path === "/api/gen2/conversations" && request.method === "GET") {
     const owner = env.MELITURGOS_USER || "";
