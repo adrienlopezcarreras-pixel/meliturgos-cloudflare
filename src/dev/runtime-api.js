@@ -6,6 +6,7 @@ import { AutonomySupervisor } from '../evolution/autonomy-supervisor.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest, applyRuntimeTeacherReply } from '../teachers/runtime-teacher-bridge.js';
+import { maybeHandleMentorRuntime, mentorRuntimeCapabilities, mentorPolicy } from './mentor-runtime.js';
 
 function boundedInspection(value) {
   requireValue(value && value.status === 'COMPLETE' && Array.isArray(value.evidence) && value.evidence.length > 0, 'CODE_INSPECTION_REQUIRED', 422);
@@ -35,7 +36,9 @@ export function devRuntime(request, env) {
           'dev.plan', 'dev.create_candidate', 'dev.apply_change', 'dev.test',
           'dev.report', 'dev.rollback', 'dev.commit', 'dev.autonomy.next',
           'dev.council.preflight', 'dev.teacher.request', 'dev.teacher.reply',
+          ...mentorRuntimeCapabilities,
         ],
+        mentor_policy: mentorPolicy,
       });
     }
 
@@ -146,12 +149,15 @@ export function devRuntime(request, env) {
       });
     }
 
+    const mentorResponse = await maybeHandleMentorRuntime({ request, env, repo, path, body });
+    if (mentorResponse) return mentorResponse;
+
     if (path === '/api/dev-bridge/claim' && request.method === 'POST') {
       const job = await repo.claim();
       if (!job) return Response.json({ job: null });
       const agent = new DevAgent({
         diagnose: async (input) => ({ goal: input.goal, source: 'dev-agent' }),
-        plan: async (input) => ({ goal: input.goal, steps: ['code.search', 'code.read', 'dev.create_candidate', 'dev.test', 'code.diff'] }),
+        plan: async (input) => ({ goal: input.goal, steps: ['code.search', 'code.read', 'dev.create_candidate', 'dev.council.preflight', 'mentor.propose', 'dev.test', 'mentor.repair', 'code.diff', 'dev.teacher.request'] }),
       });
       const diagnosis = await agent.diagnose({ goal: job.goal });
       return Response.json(await repo.update(job.id, { plan_json: await agent.plan(diagnosis), status: 'CLAIMED' }));
