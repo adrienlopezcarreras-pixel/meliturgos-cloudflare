@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { MEL_AVATAR_URL, MEL_INTERFACE_FINALIZER, finalizeMvpInterface } from '../src/pages/mvp-interface-finalizer.js';
 
 test('final interface stays simple and removes rejected helper copy',()=>{
-  assert.match(MEL_INTERFACE_FINALIZER,/Évangile du jour/);
-  assert.match(MEL_INTERFACE_FINALIZER,/Psaume du jour/);
+  assert.match(MEL_INTERFACE_FINALIZER,/Lectures du jour/);
   assert.match(MEL_INTERFACE_FINALIZER,/Mode complet/);
   assert.match(MEL_INTERFACE_FINALIZER,/aelf\.org/);
+  assert.match(MEL_INTERFACE_FINALIZER,/theme-switch\{display:block/);
   assert.doesNotMatch(MEL_INTERFACE_FINALIZER,/Présente, attentive, prête à avancer avec toi\./);
   assert.doesNotMatch(MEL_INTERFACE_FINALIZER,/Touchez le visage de MEL pour parler · le texte reste toujours disponible/);
   assert.doesNotMatch(MEL_INTERFACE_FINALIZER,/MEL veille et prie en silence\./);
@@ -27,8 +27,9 @@ test('finalizer strips owner-rejected static copy and injects once into HTML onl
   assert.doesNotMatch(once,/MEL veille et prie en silence\./);
   assert.doesNotMatch(once,/Touchez le visage de MEL pour parler · le texte reste toujours disponible/);
   assert.doesNotMatch(once,/Touchez son visage pour parler/);
-  assert.match(once,/Évangile du jour/);
-  assert.match(once,/Psaume du jour/);
+  assert.match(once,/Lectures du jour/);
+  assert.doesNotMatch(once,/>Évangile du jour</);
+  assert.doesNotMatch(once,/>Psaume du jour</);
   const second=await finalizeMvpInterface(new Response(once,{headers:{'content-type':'text/html'}}));
   assert.equal(((await second.text()).match(/id="mel-interface-finalizer-runtime"/g)||[]).length,1);
 });
