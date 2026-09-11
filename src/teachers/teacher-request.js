@@ -1,3 +1,5 @@
+import { UNIFIED_DEVELOPMENT_POLICY } from '../evolution/unified-development-policy.js';
+
 const MAX_TEXT = 12000;
 const SECRET_LIKE = /(?:api[_ -]?key|password|mot\s+de\s+passe|bearer\s+[a-z0-9._-]+|\btoken\b|\botp\b|secret\s*[=:])/i;
 
@@ -50,11 +52,21 @@ export function createTeacherReviewRequest({
   const requestId = crypto.randomUUID();
   return {
     type: 'MEL_TEACHER_REVIEW_REQUEST',
-    version: 1,
+    version: 2,
     request_id: requestId,
     created_at: new Date().toISOString(),
     objective,
     stage: 'TEACHER_REVIEW_REQUIRED',
+    governance: {
+      mode: UNIFIED_DEVELOPMENT_POLICY.mode,
+      consensus_mode: UNIFIED_DEVELOPMENT_POLICY.consensus_mode,
+      consensus_required_before_persistence: true,
+      final_authority: UNIFIED_DEVELOPMENT_POLICY.final_authority,
+      final_authority_temporary: true,
+      parallel_implementations_allowed: false,
+      persistent_implementation_plans: 1,
+      decision_rule: 'COUNCIL_SEEKS_AGREEMENT; MEL_SYNTHESIZES; CHATGPT_TEACHER_ARBITRATES_REMAINING_DISAGREEMENT; ONE_CANONICAL_PLAN_ONLY',
+    },
     council: safeValue(councilData),
     inspection: safeValue(inspectionData),
     spec: safeValue(spec || {}),
@@ -64,8 +76,10 @@ export function createTeacherReviewRequest({
     security: safeValue(security),
     unknowns: safeValue(unknowns),
     rollback: safeValue(rollback),
-    provenance: safeValue({ ...provenance, producer: 'MEL', contract: 'teacher-review/v1' }),
+    provenance: safeValue({ ...provenance, producer: 'MEL', contract: 'teacher-review/v2' }),
     requested_review: [
+      'council_consensus_and_disagreements',
+      'single_canonical_decision',
       'architecture',
       'correctness',
       'security_privacy',
@@ -91,9 +105,13 @@ export function applyTeacherReview(request, review = {}) {
     request_id: request.request_id,
     verdict,
     development_allowed: verdict === 'APPROVE_PLAN',
+    final_authority: 'CHATGPT_TEACHER',
+    final_decision: true,
+    canonical_plan_count_allowed: 1,
+    parallel_implementations_allowed: false,
     feedback: safeValue(review.feedback || ''),
     evidence: safeValue(review.evidence || []),
-    provenance: safeValue(review.provenance || { teacher: 'external-teacher' }),
+    provenance: safeValue(review.provenance || { teacher: 'CHATGPT_TEACHER' }),
     reviewed_at: new Date().toISOString(),
   };
 }
