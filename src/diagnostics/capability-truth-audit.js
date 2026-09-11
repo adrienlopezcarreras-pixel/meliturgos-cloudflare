@@ -3,6 +3,7 @@ const SAFE_SAMPLES = Object.freeze({
   'roadmap.read': {},
   'system.bindings': {},
   'chatgpt.archive.preview': { archive: { conversations: [] } },
+  'capability.audit': { deep: false },
   'code.read': { path: 'package.json' },
   'code.search': { query: 'MELITURGOS' },
   'conversation.list': {},
