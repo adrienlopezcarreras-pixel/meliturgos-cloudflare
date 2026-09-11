@@ -1,8 +1,8 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`.
-Current reviewed HEAD before this checkpoint: `279b9bcb8cdc291494c6b2200bec79cf85aca2b8`.
-Latest verified full-candidate CI for that HEAD: run `34596085590`, `completed/success` on 2026-09-11.
+Current reviewed HEAD before this checkpoint: `a82ad840cdc28b1659ea85d153bd436a1620008c`.
+Latest verified full-candidate CI for that HEAD: run `34600739542`, `completed/success` on 2026-09-11.
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -45,7 +45,8 @@ The final visual contract remains authoritative:
 - `src/learning/mentor-engine.js` and `src/learning/mentor-memory.js` integrated;
 - DB schema version 6 with additive-only `mentor_lessons` migration preserved;
 - Mentor tests and runtime capabilities integrated;
-- Dev Bridge evidence is additive to Teacher/Mentor evidence rather than replacing it.
+- Dev Bridge evidence is additive to Teacher/Mentor evidence rather than replacing it;
+- verified completion lessons now retain a bounded Teacher + Dev Bridge provenance snapshot in persistent Mentor evidence, while the full existing `result_json` evidence remains intact.
 
 ### Real autonomy
 
@@ -106,10 +107,20 @@ Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.sea
 - CI: `full-candidate-ci` run `34596085590` completed successfully on the exact implementation SHA; syntax, dependency security gate and full suite all green.
 - Verified autonomy transition: candidate -> failing tests -> durable repair evidence -> passing retest -> `READY_FOR_REVIEW` -> explicit human approval.
 - Blockers: none introduced. No production deployment, secret, DNS, auth, billing or destructive migration touched.
-- Next action: verify the smallest remaining durable-memory edge after `READY_FOR_REVIEW` so Dev Bridge review evidence, Teacher/Mentor provenance and final memory/checkpoint remain additive and traceable end to end.
+
+## Checkpoint 2026-09-11 — durable completion provenance
+
+- Branch: `candidate/mel-clean-autonomy`.
+- Reviewed implementation/test SHA: `a82ad840cdc28b1659ea85d153bd436a1620008c`.
+- Real changes: `src/teachers/github-completion-reconciler.js` now persists a bounded provenance snapshot with every verified Mentor completion lesson: Teacher request/status/verdict/development authorization plus Dev Bridge review status/candidate/diff/tests. Existing `job.result_json` remains additive and is not overwritten.
+- Regression: `tests/autonomy-completion-mentor-learning.test.mjs` now proves persistent `mentor_lessons.evidence_json` retains Teacher + Dev Bridge provenance and that final job state still retains both original evidence branches after completion.
+- CI: `full-candidate-ci` run `34600739542` completed successfully on the exact SHA; runtime dependency security gate, syntax and full suite all green.
+- Verified autonomy transition: `READY_FOR_REVIEW`/Teacher-approved evidence -> verified full-candidate CI -> persistent Mentor development memory, with traceable provenance across all evidence layers.
+- Safety: only bounded identifiers/statuses/test summaries are copied into Mentor memory; no secrets, production deploy, DNS/auth/billing changes or destructive migration introduced.
+- Blockers: none introduced.
 
 ## Next concrete blocks
 
-1. Verify the durable-memory edge after `READY_FOR_REVIEW`, adding only a targeted regression for any observable loss of Teacher/Mentor/Dev Bridge provenance.
-2. Continue truthful bounded proofs for genuinely local LOW-risk capabilities that do not mutate state, require provider/network cost, or need persistent writes.
+1. Continue truthful bounded proofs for genuinely local LOW-risk capabilities that do not mutate state, require provider/network cost, or need persistent writes; add a regression only for a concrete observable gap.
+2. Re-check the end-to-end autonomy chain only where new evidence reveals a missing transition; do not duplicate the now-verified repair/retest or completion-memory proofs.
 3. Preserve the approved seven-theme/avatar/composer contract; no cosmetic rework without a failing regression.
