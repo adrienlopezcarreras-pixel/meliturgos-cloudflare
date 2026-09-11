@@ -93,6 +93,9 @@ test('approved Teacher + multi-AI plan becomes an applyable structured bridge pa
   assert.deepEqual(stored.tests_json.map(row => row.command), ['test:smoke', 'test:integration']);
   assert.equal(stored.patch_json.source, 'MentorEngine');
   assert.equal(stored.patch_json.mode, 'implement');
+  assert.equal(stored.result_json.teacher_bridge.status, 'ANSWERED');
+  assert.equal(stored.result_json.teacher_bridge.review.request_id, REQUEST);
+  assert.equal(stored.result_json.implementation_proposal.teacher_request_id, REQUEST);
 });
 
 test('bridge package is reused without asking Mentor twice when approval and candidate SHA are unchanged', async () => {
@@ -142,6 +145,12 @@ test('a failed bridge test invalidates the old package and creates one repair pa
   current = await repository.get('bridge-prep-job');
   assert.match(current.files_json[0].content, /repaired/);
   assert.equal(current.patch_json.mode, 'repair');
+  assert.equal(current.result_json.teacher_bridge.status, 'ANSWERED');
+  assert.equal(current.result_json.teacher_bridge.review.verdict, 'APPROVE_PLAN');
+  assert.equal(current.result_json.implementation_proposal.teacher_request_id, REQUEST);
+  assert.equal(current.result_json.dev_bridge.status, 'READY_FOR_REVIEW');
+  assert.equal(current.result_json.dev_bridge.tests[0].stderr, 'assertion failed');
+  assert.ok(current.result_json.dev_bridge.repair_package_created_at);
 
   const reusedRepair = await prepareApprovedBridgePackage({ ...baseArgs, job: current });
   assert.equal(reusedRepair.reused, true);
