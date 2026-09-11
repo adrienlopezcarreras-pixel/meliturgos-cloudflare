@@ -54,6 +54,35 @@ export function inferWebResearchIntent(text) {
   return { id: 'web.research', input: { query: value.slice(0, 2000), depth: 2 } };
 }
 
+export function inferCodeIntegrityIntent(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  const codeDomain = /\b(?:code|source|sources|repo|repository|d[ée]p[ôo]t|github|branche|branch)\b/i.test(value);
+  const integrityAction = /\b(?:int[ée]grit[ée]|integrity|propre|sain|coh[ée]rent|v[ée]rifie|v[ée]rifier|contr[ôo]le|contr[ôo]ler|check)\b/i.test(value);
+  return codeDomain && integrityAction ? { id: 'code.integrity', input: {} } : null;
+}
+
+export function inferOpenWorkIntent(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  const workDomain = /\b(?:travaux?|t[âa]ches?|jobs?|work|missions?|boucles?)\b/i.test(value);
+  const asksOpen = /\b(?:ouverts?|en\s+cours|en\s+attente|inachev[ée]s?|restent?|reprendre|reprends?|resume|pending|running|waiting)\b/i.test(value);
+  if (!(workDomain && asksOpen)) return null;
+  const limitMatch = value.match(/\b(\d{1,3})\b/);
+  const limit = Math.max(1, Math.min(100, Number(limitMatch?.[1]) || 20));
+  return { id: 'work.open', input: { limit } };
+}
+
+export function inferModuleProposalIntent(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  const proposal = /\b(?:propose|proposer|pr[ée]pare|pr[ée]parer|imagine|imaginer|sp[ée]cifie|sp[ée]cifier|draft)\b/i.test(value);
+  const moduleDomain = /\b(?:module|skill|comp[ée]tence|capacit[ée]|plugin)\b/i.test(value);
+  const directCoding = /\b(?:d[ée]veloppe|impl[ée]mente|code|programme|[ée]cris\s+le\s+code|build)\b/i.test(value);
+  if (!(proposal && moduleDomain) || directCoding) return null;
+  return { id: 'evolution.module.propose', input: { goal: value.slice(0, 4000) } };
+}
+
 function enqueueCapability(goal, body, requestKey) {
   return {
     id: 'evolution.enqueue',
@@ -65,11 +94,16 @@ function enqueueCapability(goal, body, requestKey) {
   };
 }
 
+function routeDeterministic(body, route, intent) {
+  body.capability = route;
+  body.intent_routing = { mode: 'deterministic', intent, confidence: 1 };
+}
+
 /**
- * Owner development requests become durable supervised-autonomy jobs rather
- * than one-shot planning answers. Fast deterministic rules handle obvious
- * commands; a zero-added-cost FAST semantic classifier handles natural,
- * elliptical and contextual formulations supplied by the active UI.
+ * Owner requests become durable supervised jobs or explicit read-only runtime
+ * capabilities. Fast deterministic rules handle obvious commands; a
+ * zero-added-cost FAST semantic classifier handles natural, elliptical and
+ * contextual formulations supplied by the active UI.
  */
 export async function injectEvolutionPreflightCapability(request) {
   const url = new URL(request.url);
@@ -89,16 +123,18 @@ export async function injectEvolutionPreflightCapability(request) {
   } else {
     const autonomy = inferAutonomyControlIntent(text);
     const capabilityInspection = autonomy ? null : inferCapabilityInspectionIntent(text);
-    const webResearch = autonomy || capabilityInspection ? null : inferWebResearchIntent(text);
-    if (autonomy) {
-      body.capability = autonomy;
-    } else if (capabilityInspection) {
-      body.capability = capabilityInspection;
-      body.intent_routing = { mode: 'deterministic', intent: 'CAPABILITY_STATUS', confidence: 1 };
-    } else if (webResearch) {
-      body.capability = webResearch;
-      body.intent_routing = { mode: 'deterministic', intent: 'WEB_RESEARCH', confidence: 1 };
-    } else {
+    const codeIntegrity = autonomy || capabilityInspection ? null : inferCodeIntegrityIntent(text);
+    const openWork = autonomy || capabilityInspection || codeIntegrity ? null : inferOpenWorkIntent(text);
+    const moduleProposal = autonomy || capabilityInspection || codeIntegrity || openWork ? null : inferModuleProposalIntent(text);
+    const webResearch = autonomy || capabilityInspection || codeIntegrity || openWork || moduleProposal ? null : inferWebResearchIntent(text);
+
+    if (autonomy) routeDeterministic(body, autonomy, 'AUTONOMY_CONTROL');
+    else if (capabilityInspection) routeDeterministic(body, capabilityInspection, 'CAPABILITY_STATUS');
+    else if (codeIntegrity) routeDeterministic(body, codeIntegrity, 'CODE_INTEGRITY');
+    else if (openWork) routeDeterministic(body, openWork, 'OPEN_WORK');
+    else if (moduleProposal) routeDeterministic(body, moduleProposal, 'MODULE_PROPOSAL');
+    else if (webResearch) routeDeterministic(body, webResearch, 'WEB_RESEARCH');
+    else {
       const semantic = await classifySemanticOwnerIntent({
         text,
         context: String(body.intent_context || '').slice(-8000),
