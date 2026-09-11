@@ -17,6 +17,11 @@ const SAFE_SAMPLES = Object.freeze({
   'web.research': { query: 'Cloudflare Workers documentation', depth: 1 },
 });
 
+// Automatic deep audits must be zero-added-cost by proof, not assumption.
+// This includes obvious external/provider calls and reads backed by metered
+// Cloudflare resources such as D1. A capability in this set may still be
+// executed when the caller explicitly supplies its exact id in
+// zeroCostCapabilityIds for the current run.
 const COST_SENSITIVE_CAPABILITIES = new Set([
   'augmentio.fanout',
   'council.state-of-play',
@@ -27,6 +32,10 @@ const COST_SENSITIVE_CAPABILITIES = new Set([
   'code.read',
   'code.search',
   'code.integrity',
+  'conversation.list',
+  'rag.search',
+  'autonomy.status',
+  'mentor.recent',
 ]);
 
 const DECLARED_IMPLEMENTATION_STATUSES = new Set([
@@ -74,11 +83,13 @@ function autoExecutionBlockReason({ deep, record, sample, declared, costSensitiv
 /**
  * Truthful audit of every registered MEL capability.
  * LOW-risk capabilities with a bounded sample are executed when deep=true,
- * except capabilities that may cross an external/provider cost boundary. Those
- * remain fail-closed unless the caller explicitly proves that exact capability
- * is zero-added-cost for the current run through zeroCostCapabilityIds.
- * The same gate applies to dynamic health probes: an unapproved provider path
- * is inventoried from its registered state without contacting that provider.
+ * except capabilities that may cross an external/provider or metered-runtime
+ * cost boundary. Those remain fail-closed unless the caller explicitly proves
+ * that exact capability is zero-added-cost for the current run through
+ * zeroCostCapabilityIds.
+ * The same gate applies to dynamic health probes: an unapproved provider or
+ * metered-runtime path is inventoried from its registered state without
+ * contacting that resource.
  * Explicit STUB / NOT_IMPLEMENTED records are never executed by the audit and
  * cannot masquerade as healthy-but-untested merely because a handler exists.
  * MEDIUM/HIGH or mutating capabilities are never auto-executed here; they are
