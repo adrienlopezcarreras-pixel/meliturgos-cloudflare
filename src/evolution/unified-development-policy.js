@@ -1,8 +1,12 @@
 export const UNIFIED_DEVELOPMENT_POLICY = Object.freeze({
   schema: 'mel.unified-development-policy',
-  version: 1,
+  version: 2,
   mode: 'SINGLE_CANONICAL_WRITER',
   council_outputs: 'ADVISORY_EVIDENCE_ONLY',
+  consensus_mode: 'SEEK_CONSENSUS_THEN_TEACHER_ARBITRATION',
+  consensus_required_before_persistence: true,
+  final_authority: 'CHATGPT_TEACHER',
+  final_authority_temporary: true,
   persistent_implementation_plans_per_goal: 1,
   active_candidate_branches_per_goal: 1,
   parallel_implementations_allowed: false,
@@ -10,6 +14,10 @@ export const UNIFIED_DEVELOPMENT_POLICY = Object.freeze({
   alternative_provider_outputs_persisted: false,
   rules: Object.freeze([
     'Les IA du Council donnent uniquement des avis temporaires et indépendants.',
+    'Elles doivent chercher un accord commun sur l’état de l’existant, les risques, la stratégie et les tests.',
+    'Si elles divergent, MEL consolide explicitement les points d’accord et de désaccord au lieu de créer plusieurs versions.',
+    'Tant que la gouvernance actuelle est en vigueur, ChatGPT Teacher tranche les désaccords résiduels et a le dernier mot avant toute implémentation persistante.',
+    'Une décision du Teacher produit une seule décision canonique ; elle ne crée jamais une branche concurrente.',
     'Un avis de provider ne crée jamais directement un fichier, une branche, un module, un job ou un déploiement.',
     'Tous les avis convergent vers un unique travail canonique et un unique plan retenu.',
     'Avant toute modification, inspecter et réutiliser le code existant au lieu de créer une version parallèle.',
@@ -67,6 +75,8 @@ export function canonicalizeImplementationFanout(fanout = {}) {
     },
     discarded_alternative_count: Math.max(0, candidates.length - 1),
     persistence: 'ONE_SELECTED_PLAN_ONLY',
+    consensus_mode: UNIFIED_DEVELOPMENT_POLICY.consensus_mode,
+    final_authority: UNIFIED_DEVELOPMENT_POLICY.final_authority,
   };
 }
 
@@ -74,7 +84,10 @@ export function buildUnifiedDevelopmentInstruction() {
   return [
     'RÈGLE DE DÉVELOPPEMENT UNIFIÉE:',
     'Les autres IA sont des conseillères, jamais des écrivains concurrents.',
+    'Elles doivent chercher un consensus technique avant toute modification persistante.',
     'Leurs réponses sont temporaires et servent uniquement à vérifier, critiquer ou proposer.',
+    'En cas de désaccord, synthétise les accords et divergences puis soumets-les au Teacher.',
+    'Pour le moment, ChatGPT Teacher est l’autorité finale et tranche avant toute implémentation durable.',
     'Ne crée jamais une version alternative permanente pour chaque IA.',
     'Réutilise le job canonique, le code existant et la branche candidate canonique.',
     'À la fin du Council, conserve un seul plan consolidé puis applique un seul diff testé.',
