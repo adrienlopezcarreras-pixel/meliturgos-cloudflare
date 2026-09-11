@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { inferNativeCodeCapability } from '../src/api/native-chat.js';
+import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v2.js';
 
 test('code questions are routed by the native chat capability path', () => {
   assert.deepEqual(inferNativeCodeCapability('Peux-tu accéder à ton code et chercher ModelRouter ?'), {
@@ -35,7 +36,7 @@ test('home UI uses avatar favicon, no redundant MEL heading and larger mobile ta
 });
 
 test('full mode uses the current v2 control center while legacy Professor remains recoverable', async () => {
-  const page = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+  const page = await (await renderFullMode({})).text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
   assert.match(page, /Centre de contrôle/);
   assert.match(page, /Multi-IA/);
