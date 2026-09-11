@@ -1,8 +1,8 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`.
-Current reviewed HEAD before this checkpoint: `3e7fe7d20b13335d76b944f7858e95e71fe517f3`.
-Latest verified full-candidate CI for the consolidation HEAD: run `34659085349`, `completed/success` on 2026-09-11.
+Current reviewed HEAD before this checkpoint: `1336486f39bd069dbed65664599cb4e6bb3ff31c`.
+Latest verified full-candidate CI for the consolidation HEAD: run `34659210386`, `completed/success` on 2026-09-11.
 
 ## Consolidation truth — fresh comparison 2026-09-11/12
 
@@ -85,7 +85,9 @@ Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.sea
 
 Provider-bound LOW-risk capabilities `augmentio.fanout`, `council.state-of-play` and `evolution.preflight` have an explicit no-AI-binding negative-path proof: without `AI` they remain enabled, advertise `DEGRADED`, and fail closed with `AI_BINDING_MISSING` without making an external/provider call. `evolution.enqueue` remains MEDIUM risk and is deliberately not deep-executed by this proof.
 
-`rag.search` and `conversation.list` now have an explicit local no-D1 negative-path proof: without `DB` they remain enabled LOW-risk/no-permission reads, advertise `DEGRADED`, and fail closed with `DB_BINDING_MISSING`. This proves only the safe missing-binding boundary; it does not classify live D1-backed execution as zero-added-cost or promote the live path to `EXISTANT_ET_TESTE`.
+`rag.search` and `conversation.list` have an explicit local no-D1 negative-path proof: without `DB` they remain enabled LOW-risk/no-permission reads, advertise `DEGRADED`, and fail closed with `DB_BINDING_MISSING`. This proves only the safe missing-binding boundary; it does not classify live D1-backed execution as zero-added-cost or promote the live path to `EXISTANT_ET_TESTE`.
+
+`mentor.recent` and `autonomy.status` now have the same explicit local no-D1 truth proof: both remain enabled LOW-risk/no-permission reads, advertise `DEGRADED`, and reject with `DB_BINDING_MISSING` before persistent-runtime access. `mentor.propose`, `mentor.learn` and `autonomy.tick` remain MEDIUM and were metadata-checked only, not deep-executed.
 
 ## Safety invariants
 
@@ -111,6 +113,7 @@ Provider-bound LOW-risk capabilities `augmentio.fanout`, `council.state-of-play`
 - Work read missing-D1 boundary: `aa63471ed55d2ac5f4dc460274d3e288218b9943`, CI `34651025764` success.
 - Provider missing-AI boundary: `d07f813f0f694c3c3b3116a9e41dc0e7c0ab9ff3`, CI `34655145464` success.
 - RAG/conversation missing-D1 boundary: `3e7fe7d20b13335d76b944f7858e95e71fe517f3`, CI `34659085349` success.
+- Mentor/autonomy read missing-D1 boundary: `1336486f39bd069dbed65664599cb4e6bb3ff31c`, CI `34659210386` success.
 
 ## Checkpoint 2026-09-12 — D1 read fail-closed + consolidation refresh
 
@@ -122,4 +125,15 @@ Provider-bound LOW-risk capabilities `augmentio.fanout`, `council.state-of-play`
 - Consolidation refresh on the same functional SHA: UI/device/dev-bridge/work/Mentor/100k branches have no unique commits versus clean; release remains divergent (10 ahead / 381 behind); Augmentio remains divergent (42 ahead / 40 behind) with broad stale removals, so no wholesale recovery is justified.
 - Safety: no provider call, no D1 access, no mutation outside candidate Git history, no production deployment, no secret, DNS/auth/billing change, destructive migration or paid action.
 - Blockers: none in this block. Live D1-backed execution remains intentionally unproved while added cost is unknown.
-- Next action: inspect only genuinely unverified local LOW-risk non-mutating boundaries; do not duplicate already-closed interface/theme, Mentor, natural-routing, device-policy, Work, provider-negative-path, evidence-merging or consolidation audits.
+
+## Checkpoint 2026-09-12 — Mentor/autonomy read fail-closed
+
+- Branch: `candidate/mel-clean-autonomy`.
+- Functional commit: `1336486f39bd069dbed65664599cb4e6bb3ff31c`.
+- Full-candidate CI: run `34659210386`, exact SHA `1336486f39bd069dbed65664599cb4e6bb3ff31c`, `completed/success`.
+- Real change: added `tests/mentor-autonomy-read-fail-closed.test.mjs`.
+- Verified behavior: `mentor.recent` and `autonomy.status` are enabled LOW-risk/no-permission reads, advertise `DEGRADED` without DB, and fail closed with `DB_BINDING_MISSING` before any persistent-runtime access.
+- Bounded metadata check: `mentor.propose`, `mentor.learn`, and `autonomy.tick` remain enabled `MEDIUM` risk and `DEGRADED` without required bindings; they were not deep-executed.
+- Cost/safety: zero external/provider/D1 execution in the proof; no production deployment, secret, DNS/auth/billing change, destructive migration or paid action.
+- Blockers: none in this block. Live D1-backed and provider-backed execution remains intentionally unproved while exact zero-added-cost status is unknown.
+- Next action: continue only with another genuinely local LOW-risk non-mutating boundary not already covered; preserve closed interface/theme, Mentor core, natural-routing, device-policy, evidence-merging and consolidation blocks.
