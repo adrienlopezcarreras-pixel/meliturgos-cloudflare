@@ -1,8 +1,8 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`.
-Current reviewed HEAD before this checkpoint: `50c22256dc4175a6fd391cbda4f09518cd9b0149`.
-Latest verified full-candidate CI for that HEAD: run `34595848059`, `completed/success` on 2026-09-11.
+Current reviewed HEAD before this checkpoint: `279b9bcb8cdc291494c6b2200bec79cf85aca2b8`.
+Latest verified full-candidate CI for that HEAD: run `34596085590`, `completed/success` on 2026-09-11.
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -63,7 +63,7 @@ Regression coverage exists for contextual/elliptical French including `fais-le`,
 
 Truth statuses remain explicit: `EXISTANT_ET_TESTE`, `EXISTANT_NON_TESTE`, `PARTIEL`, `STUB`, `NOT_IMPLEMENTED`, plus blocked/runtime-failure states.
 
-Automatic audit execution is restricted to bounded LOW-risk non-mutating samples. Unknown or provider-sensitive added cost fails closed unless zero-added-cost is explicitly proven for the exact capability in the current run. This now also gates dynamic provider health probes, so an unapproved external/provider path is inventoried from registered state without being contacted merely for the audit.
+Automatic audit execution is restricted to bounded LOW-risk non-mutating samples. Unknown or provider-sensitive added cost fails closed unless zero-added-cost is explicitly proven for the exact capability in the current run. This also gates dynamic provider health probes, so an unapproved external/provider path is inventoried from registered state without being contacted merely for the audit.
 
 Current local zero-cost execution proof covers real CapabilityBus execution for:
 
@@ -75,7 +75,7 @@ Current local zero-cost execution proof covers real CapabilityBus execution for:
 - `device.policy.preview`
 - `evolution.module.propose`
 
-Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.search` and `code.integrity` now require explicit exact-capability zero-added-cost proof before automatic deep execution or health probing. `evolution.enqueue` remains blocked from automatic deep audit by its MEDIUM risk classification.
+Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.search` and `code.integrity` require explicit exact-capability zero-added-cost proof before automatic deep execution or health probing. `evolution.enqueue` remains blocked from automatic deep audit by its MEDIUM risk classification.
 
 ## Safety invariants
 
@@ -96,10 +96,20 @@ Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.sea
 - Tests/CI: `full-candidate-ci` run `34595848059` completed successfully on the exact implementation SHA; syntax, runtime dependency security gate and full test suite all green.
 - Verified capability: truth audit remains fail-closed for provider-backed code operations until exact zero-added-cost proof is supplied, including health probing.
 - Blockers: none introduced by this block. No production deployment or persistent mutation performed.
-- Next action: inspect the durable autonomy chain for the smallest still-unproven transition between Dev Bridge repair/retest evidence, `READY_FOR_REVIEW`, and durable Mentor/Teacher memory; add only a targeted regression if a concrete gap is observed.
+
+## Checkpoint 2026-09-11 — repair before review
+
+- Branch: `candidate/mel-clean-autonomy`.
+- Reviewed implementation SHA: `279b9bcb8cdc291494c6b2200bec79cf85aca2b8`.
+- Real changes: Dev Bridge results that request `READY_FOR_REVIEW` while any submitted test is failing are now persisted as `REPAIR_REQUIRED`; failed-test evidence remains under `result_json.dev_bridge`; only a later passing retest can restore `READY_FOR_REVIEW`.
+- Tests: merge-level regression proves failed tests cannot masquerade as ready; integration regression proves approval is rejected while `REPAIR_REQUIRED`, then succeeds only after a passing retest.
+- CI: `full-candidate-ci` run `34596085590` completed successfully on the exact implementation SHA; syntax, dependency security gate and full suite all green.
+- Verified autonomy transition: candidate -> failing tests -> durable repair evidence -> passing retest -> `READY_FOR_REVIEW` -> explicit human approval.
+- Blockers: none introduced. No production deployment, secret, DNS, auth, billing or destructive migration touched.
+- Next action: verify the smallest remaining durable-memory edge after `READY_FOR_REVIEW` so Dev Bridge review evidence, Teacher/Mentor provenance and final memory/checkpoint remain additive and traceable end to end.
 
 ## Next concrete blocks
 
-1. Continue truthful bounded proofs for genuinely local LOW-risk capabilities that do not mutate state, require provider/network cost, or need persistent writes.
-2. Add small reproducible proofs around the durable chat -> Mentor/Council -> Teacher -> Dev Bridge -> repair/retest -> `READY_FOR_REVIEW` -> memory chain where a gap is still observable.
+1. Verify the durable-memory edge after `READY_FOR_REVIEW`, adding only a targeted regression for any observable loss of Teacher/Mentor/Dev Bridge provenance.
+2. Continue truthful bounded proofs for genuinely local LOW-risk capabilities that do not mutate state, require provider/network cost, or need persistent writes.
 3. Preserve the approved seven-theme/avatar/composer contract; no cosmetic rework without a failing regression.
