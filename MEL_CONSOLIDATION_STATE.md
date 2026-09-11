@@ -1,8 +1,8 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`.
-Current reviewed HEAD before this checkpoint: `35823111173db0372ff0a692ded30680a5959046`.
-Latest verified full-candidate CI for the consolidation HEAD: run `34640666163`, `completed/success` on 2026-09-11.
+Current reviewed HEAD before this checkpoint: `0ebba451bee449d928f894109da0faefc35a3e30`.
+Latest verified full-candidate CI for the consolidation HEAD: run `34640861612`, `completed/success` on 2026-09-11.
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -59,6 +59,8 @@ Production promotion remains human-gated. No automatic production deployment is 
 Regression coverage exists for contextual/elliptical French including `fais-le`, `continue`, `reprends`, `enlève ça`, `plus doré`, `corrige tout`, `développe-toi`, `où en es-tu ?`, `peux-tu faire ça ?`. Regex remains only a fast path; semantic/context fallback remains required.
 
 The exact chat preflight path is now also verified end-to-end for all nine formulations above with a mocked zero-cost semantic provider: every formulation retains `conversation_id` + request key, resolves to a concrete self-contained development goal, and reaches `evolution.enqueue` through `intent_routing.mode = semantic` rather than falling back to generic chat.
+
+Semantic routing is additionally proven fail-closed: ordinary unrelated chat is rejected by the semantic gate without invoking the provider; low-confidence classification (<0.72), malformed output and provider errors return no semantic intent instead of fabricating a development action.
 
 ### Capability truth audit
 
@@ -118,8 +120,19 @@ Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.sea
 - Cost/safety: provider execution is mocked; no external inference spend, mutation, production deploy, secret, DNS/auth/billing change or destructive migration.
 - Consolidation follow-up: `candidate/device-control-core` was compared again and remains already contained; no blind cherry-pick was performed.
 
+## Checkpoint 2026-09-11 — semantic fail-closed guard verified
+
+- Branch: `candidate/mel-clean-autonomy`.
+- Functional commit: `0ebba451bee449d928f894109da0faefc35a3e30`.
+- Full-candidate CI: run `34640861612`, exact SHA `0ebba451bee449d928f894109da0faefc35a3e30`, `completed/success`.
+- Real change: added `tests/semantic-intent-guard.test.mjs`.
+- Verified behavior: unrelated ordinary chat does not invoke semantic inference; low-confidence classification, malformed output and provider exceptions all return `null` and therefore fail closed.
+- Cost/safety: all provider behavior is mocked; no external inference call, deployment, mutation, secret, DNS/auth/billing change, destructive migration or paid action.
+- Blockers: none discovered in this block. No production promotion was attempted.
+- Next action: only pursue another transition when evidence shows a genuine unverified gap; preserve the already-green natural routing, evidence merge, mentor memory, theme/avatar and fail-closed guards.
+
 ## Next concrete blocks
 
 1. Continue truthful bounded proofs only for genuinely local LOW-risk capabilities that neither mutate state nor cross provider/network/persistent-runtime metering; require exact zero-cost proof for anything ambiguous.
-2. Re-check the end-to-end autonomy chain only where new evidence reveals a missing transition; do not duplicate the now-verified repair/retest, completion-memory, evidence-preservation or natural-routing proofs.
+2. Re-check the end-to-end autonomy chain only where new evidence reveals a missing transition; do not duplicate the now-verified repair/retest, completion-memory, evidence-preservation, natural-routing or semantic fail-closed proofs.
 3. Preserve the approved seven-theme/avatar/composer contract; no cosmetic rework without a failing regression.
