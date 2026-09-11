@@ -77,6 +77,8 @@ function autoExecutionBlockReason({ deep, record, sample, declared, costSensitiv
  * except capabilities that may cross an external/provider cost boundary. Those
  * remain fail-closed unless the caller explicitly proves that exact capability
  * is zero-added-cost for the current run through zeroCostCapabilityIds.
+ * The same gate applies to dynamic health probes: an unapproved provider path
+ * is inventoried from its registered state without contacting that provider.
  * Explicit STUB / NOT_IMPLEMENTED records are never executed by the audit and
  * cannot masquerade as healthy-but-untested merely because a handler exists.
  * MEDIUM/HIGH or mutating capabilities are never auto-executed here; they are
@@ -90,15 +92,27 @@ export async function auditRuntimeCapabilities(runtime, {
   zeroCostCapabilityIds = [],
 } = {}) {
   if (!runtime?.bus) throw new TypeError('CAPABILITY_BUS_REQUIRED');
-  let records = [];
-  try { records = await runtime.bus.refreshHealthAll(); }
-  catch { records = runtime.bus.list(); }
 
   const provenZeroCost = new Set(
     Array.isArray(zeroCostCapabilityIds)
       ? zeroCostCapabilityIds.map(value => String(value))
       : []
   );
+
+  let records = runtime.bus.list();
+  if (typeof runtime.bus.refreshHealth === 'function') {
+    const refreshed = [];
+    for (const record of records) {
+      const costSensitive = COST_SENSITIVE_CAPABILITIES.has(record.id);
+      if (costSensitive && !provenZeroCost.has(record.id)) {
+        refreshed.push(record);
+        continue;
+      }
+      try { refreshed.push(await runtime.bus.refreshHealth(record.id)); }
+      catch { refreshed.push(record); }
+    }
+    records = refreshed;
+  }
 
   const rows = [];
   for (const record of records) {
