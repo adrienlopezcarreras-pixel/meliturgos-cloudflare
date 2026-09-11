@@ -6,19 +6,37 @@ const MVP_BEHAVIOR_PATCH = `<style id="mel-mvp-behavior-style">
 .mel-continue-link:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
 </style><script id="mel-mvp-behavior-runtime">
 (function(){
-  const CHAT_TIMEOUT_MS=240000;
+  const CHAT_TIMEOUT_MS=120000;
+  const CHAT_ATTEMPTS=2;
+  const RETRYABLE_STATUS=new Set([502,503,504]);
   const CONTINUE_TEXT='Continue exactement à partir de ta dernière phrase, sans répéter ce qui précède. Termine complètement ta réponse.';
+
+  function timeoutSignal(){
+    try{return typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(CHAT_TIMEOUT_MS):undefined}catch{return undefined}
+  }
 
   function patchChatTimeout(){
     const nativeFetch=window.fetch&&window.fetch.bind(window);
     if(!nativeFetch||window.__melLongChatFetchPatched)return;
     window.__melLongChatFetchPatched=true;
-    window.fetch=function(input,init){
+    window.fetch=async function(input,init){
       const url=typeof input==='string'?input:String(input&&input.url||'');
       if(!url.includes('/api/chat'))return nativeFetch(input,init);
-      const next={...(init||{})};
-      try{next.signal=typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(CHAT_TIMEOUT_MS):undefined}catch{delete next.signal}
-      return nativeFetch(input,next);
+      let lastError=null;
+      for(let attempt=1;attempt<=CHAT_ATTEMPTS;attempt++){
+        const next={...(init||{})};
+        const signal=timeoutSignal();
+        if(signal)next.signal=signal;else delete next.signal;
+        try{
+          const response=await nativeFetch(input,next);
+          if(!RETRYABLE_STATUS.has(response.status)||attempt===CHAT_ATTEMPTS)return response;
+          lastError=new Error('HTTP_'+response.status);
+        }catch(error){
+          lastError=error;
+          if(attempt===CHAT_ATTEMPTS)throw error;
+        }
+      }
+      throw lastError||new Error('CHAT_RETRY_EXHAUSTED');
     };
   }
 
