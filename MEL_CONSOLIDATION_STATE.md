@@ -1,8 +1,8 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`.
-Current reviewed HEAD before this checkpoint: `71607d927c03815525849d6b020cdb3970491606`.
-Latest verified full-candidate CI for the consolidation HEAD: run `34618126971`, `completed/success` on 2026-09-11.
+Current reviewed HEAD before this checkpoint: `35823111173db0372ff0a692ded30680a5959046`.
+Latest verified full-candidate CI for the consolidation HEAD: run `34640666163`, `completed/success` on 2026-09-11.
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -12,7 +12,7 @@ Comparisons were re-run from clean HEAD `71607d927c03815525849d6b020cdb397049160
 - `candidate/mel-ui-selfaware-integration` — `ALREADY_CONTAINED`: ahead by 0, behind by 28.
 - `candidate/augmentio-core` — `REFERENCE_ONLY / DIVERGED`: ahead by 42, behind by 28. The diff still contains broad stale removals/reversions (including generated `.wrangler` state, checkpoints/backups and workflow changes), so it must not replace clean. Inspect only a specific missing behavior if evidence requires it.
 - `candidate/dev-bridge-fetch-fix` — `ALREADY_CONTAINED` from the prior verified comparison; do not recover wholesale.
-- `candidate/device-control-core` — `ALREADY_CONTAINED` from the prior verified comparison; the fail-closed device permission policy is preserved on clean.
+- `candidate/device-control-core` — `ALREADY_CONTAINED`; re-compared during the 2026-09-11 autonomy run and no specific missing fail-closed behavior justified recovery. The fail-closed device permission policy is preserved on clean.
 - `candidate/mel-work-02-state-final2` — `ALREADY_CONTAINED` from the prior verified comparison.
 - `feature/mel-autonomy-mentor` — `ALREADY_CONTAINED` from the prior verified comparison; Mentor/runtime equivalents are preserved on clean.
 - `hotfix/prompt-limit-100k` — `ALREADY_CONTAINED` from the prior verified comparison; the 100000-character composer/runtime contract remains on clean.
@@ -57,6 +57,8 @@ Production promotion remains human-gated. No automatic production deployment is 
 ### Natural comprehension
 
 Regression coverage exists for contextual/elliptical French including `fais-le`, `continue`, `reprends`, `enlève ça`, `plus doré`, `corrige tout`, `développe-toi`, `où en es-tu ?`, `peux-tu faire ça ?`. Regex remains only a fast path; semantic/context fallback remains required.
+
+The exact chat preflight path is now also verified end-to-end for all nine formulations above with a mocked zero-cost semantic provider: every formulation retains `conversation_id` + request key, resolves to a concrete self-contained development goal, and reaches `evolution.enqueue` through `intent_routing.mode = semantic` rather than falling back to generic chat.
 
 ### Capability truth audit
 
@@ -105,8 +107,19 @@ Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.sea
 - Result: no missing behavior was demonstrated by these comparisons, therefore no cherry-pick/merge was justified.
 - Safety: documentation/consolidation only; no production deploy, provider call, secret, DNS/auth/billing change, destructive migration or paid action.
 
+## Checkpoint 2026-09-11 — natural development comprehension verified
+
+- Branch: `candidate/mel-clean-autonomy`.
+- Functional commit: `35823111173db0372ff0a692ded30680a5959046`.
+- Full-candidate CI: run `34640666163`, exact SHA `35823111173db0372ff0a692ded30680a5959046`, `completed/success`.
+- Real change: expanded `tests/chat-intent-development.test.mjs` to drive all owner-requested contextual formulations through the actual `/api/chat` preflight injector with a mocked FAST semantic provider.
+- Verified formulations: `fais-le`, `continue`, `reprends`, `enlève ça`, `plus doré`, `corrige tout`, `développe-toi`, `où en es-tu ?`, `peux-tu faire ça ?`.
+- Verified behavior: each reaches `evolution.enqueue` in semantic mode, preserves conversation/request identity, and uses the resolved self-contained development goal.
+- Cost/safety: provider execution is mocked; no external inference spend, mutation, production deploy, secret, DNS/auth/billing change or destructive migration.
+- Consolidation follow-up: `candidate/device-control-core` was compared again and remains already contained; no blind cherry-pick was performed.
+
 ## Next concrete blocks
 
 1. Continue truthful bounded proofs only for genuinely local LOW-risk capabilities that neither mutate state nor cross provider/network/persistent-runtime metering; require exact zero-cost proof for anything ambiguous.
-2. Re-check the end-to-end autonomy chain only where new evidence reveals a missing transition; do not duplicate the now-verified repair/retest or completion-memory proofs.
+2. Re-check the end-to-end autonomy chain only where new evidence reveals a missing transition; do not duplicate the now-verified repair/retest, completion-memory, evidence-preservation or natural-routing proofs.
 3. Preserve the approved seven-theme/avatar/composer contract; no cosmetic rework without a failing regression.
