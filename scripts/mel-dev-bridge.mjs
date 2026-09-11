@@ -1,19 +1,56 @@
 import http from 'node:http';
 import path from 'node:path';
+import dns from 'node:dns';
 import { LocalDevBridge } from '../src/dev/dev-bridge.js';
 import { DevJobService } from '../src/dev/dev-job-service.js';
 import { parseSearchPaths, rankSearchPaths } from '../src/dev/search-paths.js';
+
+// WSL/Windows hosts can resolve AAAA first even when IPv6 egress is unusable.
+// Prefer IPv4 without disabling IPv6 entirely; this matches the working curl path
+// and avoids intermittent native fetch "fetch failed" loops.
+try { dns.setDefaultResultOrder(process.env.MEL_DEV_DNS_ORDER || 'ipv4first'); } catch {}
+
+function transportMessage(error) {
+  const cause = error?.cause;
+  const code = cause?.code || error?.code;
+  const detail = cause?.message || error?.message || 'fetch failed';
+  return code ? `${detail} (${code})` : detail;
+}
 
 export class RemoteWorkerClient {
   constructor({ workerUrl = process.env.MEL_DEV_WORKER_URL || 'https://meliturgos.adrien-lopezcarreras.workers.dev', token = process.env.MEL_DEV_BRIDGE_TOKEN, fetchImpl = fetch } = {}) {
     if (!token) throw new Error('MEL_DEV_BRIDGE_TOKEN is required');
     this.base = workerUrl.replace(/\/$/, ''); this.token = token; this.fetch = fetchImpl;
+    this.timeoutMs = Math.max(1000, Number(process.env.MEL_DEV_BRIDGE_FETCH_TIMEOUT_MS || 10000));
+    this.maxAttempts = Math.max(1, Math.min(5, Number(process.env.MEL_DEV_BRIDGE_FETCH_ATTEMPTS || 3)));
   }
   async request(path, body = {}) {
-    const response = await this.fetch(`${this.base}${path}`, { method: 'POST', headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) { const error = new Error(data.error || `HTTP_${response.status}`); error.status = response.status; throw error; }
-    return data;
+    let lastError;
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      try {
+        const response = await this.fetch(`${this.base}${path}`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { const error = new Error(data.error || `HTTP_${response.status}`); error.status = response.status; throw error; }
+        return data;
+      } catch (error) {
+        // HTTP errors are deterministic and must not be retried/spammed.
+        if (error?.status) throw error;
+        lastError = error;
+        if (attempt < this.maxAttempts) await new Promise(resolve => setTimeout(resolve, 250 * attempt));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    const wrapped = new Error(transportMessage(lastError));
+    wrapped.code = lastError?.cause?.code || lastError?.code || 'REMOTE_FETCH_FAILED';
+    throw wrapped;
   }
   heartbeat() { return this.request('/api/dev-bridge/heartbeat', { status: 'ONLINE' }); }
   claim() { return this.request('/api/dev-bridge/claim'); }
@@ -91,8 +128,10 @@ const server = http.createServer(async (req, res) => {
   } catch (error) { return json(res, error.code === 'BRIDGE_AUTH_REQUIRED' ? 401 : 400, { error: error.code || error.message }); }
 });
 
-const heartbeatTimer = setInterval(() => remote.heartbeat().catch(() => {}), 30000);
+const heartbeatTimer = setInterval(() => remote.heartbeat().catch(error => {
+  if (error.status !== 401 && error.status !== 403) console.error(`MEL_DEV_BRIDGE_HEARTBEAT_RETRY=${error.message}`);
+}), 30000);
 const pollTimer = setInterval(poll, Number(process.env.MEL_DEV_BRIDGE_POLL_MS || 3000));
 remote.heartbeat().catch(error => console.error(`MEL_DEV_BRIDGE_HEARTBEAT_RETRY=${error.message}`));
-server.listen(Number(process.env.MEL_DEV_BRIDGE_PORT || 8788), '127.0.0.1', () => console.log('MEL_DEV_BRIDGE_ONLINE'));
+server.listen(Number(process.env.MEL_DEV_BRIDGE_PORT || 8788), '127.0.0.1', () => console.log(`MEL_DEV_BRIDGE_ONLINE worker=${remote.base} dns_order=${process.env.MEL_DEV_DNS_ORDER || 'ipv4first'}`));
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { stopped = true; clearInterval(heartbeatTimer); clearInterval(pollTimer); server.close(() => process.exit(0)); });
