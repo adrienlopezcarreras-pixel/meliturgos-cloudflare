@@ -36,6 +36,10 @@ function diffText(diff) {
   return String(diff?.result?.stdout ?? diff?.stdout ?? '').slice(0, MAX_DIFF);
 }
 
+function bridgePass(job) {
+  return String(job?.patch_json?.mode || '').toLowerCase() === 'repair' ? 'repair' : 'implement';
+}
+
 /**
  * Runs an already-approved structured work package in an isolated local
  * candidate. No commit or production deployment occurs here. The returned
@@ -49,6 +53,7 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
   const files = structuredFiles(job);
   if (!files.length) return null;
 
+  const pass = bridgePass(job);
   const context = { owner: 'dev-bridge', requestId: id };
   const steps = [];
   await bridge.bus.execute('dev.create_candidate', { job_id: id }, context);
@@ -101,6 +106,7 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
   const diffSummary = actualDiff.trim() ? actualDiff : 'NO_CHANGES';
   const result = {
     mode: 'STRUCTURED_MENTOR_WORK',
+    bridge_pass: pass,
     applied_files: files.map((file) => file.path),
     steps,
     tests,
@@ -121,10 +127,11 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
     result_json: result,
     plan_json: {
       mode: 'STRUCTURED_MENTOR_WORK',
+      bridge_pass: pass,
       applied_files: files.map((file) => file.path),
       requested_tests: requestedTests(job).map((test) => test.command),
     },
   };
 }
 
-export { parseArray, structuredFiles, requestedTests, resultExitCode, diffText };
+export { parseArray, structuredFiles, requestedTests, resultExitCode, diffText, bridgePass };
