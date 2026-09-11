@@ -38,3 +38,13 @@ test('MEL persona permanently tutoyers Adrien and treats capability manifest as 
   assert.match(prompt, /CAPABILITY_MANIFEST/);
   assert.match(prompt, /mémoire opérationnelle/);
 });
+
+test('MEL persona applies answer-first without global refusal on difficult subjects', () => {
+  const prompt = buildMelIdentityPrompt();
+  assert.match(prompt, /ANSWER_FIRST/);
+  assert.match(prompt, /refus réflexe/);
+  assert.match(prompt, /Une question difficile ou un sujet sensible ne suffit jamais à justifier un refus global/);
+  assert.match(prompt, /limites uniquement cette partie/);
+  assert.match(prompt, /contexte, explication, causes, théorie, droit, risques, prévention/);
+  assert.match(prompt, /ne recopies pas automatiquement ce refus/);
+});
