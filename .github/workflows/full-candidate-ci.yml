@@ -1,11 +1,15 @@
-name: full-candidate-ci
+name: full-ci
 
 on:
   push:
     branches:
-      - 'candidate/augmentio-core'
-      - 'candidate/mel-ui-selfaware-integration'
-      - 'candidate/mel-clean-autonomy'
+      - main
+      - 'candidate/**'
+      - 'cleanup/**'
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -23,11 +27,8 @@ jobs:
           cache: npm
       - name: Install exact lockfile
         run: npm ci
-      - name: Runtime dependency security gate
-        run: npm audit --omit=dev --audit-level=high
-      - name: Development dependency advisory report
-        run: |
-          npm audit --audit-level=high || echo 'DEV_DEPENDENCY_ADVISORY_PRESENT - non-runtime tooling advisory recorded; runtime gate passed.'
+      - name: Dependency security gate
+        run: npm audit --audit-level=high
       - name: Syntax
         run: npm run check
       - name: Full test suite
