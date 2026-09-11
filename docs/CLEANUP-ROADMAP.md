@@ -2,7 +2,7 @@
 
 ## Current checkpoint — 2026-09-11
 
-The active MEL path has completed its first structural cleanup and was validated before release.
+The active MEL path and the post-R4 repository hygiene pass are complete for the current architecture.
 
 ### Completed
 
@@ -17,7 +17,12 @@ The active MEL path has completed its first structural cleanup and was validated
 - Final pre-release SHA `0907caaabfa3cea7c48105963cf8bf86ac695768` passed `augmentio-ci`, `runtime-teacher-smoke` and `full-candidate-ci`.
 - Released R4 through `release/mel-2026-09-11-r4`; Cloudflare deployment completed successfully on workflow run `34583104252` (attempt 2).
 - Production Worker version from that release: `ef0fc34d-9bde-4d07-abfe-d0ffc60cfa48`.
-- Post-release cleanup removed obsolete root checkpoints, ad-hoc debug scripts and three full `worker.js` backup copies. Historical versions remain recoverable from Git history and release branches.
+- Removed obsolete root checkpoints, ad-hoc debug scripts, three full `worker.js` backup copies and the old `/backups/` snapshot tree. Historical versions remain recoverable from Git history and release branches.
+- Removed obsolete session-only morning/overnight handoff documents after verifying no active reference used them.
+- Removed unused direct dependency `tsx`.
+- Upgraded Wrangler beyond the vulnerable 4.129.x range to `^4.131.0` and refreshed the lockfile.
+- Replaced the evaluation benchmark's dependency on a deleted historical Worker snapshot with the verified 14/14 baseline from full-candidate-ci run `34579376844`.
+- Dependency cleanup verification: `npm audit --audit-level=high` reported 0 vulnerabilities, syntax checks passed and `npm test` passed 121/121 tests.
 
 ## Intentionally retained
 
@@ -29,42 +34,37 @@ The active MEL path has completed its first structural cleanup and was validated
 
 Existing release branches are retained as immutable rollback/history points. Cleanup must not rewrite old releases.
 
-## Remaining cleanup
+### Operational documentation
 
-### P0 — Dependency/security hygiene
+Keep restore/setup instructions, deployment policy, current capability/state documents, migrations and runbooks that still describe supported recovery or runtime behavior.
 
-- Investigate the `3 high severity vulnerabilities` reported by `npm ci` during the R4 deployment.
-- Confirm whether direct dependency `tsx` is still needed. No current code-search usage has been identified, but it must only be removed together with a coherent `package-lock.json` update and passing CI.
-- Re-run the full suite after dependency changes.
+## Future cleanup — separate architecture phase
 
-### P1 — Repository organization
-
-- Review `/backups/` and remove only artifacts that are duplicated by Git history/releases and are not used by restore tooling.
-- Review remaining root handoff/resume documents and move or retire obsolete session-only material.
-- Keep migrations, restore instructions and current capability/state documents until their consumers are verified.
-
-### P2 — Legacy retirement
+### Legacy retirement
 
 - Inventory the actual behavior still reachable through `/professor-legacy` and the unmatched legacy fallback.
 - Migrate required behavior to Gen2/native modules.
 - Add regression coverage for each migrated behavior.
 - Only then remove the fallback routes and shrink or remove `worker.js`.
 
-## Definition of “clean”
+This is not ordinary repository hygiene: it changes runtime architecture and therefore requires its own candidate, tests and release cycle.
 
-A cleanup checkpoint can be called complete only when:
+## Definition of “clean” for the current architecture
+
+The current cleanup checkpoint is complete because:
 
 - active routes contain no known obsolete interface path;
-- temporary runtime state and ad-hoc backups are not tracked;
+- temporary runtime state, ad-hoc backups and obsolete session checkpoints are not tracked;
 - package and lockfile are coherent;
-- dependency audit has no unresolved high-severity finding that can be safely fixed in scope;
-- all configured CI workflows pass on the exact candidate SHA;
-- documentation/state files describe the actual deployed architecture;
-- production deployment remains a separate human-approved release action.
+- dependency audit has no unresolved high-severity finding in the verified dependency set;
+- the dependency-cleanup tree passed syntax checks and the complete 121-test suite;
+- documentation/state files describe the deployed R4 architecture;
+- production deployment remains a separate human-approved release action;
+- the only major legacy runtime retained is explicit, documented and required for rollback/fallback behavior.
 
 ## Current status
 
 - Active application cleanup: **complete for R4**.
-- Repository clutter cleanup: **in progress on `cleanup/post-r4`**.
-- Dependency/security cleanup: **pending investigation**.
-- Full legacy retirement: **not started; fallback intentionally retained**.
+- Repository clutter cleanup: **complete for the current architecture**.
+- Dependency/security cleanup: **complete for the verified dependency set (0 audit findings; 121/121 tests)**.
+- Full legacy retirement: **deferred intentionally; `/professor-legacy` and active `worker.js` remain as rollback/fallback architecture**.
