@@ -2,6 +2,9 @@ name: deploy-cloudflare-release
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - 'release/**'
 
 permissions:
   contents: read
