@@ -169,6 +169,54 @@ test('chat injector semantically routes a contextual formulation instead of answ
   assert.match(body.capability?.input?.goal || '', /Supprimer le bouton Compétences/i);
 });
 
+test('all requested contextual owner formulations reach the durable development queue through semantic routing', async () => {
+  setDefaultCapabilityEnvironment({
+    AI: {
+      async run() {
+        return { response: JSON.stringify({
+          intent: 'DEVELOPMENT_REQUEST',
+          resolved_goal: 'Modifier la présentation active de MEL en conservant la lisibilité et les contraintes validées.',
+          resolved_query: '',
+          confidence: 0.98,
+        }) };
+      }
+    }
+  });
+
+  const context = 'USER: Nous travaillons sur le code et l’interface de MEL dans une branche candidate. Le thème et le composant sont déjà identifiés.\nMEL: Je peux appliquer la prochaine modification demandée.';
+  const formulations = [
+    'fais-le',
+    'continue',
+    'reprends',
+    'enlève ça',
+    'plus doré',
+    'corrige tout',
+    'développe-toi',
+    'où en es-tu ?',
+    'peux-tu faire ça ?',
+  ];
+
+  for (const [index, text] of formulations.entries()) {
+    const request = new Request('https://mel.example/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        text,
+        intent_context: context,
+        conversation_id: 'conv-natural-dev',
+        client_message_id: `natural-${index}`,
+      }),
+    });
+    const body = await (await injectEvolutionPreflightCapability(request)).json();
+    assert.equal(body.capability?.id, 'evolution.enqueue', text);
+    assert.equal(body.intent_routing?.mode, 'semantic', text);
+    assert.equal(body.intent_routing?.intent, 'DEVELOPMENT_REQUEST', text);
+    assert.equal(body.capability?.input?.conversationId, 'conv-natural-dev', text);
+    assert.equal(body.capability?.input?.requestKey, `natural-${index}`, text);
+    assert.match(body.capability?.input?.goal || '', /Modifier la présentation active de MEL/i, text);
+  }
+});
+
 test('chat injector semantically routes a contextual web follow-up', async () => {
   setDefaultCapabilityEnvironment({
     AI: {
