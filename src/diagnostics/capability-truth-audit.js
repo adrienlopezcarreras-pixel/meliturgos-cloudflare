@@ -27,7 +27,6 @@ const COST_SENSITIVE_CAPABILITIES = new Set([
   'council.state-of-play',
   'evolution.preflight',
   'evolution.enqueue',
-  'evolution.gap.detect',
   'web.research',
   'code.read',
   'code.search',
