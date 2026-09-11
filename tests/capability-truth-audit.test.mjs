@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createGen2Runtime } from '../src/core/orchestrator/gen2-runtime.js';
+import { CapabilityBus } from '../src/capabilities/capability-bus.js';
+import { registerCapabilityAuditCapability } from '../src/capabilities/capability-audit-capability.js';
 import { auditRuntimeCapabilities, SAFE_SAMPLES, classifyCapabilityTruth } from '../src/diagnostics/capability-truth-audit.js';
 
 test('truth audit inventories every registered runtime capability without omission', async () => {
@@ -22,10 +24,24 @@ test('truth audit inventories every registered runtime capability without omissi
 test('safe smoke catalogue covers core read-only and preview-only capabilities', () => {
   for (const id of [
     'echo','roadmap.read','system.bindings','code.read','code.search','conversation.list','rag.search',
-    'chatgpt.archive.preview','autonomy.status','mentor.recent','evolution.gap.detect','device.policy.preview','web.research'
+    'chatgpt.archive.preview','capability.audit','autonomy.status','mentor.recent','evolution.gap.detect',
+    'device.policy.preview','web.research'
   ]) {
     assert.ok(Object.hasOwn(SAFE_SAMPLES, id), `missing bounded smoke sample for ${id}`);
   }
+  assert.deepEqual(SAFE_SAMPLES['capability.audit'], { deep: false });
+});
+
+test('capability.audit can prove itself through a bounded non-recursive smoke sample', async () => {
+  const bus = new CapabilityBus();
+  registerCapabilityAuditCapability(bus);
+  const report = await auditRuntimeCapabilities({ bus }, { deep: true });
+  const row = report.capabilities.find(item => item.id === 'capability.audit');
+  assert.equal(report.total, 1);
+  assert.equal(row.tested_now, true);
+  assert.equal(row.truth_status, 'EXISTANT_ET_TESTE');
+  assert.equal(row.execution.ok, true);
+  assert.equal(row.execution.result_type, 'object');
 });
 
 test('shared truth classifier never promotes healthy registration to tested proof', () => {
