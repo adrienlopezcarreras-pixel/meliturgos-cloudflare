@@ -72,9 +72,18 @@ Seven visual themes are registered end-to-end:
 - Two intermediate CI failures exposed incorrect test assumptions only; the behavioral implementation was not weakened and no useful test was deleted. Final code/test SHA `2ede70f34a84c7095e7714f127c3ab609f475c17` passed exact `full-candidate-ci` run `34543842348`.
 - Production deployment, release, DNS, D1 destructive migration, secrets, bindings, authentication and billing were untouched.
 
+### Repair-pass evidence checkpoint
+
+- Refetched branch HEAD `cb2a21c3cbdf30ee2ce5f95980a5ea41b2701a04` before the next write; no concurrent advancement was overwritten.
+- The existing runtime already reopens a `READY_FOR_REVIEW` job with failed Dev Bridge tests back to `TEACHER_APPROVED` and `prepareApprovedBridgePackage()` already asks MentorEngine for a bounded `mode=repair` package tied to the failed result timestamp. No duplicate repair engine was added.
+- `src/dev/bridge-job-runner.js` now preserves whether the package actually executed an `implement` or `repair` pass in both `result_json.bridge_pass` and `plan_json.bridge_pass`, so Teacher/Mentor/Dev Bridge evidence can prove the repair/retest stage rather than infer it from mutable state.
+- `tests/bridge-job-runner.test.mjs` adds a repair-package regression proving repaired files are applied, requested tests are rerun, all tests can pass, and the repair-pass marker survives in both result and plan evidence.
+- Code/test SHA: `89f8142b67abe93f0087ff0d116f309c311d8960`. Exact `full-candidate-ci` run `34547893173` was still `in_progress` at checkpoint time; no green claim was recorded prematurely.
+- Production/release/DNS/secrets/bindings/auth/billing/D1 remained untouched; no cost was added.
+
 ## Next concrete blocks
 
-1. Continue the P0 autonomy proof on the real Dev Bridge: generated files -> local candidate mutation -> exact tests -> repair -> READY_FOR_REVIEW -> correlated CI -> Mentor lesson, while preserving Teacher/Mentor evidence merge semantics.
-2. Use the existing truth-audit machinery to isolate the next genuine PARTIEL / EXISTANT_NON_TESTE capability; execute only bounded LOW-risk non-mutating smoke evidence and fix a concrete failure rather than writing another broad audit.
-3. Extend semantic-context coverage only when a real natural/elliptical/faulty formulation exposes a missing route; the requested nine-formulation gate now has regression coverage.
+1. On the next run, verify exact-SHA `full-candidate-ci` for `89f8142b67abe93f0087ff0d116f309c311d8960`; if green, advance the last-green checkpoint, otherwise fix the concrete failing job without weakening tests.
+2. Continue the P0 real-bridge proof through a genuine failed test -> Mentor repair package -> repaired local candidate -> retest -> READY_FOR_REVIEW, now with explicit `bridge_pass=repair` evidence preserved end-to-end.
+3. Use the existing truth-audit machinery to isolate the next genuine PARTIEL / EXISTANT_NON_TESTE capability; execute only bounded LOW-risk non-mutating smoke evidence and fix a concrete failure rather than writing another broad audit.
 4. Revisit selective branch/PR references only when a concrete failing test demonstrates a missing behavior.
