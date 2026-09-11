@@ -57,6 +57,16 @@ export function classifyCapabilityTruth(record, execution = null) {
   return 'EXISTANT_NON_TESTE';
 }
 
+function autoExecutionBlockReason({ deep, record, sample, declared, costSensitive, costApproved }) {
+  if (!deep) return null;
+  if (declared === 'STUB' || declared === 'NOT_IMPLEMENTED') return 'DECLARED_NON_EXECUTABLE';
+  if (record?.enabled === false) return 'DISABLED';
+  if (record?.risk !== 'LOW') return 'RISK_NOT_LOW';
+  if (sample === undefined) return 'NO_BOUNDED_SAMPLE';
+  if (costSensitive && !costApproved) return 'UNKNOWN_OR_EXTERNAL_COST';
+  return null;
+}
+
 /**
  * Truthful audit of every registered MEL capability.
  * LOW-risk capabilities with a bounded sample are executed when deep=true,
@@ -66,7 +76,8 @@ export function classifyCapabilityTruth(record, execution = null) {
  * Explicit STUB / NOT_IMPLEMENTED records are never executed by the audit and
  * cannot masquerade as healthy-but-untested merely because a handler exists.
  * MEDIUM/HIGH or mutating capabilities are never auto-executed here; they are
- * still inventoried and reported with their real health/status.
+ * still inventoried and reported with their real health/status and an explicit
+ * auto_execution_blocked reason whenever deep execution was requested.
  */
 export async function auditRuntimeCapabilities(runtime, {
   deep = false,
@@ -93,6 +104,14 @@ export async function auditRuntimeCapabilities(runtime, {
     const declaredNonExecutable = declared === 'STUB' || declared === 'NOT_IMPLEMENTED';
     const costSensitive = COST_SENSITIVE_CAPABILITIES.has(record.id);
     const costApproved = !costSensitive || provenZeroCost.has(record.id);
+    const blockedReason = autoExecutionBlockReason({
+      deep,
+      record,
+      sample,
+      declared,
+      costSensitive,
+      costApproved,
+    });
     const executable = deep
       && !declaredNonExecutable
       && record.enabled !== false
@@ -121,7 +140,7 @@ export async function auditRuntimeCapabilities(runtime, {
       health: record.health,
       implementation_status: declared,
       tested_now: Boolean(execution),
-      auto_execution_blocked: deep && costSensitive && !costApproved ? 'UNKNOWN_OR_EXTERNAL_COST' : null,
+      auto_execution_blocked: blockedReason,
       execution,
       truth_status: classifyCapabilityTruth(record, execution),
     });
