@@ -3,14 +3,16 @@ import assert from 'node:assert/strict';
 import { enhanceMvpBehavior, MVP_BEHAVIOR_PATCH } from '../src/pages/mvp-behavior-enhancer.js';
 import { buildMelIdentityPrompt } from '../src/identity/mel-persona.js';
 
-test('MVP behavior enhancer injects clickable continuation text and long chat timeout', async () => {
+test('MVP behavior enhancer injects clickable continuation text and bounded chat retry policy', async () => {
   const source = new Response('<html><body><textarea id="input"></textarea><div id="messages"></div><button id="send">Envoyer</button></body></html>', {
     headers: { 'content-type': 'text/html; charset=utf-8' }
   });
   const enhanced = await enhanceMvpBehavior(source);
   const html = await enhanced.text();
   assert.match(html, /Continuer depuis la dernière phrase/);
-  assert.match(html, /CHAT_TIMEOUT_MS=240000/);
+  assert.match(html, /CHAT_TIMEOUT_MS=120000/);
+  assert.match(html, /CHAT_ATTEMPTS=2/);
+  assert.match(html, /502,503,504/);
   assert.match(html, /role','link/);
   assert.doesNotMatch(html, /<button[^>]*>Continuer depuis la dernière phrase/i);
 });
