@@ -1,28 +1,28 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`.
-Current reviewed HEAD before this checkpoint: `1a155497350a75818ae8b47cff7ec54eed3f5491`.
-Latest verified full-candidate CI for that HEAD: run `34612051542`, `completed/success` on 2026-09-11.
+Current reviewed HEAD before this checkpoint: `373934923651eb7e450cc695bda756d8d9ed6aee`.
+Latest verified full-candidate CI for the immediately preceding implementation HEAD: run `34612051542`, `completed/success` on 2026-09-11.
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
-Comparisons were re-run from the current clean HEAD before changing this file. No branch was cherry-picked or merged wholesale.
+Comparisons were re-run from clean HEAD `373934923651eb7e450cc695bda756d8d9ed6aee` before changing this file. No branch was cherry-picked or merged wholesale.
 
-- `release/mel-2026-09-10-r3-3` — `REFERENCE_ONLY / DIVERGED`: ahead by 10, behind by 346. Its unique files include older autonomy/GitHub/Teacher changes; recover only a specific behavior demonstrated missing by a failing regression.
-- `candidate/mel-ui-selfaware-integration` — `ALREADY_CONTAINED`: ahead by 0, behind by 5.
-- `candidate/augmentio-core` — `REFERENCE_ONLY / DIVERGED`: ahead by 12, behind by 5. The diff contains stale reversions/removals (including generated `.wrangler` state and current UI/router/consolidation changes), so it must not replace clean. Inspect only a specific missing behavior if evidence requires it.
-- `candidate/dev-bridge-fetch-fix` — `ALREADY_CONTAINED`: ahead by 0, behind by 5.
-- `candidate/device-control-core` — `ALREADY_CONTAINED`: ahead by 0, behind by 5. The fail-closed device permission policy is already preserved on clean.
-- `candidate/mel-work-02-state-final2` — `ALREADY_CONTAINED`: ahead by 0, behind by 5.
-- `feature/mel-autonomy-mentor` — `ALREADY_CONTAINED`: ahead by 0, behind by 5. Mentor/runtime equivalents are preserved on clean.
-- `hotfix/prompt-limit-100k` — `ALREADY_CONTAINED`: ahead by 0, behind by 5. The 100000-character composer/runtime contract remains on clean.
+- `release/mel-2026-09-10-r3-3` — `REFERENCE_ONLY / DIVERGED`: ahead by 10, behind by 368. Its unique files remain older autonomy/GitHub/Teacher changes; recover only a specific behavior demonstrated missing by a failing regression.
+- `candidate/mel-ui-selfaware-integration` — `ALREADY_CONTAINED`: ahead by 0, behind by 27.
+- `candidate/augmentio-core` — `REFERENCE_ONLY / DIVERGED`: ahead by 42, behind by 27. The diff still contains broad stale removals/reversions (including generated `.wrangler` state, checkpoints/backups and workflow changes), so it must not replace clean. Inspect only a specific missing behavior if evidence requires it.
+- `candidate/dev-bridge-fetch-fix` — `ALREADY_CONTAINED`: ahead by 0, behind by 27.
+- `candidate/device-control-core` — `ALREADY_CONTAINED`: ahead by 0, behind by 27. The fail-closed device permission policy is already preserved on clean.
+- `candidate/mel-work-02-state-final2` — `ALREADY_CONTAINED`: ahead by 0, behind by 27.
+- `feature/mel-autonomy-mentor` — `ALREADY_CONTAINED`: ahead by 0, behind by 27. Mentor/runtime equivalents are preserved on clean.
+- `hotfix/prompt-limit-100k` — `ALREADY_CONTAINED`: ahead by 0, behind by 27. The 100000-character composer/runtime contract remains on clean.
 
-PR truth:
+PR truth revalidated on 2026-09-11:
 
-- PR #4 `Device control: permissioned action policy core` — CLOSED + MERGED on 2026-09-11. Its source branch is now fully contained by clean.
-- PR #5 `Fix local dev bridge fetch loop on WSL/Windows` — CLOSED + MERGED on 2026-09-11. Its source branch is now fully contained by clean.
-- PR #6 `WIP: MEL autonomous mentor development loop` — CLOSED, NOT MERGED, superseded; its head branch is now fully contained by clean.
-- PR #7 `Integrate new MEL themed UI and self-awareness into current autonomy candidate` — CLOSED, NOT MERGED, superseded/conflicting; its head branch is now fully contained by clean.
+- PR #4 `Device control: permissioned action policy core` — CLOSED + MERGED on 2026-09-11. Its source branch is fully contained by clean.
+- PR #5 `Fix local dev bridge fetch loop on WSL/Windows` — CLOSED + MERGED on 2026-09-11. Its source branch is fully contained by clean.
+- PR #6 `WIP: MEL autonomous mentor development loop` — CLOSED, NOT MERGED, superseded; its head branch is fully contained by clean.
+- PR #7 `Integrate new MEL themed UI and self-awareness into current autonomy candidate` — CLOSED, NOT MERGED, superseded/conflicting; its head branch is fully contained by clean.
 
 ## Integrated product contract
 
@@ -139,6 +139,15 @@ Provider-sensitive paths remain unexecuted by that proof. `code.read`, `code.sea
 - CI: `full-candidate-ci` run `34612051542` completed successfully on the exact SHA; runtime dependency security gate, syntax and full test suite all green.
 - Verified capability: the audit can now truthfully exercise `evolution.gap.detect` automatically while preserving fail-closed treatment for provider-backed, metered, mutating or otherwise ambiguous capabilities.
 - Blockers: none introduced. No production deployment, persistent mutation, provider call, secret, DNS/auth/billing change or destructive migration performed.
+
+## Checkpoint 2026-09-11 — consolidation refresh
+
+- Branch: `candidate/mel-clean-autonomy`.
+- Reviewed pre-write HEAD: `373934923651eb7e450cc695bda756d8d9ed6aee`.
+- Real changes: refreshed all explicitly requested source-branch comparisons and PR #4/#5/#6/#7 truth. No source branch was merged or cherry-picked.
+- Consolidation result: UI, Dev Bridge fetch fix, Device Control, Work state, Mentor and 100k prompt branches are fully contained; release remains a small divergent reference; `candidate/augmentio-core` remains a large divergent reference with broad stale removals/reversions and is unsafe for wholesale recovery.
+- Tests: documentation-only consolidation block; no product/runtime code changed. Full candidate CI must be checked on this checkpoint SHA before this checkpoint is considered verified.
+- Safety: no production deploy, secret, DNS/auth/billing change, destructive migration or paid/provider action.
 
 ## Next concrete blocks
 
