@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runStructuredBridgeJob, structuredFiles, requestedTests, bridgePass } from '../src/dev/bridge-job-runner.js';
 
-function fakeBridge({ testExitCodes = [0, 0], diff = 'diff --git a/src/a.js b/src/a.js\n-0\n+1\n' } = {}) {
+function fakeBridge({ testExitCodes = [0, 0], diff = 'diff --git a/src/a.js b/src/a.js\n-0\n+1\n', existingCandidate = false } = {}) {
   const calls = [];
   let testIndex = 0;
   return {
@@ -10,6 +10,10 @@ function fakeBridge({ testExitCodes = [0, 0], diff = 'diff --git a/src/a.js b/sr
     bus: {
       async execute(id, input) {
         calls.push({ id, input });
+        if (id === 'code.status') {
+          if (!existingCandidate) throw Object.assign(new Error('CANDIDATE_NOT_FOUND'), { code: 'CANDIDATE_NOT_FOUND' });
+          return { result: { exit_code: 0, stdout: ' M src/a.js\n', stderr: '' } };
+        }
         if (id === 'dev.create_candidate') return { branch: `mel-dev/${input.job_id}` };
         if (id === 'code.read') return { content: 'export const value = 0;\n' };
         if (id === 'dev.apply_change') return { path: input.path, branch: `mel-dev/${input.job_id}` };
@@ -43,6 +47,7 @@ test('structured package applies every bounded file, runs requested tests and re
   assert.equal(result.status, 'READY_FOR_REVIEW');
   assert.equal(result.needs_repair, false);
   assert.equal(result.result_json.bridge_pass, 'implement');
+  assert.equal(result.result_json.candidate_reused, false);
   assert.match(result.diff_summary, /diff --git/);
   assert.deepEqual(result.result_json.applied_files, ['src/a.js', 'tests/a.test.mjs']);
   assert.equal(result.tests_json.length, 2);
@@ -62,8 +67,8 @@ test('failed test remains observable and marks package for repair', async () => 
   assert.match(result.tests_json[1].stderr, /failure/);
 });
 
-test('repair package is explicitly preserved in result and plan evidence', async () => {
-  const bridge = fakeBridge({ testExitCodes: [0, 0] });
+test('repair package reuses a live candidate and preserves repair evidence', async () => {
+  const bridge = fakeBridge({ testExitCodes: [0, 0], existingCandidate: true });
   const repairJob = {
     ...job,
     patch_json: { source: 'MentorEngine', mode: 'repair' },
@@ -73,8 +78,26 @@ test('repair package is explicitly preserved in result and plan evidence', async
   assert.equal(bridgePass(repairJob), 'repair');
   assert.equal(result.result_json.bridge_pass, 'repair');
   assert.equal(result.plan_json.bridge_pass, 'repair');
+  assert.equal(result.result_json.candidate_reused, true);
+  assert.equal(result.plan_json.candidate_reused, true);
+  assert.equal(bridge.calls.filter(call => call.id === 'code.status').length, 1);
+  assert.equal(bridge.calls.filter(call => call.id === 'dev.create_candidate').length, 0);
   assert.equal(result.needs_repair, false);
   assert.ok(result.tests_json.every(row => row.passed));
+});
+
+test('repair package fails closed to a fresh candidate when local repair state is unavailable', async () => {
+  const bridge = fakeBridge({ testExitCodes: [0, 0], existingCandidate: false });
+  const repairJob = {
+    ...job,
+    patch_json: { source: 'MentorEngine', mode: 'repair' },
+    files_json: [{ path: 'src/a.js', content: 'export const value = 2;\n' }],
+  };
+  const result = await runStructuredBridgeJob({ bridge, job: repairJob });
+  assert.equal(result.result_json.bridge_pass, 'repair');
+  assert.equal(result.result_json.candidate_reused, false);
+  assert.equal(bridge.calls.filter(call => call.id === 'code.status').length, 1);
+  assert.equal(bridge.calls.filter(call => call.id === 'dev.create_candidate').length, 1);
 });
 
 test('no structured files returns null so legacy bridge work remains compatible', async () => {
