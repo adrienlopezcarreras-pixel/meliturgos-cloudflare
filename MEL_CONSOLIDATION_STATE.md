@@ -1,97 +1,69 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`
-Last fully green checkpoint: `4c3b7989dd63a5f82579b3a104f3afae8604060e` (`full-candidate-ci` run `34547940894`, success, 2026-09-11).
+Last fully green checkpoint: `4c585e37dad396415b7d74b1e493d5705faed9c8` (`full-candidate-ci` run `34555909849`, completed/success, 2026-09-11).
 
-## Integrated / already contained
+## Consolidation truth — fresh comparison 2026-09-11
 
-- `candidate/mel-ui-selfaware-integration` — ALREADY_CONTAINED by selected functionality. Fresh comparison remains divergent; no whole-branch recovery.
-- `candidate/augmentio-core` — ALREADY_CONTAINED by selected functionality. Fresh comparison remains divergent; no whole-branch recovery.
-- `candidate/dev-bridge-fetch-fix` / PR #5 — ALREADY_CONTAINED. The local transport/capability-registration fix is present in clean lineage; no recovery needed.
-- `candidate/device-control-core` — INTEGRATED_BY_COMPARISON. Fail-closed device-control policy/tests are present; do not cherry-pick divergent branch wholesale.
-- `candidate/mel-work-02-state-final2` — ALREADY_CONTAINED by selected functionality; fresh comparison remains divergent.
-- Mentor core — INTEGRATED: `src/learning/mentor-engine.js`, `src/learning/mentor-memory.js`, schema v6/additive `mentor_lessons`, Mentor capabilities/tests.
-- Autonomy handoff — INTEGRATED: natural chat/evolution enqueue -> durable job -> Council -> Teacher correlation -> MEL implementation proposal -> structured Dev Bridge package -> apply/test/diff -> repair evidence -> CI completion gate -> Mentor learning.
-- Capability truth audit — INTEGRATED and tested for bounded LOW-risk smoke execution without pretending untested capabilities are healthy.
-- `.github/workflows/full-candidate-ci.yml` covers `candidate/mel-clean-autonomy`.
+- `release/mel-2026-09-10-r3-3` — REFERENCE_ONLY / DIVERGED (`ahead_by=10`, `behind_by=161`). Never replace candidate with release; recover only a specific release-only behavior backed by a failing regression test.
+- `candidate/mel-ui-selfaware-integration` — ALREADY_CONTAINED; branch is now strictly behind clean (`behind_by=120`, no unique commits).
+- `candidate/augmentio-core` — ALREADY_CONTAINED; strictly behind clean (`behind_by=140`, no unique commits).
+- `candidate/dev-bridge-fetch-fix` / PR #5 — ALREADY_CONTAINED; strictly behind clean (`behind_by=138`, no unique commits). Transport/capability-registration fix remains in clean lineage.
+- `candidate/device-control-core` / PR #4 — INTEGRATED_BY_COMPARISON. Source branch is divergent (`ahead_by=2`, `behind_by=141`), but its fail-closed policy exists on clean in `src/devices/device-control-policy.js` with tests; do not cherry-pick the divergent branch wholesale.
+- `candidate/mel-work-02-state-final2` — ALREADY_CONTAINED; strictly behind clean (`behind_by=144`, no unique commits).
+- `feature/mel-autonomy-mentor` / PR #6/#7 — REFERENCE_ONLY / highly divergent (`ahead_by=53`, `behind_by=354`). Mentor/runtime/UI equivalents already integrated on clean; recover only a specifically missing behavior proven by evidence. PR #6 and PR #7 are currently open drafts, not merge authorities.
+- `hotfix/prompt-limit-100k` — REFERENCE_ONLY / DIVERGED (`ahead_by=2`, `behind_by=354`). Current composer/runtime already enforces the 100000-character contract; do not import stale package/script changes without evidence.
+- PR #4 and PR #5 remain open historical candidate PRs. No PR or divergent branch was merged blindly.
 
-## Interface / avatars — current contract
+## Integrated product contract
 
-The served interface is normalized by `src/pages/theme-avatar-enhancer.js` visual contract v3. It keeps the composer at 100000 characters, removes decorative pseudo-elements from the text window, preserves file drop / avatar / send / full mode, persists the selected theme and sends `ui_theme` + `intent_context` to chat.
+### Interface / avatars
 
-The source `src/pages/mvp-interface.js` itself now contains no visible historical `Compétences` control/panel: the composer controls are Send + Full mode only. This closes the old source-cleanup debt rather than relying only on runtime removal.
+The served interface is normalized by `src/pages/theme-avatar-enhancer.js` visual contract v3. It keeps the composer at 100000 characters, removes the historical `Compétences` control/panel and decorative pseudo-elements from messages/input, preserves file drop/avatar/send/full mode, persists the selected theme, and sends `ui_theme` + `intent_context` to chat.
 
-Seven visual themes are registered end-to-end:
+Seven themes are registered end-to-end:
 
 - `classic` — existing modern MEL portrait.
 - `crusade` — parchment / Medieval Idle Prayer.
 - `religious` — Andalusian Marian cave/baroque ambience.
-- `granada` — cathedral / monumental gilded retable; currently intentionally reuses the approved religious portrait until a dedicated Granada portrait is approved.
-- `aviation` — dedicated owner-approved 1940s pilot portrait embedded in `src/pages/avatar-data-aviation.js`, stable route `/assets/avatars/mel-aviation-1940s.webp`.
-- `paladin` — dedicated owner-approved Paladin Light Full Plate portrait embedded in `src/pages/avatar-data-paladin.js`, stable route `/assets/avatars/mel-paladin-light-full-plate.webp`.
-- `amazon` — dedicated owner-approved Amazon / Griffon Diadem portrait embedded in `src/pages/avatar-data-amazon.js`, stable route `/assets/avatars/mel-amazon-griffon.webp`.
+- `granada` — cathedral / monumental gilded retable; intentionally reuses religious portrait until a dedicated Granada portrait is owner-approved.
+- `aviation` — approved 1940s pilot portrait in `src/pages/avatar-data-aviation.js`, route `/assets/avatars/mel-aviation-1940s.webp`.
+- `paladin` — approved Light Full Plate portrait in `src/pages/avatar-data-paladin.js`, route `/assets/avatars/mel-paladin-light-full-plate.webp`.
+- `amazon` — approved Griffon Diadem portrait in `src/pages/avatar-data-amazon.js`, route `/assets/avatars/mel-amazon-griffon.webp`.
 
-`src/pages/mel-avatar-assets.js` is the stable avatar route registry. Aviation, Paladin and Amazon are no longer fallbacks. `src/identity/mel-theme-persona.js` is the centralized backend theme contract and `src/api/native-chat.js` consumes it through `getMelThemeContract(body.ui_theme)`, so Granada/Aviation/Paladin/Amazon are not silently downgraded to Classic. `tests/native-chat-theme-persona.test.mjs` explicitly exercises those four themes plus fail-safe fallback for unknown values. Tests also verify RIFF/WEBP payloads and the seven-theme UI contract.
+`src/pages/mel-avatar-assets.js` is the stable avatar route registry. Aviation/Paladin/Amazon are dedicated assets, not fallbacks. `src/identity/mel-theme-persona.js` centralizes the backend theme contract and `src/api/native-chat.js` consumes it, so Granada/Aviation/Paladin/Amazon are not silently downgraded to Classic. Regression tests cover the seven-theme UI/backend contract and WEBP payloads.
 
-## Remaining interface debt
+### Mentor / autonomy
 
-- No known P0 interface debt remains for the removed `Compétences` control or the seven-theme backend contract. Do not reimplement either without a failing regression test.
-- Update any stale legacy test names/comments only when they actively misstate the desired product contract; do not delete useful behavioral coverage.
-- A dedicated Granada portrait remains optional and blocked on owner validation; current religious portrait reuse is intentional.
+- Mentor core — INTEGRATED: `src/learning/mentor-engine.js`, `src/learning/mentor-memory.js`, DB schema v6 and additive-only `mentor_lessons`, Mentor capabilities/tests.
+- Natural comprehension — INTEGRATED regression coverage for `fais-le`, `continue`, `reprends`, `enlève ça`, `plus doré`, `corrige tout`, `développe-toi`, `où en es-tu ?`, `peux-tu faire ça ?` with bounded context-aware semantic fallback; regex remains a fast path only.
+- Autonomy handoff — INTEGRATED: natural chat/evolution enqueue -> durable job -> Council/Mentor evidence -> Teacher correlation -> structured Dev Bridge package -> candidate apply/test/diff -> repair/retest evidence -> READY_FOR_REVIEW -> CI completion gate -> Mentor learning.
+- Repair continuity — INTEGRATED: a repair pass reuses a live isolated candidate when available, records `bridge_pass=repair` and `candidate_reused=true`, and safely falls back to fresh candidate creation only when no recoverable state exists.
+- Capability truth audit — INTEGRATED: classifications distinguish `EXISTANT_ET_TESTE`, `EXISTANT_NON_TESTE`, `PARTIEL`, `STUB`, `NOT_IMPLEMENTED`, and blocked/runtime-failure states. Automatic deep execution remains restricted to bounded LOW-risk capabilities with explicit samples.
+- `.github/workflows/full-candidate-ci.yml` covers `candidate/mel-clean-autonomy`.
 
-## Selective references only
+## Latest concrete hardening — Dev Bridge restart continuity
 
-- `feature/mel-autonomy-mentor` / PR #6/#7 — REFERENCE_ONLY. Highly divergent; Mentor functionality already integrated on clean. Recover only a specifically missing behavior proven by a failing test.
-- `hotfix/prompt-limit-100k` — REFERENCE_ONLY. Current composer/runtime supports the 100000-character contract; do not import stale package changes without evidence.
-- `release/mel-2026-09-10-r3-3` — REFERENCE_ONLY. Never replace candidate with release; recover only a specific release-only behavior backed by a test.
-- PR #4/#5/#6 remain references/open work history where applicable; PR #7 is closed/unmerged and its useful equivalent functionality is already present. No PR or divergent branch was merged blindly in this run.
-
-## Abandoned / superseded
-
-- `Dark Full Plate` — ABANDONED, superseded by exact UI theme `Paladin Light Full Plate`.
-- Temporary classic/crusade avatar fallbacks for Aviation/Paladin — ABANDONED after dedicated approved portraits were embedded.
-- Blind cherry-picks / whole-branch merges from divergent branches — ABANDONED METHOD.
-- Re-implementing MentorEngine/Memory/schema v6 from scratch — ABANDONED DUPLICATION.
-- Re-cleaning a source-level `Compétences` control that is already absent — ABANDONED DUPLICATION.
-- Re-extending a seven-theme backend contract that is already centralized and tested — ABANDONED DUPLICATION.
+- Prior green candidate-reuse hardening was verified by exact `full-candidate-ci` run `34551798055` on SHA `6e55b56cf857263ac0d70b2bffcd083ea327966c`.
+- A reproducible remaining gap was then closed: `LocalDevBridge` previously kept isolated candidate ownership only in its in-memory `candidates` map, so a process restart lost the same candidate that a Mentor repair pass must preserve.
+- `src/dev/dev-bridge.js` now writes a bounded local candidate state record under the configured candidate root, validates job id / exact expected branch / isolated-copy marker / non-symlink directory before recovery, restores the existing isolated candidate without recreating it, persists state changes, and removes the state record on rollback.
+- Recovery does not trust arbitrary paths from persisted data; the candidate directory and branch are derived from the validated job id. Invalid or tampered state fails closed as `CANDIDATE_STATE_INVALID`.
+- `tests/integration/dev-bridge.test.mjs` proves a second `LocalDevBridge` instance can reopen the modified candidate after a simulated process restart, preserve the diff, report `recovered=true`, and rollback cleanly without recreating the candidate.
+- Code/test SHA `4c585e37dad396415b7d74b1e493d5705faed9c8` passed exact `full-candidate-ci` run `34555909849` (`completed`, `success`).
 
 ## Safety / verification rules
 
 - Production/release/DNS/secrets/bindings/auth/billing remain untouched.
-- Unknown added cost is fail-closed.
-- D1 migrations are additive only.
+- Unknown added cost is fail-closed; no paid-provider assumption.
+- D1 migrations are additive only; no automatic rollback.
 - Before each write: refetch `candidate/mel-clean-autonomy`; never overwrite an advanced HEAD.
-- Recovery unit is the smallest missing file/function/test, followed by targeted tests and exact-SHA `full-candidate-ci` verification.
-- A capability is not `EXISTANT_ET_TESTE` merely because it is registered; require execution/test evidence.
-- Runtime dependency audit is currently clear at high severity; three high advisories remain confined to development tooling (`sharp`/`miniflare`/`wrangler`). No forced audit repair was attempted.
-
-## Night checkpoint — 2026-09-11
-
-- Fresh comparisons were performed before recovery against `release/mel-2026-09-10-r3-3`, `candidate/mel-ui-selfaware-integration`, `candidate/augmentio-core`, `candidate/dev-bridge-fetch-fix`, `candidate/device-control-core`, `candidate/mel-work-02-state-final2`, `feature/mel-autonomy-mentor`, and `hotfix/prompt-limit-100k`. All remain divergent references; no whole-branch recovery was justified.
-- Comprehension regression coverage now explicitly exercises `fais-le`, `continue`, `reprends`, `enlève ça`, `plus doré`, `corrige tout`, `développe-toi`, `où en es-tu ?`, and `peux-tu faire ça ?` with recent MEL-development context. Context-only ellipses remain outside semantic self-routing when history is absent, while an explicit second-person ambiguous request is deliberately admitted to the semantic classifier so it can resolve to a safe intent or NONE.
-- Two intermediate CI failures exposed incorrect test assumptions only; the behavioral implementation was not weakened and no useful test was deleted. Final code/test SHA `2ede70f34a84c7095e7714f127c3ab609f475c17` passed exact `full-candidate-ci` run `34543842348`.
-- Production deployment, release, DNS, D1 destructive migration, secrets, bindings, authentication and billing were untouched.
-
-### Repair-pass evidence checkpoint
-
-- Refetched branch HEAD `cb2a21c3cbdf30ee2ce5f95980a5ea41b2701a04` before the next write; no concurrent advancement was overwritten.
-- The existing runtime already reopens a `READY_FOR_REVIEW` job with failed Dev Bridge tests back to `TEACHER_APPROVED` and `prepareApprovedBridgePackage()` already asks MentorEngine for a bounded `mode=repair` package tied to the failed result timestamp. No duplicate repair engine was added.
-- `src/dev/bridge-job-runner.js` preserves whether the package actually executed an `implement` or `repair` pass in both `result_json.bridge_pass` and `plan_json.bridge_pass`, so Teacher/Mentor/Dev Bridge evidence can prove the repair/retest stage rather than infer it from mutable state.
-- `tests/bridge-job-runner.test.mjs` adds repair-package regression coverage proving repaired files are applied, requested tests are rerun, all tests can pass, and the repair-pass marker survives in both result and plan evidence.
-- Checkpoint SHA `4c3b7989dd63a5f82579b3a104f3afae8604060e` passed exact `full-candidate-ci` run `34547940894`.
-
-### Repair candidate-continuity checkpoint
-
-- Refetched HEAD `4c3b7989dd63a5f82579b3a104f3afae8604060e` before changes and `ad92fdafff803148fa783407bcaa2843006be15e` before the test write; no concurrent HEAD advancement was overwritten.
-- Concrete P0 gap found: every structured repair pass previously called `dev.create_candidate`, which can recreate the isolated candidate and discard the failed implementation state that Mentor is supposed to repair.
-- `src/dev/bridge-job-runner.js` now probes `code.status` for a repair pass and reuses the live isolated candidate when available; if local state is unavailable it fails safely to the existing fresh-candidate path rather than inventing state.
-- Evidence now records `candidate_reused` in both result and plan. `tests/bridge-job-runner.test.mjs` verifies live repair reuse performs no second `dev.create_candidate`, while unavailable state performs exactly one fresh candidate creation.
-- Code/test SHA `4956ce2d17bd897018d0eb1d59be1c57d63bea9f`; exact `full-candidate-ci` run `34551741048` is `in_progress` at this checkpoint, so no green claim is made for this SHA yet.
-- Production/release/DNS/secrets/bindings/auth/billing/D1 remain untouched; no cost added.
+- Recovery unit is the smallest missing file/function/test, followed by exact-SHA CI verification.
+- No useful test is removed or weakened to obtain green CI.
+- A capability is not `EXISTANT_ET_TESTE` merely because it is registered; execution/test evidence is required.
+- Runtime dependency audit remains clear at high severity; development-tool advisories are not force-fixed.
 
 ## Next concrete blocks
 
-1. Verify exact-SHA `full-candidate-ci` for `4956ce2d17bd897018d0eb1d59be1c57d63bea9f`; if green, advance the last-green checkpoint, otherwise fix the concrete failing job without weakening tests.
-2. Extend continuity across a Dev Bridge process restart only if a failing/reproducible test proves persisted isolated candidate state cannot be recovered; do not invent prior local state.
-3. Continue the P0 real-bridge proof through a genuine failed test -> Mentor repair package -> same repaired local candidate -> retest -> READY_FOR_REVIEW with explicit `bridge_pass=repair` and `candidate_reused=true` evidence.
-4. Use the existing truth-audit machinery to isolate the next genuine PARTIEL / EXISTANT_NON_TESTE capability; execute only bounded LOW-risk non-mutating smoke evidence and fix a concrete failure rather than writing another broad audit.
+1. Run the real local Dev Bridge repair path through: failed candidate test -> Mentor `mode=repair` package -> process restart -> recovered same isolated candidate -> repair apply -> retest -> `READY_FOR_REVIEW`, proving `bridge_pass=repair` plus `candidate_reused=true` survives the restart boundary.
+2. Inspect the truth-audit output for the next genuine `PARTIEL` / `EXISTANT_NON_TESTE` capability. Execute only a bounded LOW-risk non-mutating smoke where a safe sample exists; do not auto-execute Council/Augmentio merely because their declared risk is LOW when provider cost/availability is not explicitly proven zero for that run.
+3. Preserve the seven approved themes/avatar geometry and 100k composer while autonomy remains the higher priority; no cosmetic rework without a failing regression.
