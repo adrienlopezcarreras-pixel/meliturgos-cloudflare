@@ -44,6 +44,24 @@ function apiError(error, fallback = 'INTERNAL_ERROR') {
   );
 }
 
+export function withChatAiDefaults(env) {
+  if (!env?.AI || typeof env.AI.run !== 'function') return env;
+  const configured = Number(env.MEL_MAX_OUTPUT_TOKENS);
+  const maxTokens = Math.max(512, Math.min(8192, Number.isFinite(configured) && configured > 0 ? configured : 4096));
+  const base = env.AI;
+  return {
+    ...env,
+    AI: {
+      run(model, input = {}, ...rest) {
+        const payload = input && typeof input === 'object' && !Array.isArray(input)
+          ? { ...input, max_tokens: Number(input.max_tokens) > 0 ? input.max_tokens : maxTokens }
+          : input;
+        return base.run.call(base, model, payload, ...rest);
+      }
+    }
+  };
+}
+
 async function safeCount(db, table) {
   if (!db) return 0;
   try {
@@ -259,7 +277,7 @@ export default {
 
       const preparedRequest = await injectEvolutionPreflightCapability(request);
       if (new URL(preparedRequest.url).pathname === '/api/chat') {
-        return await handleNativeChat(preparedRequest, env);
+        return await handleNativeChat(preparedRequest, withChatAiDefaults(env));
       }
 
       const response = await router.fetch(preparedRequest, env, ctx);
