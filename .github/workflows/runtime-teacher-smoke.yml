@@ -1,9 +1,11 @@
 name: runtime-teacher-smoke
 
 on:
-  push:
-    branches:
-      - candidate/augmentio-core
+  workflow_run:
+    workflows:
+      - deploy-cloudflare-release
+    types:
+      - completed
   workflow_dispatch:
 
 permissions:
@@ -11,6 +13,7 @@ permissions:
 
 jobs:
   smoke:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
     steps:
       - name: Probe live Teacher Bridge
