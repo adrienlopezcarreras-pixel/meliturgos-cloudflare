@@ -13,6 +13,7 @@ import { runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
 import { enhanceThemeAvatars } from "./pages/theme-avatar-enhancer.js";
+import { enhanceMvpBehavior } from "./pages/mvp-behavior-enhancer.js";
 
 let lastSafeWorkJob = null;
 
@@ -262,7 +263,10 @@ export default {
       }
 
       const response = await router.fetch(preparedRequest, env, ctx);
-      if (response) return await enhanceThemeAvatars(response);
+      if (response) {
+        const themed = await enhanceThemeAvatars(response);
+        return await enhanceMvpBehavior(themed);
+      }
       throw new Error("Router returned null");
     } catch (error) {
       if (error?.status >= 400 && error.status < 600 && typeof error.code === "string") return Response.json({error:error.code,code:error.code},{status:Number(error.status)});
