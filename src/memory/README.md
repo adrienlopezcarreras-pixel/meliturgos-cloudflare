@@ -7,6 +7,21 @@ Service tier pour la gestion de la mémoire cognitive MELITURGOS Gen2.
 - Cycle de vie: OBSERVED → CANDIDATE → CONFIRMED → ACTIVE → SUPERSEDED
 - Distinction archive vs mémoire cognitive
 - Gestion des contradictions, provenance, temporalité
+- Conserver séparément une mémoire d'expérience du projet afin que MEL apprenne des réussites, erreurs, corrections et décisions de développement
+
+## Trois couches de mémoire
+
+1. **Archive conversationnelle** : historique exhaustif des échanges et événements.
+2. **Mémoire cognitive** : faits, préférences, décisions et informations consolidées dans D1.
+3. **Mémoire d'expérience/projet** : apprentissages du développement de MELITURGOS, erreurs à ne pas répéter, réussites, décisions d'architecture et catalogue d'outils disponibles côté Teacher/ChatGPT.
+
+Les couches ne doivent pas être confondues. Une donnée de projet ne devient pas une permission et aucun secret ne doit être écrit dans ces fichiers.
+
+## Mémoire d'expérience chargée par MEL
+
+- `project-learning-ledger.js` : historique structuré des réussites, échecs, corrections, leçons, priorités et vérités actuelles du projet.
+- `chatgpt-plugin-catalog.js` : catalogue des connecteurs/plugins et outils accessibles côté ChatGPT/Teacher, avec la règle stricte qu'un outil externe n'est pas automatiquement une capacité native de MEL.
+- `../identity/mel-persona.js` : injecte ces deux mémoires dans le contexte d'identité de MEL afin qu'elles soient consultées à chaque conversation Gen2.
 
 ## API
 
@@ -76,7 +91,11 @@ CREATE INDEX idx_memories_validity ON memories(valid_from, valid_until);
 
 ## Files
 
-- `service.js` - MemoryService centralisé
-- `lifecycle.js` - Cycle de vie automation
-- `conflict.js` - Gestion contradictions
-- `sources.js` - Source integration
+- `memory-service.js` - MemoryService centralisé
+- `consolidation.js` - consolidation des éléments mémoriels
+- `conflicts.js` - gestion des contradictions
+- `provenance.js` - provenance
+- `timeline.js` - temporalité
+- `knowledge-graph.js` - graphe de connaissance
+- `project-learning-ledger.js` - mémoire d'expérience du projet MELITURGOS
+- `chatgpt-plugin-catalog.js` - catalogue d'outils/connecteurs Teacher/ChatGPT
