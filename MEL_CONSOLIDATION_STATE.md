@@ -1,7 +1,7 @@
 # MEL consolidation state
 
 Branch of record: `candidate/mel-clean-autonomy`
-Last fully green checkpoint: `4c585e37dad396415b7d74b1e493d5705faed9c8` (`full-candidate-ci` run `34555909849`, completed/success, 2026-09-11).
+Last fully green checkpoint: `4b8cc7b7174d5fbee1f63c1564bcf07e0037d685` (`full-candidate-ci` run `34559521984`, completed/success, 2026-09-11).
 
 ## Consolidation truth — fresh comparison 2026-09-11
 
@@ -44,12 +44,10 @@ Seven themes are registered end-to-end:
 
 ## Latest concrete hardening — Dev Bridge restart continuity
 
-- Prior green candidate-reuse hardening was verified by exact `full-candidate-ci` run `34551798055` on SHA `6e55b56cf857263ac0d70b2bffcd083ea327966c`.
-- A reproducible remaining gap was then closed: `LocalDevBridge` previously kept isolated candidate ownership only in its in-memory `candidates` map, so a process restart lost the same candidate that a Mentor repair pass must preserve.
-- `src/dev/dev-bridge.js` now writes a bounded local candidate state record under the configured candidate root, validates job id / exact expected branch / isolated-copy marker / non-symlink directory before recovery, restores the existing isolated candidate without recreating it, persists state changes, and removes the state record on rollback.
+- `src/dev/dev-bridge.js` persists bounded candidate state under the configured candidate root, validates job id / exact expected branch / isolated-copy marker / non-symlink directory before recovery, restores the existing isolated candidate without recreating it, persists state changes, and removes the state record on rollback.
 - Recovery does not trust arbitrary paths from persisted data; the candidate directory and branch are derived from the validated job id. Invalid or tampered state fails closed as `CANDIDATE_STATE_INVALID`.
-- `tests/integration/dev-bridge.test.mjs` proves a second `LocalDevBridge` instance can reopen the modified candidate after a simulated process restart, preserve the diff, report `recovered=true`, and rollback cleanly without recreating the candidate.
-- Code/test SHA `4c585e37dad396415b7d74b1e493d5705faed9c8` passed exact `full-candidate-ci` run `34555909849` (`completed`, `success`).
+- `tests/integration/dev-bridge.test.mjs` now proves the complete local repair sequence with real `LocalDevBridge` instances: an implementation pass writes an intentionally invalid isolated `package.json`, real `test:smoke` fails and leaves `READY_FOR_REVIEW` + `needs_repair=true`; a new bridge instance simulates process restart, recovers the same candidate, a Mentor `mode=repair` package restores the original file, reruns real `test:smoke` to green, preserves `bridge_pass=repair` + `candidate_reused=true`, reports `recovered=true`, then rolls the isolated fixture back cleanly.
+- Exact code/test SHA `4b8cc7b7174d5fbee1f63c1564bcf07e0037d685` passed `full-candidate-ci` run `34559521984` (`completed`, `success`). This closes the previously listed restart-boundary repair proof gap.
 
 ## Safety / verification rules
 
@@ -64,6 +62,6 @@ Seven themes are registered end-to-end:
 
 ## Next concrete blocks
 
-1. Run the real local Dev Bridge repair path through: failed candidate test -> Mentor `mode=repair` package -> process restart -> recovered same isolated candidate -> repair apply -> retest -> `READY_FOR_REVIEW`, proving `bridge_pass=repair` plus `candidate_reused=true` survives the restart boundary.
-2. Inspect the truth-audit output for the next genuine `PARTIEL` / `EXISTANT_NON_TESTE` capability. Execute only a bounded LOW-risk non-mutating smoke where a safe sample exists; do not auto-execute Council/Augmentio merely because their declared risk is LOW when provider cost/availability is not explicitly proven zero for that run.
-3. Preserve the seven approved themes/avatar geometry and 100k composer while autonomy remains the higher priority; no cosmetic rework without a failing regression.
+1. Inspect the truth-audit output for the next genuine `PARTIEL` / `EXISTANT_NON_TESTE` capability. Execute only a bounded LOW-risk non-mutating smoke where a safe sample exists; do not auto-execute Council/Augmentio merely because their declared risk is LOW when provider cost/availability is not explicitly proven zero for that run.
+2. Preserve the seven approved themes/avatar geometry and 100k composer while autonomy remains the higher priority; no cosmetic rework without a failing regression.
+3. Keep validating the durable chat -> Mentor/Council -> Teacher -> Dev Bridge -> repair/retest -> READY_FOR_REVIEW -> memory chain with small reproducible proofs, without any production deployment.
