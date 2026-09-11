@@ -6,6 +6,7 @@ const SAFE_SAMPLES = Object.freeze({
   'capability.audit': { deep: false },
   'code.read': { path: 'package.json' },
   'code.search': { query: 'MELITURGOS' },
+  'code.integrity': { paths: ['src/index.js', 'src/api/native-chat.js', 'package.json'] },
   'conversation.list': {},
   'rag.search': { query: 'MELITURGOS', limit: 1 },
   'autonomy.status': {},
