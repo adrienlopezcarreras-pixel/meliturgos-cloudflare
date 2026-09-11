@@ -20,7 +20,14 @@ const councilReport = {
   status: 'COMPLETE',
   phase: 'STATE_OF_PLAY_BEFORE_DEVELOPMENT',
   development_allowed: true,
-  responses: [{ member: 'a', answer: 'x' }, { member: 'b', answer: 'y' }]
+  responses: [{ member: 'a', answer: 'x' }, { member: 'b', answer: 'y' }],
+  persistence_policy: {
+    council_outputs: 'EVIDENCE_ONLY',
+    persistent_implementation_plans: 1,
+    parallel_implementations_allowed: false,
+    provider_direct_writes_allowed: false,
+    synthesis_required: true,
+  }
 };
 
 test('Module Lab refuses generation without completed state-of-play council', async () => {
@@ -31,7 +38,7 @@ test('Module Lab refuses generation without completed state-of-play council', as
   );
 });
 
-test('Module Lab can prove and activate after council gate is satisfied', async () => {
+test('Module Lab can prove and activate after unified council gate is satisfied', async () => {
   const runtime = createGen2Runtime();
   const result = await runtime.moduleLab.prove(manifest, async input => ({ ok: true, input }), { councilReport });
   assert.equal(result.status, 'ACTIVE');
