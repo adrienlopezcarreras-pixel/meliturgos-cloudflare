@@ -14,6 +14,15 @@ const SAFE_SAMPLES = Object.freeze({
   'web.research': { query: 'Cloudflare Workers documentation', depth: 1 },
 });
 
+const COST_SENSITIVE_CAPABILITIES = new Set([
+  'augmentio.fanout',
+  'council.state-of-play',
+  'evolution.preflight',
+  'evolution.enqueue',
+  'evolution.gap.detect',
+  'web.research',
+]);
+
 const DECLARED_IMPLEMENTATION_STATUSES = new Set([
   'IMPLEMENTED',
   'PARTIAL',
@@ -48,17 +57,31 @@ export function classifyCapabilityTruth(record, execution = null) {
 
 /**
  * Truthful audit of every registered MEL capability.
- * LOW-risk capabilities with a bounded sample are executed when deep=true.
+ * LOW-risk capabilities with a bounded sample are executed when deep=true,
+ * except capabilities that may cross an external/provider cost boundary. Those
+ * remain fail-closed unless the caller explicitly proves that exact capability
+ * is zero-added-cost for the current run through zeroCostCapabilityIds.
  * Explicit STUB / NOT_IMPLEMENTED records are never executed by the audit and
  * cannot masquerade as healthy-but-untested merely because a handler exists.
  * MEDIUM/HIGH or mutating capabilities are never auto-executed here; they are
  * still inventoried and reported with their real health/status.
  */
-export async function auditRuntimeCapabilities(runtime, { deep = false, context = {}, samples = SAFE_SAMPLES } = {}) {
+export async function auditRuntimeCapabilities(runtime, {
+  deep = false,
+  context = {},
+  samples = SAFE_SAMPLES,
+  zeroCostCapabilityIds = [],
+} = {}) {
   if (!runtime?.bus) throw new TypeError('CAPABILITY_BUS_REQUIRED');
   let records = [];
   try { records = await runtime.bus.refreshHealthAll(); }
   catch { records = runtime.bus.list(); }
+
+  const provenZeroCost = new Set(
+    Array.isArray(zeroCostCapabilityIds)
+      ? zeroCostCapabilityIds.map(value => String(value))
+      : []
+  );
 
   const rows = [];
   for (const record of records) {
@@ -66,7 +89,14 @@ export async function auditRuntimeCapabilities(runtime, { deep = false, context 
     const sample = samples?.[record.id];
     const declared = declaredImplementationStatus(record);
     const declaredNonExecutable = declared === 'STUB' || declared === 'NOT_IMPLEMENTED';
-    const executable = deep && !declaredNonExecutable && record.enabled !== false && record.risk === 'LOW' && sample !== undefined;
+    const costSensitive = COST_SENSITIVE_CAPABILITIES.has(record.id);
+    const costApproved = !costSensitive || provenZeroCost.has(record.id);
+    const executable = deep
+      && !declaredNonExecutable
+      && record.enabled !== false
+      && record.risk === 'LOW'
+      && sample !== undefined
+      && costApproved;
     if (executable) {
       try {
         const result = await runtime.bus.execute(record.id, sample, {
@@ -89,6 +119,7 @@ export async function auditRuntimeCapabilities(runtime, { deep = false, context 
       health: record.health,
       implementation_status: declared,
       tested_now: Boolean(execution),
+      auto_execution_blocked: deep && costSensitive && !costApproved ? 'UNKNOWN_OR_EXTERNAL_COST' : null,
       execution,
       truth_status: classifyCapabilityTruth(record, execution),
     });
@@ -101,4 +132,4 @@ export async function auditRuntimeCapabilities(runtime, { deep = false, context 
   return { ok: true, total: rows.length, deep: Boolean(deep), counts, capabilities: rows };
 }
 
-export { SAFE_SAMPLES, DECLARED_IMPLEMENTATION_STATUSES };
+export { SAFE_SAMPLES, COST_SENSITIVE_CAPABILITIES, DECLARED_IMPLEMENTATION_STATUSES };
