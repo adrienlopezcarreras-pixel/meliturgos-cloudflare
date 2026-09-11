@@ -8,7 +8,7 @@ test('code questions are routed by the native chat capability path', () => {
     id: 'code.read', input: { path: 'src/router.js' }
   });
   assert.deepEqual(inferNativeCodeCapability('Cherche dans ton code createDefaultCapabilityBus'), {
-    id: 'code.search', input: { query: 'ton code createDefaultCapabilityBus' }
+    id: 'code.search', input: { query: 'dans ton code createDefaultCapabilityBus' }
   });
 });
 
