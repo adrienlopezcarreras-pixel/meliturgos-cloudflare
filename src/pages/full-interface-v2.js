@@ -3,6 +3,23 @@ import { onRequestGet as controlRoom } from './control-room.js';
 export async function onRequestGet(context) {
   const response = await controlRoom(context);
   const html = await response.text();
+  const personalization = `<style id="mel-full-personalization">
+:root{--mel-gold:#d7b15a;--mel-gold-soft:#f0d99a;--mel-warm:#8c6a2f}
+body{background:radial-gradient(circle at 9% 5%,rgba(215,177,90,.12),transparent 24%),radial-gradient(circle at 92% 12%,rgba(90,120,205,.13),transparent 24%),#060912!important}
+.side{border-right-color:rgba(215,177,90,.16)!important}.brand img,.hero img{border-color:rgba(215,177,90,.38)!important;box-shadow:0 0 40px rgba(215,177,90,.14)!important}.brand b{color:#fff}.brand small{color:#d9c58d!important}.eyebrow{color:var(--mel-gold-soft)!important}.nav button.active,.nav button:hover{background:linear-gradient(90deg,rgba(215,177,90,.13),rgba(72,119,232,.08))!important}.nav button.active{box-shadow:inset 3px 0 0 var(--mel-gold)}.card{border-color:rgba(255,255,255,.085)!important}.card.hero{border-color:rgba(215,177,90,.2)!important}.hero:after{background:radial-gradient(circle,rgba(215,177,90,.12),transparent 62%)!important}button.primary{background:linear-gradient(135deg,#b88a33,#d8b45f)!important;color:#111!important}.bar span{background:linear-gradient(90deg,#b88a33,#e1c472,#78a9ff)!important}.road-id{color:#e2c779!important}.personal-strip{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-4px 0 18px;padding:10px 13px;border:1px solid rgba(215,177,90,.16);border-radius:14px;background:linear-gradient(90deg,rgba(215,177,90,.055),rgba(255,255,255,.018));color:#dbe3ef;font-size:.82rem}.personal-strip strong{color:#f2dca0;letter-spacing:.04em}.personal-strip .rule{color:#98a6bb;text-align:right}.mentor-chip{display:inline-flex;align-items:center;gap:7px;padding:5px 9px;border-radius:999px;border:1px solid rgba(215,177,90,.2);color:#f1d991;background:rgba(215,177,90,.06);font-size:.72rem;font-weight:750}.mentor-chip:before{content:'✦';font-size:.68rem}.top h1:after{content:' · MEL';font-weight:500;color:#d8b45f;font-size:.48em;vertical-align:middle;letter-spacing:.02em}@media(max-width:620px){.personal-strip{align-items:flex-start;flex-direction:column}.personal-strip .rule{text-align:left}.top h1:after{display:none}}
+</style>`;
+  const identity = `<script id="mel-full-identity">(function(){
+    function applyIdentity(){
+      var main=document.querySelector('main.main'); if(!main||document.getElementById('melPersonalStrip')) return;
+      var header=main.querySelector('header.top');
+      var strip=document.createElement('div'); strip.id='melPersonalStrip'; strip.className='personal-strip';
+      strip.innerHTML='<div><strong>Adrien · MEL · Mentor</strong> <span class="mentor-chip">collaboration supervisée</span></div><div class="rule">Une seule version canonique · pas de développements parallèles</div>';
+      if(header) header.insertAdjacentElement('afterend',strip); else main.prepend(strip);
+      document.querySelectorAll('.brand small').forEach(function(n){n.textContent='Control Room · Adrien'});
+      var heroTitle=document.querySelector('.hero h2'); if(heroTitle && !/Adrien/.test(heroTitle.textContent)) heroTitle.textContent='MEL orchestre, Adrien décide, Mentor arbitre';
+    }
+    if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',applyIdentity); else applyIdentity();
+  })();</script>`;
   const patch = `<script id="mel-control-room-supervised-queue">
 (function(){
   function esc(v){return String(v==null?'':v).replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]})}
@@ -48,7 +65,8 @@ export async function onRequestGet(context) {
   ensureActivityPanel();loadActivity();setInterval(loadActivity,20000);
 })();
 </script>`;
-  const body = html.includes('</body>') ? html.replace('</body>', patch + '</body>') : html + patch;
+  let body = html.includes('</head>') ? html.replace('</head>', personalization + '</head>') : personalization + html;
+  body = body.includes('</body>') ? body.replace('</body>', identity + patch + '</body>') : body + identity + patch;
   const headers = new Headers(response.headers); headers.delete('content-length');
   return new Response(body, { status: response.status, statusText: response.statusText, headers });
 }
