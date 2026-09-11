@@ -12,14 +12,16 @@ const MEL_INTERFACE_FINALIZER = `<style id="mel-interface-finalizer-style">
   function setVoice(text){voiceStatus.textContent=text}
   setVoice('Touchez le visage de MEL pour parler');
   new MutationObserver(()=>{
-    if(/Reconnaissance vocale non disponible/i.test(voiceStatus.textContent||''))setVoice('Touchez le visage de MEL pour parler');
+    if(/Reconnaissance vocale non disponible/i.test(voiceStatus.textContent||''))setVoice('Voix optionnelle · le chat texte est prêt');
   }).observe(voiceStatus,{childList:true,subtree:true,characterData:true});
 
-  let recorder=null,stream=null,chunks=[],starting=false;
+  let recorder=null,stream=null,chunks=[],starting=false,transcriptionUnavailable=false;
   function cleanup(){try{stream?.getTracks?.().forEach(track=>track.stop())}catch{} stream=null;avatar.classList.remove('listening','recording')}
   function extensionFor(type){return /ogg/i.test(type)?'ogg':/mp4|m4a/i.test(type)?'m4a':'webm'}
   async function startVoice(){
-    if(starting)return;starting=true;
+    if(starting)return;
+    if(transcriptionUnavailable){setVoice('Voix reportée · continuez avec le chat texte');input.focus();return}
+    starting=true;
     try{
       if(!navigator.mediaDevices?.getUserMedia||typeof MediaRecorder==='undefined')throw new Error('Ce navigateur ne permet pas encore l’enregistrement audio ici.');
       stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
@@ -28,12 +30,12 @@ const MEL_INTERFACE_FINALIZER = `<style id="mel-interface-finalizer-style">
       recorder=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream);
       chunks=[];
       recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
-      recorder.onerror=()=>{cleanup();setVoice('Erreur micro — retouchez le visage pour réessayer')};
+      recorder.onerror=()=>{cleanup();setVoice('Micro indisponible · le chat texte reste prêt')};
       recorder.onstart=()=>{avatar.classList.add('listening','recording');setVoice('J’écoute… touchez à nouveau le visage pour envoyer')};
       recorder.onstop=async()=>{
         const type=recorder?.mimeType||chunks[0]?.type||'audio/webm';
         const blob=new Blob(chunks,{type});cleanup();
-        if(!blob.size){setVoice('Aucun son enregistré — réessayez');return}
+        if(!blob.size){setVoice('Aucun son enregistré · le chat texte reste prêt');return}
         setVoice('Transcription…');
         try{
           const fd=new FormData();fd.append('audio',blob,'mel-voice.'+extensionFor(type));
@@ -43,10 +45,15 @@ const MEL_INTERFACE_FINALIZER = `<style id="mel-interface-finalizer-style">
           if(!response.ok||!text)throw new Error(data.error||data.code||'Transcription indisponible');
           input.value=text;input.dispatchEvent(new Event('input',{bubbles:true}));
           setVoice('Transcrit · envoi à MEL');send.click();
-        }catch(error){setVoice('Transcription impossible : '+String(error?.message||error))}
+        }catch(error){
+          transcriptionUnavailable=true;
+          console.warn('MEL transcription deferred:',error);
+          setVoice('Voix reportée · continuez avec le chat texte');
+          input.focus();
+        }
       };
       recorder.start();
-    }catch(error){cleanup();setVoice('Micro indisponible : '+String(error?.message||error))}
+    }catch(error){cleanup();setVoice('Micro indisponible · le chat texte reste prêt');input.focus()}
     finally{starting=false}
   }
   function toggleVoice(event){
