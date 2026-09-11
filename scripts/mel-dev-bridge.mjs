@@ -6,6 +6,14 @@ import { DevJobService } from '../src/dev/dev-job-service.js';
 import { parseSearchPaths, rankSearchPaths } from '../src/dev/search-paths.js';
 import { runStructuredBridgeJob } from '../src/dev/bridge-job-runner.js';
 
+// Make restarts boring: automatically restore local bridge configuration from
+// the standard ignored env files when the shell environment was lost after a
+// reboot. Existing exported variables always win.
+for (const envFile of ['.dev.vars', '.env.local', '.env']) {
+  if (process.env.MEL_DEV_BRIDGE_TOKEN) break;
+  try { process.loadEnvFile(envFile); } catch {}
+}
+
 // WSL/Windows hosts can resolve AAAA first even when IPv6 egress is unusable.
 // Prefer IPv4 without disabling IPv6 entirely; this matches the working curl path
 // and avoids intermittent native fetch "fetch failed" loops.
@@ -61,7 +69,7 @@ export class RemoteWorkerClient {
 export { parseSearchPaths, rankSearchPaths } from '../src/dev/search-paths.js';
 
 const token = process.env.MEL_DEV_BRIDGE_TOKEN;
-if (!token) throw new Error('MEL_DEV_BRIDGE_TOKEN is required');
+if (!token) throw new Error('MEL_DEV_BRIDGE_TOKEN is required. Add it to .dev.vars or export it before launch.');
 const bridge = new LocalDevBridge({ repoRoot: process.cwd() });
 const jobs = new DevJobService();
 const remote = new RemoteWorkerClient({ token });
