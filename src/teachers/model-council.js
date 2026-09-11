@@ -2,8 +2,11 @@ export { createTeacher } from './teacher-interface.js';
 
 /**
  * Mandatory AI state-of-play council before MEL starts developing or materially
- * modifying a capability/module. The caller supplies the model/provider adapter
- * so this remains provider-neutral and can be backed by .augmentio.
+ * modifying a capability/module. Council members are ADVISERS ONLY: their
+ * outputs are temporary evidence and can never become parallel persistent
+ * implementations, branches, modules or jobs. The caller supplies the
+ * model/provider adapter so this remains provider-neutral and can be backed by
+ * .augmentio.
  */
 export async function runStateOfPlayCouncil({ goal, context = {}, members = [], ask, minResponses = 2 } = {}) {
   const objective = String(goal || '').trim();
@@ -18,15 +21,22 @@ export async function runStateOfPlayCouncil({ goal, context = {}, members = [], 
   const brief = {
     phase: 'STATE_OF_PLAY_BEFORE_DEVELOPMENT',
     goal: objective,
-    context,
+    context: {
+      ...context,
+      council_role: 'ADVISORY_ONLY',
+      output_lifetime: 'EPHEMERAL_UNTIL_SINGLE_SYNTHESIS',
+      direct_write_allowed: false,
+      parallel_implementation_allowed: false,
+      permanent_alternative_allowed: false,
+    },
     questions: [
       'Que sait-on déjà faire dans le système actuel pour cet objectif ?',
       'Quelles briques, capacités ou modules existants faut-il réutiliser plutôt que recréer ?',
       'Quelles informations manquent avant de développer ?',
-      'Quelles architectures ou approches sont possibles ?',
+      'Quelles architectures ou approches sont possibles ? Donne-les uniquement comme avis comparables, pas comme versions à créer.',
       'Quels sont les risques, dépendances, coûts et régressions possibles ?',
-      'Quelle approche recommandes-tu et pourquoi ?',
-      'Quels tests et critères permettraient de prouver que la compétence fonctionne réellement ?'
+      'Quelle approche unique recommandes-tu pour faire évoluer l’existant sans créer de doublon ?',
+      'Quels tests et critères permettraient de prouver que cette unique évolution fonctionne réellement ?'
     ]
   };
 
@@ -55,9 +65,16 @@ export async function runStateOfPlayCouncil({ goal, context = {}, members = [], 
     goal: objective,
     responses,
     failures,
+    persistence_policy: {
+      council_outputs: 'EVIDENCE_ONLY',
+      persistent_implementation_plans: 1,
+      parallel_implementations_allowed: false,
+      provider_direct_writes_allowed: false,
+      synthesis_required: true,
+    },
     evidence_required: true,
     development_allowed: true,
-    next: 'SYNTHESIZE_STATE_OF_PLAY_THEN_PLAN'
+    next: 'SYNTHESIZE_ONE_CANONICAL_PLAN_THEN_UPDATE_EXISTING_CODE'
   };
 }
 
@@ -65,6 +82,9 @@ export async function runStateOfPlayCouncil({ goal, context = {}, members = [], 
 export function requireStateOfPlayCouncil(report) {
   if (!report || report.status !== 'COMPLETE' || report.phase !== 'STATE_OF_PLAY_BEFORE_DEVELOPMENT' || report.development_allowed !== true) {
     throw Object.assign(new Error('AI_STATE_OF_PLAY_REQUIRED_BEFORE_DEVELOPMENT'), { code: 'AI_STATE_OF_PLAY_REQUIRED_BEFORE_DEVELOPMENT', status: 409 });
+  }
+  if (report.persistence_policy?.parallel_implementations_allowed !== false || report.persistence_policy?.persistent_implementation_plans !== 1) {
+    throw Object.assign(new Error('COUNCIL_UNIFIED_UPDATE_POLICY_REQUIRED'), { code: 'COUNCIL_UNIFIED_UPDATE_POLICY_REQUIRED', status: 409 });
   }
   return report;
 }
