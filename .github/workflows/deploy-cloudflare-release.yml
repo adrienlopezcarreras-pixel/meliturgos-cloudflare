@@ -1,9 +1,6 @@
 name: deploy-cloudflare-release
 
 on:
-  push:
-    branches:
-      - release/mel-2026-09-10-r3-3
   workflow_dispatch:
 
 permissions:
@@ -16,7 +13,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout exact release SHA
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -27,14 +24,26 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install exact lockfile
-        run: npm ci
-
       - name: Verify release branch
         shell: bash
         run: |
-          test "${GITHUB_REF_NAME}" = "release/mel-2026-09-10-r3-3"
+          case "${GITHUB_REF_NAME}" in
+            release/*) ;;
+            *) echo "Refusing production deploy outside release/*: ${GITHUB_REF_NAME}" >&2; exit 1 ;;
+          esac
           echo "Deploying ${GITHUB_SHA} from ${GITHUB_REF_NAME}"
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Dependency security gate
+        run: npm audit --audit-level=high
+
+      - name: Syntax
+        run: npm run check
+
+      - name: Full test suite
+        run: npm test
 
       - name: Deploy Cloudflare Worker
         run: npm run deploy
