@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { inferNativeCodeCapability } from '../src/api/native-chat.js';
 import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v5.js';
 import { MEL_AVATAR_URL, MEL_INTERFACE_FINALIZER } from '../src/pages/mvp-interface-finalizer.js';
+import { MVP_BEHAVIOR_PATCH } from '../src/pages/mvp-behavior-enhancer.js';
 
 test('code questions are routed by the native chat capability path', () => {
   assert.deepEqual(inferNativeCodeCapability('Peux-tu accéder à ton code et chercher ModelRouter ?'), { id: 'code.read', input: { path: 'src/router.js' } });
@@ -19,15 +20,21 @@ test('native code routing understands follow-up access questions from recent con
   assert.deepEqual(inferNativeCodeCapability('Donc tu peux vraiment le lire ?', [{ content: 'Nous parlions de ton code dans le repo GitHub.' }]), { id: 'code.read', input: { path: 'src/router.js' } });
 });
 
-test('simple mode finalizer is simplified, readable and keeps a resilient themed avatar', () => {
+test('simple mode keeps MEL alone at the top, restores files and places audit/full mode at the bottom', () => {
   assert.equal(MEL_AVATAR_URL, '/assets/avatars/mel-classic.webp');
   assert.match(MEL_INTERFACE_FINALIZER, /const AVATARS=/);
   assert.match(MEL_INTERFACE_FINALIZER, /MutationObserver\(syncAvatar\)/);
   assert.match(MEL_INTERFACE_FINALIZER, /Mode complet/);
   assert.match(MEL_INTERFACE_FINALIZER, /background-size:cover/);
-  assert.match(MEL_INTERFACE_FINALIZER, /--muted:#d3dbe8/);
-  assert.match(MEL_INTERFACE_FINALIZER, /melReadingsToday/);
-  assert.doesNotMatch(MEL_INTERFACE_FINALIZER, /Lectures du jour|aelf\.org|Audit MEL|MEL veille et prie en silence/);
+  assert.match(MEL_INTERFACE_FINALIZER, /--muted:#d9e0ea/);
+  assert.match(MEL_INTERFACE_FINALIZER, /mel-title/);
+  assert.match(MEL_INTERFACE_FINALIZER, /melBottom/);
+  assert.match(MEL_INTERFACE_FINALIZER, /\.drop\{display:block/);
+  assert.match(MEL_INTERFACE_FINALIZER, /#melAudit/);
+  assert.match(MVP_BEHAVIOR_PATCH, /Audit MEL/);
+  assert.match(MVP_BEHAVIOR_PATCH, /\/api\/gen2\/readiness\?refresh=1/);
+  assert.doesNotMatch(MVP_BEHAVIOR_PATCH, /\.drop,#fileInput/);
+  assert.doesNotMatch(MEL_INTERFACE_FINALIZER, /Lectures du jour|aelf\.org|MEL veille et prie en silence/);
 });
 
 test('full mode is unified, responsive and evidence-based', async () => {
