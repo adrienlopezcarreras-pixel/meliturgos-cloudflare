@@ -36,13 +36,15 @@ function fixture({ headSequence = [HEAD_SHA] } = {}) {
   return { repository, env, aiCalls, fetchImpl, getHeadReads: () => headReads };
 }
 
-async function approvedJob(repository) {
+async function approvedJob(repository, { includeCandidateSha = true } = {}) {
   const job = await repository.create({
     id: 'approved-planning-job',
     requested_by: 'mel-autonomy',
     goal: '[MEL-WORK-01] implement resumable work',
     optional_context: { roadmap_id: 'MEL-WORK-01', priority: 'P0' },
   });
+  const request = { request_id: 'approved-request', provenance: { source: 'MEL_RUNTIME_CRON' } };
+  if (includeCandidateSha) request.candidate = { branch: 'candidate/augmentio-core', sha: HEAD_SHA };
   await repository.update(job.id, {
     status: 'TEACHER_APPROVED',
     plan_json: {
@@ -59,8 +61,11 @@ async function approvedJob(repository) {
     result_json: {
       teacher_bridge: {
         status: 'ANSWERED',
-        evidence: { inspection_files: ['src/evolution/autonomy-runtime.js', 'src/work/work-dag.js'] },
-        request: { request_id: 'approved-request', provenance: { source: 'MEL_RUNTIME_CRON' } },
+        evidence: {
+          inspection_files: ['src/evolution/autonomy-runtime.js', 'src/work/work-dag.js'],
+          ...(includeCandidateSha ? { candidate_sha: HEAD_SHA } : {}),
+        },
+        request,
         review: { request_id: 'approved-request', verdict: 'APPROVE_PLAN', development_allowed: true, feedback: 'Keep the diff small.' },
       },
     },
@@ -89,7 +94,7 @@ test('after Teacher approval MEL independently builds and persists a bounded mul
   assert.equal(stored.result_json.implementation_proposal.candidate_sha, HEAD_SHA);
 });
 
-test('approved implementation proposal is reused only after revalidating the exact live candidate head', async () => {
+test('approved implementation proposal is reused only after revalidating the exact Teacher-approved candidate head', async () => {
   const f = fixture();
   const job = await approvedJob(f.repository);
   await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
@@ -103,22 +108,23 @@ test('approved implementation proposal is reused only after revalidating the exa
   assert.equal(f.getHeadReads(), headReads + 1);
 });
 
-test('READY proposal is regenerated when the candidate branch advanced after planning', async () => {
-  const f = fixture({ headSequence: [HEAD_SHA, HEAD_SHA, NEW_HEAD_SHA, NEW_HEAD_SHA, NEW_HEAD_SHA] });
+test('planner fails closed when candidate branch advances after Teacher approval', async () => {
+  const f = fixture({ headSequence: [HEAD_SHA, HEAD_SHA, NEW_HEAD_SHA] });
   const job = await approvedJob(f.repository);
   const initial = await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
   assert.equal(initial.candidate_sha, HEAD_SHA);
   const firstCalls = f.aiCalls.length;
 
-  const refreshed = await prepareApprovedImplementationProposal({
-    env: f.env,
-    repository: f.repository,
-    job: await f.repository.get(job.id),
-    fetchImpl: f.fetchImpl,
-  });
-  assert.notEqual(refreshed.reused, true);
-  assert.equal(refreshed.candidate_sha, NEW_HEAD_SHA);
-  assert.ok(f.aiCalls.length >= firstCalls + 2);
+  await assert.rejects(
+    () => prepareApprovedImplementationProposal({
+      env: f.env,
+      repository: f.repository,
+      job: await f.repository.get(job.id),
+      fetchImpl: f.fetchImpl,
+    }),
+    (error) => error?.code === 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE',
+  );
+  assert.equal(f.aiCalls.length, firstCalls, 'stale Teacher approval must not invoke implementation models');
 });
 
 test('persisted READY proposal cannot bypass a revoked or mismatched Teacher approval', async () => {
@@ -166,6 +172,17 @@ test('planner fails closed if candidate head moves during code inspection', asyn
     (error) => error?.code === 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION',
   );
   assert.equal(f.aiCalls.length, 0);
+});
+
+test('planner rejects a legacy approval that is not bound to an exact candidate SHA', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository, { includeCandidateSha: false });
+  await assert.rejects(
+    () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl }),
+    (error) => error?.code === 'TEACHER_APPROVAL_CANDIDATE_SHA_REQUIRED',
+  );
+  assert.equal(f.aiCalls.length, 0);
+  assert.equal(f.getHeadReads(), 0);
 });
 
 test('planner refuses work without an exact correlated Teacher approval', async () => {
