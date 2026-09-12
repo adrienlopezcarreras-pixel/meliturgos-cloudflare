@@ -10,6 +10,13 @@ export const ROADMAP_STATUSES = Object.freeze({
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
+const VALID_PRIORITIES = new Set(['P0', 'P1', 'P2', 'P3']);
+const normalizeRoadmapText = (value) => String(value || '')
+  .normalize('NFKD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, ' ')
+  .trim();
 
 /**
  * Product-level roadmap used by the control center.
@@ -17,6 +24,9 @@ const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, st
  * includes the product targets agreed for MEL: multi-AI council, Work,
  * continuous memory, voice/avatar, Android/Windows companions, evolution,
  * resilience and deployment maturity.
+ *
+ * One item = one deliverable. Related layers may coexist, but duplicated
+ * deliverables are consolidated here rather than tracked twice.
  */
 export const MASTER_ROADMAP = Object.freeze([
   phase('P01', 'Fondations, identité et contrats', [
@@ -43,7 +53,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-12', 'Timeline personnelle', 'PLANNED', 'Construire une chronologie requêtable', 'P1'),
     item('GEN2-13', 'Projects / Decisions', 'PLANNED', 'Créer objets projet, décision, justification et état', 'P1'),
     item('GEN2-25', 'Personal Search / RAG', 'DONE_VERIFIED', 'Étendre aux fichiers et connecteurs', 'P0'),
-    item('GEN2-56', 'Import contexte ChatGPT', 'DONE_VERIFIED', 'Brancher import réel de l’export utilisateur', 'P0'),
+    item('GEN2-56', 'Import contexte ChatGPT', 'DONE_VERIFIED', 'Valider les gros exports réels et la compatibilité entre versions', 'P0'),
     item('MEL-MEM-01', 'Memory Compiler: faits, préférences, décisions, compétences', 'IN_PROGRESS', 'Déduplication + confiance + provenance', 'P0'),
     item('MEL-MEM-02', 'Synchronisation continue des nouveaux échanges vers la mémoire', 'PLANNED', 'Créer pipeline incrémental idempotent', 'P1'),
     item('MEL-MEM-03', 'Export mémoire portable et lisible', 'PARTIAL', 'Ajouter manifeste, checksums et version de schéma', 'P1')
@@ -53,7 +63,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-14', 'Capability Bus central', 'PARTIAL', 'Faire passer tous les outils par le bus', 'P0'),
     item('MEL-CODE-01', 'Lecture sécurisée du propre code de MEL', 'IN_PROGRESS', 'Valider le chat de bout en bout en production', 'P0'),
     item('MEL-CODE-02', 'Recherche sécurisée dans le dépôt', 'IN_PROGRESS', 'Valider recherche naturelle depuis le chat', 'P0'),
-    item('MEL-CODE-03', 'Diagnostic self-code et branche réellement déployée', 'IN_PROGRESS', 'Épingler la release et exposer un self-check', 'P0'),
+    item('MEL-CODE-03', 'Diagnostic self-code et branche réellement déployée', 'IN_PROGRESS', 'Exposer et valider branche + commit déployés dans le self-check', 'P0'),
     item('GEN2-15', 'Plugin SDK', 'PLANNED', 'Stabiliser contrat manifest + permissions', 'P1'),
     item('GEN2-50', 'Compatibilité MCP', 'PLANNED', 'Mapper CapabilityBus vers MCP', 'P2')
   ]),
@@ -85,7 +95,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-WORK-01', 'Work Engine persistant', 'PARTIAL', 'État de tâche, artefacts, checkpoints, reprise', 'P0'),
     item('GEN2-38', 'Tasks / goals / planning', 'PARTIAL', 'Créer planning engine unique', 'P1'),
     item('GEN2-39', 'Agents / automations', 'PLANNED', 'Exécution par capacités et permission tiers', 'P1'),
-    item('GEN2-40', 'Event Bus / follow-ups / open loops', 'PLANNED', 'Créer événements idempotents', 'P1'),
+    item('GEN2-40', 'Event Bus idempotent / follow-ups', 'PLANNED', 'Transporter événements et relances idempotentes entre services', 'P1'),
     item('GEN2-41', 'Notifications', 'PLANNED', 'Web Push + compagnons', 'P2'),
     item('MEL-WORK-02', 'Planifier, reprendre et terminer un travail multi-étapes', 'PARTIAL', 'Prouver reprise et terminaison sur plusieurs cycles autonomes cohérents', 'P0'),
     item('MEL-WORK-03', 'Actions destructives avec confirmation explicite', 'PARTIAL', 'Centraliser les approval gates', 'P0')
@@ -118,10 +128,10 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-07', 'Sync PC / téléphone', 'DONE', 'Valider avec clients réels', 'P1'),
     item('GEN2-29', 'Device Bus', 'DONE_VERIFIED', 'Brancher vrais compagnons', 'P0'),
     item('GEN2-26', 'PWA', 'PARTIAL', 'Cache/offline/install améliorés', 'P2'),
-    item('GEN2-27', 'Android Companion', 'PLANNED', 'Build APK autonome', 'P0'),
-    item('GEN2-58', 'Build Android réel', 'PLANNED', 'Pipeline CI APK signé localement/secret protégé', 'P1'),
-    item('GEN2-28', 'Windows Companion', 'PLANNED', 'Agent local Windows', 'P0'),
-    item('GEN2-59', 'Build Windows réel', 'PLANNED', 'Packaging et mises à jour', 'P2'),
+    item('GEN2-27', 'Android Companion runtime / app', 'PLANNED', 'Implémenter le client Android autonome et sa synchronisation', 'P0'),
+    item('GEN2-58', 'Build et release Android', 'PLANNED', 'Pipeline CI APK signé localement/secret protégé', 'P1'),
+    item('GEN2-28', 'Windows Companion runtime / agent', 'PLANNED', 'Implémenter l’agent local Windows et ses capacités', 'P0'),
+    item('GEN2-59', 'Build et release Windows', 'PLANNED', 'Packaging, signature et mises à jour', 'P2'),
     item('GEN2-30', 'Computer Use abstraction', 'PLANNED', 'Permission tiers et sandbox', 'P0'),
     item('GEN2-31', 'Browser capability', 'PLANNED', 'Navigateur contrôlé via compagnon/Work', 'P1'),
     item('MEL-DEVICE-01', 'Ouvrir/fermer applications et fichiers', 'PLANNED', 'Agent PC avec allowlist et confirmation', 'P1'),
@@ -141,35 +151,33 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P12', 'Résilience, sauvegarde et indépendance', [
-    item('GEN2-47', 'Backups / export', 'PARTIAL', 'Automatiser snapshots vérifiés', 'P1'),
+    item('GEN2-47', 'Backups / export système', 'PARTIAL', 'Automatiser snapshots vérifiés de l’ensemble du système', 'P1'),
     item('GEN2-48', 'Restore / disaster recovery', 'PARTIAL', 'Faire drill complet de restauration', 'P1'),
-    item('GEN2-49', 'Portabilité', 'PLANNED', 'Bundle provider-neutral complet', 'P1'),
+    item('GEN2-49', 'Portabilité système provider-neutral', 'PLANNED', 'Bundle complet indépendant des fournisseurs', 'P1'),
     item('MEL-RES-01', 'Survival Mode: NORMAL/DEGRADED/READ_ONLY/RECOVERY/HALTED', 'DONE_VERIFIED', 'Brancher télémétrie runtime', 'P0'),
-    item('MEL-RES-02', 'Recovery Bundle', 'DONE_VERIFIED', 'Ajouter vérification périodique', 'P0'),
-    item('MEL-RES-03', 'Provider Escape Capsule', 'PARTIAL', 'Documenter remplacement AI/storage/runtime', 'P1'),
+    item('MEL-RES-02', 'Recovery Bundle', 'DONE_VERIFIED', 'Ajouter vérification périodique de l’artefact de récupération', 'P0'),
+    item('MEL-RES-03', 'Provider Escape Capsule', 'PARTIAL', 'Documenter le remplacement AI/storage/runtime sans redéployer toute l’architecture', 'P1'),
     item('MEL-RES-04', 'Cold standby autorisé', 'PLANNED', 'Préparer restauration manuelle/approuvée', 'P2'),
     item('MEL-RES-05', 'Intégrité mémoire et sauvegardes chiffrées', 'PARTIAL', 'Checksums + chiffrement + restore test', 'P1')
   ]),
 
   phase('P13', 'Évaluation et amélioration continue', [
-    item('GEN2-42', 'Capability Watch', 'PLANNED', 'Benchmarks réguliers par compétence', 'P1'),
-    item('GEN2-43', 'Model Watch', 'PLANNED', 'Découvrir et benchmarker nouveaux modèles autorisés', 'P1'),
-    item('MEL-EVAL-01', 'Benchmarks conversation / code / recherche / mémoire', 'PARTIAL', 'Suite de score stable', 'P1'),
-    item('MEL-EVAL-02', 'Canary automatique avant release', 'PLANNED', 'Smoke prod ciblé et rollback', 'P0'),
+    item('GEN2-42', 'Capability Watch planifié', 'PLANNED', 'Exécuter régulièrement les benchmarks par compétence', 'P1'),
+    item('GEN2-43', 'Model Watch / découverte', 'PLANNED', 'Découvrir et benchmarker de nouveaux modèles autorisés', 'P1'),
+    item('MEL-EVAL-01', 'Suites de benchmark conversation / code / recherche / mémoire', 'PARTIAL', 'Maintenir une suite de score stable réutilisée par les watches', 'P1'),
     item('MEL-EVAL-03', 'Qualité mesurée avant/après évolution', 'PLANNED', 'Bloquer toute régression significative', 'P0')
   ]),
 
   phase('P14', 'Interface et expérience', [
-    item('GEN2-54', 'Control Center / Mode complet', 'IN_PROGRESS', 'Afficher roadmap, diagnostics et vraies capacités', 'P0'),
+    item('GEN2-54', 'Control Center / Mode complet', 'IN_PROGRESS', 'Afficher roadmap, diagnostics et vraies capacités dans une interface contemporaine unique', 'P0'),
     item('MEL-UI-01', 'Accueil minimal et contemporain', 'DONE_VERIFIED', 'Polish mobile continu', 'P0'),
     item('MEL-UI-02', 'Avatar grand / cible tactile mobile', 'DONE_VERIFIED', 'Tester sur Android réel', 'P0'),
     item('MEL-UI-03', 'Favicon visage MEL', 'DONE_VERIFIED', '—', 'P3'),
-    item('MEL-UI-04', 'Mode complet contemporain', 'IN_PROGRESS', 'V2 avec roadmap et diagnostics', 'P0'),
     item('MEL-UI-05', 'État réel, pas de cartes factices', 'IN_PROGRESS', 'Toutes cartes reliées à API/health', 'P0')
   ]),
 
   phase('P15', 'Release, migration et maturité finale', [
-    item('GEN2-53', 'Canary / rollback', 'PARTIAL', 'Release branches figées + smoke automatisé', 'P0'),
+    item('GEN2-53', 'Canary pré-release / rollback', 'PARTIAL', 'Tester une release candidate avant promotion et prouver le rollback', 'P0'),
     item('GEN2-57', 'Migration Gen1 sans perte', 'IN_PROGRESS', 'Réduire progressivement worker legacy', 'P0'),
     item('GEN2-55', 'Data integrity / final maturity tests', 'PLANNED', 'Suite finale après stabilisation', 'P1'),
     item('GEN2-60', 'Completion matrix', 'PLANNED', 'Générer automatiquement depuis ce registre', 'P2'),
@@ -184,6 +192,36 @@ export const MASTER_ROADMAP = Object.freeze([
 
 export function flattenRoadmap() {
   return MASTER_ROADMAP.flatMap(p => p.items.map(i => ({ ...i, phase_id: p.id, phase: p.title })));
+}
+
+/** Structural guard against duplicate or contradictory registry entries. */
+export function validateRoadmap() {
+  const issues = [];
+  const phaseIds = new Set();
+  const itemIds = new Set();
+  const titles = new Map();
+  const validStatuses = new Set(Object.values(ROADMAP_STATUSES));
+
+  for (const p of MASTER_ROADMAP) {
+    if (phaseIds.has(p.id)) issues.push({ type: 'DUPLICATE_PHASE_ID', id: p.id });
+    phaseIds.add(p.id);
+    if (!String(p.title || '').trim()) issues.push({ type: 'EMPTY_PHASE_TITLE', id: p.id });
+
+    for (const row of p.items) {
+      if (itemIds.has(row.id)) issues.push({ type: 'DUPLICATE_ITEM_ID', id: row.id });
+      itemIds.add(row.id);
+      if (!validStatuses.has(row.status)) issues.push({ type: 'INVALID_STATUS', id: row.id, status: row.status });
+      if (!VALID_PRIORITIES.has(row.priority)) issues.push({ type: 'INVALID_PRIORITY', id: row.id, priority: row.priority });
+
+      const normalizedTitle = normalizeRoadmapText(row.title);
+      if (!normalizedTitle) issues.push({ type: 'EMPTY_ITEM_TITLE', id: row.id });
+      const previous = titles.get(normalizedTitle);
+      if (previous) issues.push({ type: 'DUPLICATE_TITLE', ids: [previous, row.id], title: row.title });
+      else titles.set(normalizedTitle, row.id);
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
 }
 
 export function roadmapSummary() {
@@ -206,5 +244,5 @@ export function roadmapSummary() {
 }
 
 export function getRoadmapPayload() {
-  return { ok: true, summary: roadmapSummary(), phases: MASTER_ROADMAP };
+  return { ok: true, summary: roadmapSummary(), validation: validateRoadmap(), phases: MASTER_ROADMAP };
 }
