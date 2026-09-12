@@ -30,6 +30,8 @@ const INSPECTION_FILES = [
 const STALE_TEACHER_APPROVAL_CODES = new Set([
   'TEACHER_APPROVAL_CANDIDATE_SHA_STALE',
   'TEACHER_APPROVAL_CANDIDATE_SHA_REQUIRED',
+  'TEACHER_APPROVAL_CANDIDATE_BRANCH_MISMATCH',
+  'TEACHER_APPROVAL_CANDIDATE_BRANCH_REQUIRED',
 ]);
 
 function safeDiagnosticCode(error, fallback = 'IMPLEMENTATION_PLANNING_FAILED') {
@@ -111,11 +113,19 @@ async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic)
 
 function codeConfig(env = {}) {
   const repository = String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
-  const branch = String(env.MEL_TEACHER_BRANCH || 'candidate/mel-clean-autonomy');
-  if (!branch.startsWith('candidate/')) {
+  const canonicalBranch = String(env.MEL_GITHUB_BRANCH || 'candidate/mel-clean-autonomy').trim();
+  const teacherBranch = String(env.MEL_TEACHER_BRANCH || canonicalBranch).trim();
+  if (!canonicalBranch.startsWith('candidate/') || !teacherBranch.startsWith('candidate/')) {
     throw Object.assign(new Error('AUTONOMY_BRANCH_NOT_CANDIDATE'), { code: 'AUTONOMY_BRANCH_NOT_CANDIDATE' });
   }
-  return { repository, branch };
+  if (canonicalBranch !== teacherBranch) {
+    const error = new Error('AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE');
+    error.code = 'AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE';
+    error.canonical_branch = canonicalBranch;
+    error.teacher_branch = teacherBranch;
+    throw error;
+  }
+  return { repository, branch: canonicalBranch };
 }
 
 async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
