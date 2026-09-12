@@ -38,6 +38,6 @@
     "MEL_GITHUB_REPOSITORY": "adrienlopezcarreras-pixel/meliturgos-cloudflare",
     "MEL_GITHUB_BRANCH": "candidate/augmentio-core",
     "MEL_TEACHER_BRANCH": "candidate/augmentio-core",
-    "MEL_MENTOR_ENABLED": "true"
+    "MEL_MENTOR_ENABLED": "false"
   }
 }
