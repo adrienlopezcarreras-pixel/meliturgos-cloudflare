@@ -5,11 +5,11 @@ import { onRequestGet as renderFull } from '../src/pages/full-interface-v5.js';
 
 test('runtime status detail stays in full mode while simple mode remains uncluttered', async () => {
   const simple = await (await renderSimple({})).text();
-  assert.doesNotMatch(simple, /proofCode|mentorBadge|refreshAll/);
+  assert.doesNotMatch(simple, /codeMetric|mentorMetric|overviewRefresh/);
 
   const full = await (await renderFull({})).text();
-  assert.match(full, /id="refreshAll"/);
-  assert.match(full, /État vérifié/);
+  assert.match(full, /id="overviewRefresh"/);
+  assert.match(full, /MEL · état réel/);
   assert.match(full, /api\/gen2\/code\/self-check/);
   assert.match(full, /api\/gen2\/mentor\/status/);
   assert.doesNotMatch(full, /melStatusBtnV5|Statut MEL/);
