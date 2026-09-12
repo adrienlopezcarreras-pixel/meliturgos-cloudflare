@@ -5,6 +5,7 @@ import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 import { getAutonomyReadiness } from './autonomy-readiness.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
+const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
 
 function safeJob(job) {
   const bridge = job?.result_json?.teacher_bridge || null;
@@ -67,7 +68,7 @@ export async function getAutonomyState(env, { repository = null } = {}) {
     zero_added_cost: true,
     runtime_schedule: '*/15 * * * *',
     repository: env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare',
-    candidate_branch: env.MEL_TEACHER_BRANCH || 'candidate/augmentio-core',
+    candidate_branch: env.MEL_TEACHER_BRANCH || CANONICAL_CANDIDATE_BRANCH,
     deployed_code_branch: env.MEL_GITHUB_BRANCH || null,
     readiness: {
       status: readiness.status,
