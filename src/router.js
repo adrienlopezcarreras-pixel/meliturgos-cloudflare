@@ -9,7 +9,6 @@ import handleAugmentio from "./api/augmentio-api.js";
 import { handleMentorChat, handleMentorStatus } from "./api/mentor-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface-v2.js";
 import { onRequestGet as handleFullModeV5 } from "./pages/full-interface-v5.js";
-import { finalizeMvpInterface } from "./pages/mvp-interface-finalizer.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
 import { getRoadmapPayload } from "./roadmap/master-roadmap.js";
@@ -176,8 +175,7 @@ export default {
     const devResponse = devRuntime(request, env); if (devResponse) return await devResponse;
 
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/mvp")) {
-      const response = await handleMvp({ env, request, params: {} }).catch(e => html(`Error loading MVP: ${e.message}`, 500));
-      return finalizeMvpInterface(response);
+      return handleMvp({ env, request, params: {} }).catch(e => html(`Error loading MVP: ${e.message}`, 500));
     }
 
     if (request.method === "GET" && url.pathname === "/professor") {
