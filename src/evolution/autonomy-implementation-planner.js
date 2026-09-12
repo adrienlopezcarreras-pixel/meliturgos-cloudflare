@@ -19,6 +19,14 @@ function requireApproved(job) {
   return bridge;
 }
 
+function approvedCandidateSha(bridge) {
+  const sha = String(bridge?.request?.candidate?.sha || bridge?.evidence?.candidate_sha || '').trim();
+  if (!SHA40.test(sha)) {
+    throw Object.assign(new Error('TEACHER_APPROVAL_CANDIDATE_SHA_REQUIRED'), { code: 'TEACHER_APPROVAL_CANDIDATE_SHA_REQUIRED' });
+  }
+  return sha.toLowerCase();
+}
+
 function codeConfig(env = {}) {
   const repository = String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
   const branch = String(env.MEL_TEACHER_BRANCH || 'candidate/mel-clean-autonomy');
@@ -52,9 +60,26 @@ function uniquePaths(values) {
   return out;
 }
 
+function assertTeacherApprovedHead(head, bridge) {
+  const headSha = String(head?.sha || '').trim();
+  if (!SHA40.test(headSha)) {
+    throw Object.assign(new Error('CANDIDATE_HEAD_INVALID'), { code: 'CANDIDATE_HEAD_INVALID' });
+  }
+  const approvedSha = approvedCandidateSha(bridge);
+  if (headSha.toLowerCase() !== approvedSha) {
+    const error = new Error('TEACHER_APPROVAL_CANDIDATE_SHA_STALE');
+    error.code = 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE';
+    error.approved_candidate_sha = approvedSha;
+    error.current_candidate_sha = headSha.toLowerCase();
+    throw error;
+  }
+  return approvedSha;
+}
+
 async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) {
   const { config, reader } = codeReader(env, fetchImpl);
   const headBefore = await reader.head();
+  assertTeacherApprovedHead(headBefore, bridge);
   const roadmapId = String(job?.optional_context?.roadmap_id || '').trim();
   const fromInspection = Array.isArray(bridge?.evidence?.inspection_files) ? bridge.evidence.inspection_files : [];
   const fromSearch = [];
@@ -88,6 +113,7 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
   if (headBefore.sha !== headAfter.sha) {
     throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), { code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
   }
+  assertTeacherApprovedHead(headAfter, bridge);
   return { ...config, candidate_sha: headAfter.sha, files };
 }
 
@@ -95,15 +121,14 @@ async function reusableProposal(env, existing, bridge, { fetchImpl = fetch } = {
   if (existing?.status !== 'READY') return null;
   if (!existing?.teacher_request_id || existing.teacher_request_id !== bridge.request.request_id) return null;
   if (!SHA40.test(String(existing?.candidate_sha || ''))) return null;
+  const approvedSha = approvedCandidateSha(bridge);
   const { config, reader } = codeReader(env, fetchImpl);
   if (String(existing.candidate_branch || '') !== config.branch) return null;
   if (!Array.isArray(existing.providers_attempted) || existing.providers_attempted.length < 2) return null;
 
   const head = await reader.head();
-  if (!SHA40.test(String(head?.sha || ''))) {
-    throw Object.assign(new Error('CANDIDATE_HEAD_INVALID'), { code: 'CANDIDATE_HEAD_INVALID' });
-  }
-  if (String(existing.candidate_sha).toLowerCase() !== String(head.sha).toLowerCase()) return null;
+  assertTeacherApprovedHead(head, bridge);
+  if (String(existing.candidate_sha).toLowerCase() !== approvedSha) return null;
   return { ...existing, reused: true };
 }
 
@@ -127,20 +152,21 @@ function planningPrompt(job, bridge, code) {
 
 /**
  * After a correlated Teacher approval, MEL itself performs a bounded multi-AI
- * CODE planning pass over the candidate source and persists the best proposal.
- * It deliberately does not write GitHub or deploy; the external Teacher/dev
- * channel can apply the reviewed candidate change and provide exact CI proof.
- * The lifecycle status stays TEACHER_APPROVED because this internal proposal is
- * evidence/work product, not a second authorization state.
+ * CODE planning pass over the exact candidate SHA reviewed by the Teacher and
+ * persists the best proposal. A branch advance invalidates the approval and
+ * fails closed; the autonomy runtime must obtain a fresh Teacher review before
+ * implementation planning can resume.
  */
 export async function prepareApprovedImplementationProposal({ env, repository, job, fetchImpl = fetch } = {}) {
   if (!repository || !job) throw Object.assign(new Error('AUTONOMY_IMPLEMENTATION_INPUT_REQUIRED'), { code: 'AUTONOMY_IMPLEMENTATION_INPUT_REQUIRED' });
   const current = await repository.get(job.id);
   if (!current) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
 
-  // Revalidate Teacher authority before considering persisted work reusable.
-  // A READY payload is only an optimization, never an authorization shortcut.
+  // Revalidate Teacher authority and the exact approved candidate SHA before
+  // considering persisted work reusable. A READY payload is only an
+  // optimization, never an authorization shortcut.
   const bridge = requireApproved(current);
+  approvedCandidateSha(bridge);
   const existing = current?.result_json?.implementation_proposal;
   const reusable = await reusableProposal(env, existing, bridge, { fetchImpl });
   if (reusable) return reusable;
