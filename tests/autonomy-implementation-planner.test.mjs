@@ -12,11 +12,12 @@ function fixture({ headSequence = [HEAD_SHA] } = {}) {
   let headReads = 0;
   const env = {
     MEL_GITHUB_REPOSITORY: 'owner/repo',
+    MEL_GITHUB_BRANCH: 'candidate/augmentio-core',
     MEL_TEACHER_BRANCH: 'candidate/augmentio-core',
     AI: {
       async run(model) {
         aiCalls.push(model);
-        return { response: `FICHIERS: src/evolution/autonomy-runtime.js\nCHANGEMENTS: minimal ${model}\nTESTS: node --test\nRISQUES: faibles\nROLLBACK: revert\nCRITÈRES_DE_FIN: CI verte` };
+        return { response: `FICHIERS: src/evolution/autonomy-runtime.js\nCHANGEMENTS: minimal ${model}\nREUTILISATION: étendre autonomy-runtime.js; ne pas créer de second orchestrateur\nTESTS: node --test\nRISQUES: faibles\nROLLBACK: revert\nCRITERES_DE_FIN: CI verte` };
       },
     },
   };
@@ -36,7 +37,7 @@ function fixture({ headSequence = [HEAD_SHA] } = {}) {
   return { repository, env, aiCalls, fetchImpl, getHeadReads: () => headReads };
 }
 
-async function approvedJob(repository, { includeCandidateSha = true } = {}) {
+async function approvedJob(repository, { includeCandidateSha = true, candidateBranch = 'candidate/augmentio-core' } = {}) {
   const job = await repository.create({
     id: 'approved-planning-job',
     requested_by: 'mel-autonomy',
@@ -44,7 +45,7 @@ async function approvedJob(repository, { includeCandidateSha = true } = {}) {
     optional_context: { roadmap_id: 'MEL-WORK-01', priority: 'P0' },
   });
   const request = { request_id: 'approved-request', provenance: { source: 'MEL_RUNTIME_CRON' } };
-  if (includeCandidateSha) request.candidate = { branch: 'candidate/augmentio-core', sha: HEAD_SHA };
+  if (includeCandidateSha) request.candidate = { branch: candidateBranch, sha: HEAD_SHA };
   await repository.update(job.id, {
     status: 'TEACHER_APPROVED',
     plan_json: {
@@ -78,6 +79,7 @@ test('after Teacher approval MEL independently builds and persists a bounded mul
   const job = await approvedJob(f.repository);
   const proposal = await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
   assert.equal(proposal.status, 'READY');
+  assert.equal(proposal.version, 2);
   assert.equal(proposal.teacher_request_id, 'approved-request');
   assert.equal(proposal.candidate_branch, 'candidate/augmentio-core');
   assert.equal(proposal.candidate_sha, HEAD_SHA);
@@ -85,8 +87,14 @@ test('after Teacher approval MEL independently builds and persists a bounded mul
   assert.ok(proposal.providers_attempted.length >= 2);
   assert.ok(f.aiCalls.length >= 2);
   assert.match(proposal.selected.text, /FICHIERS:/);
+  assert.match(proposal.selected.text, /REUTILISATION:/);
   assert.equal(proposal.production_touched, false);
   assert.equal(proposal.candidate_write_performed, false);
+  assert.equal(proposal.consolidation.policy, 'SINGLE_CANONICAL_CANDIDATE');
+  assert.equal(proposal.consolidation.canonical_branch, 'candidate/augmentio-core');
+  assert.equal(proposal.consolidation.alternate_candidate_allowed, false);
+  assert.equal(proposal.consolidation.duplicate_module_allowed, false);
+  assert.ok(proposal.consolidation.reuse_search.searched_files >= 1);
   assert.ok(f.getHeadReads() >= 2);
   const stored = await f.repository.get(job.id);
   assert.equal(stored.status, 'TEACHER_APPROVED');
@@ -145,7 +153,7 @@ test('persisted READY proposal cannot bypass a revoked or mismatched Teacher app
   assert.equal(f.getHeadReads(), headReads);
 });
 
-test('legacy READY proposal without candidate sha is regenerated instead of being reused', async () => {
+test('legacy READY proposal without consolidation metadata is regenerated instead of being reused', async () => {
   const f = fixture();
   const job = await approvedJob(f.repository);
   const current = await f.repository.get(job.id);
@@ -153,7 +161,7 @@ test('legacy READY proposal without candidate sha is regenerated instead of bein
     result_json: {
       ...current.result_json,
       implementation_proposal: {
-        status: 'READY', teacher_request_id: 'approved-request', candidate_branch: 'candidate/augmentio-core',
+        status: 'READY', teacher_request_id: 'approved-request', candidate_branch: 'candidate/augmentio-core', candidate_sha: HEAD_SHA,
         selected: { text: 'stale legacy proposal' }, providers_attempted: ['workers-ai:a', 'workers-ai:b'],
       },
     },
@@ -161,6 +169,7 @@ test('legacy READY proposal without candidate sha is regenerated instead of bein
   const refreshed = await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job: await f.repository.get(job.id), fetchImpl: f.fetchImpl });
   assert.notEqual(refreshed.reused, true);
   assert.equal(refreshed.candidate_sha, HEAD_SHA);
+  assert.equal(refreshed.consolidation.policy, 'SINGLE_CANONICAL_CANDIDATE');
   assert.ok(f.aiCalls.length >= 2);
 });
 
@@ -183,6 +192,42 @@ test('planner rejects a legacy approval that is not bound to an exact candidate 
   );
   assert.equal(f.aiCalls.length, 0);
   assert.equal(f.getHeadReads(), 0);
+});
+
+test('planner refuses divergent configured candidate branches before reading code or invoking models', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository);
+  f.env.MEL_GITHUB_BRANCH = 'candidate/mel-clean-autonomy';
+  await assert.rejects(
+    () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl }),
+    (error) => error?.code === 'AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE',
+  );
+  assert.equal(f.aiCalls.length, 0);
+  assert.equal(f.getHeadReads(), 0);
+});
+
+test('planner refuses a Teacher approval for another candidate branch', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository, { candidateBranch: 'candidate/other-version' });
+  await assert.rejects(
+    () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl }),
+    (error) => error?.code === 'TEACHER_APPROVAL_CANDIDATE_BRANCH_MISMATCH',
+  );
+  assert.equal(f.aiCalls.length, 0);
+  assert.equal(f.getHeadReads(), 0);
+});
+
+test('planner rejects a multi-AI answer that omits the consolidation and quality contract', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository);
+  f.env.AI.run = async (model) => {
+    f.aiCalls.push(model);
+    return { response: 'FICHIERS: x\nCHANGEMENTS: y\nTESTS: z\nRISQUES: faibles\nROLLBACK: revert\nCRITERES_DE_FIN: CI verte' };
+  };
+  await assert.rejects(
+    () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl }),
+    (error) => error?.code === 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING' && error?.missing_sections?.includes('REUTILISATION'),
+  );
 });
 
 test('planner refuses work without an exact correlated Teacher approval', async () => {
