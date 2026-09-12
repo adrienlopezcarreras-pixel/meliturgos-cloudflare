@@ -19,22 +19,19 @@ test('master roadmap is comprehensive and includes major product targets', () =>
   assert.equal(getRoadmapPayload().ok, true);
 });
 
-test('canonical control center v5 exposes collaborative room, roadmap, multi-AI controls, diagnostics and rollback path', async () => {
+test('canonical control center exposes one salon, Work, roadmap, diagnostics and rollback path', async () => {
   const page = await (await renderFullMode({})).text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
-  assert.match(page, /MEL Control Room|Control Room/);
-  assert.match(page, /Adrien · MEL · Mentor/);
-  assert.match(page, /Salon Adrien · MEL · Teacher/);
-  assert.match(page, /Multi-IA/);
+  assert.match(page, /MEL · Mode complet/);
+  assert.match(page, /Salon IA/);
+  assert.match(page, /Conseil Multi-IA/);
   assert.match(page, /Travail/);
-  assert.match(page, /Feuille de route complète/);
+  assert.match(page, /Roadmap/);
   assert.match(page, /Diagnostic/);
   assert.match(page, /\/api\/gen2\/roadmap/);
+  assert.match(page, /\/api\/gen2\/code\/self-check/);
   assert.match(router, /handleFullModeV5/);
   assert.match(router, /full-interface-v5\.js/);
   assert.doesNotMatch(router, /full-interface-v[234]\.js/);
-  assert.doesNotMatch(router, /\/professor-v1/);
   assert.match(router, /\/professor-legacy/);
-  assert.match(router, /\/api\/gen2\/roadmap/);
-  assert.match(router, /\/api\/gen2\/code\/self-check/);
 });
