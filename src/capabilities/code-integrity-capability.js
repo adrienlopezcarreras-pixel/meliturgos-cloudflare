@@ -20,6 +20,13 @@ function failure(code, detail = {}) {
   return { code, ...detail };
 }
 
+function normalizeHead(value) {
+  const raw = value && typeof value === 'object' ? value.sha : value;
+  const sha = String(raw || '').trim();
+  if (!SHA40.test(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
+  return sha;
+}
+
 export async function inspectCodeIntegrity({ reader, paths, expectedHead } = {}) {
   if (!reader || typeof reader.head !== 'function' || typeof reader.read !== 'function') {
     throw Object.assign(new Error('CODE_READER_REQUIRED'), { code: 'CODE_READER_REQUIRED' });
@@ -34,7 +41,7 @@ export async function inspectCodeIntegrity({ reader, paths, expectedHead } = {})
   const failures = [];
   let head = null;
   try {
-    head = String(await reader.head()).trim();
+    head = normalizeHead(await reader.head());
   } catch (error) {
     failures.push(failure(error?.code || 'HEAD_READ_FAILED'));
   }
