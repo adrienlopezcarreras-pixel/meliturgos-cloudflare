@@ -3,31 +3,31 @@ const MVP_BEHAVIOR_PATCH = `<style id="mel-mvp-behavior-style">
 .mel-continue-row{min-height:20px;margin:2px 2px 4px;display:flex;align-items:center}.mel-continue-link{display:none;color:#f2d98a;font-size:.82rem;font-weight:750;text-decoration:underline;text-underline-offset:3px;cursor:pointer;user-select:none}.mel-continue-link.visible{display:inline}.mel-continue-link:focus-visible{outline:2px solid #fff;outline-offset:3px;border-radius:3px}
 </style><script id="mel-mvp-behavior-runtime">
 (function(){
-  const CHAT_TIMEOUT_MS=25000;
+  const CHAT_TIMEOUT_MS=12000;
+  const FALLBACK_TIMEOUT_MS=8000;
   const CONTINUE_TEXT='Continue exactement à partir de ta dernière phrase, sans répéter ce qui précède. Termine complètement ta réponse.';
   function normalizeUserLabels(root=document){root.querySelectorAll&&root.querySelectorAll('.who').forEach(function(node){const value=String(node.textContent||'');if(/^Vous(?:\\s*·.*)?$/i.test(value))node.textContent=value.replace(/^Vous/i,'Adrien')})}
   function councilText(data){const out=[];if(data&&data.synthesis)out.push(String(data.synthesis));if(data&&Array.isArray(data.results))data.results.forEach(function(row){if(row&&row.text)out.push(String(row.provider||row.model||'IA')+' : '+String(row.text))});return out.join('\\n\\n')||String(data&&data.text||data&&data.answer||'')}
   async function zeroEuroFallback(nativeFetch,body){
     const prompt=String(body&&body.text||body&&body.message||body&&body.prompt||'').trim();if(!prompt)throw new Error('MESSAGE_REQUIRED');
-    const response=await nativeFetch('/api/gen2/augmentio/fanout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({prompt:prompt,strategy:'council'})});
-    const data=await response.json().catch(function(){return {}});if(!response.ok)throw new Error(data.error||data.code||('HTTP '+response.status));const text=councilText(data);if(!text)throw new Error('COUNCIL_EMPTY');
-    return new Response(JSON.stringify({ok:true,text:text,provider:'zero-euro-council-fallback',augmentio_used:true,candidate_count:Array.isArray(data.results)?data.results.length:1}),{status:200,headers:{'content-type':'application/json','cache-control':'no-store'}});
+    const controller=new AbortController();const timer=setTimeout(function(){controller.abort()},FALLBACK_TIMEOUT_MS);
+    try{
+      const response=await nativeFetch('/api/gen2/augmentio/fanout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({prompt:prompt,strategy:'council'}),signal:controller.signal});
+      const data=await response.json().catch(function(){return {}});if(!response.ok)throw new Error(data.error||data.code||('HTTP '+response.status));const text=councilText(data);if(!text)throw new Error('COUNCIL_EMPTY');
+      return new Response(JSON.stringify({ok:true,text:text,provider:'zero-euro-council-fallback',augmentio_used:true,candidate_count:Array.isArray(data.results)?data.results.length:1}),{status:200,headers:{'content-type':'application/json','cache-control':'no-store','x-mel-chat-route':'council-fallback'}});
+    }finally{clearTimeout(timer)}
   }
+  function unavailable(error){return new Response(JSON.stringify({ok:false,error:'CHAT_AND_COUNCIL_UNAVAILABLE',code:'CHAT_AND_COUNCIL_UNAVAILABLE',retryable:true,detail:String(error&&error.message||error||'unavailable')}),{status:504,headers:{'content-type':'application/json','cache-control':'no-store','x-mel-chat-route':'bounded-failure'}})}
   function patchChatTransport(){
     const nativeFetch=window.fetch&&window.fetch.bind(window);if(!nativeFetch||window.__melBoundedChatRetry)return;window.__melBoundedChatRetry=true;
     window.fetch=async function(input,init){
       const url=typeof input==='string'?input:String(input&&input.url||'');if(!url.includes('/api/chat'))return nativeFetch(input,init);
       let body={};try{body=JSON.parse(init&&init.body||'{}')}catch{}
-      const controller=new AbortController();const timer=setTimeout(function(){controller.abort()},CHAT_TIMEOUT_MS);
+      const controller=new AbortController();const timer=setTimeout(function(){controller.abort()},CHAT_TIMEOUT_MS);let response=null;let primaryError=null;
       if(init&&init.signal){try{init.signal.addEventListener('abort',function(){controller.abort()},{once:true})}catch{}}
-      try{
-        const response=await nativeFetch(input,{...(init||{}),signal:controller.signal});
-        if(response.ok||![502,503,504].includes(response.status))return response;
-        return await zeroEuroFallback(nativeFetch,body);
-      }catch(error){
-        if(error&&error.name!=='AbortError'&&error&&error.name!=='TimeoutError')throw error;
-        return await zeroEuroFallback(nativeFetch,body);
-      }finally{clearTimeout(timer)}
+      try{response=await nativeFetch(input,{...(init||{}),signal:controller.signal})}catch(error){primaryError=error}finally{clearTimeout(timer)}
+      if(response&&(response.ok||![502,503,504].includes(response.status)))return response;
+      try{return await zeroEuroFallback(nativeFetch,body)}catch(error){return unavailable(error||primaryError)}
     };
   }
   function installContinueLink(){
