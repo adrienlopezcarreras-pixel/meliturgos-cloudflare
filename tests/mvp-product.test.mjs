@@ -25,7 +25,7 @@ async function ui(chatFetch) {
 test('MEL MVP has the requested single-window interface without redundant title, conversation selector or skills button', async () => {
   const html = await (await onRequestGet({})).text();
   assert.match(html, /<title>MEL<\/title>/);
-  assert.match(html, /rel="icon"[^>]+meliturgos-avatar-fille\.png/);
+  assert.match(html, /rel="icon"[^>]+mel-classic\.webp/);
   assert.doesNotMatch(html, /<div class="title">MEL<\/div>/);
   assert.doesNotMatch(html, /conversationSelect|newConversation|interaction_count/i);
   assert.match(html, /id="messages"/);
@@ -33,11 +33,12 @@ test('MEL MVP has the requested single-window interface without redundant title,
   assert.match(html, /id="send"/);
   assert.match(html, /id="full"/);
   assert.match(html, /id="fileInput"/);
+  assert.match(html, /id="audit"/);
   assert.doesNotMatch(html, /id="skills"|id="skillsPanel"|id="skillsList"/);
-  assert.match(html, /min-width:188px/);
   assert.match(html, /maxlength="100000"/);
-  assert.match(html, /Paladin Light Full Plate/);
-  assert.match(html, /Amazon · Diadème du Griffon/);
+  assert.match(html, /data-theme-choice="paladin"/);
+  assert.match(html, /data-theme-choice="amazon"/);
+  assert.doesNotMatch(html, /Lectures du jour|Évangile du jour|Psaume du jour/);
 });
 
 test('MVP sends text with current theme/context, renders answer in the same window and prevents double send', async () => {
@@ -56,7 +57,7 @@ test('MVP sends text with current theme/context, renders answer in the same wind
   assert.equal(calls[0].body.text, 'Bonjour');
   assert.ok(calls[0].body.conversation_id);
   assert.equal(calls[0].body.ui_theme, 'classic');
-  assert.equal(calls[0].body.intent_context?.surface, 'mel-mvp');
+  assert.equal(calls[0].body.intent_context?.surface, 'mel-normal');
   assert.match(document.querySelector('#status').textContent, /Réflexion|réfléchit|réagit/i);
   finish(Response.json({ text: 'Bonjour Adrien' }));
   await tick();
@@ -72,20 +73,21 @@ test('MVP keeps draft on failure and renders text safely', async () => {
   document.querySelector('#input').value = payload;
   document.querySelector('#send').click();
   await tick();
-  assert.match(document.querySelector('#status').textContent, /indisponible|failed/i);
+  assert.match(document.querySelector('#status').textContent, /Erreur|failed/i);
   assert.equal(document.querySelector('#input').value, payload);
   assert.equal(document.querySelectorAll('#messages img').length, 0);
   assert.equal(document.querySelector('#send').disabled, false);
   dom.window.close();
 });
 
-test('MVP exposes all seven visual choices while capability inspection remains a chat/runtime concern', async () => {
+test('MVP exposes all seven visual choices while capability inspection remains a runtime concern', async () => {
   const dom = await ui(async () => Response.json({ text: 'ok' }));
   const document = dom.window.document;
   const choices = [...document.querySelectorAll('[data-theme-choice]')].map(node => node.dataset.themeChoice);
   assert.deepEqual(choices, ['classic','crusade','religious','granada','aviation','paladin','amazon']);
   assert.equal(document.querySelector('#skills'), null);
   assert.equal(document.querySelector('#skillsPanel'), null);
+  assert.ok(document.querySelector('#audit'));
   dom.window.close();
 });
 
