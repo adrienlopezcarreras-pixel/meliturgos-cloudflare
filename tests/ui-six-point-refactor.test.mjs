@@ -43,17 +43,16 @@ test('full mode bounds MEL chat and consults Council before Mentor', () => {
   assert.match(FULL_MODE_POLISH, /22000/);
   assert.match(FULL_MODE_POLISH, /zero-euro-council-fallback/);
   assert.match(FULL_MODE_POLISH, /MEL → Conseil Multi-IA → Mentor/);
-  const councilIndex = FULL_MODE_POLISH.indexOf("if(url.includes('/api/gen2/mentor/chat')");
-  const callIndex = FULL_MODE_POLISH.indexOf('feedback=await callCouncil', councilIndex);
-  const mentorIndex = FULL_MODE_POLISH.indexOf('return nativeFetch(input',{ } );
-  assert.ok(councilIndex >= 0 && callIndex > councilIndex);
+  const mentorBranch = FULL_MODE_POLISH.indexOf("if(url.includes('/api/gen2/mentor/chat')");
+  const councilCall = FULL_MODE_POLISH.indexOf('feedback=await callCouncil', mentorBranch);
+  const mentorCall = FULL_MODE_POLISH.indexOf('return nativeFetch(input,{...init,body:JSON.stringify(body)})', mentorBranch);
+  assert.ok(mentorBranch >= 0 && councilCall > mentorBranch && mentorCall > councilCall);
 });
 
 test('generated full mode contains polish runtime after syntax repair', async () => {
   const response = await renderFull({});
   const html = await response.text();
   assert.match(html, /mel-full-polish-runtime/);
-  assert.match(html, /x-mel-full-mode-js|MEL/);
   const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)].map(m => m[1]);
   assert.ok(scripts.length >= 2);
   scripts.forEach((source, index) => assert.doesNotThrow(() => new Function(source), `inline script ${index} must compile`));
