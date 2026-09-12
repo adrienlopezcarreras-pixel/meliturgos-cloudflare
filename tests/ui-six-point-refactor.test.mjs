@@ -39,9 +39,11 @@ test('full mode restores semantic roadmap colors and stronger text contrast', ()
   assert.match(FULL_MODE_POLISH, /DONE/);
 });
 
-test('full mode bounds MEL chat and consults Council before Mentor', () => {
-  assert.match(FULL_MODE_POLISH, /22000/);
+test('full mode bounds MEL chat and Council, then consults Council before Mentor', () => {
+  assert.match(FULL_MODE_POLISH, /CHAT_TIMEOUT_MS=12000/);
+  assert.match(FULL_MODE_POLISH, /FALLBACK_TIMEOUT_MS=8000/);
   assert.match(FULL_MODE_POLISH, /zero-euro-council-fallback/);
+  assert.match(FULL_MODE_POLISH, /CHAT_AND_COUNCIL_UNAVAILABLE/);
   assert.match(FULL_MODE_POLISH, /MEL → Conseil Multi-IA → Mentor/);
   const mentorBranch = FULL_MODE_POLISH.indexOf("if(url.includes('/api/gen2/mentor/chat')");
   const councilCall = FULL_MODE_POLISH.indexOf('feedback=await callCouncil', mentorBranch);
