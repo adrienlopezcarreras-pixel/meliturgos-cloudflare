@@ -17,21 +17,23 @@ test('MVP behavior enhancer injects clickable continuation text and bounded chat
   assert.doesNotMatch(html, /<button[^>]*>Continuer depuis la dernière phrase/i);
 });
 
-test('MVP final layout keeps MEL alone at top and utilities at bottom', async () => {
+test('MVP final layout keeps only requested controls at bottom', async () => {
   const source = `<!doctype html><html><body>
     <div class="theme-switch"><button id="themeButton"></button><div id="themePanel"></div></div>
-    <main class="app"><div class="avatar-wrap"><div id="avatar"></div></div><div id="voiceStatus">Touchez son visage pour parler</div>
+    <main class="app"><div class="avatar-wrap"><div id="avatar"></div></div><div id="voiceStatus">Reconnaissance vocale non disponible dans ce navigateur</div>
     <section class="window"><div id="messages"></div><div class="composer"><textarea id="input"></textarea><div class="drop" id="drop"><input id="fileInput" type="file"></div><div class="controls"><button id="send">Envoyer</button><button id="full">Mode complet</button></div><div id="status"></div></div></section></main>
   </body></html>`;
   const html = await (await enhanceMvpBehavior(new Response(source, { headers: { 'content-type': 'text/html' } }))).text();
   assert.match(html, /mel-title/);
   assert.match(html, /title\.textContent='MEL'/);
   assert.match(html, /melBottomTools/);
-  assert.match(html, /Audit MEL/);
-  assert.match(html, /\/api\/gen2\/readiness\?refresh=1/);
-  assert.match(html, /\/api\/memory\/status/);
+  assert.match(html, /Reconnaissance vocale non disponible dans ce navigateur/);
+  assert.match(html, /mel-idle-voice/);
   assert.match(html, /\.drop\{display:block!important\}/);
   assert.match(html, /mel-bottom-tools #full/);
+  assert.doesNotMatch(html, /Audit MEL/);
+  assert.doesNotMatch(html, /\/api\/gen2\/readiness\?refresh=1/);
+  assert.doesNotMatch(html, /\/api\/memory\/status/);
   assert.doesNotMatch(html, /\.drop,#fileInput\{display:none/);
 });
 
