@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { flattenRoadmap, roadmapSummary, getRoadmapPayload } from '../src/roadmap/master-roadmap.js';
-import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v5.js';
+import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v5-runtime-fix.js';
 
 test('master roadmap is comprehensive and includes major product targets', () => {
   const rows = flattenRoadmap();
@@ -20,8 +20,11 @@ test('master roadmap is comprehensive and includes major product targets', () =>
 });
 
 test('canonical control center exposes one salon, Work, roadmap, diagnostics and rollback path', async () => {
-  const page = await (await renderFullMode({})).text();
+  const response = await renderFullMode({});
+  const page = await response.text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
+  const runtimeFix = await readFile(new URL('../src/pages/full-interface-v5-runtime-fix.js', import.meta.url), 'utf8');
+  assert.equal(response.headers.get('x-mel-full-mode-js'), 'repaired-v1');
   assert.match(page, /MEL · Mode complet/);
   assert.match(page, /Salon IA/);
   assert.match(page, /Conseil Multi-IA/);
@@ -31,7 +34,8 @@ test('canonical control center exposes one salon, Work, roadmap, diagnostics and
   assert.match(page, /\/api\/gen2\/roadmap/);
   assert.match(page, /\/api\/gen2\/code\/self-check/);
   assert.match(router, /handleFullModeV5/);
-  assert.match(router, /full-interface-v5\.js/);
+  assert.match(router, /full-interface-v5-runtime-fix\.js/);
+  assert.match(runtimeFix, /from '\.\/full-interface-v5\.js'/);
   assert.doesNotMatch(router, /full-interface-v[234]\.js/);
   assert.match(router, /\/professor-legacy/);
 });
