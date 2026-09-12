@@ -55,7 +55,9 @@ export function serveMelAvatar(pathname) {
   return new Response(decodeBase64(AVATAR_BASE64[key]), {
     headers: {
       'content-type': 'image/webp',
-      'cache-control': 'public,max-age=31536000,immutable',
+      // Keep development-safe caching: theme URLs are stable contracts, so immutable
+      // year-long caching can make a corrected portrait look permanently stale.
+      'cache-control': 'public,max-age=300,must-revalidate',
       'x-mel-avatar': key,
       'x-mel-avatar-fallback': key === 'granada' ? 'religious' : 'none',
     },
