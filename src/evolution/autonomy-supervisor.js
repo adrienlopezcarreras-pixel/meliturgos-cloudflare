@@ -62,14 +62,28 @@ function executionReadyRank(job) {
   return 1;
 }
 
+function revisionContinuationRank(job) {
+  const status = String(job?.status || '').toUpperCase();
+  const internalRevision = job?.requested_by === 'mel-autonomy'
+    && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE'].includes(status)
+    && Boolean(job?.plan_json?.revision?.previous_request_id || job?.result_json?.last_teacher_review?.request_id);
+  // A stale-approval requeue is a continuation of an already-started internal
+  // development cycle, not unrelated new background work. Let it finish the
+  // fresh Council/Teacher preflight before unrelated owner preflights consume
+  // every heartbeat. Implementation-ready owner work still wins via the rank
+  // above, so this does not bypass explicit owner execution priority.
+  return internalRevision ? 0 : 1;
+}
+
 function activeJobRank(job) {
   // Passive jobs stay persisted and untouched but cannot starve another job
-  // that can genuinely advance. Implementation-ready work outranks preflight
-  // work; within the same readiness class, explicit owner work still outranks
-  // background roadmap work.
+  // that can genuinely advance. Implementation-ready work outranks preflight;
+  // an internal revision outranks unrelated new preflight; within an otherwise
+  // equal class explicit owner work still outranks background roadmap work.
   return {
     passive: isPassiveRuntimeJob(job) ? 1 : 0,
     executionReady: executionReadyRank(job),
+    revisionContinuation: revisionContinuationRank(job),
     requester: job?.requested_by === 'owner-chat' ? 0 : 1,
     createdAt: Number(job?.created_at || 0),
   };
@@ -80,6 +94,7 @@ function compareActiveJobs(left, right) {
   const b = activeJobRank(right);
   return a.passive - b.passive
     || a.executionReady - b.executionReady
+    || a.revisionContinuation - b.revisionContinuation
     || a.requester - b.requester
     || a.createdAt - b.createdAt
     || String(left?.id || '').localeCompare(String(right?.id || ''));
