@@ -5,6 +5,7 @@ import { maybeHandleAutonomyApi } from '../src/evolution/autonomy-api.js';
 
 const auth = `Basic ${Buffer.from('test:pw').toString('base64')}`;
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
 
 function fixture() {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
@@ -12,15 +13,16 @@ function fixture() {
     MELITURGOS_USER: 'test',
     MELITURGOS_PASSWORD: 'pw',
     MEL_GITHUB_REPOSITORY: 'owner/repo',
-    MEL_GITHUB_BRANCH: 'release/test',
-    MEL_TEACHER_BRANCH: 'candidate/augmentio-core',
+    MEL_GITHUB_BRANCH: CANDIDATE_BRANCH,
+    MEL_TEACHER_BRANCH: CANDIDATE_BRANCH,
+    MEL_TEACHER_APPROVED_BRANCH: CANDIDATE_BRANCH,
     AI: { async run(model) { return { response: `ack:${model}` }; } },
   };
   const fetchImpl = async (url) => {
     const target = String(url);
     if (target.includes('teacher-bridge/replies.jsonl')) return new Response('', { status: 200 });
     if (target.includes('teacher-bridge/completions.jsonl')) return new Response('', { status: 200 });
-    if (target.includes('/commits/candidate%2Faugmentio-core')) return Response.json({ sha: CANDIDATE_HEAD_SHA });
+    if (target.includes('/commits/candidate%2Fmel-clean-autonomy')) return Response.json({ sha: CANDIDATE_HEAD_SHA });
     if (target.startsWith('https://api.github.com/')) return new Response('fixture rate limit', { status: 403 });
     if (target.startsWith('https://raw.githubusercontent.com/')) return new Response('export const fixture = true;\n', { status: 200, headers: { etag: 'fixture' } });
     return new Response('not found', { status: 404 });
