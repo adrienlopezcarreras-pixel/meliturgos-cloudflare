@@ -10,7 +10,7 @@ FICHIERS
 - tests/autonomy-ready-for-review-recovery.test.mjs (existing; branch fixture converged)
 - tests/owner-development-queue.test.mjs (existing; branch fixture converged)
 - teacher-bridge/replies.jsonl (existing Teacher approval evidence)
-- this checkpoint file (new factual record required by the canonical cycle; existing checkpoints directory reused)
+- this checkpoint file (existing factual record reused)
 
 CHANGEMENTS / PROGRESS VERIFIED
 - Canonical candidate is candidate/mel-clean-autonomy.
@@ -43,3 +43,39 @@ GEN2-17 must NOT be marked DONE solely from this checkpoint. Completion still re
 
 NEXT SAFE STEP
 Use the existing runtime/Teacher/Council path to capture the first and second real consecutive GEN2-17 supervised-cycle completions on candidate/mel-clean-autonomy. If branch configuration or Teacher-approved branch diverges, fail closed and request a fresh review rather than creating a fallback branch.
+
+---
+RUN UPDATE 2026-09-12T21:52Z
+
+FICHIERS
+- teacher-bridge/replies.jsonl (existing file extended; no new Teacher channel)
+- teacher-bridge/checkpoints/gen2-17-supervised-cycles-20260912T1944Z.txt (this existing checkpoint extended)
+
+CHANGEMENTS
+- Live runtime Teacher smoke run 34717613229 exposed five pending owner review requests. Three referenced noncanonical candidate/augmentio-core; two referenced canonical candidate/mel-clean-autonomy but stale SHAs.
+- Added correlated Teacher replies for all five runtime requests with provenance teacher=chatgpt-automation-zero-euro: noncanonical requests were REJECT; canonical-but-stale requests were NEEDS_CHANGES. No owner request was approved without inspectable scope, patch or test evidence.
+- The same smoke evidence showed the internal GEN2-17 job still TEACHER_APPROVED against an earlier Teacher request and reported implementation_proposal_ready=false. Existing autonomy-runtime.js already contains stale-approval requeue logic; no parallel orchestrator or workaround was added.
+- Current Council status exposed by the live smoke contains two Workers AI responses but role fields are null and all_required_roles_satisfied=false for the persisted internal job. Existing src/teachers/augmentio-council.js already implements mandatory architecture, security, tests and product/integration roles plus MEL synthesis for a fresh preflight, so the correct next action is to force a fresh canonical Teacher/preflight cycle through existing runtime logic rather than create a new Council.
+
+REUTILISATION
+- Reused existing Teacher replies JSONL, canonical branch policy, autonomy runtime stale-SHA fail-closed behavior, Augmentio Council role implementation and existing checkpoint.
+- No second roadmap, candidate branch, Council, orchestrator or development path created.
+
+TESTS
+- The Teacher reply commit was 30dc88055b35d22a9af57391463f7b04f26fcbec.
+- full-candidate-ci run 34721185582 completed SUCCESS on exact SHA 30dc88055b35d22a9af57391463f7b04f26fcbec, including dependency security gate, syntax and full test suite.
+
+RISQUES
+- The live Worker has not yet demonstrated reconciliation of these five new Teacher replies; that requires a subsequent runtime tick/smoke observation.
+- The internal GEN2-17 approval predates the latest canonical HEAD, so implementation must fail closed/requeue on stale SHA before any plan/code generation.
+- Current persisted Council evidence for GEN2-17 does not prove mandatory role coverage; a fresh preflight must use the existing role-based Council implementation and preserve provenance.
+
+ROLLBACK
+- Revert commit 30dc88055b35d22a9af57391463f7b04f26fcbec to remove only the newly appended Teacher decisions.
+- No production deployment, DNS/auth/billing/permission change, destructive D1 operation, paid provider or secret write occurred.
+
+CRITERES_DE_FIN
+- A later live runtime observation must show the five pending replies reconciled or safely requeued according to verdict.
+- GEN2-17 must obtain a fresh Teacher request bound to the then-current canonical HEAD if the old approval is stale.
+- Fresh Council evidence must show required roles architecture/security/tests/product-integration with MEL synthesis and zero-added-cost provenance.
+- Implementation may proceed only after exact request/SHA correlation, targeted tests and full-candidate-ci on the exact resulting SHA.
