@@ -4,10 +4,12 @@ import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
 
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const NEW_CANDIDATE_HEAD_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
 function runtimeFixture() {
   let replies = '';
   let completions = '';
+  let candidateHead = CANDIDATE_HEAD_SHA;
   const aiCalls = [];
   const fetchCalls = [];
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
@@ -16,7 +18,7 @@ function runtimeFixture() {
     fetchCalls.push(target);
     if (target.includes('teacher-bridge/replies.jsonl')) return new Response(replies, { status: 200 });
     if (target.includes('teacher-bridge/completions.jsonl')) return new Response(completions, { status: 200 });
-    if (target.includes('/commits/candidate%2Faugmentio-core')) return Response.json({ sha: CANDIDATE_HEAD_SHA });
+    if (target.includes('/commits/candidate%2Faugmentio-core')) return Response.json({ sha: candidateHead });
     if (target.includes('/actions/runs/4242')) {
       return Response.json({
         name: 'full-candidate-ci',
@@ -49,6 +51,8 @@ function runtimeFixture() {
     fetchImpl,
     setReplies(value) { replies = value; },
     setCompletions(value) { completions = value; },
+    setCandidateHead(value) { candidateHead = value; },
+    getCandidateHead() { return candidateHead; },
   };
 }
 
@@ -90,6 +94,49 @@ test('cloud autonomy heartbeat consumes the matching canonical GitHub Teacher re
   assert.equal(resumed.reconciliation.applied[0].request_id, first.teacher.request_id);
   assert.equal(resumed.job.id, first.job.id);
   assert.equal(resumed.job.status, 'TEACHER_APPROVED');
+});
+
+test('stale Teacher approval is archived and requeued for a fresh Council and exact-SHA review', async () => {
+  const fixture = runtimeFixture();
+  const first = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  const firstRequestId = first.teacher.request_id;
+  assert.ok(firstRequestId);
+
+  fixture.setReplies(JSON.stringify({
+    kind: 'TEACHER_REPLY',
+    request_id: firstRequestId,
+    verdict: 'APPROVE_PLAN',
+    feedback: 'Proceed only on the reviewed candidate SHA.',
+  }));
+  fixture.setCandidateHead(NEW_CANDIDATE_HEAD_SHA);
+
+  const stale = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  assert.equal(stale.reconciliation.applied.length, 1);
+  assert.equal(stale.implementation.status, 'NOT_READY');
+  assert.equal(stale.implementation.code, 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE');
+  assert.equal(stale.job.id, first.job.id);
+  assert.equal(stale.job.status, 'QUEUED');
+
+  const requeued = await fixture.repository.get(first.job.id);
+  assert.equal(requeued.status, 'QUEUED');
+  assert.equal(requeued.result_json.teacher_bridge, null);
+  assert.equal(requeued.result_json.implementation_proposal, undefined);
+  assert.equal(requeued.result_json.implementation_planning_diagnostic.code, 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE');
+  assert.equal(requeued.result_json.teacher_bridge_history.length, 1);
+  assert.equal(requeued.result_json.teacher_bridge_history[0].review.request_id, firstRequestId);
+  assert.equal(requeued.result_json.last_teacher_review.request_id, firstRequestId);
+  assert.equal(requeued.plan_json.preflight, null);
+  assert.equal(requeued.plan_json.revision.reason, 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE');
+
+  fixture.setReplies('');
+  const refreshed = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
+  assert.equal(refreshed.job.id, first.job.id);
+  assert.equal(refreshed.job.status, 'WAITING_TEACHER');
+  assert.ok(refreshed.teacher?.request_id);
+  assert.notEqual(refreshed.teacher.request_id, firstRequestId);
+  const freshStored = await fixture.repository.get(first.job.id);
+  assert.equal(freshStored.result_json.teacher_bridge.request.candidate.sha, NEW_CANDIDATE_HEAD_SHA);
+  assert.equal(freshStored.result_json.teacher_bridge.request.provenance.revision_of, firstRequestId);
 });
 
 test('planner failure persists only a sanitized diagnostic code for later runtime inspection', async () => {
