@@ -6,21 +6,28 @@ import { onRequestGet } from '../src/pages/full-interface-v5.js';
 const sourceUrl = new URL('../src/pages/full-interface-v5.js', import.meta.url);
 function count(text, needle) { return text.split(needle).length - 1; }
 
-test('full mode removes legacy duplicate rooms and redundant controls', async () => {
+test('full mode keeps one useful command surface and removes redundant controls', async () => {
   const source = await readFile(sourceUrl, 'utf8');
   const html = await (await onRequestGet({})).text();
   assert.doesNotMatch(source, /RENDER_CONTRACT|melFullRenderContract/);
-  for (const obsolete of ['mentorRoomCanonical','melCanonicalStatus','melStatusBtnV5','melMentorBtnV5','melNextBtnV5','melReaderLastCanonical','melReaderBottomCanonical','melReaderLargeCanonical']) assert.doesNotMatch(html, new RegExp(obsolete));
-  assert.equal(count(html, 'id="roomInput"'), 1);
-  assert.equal(count(html, 'id="roomSend"'), 1);
-  assert.equal(count(html, 'id="roomTarget"'), 1);
-  assert.doesNotMatch(html, /Prochaine tâche|Fin du chat|Grande lecture|Dernière réponse|F5 revient ici/);
+  for (const obsolete of ['mentorRoomCanonical','melCanonicalStatus','melStatusBtnV5','melMentorBtnV5','melNextBtnV5','melReaderLastCanonical','melReaderBottomCanonical','melReaderLargeCanonical','overviewRefresh','roomRefresh','diagRefresh','runAudit']) {
+    assert.doesNotMatch(html, new RegExp(obsolete));
+  }
+  for (const id of ['roomInput','roomSend','roomTarget','workRefresh','workCreate','roadRefresh','systemRefresh']) {
+    assert.equal(count(html, `id="${id}"`), 1, `${id} must exist exactly once`);
+  }
+  assert.equal(count(html, 'data-view='), 4, 'full mode should expose exactly four primary views');
+  assert.doesNotMatch(html, /Prochaine tâche|Fin du chat|Grande lecture|Dernière réponse|F5 revient ici|Vue d’ensemble/);
 });
 
-test('full mode only references live runtime routes for work and audit', async () => {
+test('full mode only references live runtime routes for work and consolidated system state', async () => {
   const source = await readFile(sourceUrl, 'utf8');
-  for (const route of ['/api/professor/dev/status','/api/professor/dev/jobs','/api/professor/dev/autonomy/status','/api/gen2/capabilities','/api/gen2/code/self-check','/api/gen2/roadmap']) assert.match(source, new RegExp(route.replaceAll('/','\\/')));
-  for (const dead of ['/api/gen2/orchestration/status','/api/gen2/work/dags','/api/gen2/capabilities/audit']) assert.doesNotMatch(source, new RegExp(dead.replaceAll('/','\\/')));
+  for (const route of ['/api/professor/dev/status','/api/professor/dev/jobs','/api/professor/dev/autonomy/status','/api/gen2/capabilities','/api/gen2/code/self-check','/api/gen2/roadmap','/api/gen2/readiness']) {
+    assert.match(source, new RegExp(route.replaceAll('/','\\/')));
+  }
+  for (const dead of ['/api/gen2/orchestration/status','/api/gen2/work/dags','/api/gen2/capabilities/audit']) {
+    assert.doesNotMatch(source, new RegExp(dead.replaceAll('/','\\/')));
+  }
   assert.doesNotMatch(source, /runDag|auditDeep/);
 });
 
@@ -32,7 +39,9 @@ test('full mode avatar uses a guaranteed embedded route everywhere', async () =>
 
 test('each static full-mode command is intentionally handled', async () => {
   const source = await readFile(sourceUrl, 'utf8');
-  for (const id of ['roomSend','roomRefresh','overviewRefresh','workRefresh','workCreate','roadRefresh','diagRefresh','runAudit']) assert.match(source, new RegExp("getElementById\\('"+id+"'\\)\\.addEventListener"));
+  for (const id of ['roomSend','workRefresh','workCreate','roadRefresh','systemRefresh']) {
+    assert.match(source, new RegExp("getElementById\\('"+id+"'\\)\\.addEventListener"));
+  }
   assert.match(source, /qsa\('button\[data-view\]'\)[\s\S]*addEventListener/);
   assert.match(source, /job-detail[\s\S]*addEventListener/);
 });
