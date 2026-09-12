@@ -7,16 +7,60 @@ function json(body, status = 200) {
   });
 }
 
-function extractOutputText(payload) {
+function extractWorkersText(payload) {
+  if (typeof payload?.response === 'string' && payload.response.trim()) return payload.response.trim();
   if (typeof payload?.output_text === 'string' && payload.output_text.trim()) return payload.output_text.trim();
-  const out = [];
-  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
-    for (const part of Array.isArray(item?.content) ? item.content : []) {
-      const text = part?.text || part?.output_text;
-      if (typeof text === 'string' && text.trim()) out.push(text.trim());
-    }
-  }
-  return out.join('\n\n').trim();
+  const choice = Array.isArray(payload?.choices) ? payload.choices[0] : null;
+  const choiceText = choice?.message?.content ?? choice?.text;
+  if (typeof choiceText === 'string' && choiceText.trim()) return choiceText.trim();
+  return '';
+}
+
+function compactContext(recent = []) {
+  return recent.slice(-8).map((m) => ({
+    role: String(m?.role || 'message').slice(0, 24),
+    label: String(m?.label || '').slice(0, 48),
+    text: String(m?.text || m?.content || '').slice(0, 1400),
+  }));
+}
+
+function buildLocalGuardAdvice(text, recent = []) {
+  const context = compactContext(recent);
+  const combined = `${context.map((m) => `${m.label || m.role}: ${m.text}`).join('\n')}\nAdrien: ${text}`.toLowerCase();
+  const warnings = [];
+
+  const spend = /\b(payer|paiement|achat|acheter|dépense|depenser|dépenser|abonnement|factur|billing|carte bancaire|api payante|crédit payant|credit payant)\b/i.test(combined);
+  const destructive = /\b(supprim|delete|effac|erase|overwrite|écras|ecras|reset --hard|force push|force-push|drop table|production|déploi|deploy|publier en prod)\b/i.test(combined);
+  const credential = /\b(secret|token|mot de passe|password|clé api|cle api|api key|credential|identifiant)\b/i.test(combined);
+  const externalAction = /\b(envoyer|send|publier|poster|publication|email|mail|message externe|mettre en ligne|mise en ligne)\b/i.test(combined);
+  const claimedDone = /\b(fait|terminé|termine|déployé|deploye|corrigé|corrige|installé|installe|mis en ligne|réussi|reussi)\b/i.test(combined);
+  const hasEvidence = /\b(sha|commit|test|tests|ci|workflow|job[_ -]?id|preuve|log|runtime|http 2\d\d|status 2\d\d)\b/i.test(combined);
+
+  if (spend) warnings.push('Aucune dépense : tout achat, abonnement, crédit ou API facturable exige une autorisation explicite d’Adrien avant exécution.');
+  if (destructive) warnings.push('Action sensible détectée : garder une sauvegarde/rollback et demander validation avant suppression, écrasement, force-push ou déploiement risqué.');
+  if (credential) warnings.push('Secrets : ne jamais exposer ni recopier une clé, un mot de passe ou un token dans le chat, les logs ou le dépôt.');
+  if (externalAction) warnings.push('Action externe : avant envoi/publication, montrer exactement ce qui va partir et obtenir l’accord d’Adrien si l’action est irréversible ou publique.');
+  if (claimedDone && !hasEvidence) warnings.push('Une réalisation est affirmée sans preuve visible : exiger commit/SHA, test, CI, job persistant ou autre preuve runtime avant de la considérer comme terminée.');
+
+  const riskLine = warnings.length ? warnings.slice(0, 2).join(' ') : 'Risque immédiat non détecté dans le message. Continuer par une seule modification réversible à la fois.';
+  return [
+    'Contrôle : Mentor reste en lecture/conseil uniquement ; il ne modifie rien, ne déploie rien et n’autorise aucune dépense.',
+    `Vigilance : ${riskLine}`,
+    'Prochaine action sûre : terminer la tâche déjà en cours, tester le changement minimal, puis conserver une preuve vérifiable avant de poursuivre.',
+  ].join('\n');
+}
+
+function buildSystemPrompt(projectMemory) {
+  return [
+    'Tu es Mentor, relecteur prudent de MELITURGOS. Tu conseilles MEL mais tu ne commandes pas directement les outils.',
+    'Mode strict : lecture et conseil uniquement. Tu ne dois jamais prétendre avoir modifié, testé, déployé, envoyé ou payé quoi que ce soit.',
+    'Adrien est le propriétaire et décide. Toute dépense, abonnement, API facturable, publication externe, suppression, écrasement, force-push, changement de secrets ou action irréversible exige son autorisation explicite.',
+    'Protège le projet : une seule version canonique, changements petits et réversibles, tests avant déploiement, preuve runtime avant de déclarer une tâche terminée, rollback disponible.',
+    'Si une tâche est déjà active, recommande de la finir et de la vérifier avant d’en ouvrir une autre.',
+    'Comprends les fautes de frappe et l’orthographe approximative sans exiger de reformulation.',
+    'Réponds en français moderne et direct. Maximum trois points : risque/doublon, prochaine action exacte, preuve à exiger.',
+    projectMemory,
+  ].join('\n\n');
 }
 
 export async function handleMentorChat(request, env) {
@@ -25,63 +69,70 @@ export async function handleMentorChat(request, env) {
   const text = String(body?.text || body?.message || '').trim();
   if (!text) return json({ error: 'message required', code: 'MENTOR_MESSAGE_REQUIRED' }, 400);
 
-  // Fail closed: the UI must never pretend a Workers-AI model is ChatGPT.
-  if (!env.OPENAI_API_KEY || String(env.MEL_MENTOR_ENABLED || '').toLowerCase() !== 'true') {
+  const recent = Array.isArray(body?.context) ? body.context : [];
+  const localAdvice = buildLocalGuardAdvice(text, recent);
+
+  // Zero-euro fail-closed policy:
+  // A remote Workers AI call is permitted only after BOTH switches are deliberately enabled.
+  // Default deployment therefore remains genuinely no-added-cost and still returns useful local advice.
+  const remoteAllowed = Boolean(env?.AI)
+    && String(env.MEL_MENTOR_FREE_AI_ENABLED || '').toLowerCase() === 'true'
+    && String(env.MEL_MENTOR_ACCOUNT_CONFIRMED_FREE || '').toLowerCase() === 'true';
+
+  if (!remoteAllowed) {
     return json({
-      ok: false,
-      code: 'MENTOR_BRIDGE_NOT_CONFIGURED',
-      error: 'Le pont ChatGPT Mentor est installé mais pas autorisé. OPENAI_API_KEY + MEL_MENTOR_ENABLED=true requis.',
-      provider: 'openai',
-      model: null,
-    }, 503);
+      ok: true,
+      role: 'mentor',
+      provider: 'local-guard',
+      model: 'deterministic-safety-review',
+      control_mode: 'advisory-read-only',
+      billing_policy: 'zero-euro-fail-closed',
+      external_inference_used: false,
+      text: localAdvice,
+    });
   }
 
-  const model = String(env.MEL_MENTOR_MODEL || 'gpt-5.6-sol');
-  const recent = Array.isArray(body?.context) ? body.context.slice(-16) : [];
-  const contextText = recent.map((m) => `${String(m?.label || m?.role || 'message')}: ${String(m?.text || m?.content || '')}`).join('\n');
+  const model = String(env.MEL_MENTOR_FREE_MODEL || '@cf/zai-org/glm-4.7-flash');
   const projectMemory = buildProjectLearningPrompt();
-  const instructions = [
-    'Tu es Mentor, le partenaire OpenAI principal de MELITURGOS.',
-    'Tu n’es pas la session ChatGPT du navigateur et tu ne dois jamais prétendre disposer de la mémoire privée du compte ChatGPT.',
-    'Tu disposes en revanche de la mémoire de projet MELITURGOS ci-dessous et du fil partagé transmis à chaque requête.',
-    'Adrien est le propriétaire. Par défaut, tu réponds en priorité dans le salon collaboratif.',
-    'Si Adrien s’adresse explicitement à MEL, laisse MEL répondre en priorité.',
-    'Si Adrien s’adresse explicitement à une autre IA ou au Council, ne te substitue pas à elle.',
-    'Pour le développement: une seule version canonique, pas de branches concurrentes durables, conseils brefs et actionnables.',
-    'Comprends les fautes de frappe et l’orthographe approximative sans exiger une reformulation.',
-    projectMemory,
-  ].join('\n\n');
+  const context = compactContext(recent);
+  const messages = [
+    { role: 'system', content: buildSystemPrompt(projectMemory) },
+    ...context.map((m) => ({ role: m.role === 'mentor' ? 'assistant' : 'user', content: `${m.label || m.role}: ${m.text}` })),
+    { role: 'user', content: `Adrien: ${text}\n\nRelecture locale de sécurité à respecter :\n${localAdvice}` },
+  ];
 
-  const input = contextText ? `${contextText}\n\nAdrien: ${text}` : `Adrien: ${text}`;
-  let response;
   try {
-    response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        'authorization': `Bearer ${env.OPENAI_API_KEY}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ model, instructions, input, max_output_tokens: 1800 }),
+    const result = await env.AI.run(model, {
+      messages,
+      max_completion_tokens: 500,
+      temperature: 0.2,
+      chat_template_kwargs: { enable_thinking: false },
+    });
+    const answer = extractWorkersText(result);
+    if (!answer) throw new Error('EMPTY_PROVIDER_RESPONSE');
+    return json({
+      ok: true,
+      role: 'mentor',
+      provider: 'workers-ai',
+      model,
+      control_mode: 'advisory-read-only',
+      billing_policy: 'zero-euro-explicitly-confirmed',
+      external_inference_used: true,
+      text: answer,
     });
   } catch (error) {
-    return json({ ok: false, code: 'MENTOR_NETWORK_ERROR', error: String(error?.message || error) }, 502);
+    return json({
+      ok: true,
+      role: 'mentor',
+      provider: 'local-guard',
+      model: 'deterministic-safety-review',
+      control_mode: 'advisory-read-only',
+      billing_policy: 'zero-euro-fallback',
+      external_inference_used: false,
+      degraded_reason: String(error?.message || error),
+      text: localAdvice,
+    });
   }
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    return json({ ok: false, code: 'MENTOR_OPENAI_ERROR', error: data?.error?.message || `OpenAI HTTP ${response.status}`, provider: 'openai', model }, 502);
-  }
-  const answer = extractOutputText(data);
-  if (!answer) return json({ ok: false, code: 'MENTOR_EMPTY_RESPONSE', error: 'Réponse Mentor vide.', provider: 'openai', model }, 502);
-  return json({
-    ok: true,
-    role: 'mentor',
-    provider: 'openai',
-    model,
-    memory_scope: 'mel-project-ledger+shared-room',
-    text: answer,
-    response_id: data?.id || null,
-  });
 }
 
-export { extractOutputText };
+export { extractWorkersText, buildLocalGuardAdvice };
