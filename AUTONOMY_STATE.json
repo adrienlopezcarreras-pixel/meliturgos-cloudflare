@@ -1,17 +1,17 @@
 {
   "schema": "mel.autonomy-state",
   "version": 2,
-  "updated_at": "2026-09-10T22:55:43Z",
+  "updated_at": "2026-09-12T19:33:00Z",
   "branch": "candidate/mel-clean-autonomy",
   "priority": "P0",
   "objective": "Fermer la boucle MEL -> travail -> Teacher Bridge -> ChatGPT -> reprise automatique, puis continuer le prochain travail sans attente humaine inutile.",
   "candidate_code_checkpoint": {
     "status": "VERIFIED_CI",
-    "last_verified_ci_head_before_state_update": "ae83dcde0939b0aa3e485089528c6efdc2fcf227",
-    "full_candidate_ci_run_id": 34539751467,
+    "last_verified_ci_head_before_state_update": "5fd11f047a00a4948868f590013f7b5098e5d0b1",
+    "full_candidate_ci_run_id": 34714438052,
     "workflow": "full-candidate-ci",
     "conclusion": "success",
-    "notes": "Le HEAD vérifié inclut le routage conversationnel vers web.research, le suivi borné de sources publiques directes, le garde SSRF avec validation de chaque redirection, et l'alignement des fallbacks runtime/Teacher sur candidate/mel-clean-autonomy."
+    "notes": "Le HEAD vérifié inclut la correction GEN2-17 qui permet à MEL de créer le prochain job roadmap lorsque seuls des jobs owner-chat WAITING_TEACHER sont passifs, tout en conservant un job interne WAITING_TEACHER comme gate et en laissant les jobs owner intacts. Les tests couvrent aussi deux transitions autonomes consécutives simulées."
   },
   "verified": [
     {
@@ -93,6 +93,14 @@
       "notes": "Wrangler, CapabilityBus, runtime autonomie, planificateur, Bridge preparer et transports Teacher utilisent candidate/mel-clean-autonomy comme branche de repli; les fallbacks candidate/augmentio-core et anciennes releases sont interdits par test."
     },
     {
+      "capability": "owner_teacher_wait_nonblocking_candidate_scheduler",
+      "status": "VERIFIED_IN_CURRENT_FULL_SUITE",
+      "evidence_commit": "5fd11f047a00a4948868f590013f7b5098e5d0b1",
+      "full_candidate_ci_run_id": 34714438052,
+      "runtime_teacher_smoke_run_id": 34714438056,
+      "notes": "Le superviseur réutilisé, sans second orchestrateur, laisse intacts les jobs owner-chat WAITING_TEACHER, permet la création/continuité du prochain job interne, conserve un job interne WAITING_TEACHER comme gate et préserve la priorité d'un owner job actionnable."
+    },
+    {
       "capability": "chatgpt_teacher_automation",
       "status": "ENABLED",
       "automation": "MEL Autonomie Continue",
@@ -101,17 +109,45 @@
     }
   ],
   "not_yet_proven": [
-    "La fermeture complète d'un deuxième cycle consécutif MEL-WORK-02 jusqu'au completion record vérifié sur candidate/mel-clean-autonomy.",
-    "L'état live D1 du job autonomie courant après la consolidation de branche; GitHub seul ne doit pas être utilisé pour l'inventer.",
-    "Plusieurs cycles consécutifs démontrant la continuité autonome au-delà du premier changement de job.",
-    "Le déploiement production des changements candidate récents; aucune preuve de wrangler deploy n'est enregistrée ici."
+    "La fermeture complète d'un deuxième cycle consécutif MEL-WORK-02/GEN2-17 jusqu'au completion record vérifié sur candidate/mel-clean-autonomy.",
+    "L'exécution live D1 de la nouvelle règle de scheduling du HEAD 5fd11f047a00a4948868f590013f7b5098e5d0b1; le Worker live observé n'est pas prouvé comme déployé sur ce HEAD.",
+    "Le Council live du job GEN2-17 avec les quatre rôles obligatoires architecture, sécurité, tests/QA et intégration/produit : le smoke 34714438056 montre deux réponses Workers AI mais role=null, required_roles=[], all_required_roles_satisfied=false et synthesis=null.",
+    "Plusieurs cycles runtime consécutifs démontrant la continuité autonome au-delà du premier changement de job.",
+    "Le déploiement production des changements candidate récents; aucune autorisation de promotion production n'est enregistrée dans ce checkpoint."
   ],
   "next_p0": [
-    "Exécuter/reprendre le heartbeat runtime sur candidate/mel-clean-autonomy et relire l'état D1 courant.",
+    "Conserver GEN2-17 comme job interne courant tant que son cycle runtime réel n'est pas terminé.",
+    "Au prochain heartbeat du runtime déployé compatible, exiger un Council zéro-coût avec rôles architecture, sécurité, tests/QA et intégration/produit réellement appelés, provenance et synthèse MEL; fail closed si la preuve manque.",
     "Exiger pour tout paquet d'implémentation un candidate_sha égal exactement au HEAD observé avant application; un paquet stale doit être régénéré, jamais forcé.",
     "Après Teacher approval corrélée, appliquer seulement le plus petit diff sûr via Dev Bridge, exécuter les tests, réparer dans le même scope si nécessaire, puis exiger full-candidate-ci exact avant completion.",
     "Conserver production_deploy_allowed=false jusqu'à validation humaine explicite."
   ],
+  "live_runtime_observation": {
+    "observed_at": "2026-09-12T19:32:05Z",
+    "runtime_teacher_smoke_run_id": 34714438056,
+    "current_owner_job": {
+      "status": "WAITING_TEACHER",
+      "request_id": "b1f3f60d-eb1b-4163-9438-3b21bc46b9f1"
+    },
+    "internal_current": {
+      "job_id": "mel-autonomy-gen2-17-1",
+      "roadmap_id": "GEN2-17",
+      "status": "TEACHER_APPROVED",
+      "request_id": "1cdedf2f-d98b-43fd-ac6c-75a3e17ae8f7",
+      "verdict": "APPROVE_PLAN",
+      "implementation_proposal_ready": false,
+      "work_available": false
+    },
+    "council_evidence": {
+      "status": "COMPLETE",
+      "responses": 2,
+      "providers": ["workers-ai:@cf/zai-org/glm-4.7-flash", "workers-ai:@cf/meta/llama-3.3-70b-instruct-fp8-fast"],
+      "roles_present": false,
+      "required_roles_present": false,
+      "synthesis_present": false
+    },
+    "interpretation": "Le Teacher approval GEN2-17 est live et les jobs owner WAITING_TEACHER sont toujours intacts. Le Council enregistré pour ce job ne satisfait toutefois pas encore le contrat multi-rôles imposé, et aucune proposition d'implémentation live n'est prête."
+  },
   "historical_runtime_checkpoint": {
     "recorded_at": "2026-09-10T14:45:30Z",
     "branch_at_time": "candidate/augmentio-core",
