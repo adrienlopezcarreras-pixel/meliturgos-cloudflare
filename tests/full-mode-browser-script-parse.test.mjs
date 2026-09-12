@@ -6,7 +6,8 @@ import { onRequestGet } from '../src/pages/full-interface-v5-runtime-fix.js';
 test('full mode inline browser scripts are syntactically valid JavaScript', async () => {
   const response = await onRequestGet();
   const html = await response.text();
-  assert.equal(response.headers.get('x-mel-full-mode-js'), 'repaired-v1');
+  assert.equal(response.headers.get('x-mel-full-mode-js'), 'repaired-polished-v2');
+  assert.match(html, /mel-full-polish-runtime/);
   const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)]
     .map((match) => match[1])
     .filter((source) => source.trim());
