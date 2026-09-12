@@ -24,7 +24,7 @@ test('canonical control center exposes one salon, Work, roadmap, diagnostics, po
   const page = await response.text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
   const runtimeFix = await readFile(new URL('../src/pages/full-interface-v5-runtime-fix.js', import.meta.url), 'utf8');
-  assert.equal(response.headers.get('x-mel-full-mode-js'), 'repaired-polished-v2');
+  assert.equal(response.headers.get('x-mel-full-mode-js'), 'repaired-polished-v3-bounded-chat');
   assert.match(page, /MEL · Mode complet/);
   assert.match(page, /Salon IA/);
   assert.match(page, /Conseil Multi-IA/);
