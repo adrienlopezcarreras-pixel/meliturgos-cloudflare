@@ -6,9 +6,9 @@ import { withConversationArchive } from "./conversations/intercept.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
 import handleAugmentio from "./api/augmentio-api.js";
-import { handleMentorChat } from "./api/mentor-api.js";
+import { handleMentorChat, handleMentorStatus } from "./api/mentor-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface-v2.js";
-import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v4.js";
+import { onRequestGet as handleFullModeV5 } from "./pages/full-interface-v5.js";
 import { finalizeMvpInterface } from "./pages/mvp-interface-finalizer.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
@@ -90,6 +90,7 @@ async function handleConversationApi(request, env) {
     return json({ ok: true, capability: body.id, result });
   }
 
+  if (path === "/api/gen2/mentor/status") return handleMentorStatus(request, env);
   if (path === "/api/gen2/mentor/chat") return handleMentorChat(request, env);
 
   if (path === "/api/gen2/conversations" && request.method === "GET") {
@@ -180,7 +181,7 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/professor") {
-      return handleFullModeV2({ env, request, params: {} }).catch(e => html(`Error loading full mode: ${e.message}`, 500));
+      return handleFullModeV5({ env, request, params: {} }).catch(e => html(`Error loading full mode: ${e.message}`, 500));
     }
 
     if (request.method === "GET" && url.pathname === "/professor-legacy") {
