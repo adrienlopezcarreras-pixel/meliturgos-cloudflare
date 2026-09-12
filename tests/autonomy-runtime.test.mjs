@@ -261,3 +261,13 @@ test('cloud autonomy heartbeat rejects a non-candidate Teacher branch fail-close
     (error) => error?.code === 'AUTONOMY_BRANCH_NOT_CANDIDATE' || error?.code === 'TEACHER_BRANCH_NOT_CANDIDATE',
   );
 });
+
+test('cloud autonomy heartbeat rejects divergent canonical and Teacher candidate branches fail-closed', async () => {
+  const fixture = runtimeFixture();
+  fixture.env.MEL_GITHUB_BRANCH = 'candidate/mel-clean-autonomy';
+  fixture.env.MEL_TEACHER_BRANCH = 'candidate/augmentio-core';
+  await assert.rejects(
+    () => runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository }),
+    (error) => error?.code === 'AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE',
+  );
+});
