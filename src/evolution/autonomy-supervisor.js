@@ -35,10 +35,26 @@ function score(item) {
   return autonomy * 100 + priority * 10 + status;
 }
 
-function activeJobScore(job) {
-  // An explicit owner request always outranks background roadmap work.
-  const requester = job?.requested_by === 'owner-chat' ? 0 : 1;
-  return requester * 1e15 + Number(job?.created_at || 0);
+function activeJobRank(job) {
+  const status = String(job?.status || '').toUpperCase();
+  // WAITING_TEACHER is intentionally passive: nothing can advance until the
+  // external Teacher replies. It must remain persisted and untouched, but it
+  // must not starve another already-actionable supervised job. Within the same
+  // actionability class, explicit owner work still outranks background work.
+  return {
+    passive: status === 'WAITING_TEACHER' ? 1 : 0,
+    requester: job?.requested_by === 'owner-chat' ? 0 : 1,
+    createdAt: Number(job?.created_at || 0),
+  };
+}
+
+function compareActiveJobs(left, right) {
+  const a = activeJobRank(left);
+  const b = activeJobRank(right);
+  return a.passive - b.passive
+    || a.requester - b.requester
+    || a.createdAt - b.createdAt
+    || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
 export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], blockedIds = [] } = {}) {
@@ -101,7 +117,7 @@ export class AutonomySupervisor {
     const current = await this.state();
     const existing = current.active
       .filter(isSupervisedAutonomyJob)
-      .sort((a, b) => activeJobScore(a) - activeJobScore(b))[0];
+      .sort(compareActiveJobs)[0];
     if (existing) return { created: false, job: existing, next: current.next };
     if (!current.next) return { created: false, job: null, next: null, complete: true };
 
