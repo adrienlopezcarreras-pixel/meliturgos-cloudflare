@@ -12,9 +12,10 @@ test('full mode inline browser scripts are syntactically valid JavaScript', asyn
 
   assert.ok(scripts.length > 0, 'expected at least one inline browser script');
   scripts.forEach((source, index) => {
-    assert.doesNotThrow(
-      () => new vm.Script(source, { filename: `full-mode-inline-${index + 1}.js` }),
-      `inline browser script ${index + 1} must parse`
-    );
+    try {
+      new vm.Script(source, { filename: `full-mode-inline-${index + 1}.js` });
+    } catch (error) {
+      assert.fail(`inline browser script ${index + 1} must parse:\n${error?.stack || error}`);
+    }
   });
 });
