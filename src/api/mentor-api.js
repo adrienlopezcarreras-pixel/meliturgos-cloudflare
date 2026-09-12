@@ -24,16 +24,23 @@ function compactContext(recent = []) {
   }));
 }
 
+function normalizeGuardText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
 function buildLocalGuardAdvice(text, recent = []) {
   const context = compactContext(recent);
-  const combined = `${context.map((m) => `${m.label || m.role}: ${m.text}`).join('\n')}\nAdrien: ${text}`.toLowerCase();
+  const combined = normalizeGuardText(`${context.map((m) => `${m.label || m.role}: ${m.text}`).join('\n')}\nAdrien: ${text}`);
   const warnings = [];
 
-  const spend = /\b(payer|paiement|achat|acheter|dépense|depenser|dépenser|abonnement|factur|billing|carte bancaire|api payante|crédit payant|credit payant)\b/i.test(combined);
-  const destructive = /\b(supprim|delete|effac|erase|overwrite|écras|ecras|reset --hard|force push|force-push|drop table|production|déploi|deploy|publier en prod)\b/i.test(combined);
-  const credential = /\b(secret|token|mot de passe|password|clé api|cle api|api key|credential|identifiant)\b/i.test(combined);
+  const spend = /\b(payer|paiement|achat|acheter|achete|achetez|commande|commander|depense|depenser|abonnement|factur|billing|carte bancaire|api payante|credit payant)\b/i.test(combined);
+  const destructive = /\b(supprim|delete|effac|erase|overwrite|ecras|reset --hard|force push|force-push|drop table|production|deploi|deploy|publier en prod)\b/i.test(combined);
+  const credential = /\b(secret|token|mot de passe|password|cle api|api key|credential|identifiant)\b/i.test(combined);
   const externalAction = /\b(envoyer|send|publier|poster|publication|email|mail|message externe|mettre en ligne|mise en ligne)\b/i.test(combined);
-  const claimedDone = /\b(fait|terminé|termine|déployé|deploye|corrigé|corrige|installé|installe|mis en ligne|réussi|reussi)\b/i.test(combined);
+  const claimedDone = /\b(fait|termine|deploye|corrige|installe|mis en ligne|reussi)\b/i.test(combined);
   const hasEvidence = /\b(sha|commit|test|tests|ci|workflow|job[_ -]?id|preuve|log|runtime|http 2\d\d|status 2\d\d)\b/i.test(combined);
 
   if (spend) warnings.push('Aucune dépense : tout achat, abonnement, crédit ou API facturable exige une autorisation explicite d’Adrien avant exécution.');
