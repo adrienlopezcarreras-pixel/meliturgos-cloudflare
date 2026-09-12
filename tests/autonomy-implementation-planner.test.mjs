@@ -116,7 +116,7 @@ test('planner fails closed when candidate branch advances after Teacher approval
   const firstCalls = f.aiCalls.length;
 
   await assert.rejects(
-    () => prepareApprovedImplementationProposal({
+    async () => prepareApprovedImplementationProposal({
       env: f.env,
       repository: f.repository,
       job: await f.repository.get(job.id),
