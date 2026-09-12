@@ -7,7 +7,7 @@ import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
 import handleAugmentio from "./api/augmentio-api.js";
 import { handleMentorChat } from "./api/mentor-api.js";
-import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
+import { onRequestGet as handleMvp } from "./pages/mvp-interface-v2.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v4.js";
 import { finalizeMvpInterface } from "./pages/mvp-interface-finalizer.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
