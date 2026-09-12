@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { flattenRoadmap, roadmapSummary, getRoadmapPayload, validateRoadmap } from '../src/roadmap/master-roadmap.js';
-import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v5-runtime-fix.js';
+import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v2.js';
 
 test('master roadmap is comprehensive, unique and internally consistent', () => {
   const rows = flattenRoadmap();
@@ -31,19 +31,20 @@ test('master roadmap is comprehensive, unique and internally consistent', () => 
   assert.equal(payload.validation.ok, true);
 });
 
-test('canonical control center exposes one salon, Work, roadmap, diagnostics and rollback path', async () => {
+test('canonical control center exposes one Work, roadmap, diagnostics, multi-AI and rollback path', async () => {
   const response = await renderFullMode({});
   const page = await response.text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
-  assert.match(page, /MEL · Mode complet/);
-  assert.match(page, /Salon IA/);
-  assert.match(page, /Conseil Multi-IA/);
-  assert.match(page, /Travail/);
-  assert.match(page, /Roadmap/);
+  assert.match(page, /Mode complet/);
+  assert.match(page, /Multi-IA/);
+  assert.match(page, /Work/);
+  assert.match(page, /Feuille de route/);
   assert.match(page, /Diagnostic/);
-  assert.match(page, /MEL → Conseil Multi-IA → Mentor/);
+  assert.match(page, /\.augmentio & Council/);
   assert.match(page, /\/api\/gen2\/roadmap/);
   assert.match(page, /\/api\/gen2\/code\/self-check/);
-  assert.match(router, /handleFullModeV5/);
+  assert.match(page, /\/professor-legacy/);
+  assert.match(router, /handleFullModeV2/);
+  assert.match(router, /url\.pathname === "\/professor"/);
   assert.match(router, /\/professor-legacy/);
 });
