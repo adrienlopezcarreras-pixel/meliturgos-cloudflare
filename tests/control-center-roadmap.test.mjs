@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { flattenRoadmap, roadmapSummary, getRoadmapPayload } from '../src/roadmap/master-roadmap.js';
-import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v2.js';
+import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v5.js';
 
 test('master roadmap is comprehensive and includes major product targets', () => {
   const rows = flattenRoadmap();
@@ -19,18 +19,20 @@ test('master roadmap is comprehensive and includes major product targets', () =>
   assert.equal(getRoadmapPayload().ok, true);
 });
 
-test('control center v2 exposes collaborative room, roadmap, multi-AI controls, diagnostics and rollback path', async () => {
+test('canonical control center v5 exposes collaborative room, roadmap, multi-AI controls, diagnostics and rollback path', async () => {
   const page = await (await renderFullMode({})).text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
   assert.match(page, /MEL Control Room|Control Room/);
   assert.match(page, /Adrien · MEL · Mentor/);
-  assert.match(page, /Salon Adrien · MEL · Mentor/);
+  assert.match(page, /Salon Adrien · MEL · Teacher/);
   assert.match(page, /Multi-IA/);
   assert.match(page, /Travail/);
   assert.match(page, /Feuille de route complète/);
   assert.match(page, /Diagnostic/);
   assert.match(page, /\/api\/gen2\/roadmap/);
-  assert.match(router, /handleFullModeV2/);
+  assert.match(router, /handleFullModeV5/);
+  assert.match(router, /full-interface-v5\.js/);
+  assert.doesNotMatch(router, /full-interface-v[234]\.js/);
   assert.doesNotMatch(router, /\/professor-v1/);
   assert.match(router, /\/professor-legacy/);
   assert.match(router, /\/api\/gen2\/roadmap/);
