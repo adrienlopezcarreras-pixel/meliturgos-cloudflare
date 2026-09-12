@@ -1,5 +1,5 @@
 const MVP_BEHAVIOR_PATCH = `<style id="mel-mvp-behavior-style">
-/* Final simple-mode layout: MEL alone at the top; tools stay available at the bottom. */
+/* Final simple-mode layout: MEL alone at the top; only requested controls remain. */
 .mel-title{margin:0 0 8px;text-align:center;font-size:clamp(1.5rem,4vw,2.05rem);line-height:1;letter-spacing:.12em;font-weight:850;color:#fff;text-shadow:0 2px 18px rgba(0,0,0,.44)}
 .app:before,.app:after{display:none!important;content:none!important}
 .theme-switch{display:none!important}
@@ -16,14 +16,9 @@ const MVP_BEHAVIOR_PATCH = `<style id="mel-mvp-behavior-style">
 .mel-continue-link.visible{display:inline}
 .mel-continue-link:hover{filter:brightness(1.16)}
 .mel-continue-link:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
-.mel-bottom-tools{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;align-items:start;margin:12px 0 0}
-.mel-bottom-tools #melAudit{margin:0;border:1px solid var(--border);border-radius:12px;background:rgba(4,7,13,.72);overflow:hidden;backdrop-filter:blur(12px)}
-.mel-bottom-tools #melAudit summary{cursor:pointer;padding:10px 12px;font-weight:800;color:var(--ink);user-select:none}
-.mel-audit-body{padding:0 12px 12px}.mel-audit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:8px}
-.mel-audit-card{padding:9px;border:1px solid var(--border);border-radius:9px;background:rgba(255,255,255,.06);font-size:.8rem;color:var(--ink)}
-.mel-audit-card strong{display:block;font-size:.72rem;opacity:.68;margin-bottom:3px}.mel-audit-refresh{padding:7px 10px;min-height:36px;font-size:.8rem}
+.mel-bottom-tools{display:grid;grid-template-columns:1fr;gap:9px;align-items:start;margin:12px 0 0}
 .mel-bottom-tools #full{grid-column:1/-1;width:100%;min-height:46px;font-weight:800}
-@media(max-width:600px){.mel-title{font-size:1.42rem;margin-bottom:7px}.avatar{width:min(43vw,172px)!important;height:min(43vw,172px)!important;min-width:136px!important;min-height:136px!important}.avatar-wrap:before{width:180px!important;height:180px!important}#messages{min-height:210px!important}.mel-bottom-tools{grid-template-columns:auto minmax(0,1fr);gap:7px}.mel-audit-grid{grid-template-columns:1fr}.mel-bottom-tools .theme-panel{width:min(300px,calc(100vw - 18px))!important}}
+@media(max-width:600px){.mel-title{font-size:1.42rem;margin-bottom:7px}.avatar{width:min(43vw,172px)!important;height:min(43vw,172px)!important;min-width:136px!important;min-height:136px!important}.avatar-wrap:before{width:180px!important;height:180px!important}#messages{min-height:210px!important}.mel-bottom-tools{grid-template-columns:1fr;gap:7px}.mel-bottom-tools .theme-panel{width:min(300px,calc(100vw - 18px))!important}}
 </style><script id="mel-mvp-behavior-runtime">
 (function(){
   const CHAT_TIMEOUT_MS=120000;
@@ -82,27 +77,11 @@ const MVP_BEHAVIOR_PATCH = `<style id="mel-mvp-behavior-style">
 
   function syncVoiceStatus(){
     const node=document.getElementById('voiceStatus');if(!node)return;
-    const refresh=()=>node.classList.toggle('mel-idle-voice',/^(Touchez son visage pour parler|)$/i.test(String(node.textContent||'').trim()));
-    new MutationObserver(refresh).observe(node,{childList:true,subtree:true,characterData:true});refresh();
-  }
-
-  function compactReadiness(data){if(!data||typeof data!=='object')return 'indisponible';if(typeof data.status==='string')return data.status;if(typeof data.ready==='boolean')return data.ready?'PRÊT':'À VÉRIFIER';if(typeof data.ok==='boolean')return data.ok?'OK':'À VÉRIFIER';return 'chargé'}
-
-  function installAudit(bottom,full){
-    if(document.getElementById('melAudit'))return;
-    const details=document.createElement('details');details.id='melAudit';
-    details.innerHTML='<summary>Audit MEL</summary><div class="mel-audit-body"><div class="mel-audit-grid"><div class="mel-audit-card"><strong>Système</strong><span id="melAuditSystem">non chargé</span></div><div class="mel-audit-card"><strong>Mémoire</strong><span id="melAuditMemory">non chargée</span></div></div><button type="button" class="mel-audit-refresh" id="melAuditRefresh">Actualiser</button></div>';
-    bottom.insertBefore(details,full);
-    const refresh=async()=>{
-      const system=document.getElementById('melAuditSystem'),memory=document.getElementById('melAuditMemory');if(system)system.textContent='vérification…';if(memory)memory.textContent='vérification…';
-      const [ready,mem]=await Promise.allSettled([
-        fetch('/api/gen2/readiness?refresh=1').then(r=>r.json().then(j=>r.ok?j:Promise.reject(j))),
-        fetch('/api/memory/status').then(r=>r.json().then(j=>r.ok?j:Promise.reject(j)))
-      ]);
-      if(system)system.textContent=ready.status==='fulfilled'?compactReadiness(ready.value):'indisponible';
-      if(memory){if(mem.status==='fulfilled'){const m=mem.value||{};memory.textContent=(m.memory_count??'—')+' souvenirs · '+(m.conversation_count??'—')+' conversations'}else memory.textContent='indisponible'}
+    const refresh=()=>{
+      const text=String(node.textContent||'').trim();
+      node.classList.toggle('mel-idle-voice',/^(Touchez son visage pour parler|Reconnaissance vocale non disponible dans ce navigateur\.?|)$/i.test(text));
     };
-    document.getElementById('melAuditRefresh')?.addEventListener('click',refresh);details.addEventListener('toggle',()=>{if(details.open&&details.dataset.loaded!=='1'){details.dataset.loaded='1';refresh()}});
+    new MutationObserver(refresh).observe(node,{childList:true,subtree:true,characterData:true});refresh();
   }
 
   function installMinimalLayout(){
@@ -111,8 +90,8 @@ const MVP_BEHAVIOR_PATCH = `<style id="mel-mvp-behavior-style">
     if(!document.getElementById('melTitle')){const title=document.createElement('h1');title.id='melTitle';title.className='mel-title';title.textContent='MEL';app.insertBefore(title,avatarWrap)}
     let bottom=document.getElementById('melBottomTools');if(!bottom){bottom=document.createElement('div');bottom.id='melBottomTools';bottom.className='mel-bottom-tools';windowPanel.insertAdjacentElement('afterend',bottom)}
     const themeSwitch=document.querySelector('.theme-switch');if(themeSwitch&&!bottom.contains(themeSwitch))bottom.appendChild(themeSwitch);
+    document.getElementById('melAudit')?.remove();
     if(!bottom.contains(full))bottom.appendChild(full);
-    installAudit(bottom,full);
     document.querySelectorAll('.mel-topline,.mel-recall-row,.mel-motto,.mel-idle-status,#skills,#skillsBtn,#skillsPanel,.skills').forEach(node=>node.remove());
   }
 
