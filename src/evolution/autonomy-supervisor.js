@@ -35,14 +35,27 @@ function score(item) {
   return autonomy * 100 + priority * 10 + status;
 }
 
-function activeJobRank(job) {
+function isWaitingTeacher(job) {
+  return String(job?.status || '').toUpperCase() === 'WAITING_TEACHER';
+}
+
+function isPassiveRuntimeJob(job) {
   const status = String(job?.status || '').toUpperCase();
-  // WAITING_TEACHER is intentionally passive: nothing can advance until the
-  // external Teacher replies. It must remain persisted and untouched, but it
-  // must not starve another already-actionable supervised job. Within the same
-  // actionability class, explicit owner work still outranks background work.
+  if (status === 'WAITING_TEACHER') return true;
+  // READY_FOR_REVIEW without a failed local test has no runtime transition to
+  // execute: it is waiting for externally recorded CI/completion evidence.
+  // Treat it as passive so it cannot starve another job that can genuinely
+  // advance. A repairable READY_FOR_REVIEW job remains actionable and keeps
+  // normal owner priority.
+  return status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair !== true;
+}
+
+function activeJobRank(job) {
+  // Passive jobs stay persisted and untouched but cannot starve another job
+  // that can genuinely advance. Within the same actionability class, explicit
+  // owner work still outranks background roadmap work.
   return {
-    passive: status === 'WAITING_TEACHER' ? 1 : 0,
+    passive: isPassiveRuntimeJob(job) ? 1 : 0,
     requester: job?.requested_by === 'owner-chat' ? 0 : 1,
     createdAt: Number(job?.created_at || 0),
   };
@@ -55,10 +68,6 @@ function compareActiveJobs(left, right) {
     || a.requester - b.requester
     || a.createdAt - b.createdAt
     || String(left?.id || '').localeCompare(String(right?.id || ''));
-}
-
-function isWaitingTeacher(job) {
-  return String(job?.status || '').toUpperCase() === 'WAITING_TEACHER';
 }
 
 export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], blockedIds = [] } = {}) {
@@ -121,26 +130,24 @@ export class AutonomySupervisor {
     const current = await this.state();
     const actionable = current.active
       .filter(isSupervisedAutonomyJob)
-      .filter((job) => !isWaitingTeacher(job))
+      .filter((job) => !isPassiveRuntimeJob(job))
       .sort(compareActiveJobs)[0];
     if (actionable) return { created: false, job: actionable, next: current.next };
 
-    // An internal roadmap job waiting for Teacher is still the current roadmap
-    // gate: do not create a second internal roadmap job in parallel. By
-    // contrast, owner-chat requests waiting on an external Teacher are passive
-    // and remain untouched while MEL is allowed to start the next background
-    // roadmap item. This prevents owner review latency from freezing autonomy
-    // without mutating, approving or cancelling the owner's request.
-    const waitingInternal = current.active
+    // An internal roadmap job that is passively waiting for Teacher or external
+    // completion evidence is still the current roadmap gate: do not create a
+    // second internal roadmap job in parallel. By contrast, passive owner-chat
+    // work remains untouched while MEL may advance the next background item.
+    const passiveInternal = current.active
       .filter(isSupervisedAutonomyJob)
-      .filter((job) => isWaitingTeacher(job) && job.requested_by === 'mel-autonomy')
+      .filter((job) => isPassiveRuntimeJob(job) && job.requested_by === 'mel-autonomy')
       .sort(compareActiveJobs)[0];
-    if (waitingInternal) return { created: false, job: waitingInternal, next: current.next };
+    if (passiveInternal) return { created: false, job: passiveInternal, next: current.next };
 
     if (!current.next) {
       const passiveOwner = current.active
         .filter(isSupervisedAutonomyJob)
-        .filter((job) => isWaitingTeacher(job))
+        .filter((job) => isPassiveRuntimeJob(job))
         .sort(compareActiveJobs)[0] || null;
       return { created: false, job: passiveOwner, next: null, complete: !passiveOwner };
     }
