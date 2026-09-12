@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MVP_BEHAVIOR_PATCH, enhanceMvpBehavior } from '../src/pages/mvp-behavior-enhancer.js';
+import { onRequestGet as renderMvpV2 } from '../src/pages/mvp-interface-v2.js';
 
 test('MEL vNext behavior uses server transcription instead of relying only on SpeechRecognition', () => {
   assert.match(MVP_BEHAVIOR_PATCH, /MediaRecorder/);
@@ -36,4 +37,12 @@ test('MVP behavior enhancer injects vNext runtime once into MEL HTML', async () 
   const twice = await enhanceMvpBehavior(new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } }));
   const htmlTwice = await twice.text();
   assert.equal((htmlTwice.match(/id="mel-mvp-behavior-runtime"/g) || []).length, 1);
+});
+
+test('normal-mode entrypoint actually includes the vNext behavior layer', async () => {
+  const html = await (await renderMvpV2({})).text();
+  assert.match(html, /id="mel-mvp-behavior-runtime"/);
+  assert.match(html, /\/api\/voice\/transcribe/);
+  assert.match(html, /\/api\/files\/analyze/);
+  assert.match(html, /Audit MEL/);
 });
