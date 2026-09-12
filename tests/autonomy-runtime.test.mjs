@@ -35,11 +35,12 @@ function runtimeFixture() {
   const env = {
     MELITURGOS_USER: 'test',
     MEL_GITHUB_REPOSITORY: 'owner/repo',
+    MEL_GITHUB_BRANCH: 'candidate/augmentio-core',
     MEL_TEACHER_BRANCH: 'candidate/augmentio-core',
     AI: {
       async run(model) {
         aiCalls.push(model);
-        return { response: `Independent state-of-play from ${model}` };
+        return { response: `FICHIERS: src/evolution/autonomy-runtime.js\nCHANGEMENTS: proposition bornée de ${model}\nREUTILISATION: étendre les composants existants; aucun second orchestrateur\nTESTS: npm test\nRISQUES: faibles\nROLLBACK: revert candidate\nCRITERES_DE_FIN: CI complète verte` };
       },
     },
   };
