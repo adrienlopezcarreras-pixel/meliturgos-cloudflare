@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProviderPool } from '../src/augmentio/provider-pool.js';
+import { REQUIRED_COUNCIL_ROLE_IDS } from '../src/teachers/augmentio-council.js';
 import { prepareDevelopmentRequest, authorizeDevelopmentPlan } from '../src/evolution/development-preflight.js';
 
 const provider = id => ({
@@ -15,11 +16,17 @@ const provider = id => ({
   invoke: async () => ({ text: `état des lieux ${id}`, provenance: { provider: 'test', model: id } })
 });
 
-test('development preflight consults multiple AIs before allowing any code generation', async () => {
+test('development preflight consults multiple AIs and covers all mandatory review roles before allowing any code generation', async () => {
   const pool = new ProviderPool([provider('a'), provider('b')]);
   const preflight = await prepareDevelopmentRequest({ env: {}, goal: 'Créer une nouvelle compétence calendrier', pool });
   assert.equal(preflight.stage, 'AI_STATE_OF_PLAY_COMPLETE');
-  assert.equal(preflight.council.responses.length, 2);
+  assert.equal(preflight.council.responses.length, REQUIRED_COUNCIL_ROLE_IDS.length);
+  assert.deepEqual(
+    new Set(preflight.council.responses.map(row => row.answer.role)),
+    new Set(REQUIRED_COUNCIL_ROLE_IDS)
+  );
+  assert.equal(preflight.council.all_required_roles_satisfied, true);
+  assert.deepEqual(new Set(preflight.council.providers_succeeded), new Set(['a', 'b']));
   assert.equal(preflight.code_inspection_allowed, true);
   assert.equal(preflight.code_generation_allowed, false);
   assert.equal(preflight.development_allowed, false);
