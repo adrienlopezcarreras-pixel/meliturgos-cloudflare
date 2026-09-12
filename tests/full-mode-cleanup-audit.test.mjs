@@ -30,6 +30,15 @@ test('Mentor route is fail-closed and does not use the generic fanout from its c
   assert.match(source, /external_inference_used/);
 });
 
+test('status inspection uses the inference-free Mentor status route', async () => {
+  const source = await readFile(sourceUrl, 'utf8');
+  const start = source.indexOf('async function statusMel');
+  const end = source.indexOf('async function mentorReview', start);
+  const statusClient = source.slice(start, end);
+  assert.match(statusClient, /\/api\/gen2\/mentor\/status/);
+  assert.doesNotMatch(statusClient, /askFreeMentor|mentor\/chat/);
+});
+
 test('full-mode wrapper stays compact and keeps advanced controls available', async () => {
   const source = await readFile(sourceUrl, 'utf8');
   assert.ok(source.length < 22000, `full-interface-v5.js is too large: ${source.length} bytes`);
