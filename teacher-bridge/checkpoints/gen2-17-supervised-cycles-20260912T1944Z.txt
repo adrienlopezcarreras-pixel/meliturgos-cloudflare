@@ -1,0 +1,45 @@
+MELITURGOS factual checkpoint — GEN2-17 supervised autonomy cycles
+UTC: 2026-09-12T19:44Z
+Branch: candidate/mel-clean-autonomy
+Verified HEAD before checkpoint: a8375bbd13cce0ab8ce8127e7640570a1af654f0
+Roadmap item: GEN2-17 — Dev Agent / auto-évolution supervisée
+
+FICHIERS
+- src/evolution/autonomy-supervisor.js (existing; reused, not duplicated)
+- tests/autonomy-supervisor.test.mjs (existing; reused)
+- tests/autonomy-ready-for-review-recovery.test.mjs (existing; branch fixture converged)
+- tests/owner-development-queue.test.mjs (existing; branch fixture converged)
+- teacher-bridge/replies.jsonl (existing Teacher approval evidence)
+- this checkpoint file (new factual record required by the canonical cycle; existing checkpoints directory reused)
+
+CHANGEMENTS / PROGRESS VERIFIED
+- Canonical candidate is candidate/mel-clean-autonomy.
+- Recent commits e931ab937d191165ab7dcce8e2e8ee33b8b1f0b6 and a8375bbd13cce0ab8ce8127e7640570a1af654f0 converged recovery and owner-queue test fixtures away from candidate/augmentio-core and onto candidate/mel-clean-autonomy.
+- AutonomySupervisor already contains the anti-starvation rule required by the Teacher approval for GEN2-17: WAITING_TEACHER owner work stays persisted and untouched, while an already-actionable internal supervised job may advance; actionable owner work still outranks actionable background work.
+- Existing supervisor tests cover: an owner WAITING_TEACHER job not starving an approved internal job; creation of the next internal roadmap job while passive owner review remains untouched; two consecutive autonomous roadmap transitions with the owner request still WAITING_TEACHER; and actionable owner work retaining priority.
+- Teacher reply for request 1cdedf2f-d98b-43fd-ac6c-75a3e17ae8f7 APPROVE_PLAN explicitly authorized this candidate-only GEN2-17 direction and required repeated supervised cycles without mutating passive owner work.
+- full-candidate-ci run 34714711966 completed SUCCESS on exact HEAD a8375bbd13cce0ab8ce8127e7640570a1af654f0 after the canonical-branch fixture convergence.
+
+REUTILISATION
+- No second orchestrator, roadmap, Work DAG, Council, or Teacher channel was introduced.
+- The existing AutonomySupervisor, persistent dev-job repository, Teacher bridge, Council/preflight, Work DAG, and canonical full-candidate-ci remain the single path.
+
+TESTS
+- full-candidate-ci: SUCCESS on exact SHA a8375bbd13cce0ab8ce8127e7640570a1af654f0 (run 34714711966).
+- Supervisor coverage already proves two consecutive roadmap transitions while passive owner review remains untouched.
+- Canonical branch convergence fixtures are now aligned in recovery and owner queue tests.
+
+RISQUES
+- Unit/integration evidence is not by itself proof of two fresh live production-runtime development cycles on the deployed Worker.
+- The configured Council role coverage is code/test proven, but the prior Council checkpoint explicitly does not claim new external live-provider invocation from this tool surface.
+- MEL_TEACHER_APPROVED_BRANCH convergence should remain fail-closed wherever an approved-branch environment value is consumed; no new completion claim is made here without runtime proof.
+
+ROLLBACK
+- This checkpoint is documentation-only and can be reverted as one candidate commit.
+- No production deployment, DNS/auth/billing/permission change, secret write, destructive D1 migration, or paid/unknown-cost provider was used.
+
+CRITERES_DE_FIN
+GEN2-17 must NOT be marked DONE solely from this checkpoint. Completion still requires factual evidence that at least two consecutive supervised development cycles execute through the real runtime on the canonical branch, each retaining request/SHA provenance, preserving passive owner WAITING_TEACHER work, passing targeted tests and full-candidate-ci on the exact resulting SHA, with no production privilege widening.
+
+NEXT SAFE STEP
+Use the existing runtime/Teacher/Council path to capture the first and second real consecutive GEN2-17 supervised-cycle completions on candidate/mel-clean-autonomy. If branch configuration or Teacher-approved branch diverges, fail closed and request a fresh review rather than creating a fallback branch.
