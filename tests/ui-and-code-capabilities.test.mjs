@@ -28,8 +28,11 @@ test('native code routing understands follow-up access questions from recent con
   );
 });
 
-test('simple mode finalizer uses the new avatar and only essential daily/full-mode controls', () => {
-  assert.equal(MEL_AVATAR_URL, '/assets/avatars/mel-spanish-20260911.webp');
+test('simple mode finalizer uses canonical per-theme avatars and only essential daily/full-mode controls', () => {
+  assert.equal(MEL_AVATAR_URL, '/assets/avatars/mel-classic.webp');
+  assert.match(MEL_INTERFACE_FINALIZER, /const AVATARS=/);
+  assert.match(MEL_INTERFACE_FINALIZER, /MutationObserver\(syncAvatar\)/);
+  assert.doesNotMatch(MEL_INTERFACE_FINALIZER, /mel-spanish-20260911\.webp/);
   assert.match(MEL_INTERFACE_FINALIZER, /Lectures du jour/);
   assert.match(MEL_INTERFACE_FINALIZER, /Mode complet/);
   assert.match(MEL_INTERFACE_FINALIZER, /aelf\.org/);
