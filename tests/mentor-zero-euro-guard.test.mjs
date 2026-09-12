@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handleMentorChat, buildLocalGuardAdvice } from '../src/api/mentor-api.js';
+import { handleMentorChat, handleMentorStatus, buildLocalGuardAdvice } from '../src/api/mentor-api.js';
 
 function mentorRequest(text, context = []) {
   return new Request('https://mel.local/api/gen2/mentor/chat', {
@@ -8,6 +8,10 @@ function mentorRequest(text, context = []) {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ text, context }),
   });
+}
+
+function mentorStatusRequest() {
+  return new Request('https://mel.local/api/gen2/mentor/status', { method: 'GET' });
 }
 
 test('Mentor works locally with zero external inference by default', async () => {
@@ -20,6 +24,39 @@ test('Mentor works locally with zero external inference by default', async () =>
   assert.equal(body.billing_policy, 'zero-euro-fail-closed');
   assert.equal(body.external_inference_used, false);
   assert.match(body.text, /lecture\/conseil uniquement/i);
+});
+
+test('Mentor status is inference-free and fail-closed when free use is not confirmed', async () => {
+  let calls = 0;
+  const env = {
+    AI: { run: async () => { calls += 1; return { response: 'unused' }; } },
+    MEL_MENTOR_FREE_AI_ENABLED: 'true',
+    MEL_MENTOR_ACCOUNT_CONFIRMED_FREE: 'false',
+  };
+  const response = handleMentorStatus(mentorStatusRequest(), env);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(calls, 0);
+  assert.equal(body.effective_provider, 'local-guard');
+  assert.equal(body.billing_policy, 'zero-euro-fail-closed');
+  assert.equal(body.external_inference_allowed, false);
+});
+
+test('Mentor status can report confirmed free Workers AI without invoking it', async () => {
+  let calls = 0;
+  const env = {
+    AI: { run: async () => { calls += 1; return { response: 'unused' }; } },
+    MEL_MENTOR_FREE_AI_ENABLED: 'true',
+    MEL_MENTOR_ACCOUNT_CONFIRMED_FREE: 'true',
+    MEL_MENTOR_FREE_MODEL: '@cf/zai-org/glm-4.7-flash',
+  };
+  const response = handleMentorStatus(mentorStatusRequest(), env);
+  const body = await response.json();
+  assert.equal(calls, 0);
+  assert.equal(body.effective_provider, 'workers-ai');
+  assert.equal(body.billing_policy, 'zero-euro-explicitly-confirmed');
+  assert.equal(body.external_inference_allowed, true);
+  assert.equal(body.model, '@cf/zai-org/glm-4.7-flash');
 });
 
 test('Mentor guard requires Adrien approval for spending and destructive actions', () => {
