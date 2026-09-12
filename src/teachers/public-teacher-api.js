@@ -7,9 +7,17 @@ const PUBLIC_PATHS = new Set(['/api/teacher/pending', '/api/teacher/status', '/a
 const SECRET_VALUE = /(bearer\s+[a-z0-9._~+/=-]{8,}|\bsk-[a-z0-9_-]{8,}|\bgh[pousr]_[a-z0-9]{12,}|(?:api[_ -]?key|token|password|secret|cookie|otp)\s*[:=]\s*[^\s,;]{6,})/gi;
 const SHA40 = /^[0-9a-f]{40}$/i;
 const SAFE_DIAGNOSTIC_CODE = /^[A-Z0-9_]{1,80}$/;
+const SAFE_TECH_ID = /^[A-Za-z0-9@._:/+\-]{1,220}$/;
+const SECRETISH_ID = /(password|secret|cookie|otp|bearer|api[_-]?key|access[_-]?token|refresh[_-]?token)/i;
 
 function redactPlanText(value) {
   return String(value || '').replace(SECRET_VALUE, '[REDACTED]').slice(0, 12000);
+}
+
+function safeTechId(value) {
+  const text = String(value || '').trim();
+  if (!text || !SAFE_TECH_ID.test(text) || SECRETISH_ID.test(text)) return null;
+  return text;
 }
 
 function publicDiagnosticCode(job) {
@@ -27,6 +35,67 @@ function currentTeacherMetadata(job) {
   };
 }
 
+/**
+ * Public proof metadata for internally generated roadmap work only.
+ * It deliberately exposes no goal, prompt, Council answer text, synthesis text,
+ * inspection content, owner-chat work, credentials or arbitrary context. The
+ * external Teacher gets only enough provenance to verify that the live
+ * zero-cost Council genuinely ran and covered the mandatory specialist roles.
+ */
+function safeCouncilEvidence(job) {
+  if (job?.requested_by !== 'mel-autonomy') return null;
+  const council = job?.plan_json?.preflight?.council;
+  if (!council || council.status !== 'COMPLETE') return null;
+
+  const responses = Array.isArray(council.responses) ? council.responses : [];
+  const models = responses.map((row) => {
+    const answer = row?.answer || {};
+    const provenance = answer?.provenance || {};
+    const item = {
+      member: safeTechId(row?.member),
+      provider_id: safeTechId(answer?.provider_id),
+      provider: safeTechId(provenance?.provider),
+      model: safeTechId(provenance?.model),
+      role: safeTechId(answer?.role || provenance?.council_role),
+    };
+    return Object.values(item).some(Boolean) ? item : null;
+  }).filter(Boolean).slice(0, 24);
+
+  const attempted = (Array.isArray(council.providers_attempted) ? council.providers_attempted : [])
+    .map(safeTechId).filter(Boolean).slice(0, 24);
+  const succeeded = (Array.isArray(council.providers_succeeded) ? council.providers_succeeded : [])
+    .map(safeTechId).filter(Boolean).slice(0, 24);
+  const requiredRoles = (Array.isArray(council.required_roles_attempted) ? council.required_roles_attempted : [])
+    .map(safeTechId).filter(Boolean).slice(0, 16);
+  const succeededRoles = (Array.isArray(council.required_roles_succeeded) ? council.required_roles_succeeded : [])
+    .map(safeTechId).filter(Boolean).slice(0, 16);
+  const synthesis = council.synthesis && typeof council.synthesis === 'object'
+    ? {
+        status: safeTechId(council.synthesis.status),
+        coordinator: council.synthesis.coordinator === 'MEL' ? 'MEL' : null,
+        provider_id: safeTechId(council.synthesis.provider_id),
+        provider: safeTechId(council.synthesis.provenance?.provider),
+        model: safeTechId(council.synthesis.provenance?.model),
+      }
+    : null;
+
+  return {
+    status: 'COMPLETE',
+    budget_policy: council?.context?.budget_policy === 'ZERO_ADDED_COST_FAIL_CLOSED'
+      ? 'ZERO_ADDED_COST_FAIL_CLOSED'
+      : null,
+    providers_attempted: attempted,
+    providers_succeeded: succeeded,
+    responses: models,
+    required_roles: requiredRoles,
+    required_roles_succeeded: succeededRoles,
+    all_required_roles_satisfied: council.all_required_roles_satisfied === true,
+    synthesis,
+    teacher_required: council.teacher_required === true,
+    content_exposed: false,
+  };
+}
+
 function summarizeAutonomyJobs(jobs = []) {
   const autonomy = jobs.filter(isSupervisedAutonomyJob);
   const active = autonomy.filter((job) => !TERMINAL.has(String(job.status || '').toUpperCase()));
@@ -39,6 +108,7 @@ function summarizeAutonomyJobs(jobs = []) {
     })[0] || null;
   const teacher = current ? currentTeacherMetadata(current) : null;
   const proposal = current?.result_json?.implementation_proposal || null;
+  const councilEvidence = current ? safeCouncilEvidence(current) : null;
   return {
     total: autonomy.length,
     active_count: active.length,
@@ -58,6 +128,7 @@ function summarizeAutonomyJobs(jobs = []) {
       implementation_proposal_ready: proposal?.status === 'READY',
       implementation_models: proposal?.status === 'READY' && Array.isArray(proposal.providers_attempted) ? proposal.providers_attempted.length : 0,
       implementation_diagnostic_code: publicDiagnosticCode(current),
+      ...(councilEvidence ? { council_evidence: councilEvidence } : {}),
     } : null,
   };
 }
@@ -140,8 +211,10 @@ function bridgeSnapshot(pending, jobs) {
  * Deliberately public, read-only and aggressively minimized so the external
  * ChatGPT Teacher can discover pending technical requests without receiving a
  * MEL secret. Opaque job/request ids and roadmap ids are exposed for reliable
- * correlation; free-form owner goals/objectives, council text, inspection
- * contents and all owner-chat implementation plans remain private.
+ * correlation; free-form owner goals/objectives, council answer/synthesis text,
+ * inspection contents and all owner-chat implementation plans remain private.
+ * For internally generated roadmap work, sanitized Council provenance metadata
+ * may be exposed so the Teacher can verify live provider/model/role coverage.
  *
  * /api/teacher/work exposes at most one implementation plan, only when the job
  * was generated internally from the public MEL roadmap (`mel-autonomy`) and a
@@ -227,4 +300,4 @@ export async function maybeHandlePublicTeacherBridge(request, env) {
   }), { status: 200, headers: jsonHeaders });
 }
 
-export { summarizeAutonomyJobs, safeInternalWorkPackage, redactPlanText, bridgeSnapshot, publicDiagnosticCode };
+export { summarizeAutonomyJobs, safeCouncilEvidence, safeInternalWorkPackage, redactPlanText, bridgeSnapshot, publicDiagnosticCode };
