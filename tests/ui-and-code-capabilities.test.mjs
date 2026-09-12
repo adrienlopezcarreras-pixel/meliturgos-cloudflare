@@ -19,14 +19,15 @@ test('native code routing understands follow-up access questions from recent con
   assert.deepEqual(inferNativeCodeCapability('Donc tu peux vraiment le lire ?', [{ content: 'Nous parlions de ton code dans le repo GitHub.' }]), { id: 'code.read', input: { path: 'src/router.js' } });
 });
 
-test('simple mode finalizer keeps useful controls and a resilient themed avatar', () => {
+test('simple mode finalizer is simplified, readable and keeps a resilient themed avatar', () => {
   assert.equal(MEL_AVATAR_URL, '/assets/avatars/mel-classic.webp');
   assert.match(MEL_INTERFACE_FINALIZER, /const AVATARS=/);
   assert.match(MEL_INTERFACE_FINALIZER, /MutationObserver\(syncAvatar\)/);
-  assert.match(MEL_INTERFACE_FINALIZER, /Lectures du jour/);
   assert.match(MEL_INTERFACE_FINALIZER, /Mode complet/);
-  assert.match(MEL_INTERFACE_FINALIZER, /aelf\.org/);
-  assert.doesNotMatch(MEL_INTERFACE_FINALIZER, /MEL veille et prie en silence/);
+  assert.match(MEL_INTERFACE_FINALIZER, /background-size:cover/);
+  assert.match(MEL_INTERFACE_FINALIZER, /--muted:#d3dbe8/);
+  assert.match(MEL_INTERFACE_FINALIZER, /melReadingsToday/);
+  assert.doesNotMatch(MEL_INTERFACE_FINALIZER, /Lectures du jour|aelf\.org|Audit MEL|MEL veille et prie en silence/);
 });
 
 test('full mode is unified, responsive and evidence-based', async () => {
