@@ -57,6 +57,10 @@ function compareActiveJobs(left, right) {
     || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
+function isWaitingTeacher(job) {
+  return String(job?.status || '').toUpperCase() === 'WAITING_TEACHER';
+}
+
 export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], blockedIds = [] } = {}) {
   const completed = new Set(completedIds);
   const blocked = new Set(blockedIds);
@@ -115,11 +119,31 @@ export class AutonomySupervisor {
 
   async ensureNextJob() {
     const current = await this.state();
-    const existing = current.active
+    const actionable = current.active
       .filter(isSupervisedAutonomyJob)
+      .filter((job) => !isWaitingTeacher(job))
       .sort(compareActiveJobs)[0];
-    if (existing) return { created: false, job: existing, next: current.next };
-    if (!current.next) return { created: false, job: null, next: null, complete: true };
+    if (actionable) return { created: false, job: actionable, next: current.next };
+
+    // An internal roadmap job waiting for Teacher is still the current roadmap
+    // gate: do not create a second internal roadmap job in parallel. By
+    // contrast, owner-chat requests waiting on an external Teacher are passive
+    // and remain untouched while MEL is allowed to start the next background
+    // roadmap item. This prevents owner review latency from freezing autonomy
+    // without mutating, approving or cancelling the owner's request.
+    const waitingInternal = current.active
+      .filter(isSupervisedAutonomyJob)
+      .filter((job) => isWaitingTeacher(job) && job.requested_by === 'mel-autonomy')
+      .sort(compareActiveJobs)[0];
+    if (waitingInternal) return { created: false, job: waitingInternal, next: current.next };
+
+    if (!current.next) {
+      const passiveOwner = current.active
+        .filter(isSupervisedAutonomyJob)
+        .filter((job) => isWaitingTeacher(job))
+        .sort(compareActiveJobs)[0] || null;
+      return { created: false, job: passiveOwner, next: null, complete: !passiveOwner };
+    }
 
     const item = current.next;
     const attempts = current.supervisedJobs.filter((job) => roadmapIdFromJob(job) === item.id).length;
