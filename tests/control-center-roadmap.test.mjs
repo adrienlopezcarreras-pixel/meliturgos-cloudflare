@@ -19,18 +19,23 @@ test('master roadmap is comprehensive and includes major product targets', () =>
   assert.equal(getRoadmapPayload().ok, true);
 });
 
-test('canonical control center exposes one salon, Work, roadmap, diagnostics and rollback path', async () => {
+test('canonical control center exposes one salon, Work, roadmap, diagnostics, polish and rollback path', async () => {
   const response = await renderFullMode({});
   const page = await response.text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
   const runtimeFix = await readFile(new URL('../src/pages/full-interface-v5-runtime-fix.js', import.meta.url), 'utf8');
-  assert.equal(response.headers.get('x-mel-full-mode-js'), 'repaired-v1');
+  assert.equal(response.headers.get('x-mel-full-mode-js'), 'repaired-polished-v2');
   assert.match(page, /MEL · Mode complet/);
   assert.match(page, /Salon IA/);
   assert.match(page, /Conseil Multi-IA/);
   assert.match(page, /Travail/);
   assert.match(page, /Roadmap/);
   assert.match(page, /Diagnostic/);
+  assert.match(page, /mel-full-polish-runtime/);
+  assert.match(page, /MEL → Conseil Multi-IA → Mentor/);
+  assert.match(page, /state-done/);
+  assert.match(page, /state-progress/);
+  assert.match(page, /state-blocked/);
   assert.match(page, /\/api\/gen2\/roadmap/);
   assert.match(page, /\/api\/gen2\/code\/self-check/);
   assert.match(router, /handleFullModeV5/);
