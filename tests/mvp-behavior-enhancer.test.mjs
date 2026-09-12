@@ -8,10 +8,12 @@ test('MVP behavior enhancer injects continuation and bounded zero-euro chat fall
   const enhanced = await enhanceMvpBehavior(source);
   const html = await enhanced.text();
   assert.match(html, /Continuer depuis la dernière phrase/);
-  assert.match(html, /CHAT_TIMEOUT_MS=25000/);
+  assert.match(html, /CHAT_TIMEOUT_MS=12000/);
+  assert.match(html, /FALLBACK_TIMEOUT_MS=8000/);
   assert.match(html, /zeroEuroFallback/);
   assert.match(html, /\/api\/gen2\/augmentio\/fanout/);
   assert.match(html, /zero-euro-council-fallback/);
+  assert.match(html, /CHAT_AND_COUNCIL_UNAVAILABLE/);
   assert.match(html, /502,503,504/);
   assert.doesNotMatch(html, /Audit MEL|installAudit|melAuditRefresh/);
 });
