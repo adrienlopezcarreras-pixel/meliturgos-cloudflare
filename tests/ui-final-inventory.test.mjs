@@ -29,7 +29,8 @@ test('normal mode keeps useful interactions, bounded chat and hides unsupported 
   assert.match(base, /themeButton\.addEventListener\('click'/);
   assert.match(base, /avatar\.addEventListener\('click'/);
   assert.match(base, /input\.addEventListener\('keydown'/);
-  assert.match(behavior, /CHAT_TIMEOUT_MS=25000/);
+  assert.match(behavior, /CHAT_TIMEOUT_MS=12000/);
+  assert.match(behavior, /FALLBACK_TIMEOUT_MS=8000/);
   assert.match(behavior, /zeroEuroFallback/);
   assert.match(behavior, /\/api\/gen2\/augmentio\/fanout/);
   assert.match(behavior, /removeRedundantNormalMode/);
