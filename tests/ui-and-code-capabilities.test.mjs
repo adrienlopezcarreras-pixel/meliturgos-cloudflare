@@ -40,13 +40,15 @@ test('simple mode finalizer uses canonical per-theme avatars and only essential 
   assert.doesNotMatch(MEL_INTERFACE_FINALIZER, /MEL veille et prie en silence/);
 });
 
-test('full mode uses the current collaborative control center while legacy Professor remains recoverable', async () => {
+test('full mode keeps MEL responsive when synchronous Mentor is unavailable', async () => {
   const page = await (await renderFullMode({})).text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
   assert.match(page, /MEL Control Room|Control Room/);
   assert.match(page, /Adrien · MEL · Mentor/);
-  assert.match(page, /Salon Adrien · MEL · Mentor/);
-  assert.match(page, /Mentor répond par défaut/);
+  assert.match(page, /Salon Adrien · MEL · Teacher/);
+  assert.match(page, /Mode zéro-euro/);
+  assert.match(page, /Teacher autonome/);
+  assert.match(page, /Promise\.allSettled/);
   assert.match(page, /Multi-IA/);
   assert.match(page, /Feuille de route/);
   assert.match(page, /mel-spanish-20260911\.webp/);
