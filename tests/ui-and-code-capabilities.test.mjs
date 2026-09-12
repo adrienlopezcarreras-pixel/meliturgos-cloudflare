@@ -55,12 +55,13 @@ test('full mode keeps MEL responsive and provides fast verified reading controls
   assert.match(page, /resize:vertical/);
   assert.match(page, /Dernière réponse/);
   assert.match(page, /Grande lecture/);
-  assert.match(page, /button\[data-view="multi"\]/);
+  assert.match(page, /<button[^>]+data-view="multi"/);
   assert.match(page, /F5 revient ici/);
   assert.match(page, /Multi-IA/);
   assert.match(page, /Feuille de route/);
   assert.match(page, /mel-spanish-20260911\.webp/);
   assert.match(router, /full-interface-v5/);
   assert.match(router, /\/api\/gen2\/mentor\/chat/);
+  assert.match(router, /\/api\/gen2\/mentor\/status/);
   assert.match(router, /\/professor-legacy/);
 });
