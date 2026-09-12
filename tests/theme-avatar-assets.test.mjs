@@ -56,9 +56,16 @@ test('theme enhancer keeps seven themes reachable and uses approved remote MEL p
   for (const name of ['classic','crusade','religious','granada','aviation','paladin','amazon']) {
     assert.match(html, new RegExp(`mel-${name}-v3\\.webp`));
   }
+  for (const bg of ['classic','crusade','religious','granada','aviation','paladin','amazon']) {
+    assert.match(html, new RegExp(`mel-bg-${bg}-hd`));
+  }
   assert.match(html, /--mel-hd-bg/);
-  assert.match(html, /filter:blur\(30px\)/);
-  assert.match(html, /background-size:cover!important/);
+  assert.match(html, /background-image:linear-gradient/);
+  assert.match(html, /background-size:cover,cover!important/);
+  assert.match(html, /background-attachment:fixed,fixed!important/);
+  assert.match(html, /body:before,html body:after\{display:none!important/);
+  assert.doesNotMatch(html, /filter:blur\(30px\)/);
+  assert.doesNotMatch(html, /mel-classic-v3\.webp[^\n]*--mel-hd-bg/);
   assert.match(html, /theme-orb::after\{content:'Thèmes'/);
   assert.match(html, /position:fixed!important/);
   assert.match(html, /body\.ui_theme/);
