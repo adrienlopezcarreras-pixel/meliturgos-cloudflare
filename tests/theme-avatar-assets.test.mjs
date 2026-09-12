@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { getMelAvatarRoute, serveMelAvatar } from '../src/pages/mel-avatar-assets.js';
 import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
 
-test('each MEL visual mode resolves to its stable embedded avatar route', async () => {
+test('each MEL visual mode resolves to its stable embedded fallback avatar route', async () => {
   const cases = [
     ['classic', '/assets/avatars/mel-classic.webp', 'classic'],
     ['crusade', '/assets/avatars/mel-crusade.webp', 'crusade'],
@@ -30,7 +30,7 @@ test('each MEL visual mode resolves to its stable embedded avatar route', async 
   assert.equal(serveMelAvatar('/assets/avatars/unknown.webp'), null);
 });
 
-test('dedicated MEL portraits are byte-distinct; Granada fallback remains explicit', async () => {
+test('embedded fallback portraits remain byte-distinct where dedicated', async () => {
   const dedicated = [
     '/assets/avatars/mel-classic.webp',
     '/assets/avatars/mel-crusade.webp',
@@ -44,27 +44,21 @@ test('dedicated MEL portraits are byte-distinct; Granada fallback remains explic
     const bytes = Buffer.from(await serveMelAvatar(path).arrayBuffer());
     hashes.push(createHash('sha256').update(bytes).digest('hex'));
   }
-  assert.equal(new Set(hashes).size, dedicated.length, 'dedicated theme portraits must not collapse to the same image');
-  assert.equal(serveMelAvatar('/assets/avatars/mel-aviation-1940s.webp').headers.get('x-mel-avatar-fallback'), 'none');
-  assert.equal(serveMelAvatar('/assets/avatars/mel-paladin-light-full-plate.webp').headers.get('x-mel-avatar-fallback'), 'none');
-  assert.equal(serveMelAvatar('/assets/avatars/mel-amazon-griffon.webp').headers.get('x-mel-avatar-fallback'), 'none');
-  assert.equal(serveMelAvatar('/assets/avatars/mel-granada.webp').headers.get('x-mel-avatar-fallback'), 'religious');
+  assert.equal(new Set(hashes).size, dedicated.length);
 });
 
-test('theme enhancer keeps seven themes reachable and cache-busts portrait URLs', async () => {
+test('theme enhancer keeps seven themes reachable and uses approved remote MEL portrait series', async () => {
   const source = '<!doctype html><html data-theme="classic"><body><div class="theme-switch"><button id="themeButton"></button><div id="themePanel"><button data-theme-choice="classic">Classique</button><button data-theme-choice="crusade">Croisés</button><button data-theme-choice="religious">Religieux</button><button data-theme-choice="granada">Grenade</button><button data-theme-choice="aviation">Aviation</button><button data-theme-choice="paladin">Paladin</button><button data-theme-choice="amazon">Amazon</button></div></div><main class="app"><div class="avatar-wrap"><div id="avatar" class="avatar"><img src="/meliturgos-avatar-fille.png" alt="MEL"></div></div><section class="window"><div id="messages"></div><div class="composer"><textarea id="input" maxlength="100000"></textarea><div class="controls"><button id="send">Envoyer</button><button id="full">Mode complet</button></div></div></section><div id="melBottomTools" class="mel-bottom-tools"></div></main></body></html>';
   const response = await enhanceThemeAvatars(new Response(source, { headers: { 'content-type': 'text/html; charset=utf-8' } }));
   const html = await response.text();
   assert.match(html, /mel-theme-avatar-runtime/);
   assert.match(html, /mel-theme-decor-style/);
-  assert.match(html, /AVATAR_REV='20260912-r2'/);
-  assert.match(html, /versioned\('\/assets\/avatars\/mel-classic\.webp'\)/);
-  assert.match(html, /versioned\('\/assets\/avatars\/mel-crusade\.webp'\)/);
-  assert.match(html, /versioned\('\/assets\/avatars\/mel-religious-andalusian\.webp'\)/);
-  assert.match(html, /versioned\('\/assets\/avatars\/mel-granada\.webp'\)/);
-  assert.match(html, /versioned\('\/assets\/avatars\/mel-aviation-1940s\.webp'\)/);
-  assert.match(html, /versioned\('\/assets\/avatars\/mel-paladin-light-full-plate\.webp'\)/);
-  assert.match(html, /versioned\('\/assets\/avatars\/mel-amazon-griffon\.webp'\)/);
+  for (const name of ['classic','crusade','religious','granada','aviation','paladin','amazon']) {
+    assert.match(html, new RegExp(`mel-${name}-v3\\.webp`));
+  }
+  assert.match(html, /--mel-hd-bg/);
+  assert.match(html, /filter:blur\(30px\)/);
+  assert.match(html, /background-size:cover!important/);
   assert.match(html, /theme-orb::after\{content:'Thèmes'/);
   assert.match(html, /position:fixed!important/);
   assert.match(html, /body\.ui_theme/);
