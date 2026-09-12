@@ -1,7 +1,9 @@
 import { onRequestGet as renderMvp } from './mvp-interface.js';
+import { enhanceMvpBehavior } from './mvp-behavior-enhancer.js';
 
 export async function onRequestGet(context){
-  const response=await renderMvp(context);
+  let response=await renderMvp(context);
+  response=await enhanceMvpBehavior(response);
   const headers=new Headers(response.headers);
   headers.delete('content-length');
   headers.set('cache-control','no-store, max-age=0');
