@@ -28,38 +28,33 @@ test('native code routing understands follow-up access questions from recent con
   );
 });
 
-test('simple mode finalizer uses canonical per-theme avatars and only essential daily/full-mode controls', () => {
+test('simple mode finalizer keeps only useful controls and a resilient themed avatar', () => {
   assert.equal(MEL_AVATAR_URL, '/assets/avatars/mel-classic.webp');
   assert.match(MEL_INTERFACE_FINALIZER, /const AVATARS=/);
   assert.match(MEL_INTERFACE_FINALIZER, /MutationObserver\(syncAvatar\)/);
-  assert.doesNotMatch(MEL_INTERFACE_FINALIZER, /mel-spanish-20260911\.webp/);
+  assert.match(MEL_INTERFACE_FINALIZER, /meliturgos-avatar-fille\.png/);
   assert.match(MEL_INTERFACE_FINALIZER, /Lectures du jour/);
   assert.match(MEL_INTERFACE_FINALIZER, /Mode complet/);
   assert.match(MEL_INTERFACE_FINALIZER, /aelf\.org/);
-  assert.match(MEL_INTERFACE_FINALIZER, /theme-switch\{display:block/);
+  assert.match(MEL_INTERFACE_FINALIZER, /uiFinal='normal-v1'/);
   assert.doesNotMatch(MEL_INTERFACE_FINALIZER, /MEL veille et prie en silence/);
 });
 
-test('full mode keeps MEL responsive and provides fast verified reading controls', async () => {
+test('full mode is unified, responsive and evidence-based', async () => {
   const page = await (await renderFullMode({})).text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
-  assert.match(page, /MEL Control Room|Control Room/);
-  assert.match(page, /Adrien · MEL · Mentor/);
-  assert.match(page, /Salon Adrien · MEL · Teacher/);
-  assert.match(page, /Mode zéro-euro/);
-  assert.match(page, /Teacher autonome/);
+  assert.match(page, /MEL · Mode complet/);
+  assert.match(page, /Salon IA/);
+  assert.match(page, /Mentor MEL/);
+  assert.match(page, /Conseil Multi-IA/);
   assert.match(page, /Promise\.allSettled/);
-  assert.match(page, /Statut MEL/);
   assert.match(page, /MODE COMPLET — CONSIGNE DE STYLE PRIORITAIRE/);
   assert.match(page, /français normal, moderne, direct et professionnel/);
   assert.match(page, /resize:vertical/);
-  assert.match(page, /Dernière réponse/);
-  assert.match(page, /Grande lecture/);
-  assert.match(page, /<button[^>]+data-view="multi"/);
-  assert.match(page, /F5 revient ici/);
-  assert.match(page, /Multi-IA/);
-  assert.match(page, /Feuille de route/);
-  assert.match(page, /mel-spanish-20260911\.webp/);
+  assert.match(page, /<button[^>]+data-view="salon"/);
+  assert.match(page, /Roadmap/);
+  assert.match(page, /\/meliturgos-avatar-fille\.png/);
+  assert.doesNotMatch(page, /Statut MEL|Prochaine tâche|Fin du chat|Grande lecture/);
   assert.match(router, /full-interface-v5/);
   assert.match(router, /\/api\/gen2\/mentor\/chat/);
   assert.match(router, /\/api\/gen2\/mentor\/status/);
