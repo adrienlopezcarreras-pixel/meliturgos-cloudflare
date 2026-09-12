@@ -30,8 +30,40 @@ export const COUNCIL_ROLES = Object.freeze([
   }),
 ]);
 
+export const REQUIRED_COUNCIL_ROLE_IDS = Object.freeze([
+  'ARCHITECTURE_REUSE',
+  'SECURITY_GOVERNANCE',
+  'TESTS_EVIDENCE',
+  'PRODUCT_INTEGRATION',
+]);
+
 function roleFor(index) {
   return COUNCIL_ROLES[index % COUNCIL_ROLES.length];
+}
+
+function buildAssignments(eligible) {
+  const assignments = eligible.map((provider, index) => ({
+    memberId: provider.id,
+    provider,
+    role: roleFor(index),
+    supplemental: false,
+  }));
+  const assignedRoles = new Set(assignments.map(row => row.role.id));
+  let cursor = 0;
+  for (const roleId of REQUIRED_COUNCIL_ROLE_IDS) {
+    if (assignedRoles.has(roleId)) continue;
+    const role = COUNCIL_ROLES.find(candidate => candidate.id === roleId);
+    const provider = eligible[cursor % eligible.length];
+    assignments.push({
+      memberId: `${provider.id}::${role.id}`,
+      provider,
+      role,
+      supplemental: true,
+    });
+    assignedRoles.add(role.id);
+    cursor += 1;
+  }
+  return assignments;
 }
 
 function promptFor(member, brief, role) {
@@ -116,9 +148,13 @@ async function synthesizeWithFallback({ eligible, goal, context, report }) {
 /**
  * Concrete zero-added-cost state-of-play Council backed by the configured
  * .augmentio provider pool. Unknown-cost providers are excluded fail-closed.
- * Every eligible provider is attempted independently with a specialist role;
- * MEL then synthesizes the independent answers through an eligible zero-cost
- * provider before the external Teacher gate.
+ * Every eligible provider is attempted independently. The four mandatory
+ * specialist roles (architecture, security, tests and product/integration)
+ * are always covered; when fewer than four eligible providers exist, a proven
+ * zero-cost provider receives a second independent role-specific call rather
+ * than silently dropping a required review dimension. MEL then synthesizes the
+ * independent answers through an eligible zero-cost provider before the
+ * external Teacher gate.
  */
 export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResponses = 2, capability = 'GENERAL', pool } = {}) {
   const providerPool = pool || createDefaultAugmentioPool(env);
@@ -134,29 +170,37 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
     throw error;
   }
 
-  const assignments = eligible.map((provider, index) => ({ provider, role: roleFor(index) }));
-  const byId = new Map(assignments.map(row => [row.provider.id, row]));
+  const assignments = buildAssignments(eligible);
+  const byMember = new Map(assignments.map(row => [row.memberId, row]));
   const councilContext = {
     ...context,
     budget_policy: 'ZERO_ADDED_COST_FAIL_CLOSED',
-    council_policy: 'ALL_ELIGIBLE_PROVIDERS_ATTEMPTED_INDEPENDENTLY_THEN_MEL_SYNTHESIS',
+    council_policy: 'ALL_ELIGIBLE_PROVIDERS_AND_REQUIRED_ROLES_THEN_MEL_SYNTHESIS',
     teacher_gate: 'EXTERNAL_CHATGPT_TEACHER_AFTER_MEL_SYNTHESIS',
-    eligible_providers: assignments.map(({ provider, role }) => ({
+    required_roles: [...REQUIRED_COUNCIL_ROLE_IDS],
+    eligible_providers: eligible.map(provider => ({
       id: provider.id,
+      provider: provider.providerId,
+      model: provider.modelId,
+    })),
+    role_assignments: assignments.map(({ memberId, provider, role, supplemental }) => ({
+      member_id: memberId,
+      provider_id: provider.id,
       provider: provider.providerId,
       model: provider.modelId,
       role: role.id,
       role_label: role.label,
+      supplemental,
     }))
   };
 
   const report = await runStateOfPlayCouncil({
     goal,
     context: councilContext,
-    members: assignments.map(row => row.provider.id),
-    minResponses,
+    members: assignments.map(row => row.memberId),
+    minResponses: Math.max(minResponses, REQUIRED_COUNCIL_ROLE_IDS.length),
     ask: async (member, brief) => {
-      const assignment = byId.get(member);
+      const assignment = byMember.get(member);
       const provider = assignment?.provider;
       const role = assignment?.role;
       if (!provider || !role) throw Object.assign(new Error('COUNCIL_PROVIDER_NOT_FOUND'), { code: 'COUNCIL_PROVIDER_NOT_FOUND', status: 503 });
@@ -170,28 +214,45 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
         role_label: role.label,
         provenance: result?.provenance || { provider: provider.providerId, model: provider.modelId },
         provider_id: provider.id,
+        member_id: member,
         estimated_cost: provider.estimatedCost
       };
     }
   });
 
-  const succeeded = new Set((report.responses || []).map(row => row.member));
+  const succeededProviders = new Set((report.responses || []).map(row => row.answer?.provider_id).filter(Boolean));
+  const succeededRoles = new Set((report.responses || []).map(row => row.answer?.role).filter(Boolean));
+  const missingRequiredRoles = REQUIRED_COUNCIL_ROLE_IDS.filter(roleId => !succeededRoles.has(roleId));
+  if (missingRequiredRoles.length) {
+    const error = new Error('COUNCIL_REQUIRED_ROLE_RESPONSES_MISSING');
+    error.code = 'COUNCIL_REQUIRED_ROLE_RESPONSES_MISSING';
+    error.status = 503;
+    error.missing_roles = missingRequiredRoles;
+    throw error;
+  }
+
   const synthesis = await synthesizeWithFallback({ eligible, goal, context: councilContext, report });
   return {
     ...report,
-    roster: assignments.map(({ provider, role }) => ({
+    roster: assignments.map(({ memberId, provider, role, supplemental }) => ({
+      member_id: memberId,
       id: provider.id,
       provider: provider.providerId,
       model: provider.modelId,
       role: role.id,
       role_label: role.label,
+      supplemental,
       attempted: true,
-      responded: succeeded.has(provider.id),
+      responded: (report.responses || []).some(row => row.member === memberId),
     })),
     providers_attempted: eligible.map(provider => provider.id),
-    providers_succeeded: [...succeeded],
-    providers_failed: (report.failures || []).map(row => row.member),
-    all_eligible_attempted: true,
+    providers_succeeded: [...succeededProviders],
+    providers_failed: eligible.map(provider => provider.id).filter(id => !succeededProviders.has(id)),
+    all_eligible_attempted: eligible.every(provider => assignments.some(row => row.provider.id === provider.id)),
+    required_roles_attempted: [...REQUIRED_COUNCIL_ROLE_IDS],
+    required_roles_succeeded: [...succeededRoles].filter(roleId => REQUIRED_COUNCIL_ROLE_IDS.includes(roleId)),
+    required_roles_missing: missingRequiredRoles,
+    all_required_roles_satisfied: missingRequiredRoles.length === 0,
     synthesis,
     teacher_required: true,
     teacher_role: 'CHATGPT_EXTERNAL_ARCHITECT_REVIEWER',
