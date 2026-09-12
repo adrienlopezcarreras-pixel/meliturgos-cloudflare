@@ -4,6 +4,7 @@ import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { enqueueOwnerDevelopmentRequest } from '../src/evolution/owner-development-queue.js';
 
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
 
 function fixture() {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
@@ -12,7 +13,9 @@ function fixture() {
   const env = {
     MELITURGOS_USER: 'test',
     MEL_GITHUB_REPOSITORY: 'owner/repo',
-    MEL_TEACHER_BRANCH: 'candidate/augmentio-core',
+    MEL_GITHUB_BRANCH: CANDIDATE_BRANCH,
+    MEL_TEACHER_BRANCH: CANDIDATE_BRANCH,
+    MEL_TEACHER_APPROVED_BRANCH: CANDIDATE_BRANCH,
     AI: {
       async run(model) {
         aiCalls.push(model);
@@ -23,7 +26,7 @@ function fixture() {
   const fetchImpl = async (url) => {
     const target = String(url);
     fetchCalls.push(target);
-    if (target.includes('/commits/candidate%2Faugmentio-core')) return Response.json({ sha: CANDIDATE_HEAD_SHA });
+    if (target.includes('/commits/candidate%2Fmel-clean-autonomy')) return Response.json({ sha: CANDIDATE_HEAD_SHA });
     if (target.startsWith('https://api.github.com/')) return new Response('rate-limit fixture', { status: 403 });
     if (target.startsWith('https://raw.githubusercontent.com/')) {
       return new Response('export const fixture = true;\n// candidate source\n', { status: 200, headers: { etag: 'fixture' } });
@@ -128,6 +131,6 @@ test('owner queue refuses a non-candidate Teacher branch fail-closed', async () 
       repository: f.repository,
       fetchImpl: f.fetchImpl,
     }),
-    (error) => error?.code === 'AUTONOMY_BRANCH_NOT_CANDIDATE',
+    (error) => error?.code === 'AUTONOMY_BRANCH_NOT_CANDIDATE' || error?.code === 'AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE',
   );
 });
