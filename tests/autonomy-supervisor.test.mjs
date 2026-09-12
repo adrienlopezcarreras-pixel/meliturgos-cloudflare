@@ -102,6 +102,70 @@ test('a passive owner WAITING_TEACHER job does not starve an actionable approved
   assert.equal(untouchedOwner.status, 'WAITING_TEACHER');
 });
 
+test('a passive owner WAITING_TEACHER job does not block creation of the next internal roadmap job', async () => {
+  const repo = isolatedRepo();
+  const owner = await repo.create({
+    id: 'owner-waiting-teacher',
+    requested_by: 'owner-chat',
+    goal: 'owner request waiting for external Teacher',
+    optional_context: { source: 'owner-chat', priority: 'P0' },
+  });
+  await repo.update(owner.id, { status: 'WAITING_TEACHER' });
+
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  const created = await supervisor.ensureNextJob();
+  assert.equal(created.created, true);
+  assert.equal(created.job.id, 'mel-autonomy-mel-work-01-1');
+  assert.equal(created.job.requested_by, 'mel-autonomy');
+  assert.equal((await repo.get(owner.id)).status, 'WAITING_TEACHER');
+});
+
+test('an internal WAITING_TEACHER roadmap job remains the gate and prevents parallel roadmap creation', async () => {
+  const repo = isolatedRepo();
+  const internal = await repo.create({
+    id: 'mel-autonomy-mel-work-01-1',
+    requested_by: 'mel-autonomy',
+    goal: '[MEL-WORK-01] Work Engine',
+    optional_context: { roadmap_id: 'MEL-WORK-01', source: 'autonomy-supervisor', priority: 'P0' },
+  });
+  await repo.update(internal.id, { status: 'WAITING_TEACHER' });
+
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  const selected = await supervisor.ensureNextJob();
+  assert.equal(selected.created, false);
+  assert.equal(selected.job.id, internal.id);
+  assert.equal((await repo.list()).filter((job) => job.requested_by === 'mel-autonomy').length, 1);
+});
+
+test('passive owner review remains untouched across two consecutive autonomous roadmap transitions', async () => {
+  const repo = isolatedRepo();
+  const owner = await repo.create({
+    id: 'owner-review-latency',
+    requested_by: 'owner-chat',
+    goal: 'owner request still awaiting Teacher',
+    optional_context: { source: 'owner-chat', priority: 'P0' },
+  });
+  await repo.update(owner.id, { status: 'WAITING_TEACHER' });
+
+  const extendedRoadmap = [
+    ...roadmap,
+    { id: 'MEL-EVOL-01', title: 'Gap detector', status: 'PARTIAL', priority: 'P0', next: 'wire safely', phase_id: 'P06', phase: 'Evolution' },
+  ];
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap: extendedRoadmap });
+
+  const first = await supervisor.ensureNextJob();
+  assert.equal(first.job.optional_context.roadmap_id, 'MEL-WORK-01');
+  await repo.update(first.job.id, { status: 'COMPLETED' });
+
+  const second = await supervisor.ensureNextJob();
+  assert.equal(second.job.optional_context.roadmap_id, 'GEN2-17');
+  await repo.update(second.job.id, { status: 'COMPLETED' });
+
+  const third = await supervisor.ensureNextJob();
+  assert.equal(third.job.optional_context.roadmap_id, 'MEL-EVOL-01');
+  assert.equal((await repo.get(owner.id)).status, 'WAITING_TEACHER');
+});
+
 test('an actionable owner job still outranks an actionable internal roadmap job', async () => {
   const repo = isolatedRepo();
   const internal = await repo.create({
@@ -148,7 +212,7 @@ test('owner priority is preserved when every active job is passively waiting for
   const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
   const selected = await supervisor.ensureNextJob();
   assert.equal(selected.created, false);
-  assert.equal(selected.job.id, owner.id);
+  assert.equal(selected.job.id, internal.id);
 });
 
 test('two simultaneous autonomy supervisors converge on the same deterministic job', async () => {
