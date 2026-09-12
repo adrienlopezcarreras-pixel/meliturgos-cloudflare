@@ -93,6 +93,85 @@ test('autonomy status exposes opaque Teacher correlation but never goals or priv
   assert.equal(serialized.includes('PRIVATE EVIDENCE'), false);
 });
 
+test('autonomy status exposes sanitized live Council provenance for MEL roadmap work without Council content', () => {
+  const summary = summarizeAutonomyJobs([{
+    id: 'council-job',
+    requested_by: 'mel-autonomy',
+    status: 'WAITING_TEACHER',
+    created_at: 1,
+    optional_context: { roadmap_id: 'MEL-COUNCIL-02', zero_added_cost: true },
+    plan_json: {
+      preflight: {
+        council: {
+          status: 'COMPLETE',
+          responses: [
+            {
+              member: 'workers-ai:llama',
+              answer: {
+                provider_id: 'workers-ai:llama',
+                role: 'ARCHITECTURE_REUSE',
+                content: 'PRIVATE COUNCIL ANSWER MUST NOT LEAK',
+                provenance: { provider: 'cloudflare-workers-ai', model: '@cf/meta/llama-3.1-8b-instruct' },
+              },
+            },
+            {
+              member: 'workers-ai:qwen',
+              answer: {
+                provider_id: 'workers-ai:qwen',
+                role: 'SECURITY_GOVERNANCE',
+                content: 'SECOND PRIVATE ANSWER',
+                provenance: { provider: 'cloudflare-workers-ai', model: '@cf/qwen/qwen2.5-coder-32b-instruct' },
+              },
+            },
+          ],
+          providers_attempted: ['workers-ai:llama', 'workers-ai:qwen'],
+          providers_succeeded: ['workers-ai:llama', 'workers-ai:qwen'],
+          required_roles_attempted: ['ARCHITECTURE_REUSE', 'SECURITY_GOVERNANCE', 'TESTS_EVIDENCE', 'PRODUCT_INTEGRATION'],
+          required_roles_succeeded: ['ARCHITECTURE_REUSE', 'SECURITY_GOVERNANCE', 'TESTS_EVIDENCE', 'PRODUCT_INTEGRATION'],
+          all_required_roles_satisfied: true,
+          synthesis: {
+            status: 'COMPLETE', coordinator: 'MEL', provider_id: 'workers-ai:llama',
+            provenance: { provider: 'cloudflare-workers-ai', model: '@cf/meta/llama-3.1-8b-instruct' },
+            text: 'PRIVATE MEL SYNTHESIS MUST NOT LEAK',
+          },
+          teacher_required: true,
+        },
+      },
+    },
+    result_json: {
+      teacher_bridge: { status: 'WAITING_TEACHER', request: { request_id: 'council-request' } },
+    },
+  }]);
+
+  const evidence = summary.current.council_evidence;
+  assert.ok(evidence);
+  assert.equal(evidence.status, 'COMPLETE');
+  assert.deepEqual(evidence.providers_attempted, ['workers-ai:llama', 'workers-ai:qwen']);
+  assert.equal(evidence.responses.length, 2);
+  assert.equal(evidence.responses[0].role, 'ARCHITECTURE_REUSE');
+  assert.equal(evidence.responses[0].model, '@cf/meta/llama-3.1-8b-instruct');
+  assert.equal(evidence.all_required_roles_satisfied, true);
+  assert.equal(evidence.synthesis.status, 'COMPLETE');
+  assert.equal(evidence.synthesis.coordinator, 'MEL');
+  assert.equal(evidence.teacher_required, true);
+  assert.equal(evidence.content_exposed, false);
+  const serialized = JSON.stringify(summary);
+  assert.equal(serialized.includes('PRIVATE COUNCIL ANSWER'), false);
+  assert.equal(serialized.includes('SECOND PRIVATE ANSWER'), false);
+  assert.equal(serialized.includes('PRIVATE MEL SYNTHESIS'), false);
+});
+
+test('owner-chat Council metadata is never exposed through the public Teacher summary', () => {
+  const summary = summarizeAutonomyJobs([{
+    id: 'owner-council', requested_by: 'owner-chat', status: 'WAITING_TEACHER', created_at: 1,
+    optional_context: { roadmap_id: 'PRIVATE' },
+    plan_json: { preflight: { council: { status: 'COMPLETE', providers_attempted: ['private-provider'] } } },
+    result_json: { teacher_bridge: { status: 'WAITING_TEACHER', request: { request_id: 'owner-request' } } },
+  }]);
+  assert.equal('council_evidence' in summary.current, false);
+  assert.equal(JSON.stringify(summary).includes('private-provider'), false);
+});
+
 test('explicit owner-chat work is included and becomes the public current technical lifecycle item', () => {
   const summary = summarizeAutonomyJobs([
     {
