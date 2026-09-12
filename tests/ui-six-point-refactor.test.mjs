@@ -33,7 +33,7 @@ test('full mode restores semantic roadmap colors and stronger text contrast', ()
   assert.match(FULL_MODE_POLISH, /state-progress/);
   assert.match(FULL_MODE_POLISH, /state-blocked/);
   assert.match(FULL_MODE_POLISH, /state-planned/);
-  assert.match(FULL_MODE_POLISH, /--muted:#d1dae8/);
+  assert.match(FULL_MODE_POLISH, /--muted:#d6deea/);
   assert.match(FULL_MODE_POLISH, /BLOCKED/);
   assert.match(FULL_MODE_POLISH, /IN_PROGRESS/);
   assert.match(FULL_MODE_POLISH, /DONE/);
