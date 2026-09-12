@@ -1,35 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { flattenRoadmap, roadmapSummary, getRoadmapPayload } from '../src/roadmap/master-roadmap.js';
+import { flattenRoadmap, roadmapSummary, getRoadmapPayload, validateRoadmap } from '../src/roadmap/master-roadmap.js';
+import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v5-runtime-fix.js';
 
-test('master roadmap is comprehensive and includes major product targets', () => {
+test('master roadmap is comprehensive, unique and internally consistent', () => {
   const rows = flattenRoadmap();
   const ids = new Set(rows.map(x => x.id));
   assert.ok(rows.length >= 90, `expected comprehensive roadmap, got ${rows.length}`);
+  assert.equal(ids.size, rows.length, 'roadmap item ids must be unique');
   for (const id of [
     'GEN2-01','GEN2-56','GEN2-63','MEL-CODE-01','MEL-AUG-01','MEL-COUNCIL-01',
     'MEL-EVOL-01','MEL-WORK-01','MEL-VOICE-01','MEL-AVATAR-02','GEN2-27','GEN2-28',
     'MEL-SEC-04','MEL-RES-01','MEL-REL-03'
   ]) assert.ok(ids.has(id), `missing roadmap item ${id}`);
+
+  // These old entries duplicated canonical deliverables and must not return.
+  assert.equal(ids.has('MEL-UI-04'), false, 'Mode complet must have one canonical roadmap item');
+  assert.equal(ids.has('MEL-EVAL-02'), false, 'pre-release canary must have one canonical roadmap item');
+
+  const validation = validateRoadmap();
+  assert.equal(validation.ok, true, JSON.stringify(validation.issues));
+  assert.deepEqual(validation.issues, []);
+
   const summary = roadmapSummary();
   assert.equal(summary.total, rows.length);
   assert.ok(summary.percent_complete >= 0 && summary.percent_complete <= 100);
-  assert.equal(getRoadmapPayload().ok, true);
+  const payload = getRoadmapPayload();
+  assert.equal(payload.ok, true);
+  assert.equal(payload.validation.ok, true);
 });
 
-test('control center v2 exposes roadmap, diagnostics and rollback paths', async () => {
-  const page = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+test('canonical control center exposes one salon, Work, roadmap, diagnostics and rollback path', async () => {
+  const response = await renderFullMode({});
+  const page = await response.text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
-  assert.match(page, /Feuille de route complète/);
-  assert.match(page, /Accès au code/);
-  assert.match(page, /État des lieux multi-IA/);
-  assert.match(page, /Importer un export ChatGPT/);
-  assert.match(page, /\/api\/gen2\/code\/self-check/);
+  assert.match(page, /MEL · Mode complet/);
+  assert.match(page, /Salon IA/);
+  assert.match(page, /Conseil Multi-IA/);
+  assert.match(page, /Travail/);
+  assert.match(page, /Roadmap/);
+  assert.match(page, /Diagnostic/);
+  assert.match(page, /MEL → Conseil Multi-IA → Mentor/);
   assert.match(page, /\/api\/gen2\/roadmap/);
-  assert.match(router, /handleFullModeV2/);
-  assert.match(router, /\/professor-v1/);
+  assert.match(page, /\/api\/gen2\/code\/self-check/);
+  assert.match(router, /handleFullModeV5/);
   assert.match(router, /\/professor-legacy/);
-  assert.match(router, /\/api\/gen2\/roadmap/);
-  assert.match(router, /\/api\/gen2\/code\/self-check/);
 });
