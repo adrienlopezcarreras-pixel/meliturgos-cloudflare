@@ -4,6 +4,7 @@ import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
 
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
 
 function fixture() {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
@@ -12,7 +13,7 @@ function fixture() {
     const target = String(url);
     if (target.includes('teacher-bridge/replies.jsonl')) return new Response('', { status: 200 });
     if (target.includes('teacher-bridge/completions.jsonl')) return new Response('', { status: 200 });
-    if (target.includes('/commits/candidate%2Faugmentio-core')) return Response.json({ sha: CANDIDATE_HEAD_SHA });
+    if (target.includes('/commits/candidate%2Fmel-clean-autonomy')) return Response.json({ sha: CANDIDATE_HEAD_SHA });
     if (target.startsWith('https://api.github.com/')) return new Response('rate limited fixture', { status: 403 });
     if (target.startsWith('https://raw.githubusercontent.com/')) {
       return new Response('export const recovered = true;\n// candidate source\n', { status: 200, headers: { etag: 'ready-review-fixture' } });
@@ -21,7 +22,9 @@ function fixture() {
   };
   const env = {
     MEL_GITHUB_REPOSITORY: 'owner/repo',
-    MEL_TEACHER_BRANCH: 'candidate/augmentio-core',
+    MEL_GITHUB_BRANCH: CANDIDATE_BRANCH,
+    MEL_TEACHER_BRANCH: CANDIDATE_BRANCH,
+    MEL_TEACHER_APPROVED_BRANCH: CANDIDATE_BRANCH,
     AI: {
       async run(model) {
         aiCalls.push(model);
@@ -75,6 +78,6 @@ test('a real READY_FOR_REVIEW autonomy job is recovered into WAITING_TEACHER ins
 
   const stored = await f.repository.get(job.id);
   assert.equal(stored.result_json.teacher_bridge.status, 'WAITING_TEACHER');
-  assert.equal(stored.result_json.teacher_bridge.request.provenance.branch, 'candidate/augmentio-core');
+  assert.equal(stored.result_json.teacher_bridge.request.provenance.branch, CANDIDATE_BRANCH);
   assert.equal(stored.result_json.teacher_bridge.request.candidate.sha, CANDIDATE_HEAD_SHA);
 });
