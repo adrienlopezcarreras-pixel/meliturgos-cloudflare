@@ -12,10 +12,23 @@ test('final interface stays simple and removes rejected helper copy',()=>{
   assert.doesNotMatch(MEL_INTERFACE_FINALIZER,/MEL veille et prie en silence\./);
 });
 
-test('final interface forces the approved local Spanish MEL avatar',()=>{
-  assert.equal(MEL_AVATAR_URL,'/assets/avatars/mel-spanish-20260911.webp');
-  assert.match(MEL_INTERFACE_FINALIZER,/avatarImage\.src/);
-  assert.match(MEL_INTERFACE_FINALIZER,/mel-spanish-20260911\.webp/);
+test('final interface synchronizes MEL avatar with the active theme instead of forcing one portrait',()=>{
+  assert.equal(MEL_AVATAR_URL,'/assets/avatars/mel-classic.webp');
+  assert.match(MEL_INTERFACE_FINALIZER,/const AVATARS=/);
+  assert.match(MEL_INTERFACE_FINALIZER,/mel-crusade\.webp/);
+  assert.match(MEL_INTERFACE_FINALIZER,/mel-religious-andalusian\.webp/);
+  assert.match(MEL_INTERFACE_FINALIZER,/mel-aviation-1940s\.webp/);
+  assert.match(MEL_INTERFACE_FINALIZER,/mel-paladin-light-full-plate\.webp/);
+  assert.match(MEL_INTERFACE_FINALIZER,/mel-amazon-griffon\.webp/);
+  assert.match(MEL_INTERFACE_FINALIZER,/MutationObserver\(syncAvatar\)/);
+  assert.doesNotMatch(MEL_INTERFACE_FINALIZER,/mel-spanish-20260911\.webp/);
+});
+
+test('final interface uses resolution-independent scenes instead of stretched theme bitmaps',()=>{
+  assert.match(MEL_INTERFACE_FINALIZER,/--mel-scene:/);
+  assert.match(MEL_INTERFACE_FINALIZER,/data-theme=\\"granada\\"/);
+  assert.match(MEL_INTERFACE_FINALIZER,/data-theme=\\"amazon\\"/);
+  assert.doesNotMatch(MEL_INTERFACE_FINALIZER,/assets\/themes\/mel-/);
 });
 
 test('finalizer strips owner-rejected static copy and injects once into HTML only',async()=>{
