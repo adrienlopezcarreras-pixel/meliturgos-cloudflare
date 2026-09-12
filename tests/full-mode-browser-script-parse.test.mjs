@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { onRequestGet } from '../src/pages/full-interface-v5.js';
+import { onRequestGet } from '../src/pages/full-interface-v5-runtime-fix.js';
 
 test('full mode inline browser scripts are syntactically valid JavaScript', async () => {
   const response = await onRequestGet();
   const html = await response.text();
+  assert.equal(response.headers.get('x-mel-full-mode-js'), 'repaired-v1');
   const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)]
     .map((match) => match[1])
     .filter((source) => source.trim());
