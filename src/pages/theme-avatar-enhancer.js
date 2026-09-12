@@ -1,14 +1,7 @@
 const THEME_AVATAR_SCRIPT = `<style id="mel-theme-decor-style">
-/* MEL visual contract v3 — one geometry, theme-specific materials. */
-#skills,#skillsBtn,#skillsPanel,.skills{display:none!important}
-.window:after{content:none!important;display:none!important}
+/* Theme enhancer only changes materials and the portrait; layout/menu ownership stays in mvp-interface. */
 .avatar img{width:100%!important;height:100%!important;object-fit:cover!important;object-position:center 24%!important}
 .avatar,.window,button,textarea,.theme-panel,#themePanel{transition:background .28s ease,border-color .28s ease,box-shadow .28s ease,color .28s ease}
-.mel-idle-status{text-align:center;min-height:22px;margin:-6px 0 9px;font-size:.82rem;color:var(--text);opacity:.76;letter-spacing:.02em}
-.theme-choice-v3{width:100%;display:flex;align-items:center;gap:10px;text-align:left;margin:5px 0;padding:10px 11px;border:1px solid rgba(255,255,255,.10);border-radius:10px;background:rgba(255,255,255,.07);color:inherit;cursor:pointer}
-.theme-choice-v3.active{outline:2px solid color-mix(in srgb,var(--accent) 70%,white);outline-offset:1px}
-.theme-choice-v3 .mel-theme-icon{width:24px;height:24px;display:grid;place-items:center;flex:0 0 24px;border-radius:50%;background:rgba(0,0,0,.16)}
-.theme-choice-v3 strong{display:block;font-size:.91rem}.theme-choice-v3 small{display:block;opacity:.7;font-size:.72rem;margin-top:2px}
 html[data-theme="crusade"]{--bg:#24120a;--bg2:#4b2514;--text:#f6e7bd;--ink:#2d1b0f;--panel:#d9bb79;--panel2:#c7a566;--composer:rgba(244,220,160,.74);--border:#7b4d22;--accent:#8b1e1e;--accent2:#5d1111;--button:#4b2e17;--button-text:#f8e9be;--radius:8px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#d6aa4e 18%,#7a1717 50%,#d6aa4e 82%,transparent)}
 html[data-theme="religious"]{--bg:#19120e;--bg2:#332116;--text:#fff0cc;--ink:#342415;--panel:#eee0bd;--panel2:#d9c397;--composer:rgba(255,247,221,.84);--border:#b58b2f;--accent:#294a73;--accent2:#162e50;--button:#294a73;--button-text:#fff8df;--radius:14px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#d8b85f 16%,#fff1af 31%,#b88c2f 50%,#fff1af 69%,#d8b85f 84%,transparent)}
 html[data-theme="granada"]{--bg:#171411;--bg2:#423626;--text:#fff6d7;--ink:#302718;--panel:#f1e7c9;--panel2:#d9c69c;--composer:rgba(255,250,231,.86);--border:#b88929;--accent:#8a651c;--accent2:#543a10;--button:#6f4c13;--button-text:#fff5d0;--radius:9px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#a8761b 10%,#ffeaa0 28%,#c79a32 50%,#ffeaa0 72%,#a8761b 90%,transparent)}
@@ -33,48 +26,25 @@ html[data-theme="granada"] .window{border:6px double #bd8f2f!important;box-shado
 html[data-theme="aviation"] .window{border:4px double #92703c!important;box-shadow:0 0 0 3px #3c3031,0 0 0 7px #271a25,0 24px 78px #000!important}
 html[data-theme="paladin"] .window{border:5px double #d1ab48!important;box-shadow:0 0 0 3px #fff9df,0 0 0 8px #536a87,0 0 46px rgba(255,236,163,.22)!important}
 html[data-theme="amazon"] .window{border:5px double #966b31!important;box-shadow:0 0 0 3px #c39a53,0 0 0 8px #351917,0 25px 85px #000!important}
-.app:after{display:block;text-align:center;margin:10px auto 0;color:var(--text);opacity:.65;letter-spacing:.7em;font-family:Georgia,serif;pointer-events:none}
-html[data-theme="crusade"] .app:after{content:'✠  ✠  ✠'}html[data-theme="religious"] .app:after{content:'❦  ✝  ❦'}html[data-theme="granada"] .app:after{content:'✦  ✠  ✦'}html[data-theme="aviation"] .app:after{content:'✦  ✈  ✦'}html[data-theme="paladin"] .app:after{content:'✦  ⚜  ✦'}html[data-theme="amazon"] .app:after{content:'⚡  ◈  ⚡'}
-@media(max-width:700px){.theme-panel,#themePanel{max-height:70vh;overflow:auto}.theme-choice-v3{padding:8px 9px}.avatar img{object-position:center 22%!important}}
+@media(max-width:700px){.theme-panel,#themePanel{max-height:70vh;overflow:auto}.avatar img{object-position:center 22%!important}}
 @media(prefers-reduced-motion:reduce){.avatar,.window,button,textarea{transition:none!important;animation:none!important}}
 </style><script id="mel-theme-avatar-runtime">
 (function(){
   const THEMES=['classic','crusade','religious','granada','aviation','paladin','amazon'];
   const avatars={classic:'/assets/avatars/mel-classic.webp',crusade:'/assets/avatars/mel-crusade.webp',religious:'/assets/avatars/mel-religious-andalusian.webp',granada:'/assets/avatars/mel-granada.webp',aviation:'/assets/avatars/mel-aviation-1940s.webp',paladin:'/assets/avatars/mel-paladin-light-full-plate.webp',amazon:'/assets/avatars/mel-amazon-griffon.webp'};
-  const idle={classic:'',crusade:'MEL veille et prie en silence.',religious:'MEL demeure dans une prière paisible.',granada:'MEL demeure dans la lumière du sanctuaire.',aviation:'MEL garde le cap.',paladin:'MEL veille dans la lumière.',amazon:'MEL guette l’orage.'};
-  const choices=[
-    ['classic','✦','Classique','Bleu nuit · interface moderne'],
-    ['crusade','✠','Croisés · Parchemin','Medieval Idle Prayer · cuir · or vieilli'],
-    ['religious','✝','Baroque andalou religieux','Cueva · pierre · cierges · dorures'],
-    ['granada','♛','Cathédrale de Grenade','Grand retable · ivoire · or monumental'],
-    ['aviation','✈','Aviation 1940s','cockpit · cuir violet · instruments analogiques'],
-    ['paladin','⚜','Paladin Light Full Plate','Armure claire · argent · ivoire · or'],
-    ['amazon','⚡','Amazon · Diadème du Griffon','bronze · grenat · orage · ruines']
-  ];
-  const storage='mel.theme.v3';
   function normalize(value){return THEMES.includes(String(value||''))?String(value):'classic'}
   function theme(){return normalize(document.documentElement.dataset.theme)}
-  function panel(){return document.getElementById('themePanel')||document.querySelector('.theme-panel')}
-  function ensureIdle(){let node=document.querySelector('.mel-idle-status');if(node)return node;const voice=document.getElementById('voiceStatus');if(!voice)return null;node=document.createElement('div');node.className='mel-idle-status';node.setAttribute('aria-live','polite');voice.insertAdjacentElement('afterend',node);return node}
   function sync(){
     const value=theme();
-    const img=document.querySelector('.avatar img');if(img&&img.getAttribute('src')!==avatars[value])img.setAttribute('src',avatars[value]);
-    const idleNode=ensureIdle();if(idleNode)idleNode.textContent=idle[value]||'';
+    const img=document.querySelector('.avatar img');
+    if(img&&img.getAttribute('src')!==avatars[value])img.setAttribute('src',avatars[value]);
     document.querySelectorAll('[data-theme-choice]').forEach(btn=>btn.classList.toggle('active',btn.dataset.themeChoice===value));
   }
-  function choose(value){const next=normalize(value);document.documentElement.dataset.theme=next;try{localStorage.setItem(storage,next);localStorage.setItem('mel.theme.v2',next)}catch{}sync()}
-  function renderChoices(){
-    const target=panel();if(!target)return;
-    target.innerHTML='<div style="font-weight:700;margin:2px 2px 7px">Apparence de MEL</div>'+choices.map(c=>'<button type="button" class="theme-choice-v3" data-theme-choice="'+c[0]+'"><span class="mel-theme-icon">'+c[1]+'</span><span><strong>'+c[2]+'</strong><small>'+c[3]+'</small></span></button>').join('');
-    target.querySelectorAll('[data-theme-choice]').forEach(btn=>btn.addEventListener('click',event=>{event.preventDefault();event.stopImmediatePropagation();choose(btn.dataset.themeChoice);target.classList.remove('open')}));
-  }
-  function removeSkills(){document.getElementById('skills')?.remove();document.getElementById('skillsBtn')?.remove();document.getElementById('skillsPanel')?.remove();document.querySelectorAll('.skills').forEach(el=>el.remove())}
   function normalizeComposer(){const area=document.querySelector('textarea');if(area){area.maxLength=100000;area.setAttribute('maxlength','100000')}}
   function init(){
-    removeSkills();normalizeComposer();renderChoices();
-    let saved='';try{saved=localStorage.getItem(storage)||localStorage.getItem('mel.theme.v2')||''}catch{}
-    choose(saved||document.documentElement.dataset.theme||'classic');
-    new MutationObserver(()=>sync()).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+    normalizeComposer();
+    sync();
+    new MutationObserver(sync).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
   }
   const nativeFetch=window.fetch.bind(window);
   window.fetch=function(resource,init){
@@ -100,6 +70,9 @@ export async function enhanceThemeAvatars(response) {
   const type = response.headers.get('content-type') || '';
   if (!type.includes('text/html')) return response;
   const html = await response.text();
+  if (!html.includes('data-theme-choice') || !html.includes('id="avatar"')) {
+    return new Response(html, { status: response.status, statusText: response.statusText, headers: response.headers });
+  }
   if (html.includes('mel-theme-avatar-runtime')) {
     return new Response(html, { status: response.status, statusText: response.statusText, headers: response.headers });
   }
