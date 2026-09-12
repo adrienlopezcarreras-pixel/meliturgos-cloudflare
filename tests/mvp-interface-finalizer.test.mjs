@@ -26,8 +26,8 @@ test('final interface synchronizes MEL avatar with the active theme instead of f
 
 test('final interface uses resolution-independent scenes instead of stretched theme bitmaps',()=>{
   assert.match(MEL_INTERFACE_FINALIZER,/--mel-scene:/);
-  assert.match(MEL_INTERFACE_FINALIZER,/data-theme=\\"granada\\"/);
-  assert.match(MEL_INTERFACE_FINALIZER,/data-theme=\\"amazon\\"/);
+  assert.match(MEL_INTERFACE_FINALIZER,/data-theme="granada"/);
+  assert.match(MEL_INTERFACE_FINALIZER,/data-theme="amazon"/);
   assert.doesNotMatch(MEL_INTERFACE_FINALIZER,/assets\/themes\/mel-/);
 });
 
