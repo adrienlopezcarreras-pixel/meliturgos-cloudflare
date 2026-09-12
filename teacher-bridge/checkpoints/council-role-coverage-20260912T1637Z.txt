@@ -1,0 +1,36 @@
+MELITURGOS factual checkpoint — Council mandatory role coverage
+UTC: 2026-09-12T16:37Z
+Branch: candidate/mel-clean-autonomy
+Verified code SHA before checkpoint: 96440fd3fa3ba17529389b2fbfed11fd307590ef
+
+Goal
+Harden the zero-added-cost multi-AI Council so substantive development cannot proceed without independent review coverage for architecture/reuse, security/governance, tests/evidence, and product/integration.
+
+Changes verified
+- src/teachers/augmentio-council.js
+  - requires the four mandatory role IDs;
+  - invokes every eligible zero-cost provider at least once;
+  - adds supplemental independent role-specific calls when fewer than four eligible providers exist;
+  - fails closed when a mandatory role produces no evidence;
+  - preserves provider/model/role provenance and MEL synthesis fallback.
+- tests/augmentio-council.test.mjs
+  - verifies mandatory four-role coverage with 2 or 3 eligible providers;
+  - verifies unknown-cost exclusion, synthesis fallback, and fail-closed behavior.
+- tests/development-preflight.test.mjs
+  - aligns preflight acceptance with four mandatory review roles and confirms both eligible providers were genuinely invoked in the deterministic test pool.
+
+Evidence
+- Initial full-candidate-ci on SHA c393906a8b6fa7b73be9cc8cb85bce066cfc233e failed only because development-preflight.test.mjs still expected two Council responses after the deliberate four-role requirement.
+- Corrected stale assertion at SHA 96440fd3fa3ba17529389b2fbfed11fd307590ef.
+- full-candidate-ci run 34705739499 on exact SHA 96440fd3fa3ba17529389b2fbfed11fd307590ef: SUCCESS.
+- Runtime dependency security gate: SUCCESS.
+- Syntax: SUCCESS.
+- Full test suite: SUCCESS.
+
+Limits / non-claims
+- This checkpoint proves code wiring and deterministic test behavior. It does NOT newly prove that external live zero-cost models were invoked during this automation run; no such live-provider evidence was available through the current tool surface.
+- Therefore no roadmap item is promoted to DONE solely from this checkpoint.
+- No production deployment, DNS change, destructive migration, secret write, permission change, or paid service was used.
+
+Next safe step
+Obtain runtime evidence from the configured zero-cost Council showing actual provider/model/role provenance for all mandatory roles, then submit the MEL synthesis through the Teacher gate before any roadmap completion claim or production promotion.
