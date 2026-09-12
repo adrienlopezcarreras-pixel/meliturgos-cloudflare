@@ -12,7 +12,8 @@ test('normal mode does not expose unimplemented server voice or file routes', ()
 
 test('normal mode keeps continuation, removes compact audit and bounds chat fallback', () => {
   assert.match(MVP_BEHAVIOR_PATCH, /Continuer depuis la dernière phrase/);
-  assert.match(MVP_BEHAVIOR_PATCH, /CHAT_TIMEOUT_MS=25000/);
+  assert.match(MVP_BEHAVIOR_PATCH, /CHAT_TIMEOUT_MS=12000/);
+  assert.match(MVP_BEHAVIOR_PATCH, /FALLBACK_TIMEOUT_MS=8000/);
   assert.match(MVP_BEHAVIOR_PATCH, /zeroEuroFallback/);
   assert.match(MVP_BEHAVIOR_PATCH, /\/api\/gen2\/augmentio\/fanout/);
   assert.match(MVP_BEHAVIOR_PATCH, /removeRedundantNormalMode/);
