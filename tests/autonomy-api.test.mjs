@@ -4,6 +4,7 @@ import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { maybeHandleAutonomyApi } from '../src/evolution/autonomy-api.js';
 
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
 
 function authHeader(user = 'test', password = 'pw') {
   return `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
@@ -16,8 +17,9 @@ function fixture() {
     MELITURGOS_USER: 'test',
     MELITURGOS_PASSWORD: 'pw',
     MEL_GITHUB_REPOSITORY: 'owner/repo',
-    MEL_GITHUB_BRANCH: 'release/test',
-    MEL_TEACHER_BRANCH: 'candidate/augmentio-core',
+    MEL_GITHUB_BRANCH: CANDIDATE_BRANCH,
+    MEL_TEACHER_BRANCH: CANDIDATE_BRANCH,
+    MEL_TEACHER_APPROVED_BRANCH: CANDIDATE_BRANCH,
     AI: {
       async run(model) {
         aiCalls.push(model);
@@ -29,7 +31,7 @@ function fixture() {
     const target = String(url);
     if (target.includes('teacher-bridge/replies.jsonl')) return new Response('', { status: 200 });
     if (target.includes('teacher-bridge/completions.jsonl')) return new Response('', { status: 200 });
-    if (target.includes('/commits/candidate%2Faugmentio-core')) return Response.json({ sha: CANDIDATE_HEAD_SHA });
+    if (target.includes('/commits/candidate%2Fmel-clean-autonomy')) return Response.json({ sha: CANDIDATE_HEAD_SHA });
     if (target.startsWith('https://api.github.com/')) return new Response('rate limit fixture', { status: 403 });
     if (target.startsWith('https://raw.githubusercontent.com/')) {
       return new Response('export const fixture = true;\n// candidate source\n', { status: 200, headers: { etag: 'fixture' } });
@@ -50,7 +52,7 @@ test('autonomy operator API is authenticated', async () => {
   assert.equal((await response.json()).code, 'AUTH_REQUIRED');
 });
 
-test('autonomy state reports candidate/deployed branches and lifecycle counts without private goals', async () => {
+test('autonomy state reports canonical candidate/deployed branches and lifecycle counts without private goals', async () => {
   const f = fixture();
   await f.repository.create({
     id: 'autonomy-state-1',
@@ -66,8 +68,8 @@ test('autonomy state reports candidate/deployed branches and lifecycle counts wi
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.ok, true);
-  assert.equal(body.candidate_branch, 'candidate/augmentio-core');
-  assert.equal(body.deployed_code_branch, 'release/test');
+  assert.equal(body.candidate_branch, CANDIDATE_BRANCH);
+  assert.equal(body.deployed_code_branch, CANDIDATE_BRANCH);
   assert.equal(body.counts.active, 1);
   assert.equal(body.active_jobs[0].roadmap_id, 'MEL-WORK-01');
   assert.equal(JSON.stringify(body).includes('PRIVATE AUTONOMY GOAL'), false);
