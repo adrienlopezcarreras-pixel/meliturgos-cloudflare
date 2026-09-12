@@ -27,6 +27,11 @@ const INSPECTION_FILES = [
   'src/teachers/github-completion-reconciler.js',
 ];
 
+const STALE_TEACHER_APPROVAL_CODES = new Set([
+  'TEACHER_APPROVAL_CANDIDATE_SHA_STALE',
+  'TEACHER_APPROVAL_CANDIDATE_SHA_REQUIRED',
+]);
+
 function safeDiagnosticCode(error, fallback = 'IMPLEMENTATION_PLANNING_FAILED') {
   const raw = String(error?.code || fallback).toUpperCase();
   return /^[A-Z0-9_:-]{1,120}$/.test(raw) ? raw : fallback;
@@ -42,6 +47,54 @@ async function persistImplementationDiagnostic(repository, jobId, diagnostic) {
     observed_at: new Date().toISOString(),
   };
   return repository.update(jobId, { result_json: result });
+}
+
+async function requeueStaleTeacherApproval(repository, jobId, diagnosticCode) {
+  const latest = await repository.get(jobId);
+  if (!latest) return null;
+  const bridge = latest?.result_json?.teacher_bridge;
+  if (String(latest.status || '').toUpperCase() !== 'TEACHER_APPROVED' || bridge?.status !== 'ANSWERED') {
+    return latest;
+  }
+
+  const now = new Date().toISOString();
+  const code = STALE_TEACHER_APPROVAL_CODES.has(String(diagnosticCode || ''))
+    ? String(diagnosticCode)
+    : 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE';
+  const result = latest.result_json && typeof latest.result_json === 'object' ? { ...latest.result_json } : {};
+  const history = Array.isArray(result.teacher_bridge_history) ? [...result.teacher_bridge_history] : [];
+  history.push(bridge);
+  result.teacher_bridge_history = history.slice(-20);
+  result.last_teacher_review = {
+    request_id: bridge?.review?.request_id || bridge?.request?.request_id || null,
+    verdict: bridge?.review?.verdict || null,
+    feedback: bridge?.review?.feedback || '',
+    evidence: Array.isArray(bridge?.review?.evidence) ? bridge.review.evidence.slice(0, 100) : [],
+    reviewed_at: bridge?.reviewed_at || now,
+  };
+  result.teacher_bridge = null;
+  delete result.implementation_proposal;
+  delete result.bridge_package;
+  result.implementation_planning_diagnostic = {
+    status: 'NOT_READY',
+    code,
+    observed_at: now,
+  };
+
+  const plan = latest.plan_json && typeof latest.plan_json === 'object' ? { ...latest.plan_json } : {};
+  plan.preflight = null;
+  plan.revision = {
+    requested_at: now,
+    previous_request_id: bridge?.review?.request_id || bridge?.request?.request_id || null,
+    reason: code,
+  };
+
+  return repository.update(jobId, {
+    status: 'QUEUED',
+    plan_json: plan,
+    result_json: result,
+    error: null,
+  });
 }
 
 async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic) {
@@ -209,8 +262,10 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
  * P0 autonomy job exists. After correlated Teacher approval MEL produces her
  * own multi-AI implementation plan and a second bounded Mentor pass converts
  * that plan into complete source files + allowed tests for the local Dev Bridge.
- * Failed local tests are retained as evidence and may trigger one repair package
- * for that exact bridge result. Production is never committed or deployed here.
+ * A Teacher approval is valid only for the exact candidate SHA it reviewed. If
+ * the branch moves, the job is safely re-queued for a fresh Council + Teacher
+ * cycle instead of planning against unreviewed code. Production is never
+ * committed or deployed here.
  */
 export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
@@ -305,8 +360,12 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         status: 'NOT_READY',
         code: safeDiagnosticCode(error),
       };
-      await persistImplementationDiagnostic(jobRepository, job.id, implementation);
-      job = await jobRepository.get(job.id);
+      if (STALE_TEACHER_APPROVAL_CODES.has(implementation.code)) {
+        job = await requeueStaleTeacherApproval(jobRepository, job.id, implementation.code);
+      } else {
+        await persistImplementationDiagnostic(jobRepository, job.id, implementation);
+        job = await jobRepository.get(job.id);
+      }
     }
 
     if (implementation?.status === 'READY' && job && String(job.status || '').toUpperCase() === 'TEACHER_APPROVED') {
@@ -375,3 +434,5 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     next: state.next,
   };
 }
+
+export { requeueStaleTeacherApproval };
