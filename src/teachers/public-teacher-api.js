@@ -96,6 +96,26 @@ function safeCouncilEvidence(job) {
   };
 }
 
+function summarizePublicJob(job) {
+  if (!job) return null;
+  const teacher = currentTeacherMetadata(job);
+  const proposal = job?.result_json?.implementation_proposal || null;
+  const councilEvidence = safeCouncilEvidence(job);
+  return {
+    job_id: String(job.id || ''),
+    requested_by: job.requested_by === 'owner-chat' ? 'owner-chat' : 'mel-autonomy',
+    status: String(job.status || ''),
+    roadmap_id: job?.optional_context?.roadmap_id || null,
+    teacher_status: teacher.teacher_status,
+    request_id: teacher.request_id,
+    verdict: teacher.verdict,
+    implementation_proposal_ready: proposal?.status === 'READY',
+    implementation_models: proposal?.status === 'READY' && Array.isArray(proposal.providers_attempted) ? proposal.providers_attempted.length : 0,
+    implementation_diagnostic_code: publicDiagnosticCode(job),
+    ...(councilEvidence ? { council_evidence: councilEvidence } : {}),
+  };
+}
+
 function summarizeAutonomyJobs(jobs = []) {
   const autonomy = jobs.filter(isSupervisedAutonomyJob);
   const active = autonomy.filter((job) => !TERMINAL.has(String(job.status || '').toUpperCase()));
@@ -106,9 +126,14 @@ function summarizeAutonomyJobs(jobs = []) {
       const ownerB = b?.requested_by === 'owner-chat' ? 0 : 1;
       return ownerA - ownerB || Number(a.created_at || 0) - Number(b.created_at || 0);
     })[0] || null;
-  const teacher = current ? currentTeacherMetadata(current) : null;
-  const proposal = current?.result_json?.implementation_proposal || null;
-  const councilEvidence = current ? safeCouncilEvidence(current) : null;
+  const internalCurrent = active
+    .filter((job) => job?.requested_by === 'mel-autonomy')
+    .slice()
+    .sort((a, b) => {
+      const passiveA = String(a?.status || '').toUpperCase() === 'WAITING_TEACHER' ? 1 : 0;
+      const passiveB = String(b?.status || '').toUpperCase() === 'WAITING_TEACHER' ? 1 : 0;
+      return passiveA - passiveB || Number(a.created_at || 0) - Number(b.created_at || 0) || String(a?.id || '').localeCompare(String(b?.id || ''));
+    })[0] || null;
   return {
     total: autonomy.length,
     active_count: active.length,
@@ -117,19 +142,8 @@ function summarizeAutonomyJobs(jobs = []) {
     teacher_approved_count: autonomy.filter((job) => String(job.status || '').toUpperCase() === 'TEACHER_APPROVED').length,
     completed_count: autonomy.filter((job) => ['COMPLETED', 'COMMITTED'].includes(String(job.status || '').toUpperCase())).length,
     failed_count: autonomy.filter((job) => String(job.status || '').toUpperCase() === 'FAILED').length,
-    current: current ? {
-      job_id: String(current.id || ''),
-      requested_by: current.requested_by === 'owner-chat' ? 'owner-chat' : 'mel-autonomy',
-      status: String(current.status || ''),
-      roadmap_id: current?.optional_context?.roadmap_id || null,
-      teacher_status: teacher.teacher_status,
-      request_id: teacher.request_id,
-      verdict: teacher.verdict,
-      implementation_proposal_ready: proposal?.status === 'READY',
-      implementation_models: proposal?.status === 'READY' && Array.isArray(proposal.providers_attempted) ? proposal.providers_attempted.length : 0,
-      implementation_diagnostic_code: publicDiagnosticCode(current),
-      ...(councilEvidence ? { council_evidence: councilEvidence } : {}),
-    } : null,
+    current: summarizePublicJob(current),
+    internal_current: summarizePublicJob(internalCurrent),
   };
 }
 
