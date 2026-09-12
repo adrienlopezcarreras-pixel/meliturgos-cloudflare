@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - candidate/augmentio-core
+      - candidate/mel-clean-autonomy
   workflow_dispatch:
 
 permissions:
