@@ -70,6 +70,26 @@ function buildSystemPrompt(projectMemory) {
   ].join('\n\n');
 }
 
+function mentorRuntimeStatus(env) {
+  const remoteAllowed = Boolean(env?.AI)
+    && String(env.MEL_MENTOR_FREE_AI_ENABLED || '').toLowerCase() === 'true'
+    && String(env.MEL_MENTOR_ACCOUNT_CONFIRMED_FREE || '').toLowerCase() === 'true';
+  return {
+    ok: true,
+    role: 'mentor',
+    control_mode: 'advisory-read-only',
+    billing_policy: remoteAllowed ? 'zero-euro-explicitly-confirmed' : 'zero-euro-fail-closed',
+    external_inference_allowed: remoteAllowed,
+    effective_provider: remoteAllowed ? 'workers-ai' : 'local-guard',
+    model: remoteAllowed ? String(env.MEL_MENTOR_FREE_MODEL || '@cf/zai-org/glm-4.7-flash') : 'deterministic-safety-review',
+  };
+}
+
+export function handleMentorStatus(request, env) {
+  if (request.method !== 'GET') return json({ error: 'METHOD_NOT_ALLOWED', code: 'METHOD_NOT_ALLOWED' }, 405);
+  return json(mentorRuntimeStatus(env));
+}
+
 export async function handleMentorChat(request, env) {
   if (request.method !== 'POST') return json({ error: 'METHOD_NOT_ALLOWED', code: 'METHOD_NOT_ALLOWED' }, 405);
   const body = await request.json().catch(() => ({}));
@@ -78,28 +98,22 @@ export async function handleMentorChat(request, env) {
 
   const recent = Array.isArray(body?.context) ? body.context : [];
   const localAdvice = buildLocalGuardAdvice(text, recent);
+  const runtimeStatus = mentorRuntimeStatus(env);
 
-  // Zero-euro fail-closed policy:
-  // A remote Workers AI call is permitted only after BOTH switches are deliberately enabled.
-  // Default deployment therefore remains genuinely no-added-cost and still returns useful local advice.
-  const remoteAllowed = Boolean(env?.AI)
-    && String(env.MEL_MENTOR_FREE_AI_ENABLED || '').toLowerCase() === 'true'
-    && String(env.MEL_MENTOR_ACCOUNT_CONFIRMED_FREE || '').toLowerCase() === 'true';
-
-  if (!remoteAllowed) {
+  if (!runtimeStatus.external_inference_allowed) {
     return json({
       ok: true,
       role: 'mentor',
       provider: 'local-guard',
-      model: 'deterministic-safety-review',
-      control_mode: 'advisory-read-only',
-      billing_policy: 'zero-euro-fail-closed',
+      model: runtimeStatus.model,
+      control_mode: runtimeStatus.control_mode,
+      billing_policy: runtimeStatus.billing_policy,
       external_inference_used: false,
       text: localAdvice,
     });
   }
 
-  const model = String(env.MEL_MENTOR_FREE_MODEL || '@cf/zai-org/glm-4.7-flash');
+  const model = runtimeStatus.model;
   const projectMemory = buildProjectLearningPrompt();
   const context = compactContext(recent);
   const messages = [
@@ -122,8 +136,8 @@ export async function handleMentorChat(request, env) {
       role: 'mentor',
       provider: 'workers-ai',
       model,
-      control_mode: 'advisory-read-only',
-      billing_policy: 'zero-euro-explicitly-confirmed',
+      control_mode: runtimeStatus.control_mode,
+      billing_policy: runtimeStatus.billing_policy,
       external_inference_used: true,
       text: answer,
     });
@@ -142,4 +156,4 @@ export async function handleMentorChat(request, env) {
   }
 }
 
-export { extractWorkersText, buildLocalGuardAdvice };
+export { extractWorkersText, buildLocalGuardAdvice, mentorRuntimeStatus };
