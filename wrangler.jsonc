@@ -38,6 +38,11 @@
     "MEL_GITHUB_REPOSITORY": "adrienlopezcarreras-pixel/meliturgos-cloudflare",
     "MEL_GITHUB_BRANCH": "candidate/augmentio-core",
     "MEL_TEACHER_BRANCH": "candidate/augmentio-core",
-    "MEL_MENTOR_ENABLED": "false"
+    "MEL_MENTOR_ENABLED": "true",
+    "MEL_MENTOR_MODE": "guarded-zero-euro",
+    "MEL_MENTOR_FREE_AI_ENABLED": "false",
+    "MEL_MENTOR_ACCOUNT_CONFIRMED_FREE": "false",
+    "MEL_MENTOR_ALLOW_PAID_OPENAI": "false",
+    "MEL_MENTOR_FREE_MODEL": "@cf/zai-org/glm-4.7-flash"
   }
 }
