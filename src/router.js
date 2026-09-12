@@ -36,12 +36,15 @@ async function serveBundledAsset(request, env) {
   if (request.method !== 'GET' || !env?.ASSETS) return null;
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/assets/')) return null;
+  const requestedPath = url.pathname.slice('/assets'.length) || '/';
   const assetUrl = new URL(request.url);
-  assetUrl.pathname = url.pathname.slice('/assets'.length) || '/';
+  const isAvatar = requestedPath.startsWith('/avatars/');
+  assetUrl.pathname = isAvatar ? '/avatars/mel-spanish-20260911.webp' : requestedPath;
   const response = await env.ASSETS.fetch(new Request(assetUrl.toString(), request));
   if (response.status === 404) return null;
   const headers = new Headers(response.headers);
-  headers.set('cache-control', 'public, max-age=3600');
+  headers.set('cache-control', isAvatar ? 'no-store, max-age=0' : 'public, max-age=3600');
+  headers.set('x-mel-asset-alias', isAvatar ? 'mel-spanish-20260911' : 'direct');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
