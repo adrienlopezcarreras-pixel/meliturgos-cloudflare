@@ -50,12 +50,26 @@ function isPassiveRuntimeJob(job) {
   return status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair !== true;
 }
 
+function executionReadyRank(job) {
+  const status = String(job?.status || '').toUpperCase();
+  // Already-approved implementation or an explicit repair can make concrete
+  // candidate progress immediately. Prefer that over preflight-only work so a
+  // queue of CLAIMED/QUEUED owner requests cannot starve an approved internal
+  // roadmap implementation forever. Owner priority is still preserved when
+  // both jobs are equally implementation-ready.
+  if (status === 'TEACHER_APPROVED') return 0;
+  if (status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair === true) return 0;
+  return 1;
+}
+
 function activeJobRank(job) {
   // Passive jobs stay persisted and untouched but cannot starve another job
-  // that can genuinely advance. Within the same actionability class, explicit
-  // owner work still outranks background roadmap work.
+  // that can genuinely advance. Implementation-ready work outranks preflight
+  // work; within the same readiness class, explicit owner work still outranks
+  // background roadmap work.
   return {
     passive: isPassiveRuntimeJob(job) ? 1 : 0,
+    executionReady: executionReadyRank(job),
     requester: job?.requested_by === 'owner-chat' ? 0 : 1,
     createdAt: Number(job?.created_at || 0),
   };
@@ -65,6 +79,7 @@ function compareActiveJobs(left, right) {
   const a = activeJobRank(left);
   const b = activeJobRank(right);
   return a.passive - b.passive
+    || a.executionReady - b.executionReady
     || a.requester - b.requester
     || a.createdAt - b.createdAt
     || String(left?.id || '').localeCompare(String(right?.id || ''));
