@@ -64,8 +64,41 @@ test('LoRA remains draft until corpus is large enough', () => {
   const early = createLoraTrainingPlan({ base_model: 'open/model', dataset_digest: 'fnv1a-12345678', examples: 12 });
   const ready = createLoraTrainingPlan({ base_model: 'open/model', dataset_digest: 'fnv1a-12345678', examples: 80 });
   assert.equal(early.status, 'DRAFT');
+  assert.equal(early.readiness.ready_for_training, false);
   assert.equal(ready.status, 'READY_FOR_TRAINING');
+  assert.equal(ready.readiness.ready_for_training, true);
   assert.equal(ready.readiness.base_weights_frozen, true);
+});
+
+test('LoRA cannot be forced ready with an incompatible runtime configuration', () => {
+  const plan = createLoraTrainingPlan({
+    base_model: 'open/model',
+    dataset_digest: 'fnv1a-12345678',
+    examples: 80,
+    quantization: '4bit',
+    status: 'READY_FOR_TRAINING',
+  });
+  assert.equal(plan.readiness.enough_examples, true);
+  assert.equal(plan.readiness.cloudflare_inference_compatible, false);
+  assert.equal(plan.readiness.ready_for_training, false);
+  assert.equal(plan.status, 'DRAFT');
+});
+
+test('prepareLora reports runtime incompatibility instead of READY', async () => {
+  const memory = new MemoryStub();
+  const engine = new LearningEngine({ memory });
+  for (let i = 0; i < 55; i += 1) {
+    await engine.recordCorrection({
+      id: `compat-${i}`, domain: 'coding', input: `input ${i}`,
+      before: `bad ${i}`, after: `good ${i}`, rationale: `reason ${i}`,
+      validated: true, quality: 0.9,
+    });
+  }
+  const result = await engine.prepareLora({ base_model: 'open/model', quantization: '4bit' });
+  assert.equal(result.plan.readiness.enough_examples, true);
+  assert.equal(result.plan.readiness.cloudflare_inference_compatible, false);
+  const rows = await memory.recent({ kind: 'LORA_PLAN' });
+  assert.equal(rows[0].outcome, 'BLOCKED_EXTERNAL');
 });
 
 test('adapter cannot become active without a measured benchmark gain', async () => {
@@ -79,4 +112,30 @@ test('adapter cannot become active without a measured benchmark gain', async () 
     candidate: { overall: 0.79, domains: { code: 0.79 } },
   }), error => error.code === 'LORA_ACTIVATION_DENIED');
   assert.equal((await memory.recent({ kind: 'LORA_ADAPTER_ACTIVE' })).length, 0);
+});
+
+test('adapter activation rejects incompatible plan even after benchmark gain', async () => {
+  const memory = new MemoryStub();
+  const engine = new LearningEngine({ memory });
+  const plan = createLoraTrainingPlan({
+    base_model: 'open/model', dataset_digest: 'fnv1a-12345678', examples: 80, quantization: '4bit',
+  });
+  await assert.rejects(() => engine.activateAdapter({
+    plan,
+    artifact: { id: 'mel-adapter-2', digest: 'sha256-adapter2', base_model: 'open/model', format: 'safetensors' },
+    baseline: { overall: 0.7, domains: { code: 0.7 } },
+    candidate: { overall: 0.8, domains: { code: 0.8 } },
+  }), error => error.code === 'LORA_RUNTIME_INCOMPATIBLE');
+});
+
+test('adapter activation rejects base-model mismatch', async () => {
+  const memory = new MemoryStub();
+  const engine = new LearningEngine({ memory });
+  const plan = createLoraTrainingPlan({ base_model: 'open/model', dataset_digest: 'fnv1a-12345678', examples: 80 });
+  await assert.rejects(() => engine.activateAdapter({
+    plan,
+    artifact: { id: 'mel-adapter-3', digest: 'sha256-adapter3', base_model: 'open/other', format: 'safetensors' },
+    baseline: { overall: 0.7, domains: { code: 0.7 } },
+    candidate: { overall: 0.8, domains: { code: 0.8 } },
+  }), error => error.code === 'LORA_BASE_MODEL_MISMATCH');
 });
