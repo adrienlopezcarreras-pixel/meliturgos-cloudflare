@@ -40,6 +40,10 @@ export class Augmentio {
     const settled = await this.scheduler.run(providers, async (provider, _index, meta = {}) => {
       const startedAt = Date.now();
       try {
+        // Provider metadata is mutable. Selection-time authorization is not
+        // enough: revalidate immediately before every external invocation so a
+        // late cost/provenance change cannot race past the zero-euro gate.
+        this.governor.assertAllowed(provider);
         const response = await provider.invoke({ input, context, capability, signal: meta.signal });
         const text = typeof response === 'string' ? response : response?.text ?? response?.response;
         if (!text) throw new Error('EMPTY_PROVIDER_RESPONSE');
