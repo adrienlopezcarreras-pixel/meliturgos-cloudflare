@@ -59,9 +59,9 @@ export function createGen2Runtime({ audit = async () => {}, env = {} } = {}) {
     modules: {
       register: (manifest, handler) => registerExtension(modules, 'module', manifest, handler),
       get: id => modules.get(id),
-      activate: id => { const row = modules.get(id); requireValue(row, 'MODULE_NOT_FOUND'); row.status = 'ACTIVE'; row.updated_at = Date.now(); return { ...row, handler: undefined }; },
+      activate: id => { const row = modules.get(id); requireValue(row, 'MODULE_NOT_FOUND', 404); row.status = 'ACTIVE'; row.updated_at = Date.now(); return { ...row, handler: undefined }; },
       disable: id => { const row = modules.get(id); requireValue(row, 'MODULE_NOT_FOUND', 404); bus.disable(`module:${id}`, { owner: 'runtime', permissions: ['capabilities.manage'] }); row.status = 'DISABLED'; return { ...row, handler: undefined }; },
-      rollback: id => { const row = modules.get(id); requireValue(row, 'MODULE_NOT_FOUND'); row.status = 'ROLLED_BACK'; row.updated_at = Date.now(); return { ...row, handler: undefined }; },
+      rollback: id => { const row = modules.get(id); requireValue(row, 'MODULE_NOT_FOUND', 404); row.status = 'ROLLED_BACK'; row.updated_at = Date.now(); return { ...row, handler: undefined }; },
       run: (id, input, context) => bus.execute(`module:${id}`, input, context)
     },
     moduleLab: {
