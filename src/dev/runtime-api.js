@@ -25,6 +25,15 @@ function bridgeTestsNeedRepair(tests = []) {
   return tests.some((test) => test?.passed === false || Number(test?.exit_code) > 0 || Number(test?.result?.exit_code) > 0);
 }
 
+function bridgeResultFingerprint(value = {}) {
+  return JSON.stringify({
+    status: String(value?.status || ''),
+    diff_summary: String(value?.diff_summary || ''),
+    needs_repair: value?.needs_repair === true,
+    tests: normalizeBridgeTests({ tests: value?.tests || [] }, []),
+  });
+}
+
 function mergeBridgeResult(job, body) {
   const existingResult = objectOrEmpty(job?.result_json);
   const submitted = objectOrEmpty(body?.result_json || body?.result);
@@ -42,7 +51,14 @@ function mergeBridgeResult(job, body) {
     needs_repair: needsRepair,
     received_at: new Date().toISOString(),
   };
-  return { ...existingResult, dev_bridge: bridgeResult };
+  const history = Array.isArray(existingResult.dev_bridge_history) ? [...existingResult.dev_bridge_history] : [];
+  const previous = existingResult.dev_bridge && typeof existingResult.dev_bridge === 'object' ? existingResult.dev_bridge : null;
+  if (previous) {
+    const fingerprint = bridgeResultFingerprint(previous);
+    const lastFingerprint = history.length ? bridgeResultFingerprint(history[history.length - 1]) : null;
+    if (fingerprint !== lastFingerprint) history.push(previous);
+  }
+  return { ...existingResult, dev_bridge_history: history.slice(-20), dev_bridge: bridgeResult };
 }
 
 function mergeBridgePlan(job, body) {
@@ -242,4 +258,4 @@ export function devRuntime(request, env) {
   })();
 }
 
-export { mergeBridgeResult, mergeBridgePlan, normalizeBridgeTests, bridgeTestsNeedRepair };
+export { mergeBridgeResult, mergeBridgePlan, normalizeBridgeTests, bridgeTestsNeedRepair, bridgeResultFingerprint };

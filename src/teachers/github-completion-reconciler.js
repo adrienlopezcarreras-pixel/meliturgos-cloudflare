@@ -167,6 +167,61 @@ function teacherRevisionHistory(job) {
   return history.filter((state) => state?.review?.verdict === 'NEEDS_CHANGES' && state?.review?.feedback);
 }
 
+function bridgeRepairHistory(job) {
+  const history = Array.isArray(job?.result_json?.dev_bridge_history) ? job.result_json.dev_bridge_history : [];
+  return history.filter((row) => row && (row.needs_repair === true || normalizeTests(row.tests).some((test) => test.passed !== true)));
+}
+
+export function buildVerifiedRepairCorrections(job, record, proposal, ci) {
+  const repairs = bridgeRepairHistory(job);
+  return repairs.map((repair, index) => {
+    const failed = normalizeTests(repair.tests).filter((test) => test.passed !== true);
+    const failureEvidence = failed.length
+      ? failed.map((test) => test.name + ':failed').join(', ')
+      : 'runtime marked needs_repair=true';
+    const before = textValue(repair.diff_summary || ('Failed candidate attempt: ' + failureEvidence));
+    const after = textValue(record.summary || proposal?.selected?.text || job?.result_json?.dev_bridge?.diff_summary || 'Corrected candidate validated by full CI');
+    if (!before || !after || before === after) return null;
+    return {
+      id: 'repair:' + String(job.id) + ':' + String(repair.received_at || index) + ':' + String(record.candidate_sha).slice(0, 12),
+      job_id: job.id,
+      source: 'runtime-test-repair',
+      domain: String(job?.optional_context?.roadmap_id || 'autonomous-development').slice(0, 120),
+      task: textValue(job.goal || 'Repair a failed MEL development attempt', 4000),
+      input: textValue(job.goal || 'Repair the candidate until verification succeeds'),
+      before,
+      after,
+      rationale: textValue('CAUSE: candidate tests failed (' + failureEvidence + '). METHOD: preserve the approved goal, reopen only the repair implementation stage, correct the candidate, rerun targeted tests, then require exact-SHA full-candidate-ci success. PROOF: ' + ci.workflow + '#' + ci.run_id + ' succeeded on ' + ci.head_sha + '.'),
+      tests: [
+        ...failed.map((test) => test.name + ':failed-before-repair'),
+        ...record.tests.map((test) => test.name + ':passed-after-repair'),
+        ci.workflow + '#' + ci.run_id + ':success',
+      ],
+      tags: ['runtime-repair', 'test-failure', 'verified-repair', 'full-candidate-ci'],
+      validated: true,
+      quality: 1,
+    };
+  }).filter(Boolean);
+}
+
+async function recordVerifiedRepairCorrections(env, job, record, proposal, ci) {
+  if (!env?.DB) return { recorded: 0, reason: 'DB_BINDING_MISSING' };
+  const candidates = buildVerifiedRepairCorrections(job, record, proposal, ci);
+  if (!candidates.length) return { recorded: 0, reason: 'NO_VERIFIED_REPAIR_HISTORY' };
+  const learning = createLearningEngine(env);
+  let recorded = 0;
+  const failures = [];
+  for (const candidate of candidates) {
+    try {
+      await learning.recordCorrection(candidate);
+      recorded += 1;
+    } catch (error) {
+      failures.push(String(error?.code || error?.message || 'CORRECTION_RECORD_FAILED').slice(0, 160));
+    }
+  }
+  return { recorded, failures };
+}
+
 async function recordVerifiedTeacherCorrections(env, job, record, proposal, ci) {
   if (!env?.DB) return { recorded: 0, reason: 'DB_BINDING_MISSING' };
   const revisions = teacherRevisionHistory(job);
@@ -232,12 +287,17 @@ async function recordVerifiedCompletionLesson(env, job, record, proposal, ci) {
       score: 1,
       tags: ['autonomy', 'verified-completion', 'full-candidate-ci'],
     });
-    const correctionLearning = await recordVerifiedTeacherCorrections(env, job, record, proposal, ci);
+    const [teacherLearning, repairLearning] = await Promise.all([
+      recordVerifiedTeacherCorrections(env, job, record, proposal, ci),
+      recordVerifiedRepairCorrections(env, job, record, proposal, ci),
+    ]);
     return {
       recorded: true,
       kind: 'DEVELOPMENT_OUTCOME',
-      corrections_recorded: correctionLearning.recorded || 0,
-      correction_failures: correctionLearning.failures || [],
+      corrections_recorded: (teacherLearning.recorded || 0) + (repairLearning.recorded || 0),
+      teacher_corrections_recorded: teacherLearning.recorded || 0,
+      repair_corrections_recorded: repairLearning.recorded || 0,
+      correction_failures: [...(teacherLearning.failures || []), ...(repairLearning.failures || [])],
     };
   } catch (error) {
     return { recorded: false, reason: String(error?.code || error?.message || 'MENTOR_LEARNING_FAILED').slice(0, 160), corrections_recorded: 0 };
