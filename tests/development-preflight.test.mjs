@@ -4,12 +4,15 @@ import { ProviderPool } from '../src/augmentio/provider-pool.js';
 import { REQUIRED_COUNCIL_ROLE_IDS } from '../src/teachers/augmentio-council.js';
 import { prepareDevelopmentRequest, authorizeDevelopmentPlan } from '../src/evolution/development-preflight.js';
 
+const verifiedFree = Object.freeze({ verified: true, addedCost: 0, source: 'test-fixture-no-external-billing' });
+
 const provider = id => ({
   id,
   providerId: 'test',
   modelId: id,
   capabilities: ['GENERAL'],
   estimatedCost: 0,
+  costProvenance: verifiedFree,
   healthStatus: 'HEALTHY',
   enabled: true,
   health: async () => 'HEALTHY',
