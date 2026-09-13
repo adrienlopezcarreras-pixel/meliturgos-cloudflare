@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LearningEngine } from '../src/learning/learning-engine.js';
-import { MentorMemoryRepository } from '../src/learning/mentor-memory.js';
 import { createLoraTrainingPlan } from '../src/learning/lora-plan.js';
 import { chooseBestSettings, proposeNeighborSettings } from '../src/learning/inference-adaptation.js';
 
@@ -13,7 +12,7 @@ class MemoryStub {
   }
 }
 
-test('corrections become persistent training pairs', async () => {
+test('corrections become cumulative persistent training pairs', async () => {
   const engine = new LearningEngine({ memory: new MemoryStub() });
   await engine.recordCorrection({
     id: 'learn-1', domain: 'coding', input: 'Pourquoi le test ne passe pas ?',
@@ -21,9 +20,11 @@ test('corrections become persistent training pairs', async () => {
     rationale: 'Le runner ne lit que la racine de tests.', validated: true, quality: 0.95,
   });
   const bundle = await engine.trainingBundle();
-  assert.equal(bundle.accepted, 1);
-  assert.equal(bundle.preference[0].chosen, 'Le runner ne découvre pas le test imbriqué.');
-  assert.equal(bundle.preference[0].rejected, 'Le code métier est faux.');
+  assert.ok(bundle.accepted >= 4, 'persisted correction plus verified bootstrap lessons should all be trainable');
+  const learned = bundle.preference.find(row => row.id === 'learn-1');
+  assert.ok(learned);
+  assert.equal(learned.chosen, 'Le runner ne découvre pas le test imbriqué.');
+  assert.equal(learned.rejected, 'Le code métier est faux.');
   assert.match(bundle.digest, /^fnv1a-/);
 });
 
@@ -65,4 +66,17 @@ test('LoRA remains draft until corpus is large enough', () => {
   assert.equal(early.status, 'DRAFT');
   assert.equal(ready.status, 'READY_FOR_TRAINING');
   assert.equal(ready.readiness.base_weights_frozen, true);
+});
+
+test('adapter cannot become active without a measured benchmark gain', async () => {
+  const memory = new MemoryStub();
+  const engine = new LearningEngine({ memory });
+  const plan = createLoraTrainingPlan({ base_model: 'open/model', dataset_digest: 'fnv1a-12345678', examples: 80 });
+  await assert.rejects(() => engine.activateAdapter({
+    plan,
+    artifact: { id: 'mel-adapter-1', digest: 'sha256-adapter', base_model: 'open/model', format: 'safetensors' },
+    baseline: { overall: 0.8, domains: { code: 0.8 } },
+    candidate: { overall: 0.79, domains: { code: 0.79 } },
+  }), error => error.code === 'LORA_ACTIVATION_DENIED');
+  assert.equal((await memory.recent({ kind: 'LORA_ADAPTER_ACTIVE' })).length, 0);
 });
