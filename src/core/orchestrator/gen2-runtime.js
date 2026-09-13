@@ -9,6 +9,7 @@ import { registerCodeIntegrityCapability } from '../../capabilities/code-integri
 import { registerModuleProposalCapability } from '../../capabilities/module-proposal-capability.js';
 import { registerWorkIntrospectionCapabilities } from '../../capabilities/work-introspection-capabilities.js';
 import { registerConversationRuntimeCapabilities } from '../../capabilities/conversation-runtime-capabilities.js';
+import { registerChatGPTArchiveImportCapability } from '../../capabilities/chatgpt-archive-import-capability.js';
 import { validateManifest } from '../../plugins/validator.js';
 import { transition } from '../lifecycle/extension.js';
 import { requireValue } from '../contracts.js';
@@ -30,6 +31,7 @@ export function createGen2Runtime({ audit = async () => {}, env = {} } = {}) {
   registerModuleProposalCapability(bus);
   registerWorkIntrospectionCapabilities(bus, env);
   registerConversationRuntimeCapabilities(bus, env);
+  registerChatGPTArchiveImportCapability(bus, env);
   const plugins = new Map();
   const modules = new Map();
   const agents = new Map();
