@@ -23,6 +23,10 @@ test('zero euro governor blocks paid and unknown-cost routes', () => {
   assert.equal(governor.allows({ estimatedCost: true }), false);
   assert.equal(governor.allows({ estimatedCost: {} }), false);
   assert.equal(governor.allows({ estimatedCost: [] }), false);
+
+  const attemptedWidening = new ZeroEuroGovernor({ maxCost: 10 });
+  assert.equal(attemptedWidening.maxCost, 0);
+  assert.equal(attemptedWidening.allows({ estimatedCost: 0.01 }), false);
 });
 
 test('provider pool filters by capability and health', () => {
