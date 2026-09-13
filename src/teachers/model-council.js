@@ -4,6 +4,10 @@ export { createTeacher } from './teacher-interface.js';
  * Mandatory AI state-of-play council before MEL starts developing or materially
  * modifying a capability/module. The caller supplies the model/provider adapter
  * so this remains provider-neutral and can be backed by .augmentio.
+ *
+ * IMPORTANT: a completed Council is evidence for the next governance stage. It
+ * never authorizes implementation by itself. MEL synthesis + Teacher approval
+ * remain separate mandatory gates.
  */
 export async function runStateOfPlayCouncil({ goal, context = {}, members = [], ask, minResponses = 2 } = {}) {
   const objective = String(goal || '').trim();
@@ -53,17 +57,22 @@ export async function runStateOfPlayCouncil({ goal, context = {}, members = [], 
     status: 'COMPLETE',
     phase: 'STATE_OF_PLAY_BEFORE_DEVELOPMENT',
     goal: objective,
+    context,
     responses,
     failures,
     evidence_required: true,
-    development_allowed: true,
-    next: 'SYNTHESIZE_STATE_OF_PLAY_THEN_PLAN'
+    development_allowed: false,
+    next: 'SYNTHESIZE_STATE_OF_PLAY_THEN_TEACHER_REVIEW'
   };
 }
 
-/** Hard gate: generation/coding must not begin before a completed AI council. */
+/**
+ * Hard gate for Council completion only. This deliberately does not authorize
+ * implementation: downstream code must still require MEL synthesis and Teacher
+ * approval before entering implementation.
+ */
 export function requireStateOfPlayCouncil(report) {
-  if (!report || report.status !== 'COMPLETE' || report.phase !== 'STATE_OF_PLAY_BEFORE_DEVELOPMENT' || report.development_allowed !== true) {
+  if (!report || report.status !== 'COMPLETE' || report.phase !== 'STATE_OF_PLAY_BEFORE_DEVELOPMENT' || !Array.isArray(report.responses) || report.responses.length === 0) {
     throw Object.assign(new Error('AI_STATE_OF_PLAY_REQUIRED_BEFORE_DEVELOPMENT'), { code: 'AI_STATE_OF_PLAY_REQUIRED_BEFORE_DEVELOPMENT', status: 409 });
   }
   return report;
