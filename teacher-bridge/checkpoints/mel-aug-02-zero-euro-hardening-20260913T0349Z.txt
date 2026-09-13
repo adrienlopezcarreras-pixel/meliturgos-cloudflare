@@ -1,0 +1,55 @@
+MELITURGOS factual checkpoint — MEL-AUG-02 Zero-Euro Governor hardening
+UTC: 2026-09-13T03:49Z
+Branch: candidate/mel-clean-autonomy
+Verified implementation SHA before checkpoint: f1ee643216d02b0a5add41ba1ebf80c3c9510294
+
+Goal
+Harden the existing ZeroEuroGovernor so ambiguous JavaScript values can never be coerced to an apparent zero cost and accidentally become eligible for Council/.augmentio execution.
+
+PLAN CONTRACT
+FICHIERS
+- src/augmentio/zero-euro-governor.js
+- tests/augmentio-core.test.mjs
+
+CHANGEMENTS
+- Reuse the existing ZeroEuroGovernor; no new governor, provider registry, orchestrator or roadmap was created.
+- Accept only finite non-negative numbers or non-blank numeric strings as explicit cost evidence.
+- Reject blank/whitespace strings, booleans, arrays, objects, null/undefined and non-finite values fail-closed.
+- Extend the existing augmentio core test instead of creating a parallel test module.
+
+REUTILISATION
+- Existing ZeroEuroGovernor remains the single budget gate.
+- Existing ProviderPool/Augmentio/Council paths continue to consume the same governor contract.
+- Existing tests/augmentio-core.test.mjs remains the canonical core test file.
+
+TESTS
+- Added acceptance coverage for explicit numeric zero (number/string) and rejection of whitespace, booleans, arrays and objects.
+- runtime-teacher-smoke run 34736410796 on exact SHA f1ee643216d02b0a5add41ba1ebf80c3c9510294: SUCCESS.
+- full-candidate-ci run 34736410840 on exact SHA f1ee643216d02b0a5add41ba1ebf80c3c9510294: SUCCESS.
+- full-candidate-ci steps verified: dependency security gate SUCCESS, syntax SUCCESS, full test suite SUCCESS.
+
+RISQUES
+- A provider configuration using whitespace or a non-primitive object to represent zero cost is now rejected. This is intentional under the zero-cost fail-closed policy.
+- Numeric strings such as "0" and "0.00" remain accepted for compatibility.
+
+ROLLBACK
+- Revert commits f1ee643216d02b0a5add41ba1ebf80c3c9510294 and 2b46c7ee65a0a451ac4cd9feb7243d780e8626b3 if a proven zero-cost provider is shown to require an incompatible primitive representation.
+
+CRITERES_DE_FIN
+- Unknown or ambiguous cost values cannot pass as zero through JavaScript coercion: satisfied by code + tests.
+- Explicit zero number/string remains accepted: satisfied by tests.
+- Paid/negative/non-finite costs remain rejected: covered by existing governor tests/logic.
+- Exact candidate SHA passes full-candidate-ci: satisfied for f1ee643216d02b0a5add41ba1ebf80c3c9510294.
+
+Teacher review
+- Verdict: APPROVE_PLAN for this minimal hardening diff.
+- Evidence inspected directly: existing governor implementation, existing augmentio core tests, canonical roadmap item MEL-AUG-02, exact-SHA CI status.
+- teacher='chatgpt-automation-zero-euro'
+
+Limits / non-claims
+- No new live external model invocation was claimed in this run. Current GitHub tool surface provided no direct proof of a configured live zero-cost Council call for this specific diff.
+- No production deployment, DNS change, secret write, destructive migration, permission change, paid API, Claude, TinyFish or purchase was used.
+- Roadmap status is not promoted solely by this checkpoint; canonical master-roadmap remains the source of truth.
+
+Next safe step
+Continue MEL-AUG-02/GEN2-05 only with factual runtime provenance when available; otherwise select the next P0 that can be advanced safely on candidate without paid/external-human dependencies, preserving the Council/Teacher gates and exact-SHA CI discipline.
