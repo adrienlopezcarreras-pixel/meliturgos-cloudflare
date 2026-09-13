@@ -81,6 +81,25 @@ test('two eligible models still produce four mandatory role reviews while both m
   assert.deepEqual(report.providers_succeeded, ['a', 'b']);
 });
 
+test('mandatory role transparently falls back to another authorized zero-cost provider after a transient model failure', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider('a', 0, calls),
+    provider('b', 0, calls, { failRole: 'SECURITY_GOVERNANCE' }),
+  ]);
+  const report = await runAugmentioStateOfPlay({ env: {}, goal: 'continuer le cycle sans perdre le rôle sécurité', pool, minResponses: 2 });
+  assert.equal(report.status, 'COMPLETE');
+  assert.equal(report.all_required_roles_satisfied, true);
+  const security = report.responses.find(row => row.answer.role === 'SECURITY_GOVERNANCE');
+  assert.ok(security);
+  assert.equal(security.answer.assigned_provider_id, 'b');
+  assert.equal(security.answer.provider_id, 'a');
+  assert.equal(security.answer.provider_fallback_used, true);
+  assert.deepEqual(security.answer.provider_attempts, ['b', 'a']);
+  const securityCalls = calls.filter(row => row.purpose === 'state-of-play-before-development' && row.role === 'SECURITY_GOVERNANCE');
+  assert.deepEqual(securityCalls.map(row => row.id), ['b', 'a']);
+});
+
 test('MEL synthesis falls back to another authorized zero-cost model without losing independent Council answers', async () => {
   const calls = [];
   const pool = new ProviderPool([
@@ -94,10 +113,10 @@ test('MEL synthesis falls back to another authorized zero-cost model without los
   assert.deepEqual(report.synthesis.attempted, ['a', 'b']);
 });
 
-test('council fails closed when a mandatory role does not return evidence', async () => {
+test('council still fails closed when every authorized zero-cost provider fails the same mandatory role', async () => {
   const calls = [];
   const pool = new ProviderPool([
-    provider('a', 0, calls),
+    provider('a', 0, calls, { failRole: 'SECURITY_GOVERNANCE' }),
     provider('b', 0, calls, { failRole: 'SECURITY_GOVERNANCE' }),
   ]);
   await assert.rejects(
