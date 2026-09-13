@@ -10,6 +10,12 @@ test('code questions are routed to search automatically', () => {
   assert.deepEqual(inferCodeCapability('Cherche dans ton code createDefaultCapabilityBus'), {
     id: 'code.search', input: { query: 'createDefaultCapabilityBus' }
   });
+  assert.deepEqual(inferCodeCapability('cherche dans ton code où est définie la fonction buildContext'), {
+    id: 'code.search', input: { query: 'buildContext' }
+  });
+  assert.deepEqual(inferCodeCapability('trouve dans le dépôt où est utilisé createDefaultAugmentioPool'), {
+    id: 'code.search', input: { query: 'createDefaultAugmentioPool' }
+  });
 });
 
 test('explicit code file requests are routed to code.read', () => {
