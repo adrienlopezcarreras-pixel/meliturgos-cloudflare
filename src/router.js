@@ -225,7 +225,8 @@ async function handleConversationApi(request, env) {
       const { module_uuid, input } = body;
       if (!module_uuid) return json({ error: "module_uuid is required", code: "MISSING_PARAMS" }, 400);
       const { ModuleRunner } = await import("../src/modules/module-runner.js");
-      const runner = new ModuleRunner(env);
+      const runtime = createGen2Runtime({ env });
+      const runner = new ModuleRunner(env, runtime.bus);
       const result = await runner.run(module_uuid, input, { owner: env.MELITURGOS_USER, permissions: env.CAPABILITY_PERMISSIONS || [], requestId: crypto.randomUUID() });
       return json(result);
     } catch (e) { return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500); }
