@@ -18,38 +18,47 @@ export function createLoraTrainingPlan({
   base_model,
   dataset_digest,
   examples = 0,
-  rank = 16,
-  alpha = 32,
+  rank = 8,
+  alpha = 16,
   dropout = 0.05,
   learning_rate = 2e-4,
   epochs = 2,
-  quantization = '4bit',
-  target_modules = ['q_proj', 'k_proj', 'v_proj', 'o_proj'],
+  quantization = 'none',
+  target_modules = ['q_proj', 'v_proj'],
   seed = 42,
   status,
 } = {}) {
   const count = Math.max(0, Math.floor(Number(examples) || 0));
-  const ready = count >= 50;
+  const normalizedRank = Math.max(1, Math.min(32, Math.round(Number(rank) || 8));
+  const normalizedQuantization = ALLOWED_QUANT.has(String(quantization)) ? String(quantization) : 'none';
+  const cloudflareCompatible = normalizedRank <= 32 && normalizedQuantization === 'none';
+  const ready = count >= 50 && cloudflareCompatible;
   return {
     id: safeId(id, 'ID'),
     base_model: safeId(base_model, 'BASE_MODEL'),
     dataset_digest: safeId(dataset_digest, 'DATASET_DIGEST'),
     examples: count,
-    rank: Math.max(1, Math.min(256, Math.round(Number(rank) || 16))),
-    alpha: Math.max(1, Math.min(1024, Math.round(Number(alpha) || 32))),
+    rank: normalizedRank,
+    alpha: Math.max(1, Math.min(1024, Math.round(Number(alpha) || 16))),
     dropout: Math.max(0, Math.min(0.5, Number(dropout) || 0)),
     learning_rate: Math.max(1e-7, Math.min(1e-2, Number(learning_rate) || 2e-4)),
     epochs: Math.max(1, Math.min(20, Math.round(Number(epochs) || 2))),
-    quantization: ALLOWED_QUANT.has(String(quantization)) ? String(quantization) : '4bit',
+    quantization: normalizedQuantization,
     target_modules: Array.isArray(target_modules) ? [...new Set(target_modules.map(x => safeId(x, 'TARGET_MODULE')))].slice(0, 32) : [],
     seed: Math.round(Number(seed) || 42),
     status: status && ALLOWED_STATUS.has(String(status)) ? String(status) : (ready ? 'READY_FOR_TRAINING' : 'DRAFT'),
     readiness: {
-      enough_examples: ready,
+      enough_examples: count >= 50,
       min_examples: 50,
       base_weights_frozen: true,
       trainable_parameters: 'LORA_ADAPTER_ONLY',
       benchmark_required_before_activation: true,
+      cloudflare_inference_compatible: cloudflareCompatible,
+      cloudflare_requirements: {
+        quantization: 'none',
+        max_rank: 32,
+        expected_files: ['adapter_config.json', 'adapter_model.safetensors'],
+      },
     },
   };
 }
@@ -66,7 +75,10 @@ export function assertAdapterArtifact(artifact = {}) {
 export const loraPolicy = Object.freeze({
   minimum_validated_examples: 50,
   base_weights_frozen: true,
-  preferred_quantization: '4bit',
+  preferred_quantization: 'none',
+  preferred_rank: 8,
+  maximum_cloudflare_rank: 32,
+  preferred_target_modules: ['q_proj', 'v_proj'],
   activation_requires_benchmark: true,
   activation_requires_no_major_regression: true,
 });
