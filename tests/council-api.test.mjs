@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import worker from '../src/index.js';
 
 process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
@@ -52,4 +53,13 @@ test('Council endpoint requires a goal', async () => {
   const body = await response.json();
   assert.equal(body.ok, false);
   assert.equal(body.code, 'COUNCIL_GOAL_REQUIRED');
+});
+
+test('Gen2 Council, evolution and Work preflight APIs execute through CapabilityBus', async () => {
+  const source = await readFile(new URL('../src/index.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /import\s+\{\s*runAugmentioStateOfPlay\s*\}/);
+  assert.doesNotMatch(source, /import\s+\{\s*prepareDevelopmentRequest\s*\}/);
+  assert.match(source, /runtime\.bus\.execute\(['"]evolution\.preflight['"]/);
+  assert.match(source, /capabilityId\s*=\s*path\s*===\s*['"]\/api\/gen2\/council\/state-of-play['"][\s\S]*['"]council\.state-of-play['"][\s\S]*['"]evolution\.preflight['"]/);
+  assert.match(source, /runtime\.bus\.execute\(capabilityId/);
 });
