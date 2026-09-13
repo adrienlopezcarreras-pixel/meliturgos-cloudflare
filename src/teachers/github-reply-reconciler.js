@@ -1,21 +1,31 @@
 import { listPendingRuntimeTeacherRequests, applyRuntimeTeacherReply } from './runtime-teacher-bridge.js';
 
 const ALLOWED_VERDICTS = new Set(['APPROVE_PLAN', 'NEEDS_CHANGES', 'REJECT']);
+const SHA40 = /^[0-9a-f]{40}$/i;
 
 function encodePath(value) {
   return String(value).split('/').filter(Boolean).map(encodeURIComponent).join('/');
 }
 
-export function defaultTeacherRepliesUrl(env = {}) {
+function repositoryAndBranches(env = {}) {
   const repository = String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
-  const branch = String(env.MEL_TEACHER_BRANCH || 'candidate/mel-clean-autonomy');
+  const codeBranch = String(env.MEL_GITHUB_BRANCH || env.MEL_TEACHER_BRANCH || 'candidate/mel-clean-autonomy');
+  const transportBranch = String(env.MEL_TEACHER_TRANSPORT_BRANCH || 'teacher-bridge/runtime');
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
     throw Object.assign(new Error('TEACHER_REPOSITORY_INVALID'), { code: 'TEACHER_REPOSITORY_INVALID' });
   }
-  if (!branch.startsWith('candidate/')) {
+  if (!codeBranch.startsWith('candidate/')) {
     throw Object.assign(new Error('TEACHER_BRANCH_NOT_CANDIDATE'), { code: 'TEACHER_BRANCH_NOT_CANDIDATE' });
   }
-  return `https://raw.githubusercontent.com/${encodePath(repository)}/refs/heads/${encodePath(branch)}/teacher-bridge/replies.jsonl`;
+  if (!transportBranch.startsWith('teacher-bridge/')) {
+    throw Object.assign(new Error('TEACHER_TRANSPORT_BRANCH_INVALID'), { code: 'TEACHER_TRANSPORT_BRANCH_INVALID' });
+  }
+  return { repository, codeBranch, transportBranch };
+}
+
+export function defaultTeacherRepliesUrl(env = {}) {
+  const { repository, transportBranch } = repositoryAndBranches(env);
+  return `https://raw.githubusercontent.com/${encodePath(repository)}/refs/heads/${encodePath(transportBranch)}/teacher-bridge/replies.jsonl`;
 }
 
 export function parseTeacherRepliesJsonl(text) {
@@ -56,10 +66,76 @@ export async function fetchTeacherReplies(env = {}, { fetchImpl = fetch } = {}) 
   return parseTeacherRepliesJsonl(await response.text());
 }
 
+async function fetchCanonicalCandidateSha(env, fetchImpl) {
+  const explicit = String(env.MEL_CANONICAL_CANDIDATE_SHA || '');
+  if (SHA40.test(explicit)) return explicit;
+  const { repository, codeBranch } = repositoryAndBranches(env);
+  const response = await fetchImpl(
+    `https://api.github.com/repos/${encodePath(repository)}/branches/${encodeURIComponent(codeBranch)}`,
+    { headers: { 'user-agent': 'meliturgos-teacher-reconciler', accept: 'application/vnd.github+json' } },
+  );
+  if (!response.ok) return null;
+  const payload = await response.json().catch(() => null);
+  const sha = String(payload?.commit?.sha || '');
+  return SHA40.test(sha) ? sha : null;
+}
+
+async function requeueStaleRequest(repository, request, currentSha) {
+  const job = await repository.get(request.job_id);
+  if (!job) return null;
+  const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
+  const state = result.teacher_bridge;
+  if (state?.status !== 'WAITING_TEACHER' || state?.request?.request_id !== request.request_id) return null;
+
+  const now = new Date().toISOString();
+  const history = Array.isArray(result.teacher_bridge_history) ? [...result.teacher_bridge_history] : [];
+  history.push({
+    ...state,
+    status: 'STALE',
+    stale_at: now,
+    stale_reason: 'CANDIDATE_SHA_DRIFT',
+    stale_request_sha: request.target_sha || null,
+    current_candidate_sha: currentSha,
+  });
+  result.teacher_bridge_history = history.slice(-20);
+  result.last_teacher_stale = {
+    request_id: request.request_id,
+    previous_target_sha: request.target_sha || null,
+    current_candidate_sha: currentSha,
+    stale_at: now,
+  };
+  result.teacher_bridge = null;
+
+  const plan = job.plan_json && typeof job.plan_json === 'object' ? { ...job.plan_json } : {};
+  plan.preflight = null;
+  plan.revision = {
+    requested_at: now,
+    previous_request_id: request.request_id,
+    previous_target_sha: request.target_sha || null,
+    current_candidate_sha: currentSha,
+    reason: 'TEACHER_REQUEST_STALE_SHA',
+  };
+  const updated = await repository.update(job.id, { status: 'QUEUED', plan_json: plan, result_json: result, error: null });
+  return { request_id: request.request_id, job_id: updated.id, previous_target_sha: request.target_sha || null, current_candidate_sha: currentSha };
+}
+
 export async function reconcileRuntimeTeacherReplies({ repository, env = {}, fetchImpl = fetch } = {}) {
   if (!repository) throw Object.assign(new Error('TEACHER_REPOSITORY_REQUIRED'), { code: 'TEACHER_REPOSITORY_REQUIRED' });
   const pending = await listPendingRuntimeTeacherRequests(repository, { limit: 50 });
-  if (!pending.length) return { ok: true, pending: 0, applied: [], unmatched: [] };
+  if (!pending.length) return { ok: true, pending: 0, stale: [], applied: [], unmatched: [] };
+
+  const currentSha = await fetchCanonicalCandidateSha(env, fetchImpl);
+  const stale = [];
+  const current = [];
+  for (const request of pending) {
+    if (currentSha && SHA40.test(String(request.target_sha || '')) && request.target_sha !== currentSha) {
+      const cleaned = await requeueStaleRequest(repository, request, currentSha);
+      if (cleaned) stale.push(cleaned);
+      continue;
+    }
+    current.push(request);
+  }
+  if (!current.length) return { ok: true, pending: pending.length, current_sha: currentSha, stale, applied: [], unmatched: [] };
 
   const replies = await fetchTeacherReplies(env, { fetchImpl });
   const latestById = new Map();
@@ -67,7 +143,7 @@ export async function reconcileRuntimeTeacherReplies({ repository, env = {}, fet
 
   const applied = [];
   const unmatched = [];
-  for (const request of pending) {
+  for (const request of current) {
     const reply = latestById.get(request.request_id);
     if (!reply) {
       unmatched.push(request.request_id);
@@ -82,5 +158,5 @@ export async function reconcileRuntimeTeacherReplies({ repository, env = {}, fet
       verdict: result.state.review?.verdict || reply.verdict,
     });
   }
-  return { ok: true, pending: pending.length, applied, unmatched };
+  return { ok: true, pending: pending.length, current_sha: currentSha, stale, applied, unmatched };
 }
