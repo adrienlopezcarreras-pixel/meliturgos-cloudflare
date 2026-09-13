@@ -1,7 +1,6 @@
 import { conversationRoutes } from "./api/routes/conversations.js";
 import { requireAuth } from "./core/security.js";
 import { json, html } from "./core/http.js";
-import { createConversationService } from "./conversations/conversation-service.js";
 import { withConversationArchive } from "./conversations/intercept.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
@@ -128,8 +127,6 @@ async function codeSelfCheck(env) {
 }
 
 async function handleConversationApi(request, env) {
-  const service = createConversationService(env);
-  await service.migrate();
   const url = new URL(request.url);
   const path = url.pathname;
 
@@ -173,8 +170,9 @@ async function handleConversationApi(request, env) {
   if (path === "/api/gen2/conversations/messages" && request.method === "GET") {
     const conversationId = url.searchParams.get("conversation_id");
     if (!conversationId) return json({ error: "conversation_id required", code: "MISSING_CONVERSATION_ID" }, 400);
-    const messages = await service.getMessages(conversationId);
-    return json({ conversationId, messages });
+    const runtime = createGen2Runtime({ env });
+    const result = await runtime.bus.execute("conversation.messages.list", { conversationId }, capabilityContext(env));
+    return json({ conversationId, messages: result.messages });
   }
 
   if (path === "/api/gen2/web/research" && (request.method === "GET" || request.method === "POST")) {
@@ -189,7 +187,14 @@ async function handleConversationApi(request, env) {
 
   if (path === "/api/gen2/devices/register" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
-    const result = await service.registerDevice({ id: body.device_id || crypto.randomUUID(), owner: body.owner || "", name: body.name || "", kind: body.kind || "unknown", metadata: body.metadata || {} });
+    const runtime = createGen2Runtime({ env });
+    const result = await runtime.bus.execute("device.register", {
+      id: body.device_id || crypto.randomUUID(),
+      owner: body.owner || "",
+      name: body.name || "",
+      kind: body.kind || "unknown",
+      metadata: body.metadata || {},
+    }, capabilityContext(env));
     return json({ ok: true, ...result });
   }
 
@@ -197,7 +202,8 @@ async function handleConversationApi(request, env) {
     const deviceId = url.searchParams.get("device_id");
     const conversationId = url.searchParams.get("conversation_id");
     if (!deviceId || !conversationId) return json({ error: "device_id and conversation_id required", code: "MISSING_PARAMS" }, 400);
-    const sync = await service.getSyncMessages(deviceId, conversationId);
+    const runtime = createGen2Runtime({ env });
+    const sync = await runtime.bus.execute("device.sync", { deviceId, conversationId }, capabilityContext(env));
     return json({ ok: true, ...sync });
   }
 
