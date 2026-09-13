@@ -1,4 +1,5 @@
 import { createMentorEngine } from '../learning/mentor-engine.js';
+import { createLearningEngine } from '../learning/learning-engine.js';
 
 const COMPLETION_KIND = 'MEL_WORK_COMPLETION';
 const SHA_RE = /^[a-f0-9]{40}$/i;
@@ -30,6 +31,12 @@ function normalizeTests(value) {
     name: String(test?.name || '').slice(0, 200),
     passed: test?.passed === true,
   })).filter((test) => test.name);
+}
+
+function textValue(value, max = 8000) {
+  if (typeof value === 'string') return value.slice(0, max);
+  if (value == null) return '';
+  try { return JSON.stringify(value).slice(0, max); } catch { return String(value).slice(0, max); }
 }
 
 function completionProvenanceSnapshot(job) {
@@ -155,8 +162,55 @@ function validateMelImplementationProposal(job, record) {
   return proposal;
 }
 
+function teacherRevisionHistory(job) {
+  const history = Array.isArray(job?.result_json?.teacher_bridge_history) ? job.result_json.teacher_bridge_history : [];
+  return history.filter((state) => state?.review?.verdict === 'NEEDS_CHANGES' && state?.review?.feedback);
+}
+
+async function recordVerifiedTeacherCorrections(env, job, record, proposal, ci) {
+  if (!env?.DB) return { recorded: 0, reason: 'DB_BINDING_MISSING' };
+  const revisions = teacherRevisionHistory(job);
+  if (!revisions.length) return { recorded: 0, reason: 'NO_TEACHER_REVISIONS' };
+  const learning = createLearningEngine(env);
+  let recorded = 0;
+  const failures = [];
+  for (let index = 0; index < revisions.length; index += 1) {
+    const state = revisions[index];
+    const request = state?.request || {};
+    const review = state?.review || {};
+    const before = textValue(request.patch_summary || request.objective || job.goal || 'Approche précédente rejetée');
+    const after = textValue(record.summary || proposal?.selected?.text || 'Approche corrigée validée par CI');
+    const rationale = textValue(review.feedback || 'Correction demandée par le Teacher externe.');
+    if (!before || !after || before === after || !rationale) continue;
+    try {
+      await learning.recordCorrection({
+        id: `teacher:${job.id}:${review.request_id || request.request_id || index}:${record.candidate_sha.slice(0, 12)}`,
+        job_id: job.id,
+        source: 'chatgpt-teacher',
+        domain: String(job?.optional_context?.roadmap_id || 'autonomous-development').slice(0, 120),
+        task: textValue(request.objective || job.goal || 'Correction de développement MEL', 4000),
+        input: textValue(request.objective || job.goal || 'Corriger le développement MEL'),
+        before,
+        after,
+        rationale,
+        tests: [
+          ...record.tests.map((test) => `${test.name}:passed`),
+          `${ci.workflow}#${ci.run_id}:success`,
+        ],
+        tags: ['teacher', 'needs-changes', 'verified-repair', 'full-candidate-ci'],
+        validated: true,
+        quality: 1,
+      });
+      recorded += 1;
+    } catch (error) {
+      failures.push(String(error?.code || error?.message || 'CORRECTION_RECORD_FAILED').slice(0, 160));
+    }
+  }
+  return { recorded, failures };
+}
+
 async function recordVerifiedCompletionLesson(env, job, record, proposal, ci) {
-  if (!env?.DB) return { recorded: false, reason: 'DB_BINDING_MISSING' };
+  if (!env?.DB) return { recorded: false, reason: 'DB_BINDING_MISSING', corrections_recorded: 0 };
   try {
     const engine = createMentorEngine(env);
     await engine.recordOutcome({
@@ -178,9 +232,15 @@ async function recordVerifiedCompletionLesson(env, job, record, proposal, ci) {
       score: 1,
       tags: ['autonomy', 'verified-completion', 'full-candidate-ci'],
     });
-    return { recorded: true, kind: 'DEVELOPMENT_OUTCOME' };
+    const correctionLearning = await recordVerifiedTeacherCorrections(env, job, record, proposal, ci);
+    return {
+      recorded: true,
+      kind: 'DEVELOPMENT_OUTCOME',
+      corrections_recorded: correctionLearning.recorded || 0,
+      correction_failures: correctionLearning.failures || [],
+    };
   } catch (error) {
-    return { recorded: false, reason: String(error?.code || error?.message || 'MENTOR_LEARNING_FAILED').slice(0, 160) };
+    return { recorded: false, reason: String(error?.code || error?.message || 'MENTOR_LEARNING_FAILED').slice(0, 160), corrections_recorded: 0 };
   }
 }
 
@@ -238,7 +298,14 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
         result_json: result,
         candidate_branch: record.candidate_branch,
       });
-      completed.push({ job_id: updated.id, request_id: record.request_id, candidate_sha: record.candidate_sha, ci_run_id: record.ci_run_id, mentor_learning: mentorLearning.recorded === true });
+      completed.push({
+        job_id: updated.id,
+        request_id: record.request_id,
+        candidate_sha: record.candidate_sha,
+        ci_run_id: record.ci_run_id,
+        mentor_learning: mentorLearning.recorded === true,
+        corrections_recorded: mentorLearning.corrections_recorded || 0,
+      });
     } catch (error) {
       rejected.push({ job_id: job.id, request_id: record.request_id, code: error?.code || 'COMPLETION_VERIFY_FAILED' });
     }
