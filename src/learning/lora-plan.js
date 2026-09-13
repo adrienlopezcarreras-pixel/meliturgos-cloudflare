@@ -30,7 +30,7 @@ export function createLoraTrainingPlan({
   status,
 } = {}) {
   const count = Math.max(0, Math.floor(Number(examples) || 0));
-  const normalizedRank = Math.max(1, Math.min(32, Math.round(Number(rank) || 8));
+  const normalizedRank = Math.max(1, Math.min(32, Math.round(Number(rank) || 8)));
   const normalizedQuantization = ALLOWED_QUANT.has(String(quantization)) ? String(quantization) : 'none';
   const cloudflareCompatible = normalizedRank <= 32 && normalizedQuantization === 'none';
   const ready = count >= 50 && cloudflareCompatible;
