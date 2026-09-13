@@ -6,12 +6,17 @@ function byId(id) {
   return flattenRoadmap().find((row) => row.id === id);
 }
 
-test('roadmap acknowledges real autonomy, gap detection and Work foundations without claiming completion', () => {
-  for (const id of ['GEN2-17', 'MEL-EVOL-01', 'MEL-WORK-02']) {
+test('roadmap keeps broader autonomy and Work partial while acknowledging verified gap detection', () => {
+  for (const id of ['GEN2-17', 'MEL-WORK-02']) {
     const row = byId(id);
     assert.ok(row, `missing roadmap item ${id}`);
     assert.equal(row.status, 'PARTIAL', `${id} must remain PARTIAL until live end-to-end proof exists`);
   }
+
+  const gapDetection = byId('MEL-EVOL-01');
+  assert.ok(gapDetection, 'missing roadmap item MEL-EVOL-01');
+  assert.equal(gapDetection.status, 'DONE_VERIFIED');
+  assert.match(gapDetection.next, /d[ée]tection|gap|doublon|module/i);
 });
 
 test('web research remains partial until production validation while naming the remaining proof', () => {
