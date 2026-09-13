@@ -13,6 +13,31 @@ function extractText(result) {
   return result?.response ?? result?.text ?? result?.result?.response ?? result?.choices?.[0]?.message?.content ?? null;
 }
 
+function boundedNumber(value, min, max) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : null;
+}
+
+function inferenceOptions(context = {}) {
+  const settings = context?.inference_settings && typeof context.inference_settings === 'object'
+    ? context.inference_settings
+    : null;
+  const out = {};
+  if (settings) {
+    const temperature = boundedNumber(settings.temperature, 0, 5);
+    const topP = boundedNumber(settings.top_p, 0.001, 1);
+    const maxTokens = boundedNumber(settings.max_tokens, 1, 8192);
+    if (temperature != null) out.temperature = temperature;
+    if (topP != null) out.top_p = topP;
+    if (maxTokens != null) out.max_tokens = Math.round(maxTokens);
+  }
+  // Only an already validated/activated adapter identifier may be supplied by
+  // the caller. This adapter never trains, uploads or promotes a LoRA itself.
+  const lora = String(context?.lora || '').trim();
+  if (lora && /^[A-Za-z0-9@._:/+\-]{1,240}$/.test(lora)) out.lora = lora;
+  return out;
+}
+
 export function createWorkersAIAdapter({
   env,
   modelId,
@@ -42,7 +67,8 @@ export function createWorkersAIAdapter({
     invoke: async ({ input, context = {}, signal } = {}) => {
       if (signal?.aborted) throw Object.assign(new Error('PROVIDER_ABORTED'), { code: 'PROVIDER_ABORTED' });
       const messages = normalizeMessages(input, context);
-      const result = await env.AI.run(modelId, { messages });
+      const options = inferenceOptions(context);
+      const result = await env.AI.run(modelId, { messages, ...options });
       const text = extractText(result);
       if (!text || !String(text).trim()) {
         const error = new Error('EMPTY_WORKERS_AI_RESPONSE');
@@ -51,9 +77,17 @@ export function createWorkersAIAdapter({
       }
       return {
         text: String(text).trim(),
-        provenance: { provider: 'workers-ai', model: modelId },
+        provenance: {
+          provider: 'workers-ai',
+          model: modelId,
+          inference_settings_applied: Object.keys(options).filter((key) => key !== 'lora'),
+          lora_applied: Boolean(options.lora),
+          lora: options.lora || null,
+        },
         raw: result,
       };
     },
   });
 }
+
+export { inferenceOptions };
