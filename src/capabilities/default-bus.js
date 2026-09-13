@@ -160,6 +160,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       conversationId: input.conversationId || '',
       requestKey: input.requestKey || '',
       fetchImpl: githubFetch,
+      capabilities: bus.list(),
     });
   });
 
