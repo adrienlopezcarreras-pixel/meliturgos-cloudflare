@@ -75,7 +75,10 @@ function normalizeTopic(value) {
 function candidateTopics(rows) {
   const topics = [];
   for (const row of rows) {
-    const values = Array.isArray(row?.topics) ? row.topics : [row?.topic, ...(row?.topics == null ? [] : [row.topics])];
+    const values = [
+      row?.topic,
+      ...(Array.isArray(row?.topics) ? row.topics : row?.topics == null ? [] : [row.topics]),
+    ];
     for (const value of values) {
       if (value == null) continue;
       const topic = normalizeTopic(value);
