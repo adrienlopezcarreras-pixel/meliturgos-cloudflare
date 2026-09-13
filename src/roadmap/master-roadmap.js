@@ -81,7 +81,7 @@ export const MASTER_ROADMAP = Object.freeze([
   phase('P06', 'Module Lab, évolution et apprentissage', [
     item('GEN2-16', 'Module Lab', 'PARTIAL', 'Brancher préflight Council -> spec -> code -> tests', 'P0'),
     item('GEN2-17', 'Dev Agent / auto-évolution supervisée', 'PARTIAL', 'Prouver plusieurs cycles cohérents complets sur candidate avant toute promotion', 'P0'),
-    item('MEL-EVOL-01', 'Détecter une compétence manquante à partir d’une demande', 'PARTIAL', 'Valider le gap detector dans le chat et le relier au développement sans doublon', 'P0'),
+    item('MEL-EVOL-01', 'Détecter une compétence manquante à partir d’une demande', 'DONE_VERIFIED', 'Maintenir la détection sans doublon et n’entrer au Module Lab que pour un vrai gap', 'P0'),
     item('MEL-EVOL-02', 'Proposer ou générer un module', 'PLANNED', 'Relier gap detector au Module Lab', 'P0'),
     item('MEL-EVOL-03', 'Tests, benchmark, critique et correction en boucle', 'PARTIAL', 'Unifier runner de preuves', 'P0'),
     item('MEL-EVOL-04', 'EVOLUTION_LEDGER immuable et explicable', 'PARTIAL', 'Persister chaque évolution et ses preuves', 'P1'),
