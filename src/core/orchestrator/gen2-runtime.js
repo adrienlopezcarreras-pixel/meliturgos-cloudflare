@@ -8,6 +8,7 @@ import { registerWebResearchCapability } from '../../capabilities/web-research-c
 import { registerCodeIntegrityCapability } from '../../capabilities/code-integrity-capability.js';
 import { registerModuleProposalCapability } from '../../capabilities/module-proposal-capability.js';
 import { registerWorkIntrospectionCapabilities } from '../../capabilities/work-introspection-capabilities.js';
+import { registerConversationRuntimeCapabilities } from '../../capabilities/conversation-runtime-capabilities.js';
 import { validateManifest } from '../../plugins/validator.js';
 import { transition } from '../lifecycle/extension.js';
 import { requireValue } from '../contracts.js';
@@ -28,6 +29,7 @@ export function createGen2Runtime({ audit = async () => {}, env = {} } = {}) {
   registerCodeIntegrityCapability(bus, env);
   registerModuleProposalCapability(bus);
   registerWorkIntrospectionCapabilities(bus, env);
+  registerConversationRuntimeCapabilities(bus, env);
   const plugins = new Map();
   const modules = new Map();
   const agents = new Map();
@@ -57,9 +59,9 @@ export function createGen2Runtime({ audit = async () => {}, env = {} } = {}) {
     modules: {
       register: (manifest, handler) => registerExtension(modules, 'module', manifest, handler),
       get: id => modules.get(id),
-      activate: id => { const row = modules.get(id); requireValue(row, 'MODULE_NOT_FOUND', 404); row.status = 'ACTIVE'; row.updated_at = Date.now(); return { ...row, handler: undefined }; },
+      activate: id => { const row = modules.get(id); requireValue(row, 'MODULE_NOT_FOUND'); row.status = 'ACTIVE'; row.updated_at = Date.now(); return { ...row, handler: undefined }; },
       disable: id => { const row = modules.get(id); requireValue(row, 'MODULE_NOT_FOUND', 404); bus.disable(`module:${id}`, { owner: 'runtime', permissions: ['capabilities.manage'] }); row.status = 'DISABLED'; return { ...row, handler: undefined }; },
-      rollback: id => { const row = modules.get(id); requireValue(row, 'MODULE_NOT_FOUND', 404); row.status = 'ROLLED_BACK'; row.updated_at = Date.now(); return { ...row, handler: undefined }; },
+      rollback: id => { const row = modules.get(id); requireValue(row, 'MODULE_NOT_FOUND'); row.status = 'ROLLED_BACK'; row.updated_at = Date.now(); return { ...row, handler: undefined }; },
       run: (id, input, context) => bus.execute(`module:${id}`, input, context)
     },
     moduleLab: {
