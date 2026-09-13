@@ -114,6 +114,105 @@ export class LearningEngine {
     return { ...recorded, reused: false, results: result.results, suite_id: result.suite_id, suite_digest: result.suite_digest, repeated_errors: result.repeated_errors };
   }
 
+  async advanceBenchmarkCadence({
+    verifiedJobsDelta = 0,
+    significantCorrections = 0,
+    evaluator = null,
+    model_id = '',
+    adapter_id = null,
+    source_sha = null,
+    metadata = {},
+    everyVerifiedJobs = 5,
+  } = {}) {
+    const interval = Math.max(1, Math.min(100, Math.trunc(Number(everyVerifiedJobs) || 5)));
+    const previousRows = await this.memory.recent({ limit: 1, kind: 'BENCHMARK_CADENCE' });
+    const previous = evidenceObject(previousRows[0]);
+    const previousCount = Math.max(0, Math.trunc(Number(previous?.verified_jobs_since_benchmark) || 0));
+    const verifiedDelta = Math.max(0, Math.trunc(Number(verifiedJobsDelta) || 0));
+    const corrections = Math.max(0, Math.trunc(Number(significantCorrections) || 0));
+    const accumulated = previousCount + verifiedDelta;
+    const dueReason = corrections > 0
+      ? 'SIGNIFICANT_CORRECTION_BATCH'
+      : (accumulated >= interval ? 'VERIFIED_JOB_CADENCE' : null);
+
+    let status = dueReason ? 'DUE' : 'NOT_DUE';
+    let verifiedJobsSinceBenchmark = accumulated;
+    let benchmark = null;
+    let comparison = previous?.comparison || null;
+    let repeatedTaughtErrors = Math.max(0, Math.trunc(Number(previous?.repeated_taught_errors) || 0));
+    let failure = null;
+
+    if (dueReason && typeof evaluator !== 'function') {
+      status = 'SKIPPED_EVALUATOR_UNAVAILABLE';
+    } else if (dueReason) {
+      try {
+        const run = await this.runCanonicalBenchmark({
+          kind: 'candidate',
+          evaluator,
+          model_id,
+          adapter_id,
+          source_sha,
+          metadata: { ...metadata, cadence_reason: dueReason },
+        });
+        benchmark = {
+          kind: 'candidate',
+          overall: Number(run?.score?.overall || 0),
+          cases: Number(run?.score?.cases || run?.results?.length || 0),
+          suite_id: run?.suite_id || null,
+          suite_digest: run?.suite_digest || null,
+          repeated_error_count: Array.isArray(run?.repeated_errors) ? run.repeated_errors.length : 0,
+          source_sha: source_sha || null,
+        };
+        status = 'RAN';
+        verifiedJobsSinceBenchmark = 0;
+      } catch (error) {
+        status = 'FAILED';
+        failure = String(error?.code || error?.message || 'BENCHMARK_FAILED').slice(0, 200);
+      }
+    }
+
+    if (dueReason) {
+      try {
+        const report = await this.report();
+        comparison = report?.benchmark_comparison || null;
+        repeatedTaughtErrors = Math.max(0, Math.trunc(Number(report?.repeated_taught_errors) || 0));
+      } catch (error) {
+        if (!failure) failure = String(error?.code || error?.message || 'BENCHMARK_REPORT_FAILED').slice(0, 200);
+      }
+    }
+
+    const evidence = {
+      status,
+      due_reason: dueReason,
+      evaluator_available: typeof evaluator === 'function',
+      verified_jobs_since_benchmark: verifiedJobsSinceBenchmark,
+      every_verified_jobs: interval,
+      significant_corrections: corrections,
+      source_sha: source_sha || null,
+      benchmark,
+      comparison,
+      repeated_taught_errors: repeatedTaughtErrors,
+      failure,
+      metadata,
+      measured_at: Date.now(),
+    };
+
+    await this.memory.remember({
+      goal: 'MEL automatic benchmark cadence',
+      kind: 'BENCHMARK_CADENCE',
+      lesson: status === 'RAN'
+        ? 'Benchmark canonique exécuté et état de comparaison persisté.'
+        : (status === 'SKIPPED_EVALUATOR_UNAVAILABLE'
+          ? 'Benchmark dû mais différé: aucun évaluateur zéro-coût explicite n’est disponible.'
+          : (status === 'FAILED' ? 'Benchmark dû mais échoué; cadence conservée pour nouvel essai.' : 'Cadence benchmark mise à jour.')),
+      evidence,
+      outcome: status === 'RAN' ? 'SUCCEEDED' : (status === 'FAILED' ? 'FAILED' : (status === 'SKIPPED_EVALUATOR_UNAVAILABLE' ? 'BLOCKED_EXTERNAL' : 'PENDING')),
+      score: Number(benchmark?.overall || 0),
+      tags: ['learning', 'benchmark', 'cadence', status.toLowerCase()],
+    });
+    return evidence;
+  }
+
   async recordInferenceTrial({ settings, score, failed = false, case_id = '', source_sha = null, metadata = {} } = {}) {
     const normalized = sanitizeInferenceSettings(settings || {});
     const numericScore = Number(score);

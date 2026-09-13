@@ -264,7 +264,7 @@ async function recordVerifiedTeacherCorrections(env, job, record, proposal, ci) 
   return { recorded, failures };
 }
 
-async function recordVerifiedCompletionLesson(env, job, record, proposal, ci) {
+async function recordVerifiedCompletionLesson(env, job, record, proposal, ci, benchmarkEvaluator = null) {
   if (!env?.DB) return { recorded: false, reason: 'DB_BINDING_MISSING', corrections_recorded: 0 };
   try {
     const engine = createMentorEngine(env);
@@ -291,20 +291,42 @@ async function recordVerifiedCompletionLesson(env, job, record, proposal, ci) {
       recordVerifiedTeacherCorrections(env, job, record, proposal, ci),
       recordVerifiedRepairCorrections(env, job, record, proposal, ci),
     ]);
+    const correctionsRecorded = (teacherLearning.recorded || 0) + (repairLearning.recorded || 0);
+    let benchmarkCadence;
+    try {
+      const learning = createLearningEngine(env);
+      benchmarkCadence = await learning.advanceBenchmarkCadence({
+        verifiedJobsDelta: 1,
+        significantCorrections: correctionsRecorded,
+        evaluator: benchmarkEvaluator,
+        source_sha: record.candidate_sha,
+        metadata: {
+          job_id: job.id,
+          roadmap_id: String(job?.optional_context?.roadmap_id || '').slice(0, 120) || null,
+          ci_run_id: ci.run_id,
+        },
+      });
+    } catch (error) {
+      benchmarkCadence = {
+        status: 'CADENCE_RECORD_FAILED',
+        failure: String(error?.code || error?.message || 'BENCHMARK_CADENCE_FAILED').slice(0, 160),
+      };
+    }
     return {
       recorded: true,
       kind: 'DEVELOPMENT_OUTCOME',
-      corrections_recorded: (teacherLearning.recorded || 0) + (repairLearning.recorded || 0),
+      corrections_recorded: correctionsRecorded,
       teacher_corrections_recorded: teacherLearning.recorded || 0,
       repair_corrections_recorded: repairLearning.recorded || 0,
       correction_failures: [...(teacherLearning.failures || []), ...(repairLearning.failures || [])],
+      benchmark_cadence: benchmarkCadence,
     };
   } catch (error) {
     return { recorded: false, reason: String(error?.code || error?.message || 'MENTOR_LEARNING_FAILED').slice(0, 160), corrections_recorded: 0 };
   }
 }
 
-export async function reconcileRuntimeCompletions({ repository, env = {}, fetchImpl = fetch } = {}) {
+export async function reconcileRuntimeCompletions({ repository, env = {}, fetchImpl = fetch, benchmarkEvaluator = null } = {}) {
   if (!repository) throw Object.assign(new Error('COMPLETION_JOB_REPOSITORY_REQUIRED'), { code: 'COMPLETION_JOB_REPOSITORY_REQUIRED' });
   const records = await fetchCompletionRecords(env, { fetchImpl });
   if (!records.length) return { ok: true, records: 0, completed: [], rejected: [] };
@@ -333,7 +355,7 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
 
     try {
       const ci = await verifyCompletionEvidence(record, env, { fetchImpl });
-      const mentorLearning = await recordVerifiedCompletionLesson(env, job, record, proposal, ci);
+      const mentorLearning = await recordVerifiedCompletionLesson(env, job, record, proposal, ci, benchmarkEvaluator);
       const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
       result.autonomy_completion = {
         status: 'VERIFIED',
