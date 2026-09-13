@@ -40,7 +40,8 @@ test('state-of-play council asks every eligible zero-cost provider and covers al
 
   const report = await runAugmentioStateOfPlay({ env: {}, goal: 'ajouter une compétence', pool, minResponses: 2 });
   assert.equal(report.status, 'COMPLETE');
-  assert.equal(report.development_allowed, true);
+  assert.equal(report.development_allowed, false);
+  assert.equal(report.council_ready_for_teacher, true);
   assert.equal(report.responses.length, 4);
   assert.equal(report.roster.length, 4);
   assert.equal(report.all_eligible_attempted, true);
@@ -114,6 +115,18 @@ test('MEL synthesis falls back to another authorized zero-cost model without los
   assert.equal(report.synthesis.status, 'COMPLETE');
   assert.equal(report.synthesis.provider_id, 'b');
   assert.deepEqual(report.synthesis.attempted, ['a', 'b']);
+});
+
+test('Council fails closed when no authorized zero-cost provider can produce MEL synthesis', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider('a', 0, calls, { failSynthesis: true }),
+    provider('b', 0, calls, { failSynthesis: true }),
+  ]);
+  await assert.rejects(
+    () => runAugmentioStateOfPlay({ env: {}, goal: 'ne jamais sauter la synthèse MEL', pool, minResponses: 2 }),
+    error => error.code === 'COUNCIL_MEL_SYNTHESIS_REQUIRED' && Array.isArray(error.attempted) && error.attempted.length === 2
+  );
 });
 
 test('council still fails closed when every authorized zero-cost provider fails the same mandatory role', async () => {
