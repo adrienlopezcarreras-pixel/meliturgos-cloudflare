@@ -161,38 +161,13 @@ async function maybeHandleMemoryCompatibility(request, env) {
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
 
+  const runtime = createGen2Runtime({ env });
   if (url.pathname === '/api/memory/status') {
-    const [memoryCount, archiveCount, conversationCount] = await Promise.all([
-      safeCount(env.DB, 'memories'),
-      safeCount(env.DB, 'archive_messages'),
-      safeCount(env.DB, 'conversations')
-    ]);
-    return Response.json({
-      ok: true,
-      status: env.DB ? 'ONLINE' : 'UNAVAILABLE',
-      db_bound: Boolean(env.DB),
-      memory_count: memoryCount,
-      archive_count: archiveCount,
-      conversation_count: conversationCount,
-      portable: true,
-      provenance: true
-    }, { headers: { 'cache-control': 'no-store' } });
+    const status = await runtime.bus.execute('memory.status', {}, busContext(env));
+    return Response.json(status, { headers: { 'cache-control': 'no-store' } });
   }
 
-  const [memories, archiveMessages, conversations] = await Promise.all([
-    safeRows(env.DB, 'memories'),
-    safeRows(env.DB, 'archive_messages'),
-    safeRows(env.DB, 'conversations')
-  ]);
-  const payload = {
-    format: 'meliturgos-memory-export',
-    version: 1,
-    exported_at: new Date().toISOString(),
-    owner: env.MELITURGOS_USER || '',
-    memories,
-    conversations,
-    archive_messages: archiveMessages
-  };
+  const payload = await runtime.bus.execute('memory.export', {}, busContext(env));
   return new Response(JSON.stringify(payload, null, 2), {
     headers: {
       'content-type': 'application/json; charset=utf-8',
