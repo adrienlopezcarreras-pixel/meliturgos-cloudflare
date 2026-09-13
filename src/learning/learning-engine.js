@@ -3,6 +3,7 @@ import { buildTrainingCorpus, createCorrectionRecord, decideAdapterPromotion, su
 import { scoreBenchmarkResults, compareBenchmarkScores } from '../evaluation/benchmarks.js';
 import { chooseBestSettings, proposeNeighborSettings, sanitizeInferenceSettings } from './inference-adaptation.js';
 import { assertAdapterArtifact, createLoraTrainingPlan } from './lora-plan.js';
+import { BOOTSTRAP_CORRECTIONS } from './bootstrap-corrections.js';
 
 function evidenceObject(row) {
   const value = row?.evidence;
@@ -19,6 +20,15 @@ function digest(value) {
     hash = Math.imul(hash, 16777619);
   }
   return `fnv1a-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function dedupeCorrections(rows = []) {
+  const byId = new Map();
+  for (const row of rows) {
+    if (!row?.id || byId.has(row.id)) continue;
+    byId.set(row.id, row);
+  }
+  return [...byId.values()];
 }
 
 export class LearningEngine {
@@ -43,13 +53,15 @@ export class LearningEngine {
     return row;
   }
 
-  async corrections({ limit = 50 } = {}) {
-    const rows = await this.memory.recent({ limit: Math.min(50, Math.max(1, Number(limit) || 50)), kind: 'TEACHER_CORRECTION' });
-    return rows.map(evidenceObject).filter(row => row?.input && row?.before && row?.after && row?.rationale);
+  async corrections({ limit = 500, includeBootstrap = true } = {}) {
+    const requested = Math.min(500, Math.max(1, Number(limit) || 500));
+    const rows = await this.memory.recent({ limit: requested, kind: 'TEACHER_CORRECTION' });
+    const persisted = rows.map(evidenceObject).filter(row => row?.input && row?.before && row?.after && row?.rationale);
+    return dedupeCorrections(includeBootstrap ? [...persisted, ...BOOTSTRAP_CORRECTIONS] : persisted).slice(0, requested);
   }
 
-  async trainingBundle({ minQuality = 0.65 } = {}) {
-    const corrections = await this.corrections({ limit: 50 });
+  async trainingBundle({ minQuality = 0.65, limit = 500 } = {}) {
+    const corrections = await this.corrections({ limit });
     const corpus = buildTrainingCorpus(corrections, { validatedOnly: true, minQuality });
     const dataset = { sft: corpus.sft, preference: corpus.preference };
     return { ...corpus, digest: digest(dataset), dataset, generated_at: Date.now() };
@@ -70,15 +82,15 @@ export class LearningEngine {
     return { record, score };
   }
 
-  async benchmarks({ limit = 50 } = {}) {
-    const rows = await this.memory.recent({ limit: Math.min(50, Math.max(1, Number(limit) || 50)), kind: 'LEARNING_BENCHMARK' });
+  async benchmarks({ limit = 200 } = {}) {
+    const rows = await this.memory.recent({ limit: Math.min(500, Math.max(1, Number(limit) || 200)), kind: 'LEARNING_BENCHMARK' });
     return rows.slice().reverse().map(evidenceObject).filter(row => Number.isFinite(Number(row?.overall)));
   }
 
   async report() {
     const [corrections, benchmarks, activeAdapters] = await Promise.all([
-      this.corrections({ limit: 50 }),
-      this.benchmarks({ limit: 50 }),
+      this.corrections({ limit: 500 }),
+      this.benchmarks({ limit: 200 }),
       this.memory.recent({ limit: 20, kind: 'LORA_ADAPTER_ACTIVE' }),
     ]);
     const runs = benchmarks.map(row => ({ kind: row.kind, score: Number(row.overall) }));
@@ -92,6 +104,7 @@ export class LearningEngine {
       corrections_available_for_training: buildTrainingCorpus(corrections).accepted,
       neural_weights_changed: activeAdapters.length > 0,
       active_adapter_count: activeAdapters.length,
+      active_adapter: activeAdapters.length ? evidenceObject(activeAdapters[0]) : null,
     };
   }
 
@@ -121,7 +134,7 @@ export class LearningEngine {
   }
 
   async prepareLora({ base_model, minQuality = 0.65, ...options } = {}) {
-    const bundle = await this.trainingBundle({ minQuality });
+    const bundle = await this.trainingBundle({ minQuality, limit: 500 });
     const plan = createLoraTrainingPlan({ ...options, base_model, dataset_digest: bundle.digest, examples: bundle.accepted });
     await this.memory.remember({
       goal: `Prepare MEL LoRA ${plan.id}`,
@@ -148,6 +161,40 @@ export class LearningEngine {
       tags: ['learning', 'lora', 'evaluation'],
     });
     return decision;
+  }
+
+  async activateAdapter({ plan, artifact, baseline, candidate } = {}) {
+    const checkedArtifact = assertAdapterArtifact(artifact);
+    const decision = decideAdapterPromotion({ baseline, candidate });
+    if (!decision.promote) {
+      throw Object.assign(new Error(`LORA_ACTIVATION_DENIED:${decision.reason}`), { code: 'LORA_ACTIVATION_DENIED', decision });
+    }
+    if (!plan?.readiness?.base_weights_frozen || plan?.readiness?.benchmark_required_before_activation !== true) {
+      throw Object.assign(new Error('LORA_PLAN_NOT_ACTIVATABLE'), { code: 'LORA_PLAN_NOT_ACTIVATABLE' });
+    }
+    const active = {
+      plan_id: plan.id,
+      adapter: checkedArtifact,
+      base_model: checkedArtifact.base_model,
+      dataset_digest: plan.dataset_digest,
+      benchmark: { baseline, candidate, decision },
+      activated_at: Date.now(),
+    };
+    await this.memory.remember({
+      goal: `Activate MEL adapter ${checkedArtifact.id}`,
+      kind: 'LORA_ADAPTER_ACTIVE',
+      lesson: 'Adaptateur LoRA réellement activé après benchmark supérieur et absence de régression majeure.',
+      evidence: active,
+      outcome: 'SUCCEEDED',
+      score: Number(candidate?.overall || 0),
+      tags: ['learning', 'lora', 'active'],
+    });
+    return active;
+  }
+
+  async activeAdapter() {
+    const rows = await this.memory.recent({ limit: 1, kind: 'LORA_ADAPTER_ACTIVE' });
+    return rows.length ? evidenceObject(rows[0]) : null;
   }
 }
 
