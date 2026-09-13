@@ -88,6 +88,7 @@ const helperImport = `import { completeTeacherCouncil, teacherReply, TEST_CANDID
     'autonomy runtime zero-cost proof',
   );
   text = text.replaceAll(`candidate/augmentio-core`, `candidate/mel-clean-autonomy`);
+  text = text.replaceAll(`candidate%2Faugmentio-core`, `candidate%2Fmel-clean-autonomy`);
   text = text.replace(
     /(kind: 'TEACHER_REPLY',\n\s+request_id: [^\n]+,\n)(?!\s+target_sha:)/g,
     `$1    target_sha: CANDIDATE_HEAD_SHA,\n`,
