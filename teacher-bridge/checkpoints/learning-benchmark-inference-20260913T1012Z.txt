@@ -1,0 +1,35 @@
+MEL AUTONOMY CHECKPOINT — learning benchmark + measured inference adaptation
+recorded_at=2026-09-13T10:12:00Z
+branch=candidate/mel-clean-autonomy
+job_id=GEN2-20+MEL-EVOL-03+MEL-EVOL-06-infra
+stage=VERIFIED_LEARNING_INFRA_CONTINUE_RUNTIME_WIRING
+candidate_sha_before_checkpoint=58b8b5b331b636e28567dfb3e15f270052f1c5ec
+
+WORK_COMPLETED
+- src/evaluation/benchmarks.js now defines one stable canonical multi-domain learning benchmark suite covering memory/provenance, instruction following, taught-error correction, code development, tool/model selection, multi-step autonomy and non-regression.
+- The benchmark suite has deterministic fingerprinting, validation, executable evaluator flow, per-domain/global scoring, evidence and explicit repeated-error accounting.
+- src/learning/learning-engine.js can execute/persist the canonical benchmark, preserve the first comparable baseline for a suite digest, persist measured inference trials, count repeated taught errors and promote inference settings only after enough comparable measured trials and a minimum gain.
+- tests/learning-engine.test.mjs verifies suite coverage, baseline reuse, repeated-error counting and measured inference promotion thresholds.
+- Existing LoRA infrastructure/guards remain intact; no training or neural-weight change is claimed.
+
+VERIFICATION
+exact_code_sha=58b8b5b331b636e28567dfb3e15f270052f1c5ec
+full_candidate_ci_run_id=34751112086
+full_candidate_ci_conclusion=success
+runtime_teacher_smoke_run_id=34751112117
+runtime_teacher_smoke_status=observed_started_during_run; recheck if runtime-specific claim is needed
+production_changed=false
+secrets_added=false
+cost_added_eur=0
+
+ROADMAP_INTERPRETATION
+- GEN2-20 materially advanced: durable correction corpus + benchmark persistence + measured inference trial lifecycle are implemented and full-CI green. Do not mark DONE_VERIFIED until active inference settings are proven consumed by the live inference path and verified-results capture is demonstrated end-to-end in runtime.
+- MEL-EVOL-03 materially advanced but remains PARTIAL: executable persistent benchmark is present; the full automatic test→benchmark→critique→correction→retest loop still needs runtime orchestration proof.
+- MEL-EVOL-06 infrastructure is materially implemented but must remain PARTIAL until a real zero-cost compatible adapter is trained, benchmarked and activated; never simulate training.
+
+BLOCKERS
+- Real LoRA training remains BLOCKED_DATA or BLOCKED_EXTERNAL until validated corpus minimum and a proven zero-cost compatible training backend exist.
+- Production/runtime deployment is not authorized by this checkpoint.
+
+NEXT_ACTION
+Wire LearningEngine.activeInferenceSettings() into the canonical chat/model inference path using the existing runtime only, preserving current defaults when no promoted settings exist. Add targeted tests proving persisted settings affect temperature/top_p/max_tokens/memory/review controls only where supported, then run exact-SHA full-candidate-ci. If this change is judged substantive at execution time, obtain the existing zero-cost Council review first rather than creating a second orchestration path.
