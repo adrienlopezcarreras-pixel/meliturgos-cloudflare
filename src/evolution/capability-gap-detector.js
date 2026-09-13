@@ -40,6 +40,23 @@ function state(row) {
   return 'REGISTERED';
 }
 
+function intentBonuses(objective, row, haystack) {
+  const normalizedGoal = normalize(objective);
+  const id = normalize(row?.id);
+  const category = normalize(row?.category);
+  const codeContext = /\b(?:code|source|sources|repo|repository|depot|github|branche|branch)\b/.test(normalizedGoal);
+  const searchContext = /\b(?:recherche|rechercher|cherche|chercher|search|find)\b/.test(normalizedGoal);
+  const explicitWeb = /\b(?:web|internet|online|en ligne|sur le net)\b/.test(normalizedGoal);
+
+  let bonus = 0;
+  if (codeContext && searchContext) {
+    if (id === 'code.search' || (category === 'development' && haystack.includes('search'))) bonus += 8;
+    if (id === 'web.research' && !explicitWeb) bonus -= 4;
+  }
+  if (explicitWeb && searchContext && id === 'web.research') bonus += 6;
+  return bonus;
+}
+
 export function detectCapabilityGap({ goal, capabilities = [], threshold = 2 } = {}) {
   const objective = String(goal || '').trim();
   if (!objective) {
@@ -57,13 +74,17 @@ export function detectCapabilityGap({ goal, capabilities = [], threshold = 2 } =
       if (haystack.includes(term)) { score += term.includes('.') || term.includes(':') ? 3 : 1; matched.push(term); }
     }
     if (normalize(row?.id) === normalize(objective)) score += 8;
+    score = Math.max(0, score + intentBonuses(objective, row, haystack));
     return { id: String(row?.id || ''), name: String(row?.name || row?.id || ''), category: String(row?.category || ''), state: state(row), score, matched_terms: [...new Set(matched)].slice(0, 12) };
   }).filter(row => row.id && row.score > 0).sort((a,b) => b.score - a.score || a.id.localeCompare(b.id)).slice(0, 8);
 
   const best = scored[0] || null;
   const required = Math.max(1, Math.min(6, Number(threshold) || 2));
-  const available = scored.filter(row => row.score >= required && row.state === 'AVAILABLE');
-  const blocked = scored.filter(row => row.score >= required && ['BLOCKED','DEGRADED'].includes(row.state));
+  // CapabilityBus deliberately allows DEGRADED capabilities to execute and
+  // refresh their health immediately before execution. Reuse them rather than
+  // treating them as unavailable; only explicit BLOCKED/UNAVAILABLE is a hard stop.
+  const available = scored.filter(row => row.score >= required && ['AVAILABLE','DEGRADED'].includes(row.state));
+  const blocked = scored.filter(row => row.score >= required && row.state === 'BLOCKED');
 
   let classification = 'POSSIBLE_GAP';
   if (available.length) classification = 'MATCHED_AVAILABLE';
