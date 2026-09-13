@@ -89,12 +89,15 @@ function fallbackOrder(preferred, eligible) {
   return [preferred, ...eligible.filter(provider => provider.id !== preferred.id)];
 }
 
-async function invokeRoleWithFallback({ assignment, eligible, input }) {
+async function invokeRoleWithFallback({ assignment, eligible, input, governor }) {
   const attempted = [];
   let lastError = null;
   for (const provider of fallbackOrder(assignment.provider, eligible)) {
     attempted.push(provider.id);
     try {
+      // Revalidate at the last possible moment. Provider metadata may be
+      // mutable between the initial roster selection and an actual call.
+      governor.assertAllowed(provider);
       const result = await provider.invoke({
         input,
         context: { purpose: 'state-of-play-before-development', council_role: assignment.role.id }
@@ -148,12 +151,13 @@ function synthesisPrompt({ goal, context, report }) {
   ].join('\n');
 }
 
-async function synthesizeWithFallback({ eligible, goal, context, report }) {
+async function synthesizeWithFallback({ eligible, goal, context, report, governor }) {
   const attempted = [];
   const input = synthesisPrompt({ goal, context, report });
   for (const provider of eligible) {
     attempted.push(provider.id);
     try {
+      governor.assertAllowed(provider);
       const result = await provider.invoke({
         input,
         context: { purpose: 'mel-council-synthesis', coordinator: 'MEL' }
@@ -169,8 +173,9 @@ async function synthesizeWithFallback({ eligible, goal, context, report }) {
         attempted,
       };
     } catch {
-      // Try the next already-authorized zero-cost provider. Independent Council
-      // answers remain valid even if one synthesis model is temporarily down.
+      // Try the next provider only if it still passes the same zero-euro gate.
+      // Independent Council answers remain valid if one provider becomes
+      // unavailable or loses its authorization before synthesis.
     }
   }
   return {
@@ -199,7 +204,7 @@ async function synthesizeWithFallback({ eligible, goal, context, report }) {
 export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResponses = 2, capability = 'GENERAL', pool } = {}) {
   const providerPool = pool || createDefaultAugmentioPool(env);
   await providerPool.refreshHealth();
-  const governor = new ZeroEuroGovernor({ maxCost: 0 });
+  const governor = new ZeroEuroGovernor();
   const eligible = providerPool.list({ capability }).filter(provider => governor.allows(provider));
   if (eligible.length < minResponses) {
     const error = new Error('COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS');
@@ -248,6 +253,7 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
         assignment,
         eligible,
         input: promptFor(member, brief, assignment.role),
+        governor,
       });
     }
   });
@@ -263,7 +269,7 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
     throw error;
   }
 
-  const synthesis = await synthesizeWithFallback({ eligible, goal, context: councilContext, report });
+  const synthesis = await synthesizeWithFallback({ eligible, goal, context: councilContext, report, governor });
   if (synthesis.status !== 'COMPLETE' || !boundedText(synthesis.text, 12000)) {
     const error = new Error('COUNCIL_MEL_SYNTHESIS_REQUIRED');
     error.code = 'COUNCIL_MEL_SYNTHESIS_REQUIRED';
