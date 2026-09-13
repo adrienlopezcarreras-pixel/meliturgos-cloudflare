@@ -32,6 +32,39 @@ test('memory compiler canonically deduplicates without synthetic confidence boos
   assert.equal(solar.provenance.observations, 2);
 });
 
+test('memory compiler emits deterministic recency, normalized topics and evidence quality', () => {
+  const result = compileMemoryCandidates({
+    candidates: [
+      {
+        id: 'old', content: 'Même projet', confidence: 0.6, source: 'chat',
+        created_at: '2026-09-10T12:00:00.000Z', topic: ' Projet ', topics: ['Apiculture', ' projet '],
+      },
+      {
+        id: 'new', content: 'même projet', confidence: 0.8, source: 'teacher',
+        created_at: '2026-09-13T15:30:00.000Z', topics: ['Mémoire', 'APICULTURE'],
+      },
+    ],
+  });
+
+  const proposal = result.proposals[0];
+  assert.deepEqual(proposal.topics, ['projet', 'apiculture', 'mémoire']);
+  assert.deepEqual(proposal.recency, {
+    first_observed_at: '2026-09-10T12:00:00.000Z',
+    last_observed_at: '2026-09-13T15:30:00.000Z',
+    observation_span_ms: 271800000,
+    timestamped_observations: 2,
+  });
+  assert.deepEqual(proposal.quality, {
+    score: 0.8,
+    policy: 'MAX_OBSERVED_CONFIDENCE_NO_DUPLICATE_BOOST',
+    observations: 2,
+    distinct_sources: 2,
+    timestamp_coverage: 1,
+    provenance_complete: true,
+  });
+  assert.equal(proposal.confidence, 0.8);
+});
+
 test('memory compiler reuses an existing canonical memory and rejects invalid confidence fail-closed', () => {
   const result = compileMemoryCandidates({
     candidates: [
