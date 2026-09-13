@@ -9,12 +9,28 @@ const REQUEST = 'mentor-completion-request';
 const JOB = 'mentor-completion-job';
 const BRANCH = 'candidate/augmentio-core';
 
-async function approvedRepository() {
+async function approvedRepository({ withRevision = false } = {}) {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const job = await repository.create({ id: JOB, requested_by: 'mel-autonomy', goal: 'Rendre la reprise autonome plus robuste' });
   await repository.update(job.id, {
     status: 'TEACHER_APPROVED',
     result_json: {
+      ...(withRevision ? {
+        teacher_bridge_history: [{
+          status: 'ANSWERED',
+          request: {
+            request_id: 'old-request',
+            objective: 'Rendre la reprise autonome plus robuste',
+            patch_summary: { summary: 'Ancienne approche qui réutilisait une approbation liée à un SHA périmé.' },
+          },
+          review: {
+            request_id: 'old-request',
+            verdict: 'NEEDS_CHANGES',
+            development_allowed: false,
+            feedback: 'Recalculer la demande Teacher sur le SHA courant puis relancer tous les tests ciblés et la CI complète.',
+          },
+        }],
+      } : {}),
       teacher_bridge: {
         status: 'ANSWERED',
         request: {
@@ -87,7 +103,7 @@ test('verified candidate completion becomes persistent Mentor development memory
     assert.equal(result.completed.length, 1);
     assert.equal(result.completed[0].mentor_learning, true);
 
-    const lesson = await DB.prepare('SELECT * FROM mentor_lessons WHERE job_id=?').bind(JOB).first();
+    const lesson = await DB.prepare("SELECT * FROM mentor_lessons WHERE job_id=? AND kind='DEVELOPMENT_OUTCOME'").bind(JOB).first();
     assert.ok(lesson);
     assert.equal(lesson.outcome, 'SUCCEEDED');
     assert.match(lesson.lesson, /Reprise autonome validée/i);
@@ -107,6 +123,33 @@ test('verified candidate completion becomes persistent Mentor development memory
     assert.equal(stored.result_json.teacher_bridge.review.verdict, 'APPROVE_PLAN');
     assert.equal(stored.result_json.dev_bridge.status, 'READY_FOR_REVIEW');
     assert.equal(stored.result_json.dev_bridge.tests[0].passed, true);
+  } finally {
+    DB.close();
+  }
+});
+
+test('a previous NEEDS_CHANGES Teacher review becomes a validated correction only after full CI success', async () => {
+  const DB = sqliteD1();
+  try {
+    const repository = await approvedRepository({ withRevision: true });
+    const result = await reconcileRuntimeCompletions({
+      repository,
+      env: { DB, MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+      fetchImpl: fetchImpl(),
+    });
+    assert.equal(result.completed.length, 1);
+    assert.equal(result.completed[0].corrections_recorded, 1);
+
+    const correction = await DB.prepare("SELECT * FROM mentor_lessons WHERE job_id=? AND kind='TEACHER_CORRECTION'").bind(JOB).first();
+    assert.ok(correction);
+    assert.equal(correction.outcome, 'SUCCEEDED');
+    assert.equal(Number(correction.score), 1);
+    const evidence = JSON.parse(correction.evidence_json);
+    assert.equal(evidence.validated, true);
+    assert.match(evidence.before, /approbation.*SHA périmé/i);
+    assert.match(evidence.after, /validée et testée/i);
+    assert.match(evidence.rationale, /SHA courant/i);
+    assert.ok(evidence.tests.some((row) => /full-candidate-ci#5151:success/.test(row)));
   } finally {
     DB.close();
   }
