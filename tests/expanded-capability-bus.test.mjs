@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { createDefaultCapabilityBus } from '../src/capabilities/default-bus.js';
 
 const context = { owner: 'adrien', permissions: [], requestId: 'test' };
@@ -53,4 +54,14 @@ test('Council and evolution capabilities consult multiple AIs before permitting 
   assert.equal(preflight.code_generation_allowed, false);
   assert.equal(preflight.code_inspection_allowed, true);
   assert.ok(calls.length >= 4);
+});
+
+test('Gen2 roadmap, RAG and conversation-list HTTP routes stay behind CapabilityBus', async () => {
+  const source = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /getRoadmapPayload/);
+  assert.doesNotMatch(source, /RAGService\.search/);
+  assert.doesNotMatch(source, /SELECT id, title, status, created_at, updated_at FROM conversations/);
+  assert.match(source, /runtime\.bus\.execute\("roadmap\.read"/);
+  assert.match(source, /runtime\.bus\.execute\("rag\.search"/);
+  assert.match(source, /runtime\.bus\.execute\("conversation\.list"/);
 });
