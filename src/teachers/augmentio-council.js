@@ -85,6 +85,44 @@ function boundedText(value, max = 7000) {
   return String(value || '').trim().slice(0, max);
 }
 
+function fallbackOrder(preferred, eligible) {
+  return [preferred, ...eligible.filter(provider => provider.id !== preferred.id)];
+}
+
+async function invokeRoleWithFallback({ assignment, eligible, input }) {
+  const attempted = [];
+  let lastError = null;
+  for (const provider of fallbackOrder(assignment.provider, eligible)) {
+    attempted.push(provider.id);
+    try {
+      const result = await provider.invoke({
+        input,
+        context: { purpose: 'state-of-play-before-development', council_role: assignment.role.id }
+      });
+      return {
+        content: result?.text ?? String(result || ''),
+        role: assignment.role.id,
+        role_label: assignment.role.label,
+        provenance: result?.provenance || { provider: provider.providerId, model: provider.modelId },
+        provider_id: provider.id,
+        assigned_provider_id: assignment.provider.id,
+        provider_fallback_used: provider.id !== assignment.provider.id,
+        provider_attempts: attempted,
+        member_id: assignment.memberId,
+        estimated_cost: provider.estimatedCost
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  const error = new Error('COUNCIL_ROLE_ALL_ZERO_COST_PROVIDERS_FAILED');
+  error.code = 'COUNCIL_ROLE_ALL_ZERO_COST_PROVIDERS_FAILED';
+  error.role = assignment.role.id;
+  error.attempted = attempted;
+  error.cause = lastError;
+  throw error;
+}
+
 function synthesisPrompt({ goal, context, report }) {
   const independent = (report.responses || []).map((row, index) => {
     const answer = row?.answer || {};
@@ -152,9 +190,11 @@ async function synthesizeWithFallback({ eligible, goal, context, report }) {
  * specialist roles (architecture, security, tests and product/integration)
  * are always covered; when fewer than four eligible providers exist, a proven
  * zero-cost provider receives a second independent role-specific call rather
- * than silently dropping a required review dimension. MEL then synthesizes the
- * independent answers through an eligible zero-cost provider before the
- * external Teacher gate.
+ * than silently dropping a required review dimension. If the provider assigned
+ * to a mandatory role fails transiently, that same independent role is retried
+ * against the other already-authorized zero-cost providers before the Council
+ * fails closed. MEL then synthesizes the independent answers through an
+ * eligible zero-cost provider before the external Teacher gate.
  */
 export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResponses = 2, capability = 'GENERAL', pool } = {}) {
   const providerPool = pool || createDefaultAugmentioPool(env);
@@ -201,22 +241,14 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
     minResponses: Math.max(minResponses, REQUIRED_COUNCIL_ROLE_IDS.length),
     ask: async (member, brief) => {
       const assignment = byMember.get(member);
-      const provider = assignment?.provider;
-      const role = assignment?.role;
-      if (!provider || !role) throw Object.assign(new Error('COUNCIL_PROVIDER_NOT_FOUND'), { code: 'COUNCIL_PROVIDER_NOT_FOUND', status: 503 });
-      const result = await provider.invoke({
-        input: promptFor(member, brief, role),
-        context: { purpose: 'state-of-play-before-development', council_role: role.id }
+      if (!assignment?.provider || !assignment?.role) {
+        throw Object.assign(new Error('COUNCIL_PROVIDER_NOT_FOUND'), { code: 'COUNCIL_PROVIDER_NOT_FOUND', status: 503 });
+      }
+      return invokeRoleWithFallback({
+        assignment,
+        eligible,
+        input: promptFor(member, brief, assignment.role),
       });
-      return {
-        content: result?.text ?? String(result || ''),
-        role: role.id,
-        role_label: role.label,
-        provenance: result?.provenance || { provider: provider.providerId, model: provider.modelId },
-        provider_id: provider.id,
-        member_id: member,
-        estimated_cost: provider.estimatedCost
-      };
     }
   });
 
@@ -234,17 +266,22 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
   const synthesis = await synthesizeWithFallback({ eligible, goal, context: councilContext, report });
   return {
     ...report,
-    roster: assignments.map(({ memberId, provider, role, supplemental }) => ({
-      member_id: memberId,
-      id: provider.id,
-      provider: provider.providerId,
-      model: provider.modelId,
-      role: role.id,
-      role_label: role.label,
-      supplemental,
-      attempted: true,
-      responded: (report.responses || []).some(row => row.member === memberId),
-    })),
+    roster: assignments.map(({ memberId, provider, role, supplemental }) => {
+      const response = (report.responses || []).find(row => row.member === memberId);
+      return {
+        member_id: memberId,
+        id: provider.id,
+        provider: provider.providerId,
+        model: provider.modelId,
+        role: role.id,
+        role_label: role.label,
+        supplemental,
+        attempted: true,
+        responded: Boolean(response),
+        responded_by: response?.answer?.provider_id || null,
+        fallback_used: response?.answer?.provider_fallback_used === true,
+      };
+    }),
     providers_attempted: eligible.map(provider => provider.id),
     providers_succeeded: [...succeededProviders],
     providers_failed: eligible.map(provider => provider.id).filter(id => !succeededProviders.has(id)),
