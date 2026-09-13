@@ -1,0 +1,56 @@
+MELITURGOS factual checkpoint — MEL-AUG-02 immutable zero-euro budget
+UTC: 2026-09-13T06:05Z
+Branch: candidate/mel-clean-autonomy
+Verified implementation SHA before checkpoint: 3f143205ba1ed01f0778c406cfae7a5229a5cd30
+
+Goal
+Close a remaining configuration escape hatch in the existing ZeroEuroGovernor: callers could previously instantiate the governor with maxCost > 0 and thereby authorize paid routes despite the zero-euro policy.
+
+PLAN CONTRACT
+FICHIERS
+- src/augmentio/zero-euro-governor.js
+- tests/augmentio-core.test.mjs
+
+CHANGEMENTS
+- Reused the existing ZeroEuroGovernor; no second governor, roadmap, orchestrator or candidate branch was created.
+- Removed caller-configurable widening of the budget. ZeroEuroGovernor now owns an immutable maxCost of 0.
+- Added regression coverage proving new ZeroEuroGovernor({ maxCost: 10 }) still exposes maxCost 0 and rejects estimatedCost 0.01.
+
+REUTILISATION
+- Existing ZeroEuroGovernor remains the single budget gate.
+- Existing Augmentio/ProviderPool paths continue to consume the same governor contract.
+- Existing tests/augmentio-core.test.mjs remains the canonical test location.
+
+TESTS
+- runtime-teacher-smoke run 34741865174 on exact SHA 3f143205ba1ed01f0778c406cfae7a5229a5cd30: SUCCESS.
+- full-candidate-ci run 34741865154 on exact SHA 3f143205ba1ed01f0778c406cfae7a5229a5cd30: SUCCESS.
+- full-candidate-ci verified runtime dependency security gate SUCCESS, syntax SUCCESS and full test suite SUCCESS.
+
+RISQUES
+- Any caller that intentionally tried to configure a positive maxCost will now remain at zero. This is intentional and required by the canonical zero-added-cost policy.
+- This change does not prove that a provider declaring cost: 0 is factually free at runtime; provider cost provenance remains a separate requirement before MEL-AUG-02 can be marked complete.
+
+ROLLBACK
+- Revert commits 3f143205ba1ed01f0778c406cfae7a5229a5cd30, d68c3a36b90e2298b6a24490026d6972b8ec8623 and 90f13bf17727e9db82a0449255938afefca02875 to restore the prior configurable constructor behavior.
+
+CRITERES_DE_FIN
+- Caller cannot widen the zero-euro budget above zero: satisfied by implementation + regression test.
+- Explicit known zero-cost candidates remain eligible: existing tests still pass.
+- Unknown/ambiguous/paid candidates remain rejected: existing tests + full suite pass.
+- Exact candidate SHA passes full-candidate-ci: satisfied.
+
+Teacher review
+- Verdict: APPROVE_PLAN for this minimal safety hardening.
+- Evidence inspected directly: canonical roadmap MEL-AUG-02, existing ZeroEuroGovernor, existing augmentio core tests, exact branch HEAD and exact-SHA CI runs.
+- teacher='chatgpt-automation-zero-euro'
+
+Council provenance
+- No live Council provider call is claimed for this small guardrail change. The current tool surface in this run exposed GitHub but no authenticated zero-cost MEL Council invocation endpoint. Under the fail-closed cost rule, no external model/service was invoked speculatively.
+- This was treated as a narrow safety invariant fix rather than a substantive new architecture or feature.
+
+Limits / non-claims
+- MEL-AUG-02 remains IN_PROGRESS in the canonical roadmap because declared model cost metadata is not yet runtime provenance that a provider is truly zero-added-cost.
+- No production deployment, DNS change, secret write, destructive migration, permission change, paid API, Claude, TinyFish or purchase was used.
+
+Next safe step
+Inspect and harden provider cost provenance/authorization using the existing ModelRegistry + default Augmentio pool, without adding parallel registries or orchestrators. Only providers with factual zero-added-cost provenance should become executable; unknown provenance must fail closed. Execute live Council roles only when the existing runtime exposes an authenticated, explicitly zero-cost path and retain provider/model/role provenance.
