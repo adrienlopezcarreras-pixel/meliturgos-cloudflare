@@ -20,6 +20,7 @@ export function createWorkersAIAdapter({
   capabilities = ['GENERAL'],
   priority = 0,
   estimatedCost = null,
+  costProvenance = null,
   concurrency = 2,
 } = {}) {
   if (!modelId) throw new TypeError('WORKERS_AI_MODEL_REQUIRED');
@@ -32,6 +33,7 @@ export function createWorkersAIAdapter({
     capabilities,
     priority,
     estimatedCost,
+    costProvenance,
     concurrency,
     authRequired: false,
     terms: 'Cloudflare Workers AI binding; availability and quota depend on configured account/binding.',
