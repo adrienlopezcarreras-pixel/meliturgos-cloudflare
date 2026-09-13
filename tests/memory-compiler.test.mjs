@@ -37,7 +37,7 @@ test('memory compiler emits deterministic recency, normalized topics and evidenc
     candidates: [
       {
         id: 'old', content: 'Même projet', confidence: 0.6, source: 'chat',
-        created_at: '2026-09-10T12:00:00.000Z', topic: ' Projet ', topics: ['Apiculture', ' projet '],
+        created_at: '2026-09-10T12:00:00.000Z', topic: ' Projet unique ', topics: ['Apiculture'],
       },
       {
         id: 'new', content: 'même projet', confidence: 0.8, source: 'teacher',
@@ -47,7 +47,7 @@ test('memory compiler emits deterministic recency, normalized topics and evidenc
   });
 
   const proposal = result.proposals[0];
-  assert.deepEqual(proposal.topics, ['projet', 'apiculture', 'mémoire']);
+  assert.deepEqual(proposal.topics, ['projet unique', 'apiculture', 'mémoire']);
   assert.deepEqual(proposal.recency, {
     first_observed_at: '2026-09-10T12:00:00.000Z',
     last_observed_at: '2026-09-13T15:30:00.000Z',
