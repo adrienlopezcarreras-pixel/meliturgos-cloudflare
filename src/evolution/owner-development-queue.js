@@ -1,6 +1,7 @@
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { prepareAutonomyTeacherRequest } from './autonomy-runtime.js';
-import { proposeModuleDraft } from '../capabilities/module-proposal-capability.js';
+import { proposeModuleDraft, enterModuleLabForGap } from '../capabilities/module-proposal-capability.js';
+import { createModuleLab } from '../modules/module-lab.js';
 
 function boundedGoal(value) {
   const goal = String(value || '').trim();
@@ -50,6 +51,46 @@ function publicGapDecision(proposal) {
   };
 }
 
+async function persistModuleLabNeed(repository, job) {
+  if (!job || job.plan_json?.module_lab?.stage === 'need') return job;
+  const inventory = job.optional_context?.capability_inventory;
+  const proposal = job.optional_context?.module_proposal;
+  const council = job.plan_json?.preflight?.council;
+  if (!Array.isArray(inventory) || proposal?.decision !== 'PROPOSE_MODULE' || !council) return job;
+
+  const moduleLab = createModuleLab({
+    async need(input) {
+      return {
+        status: 'NEED_READY',
+        manifest_id: input.manifest?.id || null,
+        gap_classification: input.gap?.classification || null,
+        proposal_only: input.proposal_only === true,
+        activation_allowed: false,
+      };
+    },
+  });
+  const bridge = await enterModuleLabForGap({
+    goal: job.goal,
+    capabilities: inventory,
+    councilReport: council,
+    moduleLab,
+    context: { owner: 'mel-autonomy', requestId: job.id },
+  });
+  const plan = job.plan_json && typeof job.plan_json === 'object' ? { ...job.plan_json } : {};
+  plan.module_lab = {
+    status: bridge.module_lab_need?.status || 'NEED_READY',
+    stage: bridge.module_lab_stage,
+    manifest_id: bridge.manifest?.id || proposal.manifest?.id || null,
+    gap_classification: bridge.gap?.classification || proposal.gap_classification || null,
+    council_phase: bridge.council_gate?.phase || null,
+    council_responses: bridge.council_gate?.responses || 0,
+    code_generation_allowed: false,
+    activation_allowed: false,
+    teacher_required: true,
+  };
+  return repository.update(job.id, { plan_json: plan });
+}
+
 async function sha256(value) {
   const bytes = new TextEncoder().encode(String(value));
   const digest = await crypto.subtle.digest('SHA-256', bytes);
@@ -83,7 +124,9 @@ function publicJob(job, { created = false, teacher = null } = {}) {
  * is checked first so MEL reuses or diagnoses an existing capability instead of
  * creating duplicate development work. Only a genuine POSSIBLE_GAP is persisted.
  * New work immediately performs the mandatory multi-AI Council + candidate
- * inspection and queues Teacher review. It never edits or deploys production code.
+ * inspection and queues Teacher review. Its gap proposal is then persisted at
+ * the non-mutating Module Lab `need` stage. It never generates or deploys
+ * production code here.
  */
 export async function enqueueOwnerDevelopmentRequest({
   env,
@@ -149,6 +192,7 @@ export async function enqueueOwnerDevelopmentRequest({
     teacher = await prepareAutonomyTeacherRequest({ env, repository: repo, job, fetchImpl });
     job = await repo.get(job.id);
   }
+  job = await persistModuleLabNeed(repo, job);
 
   return publicJob(job, { created: createdResult.created, teacher });
 }
