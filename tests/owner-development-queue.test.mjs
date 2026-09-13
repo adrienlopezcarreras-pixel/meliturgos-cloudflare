@@ -66,6 +66,61 @@ test('owner development request persists, runs Council first, inspects candidate
   assert.equal(stored.result_json.teacher_bridge.request.candidate.sha, CANDIDATE_HEAD_SHA);
 });
 
+test('live capability inventory turns a real owner gap into a persisted Module Lab need before any code generation', async () => {
+  const f = fixture();
+  const result = await enqueueOwnerDevelopmentRequest({
+    env: f.env,
+    goal: 'Développe une compétence de spectrométrie stellaire inconnue',
+    conversationId: 'conversation-gap',
+    requestKey: 'message-gap',
+    repository: f.repository,
+    fetchImpl: f.fetchImpl,
+    capabilities: [],
+  });
+
+  assert.equal(result.created, true);
+  assert.equal(result.status, 'WAITING_TEACHER');
+  const stored = await f.repository.get(result.job_id);
+  assert.equal(stored.optional_context.module_proposal.decision, 'PROPOSE_MODULE');
+  assert.equal(stored.optional_context.module_proposal.gap_classification, 'POSSIBLE_GAP');
+  assert.equal(stored.optional_context.module_proposal.activation_allowed, false);
+  assert.equal(stored.plan_json.module_lab.stage, 'need');
+  assert.equal(stored.plan_json.module_lab.status, 'NEED_READY');
+  assert.equal(stored.plan_json.module_lab.code_generation_allowed, false);
+  assert.equal(stored.plan_json.module_lab.activation_allowed, false);
+  assert.equal(stored.plan_json.module_lab.teacher_required, true);
+  assert.ok(stored.plan_json.module_lab.manifest_id.startsWith('mel-'));
+});
+
+test('live capability inventory reuses a healthy match instead of creating duplicate development work', async () => {
+  const f = fixture();
+  const result = await enqueueOwnerDevelopmentRequest({
+    env: f.env,
+    goal: 'Développe une compétence de recherche web',
+    conversationId: 'conversation-reuse',
+    requestKey: 'message-reuse',
+    repository: f.repository,
+    fetchImpl: f.fetchImpl,
+    capabilities: [{
+      id: 'web.research',
+      name: 'Recherche web',
+      category: 'web',
+      description: 'research search web internet recherche',
+      health: 'HEALTHY',
+      enabled: true,
+    }],
+  });
+
+  assert.equal(result.created, false);
+  assert.equal(result.job_id, null);
+  assert.equal(result.status, 'REUSE_EXISTING');
+  assert.equal(result.gap.classification, 'MATCHED_AVAILABLE');
+  assert.equal(result.gap.matched_capability, 'web.research');
+  assert.equal(f.aiCalls.length, 0, 'no Council cost/work is spent on a capability that already exists');
+  const jobs = (await f.repository.list()).filter((job) => job.requested_by === 'owner-chat');
+  assert.equal(jobs.length, 0);
+});
+
 test('replaying the same owner message is idempotent and does not repeat the Council', async () => {
   const f = fixture();
   const input = {
