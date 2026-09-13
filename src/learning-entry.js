@@ -61,33 +61,25 @@ async function learningProgressResponse(request, env) {
   }
 }
 
-const LEARNING_CARD = '<article class="card third" id="learningCard"><h2>Apprentissage MEL <span class="tag good" style="vertical-align:middle">RÉEL</span></h2><div class="metric">Niv. <span id="learnLevel">—</span> <small id="learnRank">mesure en cours</small></div><div class="progress"><span id="learnBar" style="width:0%"></span></div><p class="muted" id="learnXp">Calcul depuis les preuves d’apprentissage…</p><div class="status-row"><span>Corrections validées</span><strong id="learnCorrections">—</strong></div><div class="status-row"><span>Benchmark</span><strong id="learnBenchmark">—</strong></div><div class="status-row"><span>Poids neuronaux</span><strong id="learnWeights">—</strong></div><p class="footer-note">XP = preuves d’apprentissage persistées. La feuille de route ne compte jamais dans ce niveau.</p></article>';
+const LEARNING_CARD = '<article class="card third" id="learningCard" style="padding:12px 14px"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><div><span class="muted" style="display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.07em">Apprentissage MEL</span><strong style="font-size:1.25rem">Niv. <span id="learnLevel">—</span></strong></div><span class="tag good" id="learnRank">mesure…</span></div><div class="progress" style="height:6px;margin-top:8px"><span id="learnBar" style="width:0%"></span></div><div id="learnXp" style="margin-top:6px;font-size:.82rem;font-weight:600">Calcul des XP…</div><div class="muted" id="learnMeta" style="margin-top:3px;font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">preuves réelles · roadmap exclue</div></article>';
 
 const LEARNING_BROWSER_SCRIPT = `
 async function loadLearningProgress(){
-  const level=qs('#learnLevel'),rank=qs('#learnRank'),bar=qs('#learnBar'),xp=qs('#learnXp');
-  if(!level||!rank||!bar||!xp)return false;
+  const level=qs('#learnLevel'),rank=qs('#learnRank'),bar=qs('#learnBar'),xp=qs('#learnXp'),meta=qs('#learnMeta');
+  if(!level||!rank||!bar||!xp||!meta)return false;
   try{
     const d=await jfetch('/api/learning/progress'),e=d.evidence||{};
+    const percent=Math.max(0,Math.min(100,Number(d.level_progress_percent||0)));
     level.textContent=d.level??'—';
-    rank.textContent=(d.rank||'')+' · '+Number(d.level_progress_percent||0).toFixed(1)+'% du niveau';
-    bar.style.width=Math.max(0,Math.min(100,Number(d.level_progress_percent||0)))+'%';
-    xp.textContent=Number(d.xp||0).toLocaleString('fr-FR')+' XP · '+Number(d.xp_to_next_level||0).toLocaleString('fr-FR')+' XP avant le niveau suivant';
-    const c=qs('#learnCorrections');if(c)c.textContent=Number(e.corrections_validated||0)+' / '+Number(e.corrections_recorded||0);
-    const b=qs('#learnBenchmark');
-    if(b){
-      if(e.benchmark_latest_score==null)b.textContent='pas encore établi';
-      else{
-        const score=Math.round(Number(e.benchmark_latest_score||0)*1000)/10;
-        const gain=e.benchmark_gain==null?'':(' · Δ '+(Number(e.benchmark_gain)>=0?'+':'')+(Math.round(Number(e.benchmark_gain)*1000)/10)+' pts');
-        b.textContent=score+'%'+gain;
-      }
-    }
-    const w=qs('#learnWeights');if(w)w.textContent=e.neural_weights_changed?('LoRA actif · '+Number(e.active_adapter_count||0)):'inchangés · LoRA inactif';
+    rank.textContent=(d.rank||'')+' · '+percent.toFixed(0)+'%';
+    bar.style.width=percent+'%';
+    xp.textContent=Number(d.xp||0).toLocaleString('fr-FR')+' XP · '+Number(d.xp_to_next_level||0).toLocaleString('fr-FR')+' avant niv. '+(Number(d.level||1)+1);
+    const benchmark=e.benchmark_latest_score==null?'benchmark —':('benchmark '+(Math.round(Number(e.benchmark_latest_score||0)*1000)/10)+'%');
+    const weights=e.neural_weights_changed?('LoRA '+Number(e.active_adapter_count||0)+' actif'):'LoRA inactif';
+    meta.textContent=Number(e.corrections_validated||0)+' corrections validées · '+benchmark+' · '+weights+' · roadmap exclue';
     return true;
   }catch(err){
-    level.textContent='—';rank.textContent='indisponible';bar.style.width='0%';xp.textContent='Mesure indisponible : '+err.message;
-    const w=qs('#learnWeights');if(w)w.textContent='non vérifié';
+    level.textContent='—';rank.textContent='indisponible';bar.style.width='0%';xp.textContent='Mesure indisponible';meta.textContent=err.message;
     return false;
   }
 }
