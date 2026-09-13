@@ -44,20 +44,20 @@ export function setDefaultCapabilityEnvironment(env = {}) {
   };
 }
 
-function capabilityError(message, code = message) {
+function capabilityError(message, code = message, status) {
   const error = new Error(message);
   error.code = code;
+  if (status) error.status = status;
   return error;
 }
 
 const councilInputSchema = {
   type: 'object',
   properties: {
-    goal: { type: 'string', minLength: 1, maxLength: 4000 },
+    goal: { type: 'string', minLength: 0, maxLength: 4000 },
     context: { type: 'object', additionalProperties: true },
     minResponses: { type: 'integer', minimum: 2, maximum: 12 }
   },
-  required: ['goal'],
   additionalProperties: false
 };
 
@@ -120,6 +120,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: runtimeEnv.AI ? 'HEALTHY' : 'DEGRADED', enabled: true
   }, async input => {
+    if (!String(input.goal || '').trim()) throw capabilityError('COUNCIL_GOAL_REQUIRED', 'COUNCIL_GOAL_REQUIRED', 400);
     if (!runtimeEnv.AI) throw capabilityError('AI_BINDING_MISSING');
     return runAugmentioStateOfPlay({
       env: runtimeEnv,
@@ -136,6 +137,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: runtimeEnv.AI ? 'HEALTHY' : 'DEGRADED', enabled: true
   }, async input => {
+    if (!String(input.goal || '').trim()) throw capabilityError('DEVELOPMENT_GOAL_REQUIRED', 'DEVELOPMENT_GOAL_REQUIRED', 400);
     if (!runtimeEnv.AI) throw capabilityError('AI_BINDING_MISSING');
     return prepareDevelopmentRequest({
       env: runtimeEnv,
