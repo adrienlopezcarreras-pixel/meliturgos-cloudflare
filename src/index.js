@@ -3,7 +3,6 @@ import router from "./router.js";
 import { requireAuth } from "./core/security.js";
 import { setDefaultCapabilityEnvironment } from "./capabilities/default-bus.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
-import { importChatGPTArchive } from "./persistence/chatgpt-archive-importer.js";
 import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { handleNativeChat } from "./api/native-chat.js";
@@ -325,7 +324,9 @@ async function maybeHandleChatGPTArchive(request, env) {
 
   const preview = explicit ? body.preview !== false : false;
   try {
-    const result = await importChatGPTArchive(env, archive, { preview });
+    const runtime = createGen2Runtime({ env });
+    const capabilityId = preview ? 'chatgpt.archive.preview' : 'chatgpt.archive.import';
+    const result = await runtime.bus.execute(capabilityId, { archive }, busContext(env));
     return Response.json(result, { status: result.ok === false ? 207 : 200, headers: { 'cache-control': 'no-store' } });
   } catch (error) {
     return apiError(error, 'CHATGPT_ARCHIVE_IMPORT_FAILED');
