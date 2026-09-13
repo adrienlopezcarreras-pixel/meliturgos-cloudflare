@@ -79,3 +79,43 @@ CRITERES_DE_FIN
 - GEN2-17 must obtain a fresh Teacher request bound to the then-current canonical HEAD if the old approval is stale.
 - Fresh Council evidence must show required roles architecture/security/tests/product-integration with MEL synthesis and zero-added-cost provenance.
 - Implementation may proceed only after exact request/SHA correlation, targeted tests and full-candidate-ci on the exact resulting SHA.
+
+---
+RUN UPDATE 2026-09-13T02:53Z
+
+FICHIERS
+- src/evolution/autonomy-supervisor.js (existing scheduler reused; no duplicate orchestrator)
+- tests/autonomy-supervisor-revision-priority.test.mjs (existing targeted test extended)
+- teacher-bridge/checkpoints/gen2-17-supervised-cycles-20260912T1944Z.txt (existing checkpoint extended)
+
+CHANGEMENTS
+- Live runtime smoke 34734060248 still reports the factual queue state: owner-chat-d8892391197219d3074cdb72624d9fe4 is CLAIMED while mel-autonomy-gen2-17-1 is QUEUED with implementation_diagnostic_code=TEACHER_APPROVAL_CANDIDATE_BRANCH_MISMATCH; pending Teacher requests are empty and no work package is exposed.
+- The canonical candidate already contains revisionContinuationRank in the existing AutonomySupervisor so a stale/rejected internal Teacher revision can continue its fresh Council/Teacher preflight instead of being starved by unrelated owner preflight work.
+- Extended the existing targeted test to reproduce the exact live queue class: an owner-chat job explicitly set to CLAIMED versus an internal GEN2-17 revision requeued for TEACHER_APPROVAL_CANDIDATE_BRANCH_MISMATCH. The assertion proves the internal revision is selected while the owner job remains CLAIMED and untouched.
+- Behavioral test commit: 170705d61e17296a1e23ddb997f0bb42940f428e.
+- No production deployment was attempted because this run has no explicit production-promotion authorization. Therefore the live Worker result is recorded as runtime evidence, not as proof that the candidate scheduler revision is deployed.
+
+REUTILISATION
+- Reused the single canonical candidate, existing AutonomySupervisor, existing D1 job repository fixture, existing revision-priority test file, existing Teacher smoke workflow and existing checkpoint.
+- No second roadmap, branch, Council, runtime loop, Teacher channel, or fallback orchestrator was created.
+
+TESTS
+- Targeted revision-priority coverage is part of the repository full suite on commit 170705d61e17296a1e23ddb997f0bb42940f428e.
+- full-candidate-ci run 34734060282 completed SUCCESS on exact SHA 170705d61e17296a1e23ddb997f0bb42940f428e: install, runtime dependency security gate, development advisory report, syntax and full test suite all passed.
+- runtime-teacher-smoke run 34734060248 completed SUCCESS as an observational probe; it does not mutate production and confirms the live queue remains blocked at the branch-mismatch revision state.
+
+RISQUES
+- Candidate tests prove scheduler selection for the observed queue shape, but the live Worker has not demonstrated that candidate behavior because production promotion is not authorized in this run.
+- GEN2-17 therefore remains incomplete: no claim is made that two consecutive fresh supervised live development cycles have executed.
+- The live internal job still needs a fresh canonical Council/Teacher request after the deployed runtime is able to select the requeued revision; any branch divergence must continue to fail closed.
+
+ROLLBACK
+- Revert commit 170705d61e17296a1e23ddb997f0bb42940f428e to remove only the added targeted test; the scheduler implementation is unchanged by that commit.
+- Revert this documentation commit independently if the checkpoint text needs correction.
+- No production deployment, DNS/auth/billing/permission change, destructive D1 operation, secret write, paid API, TinyFish, Claude, or unknown-cost service was used.
+
+CRITERES_DE_FIN
+- The canonical candidate must be promoted only through the existing Cloudflare release workflow after explicit applicable production authorization and with rollback preserved.
+- A subsequent live runtime observation must show mel-autonomy-gen2-17-1 selected ahead of unrelated owner preflight, then a fresh canonical Teacher request bound to the exact candidate SHA.
+- Fresh Council evidence must prove the required architecture, security, tests/QA and integration/product roles with model/provenance evidence and MEL synthesis.
+- At least two consecutive supervised live cycles must complete with exact request/SHA correlation and green full-candidate-ci before GEN2-17 may be marked DONE.
