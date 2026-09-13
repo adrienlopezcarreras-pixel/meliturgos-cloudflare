@@ -11,7 +11,7 @@ const roadmap = [
   { id: 'GEN2-17', title: 'Dev Agent', status: 'PARTIAL', priority: 'P0', next: 'controlled self-development', phase_id: 'P06', phase: 'Evolution' },
 ];
 
-async function createRequeuedInternal(repository) {
+async function createRequeuedInternal(repository, reason = 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE') {
   const internal = await repository.create({
     id: 'mel-autonomy-gen2-17-1',
     requested_by: 'mel-autonomy',
@@ -23,7 +23,7 @@ async function createRequeuedInternal(repository) {
     plan_json: {
       revision: {
         previous_request_id: 'old-teacher-request',
-        reason: 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE',
+        reason,
       },
     },
     result_json: {
@@ -51,6 +51,25 @@ test('a requeued internal Teacher revision outruns an unrelated owner preflight'
   assert.equal(selected.job.id, 'mel-autonomy-gen2-17-1');
   assert.equal(selected.job.status, 'QUEUED');
   assert.equal((await repository.get(owner.id)).status, owner.status);
+});
+
+test('a branch-mismatch revision outruns an already CLAIMED owner preflight matching the live queue state', async () => {
+  const repository = repo();
+  const owner = await repository.create({
+    id: 'owner-live-claimed-preflight',
+    requested_by: 'owner-chat',
+    goal: 'owner request already claimed for preflight',
+    optional_context: { source: 'owner-chat', priority: 'P0' },
+  });
+  await repository.update(owner.id, { status: 'CLAIMED' });
+  await createRequeuedInternal(repository, 'TEACHER_APPROVAL_CANDIDATE_BRANCH_MISMATCH');
+
+  const supervisor = new AutonomySupervisor({ repository, roadmap });
+  const selected = await supervisor.ensureNextJob();
+  assert.equal(selected.created, false);
+  assert.equal(selected.job.id, 'mel-autonomy-gen2-17-1');
+  assert.equal(selected.job.status, 'QUEUED');
+  assert.equal((await repository.get(owner.id)).status, 'CLAIMED');
 });
 
 test('implementation-ready owner work still outruns a requeued internal revision', async () => {
