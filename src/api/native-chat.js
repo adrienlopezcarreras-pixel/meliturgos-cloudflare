@@ -8,6 +8,8 @@ import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { buildMelIdentityPrompt } from '../identity/mel-persona.js';
 import { getMelThemeContract } from '../identity/mel-theme-persona.js';
 import { classifyCapabilityTruth, declaredImplementationStatus } from '../diagnostics/capability-truth-audit.js';
+import { LearningEngine } from '../learning/learning-engine.js';
+import { MentorMemoryRepository } from '../learning/mentor-memory.js';
 
 function extractCodePath(value) {
   return String(value || '').match(/((?:src|tests|\.github)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)|worker\.js|package\.json|wrangler\.jsonc)/i)?.[1] || null;
@@ -183,7 +185,7 @@ async function rememberExplicit(env, text) {
   }
 }
 
-async function loadCognitiveMemory(env) {
+export async function loadCognitiveMemory(env, limit = 12) {
   if (!env?.DB) return null;
   await ensureNativeMemoryTable(env);
   try {
@@ -194,7 +196,7 @@ async function loadCognitiveMemory(env) {
       .filter(row => row.revoked_at == null)
       .filter(row => row.valid_until == null || Number(row.valid_until) > now)
       .sort((a, b) => Number(b.importance ?? 0) - Number(a.importance ?? 0))
-      .slice(0, 12);
+      .slice(0, Math.max(1, Math.min(32, Number(limit) || 12)));
     if (!rows.length) return null;
     const prompt = rows.map((row, index) => {
       const content = String(row.content).slice(0, 2000);
@@ -210,29 +212,51 @@ async function loadCognitiveMemory(env) {
   }
 }
 
-function createNativeModelRouter(env) {
+export function inferenceGenerationOptions(settings = null) {
+  if (!settings || typeof settings !== 'object') return {};
+  const out = {};
+  if (Number.isFinite(Number(settings.temperature))) out.temperature = Number(settings.temperature);
+  if (Number.isFinite(Number(settings.top_p))) out.top_p = Number(settings.top_p);
+  if (Number.isFinite(Number(settings.max_tokens)) && Number(settings.max_tokens) > 0) out.max_tokens = Math.round(Number(settings.max_tokens));
+  return out;
+}
+
+async function activePromotedInferenceSettings(env) {
+  if (!env?.DB) return null;
+  try {
+    const memory = new MentorMemoryRepository(env.DB);
+    const rows = await memory.recent({ limit: 1, kind: 'INFERENCE_SETTINGS' });
+    if (!rows.length) return null;
+    return await new LearningEngine({ memory }).activeInferenceSettings();
+  } catch {
+    return null;
+  }
+}
+
+function createNativeModelRouter(env, inferenceSettings = null) {
   const augmentio = new Augmentio({ pool: createDefaultAugmentioPool(env) });
+  const generation = inferenceGenerationOptions(inferenceSettings);
   return new ModelRouter({
     augmentio,
     maxCalls: 3,
-    invoke: async (selected, messages) => env.AI.run(selected.model_id || selected.id, { messages }),
+    invoke: async (selected, messages) => env.AI.run(selected.model_id || selected.id, { messages, ...generation }),
   });
 }
 
-export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4 } = {}) {
+export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null } = {}) {
   if (!env?.AI || typeof env.AI.run !== 'function') {
     const error = new Error('AI_BINDING_MISSING');
     error.code = 'AI_BINDING_MISSING';
     throw error;
   }
-  const router = createNativeModelRouter(env);
+  const router = createNativeModelRouter(env, inferenceSettings);
   const task = classifyTask(text || '');
   return router.execute({
     task,
     messages,
     parallel: Boolean(parallel),
     maxCandidates: Math.max(1, Math.min(12, Number(maxCandidates) || 4)),
-  }, { source: 'native-chat' });
+  }, { source: 'native-chat', inference_settings: inferenceSettings || null });
 }
 
 export async function handleNativeChat(request, env) {
@@ -284,7 +308,8 @@ export async function handleNativeChat(request, env) {
 
   capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
   const memoryWrite = await rememberExplicit(env, text);
-  const retrieved = await loadCognitiveMemory(env);
+  const activeInferenceSettings = await activePromotedInferenceSettings(env);
+  const retrieved = await loadCognitiveMemory(env, activeInferenceSettings?.memory_results ?? 12);
   const manifestText = JSON.stringify(capabilityManifest);
   const developmentQueued = toolResults.find((row) => row.capability === 'evolution.enqueue' && row.status === 'SUCCEEDED')?.result || null;
 
@@ -311,7 +336,7 @@ export async function handleNativeChat(request, env) {
   ].filter(Boolean).join(' ');
   const messages = buildContext({ system, recent, retrieved, toolResults, current: text });
   const parallel = body.parallel === true || String(env.MEL_AUGMENTIO_CHAT || '') === '1';
-  const ai = await runNativeInference({ env, messages, text, parallel, maxCandidates: body.max_candidates ?? env.MEL_AUGMENTIO_MAX_CANDIDATES ?? 4 });
+  const ai = await runNativeInference({ env, messages, text, parallel, maxCandidates: body.max_candidates ?? env.MEL_AUGMENTIO_MAX_CANDIDATES ?? activeInferenceSettings?.council_min_responses ?? 4, inferenceSettings: activeInferenceSettings });
 
   let archiveSaved = false;
   if (service) {
@@ -337,6 +362,8 @@ export async function handleNativeChat(request, env) {
     memory_count: retrieved?.count || 0,
     memory_stored: memoryWrite.stored === true,
     memory_reason: memoryWrite.reason || null,
+    active_inference_settings: activeInferenceSettings,
+    inference_settings_applied: activeInferenceSettings ? { generation: ['temperature','top_p','max_tokens'], memory: ['memory_results'], council: parallel ? ['council_min_responses'] : [], review_passes: 'not_supported_in_single-pass-chat' } : null,
     active_theme: theme,
     capability_used: capabilitiesUsed,
     capability_manifest: capabilityManifest,
