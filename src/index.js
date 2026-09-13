@@ -2,9 +2,8 @@
 import router from "./router.js";
 import { requireAuth } from "./core/security.js";
 import { setDefaultCapabilityEnvironment } from "./capabilities/default-bus.js";
+import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import { importChatGPTArchive } from "./persistence/chatgpt-archive-importer.js";
-import { runAugmentioStateOfPlay } from "./teachers/augmentio-council.js";
-import { prepareDevelopmentRequest } from "./evolution/development-preflight.js";
 import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { handleNativeChat } from "./api/native-chat.js";
@@ -204,6 +203,14 @@ async function maybeHandleMemoryCompatibility(request, env) {
   });
 }
 
+function busContext(env) {
+  return {
+    owner: env.MELITURGOS_USER || 'owner',
+    permissions: env.CAPABILITY_PERMISSIONS || [],
+    requestId: crypto.randomUUID(),
+  };
+}
+
 async function maybeHandleSafeWork(request, env) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/api/dev-bridge/')) return null;
@@ -234,12 +241,12 @@ async function maybeHandleSafeWork(request, env) {
       if (mode !== 'prepare' && mode !== 'preflight') return null;
       const goal = String(body.goal || body.objective || body.prompt || body.description || '').trim();
       if (!goal) return Response.json({ ok: false, error: 'GOAL_REQUIRED', code: 'GOAL_REQUIRED' }, { status: 400 });
-      const preflight = await prepareDevelopmentRequest({
-        env,
+      const runtime = createGen2Runtime({ env });
+      const preflight = await runtime.bus.execute('evolution.preflight', {
         goal,
         context: { ...(body.context && typeof body.context === 'object' ? body.context : {}), origin: 'work-ui', rule: 'AI_COUNCIL_BEFORE_CODE' },
         minResponses: Math.max(2, Math.min(12, Number(body.minResponses) || 2))
-      });
+      }, busContext(env));
       lastSafeWorkJob = {
         id: crypto.randomUUID(),
         mode: 'preflight-only',
@@ -283,14 +290,16 @@ async function maybeHandleCouncilAndEvolution(request, env) {
     const goal = String(body.goal || body.objective || '').trim();
     const context = body.context && typeof body.context === 'object' ? body.context : {};
     const minResponses = Math.max(2, Math.min(12, Number(body.minResponses) || 2));
+    const runtime = createGen2Runtime({ env });
+    const capabilityId = path === '/api/gen2/council/state-of-play'
+      ? 'council.state-of-play'
+      : 'evolution.preflight';
+    const result = await runtime.bus.execute(capabilityId, { goal, context, minResponses }, busContext(env));
 
-    if (path === '/api/gen2/council/state-of-play') {
-      const report = await runAugmentioStateOfPlay({ env, goal, context, minResponses });
-      return Response.json({ ok: true, ...report }, { headers: { 'cache-control': 'no-store' } });
+    if (capabilityId === 'council.state-of-play') {
+      return Response.json({ ok: true, ...result }, { headers: { 'cache-control': 'no-store' } });
     }
-
-    const preflight = await prepareDevelopmentRequest({ env, goal, context, minResponses });
-    return Response.json(preflight, { headers: { 'cache-control': 'no-store' } });
+    return Response.json(result, { headers: { 'cache-control': 'no-store' } });
   } catch (error) {
     return apiError(error, 'AI_PREFLIGHT_FAILED');
   }
