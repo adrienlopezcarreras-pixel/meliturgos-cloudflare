@@ -1,6 +1,7 @@
 const SAFE_ID = /^[A-Za-z0-9@._:/+\-]{1,240}$/;
 const ALLOWED_QUANT = new Set(['none', '8bit', '4bit']);
 const ALLOWED_STATUS = new Set(['DRAFT', 'READY_FOR_TRAINING', 'TRAINING', 'EVALUATING', 'APPROVED', 'REJECTED', 'ACTIVE', 'ROLLED_BACK']);
+const READY_REQUIRED_STATUS = new Set(['READY_FOR_TRAINING', 'TRAINING', 'EVALUATING', 'APPROVED', 'ACTIVE']);
 
 function bounded(value, max = 1000) {
   const text = String(value ?? '').trim();
@@ -33,6 +34,10 @@ export function createLoraTrainingPlan({
   const normalizedQuantization = ALLOWED_QUANT.has(String(quantization)) ? String(quantization) : 'none';
   const cloudflareCompatible = normalizedRank <= 32 && normalizedQuantization === 'none';
   const ready = count >= 50 && cloudflareCompatible;
+  const requestedStatus = status && ALLOWED_STATUS.has(String(status)) ? String(status) : null;
+  const normalizedStatus = !ready && READY_REQUIRED_STATUS.has(requestedStatus)
+    ? 'DRAFT'
+    : (requestedStatus || (ready ? 'READY_FOR_TRAINING' : 'DRAFT'));
   return {
     id: safeId(id, 'ID'),
     base_model: safeId(base_model, 'BASE_MODEL'),
@@ -46,8 +51,9 @@ export function createLoraTrainingPlan({
     quantization: normalizedQuantization,
     target_modules: Array.isArray(target_modules) ? [...new Set(target_modules.map(x => safeId(x, 'TARGET_MODULE')))].slice(0, 32) : [],
     seed: Math.round(Number(seed) || 42),
-    status: status && ALLOWED_STATUS.has(String(status)) ? String(status) : (ready ? 'READY_FOR_TRAINING' : 'DRAFT'),
+    status: normalizedStatus,
     readiness: {
+      ready_for_training: ready,
       enough_examples: count >= 50,
       min_examples: 50,
       base_weights_frozen: true,
