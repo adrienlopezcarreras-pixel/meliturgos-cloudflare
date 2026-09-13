@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { createGen2Runtime } from '../src/core/orchestrator/gen2-runtime.js';
 
 function mockFetch(url) {
@@ -27,4 +28,10 @@ test('web.research returns bounded sourced results with provenance through Capab
   assert.ok(result.sources.every(source => source.url.startsWith('https://')));
   assert.ok(result.sources.every(source => source.provenance?.source_id));
   assert.match(result.citation, /URL:/);
+});
+
+test('web research HTTP API execution is locked to CapabilityBus', async () => {
+  const source = await readFile(new URL('../src/api/research-api.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /InternetService/);
+  assert.match(source, /runtime\.bus\.execute\(['"]web\.research['"]/);
 });
