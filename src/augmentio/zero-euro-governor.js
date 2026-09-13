@@ -1,7 +1,9 @@
 export class ZeroEuroGovernor {
   constructor({ maxCost = 0 } = {}) {
+    // This governor is intentionally zero-euro only. A caller must never be
+    // able to widen the budget above zero through configuration.
     const parsed = Number(maxCost);
-    this.maxCost = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    this.maxCost = Number.isFinite(parsed) && parsed === 0 ? 0 : 0;
   }
 
   allows(candidate = {}) {
