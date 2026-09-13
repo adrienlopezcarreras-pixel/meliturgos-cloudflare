@@ -1,0 +1,47 @@
+MEL AUTONOMY CHECKPOINT — verified repair cycles feed canonical learning
+recorded_at=2026-09-13T12:14:00Z
+branch=candidate/mel-clean-autonomy
+job_id=GEN2-20+MEL-EVOL-03-verified-repair-learning
+stage=VERIFIED_REPAIR_LEARNING_CONTINUE_BENCHMARK_LOOP
+exact_code_sha=2b1c73675237c9ec92cfd33c63d58b50b9a37f5b
+
+WORK_COMPLETED
+- Extended the existing dev bridge result merge; every previous bridge result is preserved in bounded dev_bridge_history before a new result replaces current state, with fingerprint-based adjacent deduplication and max 20 entries.
+- Reused existing github-completion-reconciler and LearningEngine; no parallel learner/orchestrator created.
+- After exact full-candidate-ci verifies a final completion, prior test-failing repair attempts are converted into structured LearningEngine corrections.
+- Repair correction captures problem/task, before diff/attempt, after corrected result, CAUSE, METHOD, PROOF, failed-before tests, passed-after tests, roadmap domain, runtime-test-repair provenance, quality=1, validated=true.
+- Clean first-pass completions do not invent repair corrections.
+- Existing Teacher NEEDS_CHANGES correction learning remains and is now combined with runtime repair correction learning in completion metadata.
+- No failed/unverified bridge result is marked validated by itself; validated repair examples are only emitted inside the already CI-verified completion path.
+- Temporary one-shot patch workflow/script removed after use; only canonical runtime/reconciler/test remain.
+
+VERIFICATION
+one_shot_run_id=34756429931
+one_shot_targeted_tests=success
+one_shot_syntax=success
+full_candidate_ci_run_id=34756477171
+full_candidate_ci_conclusion=success
+full_candidate_ci_head_sha=2b1c73675237c9ec92cfd33c63d58b50b9a37f5b
+production_changed=false
+secrets_added=false
+cost_added_eur=0
+
+ROADMAP_INTERPRETATION
+- GEN2-20: materially advanced. Canonical runtime now consumes promoted inference settings and verified Teacher/test repair corrections automatically enter the correction corpus after exact-SHA CI proof. Keep PARTIAL until a live runtime completion writes and retrieves at least one such correction from D1 and benchmark cadence is automatically exercised.
+- MEL-EVOL-03: materially advanced. The repair loop now preserves failed attempt -> corrected attempt -> final CI evidence as reusable learning. Keep PARTIAL until automatic benchmark/critique/retest cadence is proven end-to-end.
+- MEL-EVOL-06: no neural training claimed. Remains data/external-blocked for actual LoRA weights until corpus/readiness/backend zero-cost requirements are met.
+
+CORRECTION_LESSON
+problem=The runtime could repair failing candidate tests, but overwriting dev_bridge discarded the failed attempt and therefore the learning engine could not learn why the repair was necessary.
+before=Only Teacher NEEDS_CHANGES history was transformed into validated correction examples; test-driven repair failures could disappear when a later bridge result replaced them.
+after=Dev bridge history preserves failed attempts and a successful exact-SHA CI completion transforms them into validated structured corrections using the existing LearningEngine.
+why_before_insufficient=A repair outcome without the failed-before state, cause, method and proof cannot teach MEL to avoid or fix the same mistake later.
+method=Preserve bounded bridge history; derive correction candidates only from failed history; emit validated examples only after completion CI verification; keep deterministic provenance and tests.
+proof=targeted workflow 34756429931 success and full-candidate-ci 34756477171 success on exact code SHA 2b1c73675237c9ec92cfd33c63d58b50b9a37f5b.
+domain=learning/repair-loop
+provenance=chatgpt-automation-zero-euro
+confidence=high
+validated=true
+
+NEXT_ACTION
+Advance MEL-EVOL-03/GEN2-20 by wiring canonical benchmark cadence to verified completions without creating a new orchestrator: inspect existing benchmark runner and completion/autonomy state, trigger/reuse a benchmark after a significant correction batch or every 5 verified roadmap jobs only when a zero-cost evaluator is available, persist baseline/candidate comparison and repeated taught-error count, fail closed/skip when evaluator is unavailable, then targeted tests + exact-SHA full-candidate-ci.
