@@ -63,8 +63,13 @@ function extractSearchQuery(text) {
   const quoted = source.match(/[`'\"]([^`'\"]{2,120})[`'\"]/);
   if (quoted) return quoted[1];
   const afterVerb = source.match(/(?:cherche|chercher|trouve|trouver|localise|localiser|search|find)\s+(?:dans\s+)?(?:ton|le|du|les)?\s*(?:code|sources?|repo|d[ée]p[ôo]t|github)?\s*[:,-]?\s*(.{2,160})/i);
-  if (afterVerb?.[1]) return afterVerb[1].replace(/[?.!]+$/g, "").trim().slice(0, 300);
-  const symbol = source.match(/\b[A-Za-z_$][A-Za-z0-9_$]{3,}\b/g)?.filter(x => !/^(?:peux|pourrais|acc[eè]der|code|source|fichier|github|repo|dans|ton|elle|faire|avec|cela|comment|pourquoi)$/i.test(x)).at(-1);
+  const tail = afterVerb?.[1]?.replace(/[?.!]+$/g, "").trim() || source;
+  const candidates = tail.match(/\b[A-Za-z_$][A-Za-z0-9_$.-]{3,}\b/g) || [];
+  const filtered = candidates.filter(x => !/^(?:cherche|chercher|recherche|trouve|trouver|localise|localiser|search|find|dans|ton|elle|faire|avec|cela|comment|pourquoi|code|source|sources|fichier|fonction|classe|module|github|repo|repository|depot|defined|where|used|function|class|utilise|utilisee|defini|definie)$/i.test(x));
+  const codeLike = filtered.filter(x => /[A-Z_$]/.test(x.slice(1)) || /[_.$-]/.test(x)).at(-1);
+  if (codeLike) return codeLike.slice(0, 300);
+  if (afterVerb?.[1]) return tail.slice(0, 300);
+  const symbol = filtered.at(-1);
   return (symbol || "MELITURGOS").slice(0, 300);
 }
 
