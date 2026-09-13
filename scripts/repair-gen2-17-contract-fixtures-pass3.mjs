@@ -77,7 +77,9 @@ const helperImport = `import { completeTeacherCouncil, teacherReply, TEST_CANDID
 }
 
 // Runtime fixture must prove zero added cost, use the canonical candidate, and
-// echo the exact reviewed SHA in every structured Teacher reply.
+// echo the exact reviewed SHA in every structured Teacher reply. Keep the one
+// negative divergence test intentionally divergent after canonicalizing legacy
+// fixture values; otherwise that guard would no longer be exercised.
 {
   const path = 'tests/autonomy-runtime.test.mjs';
   let text = await read(path);
@@ -89,6 +91,9 @@ const helperImport = `import { completeTeacherCouncil, teacherReply, TEST_CANDID
   );
   text = text.replaceAll(`candidate/augmentio-core`, `candidate/mel-clean-autonomy`);
   text = text.replaceAll(`candidate%2Faugmentio-core`, `candidate%2Fmel-clean-autonomy`);
+  const canonicalizedDivergence = `test('cloud autonomy heartbeat rejects divergent canonical and Teacher candidate branches fail-closed', async () => {\n  const fixture = runtimeFixture();\n  fixture.env.MEL_GITHUB_BRANCH = 'candidate/mel-clean-autonomy';\n  fixture.env.MEL_TEACHER_BRANCH = 'candidate/mel-clean-autonomy';`;
+  const intentionalDivergence = `test('cloud autonomy heartbeat rejects divergent canonical and Teacher candidate branches fail-closed', async () => {\n  const fixture = runtimeFixture();\n  fixture.env.MEL_GITHUB_BRANCH = 'candidate/mel-clean-autonomy';\n  fixture.env.MEL_TEACHER_BRANCH = 'candidate/divergent-teacher-test';`;
+  text = replaceIfPresent(text, canonicalizedDivergence, intentionalDivergence, 'autonomy divergence negative fixture');
   text = text.replace(
     /(kind: 'TEACHER_REPLY',\n\s+request_id: [^\n]+,\n)(?!\s+target_sha:)/g,
     `$1    target_sha: CANDIDATE_HEAD_SHA,\n`,
