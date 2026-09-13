@@ -56,6 +56,25 @@ test('Workers AI adapter calls env.AI.run with messages and preserves provenance
   assert.equal(result.provenance.provider, 'workers-ai');
 });
 
+test('Workers AI adapter applies measured settings and an explicitly activated LoRA only when supplied', async () => {
+  const calls = [];
+  const env = { AI: { async run(model, payload) { calls.push({ model, payload }); return { response: 'adapted' }; } } };
+  const adapter = createWorkersAIAdapter({ env, modelId: '@cf/example/lora-compatible' });
+  const result = await adapter.invoke({
+    input: 'test',
+    context: {
+      inference_settings: { temperature: 0.25, top_p: 0.8, max_tokens: 1536 },
+      lora: 'mel-adapter-v1',
+    },
+  });
+  assert.equal(calls[0].payload.temperature, 0.25);
+  assert.equal(calls[0].payload.top_p, 0.8);
+  assert.equal(calls[0].payload.max_tokens, 1536);
+  assert.equal(calls[0].payload.lora, 'mel-adapter-v1');
+  assert.equal(result.provenance.lora_applied, true);
+  assert.deepEqual(result.provenance.inference_settings_applied.sort(), ['max_tokens', 'temperature', 'top_p']);
+});
+
 test('quota arbitrator cools down a rate-limited provider', () => {
   const quota = new QuotaArbitrator({ cooldownMs: 60_000 });
   quota.recordFailure('p1', { status: 429, message: 'rate limit' });
