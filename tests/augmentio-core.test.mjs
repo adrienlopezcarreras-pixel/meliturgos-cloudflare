@@ -6,27 +6,33 @@ import { ParallelScheduler } from '../src/augmentio/parallel-scheduler.js';
 import { ResultTournament } from '../src/augmentio/result-tournament.js';
 import { Augmentio } from '../src/augmentio/augmentio.js';
 
-test('zero euro governor blocks paid and unknown-cost routes', () => {
+const verifiedFree = Object.freeze({ verified: true, addedCost: 0, source: 'test-fixture' });
+
+test('zero euro governor blocks paid, unknown-cost, and unverified zero-cost routes', () => {
   const governor = new ZeroEuroGovernor();
-  assert.equal(governor.allows({ estimatedCost: 0 }), true);
-  assert.equal(governor.allows({ cost: 0 }), true);
-  assert.equal(governor.allows({ estimatedCost: '0' }), true);
-  assert.equal(governor.allows({ estimatedCost: '0.00' }), true);
-  assert.equal(governor.allows({ estimatedCost: 0.01 }), false);
-  assert.equal(governor.allows({ estimatedCost: null }), false);
-  assert.equal(governor.allows({ cost: null }), false);
+  assert.equal(governor.allows({ estimatedCost: 0, costProvenance: verifiedFree }), true);
+  assert.equal(governor.allows({ cost: 0, costProvenance: verifiedFree }), true);
+  assert.equal(governor.allows({ estimatedCost: '0', costProvenance: verifiedFree }), true);
+  assert.equal(governor.allows({ estimatedCost: '0.00', costProvenance: verifiedFree }), true);
+  assert.equal(governor.allows({ estimatedCost: 0 }), false, 'numeric zero alone is not cost proof');
+  assert.equal(governor.allows({ estimatedCost: 0, costProvenance: { verified: false, addedCost: 0, source: 'test' } }), false);
+  assert.equal(governor.allows({ estimatedCost: 0, costProvenance: { verified: true, addedCost: 0 } }), false);
+  assert.equal(governor.allows({ estimatedCost: 0, costProvenance: { verified: true, addedCost: 1, source: 'test' } }), false);
+  assert.equal(governor.allows({ estimatedCost: 0.01, costProvenance: verifiedFree }), false);
+  assert.equal(governor.allows({ estimatedCost: null, costProvenance: verifiedFree }), false);
+  assert.equal(governor.allows({ cost: null, costProvenance: verifiedFree }), false);
   assert.equal(governor.allows({}), false);
-  assert.equal(governor.allows({ estimatedCost: Number.NaN }), false);
-  assert.equal(governor.allows({ estimatedCost: '' }), false);
-  assert.equal(governor.allows({ estimatedCost: '   ' }), false);
-  assert.equal(governor.allows({ estimatedCost: false }), false);
-  assert.equal(governor.allows({ estimatedCost: true }), false);
-  assert.equal(governor.allows({ estimatedCost: {} }), false);
-  assert.equal(governor.allows({ estimatedCost: [] }), false);
+  assert.equal(governor.allows({ estimatedCost: Number.NaN, costProvenance: verifiedFree }), false);
+  assert.equal(governor.allows({ estimatedCost: '', costProvenance: verifiedFree }), false);
+  assert.equal(governor.allows({ estimatedCost: '   ', costProvenance: verifiedFree }), false);
+  assert.equal(governor.allows({ estimatedCost: false, costProvenance: verifiedFree }), false);
+  assert.equal(governor.allows({ estimatedCost: true, costProvenance: verifiedFree }), false);
+  assert.equal(governor.allows({ estimatedCost: {}, costProvenance: verifiedFree }), false);
+  assert.equal(governor.allows({ estimatedCost: [], costProvenance: verifiedFree }), false);
 
   const attemptedWidening = new ZeroEuroGovernor({ maxCost: 10 });
   assert.equal(attemptedWidening.maxCost, 0);
-  assert.equal(attemptedWidening.allows({ estimatedCost: 0.01 }), false);
+  assert.equal(attemptedWidening.allows({ estimatedCost: 0.01, costProvenance: verifiedFree }), false);
 });
 
 test('provider pool filters by capability and health', () => {
@@ -107,21 +113,22 @@ test('tournament deduplicates and prefers evidence', () => {
   assert.equal(ranked[0].text, 'better');
 });
 
-test('augmentio fans out, tolerates failure, ranks, caches, and skips paid or unknown-cost providers', async () => {
+test('augmentio fans out, tolerates failure, ranks, caches, and skips paid, unknown-cost, or unverified providers', async () => {
   let calls = 0;
   const pool = new ProviderPool([
-    { id: 'fast', capabilities: ['GENERAL'], priority: 3, estimatedCost: 0, invoke: async () => { calls++; return { text: 'candidate A', confidence: 0.4 }; } },
-    { id: 'tested', capabilities: ['GENERAL'], priority: 2, estimatedCost: 0, invoke: async () => { calls++; return { text: 'candidate B', confidence: 0.5, testsPassed: true, provenance: { source: 'test' } }; } },
-    { id: 'paid', capabilities: ['GENERAL'], priority: 99, estimatedCost: 1, invoke: async () => { calls++; return 'should not run'; } },
-    { id: 'unknown-cost', capabilities: ['GENERAL'], priority: 98, invoke: async () => { calls++; return 'should not run'; } },
-    { id: 'broken', capabilities: ['GENERAL'], priority: 1, estimatedCost: 0, invoke: async () => { calls++; throw new Error('boom'); } },
+    { id: 'fast', capabilities: ['GENERAL'], priority: 3, estimatedCost: 0, costProvenance: verifiedFree, invoke: async () => { calls++; return { text: 'candidate A', confidence: 0.4 }; } },
+    { id: 'tested', capabilities: ['GENERAL'], priority: 2, estimatedCost: 0, costProvenance: verifiedFree, invoke: async () => { calls++; return { text: 'candidate B', confidence: 0.5, testsPassed: true, provenance: { source: 'test' } }; } },
+    { id: 'paid', capabilities: ['GENERAL'], priority: 99, estimatedCost: 1, costProvenance: verifiedFree, invoke: async () => { calls++; return 'should not run'; } },
+    { id: 'unknown-cost', capabilities: ['GENERAL'], priority: 98, costProvenance: verifiedFree, invoke: async () => { calls++; return 'should not run'; } },
+    { id: 'unverified-zero', capabilities: ['GENERAL'], priority: 97, estimatedCost: 0, invoke: async () => { calls++; return 'should not run'; } },
+    { id: 'broken', capabilities: ['GENERAL'], priority: 1, estimatedCost: 0, costProvenance: verifiedFree, invoke: async () => { calls++; throw new Error('boom'); } },
   ]);
   const augmentio = new Augmentio({ pool, scheduler: new ParallelScheduler({ globalConcurrency: 4, retries: 0 }) });
-  const first = await augmentio.fanOut({ input: 'solve this', maxCandidates: 5 });
+  const first = await augmentio.fanOut({ input: 'solve this', maxCandidates: 6 });
   assert.equal(first.best.provider, 'tested');
   assert.equal(first.failures, 1);
-  assert.equal(calls, 3, 'paid and unknown-cost providers should be skipped');
-  const second = await augmentio.fanOut({ input: 'solve this', maxCandidates: 5 });
+  assert.equal(calls, 3, 'paid, unknown-cost, and unverified zero-cost providers should be skipped');
+  const second = await augmentio.fanOut({ input: 'solve this', maxCandidates: 6 });
   assert.equal(second.cacheHit, true);
   assert.equal(calls, 3, 'cache should prevent repeat calls');
 });
