@@ -2,9 +2,7 @@ import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { buildContext } from '../core/orchestrator/context-builder.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { requireAuth } from '../core/security.js';
-import { ModelRouter, classifyTask } from '../models/ModelRouter.js';
-import { Augmentio } from '../augmentio/augmentio.js';
-import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
+import { ModelRouter, classifyTask, extractFinishReason, isTruncationFinishReason } from '../models/ModelRouter.js';
 import { buildMelIdentityPrompt } from '../identity/mel-persona.js';
 import { getMelThemeContract } from '../identity/mel-theme-persona.js';
 import { classifyCapabilityTruth, declaredImplementationStatus } from '../diagnostics/capability-truth-audit.js';
@@ -234,16 +232,22 @@ async function activePromotedInferenceSettings(env) {
 }
 
 function createNativeModelRouter(env, inferenceSettings = null) {
-  const augmentio = new Augmentio({ pool: createDefaultAugmentioPool(env) });
   const generation = inferenceGenerationOptions(inferenceSettings);
   return new ModelRouter({
-    augmentio,
     maxCalls: 3,
     invoke: async (selected, messages) => env.AI.run(selected.model_id || selected.id, { messages, ...generation }),
   });
 }
 
-export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null } = {}) {
+function nativeCapabilityContext(env) {
+  return {
+    owner: env.MELITURGOS_USER || 'owner',
+    permissions: env.CAPABILITY_PERMISSIONS || [],
+    requestId: crypto.randomUUID(),
+  };
+}
+
+export async function runNativeInference({ env, messages, text, parallel = false, maxCandidates = 4, inferenceSettings = null, runtime = null } = {}) {
   if (!env?.AI || typeof env.AI.run !== 'function') {
     const error = new Error('AI_BINDING_MISSING');
     error.code = 'AI_BINDING_MISSING';
@@ -251,11 +255,44 @@ export async function runNativeInference({ env, messages, text, parallel = false
   }
   const router = createNativeModelRouter(env, inferenceSettings);
   const task = classifyTask(text || '');
+  const boundedCandidates = Math.max(1, Math.min(12, Number(maxCandidates) || 4));
+  if (parallel) {
+    const activeRuntime = runtime || createGen2Runtime({ env });
+    const boundedMessages = Array.isArray(messages)
+      ? messages.map(message => ({ role: String(message?.role || 'user'), content: String(message?.content || '') }))
+      : [];
+    const result = await activeRuntime.bus.execute('augmentio.fanout', {
+      capability: router.normalizeTask(task),
+      input: String(text || 'native-chat'),
+      messages: boundedMessages,
+      context: { source: 'native-chat', inference_settings: inferenceSettings || null },
+      maxCandidates: boundedCandidates,
+    }, nativeCapabilityContext(env));
+    const best = result?.best || {};
+    const finishReason = extractFinishReason(best);
+    return {
+      text: best.text,
+      model: best.model,
+      provider: best.provider,
+      task,
+      attempts: result.providersAttempted?.length || result.candidates?.length || 1,
+      fallback_used: (result.failures || 0) > 0,
+      augmentio_used: true,
+      candidates: result.candidates,
+      provenance: best.provenance,
+      provider_health: result.providerHealth,
+      cache_hit: result.cacheHit === true,
+      tool_succeeded: true,
+      finish_reason: finishReason,
+      truncated: isTruncationFinishReason(finishReason),
+      usage: best.usage || null,
+    };
+  }
   return router.execute({
     task,
     messages,
-    parallel: Boolean(parallel),
-    maxCandidates: Math.max(1, Math.min(12, Number(maxCandidates) || 4)),
+    parallel: false,
+    maxCandidates: boundedCandidates,
   }, { source: 'native-chat', inference_settings: inferenceSettings || null });
 }
 
@@ -294,11 +331,7 @@ export async function handleNativeChat(request, env) {
 
   if (capability?.id) {
     try {
-      const result = await runtime.bus.execute(String(capability.id), capability.input || {}, {
-        owner: env.MELITURGOS_USER || 'owner',
-        permissions: env.CAPABILITY_PERMISSIONS || [],
-        requestId: crypto.randomUUID()
-      });
+      const result = await runtime.bus.execute(String(capability.id), capability.input || {}, nativeCapabilityContext(env));
       toolResults.push({ capability: capability.id, status: 'SUCCEEDED', result: summarizeToolResult(result) });
       capabilitiesUsed.push(capability.id);
     } catch (error) {
@@ -336,7 +369,15 @@ export async function handleNativeChat(request, env) {
   ].filter(Boolean).join(' ');
   const messages = buildContext({ system, recent, retrieved, toolResults, current: text });
   const parallel = body.parallel === true || String(env.MEL_AUGMENTIO_CHAT || '') === '1';
-  const ai = await runNativeInference({ env, messages, text, parallel, maxCandidates: body.max_candidates ?? env.MEL_AUGMENTIO_MAX_CANDIDATES ?? activeInferenceSettings?.council_min_responses ?? 4, inferenceSettings: activeInferenceSettings });
+  const ai = await runNativeInference({
+    env,
+    messages,
+    text,
+    parallel,
+    maxCandidates: body.max_candidates ?? env.MEL_AUGMENTIO_MAX_CANDIDATES ?? activeInferenceSettings?.council_min_responses ?? 4,
+    inferenceSettings: activeInferenceSettings,
+    runtime,
+  });
 
   let archiveSaved = false;
   if (service) {
