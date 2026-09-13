@@ -1,5 +1,6 @@
 MEL AUTONOMY CHECKPOINT
 created_at_utc=2026-09-13T14:16:00Z
+updated_at_utc=2026-09-13T14:17:00Z
 canonical_branch=candidate/mel-clean-autonomy
 
 CLOSED_THIS_RUN
@@ -17,7 +18,7 @@ TEACHER_GEN2_17
 - teacher reply committed in 5959e914b0af184f24ed78e00d14c6cdaadf77bc: verdict=NEEDS_CHANGES; regenerate from fresh canonical HEAD and preserve zero-euro policy/provenance.
 - owner-chat pending requests remained untouched and unapproved because their goals are hidden/stale.
 
-CURRENT_REPAIR
+VALIDATED_REPAIR
 - Root cause for budget_policy=null: runAugmentioStateOfPlay embedded the policy only inside Council context, while runtime evidence consumers inspect council.budget_policy at top level.
 - source fix commit=8ce0edf0cff2305855760462ebff5e73d5decf91
   files: src/teachers/augmentio-council.js
@@ -25,16 +26,17 @@ CURRENT_REPAIR
 - targeted contract-test commit=fd629f5503ea7e66f7c68321b2e083256758dcb9
   files: tests/augmentio-council.test.mjs
   tests assert non-null zero-euro policy and exact verified authorization provenance for every eligible provider.
-- full-candidate-ci run 34762122323 for fd629f5503ea7e66f7c68321b2e083256758dcb9 is IN_PROGRESS at checkpoint creation; no success is claimed yet.
+- exact full-candidate-ci run 34762122323 on fd629f5503ea7e66f7c68321b2e083256758dcb9=SUCCESS.
 
 LEARNING
 - Useful correction pattern: when a live runtime diagnostic says an evidence field is null while the same fact exists only inside nested context, fix the canonical producer to expose the evidence explicitly rather than weakening the downstream gate.
 - before: Council zero-euro policy only nested in context, runtime evidence budget_policy=null.
 - after: canonical Council result exposes budget_policy and sanitized exact provider authorization provenance.
-- validated=false until exact-SHA full-candidate-ci succeeds. Canonical LearningEngine infrastructure must ingest only after proof; no parallel learning store was created.
+- validation evidence: exact full-candidate-ci 34762122323=SUCCESS on fd629f5503ea7e66f7c68321b2e083256758dcb9.
+- validated=true. Canonical LearningEngine infrastructure should ingest this proven repair; no parallel learning store was created.
 
 NO_PRODUCTION
 - No production deployment, DNS, auth, billing, secret, permission or destructive D1 change was made.
 - No paid or unknown-cost provider was authorized.
 
-NEXT_ACTION=First verify full-candidate-ci run 34762122323 on fd629f5503ea7e66f7c68321b2e083256758dcb9. If green, treat the repair lesson as validated, then let runtime regenerate/reconcile a fresh GEN2-17 Teacher request on the latest exact candidate HEAD and inspect the new Council evidence for non-null budget_policy plus zero_cost_provenance before any APPROVE_PLAN.
+NEXT_ACTION=On the next runtime/candidate cycle, regenerate or reconcile a fresh internal GEN2-17 Teacher request on the latest exact candidate HEAD, then inspect its live Council evidence. Require budget_policy=ZERO_ADDED_COST_FAIL_CLOSED, non-empty zero_cost_provenance with exact authorization bindings, all mandatory roles, MEL synthesis, and exact request/SHA correlation before any APPROVE_PLAN.
