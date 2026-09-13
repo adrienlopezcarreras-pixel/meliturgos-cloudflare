@@ -37,6 +37,8 @@ export const REQUIRED_COUNCIL_ROLE_IDS = Object.freeze([
   'PRODUCT_INTEGRATION',
 ]);
 
+const BUDGET_POLICY = 'ZERO_ADDED_COST_FAIL_CLOSED';
+
 function roleFor(index) {
   return COUNCIL_ROLES[index % COUNCIL_ROLES.length];
 }
@@ -89,14 +91,33 @@ function fallbackOrder(preferred, eligible) {
   return [preferred, ...eligible.filter(provider => provider.id !== preferred.id)];
 }
 
+function zeroCostProvenance(provider) {
+  const provenance = provider?.costProvenance || {};
+  const authorization = provenance?.authorization || {};
+  return {
+    provider_id: provider?.id || null,
+    provider: provider?.providerId || null,
+    model: provider?.modelId || null,
+    verified: provenance?.verified === true,
+    added_cost: Number(provenance?.addedCost),
+    source: provenance?.source || null,
+    authorization: {
+      approved: authorization?.approved === true,
+      policy: authorization?.policy || null,
+      authority: authorization?.authority || null,
+      adapter_id: authorization?.adapter_id || null,
+      provider: authorization?.provider || null,
+      model: authorization?.model || null,
+    },
+  };
+}
+
 async function invokeRoleWithFallback({ assignment, eligible, input, governor }) {
   const attempted = [];
   let lastError = null;
   for (const provider of fallbackOrder(assignment.provider, eligible)) {
     attempted.push(provider.id);
     try {
-      // Revalidate at the last possible moment. Provider metadata may be
-      // mutable between the initial roster selection and an actual call.
       governor.assertAllowed(provider);
       const result = await provider.invoke({
         input,
@@ -174,8 +195,6 @@ async function synthesizeWithFallback({ eligible, goal, context, report, governo
       };
     } catch {
       // Try the next provider only if it still passes the same zero-euro gate.
-      // Independent Council answers remain valid if one provider becomes
-      // unavailable or loses its authorization before synthesis.
     }
   }
   return {
@@ -188,19 +207,6 @@ async function synthesizeWithFallback({ eligible, goal, context, report, governo
   };
 }
 
-/**
- * Concrete zero-added-cost state-of-play Council backed by the configured
- * .augmentio provider pool. Unknown-cost providers are excluded fail-closed.
- * Every eligible provider is attempted independently. The four mandatory
- * specialist roles (architecture, security, tests and product/integration)
- * are always covered; when fewer than four eligible providers exist, a proven
- * zero-cost provider receives a second independent role-specific call rather
- * than silently dropping a required review dimension. If the provider assigned
- * to a mandatory role fails transiently, that same independent role is retried
- * against the other already-authorized zero-cost providers before the Council
- * fails closed. MEL then synthesizes the independent answers through an
- * eligible zero-cost provider before the external Teacher gate.
- */
 export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResponses = 2, capability = 'GENERAL', pool } = {}) {
   const providerPool = pool || createDefaultAugmentioPool(env);
   await providerPool.refreshHealth();
@@ -219,7 +225,7 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
   const byMember = new Map(assignments.map(row => [row.memberId, row]));
   const councilContext = {
     ...context,
-    budget_policy: 'ZERO_ADDED_COST_FAIL_CLOSED',
+    budget_policy: BUDGET_POLICY,
     council_policy: 'ALL_ELIGIBLE_PROVIDERS_AND_REQUIRED_ROLES_THEN_MEL_SYNTHESIS',
     teacher_gate: 'EXTERNAL_CHATGPT_TEACHER_AFTER_MEL_SYNTHESIS',
     required_roles: [...REQUIRED_COUNCIL_ROLE_IDS],
@@ -281,6 +287,8 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
   return {
     ...report,
     development_allowed: false,
+    budget_policy: BUDGET_POLICY,
+    zero_cost_provenance: eligible.map(zeroCostProvenance),
     roster: assignments.map(({ memberId, provider, role, supplemental }) => {
       const response = (report.responses || []).find(row => row.member === memberId);
       return {
