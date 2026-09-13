@@ -11,7 +11,6 @@ import { onRequestGet as handleFullModeV1 } from "./pages/full-interface.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
-import { getRoadmapPayload } from "./roadmap/master-roadmap.js";
 
 let legacy;
 async function loadLegacy(env) {
@@ -106,13 +105,17 @@ async function injectAutomaticCapability(request) {
   return new Request(request.url, { method: request.method, headers, body: JSON.stringify(body), redirect: request.redirect });
 }
 
-async function codeSelfCheck(env) {
-  const runtime = createGen2Runtime({ env });
-  const result = await runtime.bus.execute("code.read", { path: "src/router.js" }, {
+function capabilityContext(env) {
+  return {
     owner: env.MELITURGOS_USER || "owner",
     permissions: env.CAPABILITY_PERMISSIONS || [],
     requestId: crypto.randomUUID()
-  });
+  };
+}
+
+async function codeSelfCheck(env) {
+  const runtime = createGen2Runtime({ env });
+  const result = await runtime.bus.execute("code.read", { path: "src/router.js" }, capabilityContext(env));
   return {
     ok: true,
     capability: "code.read",
@@ -131,7 +134,8 @@ async function handleConversationApi(request, env) {
   const path = url.pathname;
 
   if (path === "/api/gen2/roadmap" && request.method === "GET") {
-    return json(getRoadmapPayload());
+    const runtime = createGen2Runtime({ env });
+    return json(await runtime.bus.execute("roadmap.read", {}, capabilityContext(env)));
   }
 
   if (path === "/api/gen2/code/self-check" && request.method === "GET") {
@@ -149,14 +153,21 @@ async function handleConversationApi(request, env) {
     const body = await request.json().catch(() => ({}));
     if (!body?.id) return json({ error: "capability id required", code: "MISSING_CAPABILITY" }, 400);
     const runtime = createGen2Runtime({ env });
-    const result = await runtime.bus.execute(String(body.id), body.input || {}, { owner: env.MELITURGOS_USER || "owner", permissions: env.CAPABILITY_PERMISSIONS || [], requestId: crypto.randomUUID() });
+    const result = await runtime.bus.execute(String(body.id), body.input || {}, capabilityContext(env));
     return json({ ok: true, capability: body.id, result });
   }
 
   if (path === "/api/gen2/conversations" && request.method === "GET") {
-    const owner = env.MELITURGOS_USER || "";
-    const rows = await env.DB.prepare("SELECT id, title, status, created_at, updated_at FROM conversations WHERE owner = ? OR owner = '' ORDER BY updated_at DESC LIMIT 100").bind(owner).all();
-    return json({ conversations: rows.results || [] });
+    const runtime = createGen2Runtime({ env });
+    const rows = await runtime.bus.execute("conversation.list", {}, capabilityContext(env));
+    const conversations = (Array.isArray(rows) ? rows : []).map(row => ({
+      id: row.id,
+      title: row.title,
+      status: row.status,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+    return json({ conversations });
   }
 
   if (path === "/api/gen2/conversations/messages" && request.method === "GET") {
@@ -196,8 +207,8 @@ async function handleConversationApi(request, env) {
       const { query, sources, limit, minSimilarity } = body;
       const userId = env.MELITURGOS_USER;
       if (!userId || !query) return json({ error: "userId and query required", code: "MISSING_PARAMS" }, 400);
-      const { RAGService } = await import("../src/search/rag-service.js");
-      const searchResult = await RAGService.search(env.DB, userId, query, { sources, limit, minSimilarity });
+      const runtime = createGen2Runtime({ env });
+      const searchResult = await runtime.bus.execute("rag.search", { query, sources, limit, minSimilarity }, capabilityContext(env));
       return json({ ok: true, ...searchResult });
     } catch (e) { return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500); }
   }
