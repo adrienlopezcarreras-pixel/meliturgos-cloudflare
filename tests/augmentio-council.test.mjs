@@ -1,11 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProviderPool } from '../src/augmentio/provider-pool.js';
+import { ZERO_EURO_POLICY } from '../src/augmentio/zero-euro-governor.js';
 import { COUNCIL_ROLES, REQUIRED_COUNCIL_ROLE_IDS, runAugmentioStateOfPlay } from '../src/teachers/augmentio-council.js';
 
-const verifiedFree = Object.freeze({ verified: true, addedCost: 0, source: 'test-fixture-no-external-billing' });
+function verifiedFree(id) {
+  return Object.freeze({
+    verified: true,
+    addedCost: 0,
+    source: 'test-fixture-no-external-billing',
+    authorization: Object.freeze({
+      approved: true,
+      policy: ZERO_EURO_POLICY,
+      authority: 'augmentio-council-test-suite',
+      adapter_id: id,
+      provider: 'test',
+      model: id,
+    }),
+  });
+}
 
-function provider(id, cost, calls, { failSynthesis = false, failRole = '' } = {}) {
+function provider(id, cost, calls, { failSynthesis = false, failRole = '', provenance = undefined } = {}) {
   return {
     id,
     providerId: 'test',
@@ -13,7 +28,7 @@ function provider(id, cost, calls, { failSynthesis = false, failRole = '' } = {}
     capabilities: ['GENERAL'],
     priority: id === 'a' ? 3 : id === 'b' ? 2 : 1,
     estimatedCost: cost,
-    costProvenance: cost === 0 ? verifiedFree : null,
+    costProvenance: provenance === undefined ? (cost === 0 ? verifiedFree(id) : null) : provenance,
     enabled: true,
     healthStatus: 'HEALTHY',
     health: async () => 'HEALTHY',
@@ -29,13 +44,15 @@ function provider(id, cost, calls, { failSynthesis = false, failRole = '' } = {}
   };
 }
 
-test('state-of-play council asks every eligible zero-cost provider and covers all mandatory independent roles before MEL synthesis', async () => {
+test('state-of-play council asks every eligible authorized zero-cost provider and covers all mandatory independent roles before MEL synthesis', async () => {
   const calls = [];
   const pool = new ProviderPool([
     provider('a', 0, calls),
     provider('b', 0, calls),
     provider('c', 0, calls),
     provider('unknown', null, calls),
+    provider('self-claimed', 0, calls, { provenance: { verified: true, addedCost: 0, source: 'self-claim' } }),
+    provider('replayed', 0, calls, { provenance: verifiedFree('different-adapter') }),
   ]);
 
   const report = await runAugmentioStateOfPlay({ env: {}, goal: 'ajouter une compétence', pool, minResponses: 2 });
@@ -58,7 +75,7 @@ test('state-of-play council asks every eligible zero-cost provider and covers al
   assert.deepEqual(specialistCalls.map(row => row.id), ['a', 'b', 'c', 'a']);
   assert.deepEqual(specialistCalls.map(row => row.role), REQUIRED_COUNCIL_ROLE_IDS);
   assert.ok(specialistCalls.every(row => row.input.includes('RÔLE:')));
-  assert.ok(!calls.some(row => row.id === 'unknown'));
+  assert.ok(!calls.some(row => ['unknown', 'self-claimed', 'replayed'].includes(row.id)));
 
   const answerRoles = report.responses.map(row => row.answer.role);
   assert.deepEqual(answerRoles, REQUIRED_COUNCIL_ROLE_IDS);
@@ -141,8 +158,11 @@ test('council still fails closed when every authorized zero-cost provider fails 
   );
 });
 
-test('state-of-play council fails closed when fewer than two zero-cost providers are available', async () => {
+test('state-of-play council fails closed when fewer than two authorized zero-cost providers are available', async () => {
   const calls = [];
-  const pool = new ProviderPool([provider('only', 0, calls)]);
+  const pool = new ProviderPool([
+    provider('only', 0, calls),
+    provider('unauthorized', 0, calls, { provenance: { verified: true, addedCost: 0, source: 'self-claim' } }),
+  ]);
   await assert.rejects(() => runAugmentioStateOfPlay({ env: {}, goal: 'x', pool }), e => e.code === 'COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS');
 });
