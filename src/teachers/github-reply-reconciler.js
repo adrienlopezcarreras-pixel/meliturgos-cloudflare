@@ -26,10 +26,12 @@ export function parseTeacherRepliesJsonl(text) {
     try { value = JSON.parse(line); } catch { continue; }
     const reply = value?.review || value?.reply || value;
     const requestId = String(reply?.request_id || value?.request_id || '');
+    const targetSha = String(reply?.target_sha || value?.target_sha || '');
     const verdict = String(reply?.verdict || '').toUpperCase();
     if (!requestId || !ALLOWED_VERDICTS.has(verdict)) continue;
     replies.push({
       request_id: requestId,
+      target_sha: targetSha,
       verdict,
       feedback: String(reply?.feedback || reply?.instruction || '').slice(0, 12000),
       evidence: Array.isArray(reply?.evidence) ? reply.evidence.slice(0, 100) : [],
