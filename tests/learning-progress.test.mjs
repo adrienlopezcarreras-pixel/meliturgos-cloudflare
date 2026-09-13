@@ -24,7 +24,7 @@ test('learning XP is derived from persisted learning evidence', () => {
   assert.equal(result.xp, 710);
   assert.equal(result.level, 2);
   assert.equal(result.evidence.corrections_validated, 4);
-  assert.equal(result.evidence.benchmark_gain, 0.2);
+  assert.ok(Math.abs(result.evidence.benchmark_gain - 0.2) < 1e-12);
   assert.equal(result.evidence.neural_weights_changed, false);
   assert.equal(result.roadmap_included, false);
 });
