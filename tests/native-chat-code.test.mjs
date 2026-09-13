@@ -16,6 +16,13 @@ test('explicit source path is read directly', () => {
   );
 });
 
+test('natural deployed-code verification routes to code.integrity', () => {
+  assert.deepEqual(
+    inferNativeCodeCapability('vérifie quelle branche de code est réellement déployée'),
+    { id: 'code.integrity', input: {} }
+  );
+});
+
 test('ordinary conversation does not trigger code tools', () => {
   assert.equal(inferNativeCodeCapability('bonjour, comment vas-tu ?'), null);
 });
