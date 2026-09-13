@@ -74,7 +74,13 @@ export async function reconcileRuntimeTeacherReplies({ repository, env = {}, fet
       continue;
     }
     const result = await applyRuntimeTeacherReply(repository, reply);
-    applied.push({ request_id: request.request_id, job_id: result.job.id, status: result.job.status, verdict: result.state.review?.verdict || reply.verdict });
+    applied.push({
+      request_id: request.request_id,
+      target_sha: result.state.review?.target_sha || reply.target_sha,
+      job_id: result.job.id,
+      status: result.job.status,
+      verdict: result.state.review?.verdict || reply.verdict,
+    });
   }
   return { ok: true, pending: pending.length, applied, unmatched };
 }
