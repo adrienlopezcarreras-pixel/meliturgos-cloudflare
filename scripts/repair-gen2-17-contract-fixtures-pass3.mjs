@@ -1,3 +1,4 @@
+// Re-run after the production GitHub Teacher bridge target-SHA propagation fix.
 import fs from 'node:fs/promises';
 
 async function read(path) { return fs.readFile(path, 'utf8'); }
