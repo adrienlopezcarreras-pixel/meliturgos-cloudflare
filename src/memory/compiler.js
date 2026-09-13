@@ -1,6 +1,7 @@
 import { requireValue } from '../core/contracts.js';
 
 const MAX_PROVENANCE_VALUES = 32;
+const MAX_TOPICS = 16;
 
 export function normalizeMemoryContent(value) {
   return String(value ?? '')
@@ -41,6 +42,62 @@ function candidateProvenance(rows) {
   });
 }
 
+function timestampMs(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && String(value).trim() !== '') return numeric;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function recencySummary(rows) {
+  const timestamps = rows
+    .map(row => ({ raw: row?.created_at ?? null, ms: timestampMs(row?.created_at) }))
+    .filter(item => item.ms != null)
+    .sort((a, b) => a.ms - b.ms);
+  if (!timestamps.length) {
+    return Object.freeze({ first_observed_at: null, last_observed_at: null, observation_span_ms: null, timestamped_observations: 0 });
+  }
+  return Object.freeze({
+    first_observed_at: timestamps[0].raw,
+    last_observed_at: timestamps[timestamps.length - 1].raw,
+    observation_span_ms: Math.max(0, timestamps[timestamps.length - 1].ms - timestamps[0].ms),
+    timestamped_observations: timestamps.length,
+  });
+}
+
+function normalizeTopic(value) {
+  const topic = normalizeMemoryContent(value).toLocaleLowerCase('fr-FR');
+  return topic || null;
+}
+
+function candidateTopics(rows) {
+  const topics = [];
+  for (const row of rows) {
+    const values = Array.isArray(row?.topics) ? row.topics : [row?.topic, ...(row?.topics == null ? [] : [row.topics])];
+    for (const value of values) {
+      if (value == null) continue;
+      const topic = normalizeTopic(value);
+      if (topic && !topics.includes(topic)) topics.push(topic);
+      if (topics.length >= MAX_TOPICS) return Object.freeze(topics);
+    }
+  }
+  return Object.freeze(topics);
+}
+
+function qualitySummary(rows, confidence, provenance) {
+  const timestamped = rows.filter(row => timestampMs(row?.created_at) != null).length;
+  return Object.freeze({
+    score: confidence,
+    policy: 'MAX_OBSERVED_CONFIDENCE_NO_DUPLICATE_BOOST',
+    observations: rows.length,
+    distinct_sources: provenance.sources.length,
+    timestamp_coverage: rows.length ? timestamped / rows.length : 0,
+    provenance_complete: provenance.candidate_ids.length > 0 && provenance.sources.length > 0,
+  });
+}
+
 function normalizedExisting(rows = []) {
   return (Array.isArray(rows) ? rows : [])
     .filter(row => row && row.content != null)
@@ -56,7 +113,8 @@ function normalizedExisting(rows = []) {
  * Safety properties:
  * - exact canonical duplicates collapse into one proposal;
  * - confidence never increases merely because a fact was repeated;
- * - every proposal carries bounded source provenance;
+ * - every proposal carries bounded source provenance, recency and topics;
+ * - quality is evidence metadata, never a synthetic confidence boost;
  * - an already-existing memory produces a reuse decision, not another write;
  * - this function never confirms, persists, supersedes or deletes memory.
  */
@@ -89,11 +147,14 @@ export function compileMemoryCandidates({ candidates = [], existingMemories = []
   const proposals = [];
 
   for (const [key, rows] of groups) {
-    rows.sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0));
+    rows.sort((a, b) => (timestampMs(a.created_at) ?? Number.NEGATIVE_INFINITY) - (timestampMs(b.created_at) ?? Number.NEGATIVE_INFINITY));
     const strongestConfidence = Math.max(...rows.map(row => row.confidence));
     const strongest = rows.reduce((best, row) => row.confidence > best.confidence ? row : best, rows[0]);
     const duplicate = existing.find(item => item.key === key)?.row || null;
     const provenance = candidateProvenance(rows);
+    const recency = recencySummary(rows);
+    const topics = candidateTopics(rows);
+    const quality = qualitySummary(rows, strongestConfidence, provenance);
 
     proposals.push({
       action: duplicate ? 'REUSE_EXISTING' : 'PROPOSE_MEMORY',
@@ -102,6 +163,9 @@ export function compileMemoryCandidates({ candidates = [], existingMemories = []
       kind: strongest.kind,
       confidence: strongestConfidence,
       confidence_policy: 'MAX_OBSERVED_NO_DUPLICATE_BOOST',
+      quality,
+      recency,
+      topics,
       provenance,
       duplicate_count: Math.max(0, rows.length - 1),
       candidate_ids: provenance.candidate_ids,
