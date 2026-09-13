@@ -1,6 +1,7 @@
 import { MentorMemoryRepository } from './mentor-memory.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { ZeroEuroGovernor } from '../augmentio/zero-euro-governor.js';
+import { sanitizeInferenceSettings } from './inference-adaptation.js';
 
 const MAX_FILES = 8;
 const MAX_FILE_CHARS = 45_000;
@@ -14,6 +15,13 @@ const ALLOWED_TEXT_PATH = /^(?:src|tests|scripts|docs|migrations|\.github)\/[A-Z
 function bounded(value, max) {
   const text = String(value ?? '');
   return text.length > max ? text.slice(0, max) : text;
+}
+
+function evidenceObject(row) {
+  const value = row?.evidence;
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return {}; }
 }
 
 function safePath(path) {
@@ -121,20 +129,42 @@ export class MentorEngine {
     return pool.list({ capability: 'CODE' }).filter(provider => governor.allows(provider)).slice(0, 3);
   }
 
+  async _learnedRuntime() {
+    const [settingsRows, adapterRows] = await Promise.all([
+      this.memory.recent({ limit: 1, kind: 'INFERENCE_SETTINGS' }),
+      this.memory.recent({ limit: 1, kind: 'LORA_ADAPTER_ACTIVE' }),
+    ]);
+    return {
+      inference: sanitizeInferenceSettings(evidenceObject(settingsRows[0])?.settings || {}),
+      activeAdapter: adapterRows.length ? evidenceObject(adapterRows[0]) : null,
+    };
+  }
+
   async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement' } = {}) {
     const objective = bounded(goal, 12_000).trim();
     if (!objective) throw Object.assign(new Error('MENTOR_GOAL_REQUIRED'), { code: 'MENTOR_GOAL_REQUIRED', status: 400 });
     const files = normalizeInspectedFiles(inspectedFiles);
     if (!files.length) throw Object.assign(new Error('MENTOR_INSPECTION_REQUIRED'), { code: 'MENTOR_INSPECTION_REQUIRED', status: 422 });
-    const remembered = await this.memory.context(objective, { limit: 8 });
+    const learned = await this._learnedRuntime();
+    const remembered = await this.memory.context(objective, { limit: learned.inference.memory_results });
     const providers = await this._providers(env);
     if (!providers.length) throw Object.assign(new Error('MENTOR_NO_ZERO_COST_CODE_PROVIDER'), { code: 'MENTOR_NO_ZERO_COST_CODE_PROVIDER', status: 503 });
 
     const roles = ['implémenteur principal', 'relecteur architecture et régressions', 'testeur-réparateur'];
-    const settled = await Promise.allSettled(providers.map((provider, index) => provider.invoke({
-      input: buildPrompt({ role: roles[index % roles.length], goal: objective, files, lessons: remembered, previousAttempts, mode }),
-      context: { purpose: 'mel-autonomous-development', job_id: jobId || null, mode },
-    })));
+    const settled = await Promise.allSettled(providers.map((provider, index) => {
+      const active = learned.activeAdapter;
+      const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
+      return provider.invoke({
+        input: buildPrompt({ role: roles[index % roles.length], goal: objective, files, lessons: remembered, previousAttempts, mode }),
+        context: {
+          purpose: 'mel-autonomous-development',
+          job_id: jobId || null,
+          mode,
+          inference_settings: learned.inference,
+          ...(lora ? { lora } : {}),
+        },
+      });
+    }));
 
     const proposals = [];
     const failures = [];
@@ -167,7 +197,13 @@ export class MentorEngine {
       goal: objective,
       kind: mode === 'repair' ? 'REPAIR_PROPOSAL' : 'CODE_PROPOSAL',
       lesson: best.summary,
-      evidence: { files: best.changes.map(x => x.path), tests: best.tests, provider: best.provenance },
+      evidence: {
+        files: best.changes.map(x => x.path),
+        tests: best.tests,
+        provider: best.provenance,
+        inference_settings: learned.inference,
+        active_adapter_id: learned.activeAdapter?.adapter?.id || null,
+      },
       outcome: 'PROPOSED',
       score: best.confidence,
       tags: ['development', 'mentor', mode],
@@ -191,6 +227,12 @@ export class MentorEngine {
         valid_proposals: proposals.length,
         rejected_proposals: failures,
         selected_provider: best.provider_id,
+      },
+      learning: {
+        memory_context_count: remembered.length,
+        inference_settings: learned.inference,
+        active_adapter_id: learned.activeAdapter?.adapter?.id || null,
+        active_adapter_base_model: learned.activeAdapter?.base_model || null,
       },
       memory_context_count: remembered.length,
       policy: 'ZERO_ADDED_COST_FAIL_CLOSED',
