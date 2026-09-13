@@ -26,7 +26,7 @@ function bridgeState(job) {
 export async function queueRuntimeTeacherRequest(repository, jobId, request, evidence = {}) {
   const job = await repository.get(jobId);
   if (!job) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND', status: 404 });
-  if (!request || request.type !== 'MEL_TEACHER_REVIEW_REQUEST' || !request.request_id) {
+  if (!request || request.type !== 'MEL_TEACHER_REVIEW_REQUEST' || !request.request_id || !request.target_sha) {
     throw Object.assign(new Error('TEACHER_REQUEST_REQUIRED'), { code: 'TEACHER_REQUEST_REQUIRED', status: 422 });
   }
 
@@ -59,6 +59,7 @@ export async function listPendingRuntimeTeacherRequests(repository, { limit = 20
     const request = state.request;
     pending.push({
       request_id: request.request_id,
+      target_sha: request.target_sha || null,
       type: request.type,
       created_at: request.created_at || state.queued_at,
       job_id: job.id,
@@ -100,6 +101,14 @@ export async function applyRuntimeTeacherReply(repository, reply) {
 
   if (review.development_allowed) {
     result.teacher_bridge = answeredState;
+    result.last_teacher_review = clean({
+      request_id: requestId,
+      target_sha: review.target_sha,
+      verdict: review.verdict,
+      feedback: review.feedback || '',
+      evidence: review.evidence || [],
+      reviewed_at: answeredState.reviewed_at,
+    });
     const updated = await repository.update(job.id, { status: 'TEACHER_APPROVED', result_json: result });
     return { job: updated, state: answeredState, duplicate: false, revision_required: false, terminal: false };
   }
@@ -110,6 +119,7 @@ export async function applyRuntimeTeacherReply(repository, reply) {
     result.teacher_bridge_history = history.slice(-20);
     result.last_teacher_review = clean({
       request_id: requestId,
+      target_sha: review.target_sha,
       verdict: review.verdict,
       feedback: review.feedback || '',
       evidence: review.evidence || [],
@@ -122,6 +132,7 @@ export async function applyRuntimeTeacherReply(repository, reply) {
     plan.revision = {
       requested_at: answeredState.reviewed_at,
       previous_request_id: requestId,
+      previous_target_sha: review.target_sha,
       reason: 'TEACHER_NEEDS_CHANGES',
     };
     const updated = await repository.update(job.id, {
@@ -143,6 +154,7 @@ export async function applyRuntimeTeacherReply(repository, reply) {
 export function teacherBridgePublicView(pending) {
   return (Array.isArray(pending) ? pending : []).map((item) => ({
     request_id: item.request_id,
+    target_sha: item.target_sha || null,
     type: item.type,
     created_at: item.created_at,
     job_id: item.job_id,
