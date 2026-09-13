@@ -72,6 +72,16 @@ const enqueueInputSchema = {
   additionalProperties: false
 };
 
+const augmentioMessageSchema = {
+  type: 'object',
+  properties: {
+    role: { type: 'string', minLength: 1, maxLength: 40 },
+    content: { type: 'string', minLength: 0, maxLength: 12000 },
+  },
+  required: ['role', 'content'],
+  additionalProperties: false,
+};
+
 /** Safe capability bus used by MEL's Gen2 runtime. Only real executable handlers are registered. */
 export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl } = {}) {
   const runtimeEnv = env === undefined ? inheritedRuntimeEnv : env;
@@ -99,7 +109,18 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   bus.discover({
     id: 'augmentio.fanout', name: '.augmentio multi-AI', category: 'orchestration', version: '0.2.0', provider: 'mel',
     description: 'Runs real parallel multi-model orchestration through the explicitly zero-added-cost provider pool.',
-    input_schema: { type: 'object', properties: { capability: { type: 'string', minLength: 1, maxLength: 100 }, input: { type: 'string', minLength: 1, maxLength: 12000 }, context: { type: 'object', additionalProperties: true }, maxCandidates: { type: 'integer', minimum: 1, maximum: 12 } }, required: ['input'], additionalProperties: false },
+    input_schema: {
+      type: 'object',
+      properties: {
+        capability: { type: 'string', minLength: 1, maxLength: 100 },
+        input: { type: 'string', minLength: 1, maxLength: 12000 },
+        messages: { type: 'array', items: augmentioMessageSchema },
+        context: { type: 'object', additionalProperties: true },
+        maxCandidates: { type: 'integer', minimum: 1, maximum: 12 }
+      },
+      required: ['input'],
+      additionalProperties: false
+    },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: runtimeEnv.AI ? 'HEALTHY' : 'DEGRADED', enabled: true
   }, async input => {
@@ -107,7 +128,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     const augmentio = new Augmentio({ pool: createDefaultAugmentioPool(runtimeEnv) });
     return augmentio.fanOut({
       capability: String(input.capability || 'GENERAL'),
-      input: input.input,
+      input: Array.isArray(input.messages) && input.messages.length ? input.messages : input.input,
       context: input.context || {},
       maxCandidates: Math.min(12, Math.max(1, Number(input.maxCandidates) || 4))
     });
