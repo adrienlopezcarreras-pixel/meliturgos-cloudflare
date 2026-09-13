@@ -5,9 +5,13 @@ export class ZeroEuroGovernor {
   }
 
   allows(candidate = {}) {
-    // Cost must be explicitly known. null/undefined/empty must never be coerced to 0.
+    // Cost must be explicitly known. Only finite non-negative numbers or
+    // non-blank numeric strings are accepted; booleans, objects and blank
+    // strings must never be coerced to zero by Number(...).
     const rawCost = candidate.estimatedCost ?? candidate.cost;
-    if (rawCost === null || rawCost === undefined || rawCost === '') return false;
+    const type = typeof rawCost;
+    if (type !== 'number' && type !== 'string') return false;
+    if (type === 'string' && rawCost.trim() === '') return false;
     const estimatedCost = Number(rawCost);
     if (!Number.isFinite(estimatedCost) || estimatedCost < 0) return false;
     return estimatedCost <= this.maxCost;
