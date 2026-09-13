@@ -136,12 +136,19 @@ export class LearningEngine {
   async prepareLora({ base_model, minQuality = 0.65, ...options } = {}) {
     const bundle = await this.trainingBundle({ minQuality, limit: 500 });
     const plan = createLoraTrainingPlan({ ...options, base_model, dataset_digest: bundle.digest, examples: bundle.accepted });
+    const ready = plan.readiness.enough_examples === true && plan.readiness.cloudflare_inference_compatible === true;
+    const blockedOutcome = plan.readiness.enough_examples ? 'BLOCKED_EXTERNAL' : 'BLOCKED_DATA';
+    const lesson = ready
+      ? 'Corpus suffisant et configuration compatible pour lancer un entraînement candidat.'
+      : (!plan.readiness.enough_examples
+        ? `Corpus insuffisant: ${plan.examples}/${plan.readiness.min_examples}.`
+        : 'Configuration LoRA incompatible avec le runtime Cloudflare; entraînement/promotion bloqués jusqu’à correction compatible.');
     await this.memory.remember({
       goal: `Prepare MEL LoRA ${plan.id}`,
       kind: 'LORA_PLAN',
-      lesson: plan.readiness.enough_examples ? 'Corpus suffisant pour lancer un entraînement candidat.' : `Corpus insuffisant: ${plan.examples}/${plan.readiness.min_examples}.`,
+      lesson,
       evidence: plan,
-      outcome: plan.readiness.enough_examples ? 'READY' : 'BLOCKED_DATA',
+      outcome: ready ? 'READY' : blockedOutcome,
       score: Math.min(1, plan.examples / plan.readiness.min_examples),
       tags: ['learning', 'lora', plan.status],
     });
@@ -171,6 +178,12 @@ export class LearningEngine {
     }
     if (!plan?.readiness?.base_weights_frozen || plan?.readiness?.benchmark_required_before_activation !== true) {
       throw Object.assign(new Error('LORA_PLAN_NOT_ACTIVATABLE'), { code: 'LORA_PLAN_NOT_ACTIVATABLE' });
+    }
+    if (plan?.readiness?.cloudflare_inference_compatible !== true || plan?.readiness?.ready_for_training !== true) {
+      throw Object.assign(new Error('LORA_RUNTIME_INCOMPATIBLE'), { code: 'LORA_RUNTIME_INCOMPATIBLE' });
+    }
+    if (checkedArtifact.base_model !== plan.base_model) {
+      throw Object.assign(new Error('LORA_BASE_MODEL_MISMATCH'), { code: 'LORA_BASE_MODEL_MISMATCH' });
     }
     const active = {
       plan_id: plan.id,
