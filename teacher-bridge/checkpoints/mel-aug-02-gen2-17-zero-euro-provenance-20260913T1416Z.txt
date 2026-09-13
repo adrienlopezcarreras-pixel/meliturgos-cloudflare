@@ -1,0 +1,40 @@
+MEL AUTONOMY CHECKPOINT
+created_at_utc=2026-09-13T14:16:00Z
+canonical_branch=candidate/mel-clean-autonomy
+
+CLOSED_THIS_RUN
+- MEL-AUG-02 is DONE_VERIFIED in src/roadmap/master-roadmap.js.
+- ZeroEuroGovernor fail-closed authorization hardening already existed; this run repaired stale development-preflight fixtures to carry the exact immutable authorization contract.
+- fixture repair commit=8f48ecbdde259e356547c0b887d637c3236e2022
+- exact full-candidate-ci run 34761681356=SUCCESS.
+- roadmap verification commit=38eddd44aababebac3318cbacf05239c9c63dd50
+- exact full-candidate-ci run 34761811419=SUCCESS.
+
+TEACHER_GEN2_17
+- runtime Teacher smoke 34761811494 showed internal request_id=55d4092b-5ddc-488b-aa57-06e87bf5d4a1 on stale candidate_sha=61dc93de72c4f1c3b26f041228178ffef99afa12.
+- live Council evidence had mandatory roles ARCHITECTURE_REUSE, SECURITY_GOVERNANCE, TESTS_EVIDENCE, PRODUCT_INTEGRATION; all_required_roles_satisfied=true; MEL synthesis COMPLETE.
+- live evidence exposed budget_policy=null, so approval was not granted.
+- teacher reply committed in 5959e914b0af184f24ed78e00d14c6cdaadf77bc: verdict=NEEDS_CHANGES; regenerate from fresh canonical HEAD and preserve zero-euro policy/provenance.
+- owner-chat pending requests remained untouched and unapproved because their goals are hidden/stale.
+
+CURRENT_REPAIR
+- Root cause for budget_policy=null: runAugmentioStateOfPlay embedded the policy only inside Council context, while runtime evidence consumers inspect council.budget_policy at top level.
+- source fix commit=8ce0edf0cff2305855760462ebff5e73d5decf91
+  files: src/teachers/augmentio-council.js
+  change: expose top-level budget_policy=ZERO_ADDED_COST_FAIL_CLOSED plus sanitized zero_cost_provenance for each eligible provider, including verified added_cost=0 and exact authorization policy/authority/adapter/provider/model binding.
+- targeted contract-test commit=fd629f5503ea7e66f7c68321b2e083256758dcb9
+  files: tests/augmentio-council.test.mjs
+  tests assert non-null zero-euro policy and exact verified authorization provenance for every eligible provider.
+- full-candidate-ci run 34762122323 for fd629f5503ea7e66f7c68321b2e083256758dcb9 is IN_PROGRESS at checkpoint creation; no success is claimed yet.
+
+LEARNING
+- Useful correction pattern: when a live runtime diagnostic says an evidence field is null while the same fact exists only inside nested context, fix the canonical producer to expose the evidence explicitly rather than weakening the downstream gate.
+- before: Council zero-euro policy only nested in context, runtime evidence budget_policy=null.
+- after: canonical Council result exposes budget_policy and sanitized exact provider authorization provenance.
+- validated=false until exact-SHA full-candidate-ci succeeds. Canonical LearningEngine infrastructure must ingest only after proof; no parallel learning store was created.
+
+NO_PRODUCTION
+- No production deployment, DNS, auth, billing, secret, permission or destructive D1 change was made.
+- No paid or unknown-cost provider was authorized.
+
+NEXT_ACTION=First verify full-candidate-ci run 34762122323 on fd629f5503ea7e66f7c68321b2e083256758dcb9. If green, treat the repair lesson as validated, then let runtime regenerate/reconcile a fresh GEN2-17 Teacher request on the latest exact candidate HEAD and inspect the new Council evidence for non-null budget_policy plus zero_cost_provenance before any APPROVE_PLAN.
