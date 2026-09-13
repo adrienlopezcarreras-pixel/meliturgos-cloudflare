@@ -59,6 +59,13 @@ test('state-of-play council asks every eligible authorized zero-cost provider an
   assert.equal(report.status, 'COMPLETE');
   assert.equal(report.development_allowed, false);
   assert.equal(report.council_ready_for_teacher, true);
+  assert.equal(report.budget_policy, 'ZERO_ADDED_COST_FAIL_CLOSED');
+  assert.equal(report.zero_cost_provenance.length, 3);
+  assert.deepEqual(report.zero_cost_provenance.map(row => row.provider_id), ['a', 'b', 'c']);
+  assert.ok(report.zero_cost_provenance.every(row => row.verified === true && row.added_cost === 0));
+  assert.ok(report.zero_cost_provenance.every(row => row.authorization.approved === true));
+  assert.ok(report.zero_cost_provenance.every(row => row.authorization.policy === ZERO_EURO_POLICY));
+  assert.ok(report.zero_cost_provenance.every(row => row.authorization.adapter_id === row.provider_id));
   assert.equal(report.responses.length, 4);
   assert.equal(report.roster.length, 4);
   assert.equal(report.all_eligible_attempted, true);
