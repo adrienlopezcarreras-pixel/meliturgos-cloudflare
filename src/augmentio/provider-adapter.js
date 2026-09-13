@@ -9,6 +9,7 @@ export class ProviderAdapter {
     quotaSnapshot,
     priority = 0,
     estimatedCost = null,
+    costProvenance = null,
     concurrency = 1,
     authRequired = false,
     terms = null,
@@ -21,6 +22,9 @@ export class ProviderAdapter {
     this.capabilities = [...capabilities];
     this.priority = Number(priority) || 0;
     this.estimatedCost = estimatedCost;
+    this.costProvenance = costProvenance && typeof costProvenance === 'object'
+      ? structuredClone(costProvenance)
+      : null;
     this.concurrency = Math.max(1, Number(concurrency) || 1);
     this.authRequired = Boolean(authRequired);
     this.terms = terms;
