@@ -1,6 +1,6 @@
 import { MentorMemoryRepository } from './mentor-memory.js';
 import { buildTrainingCorpus, createCorrectionRecord, decideAdapterPromotion, summarizeLearning } from './correction-corpus.js';
-import { scoreBenchmarkResults, compareBenchmarkScores } from '../evaluation/benchmarks.js';
+import { CANONICAL_LEARNING_BENCHMARK_SUITE, compareBenchmarkScores, runLearningBenchmarkSuite, scoreBenchmarkResults } from '../evaluation/benchmarks.js';
 import { chooseBestSettings, proposeNeighborSettings, sanitizeInferenceSettings } from './inference-adaptation.js';
 import { assertAdapterArtifact, createLoraTrainingPlan } from './lora-plan.js';
 import { BOOTSTRAP_CORRECTIONS } from './bootstrap-corrections.js';
@@ -87,21 +87,101 @@ export class LearningEngine {
     return rows.slice().reverse().map(evidenceObject).filter(row => Number.isFinite(Number(row?.overall)));
   }
 
+  async runCanonicalBenchmark({ kind = 'candidate', evaluator, model_id = '', adapter_id = null, source_sha = null, metadata = {}, suite = CANONICAL_LEARNING_BENCHMARK_SUITE } = {}) {
+    const result = await runLearningBenchmarkSuite({ suite, evaluator });
+    if (kind === 'baseline') {
+      const existing = (await this.benchmarks({ limit: 200 })).find((row) => row.kind === 'baseline' && row?.metadata?.suite_digest === result.suite_digest);
+      if (existing) {
+        return { reused: true, record: null, score: existing, results: [], suite_id: result.suite_id, suite_digest: result.suite_digest };
+      }
+    }
+    const repeatedErrors = result.repeated_errors.length;
+    const recorded = await this.recordBenchmark({
+      cases: result.results,
+      kind,
+      model_id,
+      adapter_id,
+      source_sha,
+      metadata: {
+        ...metadata,
+        suite_id: result.suite_id,
+        suite_digest: result.suite_digest,
+        required_domains: result.required_domains,
+        repeated_errors: result.repeated_errors,
+        repeated_error_count: repeatedErrors,
+      },
+    });
+    return { ...recorded, reused: false, results: result.results, suite_id: result.suite_id, suite_digest: result.suite_digest, repeated_errors: result.repeated_errors };
+  }
+
+  async recordInferenceTrial({ settings, score, failed = false, case_id = '', source_sha = null, metadata = {} } = {}) {
+    const normalized = sanitizeInferenceSettings(settings || {});
+    const numericScore = Number(score);
+    if (!Number.isFinite(numericScore)) {
+      throw Object.assign(new Error('INFERENCE_TRIAL_SCORE_REQUIRED'), { code: 'INFERENCE_TRIAL_SCORE_REQUIRED' });
+    }
+    const evidence = {
+      settings: normalized,
+      score: Math.max(0, Math.min(1, numericScore)),
+      failed: failed === true,
+      case_id: String(case_id || '').slice(0, 200),
+      source_sha: source_sha || null,
+      metadata,
+      measured_at: Date.now(),
+    };
+    await this.memory.remember({
+      goal: 'MEL measured inference trial',
+      kind: 'INFERENCE_TRIAL',
+      lesson: failed ? 'Réglage mesuré avec échec.' : 'Réglage mesuré avec score exploitable.',
+      evidence,
+      outcome: failed ? 'FAILED' : 'SUCCEEDED',
+      score: evidence.score,
+      tags: ['learning', 'inference-trial'],
+    });
+    return evidence;
+  }
+
+  async inferenceTrials({ limit = 200 } = {}) {
+    const rows = await this.memory.recent({ limit: Math.min(500, Math.max(1, Number(limit) || 200)), kind: 'INFERENCE_TRIAL' });
+    return rows.slice().reverse().map(evidenceObject).filter((row) => Number.isFinite(Number(row?.score)) && row?.settings);
+  }
+
+  async promoteMeasuredInferenceSettings({ current = null, minimumTrials = 3, minimumGain = 0.02, evidence = {} } = {}) {
+    const active = current ? sanitizeInferenceSettings(current) : await this.activeInferenceSettings();
+    const trials = await this.inferenceTrials({ limit: 500 });
+    const decision = chooseBestSettings(trials, { current: active, minimumTrials, minimumGain });
+    if (!decision.promote) return { promoted: false, decision, settings: active };
+    const promoted = await this.saveInferenceSettings(decision.candidate, {
+      ...evidence,
+      score: decision.candidate_score,
+      active_score: decision.active_score,
+      minimum_trials: minimumTrials,
+      minimum_gain: minimumGain,
+      trial_count: trials.length,
+      reason: decision.reason,
+    });
+    return { promoted: true, decision, settings: promoted };
+  }
+
   async report() {
-    const [corrections, benchmarks, activeAdapters] = await Promise.all([
+    const [corrections, benchmarks, activeAdapters, trials] = await Promise.all([
       this.corrections({ limit: 500 }),
       this.benchmarks({ limit: 200 }),
       this.memory.recent({ limit: 20, kind: 'LORA_ADAPTER_ACTIVE' }),
+      this.inferenceTrials({ limit: 500 }),
     ]);
     const runs = benchmarks.map(row => ({ kind: row.kind, score: Number(row.overall) }));
     const summary = summarizeLearning(corrections, runs);
     const baseline = benchmarks.find(row => row.kind === 'baseline') || null;
     const latest = benchmarks.length ? benchmarks[benchmarks.length - 1] : null;
     const comparison = baseline && latest ? compareBenchmarkScores(baseline, latest) : null;
+    const repeatedErrors = benchmarks.reduce((total, row) => total + Number(row?.metadata?.repeated_error_count || 0), 0);
     return {
       ...summary,
       benchmark_comparison: comparison,
       corrections_available_for_training: buildTrainingCorpus(corrections).accepted,
+      inference_trials: trials.length,
+      repeated_taught_errors: repeatedErrors,
       neural_weights_changed: activeAdapters.length > 0,
       active_adapter_count: activeAdapters.length,
       active_adapter: activeAdapters.length ? evidenceObject(activeAdapters[0]) : null,
