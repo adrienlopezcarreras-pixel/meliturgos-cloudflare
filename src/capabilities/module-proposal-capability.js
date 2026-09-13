@@ -1,5 +1,6 @@
 import { detectCapabilityGap } from '../evolution/capability-gap-detector.js';
 import { validateManifest } from '../plugins/validator.js';
+import { authorizeModuleDevelopment } from '../modules/module-lab.js';
 
 function slugify(value) {
   const slug = String(value || '')
@@ -70,6 +71,73 @@ export function proposeModuleDraft({ goal, capabilities = [], threshold = 2 } = 
     activation_allowed: false,
     activation_requirements: ['AI_COUNCIL_BEFORE_CODE', 'SANDBOX_TESTS', 'SECURITY_REVIEW', 'HUMAN_PRODUCTION_APPROVAL'],
     next_action: 'Run evolution.preflight, then Mentor proposal and candidate tests. Do not activate directly from this draft.',
+  };
+}
+
+/**
+ * MEL-EVOL-02 bridge: only a genuine detected gap may enter the existing
+ * Module Lab. The Council gate is reused rather than duplicated, and this
+ * bridge stops at the non-mutating `need` stage: it never generates code,
+ * registers a capability or activates a module.
+ */
+export async function enterModuleLabForGap({
+  goal,
+  capabilities = [],
+  threshold = 2,
+  councilReport,
+  moduleLab,
+  context = {},
+} = {}) {
+  const proposal = proposeModuleDraft({ goal, capabilities, threshold });
+
+  if (proposal.decision !== 'PROPOSE_MODULE') {
+    return {
+      ...proposal,
+      module_lab_entered: false,
+      module_lab_stage: null,
+      code_generation_allowed: false,
+      teacher_required: false,
+    };
+  }
+
+  const councilGate = authorizeModuleDevelopment(councilReport);
+  if (!moduleLab || typeof moduleLab.need !== 'function') {
+    throw Object.assign(new Error('MODULE_LAB_NEED_ADAPTER_REQUIRED'), {
+      code: 'MODULE_LAB_NEED_ADAPTER_REQUIRED',
+      status: 503,
+    });
+  }
+
+  const needInput = {
+    goal: String(goal || '').trim(),
+    gap: {
+      classification: proposal.gap.classification,
+      confidence: proposal.gap.confidence,
+      best_match: proposal.gap.best_match,
+    },
+    manifest: proposal.manifest,
+    acceptance_tests: proposal.acceptance_tests,
+    proposal_only: true,
+    activation_allowed: false,
+  };
+  const need = await moduleLab.need(needInput, context);
+
+  return {
+    ...proposal,
+    decision: 'MODULE_LAB_NEED',
+    module_lab_entered: true,
+    module_lab_stage: 'need',
+    module_lab_need: need,
+    council_gate: {
+      authorized: councilGate.authorized === true,
+      next: councilGate.next,
+      phase: councilReport?.phase || null,
+      responses: Array.isArray(councilReport?.responses) ? councilReport.responses.length : 0,
+    },
+    code_generation_allowed: false,
+    activation_allowed: false,
+    teacher_required: true,
+    next_action: 'Complete MEL synthesis and exact-SHA Teacher review before any spec/code generation. Keep production activation human-approved.',
   };
 }
 
