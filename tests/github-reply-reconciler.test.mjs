@@ -44,7 +44,7 @@ test('JSONL parser ignores malformed and non-verdict records', () => {
 });
 
 test('reconciler applies only the canonical matching GitHub reply', async () => {
-  const repo = new D1DevJobRepository(null);
+  const repo = new D1DevJobRepository(null, { memoryStore: new Map() });
   const job = await repo.create({ id: `reconcile-${crypto.randomUUID()}`, goal: 'Reconcile candidate work' });
   const request = makeRequest(job.id);
   await queueRuntimeTeacherRequest(repo, job.id, request);
@@ -65,7 +65,7 @@ test('reconciler applies only the canonical matching GitHub reply', async () => 
 });
 
 test('reconciler remains waiting when GitHub has no matching reply', async () => {
-  const repo = new D1DevJobRepository(null);
+  const repo = new D1DevJobRepository(null, { memoryStore: new Map() });
   const job = await repo.create({ id: `reconcile-wait-${crypto.randomUUID()}`, goal: 'Wait for Teacher' });
   const request = makeRequest(job.id);
   await queueRuntimeTeacherRequest(repo, job.id, request);

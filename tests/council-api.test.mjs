@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
 
+process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
+
 const auth = 'Basic ' + Buffer.from('adrien:test').toString('base64');
 const env = {
   MELITURGOS_USER: 'adrien',
@@ -27,7 +29,7 @@ test('Council endpoint consults multiple configured zero-cost models', async () 
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.equal(body.phase, 'STATE_OF_PLAY_BEFORE_DEVELOPMENT');
-  assert.equal(body.development_allowed, true);
+  assert.equal(body.development_allowed, false);
   assert.ok(body.responses.length >= 2);
   assert.ok(body.responses.every(x => x.answer?.provenance?.model));
 });

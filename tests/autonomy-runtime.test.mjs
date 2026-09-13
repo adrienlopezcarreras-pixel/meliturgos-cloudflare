@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
 
+process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
+
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const NEW_CANDIDATE_HEAD_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 
@@ -18,12 +20,12 @@ function runtimeFixture() {
     fetchCalls.push(target);
     if (target.includes('teacher-bridge/replies.jsonl')) return new Response(replies, { status: 200 });
     if (target.includes('teacher-bridge/completions.jsonl')) return new Response(completions, { status: 200 });
-    if (target.includes('/commits/candidate%2Faugmentio-core')) return Response.json({ sha: candidateHead });
+    if (target.includes('/commits/candidate%2Fmel-clean-autonomy')) return Response.json({ sha: candidateHead });
     if (target.includes('/actions/runs/4242')) {
       return Response.json({
         name: 'full-candidate-ci',
         head_sha: CANDIDATE_HEAD_SHA,
-        head_branch: 'candidate/augmentio-core',
+        head_branch: 'candidate/mel-clean-autonomy',
         status: 'completed',
         conclusion: 'success',
       });
@@ -35,8 +37,8 @@ function runtimeFixture() {
   const env = {
     MELITURGOS_USER: 'test',
     MEL_GITHUB_REPOSITORY: 'owner/repo',
-    MEL_GITHUB_BRANCH: 'candidate/augmentio-core',
-    MEL_TEACHER_BRANCH: 'candidate/augmentio-core',
+    MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy',
+    MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy',
     AI: {
       async run(model) {
         aiCalls.push(model);
@@ -87,6 +89,7 @@ test('cloud autonomy heartbeat consumes the matching canonical GitHub Teacher re
   fixture.setReplies(JSON.stringify({
     kind: 'TEACHER_REPLY',
     request_id: first.teacher.request_id,
+    target_sha: CANDIDATE_HEAD_SHA,
     verdict: 'APPROVE_PLAN',
     feedback: 'Proceed with the smallest candidate-only implementation and tests.',
   }));
@@ -106,6 +109,7 @@ test('stale Teacher approval is archived and requeued for a fresh Council and ex
   fixture.setReplies(JSON.stringify({
     kind: 'TEACHER_REPLY',
     request_id: firstRequestId,
+    target_sha: CANDIDATE_HEAD_SHA,
     verdict: 'APPROVE_PLAN',
     feedback: 'Proceed only on the reviewed candidate SHA.',
   }));
@@ -146,6 +150,7 @@ test('planner failure persists only a sanitized diagnostic code for later runtim
   fixture.setReplies(JSON.stringify({
     kind: 'TEACHER_REPLY',
     request_id: first.teacher.request_id,
+    target_sha: CANDIDATE_HEAD_SHA,
     verdict: 'APPROVE_PLAN',
     feedback: 'Proceed on candidate only.',
   }));
@@ -173,6 +178,7 @@ test('NEEDS_CHANGES automatically re-runs Council and emits a new Teacher reques
   fixture.setReplies(JSON.stringify({
     kind: 'TEACHER_REPLY',
     request_id: firstRequestId,
+    target_sha: CANDIDATE_HEAD_SHA,
     verdict: 'NEEDS_CHANGES',
     feedback: 'Inspect the completion reconciler and revise the plan.',
   }));
@@ -196,6 +202,7 @@ test('Teacher REJECT terminates only the rejected item and immediately moves aut
   fixture.setReplies(JSON.stringify({
     kind: 'TEACHER_REPLY',
     request_id: first.teacher.request_id,
+    target_sha: CANDIDATE_HEAD_SHA,
     verdict: 'REJECT',
     feedback: 'This plan must not be implemented.',
   }));
@@ -217,6 +224,7 @@ test('verified completion closes the approved job and releases the next roadmap 
   fixture.setReplies(JSON.stringify({
     kind: 'TEACHER_REPLY',
     request_id: requestId,
+    target_sha: CANDIDATE_HEAD_SHA,
     verdict: 'APPROVE_PLAN',
     feedback: 'Proceed on candidate only.',
   }));
@@ -230,7 +238,7 @@ test('verified completion closes the approved job and releases the next roadmap 
     job_id: first.job.id,
     request_id: requestId,
     candidate_sha: CANDIDATE_HEAD_SHA,
-    candidate_branch: 'candidate/augmentio-core',
+    candidate_branch: 'candidate/mel-clean-autonomy',
     ci_run_id: 4242,
     tests: [
       { name: 'targeted', passed: true },
@@ -265,7 +273,7 @@ test('cloud autonomy heartbeat rejects a non-candidate Teacher branch fail-close
 test('cloud autonomy heartbeat rejects divergent canonical and Teacher candidate branches fail-closed', async () => {
   const fixture = runtimeFixture();
   fixture.env.MEL_GITHUB_BRANCH = 'candidate/mel-clean-autonomy';
-  fixture.env.MEL_TEACHER_BRANCH = 'candidate/augmentio-core';
+  fixture.env.MEL_TEACHER_BRANCH = 'candidate/divergent-teacher-test';
   await assert.rejects(
     () => runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository }),
     (error) => error?.code === 'AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE',

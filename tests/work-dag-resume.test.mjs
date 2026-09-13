@@ -11,15 +11,9 @@ import {
   WORK_NODE_STATUS,
   verifyWorkDag,
 } from '../src/work/work-dag.js';
+import { completeTeacherCouncil, teacherReply, TEST_CANDIDATE_BRANCH, TEST_CANDIDATE_SHA } from './helpers/teacher-review-fixtures.mjs';
 
-function council() {
-  return {
-    responses: [
-      { provider: 'workers-ai', model: 'zero-a', zero_added_cost: true, summary: 'A' },
-      { provider: 'workers-ai', model: 'zero-b', zero_added_cost: true, summary: 'B' },
-    ],
-  };
-}
+function council() { return completeTeacherCouncil(); }
 
 function teacherRequest() {
   return createTeacherReviewRequest({
@@ -33,7 +27,7 @@ function teacherRequest() {
 async function setup(jobId) {
   const repo = new D1DevJobRepository(null);
   const job = await repo.create({ id: jobId, goal: 'Work DAG resume proof' });
-  await repo.update(job.id, { candidate_branch: 'candidate/augmentio-core' });
+  await repo.update(job.id, { candidate_branch: 'candidate/mel-clean-autonomy' });
   return { repo, job, store: new DevJobWorkDagStore(repo, job.id) };
 }
 
@@ -56,8 +50,8 @@ test('general Work DAG executes dependencies, .augmentio, waits for Teacher, the
   const dag = createWorkDag({
     jobId: job.id,
     goal: 'Council -> task -> Teacher -> continuation',
-    candidateBranch: 'candidate/augmentio-core',
-    candidateSha: 'abc1234',
+    candidateBranch: 'candidate/mel-clean-autonomy',
+    candidateSha: TEST_CANDIDATE_SHA,
     nodes: [
       { id: 'council', kind: 'AUGMENTIO', idempotent: true, payload: { input: 'state of play', capability: 'GENERAL', maxCandidates: 2 } },
       { id: 'inspect', kind: 'TASK', depends_on: ['council'], idempotent: true },
@@ -69,7 +63,7 @@ test('general Work DAG executes dependencies, .augmentio, waits for Teacher, the
 
   const firstRunner = new WorkDagRunner({
     store,
-    expectedCandidateSha: 'abc1234',
+    expectedCandidateSha: TEST_CANDIDATE_SHA,
     executors: { AUGMENTIO: createAugmentioWorkExecutor(augmentio), TASK: taskExecutor },
   });
   const waiting = await firstRunner.run();
@@ -80,7 +74,7 @@ test('general Work DAG executes dependencies, .augmentio, waits for Teacher, the
 
   const restartedRunner = new WorkDagRunner({
     store,
-    expectedCandidateSha: 'abc1234',
+    expectedCandidateSha: TEST_CANDIDATE_SHA,
     executors: { AUGMENTIO: createAugmentioWorkExecutor(augmentio), TASK: taskExecutor },
   });
   const stillWaiting = await restartedRunner.run();
@@ -89,14 +83,12 @@ test('general Work DAG executes dependencies, .augmentio, waits for Teacher, the
   assert.equal(taskCalls, 1, 'completed task node must not run again after restart');
 
   await assert.rejects(
-    () => restartedRunner.submitTeacherReply('teacher', { request_id: 'wrong', verdict: 'APPROVE_PLAN' }),
+    () => restartedRunner.submitTeacherReply('teacher', teacherReply('wrong')),
     (error) => error?.code === 'TEACHER_REVIEW_REQUEST_MISMATCH',
   );
 
   const complete = await restartedRunner.submitTeacherReply('teacher', {
-    request_id: request.request_id,
-    verdict: 'APPROVE_PLAN',
-    feedback: 'Proceed with bounded implementation.',
+    ...teacherReply(request.request_id, { feedback: 'Proceed with bounded implementation.' }),
   });
   assert.equal(complete.status, WORK_DAG_STATUS.COMPLETED);
   assert.equal(complete.nodes.every((n) => n.status === WORK_NODE_STATUS.COMPLETED), true);
@@ -110,7 +102,7 @@ test('interrupted idempotent Work node is recovered from checkpoint and retried 
   let calls = 0;
   let dag = createWorkDag({
     jobId: job.id,
-    candidateBranch: 'candidate/augmentio-core',
+    candidateBranch: 'candidate/mel-clean-autonomy',
     candidateSha: 'def5678',
     goal: 'Recover interrupted safe work',
     nodes: [{ id: 'safe', kind: 'TASK', idempotent: true }],
@@ -136,7 +128,7 @@ test('interrupted non-idempotent node fails closed instead of risking duplicate 
   let calls = 0;
   let dag = createWorkDag({
     jobId: job.id,
-    candidateBranch: 'candidate/augmentio-core',
+    candidateBranch: 'candidate/mel-clean-autonomy',
     candidateSha: '789abcd',
     goal: 'Do not duplicate side effects',
     nodes: [{ id: 'unsafe', kind: 'TASK', idempotent: false }],
@@ -173,7 +165,7 @@ test('Work DAG binding, graph validity and integrity fail closed', async () => {
 
   const dag = createWorkDag({
     jobId: job.id,
-    candidateBranch: 'candidate/augmentio-core',
+    candidateBranch: 'candidate/mel-clean-autonomy',
     candidateSha: 'feed123',
     goal: 'Integrity',
     nodes: [{ id: 'x', kind: 'TASK', idempotent: true }],

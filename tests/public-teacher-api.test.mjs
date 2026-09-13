@@ -4,19 +4,17 @@ import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { createTeacherReviewRequest } from '../src/teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest } from '../src/teachers/runtime-teacher-bridge.js';
 import { maybeHandlePublicTeacherBridge, summarizeAutonomyJobs } from '../src/teachers/public-teacher-api.js';
+import { completeTeacherCouncil, teacherReply, TEST_CANDIDATE_BRANCH, TEST_CANDIDATE_SHA } from './helpers/teacher-review-fixtures.mjs';
 
 test('public Teacher feed is read-only and omits goals, full council/inspection and private evidence', async () => {
   const repo = new D1DevJobRepository(null);
   const job = await repo.create({ id: `public-teacher-${crypto.randomUUID()}`, goal: 'PRIVATE JOB GOAL MUST NOT LEAK' });
   const request = createTeacherReviewRequest({
     goal: 'PRIVATE TECHNICAL OBJECTIVE MUST NOT LEAK',
-    council: { responses: [
-      { provider: 'workers-ai', model: 'a', zero_added_cost: true, summary: 'PRIVATE COUNCIL DETAIL' },
-      { provider: 'workers-ai', model: 'b', zero_added_cost: true, summary: 'PRIVATE COUNCIL DETAIL 2' },
-    ] },
+    council: completeTeacherCouncil(),
     inspection: { status: 'COMPLETE', evidence: [{ path: 'src/x.js', finding: 'PRIVATE INSPECTION DETAIL' }] },
     spec: { hidden_detail: 'PRIVATE SPEC DETAIL' },
-    candidate: { branch: 'candidate/augmentio-core', sha: 'abc1234' },
+    candidate: { branch: TEST_CANDIDATE_BRANCH, sha: TEST_CANDIDATE_SHA },
     patchSummary: 'bounded public patch summary',
     tests: [{ name: 'test', passed: true }],
     unknowns: ['one technical unknown'],
