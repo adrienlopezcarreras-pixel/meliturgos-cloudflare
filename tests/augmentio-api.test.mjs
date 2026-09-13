@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import handleAugmentio from '../src/api/augmentio-api.js';
 
 test('augmentio GET serves lightweight MEL Lab interface', async () => {
@@ -50,4 +51,11 @@ test('augmentio API rejects missing input', async () => {
   });
   const response = await handleAugmentio(request, { AI: { run: async () => ({ response: 'x' }) } });
   assert.equal(response.status, 400);
+});
+
+test('augmentio API execution is locked to CapabilityBus', async () => {
+  const source = await readFile(new URL('../src/api/augmentio-api.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /from\s+['"]\.\.\/augmentio\/augmentio\.js['"]/);
+  assert.doesNotMatch(source, /createDefaultAugmentioPool/);
+  assert.match(source, /runtime\.bus\.execute\(['"]augmentio\.fanout['"]/);
 });
