@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { ProviderPool } from '../src/augmentio/provider-pool.js';
 import { COUNCIL_ROLES, REQUIRED_COUNCIL_ROLE_IDS, runAugmentioStateOfPlay } from '../src/teachers/augmentio-council.js';
 
+const verifiedFree = Object.freeze({ verified: true, addedCost: 0, source: 'test-fixture-no-external-billing' });
+
 function provider(id, cost, calls, { failSynthesis = false, failRole = '' } = {}) {
   return {
     id,
@@ -11,6 +13,7 @@ function provider(id, cost, calls, { failSynthesis = false, failRole = '' } = {}
     capabilities: ['GENERAL'],
     priority: id === 'a' ? 3 : id === 'b' ? 2 : 1,
     estimatedCost: cost,
+    costProvenance: cost === 0 ? verifiedFree : null,
     enabled: true,
     healthStatus: 'HEALTHY',
     health: async () => 'HEALTHY',
