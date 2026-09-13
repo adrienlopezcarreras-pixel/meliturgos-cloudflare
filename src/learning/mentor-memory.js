@@ -56,7 +56,7 @@ export class MentorMemoryRepository {
     await this.init();
     if (!this.db) {
       fallback.unshift(record);
-      if (fallback.length > 500) fallback.length = 500;
+      if (fallback.length > 2000) fallback.length = 2000;
       return structuredClone(record);
     }
 
@@ -85,7 +85,7 @@ export class MentorMemoryRepository {
   }
 
   async recent({ limit = 12, kind = null, outcome = null } = {}) {
-    const boundedLimit = Math.max(1, Math.min(50, Number(limit) || 12));
+    const boundedLimit = Math.max(1, Math.min(500, Number(limit) || 12));
     await this.init();
     if (!this.db) {
       return fallback
@@ -107,7 +107,7 @@ export class MentorMemoryRepository {
 
   async context(goal, { limit = 10 } = {}) {
     const objective = bounded(goal, 4000).toLowerCase();
-    const rows = await this.recent({ limit: Math.max(10, Math.min(50, Number(limit) * 4 || 40)) });
+    const rows = await this.recent({ limit: Math.max(10, Math.min(200, Number(limit) * 8 || 80)) });
     const terms = [...new Set(objective.split(/[^\p{L}\p{N}_-]+/u).filter(x => x.length >= 4))].slice(0, 20);
     const scored = rows.map(row => {
       const haystack = `${row.goal} ${row.lesson} ${(row.tags || []).join(' ')}`.toLowerCase();
