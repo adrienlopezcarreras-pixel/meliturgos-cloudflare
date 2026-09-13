@@ -6,6 +6,7 @@ on:
       - candidate/mel-clean-autonomy
     paths:
       - scripts/repair-gen2-17-contract-fixtures-once.mjs
+      - scripts/repair-gen2-17-contract-fixtures-pass2.mjs
       - .github/workflows/repair-gen2-17-contract-fixtures-once.yml
 
 permissions:
@@ -26,7 +27,9 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
       - name: Apply strict contract fixture repair
-        run: node scripts/repair-gen2-17-contract-fixtures-once.mjs
+        run: |
+          node scripts/repair-gen2-17-contract-fixtures-once.mjs
+          node scripts/repair-gen2-17-contract-fixtures-pass2.mjs
       - name: Run formerly failing GEN2-17 tests
         run: >-
           node --test
