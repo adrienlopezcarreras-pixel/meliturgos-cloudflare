@@ -1,0 +1,49 @@
+MEL AUTONOMY CHECKPOINT — promoted inference settings consumed by native chat
+recorded_at=2026-09-13T12:08:30Z
+branch=candidate/mel-clean-autonomy
+job_id=GEN2-20+MEL-EVOL-03-runtime-wiring
+stage=VERIFIED_RUNTIME_SETTINGS_CONTINUE_LEARNING_LOOP
+exact_code_sha=41747173b09981eb6d36eb4ab610fddb4551d855
+
+WORK_COMPLETED
+- Resumed the prior learning checkpoint instead of starting a new roadmap path.
+- Canonical native chat now reads the latest promoted INFERENCE_SETTINGS through the existing MentorMemoryRepository + LearningEngine only when persisted promoted settings exist.
+- No promoted settings preserves the previous provider behavior; settings are not synthesized from defaults and forced into runtime.
+- temperature, top_p and max_tokens are passed to the direct model payload when promoted settings exist.
+- memory_results now bounds cognitive-memory retrieval from 1..32.
+- council_min_responses is used as the default candidate breadth only for parallel/Council chat when no explicit/env override exists.
+- review_passes is explicitly not leaked into the single-pass provider payload because that control is not implemented there.
+- API response exposes active_inference_settings and an evidence map describing which controls were actually applied.
+- Added targeted tests proving generation payload propagation, no-settings rollback/default preservation, and memory_results retrieval bounds.
+- Removed the temporary one-shot patch workflow/script after applying the change; no second orchestrator remains.
+
+VERIFICATION
+one_shot_targeted_run_id=34756183577
+one_shot_targeted_tests=success
+one_shot_syntax=success
+full_candidate_ci_run_id=34756234740
+full_candidate_ci_conclusion=success
+full_candidate_ci_head_sha=41747173b09981eb6d36eb4ab610fddb4551d855
+production_changed=false
+secrets_added=false
+cost_added_eur=0
+
+ROADMAP_INTERPRETATION
+- GEN2-20 remains PARTIAL: promoted inference settings are now consumed by the canonical native chat path and full-CI is green, but DONE_VERIFIED still requires end-to-end runtime proof that verified correction outcomes are automatically captured back into LearningEngine without manual calls.
+- MEL-EVOL-03 remains PARTIAL: benchmark + inference feedback infrastructure is real; the automatic test→benchmark→critique→correction→retest orchestration still needs a canonical runtime cycle proof.
+- MEL-EVOL-06 remains PARTIAL/BLOCKED_DATA-or-EXTERNAL for actual neural training. No adapter training or weight change is claimed.
+
+CORRECTION_LESSON
+problem=Promoted inference settings were persisted and benchmarked but not consumed by the canonical chat path.
+before=LearningEngine could save/promote settings, while native chat always called the provider with only messages and always retrieved 12 cognitive memories.
+after=Native chat conditionally consumes persisted promoted settings for supported generation, memory and Council breadth controls while preserving previous behavior if no promoted settings exist.
+why_before_insufficient=Persistence without consumption cannot change runtime behavior and therefore cannot demonstrate measured adaptation.
+method=Reuse MentorMemoryRepository and LearningEngine; detect an actual persisted INFERENCE_SETTINGS row; apply only controls supported by the target path; keep unsupported review_passes out of provider payload; add rollback/default-preservation test.
+proof=targeted tests success + full-candidate-ci run 34756234740 success on exact code SHA 41747173b09981eb6d36eb4ab610fddb4551d855.
+domain=learning/runtime-inference
+provenance=chatgpt-automation-zero-euro
+confidence=high
+validated=true
+
+NEXT_ACTION
+Extend the existing canonical autonomy/Teacher completion path so each genuinely verified repair/correction automatically calls LearningEngine.recordCorrection with before/after/cause/method/tests/provenance and validated=true only after successful retest/full-CI. Add targeted tests for success vs failed/unverified outcomes, then run full-candidate-ci on the exact SHA. Do not create a parallel learning service or orchestrator.
