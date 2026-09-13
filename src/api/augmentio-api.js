@@ -1,5 +1,4 @@
-import { Augmentio } from '../augmentio/augmentio.js';
-import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
+import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { buildTeacherEscalation } from '../augmentio/teacher-escalation.js';
 
 function labPage() {
@@ -15,6 +14,14 @@ go.addEventListener('click',run);q.addEventListener('keydown',e=>{if(e.key==='En
 </script></main></body></html>`;
 }
 
+function busContext(env) {
+  return {
+    owner: env.MELITURGOS_USER || 'owner',
+    permissions: env.CAPABILITY_PERMISSIONS || [],
+    requestId: crypto.randomUUID(),
+  };
+}
+
 export default async function handleAugmentio(request, env) {
   if (request.method === 'GET') {
     return new Response(labPage(), { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
@@ -24,16 +31,21 @@ export default async function handleAugmentio(request, env) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const input = body.input ?? body.prompt ?? body.messages;
-  if (!input) {
+  const rawInput = body.input ?? body.prompt ?? body.messages;
+  if (!rawInput) {
     return Response.json({ error: 'input required', code: 'MISSING_INPUT' }, { status: 400 });
   }
 
+  const input = typeof rawInput === 'string' ? rawInput : JSON.stringify(rawInput);
   const capability = String(body.capability || 'GENERAL').toUpperCase();
   const maxCandidates = Math.min(12, Math.max(1, Number(body.maxCandidates || 4)));
-  const pool = createDefaultAugmentioPool(env);
-  const augmentio = new Augmentio({ pool });
-  const result = await augmentio.fanOut({ capability, input, context: body.context || {}, maxCandidates });
+  const runtime = createGen2Runtime({ env });
+  const result = await runtime.bus.execute('augmentio.fanout', {
+    capability,
+    input,
+    context: body.context || {},
+    maxCandidates,
+  }, busContext(env));
 
   const response = {
     ok: true,
