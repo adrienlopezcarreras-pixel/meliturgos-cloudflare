@@ -9,6 +9,12 @@ function nonNegativeInt(value) {
   return Math.max(0, Math.trunc(finite(value, 0)));
 }
 
+function roundMetric(value, precision = 12) {
+  if (!Number.isFinite(Number(value))) return null;
+  const factor = Math.pow(10, Math.max(0, Math.min(15, Math.trunc(precision))));
+  return Math.round(Number(value) * factor) / factor;
+}
+
 function rankForLevel(level) {
   if (level >= 30) return 'Évolution';
   if (level >= 20) return 'Maîtrise';
@@ -42,7 +48,9 @@ export function buildLearningProgress(report = {}) {
   const benchmark = report.benchmark || {};
   const baselineScore = Number.isFinite(Number(benchmark.baseline_score)) ? clamp(Number(benchmark.baseline_score), 0, 1) : null;
   const latestScore = Number.isFinite(Number(benchmark.latest_score)) ? clamp(Number(benchmark.latest_score), 0, 1) : null;
-  const measuredGain = baselineScore != null && latestScore != null ? latestScore - baselineScore : null;
+  const measuredGain = baselineScore != null && latestScore != null
+    ? roundMetric(latestScore - baselineScore)
+    : null;
   const positiveGain = measuredGain == null ? 0 : Math.max(0, measuredGain);
 
   const components = {
