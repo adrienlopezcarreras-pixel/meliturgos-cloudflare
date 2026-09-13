@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { getMelAvatarRoute, serveMelAvatar } from '../src/pages/mel-avatar-assets.js';
+import { THEME_VISUAL_KEYS, THEME_VISUALS } from '../src/pages/theme-visual-assets.js';
 import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
 
 test('each MEL visual mode resolves to its stable embedded fallback avatar route', async () => {
@@ -47,25 +48,40 @@ test('embedded fallback portraits remain byte-distinct where dedicated', async (
   assert.equal(new Set(hashes).size, dedicated.length);
 });
 
-test('theme enhancer keeps seven themes reachable and uses approved remote MEL portrait series', async () => {
+test('seven original bundled SVG visuals are self-contained and distinct', () => {
+  assert.deepEqual(THEME_VISUAL_KEYS, ['classic','religious','crusade','aviation','paladin','amazon','futureAvatar']);
+  const values = THEME_VISUAL_KEYS.map(key => THEME_VISUALS[key]);
+  assert.equal(new Set(values).size, 7);
+  for (const value of values) {
+    assert.match(value, /^data:image\/svg\+xml;charset=UTF-8,/);
+    assert.ok(value.length > 600, 'visual should contain substantive SVG art');
+    assert.doesNotMatch(value, /swastika|nazi|luftwaffe/i);
+  }
+});
+
+test('theme enhancer keeps seven themes reachable, bundles new art and preserves Granada baroque scene', async () => {
   const source = '<!doctype html><html data-theme="classic"><body><div class="theme-switch"><button id="themeButton"></button><div id="themePanel"><button data-theme-choice="classic">Classique</button><button data-theme-choice="crusade">Croisés</button><button data-theme-choice="religious">Religieux</button><button data-theme-choice="granada">Grenade</button><button data-theme-choice="aviation">Aviation</button><button data-theme-choice="paladin">Paladin</button><button data-theme-choice="amazon">Amazon</button></div></div><main class="app"><div class="avatar-wrap"><div id="avatar" class="avatar"><img src="/meliturgos-avatar-fille.png" alt="MEL"></div></div><section class="window"><div id="messages"></div><div class="composer"><textarea id="input" maxlength="100000"></textarea><div class="controls"><button id="send">Envoyer</button><button id="full">Mode complet</button></div></div></section><div id="melBottomTools" class="mel-bottom-tools"></div></main></body></html>';
   const response = await enhanceThemeAvatars(new Response(source, { headers: { 'content-type': 'text/html; charset=utf-8' } }));
   const html = await response.text();
   assert.match(html, /mel-theme-avatar-runtime/);
   assert.match(html, /mel-theme-decor-style/);
-  for (const name of ['classic','crusade','religious','granada','aviation','paladin','amazon']) {
-    assert.match(html, new RegExp(`mel-${name}-v3\\.webp`));
-  }
-  for (const bg of ['classic','crusade','religious','granada','aviation','paladin','amazon']) {
-    assert.match(html, new RegExp(`mel-bg-${bg}-hd`));
-  }
+  assert.match(html, /data:image\/svg\+xml;charset=UTF-8,/);
+  assert.match(html, /mel-bg-granada-hd-scaled\.jpg\?v=20260912-r4/);
+  assert.doesNotMatch(html, /mel-bg-(classic|crusade|religious|aviation|paladin|amazon)-hd/);
+  for (const path of [
+    '/assets/avatars/mel-crusade.webp',
+    '/assets/avatars/mel-religious-andalusian.webp',
+    '/assets/avatars/mel-granada.webp',
+    '/assets/avatars/mel-aviation-1940s.webp',
+    '/assets/avatars/mel-paladin-light-full-plate.webp',
+    '/assets/avatars/mel-amazon-griffon.webp',
+  ]) assert.match(html, new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(html, /--mel-hd-bg/);
   assert.match(html, /background-image:linear-gradient/);
   assert.match(html, /background-size:cover,cover!important/);
   assert.match(html, /background-attachment:fixed,fixed!important/);
   assert.match(html, /body:before,html body:after\{display:none!important/);
   assert.doesNotMatch(html, /filter:blur\(30px\)/);
-  assert.doesNotMatch(html, /mel-classic-v3\.webp[^\n]*--mel-hd-bg/);
   assert.match(html, /theme-orb::after\{content:'Thèmes'/);
   assert.match(html, /position:fixed!important/);
   assert.match(html, /body\.ui_theme/);
