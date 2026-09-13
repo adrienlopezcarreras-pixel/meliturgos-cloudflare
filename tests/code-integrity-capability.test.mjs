@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inspectCodeIntegrity, DEFAULT_INTEGRITY_PATHS } from '../src/capabilities/code-integrity-capability.js';
+import { inspectCodeIntegrity, DEFAULT_INTEGRITY_PATHS, resolveDeploymentIdentity } from '../src/capabilities/code-integrity-capability.js';
 import { createGen2Runtime } from '../src/core/orchestrator/gen2-runtime.js';
 
-function fakeReader({ head = 'a'.repeat(40), files = {} } = {}) {
+function fakeReader({ head = 'a'.repeat(40), files = {}, branch = 'candidate/test' } = {}) {
   return {
     repository: 'owner/repo',
-    branch: 'candidate/test',
+    branch,
     async head() { return head; },
     async read(path) {
       if (files[path] instanceof Error) throw files[path];
@@ -47,6 +47,75 @@ test('code integrity rejects malformed expected head and caps custom path count'
   const paths = Array.from({ length: 20 }, (_, index) => `src/file-${index}.js`);
   const report = await inspectCodeIntegrity({ reader: fakeReader(), paths });
   assert.equal(report.checked_files, 12);
+});
+
+test('deployment identity is reported only from an exact 40-character commit', () => {
+  const sha = 'ABCDEF0123456789ABCDEF0123456789ABCDEF01';
+  const exact = resolveDeploymentIdentity({
+    MEL_GITHUB_REPOSITORY: 'owner/repo',
+    MEL_DEPLOYED_GIT_BRANCH: 'release/live',
+    MEL_DEPLOYED_GIT_SHA: sha,
+  });
+  assert.equal(exact.repository, 'owner/repo');
+  assert.equal(exact.branch, 'release/live');
+  assert.equal(exact.commit, sha.toLowerCase());
+  assert.equal(exact.exact_identity_known, true);
+  assert.equal(exact.source, 'runtime_env');
+
+  const malformed = resolveDeploymentIdentity({
+    MEL_DEPLOYED_GIT_BRANCH: 'release/live',
+    MEL_DEPLOYED_GIT_SHA: 'not-a-sha',
+  });
+  assert.equal(malformed.branch, 'release/live');
+  assert.equal(malformed.commit, null);
+  assert.equal(malformed.commit_known, false);
+  assert.equal(malformed.exact_identity_known, false);
+  assert.equal(malformed.commit_format_valid, false);
+});
+
+test('self-check keeps deployed identity separate from the inspected candidate branch', async () => {
+  const deployedSha = 'd'.repeat(40);
+  const report = await inspectCodeIntegrity({
+    reader: fakeReader({ head: 'c'.repeat(40), branch: 'candidate/test' }),
+    deploymentIdentity: {
+      repository: 'owner/repo',
+      branch: 'release/live',
+      commit: deployedSha,
+      branch_known: true,
+      commit_known: true,
+      exact_identity_known: true,
+      commit_format_valid: true,
+      source: 'runtime_env',
+    },
+  });
+
+  assert.equal(report.status, 'PASS');
+  assert.equal(report.branch, 'candidate/test');
+  assert.equal(report.self_code.branch, 'release/live');
+  assert.equal(report.self_code.commit, deployedSha);
+  assert.equal(report.self_code.exact_identity_known, true);
+  assert.equal(report.self_code.inspected_branch_matches_deployment, false);
+  assert.equal(report.self_code.inspected_head_matches_deployment, false);
+});
+
+test('self-check proves when inspected branch and HEAD are exactly the deployed code', async () => {
+  const deployedSha = 'e'.repeat(40);
+  const report = await inspectCodeIntegrity({
+    reader: fakeReader({ head: deployedSha, branch: 'release/live' }),
+    deploymentIdentity: {
+      repository: 'owner/repo',
+      branch: 'release/live',
+      commit: deployedSha,
+      branch_known: true,
+      commit_known: true,
+      exact_identity_known: true,
+      commit_format_valid: true,
+      source: 'runtime_env',
+    },
+  });
+
+  assert.equal(report.self_code.inspected_branch_matches_deployment, true);
+  assert.equal(report.self_code.inspected_head_matches_deployment, true);
 });
 
 test('Gen2 runtime exposes code.integrity as a low-risk capability', () => {
