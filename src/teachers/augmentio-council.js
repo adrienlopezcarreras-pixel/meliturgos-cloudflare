@@ -264,8 +264,17 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
   }
 
   const synthesis = await synthesizeWithFallback({ eligible, goal, context: councilContext, report });
+  if (synthesis.status !== 'COMPLETE' || !boundedText(synthesis.text, 12000)) {
+    const error = new Error('COUNCIL_MEL_SYNTHESIS_REQUIRED');
+    error.code = 'COUNCIL_MEL_SYNTHESIS_REQUIRED';
+    error.status = 503;
+    error.attempted = synthesis.attempted || [];
+    throw error;
+  }
+
   return {
     ...report,
+    development_allowed: false,
     roster: assignments.map(({ memberId, provider, role, supplemental }) => {
       const response = (report.responses || []).find(row => row.member === memberId);
       return {
@@ -289,12 +298,11 @@ export async function runAugmentioStateOfPlay({ env, goal, context = {}, minResp
     required_roles_attempted: [...REQUIRED_COUNCIL_ROLE_IDS],
     required_roles_succeeded: [...succeededRoles].filter(roleId => REQUIRED_COUNCIL_ROLE_IDS.includes(roleId)),
     required_roles_missing: missingRequiredRoles,
-    all_required_roles_satisfied: missingRequiredRoles.length === 0,
+    all_required_roles_satisfied: true,
     synthesis,
+    council_ready_for_teacher: true,
     teacher_required: true,
     teacher_role: 'CHATGPT_EXTERNAL_ARCHITECT_REVIEWER',
-    next: synthesis.status === 'COMPLETE'
-      ? 'EXTERNAL_TEACHER_REVIEW_THEN_INSPECT_CODE'
-      : 'EXTERNAL_TEACHER_REVIEW_WITH_DEGRADED_MEL_SYNTHESIS'
+    next: 'EXTERNAL_TEACHER_REVIEW_THEN_INSPECT_CODE'
   };
 }
