@@ -1,10 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProviderPool } from '../src/augmentio/provider-pool.js';
+import { ZERO_EURO_POLICY } from '../src/augmentio/zero-euro-governor.js';
 import { REQUIRED_COUNCIL_ROLE_IDS } from '../src/teachers/augmentio-council.js';
 import { prepareDevelopmentRequest, authorizeDevelopmentPlan } from '../src/evolution/development-preflight.js';
 
-const verifiedFree = Object.freeze({ verified: true, addedCost: 0, source: 'test-fixture-no-external-billing' });
+const verifiedFree = id => Object.freeze({
+  verified: true,
+  addedCost: 0,
+  source: 'test-fixture-no-external-billing',
+  authorization: Object.freeze({
+    approved: true,
+    policy: ZERO_EURO_POLICY,
+    authority: 'development-preflight-test-suite',
+    adapter_id: id,
+    provider: 'test',
+    model: id,
+  }),
+});
 
 const provider = id => ({
   id,
@@ -12,7 +25,7 @@ const provider = id => ({
   modelId: id,
   capabilities: ['GENERAL'],
   estimatedCost: 0,
-  costProvenance: verifiedFree,
+  costProvenance: verifiedFree(id),
   healthStatus: 'HEALTHY',
   enabled: true,
   health: async () => 'HEALTHY',
