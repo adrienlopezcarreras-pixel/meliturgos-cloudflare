@@ -26,14 +26,17 @@ function safeFilePart(value) {
   return (out || 'request').slice(0, 180);
 }
 
-function repoAndBranch(env = {}) {
+function repoAndTransportBranch(env = {}) {
   const repository = String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
-  const branch = String(env.MEL_TEACHER_BRANCH || 'candidate/mel-clean-autonomy');
+  const branch = String(env.MEL_TEACHER_TRANSPORT_BRANCH || 'teacher-bridge/runtime').trim();
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
     throw Object.assign(new Error('TEACHER_MIRROR_REPOSITORY_INVALID'), { code: 'TEACHER_MIRROR_REPOSITORY_INVALID' });
   }
-  if (!branch.startsWith('candidate/')) {
-    throw Object.assign(new Error('TEACHER_MIRROR_BRANCH_NOT_CANDIDATE'), { code: 'TEACHER_MIRROR_BRANCH_NOT_CANDIDATE' });
+  // Teacher transport is metadata, never an executable candidate. Keeping it
+  // off the canonical candidate branch prevents the act of mirroring a request
+  // or writing a reply from changing the exact code SHA being reviewed.
+  if (!/^teacher-bridge\/[A-Za-z0-9._/-]+$/.test(branch)) {
+    throw Object.assign(new Error('TEACHER_MIRROR_TRANSPORT_BRANCH_INVALID'), { code: 'TEACHER_MIRROR_TRANSPORT_BRANCH_INVALID' });
   }
   return { repository, branch };
 }
@@ -113,6 +116,10 @@ export function buildRuntimeTeacherMirror(job, state) {
  * of truth remains D1; this merely gives the external ChatGPT Teacher a stable,
  * connector-friendly handoff that does not require MEL's password.
  *
+ * IMPORTANT: transport metadata is written to a dedicated non-candidate branch.
+ * Writing it on the candidate branch would mutate the exact SHA under Teacher
+ * review and make every approval stale by construction.
+ *
  * Owner-chat work is never mirrored. If no GitHub token is configured, the
  * runtime continues via the existing public read-only Teacher endpoints.
  */
@@ -123,7 +130,7 @@ export async function mirrorRuntimeTeacherRequestToGitHub({ env = {}, job, state
   const token = String(env.MEL_GITHUB_TOKEN || '');
   if (!token) return { status: 'SKIPPED_NO_GITHUB_TOKEN', request_id: payload.request_id };
 
-  const { repository, branch } = repoAndBranch(env);
+  const { repository, branch } = repoAndTransportBranch(env);
   const path = `teacher-bridge/runtime-requests/${safeFilePart(payload.request_id)}.json`;
   const apiPath = `https://api.github.com/repos/${encodePath(repository)}/contents/${encodePath(path)}`;
   const headers = {
