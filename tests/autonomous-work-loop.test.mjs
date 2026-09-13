@@ -8,14 +8,12 @@ import { createTeacherReviewRequest } from '../src/teachers/teacher-request.js';
 import { createWorkDag, DevJobWorkDagStore, WorkDagRunner, WORK_DAG_STATUS, WORK_NODE_STATUS } from '../src/work/work-dag.js';
 import { AutonomousWorkLoop, InMemoryTeacherChannel } from '../src/work/autonomous-work-loop.js';
 import { JsonlTeacherChannel, readJsonl } from '../scripts/jsonl-teacher-channel.mjs';
+import { completeTeacherCouncil, teacherReply, TEST_CANDIDATE_BRANCH, TEST_CANDIDATE_SHA } from './helpers/teacher-review-fixtures.mjs';
 
 function makeTeacherRequest() {
   return createTeacherReviewRequest({
     goal: 'Fermer la boucle autonome MEL vers Professeur',
-    council: { responses: [
-      { provider: 'workers-ai', model: 'a', zero_added_cost: true, summary: 'A' },
-      { provider: 'workers-ai', model: 'b', zero_added_cost: true, summary: 'B' },
-    ] },
+    council: completeTeacherCouncil(),
     inspection: { status: 'COMPLETE', evidence: [{ path: 'src/work/autonomous-work-loop.js' }] },
     spec: { next: 'resume after teacher reply' },
   });
@@ -24,7 +22,7 @@ function makeTeacherRequest() {
 async function setup(jobId) {
   const repo = new D1DevJobRepository(null);
   const job = await repo.create({ id: jobId, goal: 'Autonomy loop' });
-  await repo.update(job.id, { candidate_branch: 'candidate/augmentio-core' });
+  await repo.update(job.id, { candidate_branch: TEST_CANDIDATE_BRANCH });
   return { repo, job, store: new DevJobWorkDagStore(repo, job.id) };
 }
 
@@ -35,8 +33,8 @@ test('autonomous loop publishes Teacher request, stays waiting, then consumes ma
   const dag = createWorkDag({
     jobId: job.id,
     goal: 'task -> teacher -> continue',
-    candidateBranch: 'candidate/augmentio-core',
-    candidateSha: 'abc9876',
+    candidateBranch: TEST_CANDIDATE_BRANCH,
+    candidateSha: TEST_CANDIDATE_SHA,
     nodes: [
       { id: 'before', kind: 'TASK', idempotent: true },
       { id: 'teacher', kind: 'TEACHER', depends_on: ['before'], payload: { request } },
@@ -46,7 +44,7 @@ test('autonomous loop publishes Teacher request, stays waiting, then consumes ma
   await store.save(dag);
   const runner = new WorkDagRunner({
     store,
-    expectedCandidateSha: 'abc9876',
+    expectedCandidateSha: TEST_CANDIDATE_SHA,
     executors: { TASK: async (node) => { tasks += 1; return { node: node.id }; } },
   });
   const channel = new InMemoryTeacherChannel();
@@ -58,7 +56,7 @@ test('autonomous loop publishes Teacher request, stays waiting, then consumes ma
   assert.ok(channel.requests.has(request.request_id));
   assert.equal(waiting.nodes.find((node) => node.id === 'teacher').status, WORK_NODE_STATUS.WAITING_TEACHER);
 
-  await channel.submitReply({ request_id: request.request_id, verdict: 'APPROVE_PLAN', feedback: 'Continue.' });
+  await channel.submitReply(teacherReply(request.request_id));
   const complete = await loop.run();
   assert.equal(complete.status, WORK_DAG_STATUS.COMPLETED);
   assert.equal(tasks, 2);
@@ -70,15 +68,15 @@ test('autonomous loop does not accept a different Teacher request id', async () 
   const request = makeTeacherRequest();
   await store.save(createWorkDag({
     jobId: job.id,
-    candidateBranch: 'candidate/augmentio-core',
-    candidateSha: 'fed4321',
+    candidateBranch: TEST_CANDIDATE_BRANCH,
+    candidateSha: TEST_CANDIDATE_SHA,
     nodes: [{ id: 'teacher', kind: 'TEACHER', payload: { request } }],
   }));
-  const runner = new WorkDagRunner({ store, expectedCandidateSha: 'fed4321', executors: {} });
+  const runner = new WorkDagRunner({ store, expectedCandidateSha: TEST_CANDIDATE_SHA, executors: {} });
   const channel = new InMemoryTeacherChannel();
   const loop = new AutonomousWorkLoop({ runner, store, teacherChannel: channel });
   await loop.run();
-  channel.replies.set(request.request_id, { request_id: 'wrong', verdict: 'APPROVE_PLAN' });
+  channel.replies.set(request.request_id, teacherReply('wrong'));
   await assert.rejects(() => loop.run(), (error) => error?.code === 'TEACHER_REPLY_REQUEST_MISMATCH');
 });
 
@@ -87,7 +85,7 @@ test('JSONL Teacher channel publishes once, strips secret-shaped fields, and rea
   try {
     const channel = new JsonlTeacherChannel({ repoRoot: root });
     const request = { type: 'MEL_TEACHER_REVIEW_REQUEST', request_id: 'req-1', created_at: new Date().toISOString(), objective: 'test', token: 'must-not-survive' };
-    const first = await channel.publishRequest(request, { candidate_branch: 'candidate/augmentio-core', authorization: 'must-not-survive' });
+    const first = await channel.publishRequest(request, { candidate_branch: TEST_CANDIDATE_BRANCH, authorization: 'must-not-survive' });
     const second = await channel.publishRequest(request);
     assert.equal(first.published, true);
     assert.equal(second.duplicate, true);
@@ -95,7 +93,7 @@ test('JSONL Teacher channel publishes once, strips secret-shaped fields, and rea
     assert.equal(requests.length, 1);
     assert.equal(JSON.stringify(requests).includes('must-not-survive'), false);
 
-    await fs.writeFile(path.join(root, 'teacher-bridge/replies.jsonl'), `${JSON.stringify({ kind: 'TEACHER_REPLY', request_id: 'req-1', verdict: 'APPROVE_PLAN', feedback: 'ok' })}\n`, 'utf8');
+    await fs.writeFile(path.join(root, 'teacher-bridge/replies.jsonl'), `${JSON.stringify(teacherReply('req-1'))}\n`, 'utf8');
     const reply = await channel.getReply('req-1');
     assert.equal(reply.request_id, 'req-1');
     assert.equal(reply.verdict, 'APPROVE_PLAN');
