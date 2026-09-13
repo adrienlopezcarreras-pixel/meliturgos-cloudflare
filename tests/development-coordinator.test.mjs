@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createTeacherReviewRequest, applyTeacherReview } from '../src/teachers/teacher-request.js';
 import { createDevelopmentJob, advanceDevelopmentJob, DEVELOPMENT_STATES } from '../src/evolution/development-coordinator.js';
+import { completeTeacherCouncil, TEST_CANDIDATE_SHA } from './helpers/teacher-review-fixtures.mjs';
 
 const councilResponses = [
   { provider: 'mock-zero-a', model: 'a1', zero_added_cost: true, summary: 'Reuse existing coordinator and fail closed.' },
@@ -10,21 +11,23 @@ const councilResponses = [
 
 test('teacher review request requires council and complete code inspection', () => {
   assert.throws(() => createTeacherReviewRequest({ goal: 'x' }), /TEACHER_COUNCIL_REQUIRED/);
-  assert.throws(() => createTeacherReviewRequest({ goal: 'x', council: {}, inspection: { status: 'PARTIAL', evidence: [] } }), /TEACHER_INSPECTION_INCOMPLETE/);
+  assert.throws(() => createTeacherReviewRequest({ goal: 'x', council: {}, inspection: { status: 'PARTIAL', evidence: [] } }), /TEACHER_COUNCIL_INCOMPLETE/);
+  assert.throws(() => createTeacherReviewRequest({ goal: 'x', council: completeTeacherCouncil(), inspection: { status: 'PARTIAL', evidence: [] } }), /TEACHER_INSPECTION_INCOMPLETE/);
 });
 
-test('teacher review contract redacts secret-like keys and requires matching request id', () => {
+test('teacher review contract redacts secret-like keys and requires matching request id and exact SHA', () => {
   const request = createTeacherReviewRequest({
     goal: 'Ajouter une compétence de test',
-    council: { responses: councilResponses },
+    council: completeTeacherCouncil(),
     inspection: { status: 'COMPLETE', evidence: [{ path: 'src/router.js' }] },
     spec: { purpose: 'test' },
     security: { token: 'should-not-leak', note: 'safe' },
   });
   assert.equal(request.type, 'MEL_TEACHER_REVIEW_REQUEST');
+  assert.equal(request.target_sha, TEST_CANDIDATE_SHA);
   assert.equal(request.security.token, '[REDACTED]');
-  assert.throws(() => applyTeacherReview(request, { request_id: 'wrong', verdict: 'APPROVE_PLAN' }), /MISMATCH/);
-  const review = applyTeacherReview(request, { request_id: request.request_id, verdict: 'APPROVE_PLAN', feedback: 'ok' });
+  assert.throws(() => applyTeacherReview(request, { request_id: 'wrong', target_sha: TEST_CANDIDATE_SHA, verdict: 'APPROVE_PLAN' }), /MISMATCH/);
+  const review = applyTeacherReview(request, { request_id: request.request_id, target_sha: TEST_CANDIDATE_SHA, verdict: 'APPROVE_PLAN', feedback: 'ok' });
   assert.equal(review.development_allowed, true);
 });
 
