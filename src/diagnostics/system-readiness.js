@@ -12,6 +12,45 @@ function blockersFromRoadmap() {
     .map(row => ({ id: row.id, title: row.title, status: row.status, next: row.next }));
 }
 
+function nonEmptyString(value) {
+  const text = String(value ?? '').trim();
+  return text || null;
+}
+
+function exactGitSha(value) {
+  const sha = nonEmptyString(value)?.toLowerCase() || null;
+  return sha && /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+}
+
+function deploymentIdentity(env = {}) {
+  const compiledBranch = typeof MEL_DEPLOYED_GIT_BRANCH !== 'undefined'
+    ? nonEmptyString(MEL_DEPLOYED_GIT_BRANCH)
+    : null;
+  const compiledShaRaw = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined'
+    ? nonEmptyString(MEL_DEPLOYED_GIT_SHA)
+    : null;
+  const runtimeBranch = nonEmptyString(env.MEL_DEPLOYED_GIT_BRANCH);
+  const runtimeShaRaw = nonEmptyString(env.MEL_DEPLOYED_GIT_SHA);
+  const branch = compiledBranch || runtimeBranch;
+  const commit = exactGitSha(compiledShaRaw || runtimeShaRaw);
+  const source = compiledBranch || compiledShaRaw
+    ? 'compile_time_define'
+    : runtimeBranch || runtimeShaRaw
+      ? 'runtime_env'
+      : 'unavailable';
+
+  return {
+    repository: nonEmptyString(env.MEL_GITHUB_REPOSITORY) || 'adrienlopezcarreras-pixel/meliturgos-cloudflare',
+    branch,
+    commit,
+    branch_known: Boolean(branch),
+    commit_known: Boolean(commit),
+    exact_identity_known: Boolean(branch && commit),
+    commit_format_valid: compiledShaRaw || runtimeShaRaw ? Boolean(commit) : null,
+    source,
+  };
+}
+
 /**
  * Non-secret readiness snapshot. This is descriptive, not an authorization
  * mechanism: it never exposes tokens/credentials and never changes state.
@@ -24,6 +63,7 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
   const zeroCostModels = models.filter(model => model.enabled !== false && costIsExplicitZero(model));
   const roadmap = roadmapSummary();
   const blockers = blockersFromRoadmap();
+  const selfCode = deploymentIdentity(env);
 
   const bindings = {
     ai: Boolean(env.AI),
@@ -69,6 +109,7 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
       state: percent === 100 ? 'READY' : percent >= 70 ? 'PARTIAL' : 'DEGRADED'
     },
     bindings,
+    self_code: selfCode,
     critical,
     capabilities: {
       total: capabilities.length,
