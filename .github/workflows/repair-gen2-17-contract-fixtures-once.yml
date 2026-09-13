@@ -5,8 +5,7 @@ on:
     branches:
       - candidate/mel-clean-autonomy
     paths:
-      - scripts/repair-gen2-17-contract-fixtures-once.mjs
-      - scripts/repair-gen2-17-contract-fixtures-pass2.mjs
+      - scripts/repair-gen2-17-contract-fixtures-pass3.mjs
       - .github/workflows/repair-gen2-17-contract-fixtures-once.yml
 
 permissions:
@@ -26,10 +25,8 @@ jobs:
           cache: npm
       - name: Install exact lockfile
         run: npm ci
-      - name: Apply strict contract fixture repair
-        run: |
-          node scripts/repair-gen2-17-contract-fixtures-once.mjs
-          node scripts/repair-gen2-17-contract-fixtures-pass2.mjs
+      - name: Apply idempotent strict contract fixture repair
+        run: node scripts/repair-gen2-17-contract-fixtures-pass3.mjs
       - name: Run formerly failing GEN2-17 tests
         run: >-
           node --test
@@ -44,8 +41,11 @@ jobs:
         run: |
           git config user.name "mel-autonomy"
           git config user.email "mel-autonomy@users.noreply.github.com"
-          git add tests/autonomous-work-loop.test.mjs tests/autonomy-runtime.test.mjs tests/council-api.test.mjs tests/development-coordinator.test.mjs tests/github-reply-reconciler.test.mjs tests/public-teacher-api.test.mjs tests/work-dag-resume.test.mjs
+          git add tests/autonomy-runtime.test.mjs tests/council-api.test.mjs tests/github-reply-reconciler.test.mjs tests/public-teacher-api.test.mjs tests/work-dag-resume.test.mjs
           git diff --cached --check
-          git diff --cached --quiet && { echo "No fixture changes to commit"; exit 1; }
-          git commit -m "test(gen2-17): align fixtures with exact SHA teacher contract"
+          if git diff --cached --quiet; then
+            echo "No fixture changes to commit"
+            exit 0
+          fi
+          git commit -m "test(gen2-17): finish strict Teacher fixture repair"
           git push origin HEAD:candidate/mel-clean-autonomy
