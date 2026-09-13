@@ -11,7 +11,14 @@ let passed = 0;
 async function runFile(f) {
   const cp = spawn(process.execPath, ["tests/" + f], {
     stdio: ["inherit", "pipe", "pipe"],
-    env: { ...process.env, NODE_OPTIONS: "--no-warnings" }
+    env: {
+      ...process.env,
+      NODE_OPTIONS: "--no-warnings",
+      // The test suite uses mocked Workers AI bindings. This flag is consumed
+      // only by Node test execution; production Worker environments cannot use
+      // it to bypass the fail-closed zero-cost provenance requirement.
+      MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS: "1",
+    }
   });
   let out = "";
   cp.stdout.on("data", (b) => {
