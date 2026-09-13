@@ -12,9 +12,11 @@ export function createDefaultAugmentioPool(env, { registry = standardRegistry } 
       modelId: model.model_id || model.id,
       capabilities: model.capabilities || ['GENERAL'],
       priority: model.priority || 0,
-      // Fail closed: a missing/unknown cost must remain unknown so the
-      // ZeroEuroGovernor can reject it instead of silently treating it as free.
+      // Fail closed: a missing/unknown cost or provenance must remain unknown
+      // so the ZeroEuroGovernor can reject it instead of silently treating
+      // a registry declaration as proof that the runtime route is free.
       estimatedCost: model.cost ?? null,
+      costProvenance: model.costProvenance ?? model.cost_provenance ?? null,
       concurrency: model.concurrency || 2,
     }));
 
