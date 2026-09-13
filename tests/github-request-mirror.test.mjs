@@ -19,7 +19,7 @@ function fixture() {
       objective: 'PRIVATE_OBJECTIVE_SENTINEL',
       candidate: {
         repository: 'owner/repo',
-        branch: 'candidate/augmentio-core',
+        branch: 'candidate/mel-clean-autonomy',
         commit_sha: '0123456789abcdef0123456789abcdef01234567',
         private_note: 'PRIVATE_CANDIDATE_SENTINEL',
       },
@@ -56,7 +56,7 @@ test('buildRuntimeTeacherMirror exposes only allowlisted technical discovery met
   assert.equal(mirror.constraints.production_deploy_allowed, false);
   assert.deepEqual(mirror.candidate, {
     repository: 'owner/repo',
-    branch: 'candidate/augmentio-core',
+    branch: 'candidate/mel-clean-autonomy',
     sha: '0123456789abcdef0123456789abcdef01234567',
   });
   assert.deepEqual(mirror.tests, [{
@@ -99,7 +99,7 @@ test('mirror skips safely when no GitHub token is configured', async () => {
   const { job, state } = fixture();
   let calls = 0;
   const result = await mirrorRuntimeTeacherRequestToGitHub({
-    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: 'candidate/augmentio-core' },
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_TRANSPORT_BRANCH: 'teacher-bridge/runtime' },
     job,
     state,
     fetchImpl: async () => { calls += 1; return new Response('', { status: 500 }); },
@@ -108,14 +108,16 @@ test('mirror skips safely when no GitHub token is configured', async () => {
   assert.equal(calls, 0);
 });
 
-test('mirror writes a unique technical request file without leaking tokens or freeform private content', async () => {
+test('mirror writes technical request metadata to transport branch without mutating candidate', async () => {
   const { job, state } = fixture();
   const calls = [];
   const token = 'github-token-fixture-value';
   const result = await mirrorRuntimeTeacherRequestToGitHub({
     env: {
       MEL_GITHUB_REPOSITORY: 'owner/repo',
-      MEL_TEACHER_BRANCH: 'candidate/augmentio-core',
+      MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy',
+      MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy',
+      MEL_TEACHER_TRANSPORT_BRANCH: 'teacher-bridge/runtime',
       MEL_GITHUB_TOKEN: token,
       MELITURGOS_PASSWORD: 'must-never-leak',
     },
@@ -129,8 +131,10 @@ test('mirror writes a unique technical request file without leaking tokens or fr
   });
 
   assert.equal(result.status, 'MIRRORED');
+  assert.equal(result.branch, 'teacher-bridge/runtime');
   assert.equal(result.path, 'teacher-bridge/runtime-requests/req-runtime-123.json');
   assert.equal(calls.length, 2);
+  assert.match(calls[0].url, /ref=teacher-bridge%2Fruntime/);
   assert.match(calls[1].url, /runtime-requests\/req-runtime-123\.json$/);
   const body = JSON.parse(calls[1].init.body);
   const decoded = Buffer.from(body.content, 'base64').toString('utf8');
@@ -140,16 +144,17 @@ test('mirror writes a unique technical request file without leaking tokens or fr
   assert.doesNotMatch(decoded, new RegExp(token));
   assert.doesNotMatch(decoded, /must-never-leak/);
   assert.doesNotMatch(decoded, /PRIVATE_/);
-  assert.equal(body.branch, 'candidate/augmentio-core');
+  assert.equal(body.branch, 'teacher-bridge/runtime');
+  assert.notEqual(body.branch, 'candidate/mel-clean-autonomy');
 });
 
-test('mirror is idempotent when the request file already exists', async () => {
+test('mirror is idempotent when the request file already exists on transport branch', async () => {
   const { job, state } = fixture();
   let calls = 0;
   const result = await mirrorRuntimeTeacherRequestToGitHub({
     env: {
       MEL_GITHUB_REPOSITORY: 'owner/repo',
-      MEL_TEACHER_BRANCH: 'candidate/augmentio-core',
+      MEL_TEACHER_TRANSPORT_BRANCH: 'teacher-bridge/runtime',
       MEL_GITHUB_TOKEN: 'fixture-token',
     },
     job,
@@ -157,5 +162,23 @@ test('mirror is idempotent when the request file already exists', async () => {
     fetchImpl: async () => { calls += 1; return Response.json({ name: 'existing' }, { status: 200 }); },
   });
   assert.equal(result.status, 'ALREADY_PRESENT');
+  assert.equal(result.branch, 'teacher-bridge/runtime');
   assert.equal(calls, 1);
+});
+
+test('mirror fails closed if transport is configured to use a candidate branch', async () => {
+  const { job, state } = fixture();
+  await assert.rejects(
+    () => mirrorRuntimeTeacherRequestToGitHub({
+      env: {
+        MEL_GITHUB_REPOSITORY: 'owner/repo',
+        MEL_TEACHER_TRANSPORT_BRANCH: 'candidate/mel-clean-autonomy',
+        MEL_GITHUB_TOKEN: 'fixture-token',
+      },
+      job,
+      state,
+      fetchImpl: async () => new Response('', { status: 500 }),
+    }),
+    (error) => error?.code === 'TEACHER_MIRROR_TRANSPORT_BRANCH_INVALID',
+  );
 });
