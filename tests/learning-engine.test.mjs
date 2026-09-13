@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { LearningEngine } from '../src/learning/learning-engine.js';
 import { createLoraTrainingPlan } from '../src/learning/lora-plan.js';
 import { chooseBestSettings, proposeNeighborSettings } from '../src/learning/inference-adaptation.js';
+import { CANONICAL_LEARNING_BENCHMARK_SUITE, REQUIRED_LEARNING_BENCHMARK_DOMAINS, runLearningBenchmarkSuite } from '../src/evaluation/benchmarks.js';
 
 class MemoryStub {
   constructor() { this.rows = []; }
@@ -41,6 +42,32 @@ test('benchmark report measures gain without pretending weights changed', async 
   assert.equal(report.neural_weights_changed, false);
 });
 
+test('canonical learning benchmark covers required domains and persists first baseline once', async () => {
+  const memory = new MemoryStub();
+  const engine = new LearningEngine({ memory });
+  const evaluator = async (row) => ({ score: row.domain === 'taught_error_correction' ? 0.75 : 0.8, repeated_error: false, evidence: { case_id: row.id } });
+  const direct = await runLearningBenchmarkSuite({ evaluator });
+  assert.equal(direct.results.length, CANONICAL_LEARNING_BENCHMARK_SUITE.length);
+  assert.deepEqual(new Set(Object.keys(direct.domains)), new Set(REQUIRED_LEARNING_BENCHMARK_DOMAINS));
+  const first = await engine.runCanonicalBenchmark({ kind: 'baseline', evaluator, model_id: 'fixture/model', source_sha: 'a'.repeat(40) });
+  const second = await engine.runCanonicalBenchmark({ kind: 'baseline', evaluator, model_id: 'fixture/model', source_sha: 'b'.repeat(40) });
+  assert.equal(first.reused, false);
+  assert.equal(second.reused, true);
+  assert.equal((await memory.recent({ kind: 'LEARNING_BENCHMARK' })).length, 1);
+  const report = await engine.report();
+  assert.equal(report.repeated_taught_errors, 0);
+});
+
+test('canonical learning benchmark counts repeated taught errors explicitly', async () => {
+  const engine = new LearningEngine({ memory: new MemoryStub() });
+  await engine.runCanonicalBenchmark({
+    kind: 'candidate',
+    evaluator: async (row) => ({ score: row.domain === 'taught_error_correction' ? 0.2 : 0.8, repeated_error: row.domain === 'taught_error_correction' }),
+  });
+  const report = await engine.report();
+  assert.equal(report.repeated_taught_errors, 1);
+});
+
 test('adaptive settings reduce randomness after precision failures', () => {
   const next = proposeNeighborSettings({ temperature: 0.5, top_p: 0.9, review_passes: 1 }, { errors: ['hallucination', 'precision'] });
   assert.ok(next.temperature < 0.5);
@@ -58,6 +85,22 @@ test('settings promotion requires enough measured trials and gain', () => {
   const decision = chooseBestSettings(trials, { current, minimumTrials: 3, minimumGain: 0.02 });
   assert.equal(decision.promote, true);
   assert.equal(decision.candidate.temperature, 0.3);
+});
+
+test('measured inference settings are promoted only after persisted comparable trials', async () => {
+  const memory = new MemoryStub();
+  const engine = new LearningEngine({ memory });
+  const current = { temperature: 0.4, top_p: 0.9, max_tokens: 4096, memory_results: 12, review_passes: 1, council_min_responses: 2 };
+  const candidate = { ...current, temperature: 0.3 };
+  for (const score of [0.70, 0.71, 0.69]) await engine.recordInferenceTrial({ settings: current, score, case_id: 'stable-case' });
+  let decision = await engine.promoteMeasuredInferenceSettings({ current });
+  assert.equal(decision.promoted, false);
+  for (const score of [0.77, 0.76, 0.78]) await engine.recordInferenceTrial({ settings: candidate, score, case_id: 'stable-case' });
+  decision = await engine.promoteMeasuredInferenceSettings({ current, evidence: { protocol: 'stable-comparison' } });
+  assert.equal(decision.promoted, true);
+  assert.equal(decision.settings.temperature, 0.3);
+  assert.equal((await memory.recent({ kind: 'INFERENCE_SETTINGS' })).length, 1);
+  assert.equal((await engine.report()).inference_trials, 6);
 });
 
 test('LoRA remains draft until corpus is large enough', () => {
