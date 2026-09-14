@@ -37,6 +37,28 @@ test('generic continue does not trigger autonomous development without a clear a
   }
 });
 
+test('ordinary free conversation stays conversation and is not converted into a work capability', async () => {
+  const samples = [
+    'raconte-moi une blague',
+    'parlons de cinéma',
+    'quelle est ton opinion sur les romans de science-fiction ?',
+    'j’ai passé une drôle de journée',
+    'discutons un peu de tout et de rien',
+  ];
+  for (const text of samples) {
+    assert.equal(shouldSemanticIntentCheck(text, ''), false, text);
+    const request = new Request('https://mel/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, conversation_id: 'free-chat' }),
+    });
+    const body = await (await injectEvolutionPreflightCapability(request)).json();
+    assert.equal(body.capability, undefined, text);
+    assert.equal(body.intent_routing, undefined, text);
+    assert.equal(body.text, text);
+  }
+});
+
 test('code integrity requests route to bounded code.integrity', () => {
   for (const text of [
     'vérifie que le code est cohérent',
