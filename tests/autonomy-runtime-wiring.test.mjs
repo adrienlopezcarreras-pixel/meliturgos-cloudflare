@@ -4,20 +4,27 @@ import { readFile } from 'node:fs/promises';
 const wrangler = await readFile('wrangler.jsonc', 'utf8');
 const index = await readFile('src/index.js', 'utf8');
 const learningEntry = await readFile('src/learning-entry.js', 'utf8');
+const uiEntry = await readFile('src/ui-entry.js', 'utf8');
 const runtime = await readFile('src/evolution/autonomy-runtime.js', 'utf8');
 const teacherApi = await readFile('src/teachers/public-teacher-api.js', 'utf8');
 
 const mainMatch = wrangler.match(/"main"\s*:\s*"([^"]+)"/);
 assert.ok(mainMatch, 'Wrangler must declare a Worker entrypoint');
 assert.ok(
-  ['src/index.js', 'src/learning-entry.js'].includes(mainMatch[1]),
-  'Worker entrypoint must be src/index.js or the verified learning wrapper',
+  ['src/index.js', 'src/learning-entry.js', 'src/ui-entry.js'].includes(mainMatch[1]),
+  'Worker entrypoint must be src/index.js or a verified wrapper chain',
 );
 
-if (mainMatch[1] === 'src/learning-entry.js') {
-  assert.match(learningEntry, /import\s+app\s+from\s+["']\.\/index\.js["']/, 'Learning entrypoint must delegate to src/index.js');
-  assert.match(learningEntry, /async\s+fetch\s*\([^)]*\)\s*\{[\s\S]*app\.fetch\(request,\s*learnedEnvironment\(env\),\s*ctx\)/, 'Learning entrypoint fetch() must delegate to index.js');
-  assert.match(learningEntry, /async\s+scheduled\s*\([^)]*\)\s*\{[\s\S]*app\.scheduled\(controller,\s*learnedEnvironment\(env\),\s*ctx\)/, 'Learning entrypoint scheduled() must delegate to index.js');
+assert.match(learningEntry, /import\s+app\s+from\s+["']\.\/index\.js["']/, 'Learning entrypoint must delegate to src/index.js');
+assert.match(learningEntry, /async\s+fetch\s*\([^)]*\)\s*\{[\s\S]*app\.fetch\(request,\s*learnedEnvironment\(env\),\s*ctx\)/, 'Learning entrypoint fetch() must delegate to index.js');
+assert.match(learningEntry, /async\s+scheduled\s*\([^)]*\)\s*\{[\s\S]*app\.scheduled\(controller,\s*learnedEnvironment\(env\),\s*ctx\)/, 'Learning entrypoint scheduled() must delegate to index.js');
+
+if (mainMatch[1] === 'src/ui-entry.js') {
+  assert.match(uiEntry, /import\s+app\s+from\s+["']\.\/learning-entry\.js["']/, 'UI entrypoint must delegate to the verified learning wrapper');
+  assert.match(uiEntry, /app\.fetch\(request,\s*env,\s*ctx\)/, 'UI entrypoint fetch() must delegate to learning-entry.js');
+  assert.match(uiEntry, /app\.scheduled\(controller,\s*env,\s*ctx\)/, 'UI entrypoint scheduled() must delegate to learning-entry.js');
+  assert.match(uiEntry, /mel-owner-contrast-fix/, 'UI entrypoint must keep the owner contrast fix');
+  assert.match(uiEntry, /mel-remove-recall-button/, 'UI entrypoint must remove the redundant recall button');
 }
 
 assert.match(wrangler, /"crons"\s*:\s*\[\s*"[^"]+"\s*\]/, 'At least one autonomy cron must remain configured');
@@ -40,5 +47,7 @@ assert.match(runtime, /reconcileRuntimeCompletions/, 'Runtime tick must reconcil
 assert.match(runtime, /ensureNextJob\(\)/, 'Runtime tick must continue to the next roadmap job');
 assert.match(runtime, /prepareAutonomyTeacherRequest/, 'Runtime tick must be able to create a Teacher request');
 assert.match(runtime, /prepareApprovedImplementationProposal/, 'Runtime tick must prepare MEL implementation work only after Teacher approval');
+assert.match(runtime, /mirrorAllWaitingOwnerChatTeachers/, 'Runtime tick must transport owner-chat Teacher requests instead of hiding them');
+assert.match(runtime, /approveAllWaitingTeachersUnderOwnerMax/, 'MAX mode must sweep all valid WAITING_TEACHER jobs');
 
 console.log('autonomy runtime wiring contract: ok');
