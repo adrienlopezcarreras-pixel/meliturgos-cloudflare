@@ -6,6 +6,9 @@ import { AutonomySupervisor } from '../evolution/autonomy-supervisor.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest, applyRuntimeTeacherReply } from '../teachers/runtime-teacher-bridge.js';
+import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
+import { mirrorOwnerChatTeacherRequestToGitHub } from '../teachers/owner-chat-teacher-mirror.js';
+import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 
 function boundedInspection(value) {
   requireValue(value && value.status === 'COMPLETE' && Array.isArray(value.evidence) && value.evidence.length > 0, 'CODE_INSPECTION_REQUIRED', 422);
@@ -65,6 +68,18 @@ function mergeBridgePlan(job, body) {
   const existingPlan = objectOrEmpty(job?.plan_json);
   const submitted = objectOrEmpty(body?.plan_json);
   return Object.keys(submitted).length ? { ...existingPlan, dev_bridge: submitted } : existingPlan;
+}
+
+async function mirrorTeacherImmediately({ env, repo, job, state, fetchImpl = fetch } = {}) {
+  if (!job || !state) return { status: 'SKIPPED_NO_TEACHER_STATE' };
+  const requester = String(job.requested_by || '').toLowerCase();
+  if (requester.startsWith('owner-chat')) {
+    return mirrorOwnerChatTeacherRequestToGitHub({ env, job, state, fetchImpl });
+  }
+  if (requester === 'mel-autonomy') {
+    return mirrorRuntimeTeacherRequestToGitHub({ env, job, state, fetchImpl });
+  }
+  return { status: 'SKIPPED_UNSUPERVISED_REQUESTER', requested_by: job.requested_by || null };
 }
 
 export function devRuntime(request, env) {
@@ -187,7 +202,24 @@ export function devRuntime(request, env) {
         runtime_generated: true,
         preflight_stage: preflight.stage,
       });
-      return Response.json({ ok: true, job_id: job.id, status: state.status, request: state.request });
+      const persistedJob = await repo.get(job.id);
+      let teacherTransport;
+      try {
+        teacherTransport = await mirrorTeacherImmediately({ env, repo, job: persistedJob, state, fetchImpl: fetch });
+      } catch (error) {
+        teacherTransport = {
+          status: 'FAILED',
+          code: error?.code || error?.message || 'TEACHER_MIRROR_FAILED',
+        };
+      }
+      return Response.json({
+        ok: true,
+        job_id: job.id,
+        status: state.status,
+        request: state.request,
+        teacher_transport: teacherTransport,
+        teacher_pending_visible_in_d1: true,
+      });
     }
 
     if (path === '/api/dev-bridge/teacher/reply' && request.method === 'POST') {
@@ -245,7 +277,33 @@ export function devRuntime(request, env) {
         },
         error: body.error ? String(body.error).slice(0, 500) : null,
       };
-      return Response.json(await repo.update(job.id, patch));
+      const updated = await repo.update(job.id, patch);
+      if (effectiveStatus !== 'READY_FOR_REVIEW' || mergedResult.dev_bridge?.needs_repair === true) {
+        return Response.json(updated);
+      }
+
+      let completionReconciliation;
+      try {
+        completionReconciliation = await reconcileRuntimeCompletions({ repository: repo, env, fetchImpl: fetch });
+      } catch (error) {
+        completionReconciliation = {
+          ok: false,
+          error: error?.code || error?.message || 'COMPLETION_RECONCILE_FAILED',
+          completed: [],
+          rejected: [],
+        };
+      }
+      const refreshed = await repo.get(job.id) || updated;
+      return Response.json({
+        ...refreshed,
+        immediate_completion_reconciliation: {
+          attempted: true,
+          ok: completionReconciliation?.ok !== false,
+          completed: Array.isArray(completionReconciliation?.completed) ? completionReconciliation.completed : [],
+          rejected: Array.isArray(completionReconciliation?.rejected) ? completionReconciliation.rejected : [],
+          error: completionReconciliation?.error || null,
+        },
+      });
     }
 
     if (path === '/api/dev-bridge/commit' && request.method === 'POST') {
@@ -258,4 +316,4 @@ export function devRuntime(request, env) {
   })();
 }
 
-export { mergeBridgeResult, mergeBridgePlan, normalizeBridgeTests, bridgeTestsNeedRepair, bridgeResultFingerprint };
+export { mergeBridgeResult, mergeBridgePlan, normalizeBridgeTests, bridgeTestsNeedRepair, bridgeResultFingerprint, mirrorTeacherImmediately };
