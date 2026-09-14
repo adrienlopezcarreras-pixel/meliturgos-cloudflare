@@ -69,6 +69,8 @@ test('runtime generates live zero-added-cost four-role Council evidence and MEL 
   assert.equal(teacher.request.provenance.producer, 'MEL');
   assert.equal(teacher.request.provenance.job_id, job.id);
   assert.equal(teacher.request.provenance.contract, 'teacher-review/v2');
+  assert.equal(teacher.teacher_pending_visible_in_d1, true);
+  assert.ok(teacher.teacher_transport, 'Teacher handoff must be attempted in the same request');
 });
 
 test('matching SHA-bound runtime Teacher reply resumes candidate development but cannot approve production commit', async () => {
@@ -120,4 +122,32 @@ test('Teacher request cannot be created without a completed live Council', async
     }), env),
     (error) => error?.code === 'AI_PREFLIGHT_REQUIRED',
   );
+});
+
+test('READY_FOR_REVIEW is received and reconciliation is attempted in the same bridge request', async () => {
+  const { env } = envWithAi();
+  env.MEL_TEACHER_COMPLETIONS_URL = 'data:text/plain,';
+  const job = await createJob(env, 'Immediate READY_FOR_REVIEW processing');
+
+  const response = await devRuntime(new Request('http://x/api/dev-bridge/result', {
+    method: 'POST',
+    headers: auth,
+    body: JSON.stringify({
+      job_id: job.id,
+      status: 'READY_FOR_REVIEW',
+      candidate_branch: 'candidate/mel-clean-autonomy',
+      diff_summary: 'bounded candidate change ready for correlated CI review',
+      tests: [{ name: 'targeted', passed: true }],
+    }),
+  }), env);
+
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, 'READY_FOR_REVIEW');
+  assert.equal(body.result_json.dev_bridge.status, 'READY_FOR_REVIEW');
+  assert.ok(body.result_json.dev_bridge.received_at);
+  assert.equal(body.immediate_completion_reconciliation.attempted, true);
+  assert.equal(body.immediate_completion_reconciliation.ok, true);
+  assert.deepEqual(body.immediate_completion_reconciliation.completed, []);
+  assert.deepEqual(body.immediate_completion_reconciliation.rejected, []);
 });
