@@ -3,29 +3,26 @@ import assert from 'node:assert/strict';
 import { enhanceMvpBehavior, MVP_BEHAVIOR_PATCH } from '../src/pages/mvp-behavior-enhancer.js';
 import { buildMelIdentityPrompt } from '../src/identity/mel-persona.js';
 
-test('MVP behavior enhancer injects clickable continuation text and bounded chat retry policy', async () => {
+test('MVP behavior enhancer keeps bounded chat retry policy without injecting obsolete recall UI', async () => {
   const source = new Response('<html><body><textarea id="input"></textarea><div id="messages"></div><button id="send">Envoyer</button></body></html>', {
     headers: { 'content-type': 'text/html; charset=utf-8' }
   });
   const enhanced = await enhanceMvpBehavior(source);
   const html = await enhanced.text();
-  assert.match(html, /Continuer depuis la dernière phrase/);
   assert.match(html, /CHAT_TIMEOUT_MS=120000/);
   assert.match(html, /CHAT_ATTEMPTS=2/);
   assert.match(html, /502,503,504/);
-  assert.match(html, /role','link/);
-  assert.doesNotMatch(html, /<button[^>]*>Continuer depuis la dernière phrase/i);
+  assert.doesNotMatch(html, /Continuer depuis la dernière phrase|Rappeler la dernière conversation|Reprendre la dernière conversation/);
 });
 
-test('MVP final layout keeps only requested controls at bottom', async () => {
+test('MVP final layout keeps only requested controls at bottom and does not recreate the removed title', async () => {
   const source = `<!doctype html><html><body>
     <div class="theme-switch"><button id="themeButton"></button><div id="themePanel"></div></div>
     <main class="app"><div class="avatar-wrap"><div id="avatar"></div></div><div id="voiceStatus">Reconnaissance vocale non disponible dans ce navigateur</div>
     <section class="window"><div id="messages"></div><div class="composer"><textarea id="input"></textarea><div class="drop" id="drop"><input id="fileInput" type="file"></div><div class="controls"><button id="send">Envoyer</button><button id="full">Mode complet</button></div><div id="status"></div></div></section></main>
   </body></html>`;
   const html = await (await enhanceMvpBehavior(new Response(source, { headers: { 'content-type': 'text/html' } }))).text();
-  assert.match(html, /mel-title/);
-  assert.match(html, /title\.textContent='MEL'/);
+  assert.doesNotMatch(html, /mel-title|title\.textContent='MEL'|IA \+ DÉVELOPPEMENT/);
   assert.match(html, /melBottomTools/);
   assert.match(html, /Reconnaissance vocale non disponible dans ce navigateur/);
   assert.match(html, /mel-idle-voice/);
