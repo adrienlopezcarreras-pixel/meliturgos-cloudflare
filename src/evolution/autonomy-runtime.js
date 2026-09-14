@@ -4,10 +4,19 @@ import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { applyOwnerMaxApproval } from '../teachers/owner-max-approval.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
 import { mirrorAllWaitingOwnerChatTeachers } from '../teachers/owner-chat-teacher-mirror.js';
+import { recoverPassiveRuntimeStates } from './passive-state-recovery.js';
 
 export * from './autonomy-runtime-core.js';
 
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
+
+function deployedCandidateSha() {
+  try {
+    return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') : '';
+  } catch {
+    return '';
+  }
+}
 
 function waitingTeacher(job) {
   return String(job?.status || '').toUpperCase() === 'WAITING_TEACHER'
@@ -102,6 +111,21 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   }
 
   const repository = options.repository || new D1DevJobRepository(env.DB);
+  let passiveRecovery = null;
+  try {
+    passiveRecovery = await recoverPassiveRuntimeStates(repository, {
+      canonicalSha: deployedCandidateSha(),
+      limit: 200,
+    });
+  } catch (error) {
+    passiveRecovery = {
+      attempted: 0,
+      recovered: [],
+      failed: [{ job_id: null, code: error?.code || error?.message || 'PASSIVE_RECOVERY_FAILED' }],
+      canonical_sha: deployedCandidateSha() || null,
+    };
+  }
+
   const coreOptions = { ...options, repository };
   const first = await runCoreAutonomyRuntimeTick(env, coreOptions);
 
@@ -139,6 +163,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     return {
       ...first,
       control,
+      passive_recovery: passiveRecovery,
       internal_teacher_mirror: internalTeacherMirror,
       owner_chat_teacher_mirror: ownerChatTeacherMirror,
       owner_max_applied: false,
@@ -152,6 +177,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     return {
       ...first,
       control,
+      passive_recovery: passiveRecovery,
       internal_teacher_mirror: internalTeacherMirror,
       owner_chat_teacher_mirror: ownerChatTeacherMirror,
       owner_max_applied: false,
@@ -163,6 +189,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     return {
       ...first,
       control,
+      passive_recovery: passiveRecovery,
       internal_teacher_mirror: internalTeacherMirror,
       owner_chat_teacher_mirror: ownerChatTeacherMirror,
       owner_max_applied: false,
@@ -174,6 +201,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   return {
     ...second,
     control,
+    passive_recovery: passiveRecovery,
     internal_teacher_mirror: internalTeacherMirror,
     owner_chat_teacher_mirror: ownerChatTeacherMirror,
     owner_max_applied: true,
