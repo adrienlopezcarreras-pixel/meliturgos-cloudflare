@@ -3,7 +3,7 @@ import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, isSupervisedAutonomyJob } from './autonomy-supervisor.js';
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 import { getAutonomyReadiness } from './autonomy-readiness.js';
-import { getAutonomyControl, setAutonomyControl } from './autonomy-control.js';
+import { getAutonomyControl, setAutonomyControl, setOwnerMaxAutonomy } from './autonomy-control.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
@@ -24,6 +24,7 @@ function safeJob(job) {
       status: bridge.status || null,
       request_id: bridge.request?.request_id || bridge.review?.request_id || null,
       verdict: bridge.review?.verdict || null,
+      owner_override: bridge.review?.owner_override === true,
     } : null,
     completion: completion ? {
       status: completion.status || null,
@@ -68,7 +69,7 @@ export async function getAutonomyState(env, { repository = null } = {}) {
   const recent = autonomyJobs.slice().sort((a, b) => Number(b.updated_at || 0) - Number(a.updated_at || 0)).slice(0, 20).map(safeJob);
   return {
     ok: true,
-    mode: 'SUPERVISED_AUTONOMY',
+    mode: control.max_autonomy ? 'OWNER_MAX_AUTONOMY' : 'SUPERVISED_AUTONOMY',
     candidate_only: true,
     zero_added_cost: true,
     runtime_schedule: '*/15 * * * *',
@@ -106,12 +107,20 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   const isTick = url.pathname === '/api/gen2/autonomy/tick';
   const isPause = url.pathname === '/api/gen2/autonomy/pause';
   const isResume = url.pathname === '/api/gen2/autonomy/resume';
-  if (!isPublicControl && !isState && !isTick && !isPause && !isResume) return null;
+  const isMax = url.pathname === '/api/gen2/autonomy/max' || url.pathname === '/api/gen2/autonomy/owner-max';
+  if (!isPublicControl && !isState && !isTick && !isPause && !isResume && !isMax) return null;
 
   if (isPublicControl) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
     const control = await getAutonomyControl(env.DB);
-    return Response.json({ ok: true, paused: control.paused === true, status: control.status, updated_at: control.updated_at }, { headers: { 'cache-control': 'no-store' } });
+    return Response.json({
+      ok: true,
+      paused: control.paused === true,
+      max_autonomy: control.max_autonomy === true,
+      owner_override: control.owner_override === true,
+      status: control.status,
+      updated_at: control.updated_at,
+    }, { headers: { 'cache-control': 'no-store' } });
   }
 
   const auth = requireAuth(request, env);
@@ -130,7 +139,19 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     const control = await setAutonomyControl(env.DB, {
       paused: isPause,
       source: 'owner-ui',
-      reason: isPause ? (body?.reason || 'red-stop-button') : 'owner-resume',
+      reason: isPause ? (body?.reason || 'owner-emergency-stop') : null,
+    });
+    const state = await getAutonomyState(env, { repository: repo });
+    return Response.json({ ok: true, control, state }, { headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (isMax) {
+    const body = await request.clone().json().catch(() => ({}));
+    const enabled = body?.enabled !== false;
+    const control = await setOwnerMaxAutonomy(env.DB, {
+      enabled,
+      source: 'owner-ui',
+      reason: enabled ? 'owner-max-autonomy' : null,
     });
     const state = await getAutonomyState(env, { repository: repo });
     return Response.json({ ok: true, control, state }, { headers: { 'cache-control': 'no-store' } });
