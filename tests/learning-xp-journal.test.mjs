@@ -52,15 +52,27 @@ test('XP gain is awarded only from canonical evidence plus durable artifact', as
   assert.equal(second.awarded, true);
 });
 
-test('XP is not awarded without durable proof or on regression', async () => {
+test('canonical XP never regresses or advances without durable proof', async () => {
   const memory = new Memory();
-  await recordLearningXpCheckpoint({ memory, report: report(2, 0), artifacts: ['ci:baseline'] });
+  const baseline = await recordLearningXpCheckpoint({ memory, report: report(2, 0), artifacts: ['ci:baseline'] });
+  assert.equal(baseline.xp_after, 200);
+
   const noProof = await recordLearningXpCheckpoint({ memory, report: report(2, 1), artifacts: [] });
+  assert.equal(noProof.observed_xp, 210);
   assert.equal(noProof.measured_delta, 10);
+  assert.equal(noProof.xp_after, 200);
   assert.equal(noProof.xp_delta, 0);
   assert.equal(noProof.awarded, false);
 
   const regression = await recordLearningXpCheckpoint({ memory, report: report(1, 0), artifacts: ['ci:regression'] });
+  assert.equal(regression.observed_xp, 100);
+  assert.equal(regression.xp_after, 200);
   assert.equal(regression.xp_delta, 0);
   assert.equal(regression.awarded, false);
+
+  const recoveredWithProof = await recordLearningXpCheckpoint({ memory, report: report(2, 1), artifacts: ['benchmark:verified-run'] });
+  assert.equal(recoveredWithProof.xp_before, 200);
+  assert.equal(recoveredWithProof.xp_after, 210);
+  assert.equal(recoveredWithProof.xp_delta, 10);
+  assert.equal(recoveredWithProof.awarded, true);
 });
