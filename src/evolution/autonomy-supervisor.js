@@ -50,6 +50,18 @@ function isPassiveRuntimeJob(job) {
   return status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair !== true;
 }
 
+function hasLiveExternalProgress(job) {
+  const status = String(job?.status || '').toUpperCase();
+  if (status === 'WAITING_TEACHER') {
+    return job?.result_json?.teacher_bridge?.status === 'WAITING_TEACHER';
+  }
+  if (status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair !== true) {
+    return job?.result_json?.teacher_bridge?.status === 'ANSWERED'
+      && job?.result_json?.dev_bridge?.status === 'READY_FOR_REVIEW';
+  }
+  return false;
+}
+
 function executionReadyRank(job) {
   const status = String(job?.status || '').toUpperCase();
   // Already-approved implementation or an explicit repair can make concrete
@@ -164,15 +176,19 @@ export class AutonomySupervisor {
       .sort(compareActiveJobs)[0];
     if (actionable) return { created: false, job: actionable, next: current.next };
 
-    // An internal roadmap job that is passively waiting for Teacher or external
-    // completion evidence is still the current roadmap gate: do not create a
-    // second internal roadmap job in parallel. By contrast, passive owner-chat
-    // work remains untouched while MEL may advance the next background item.
+    // Teacher and CI/review are validation lanes, not global scheduler locks.
+    // A genuinely mirrored WAITING_TEACHER job or an approved candidate already
+    // waiting for external CI/completion evidence remains persisted and keeps
+    // reconciling, while MEL may start the next compatible roadmap item. This
+    // is normal supervised operation; MAX autonomy is only the failover path if
+    // the Teacher/development channel becomes unavailable.
     const passiveInternal = current.active
       .filter(isSupervisedAutonomyJob)
       .filter((job) => isPassiveRuntimeJob(job) && job.requested_by === 'mel-autonomy')
       .sort(compareActiveJobs)[0];
-    if (passiveInternal) return { created: false, job: passiveInternal, next: current.next };
+    if (passiveInternal && !hasLiveExternalProgress(passiveInternal)) {
+      return { created: false, job: passiveInternal, next: current.next };
+    }
 
     if (!current.next) {
       const passiveOwner = current.active
