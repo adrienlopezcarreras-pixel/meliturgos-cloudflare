@@ -1,3 +1,5 @@
+import { enhanceFullModeControls } from './full-mode-control-enhancer.js';
+
 export const MVP_BEHAVIOR_PATCH = `<style id="mel-mvp-behavior-style">
 .mel-title{margin:0 0 4px;text-align:center;font-size:clamp(1.45rem,4vw,2rem);letter-spacing:.12em;font-weight:850;color:#fff;text-shadow:0 2px 18px rgba(0,0,0,.45)}
 .mel-mode-label{margin:0 0 9px;text-align:center;font-size:.72rem;letter-spacing:.12em;font-weight:800;color:rgba(255,255,255,.8);text-transform:uppercase}
@@ -26,7 +28,11 @@ export const MVP_BEHAVIOR_PATCH = `<style id="mel-mvp-behavior-style">
 export async function enhanceMvpBehavior(response) {
   if (!(response instanceof Response)) return response;
   const type=response.headers.get('content-type')||'';if(!type.includes('text/html'))return response;
-  const html=await response.text();if(!html.includes('id="input"'))return new Response(html,{status:response.status,statusText:response.statusText,headers:response.headers});
+  const html=await response.text();
+  if(html.includes('data-panel="chat"')&&html.includes('id="chatInput"')){
+    return enhanceFullModeControls(new Response(html,{status:response.status,statusText:response.statusText,headers:response.headers}));
+  }
+  if(!html.includes('id="input"'))return new Response(html,{status:response.status,statusText:response.statusText,headers:response.headers});
   if(html.includes('mel-mvp-behavior-runtime'))return new Response(html,{status:response.status,statusText:response.statusText,headers:response.headers});
   const body=html.includes('</body>')?html.replace('</body>',`${MVP_BEHAVIOR_PATCH}</body>`):html+MVP_BEHAVIOR_PATCH;const headers=new Headers(response.headers);headers.set('content-length',String(new TextEncoder().encode(body).length));return new Response(body,{status:response.status,statusText:response.statusText,headers});
 }
