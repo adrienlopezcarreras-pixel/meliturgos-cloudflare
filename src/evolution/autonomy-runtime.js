@@ -7,6 +7,9 @@ export * from './autonomy-runtime-core.js';
 
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
 
+// Delegated core invariant remains unchanged inside autonomy-runtime-core.js:
+// reconcileRuntimeTeacherReplies -> reconcileRuntimeCompletions -> ensureNextJob()
+// -> prepareAutonomyTeacherRequest -> prepareApprovedImplementationProposal.
 // Emergency pause always wins. MAX autonomy may only bypass a missing Teacher
 // after the normal Council + code-inspection request exists. It never promotes
 // or deploys production; the release pipeline remains separately gated.
