@@ -22,13 +22,19 @@ export async function applyOwnerMaxApproval(repository, jobId, { source = 'owner
 
   const request = bridge.request || {};
   const requestId = cleanText(request.request_id, 300);
-  const targetSha = cleanText(request.target_sha || request?.candidate?.sha, 80).toLowerCase();
+  const targetSha = cleanText(request.target_sha, 80).toLowerCase();
+  const candidateSha = cleanText(request?.candidate?.sha, 80).toLowerCase();
+  const evidenceSha = cleanText(bridge?.evidence?.candidate_sha, 80).toLowerCase();
   const candidateBranch = cleanText(request?.candidate?.branch, 300);
   const councilComplete = request?.provenance?.source === 'MEL_RUNTIME_CRON'
     || request?.stage === 'TEACHER_REVIEW_REQUIRED'
     || Array.isArray(request?.requested_review);
+  const shaCorrelated = SHA40.test(targetSha)
+    && SHA40.test(candidateSha)
+    && targetSha === candidateSha
+    && (!evidenceSha || (SHA40.test(evidenceSha) && evidenceSha === candidateSha));
 
-  if (!requestId || !SHA40.test(targetSha) || !candidateBranch.startsWith('candidate/') || !councilComplete) {
+  if (!requestId || !shaCorrelated || !candidateBranch.startsWith('candidate/') || !councilComplete) {
     throw Object.assign(new Error('OWNER_MAX_PREFLIGHT_EVIDENCE_REQUIRED'), { code: 'OWNER_MAX_PREFLIGHT_EVIDENCE_REQUIRED', status: 422 });
   }
 
