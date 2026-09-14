@@ -3,6 +3,7 @@ import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { AutonomySupervisor, isSupervisedAutonomyJob } from './autonomy-supervisor.js';
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 import { getAutonomyReadiness } from './autonomy-readiness.js';
+import { getAutonomyControl, setAutonomyControl } from './autonomy-control.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
@@ -13,6 +14,7 @@ function safeJob(job) {
   const workProof = job?.result_json?.autonomy_proofs?.work_dag_resume || null;
   return {
     id: String(job?.id || ''),
+    goal: String(job?.goal || '').slice(0, 500),
     status: String(job?.status || ''),
     requested_by: String(job?.requested_by || ''),
     roadmap_id: job?.optional_context?.roadmap_id || null,
@@ -57,10 +59,14 @@ function safeRoadmapItem(item) {
 export async function getAutonomyState(env, { repository = null } = {}) {
   const repo = repository || new D1DevJobRepository(env.DB);
   const supervisor = new AutonomySupervisor({ repository: repo });
-  const state = await supervisor.state();
-  const readiness = await getAutonomyReadiness({ repository: repo });
+  const [state, readiness, control] = await Promise.all([
+    supervisor.state(),
+    getAutonomyReadiness({ repository: repo }),
+    getAutonomyControl(env.DB),
+  ]);
   const autonomyJobs = state.jobs.filter(isSupervisedAutonomyJob);
   const active = autonomyJobs.filter((job) => !TERMINAL.has(String(job.status || '').toUpperCase()));
+  const recent = autonomyJobs.slice().sort((a, b) => Number(b.updated_at || 0) - Number(a.updated_at || 0)).slice(0, 20).map(safeJob);
   return {
     ok: true,
     mode: 'SUPERVISED_AUTONOMY',
@@ -70,6 +76,7 @@ export async function getAutonomyState(env, { repository = null } = {}) {
     repository: env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare',
     candidate_branch: env.MEL_TEACHER_BRANCH || CANONICAL_CANDIDATE_BRANCH,
     deployed_code_branch: env.MEL_GITHUB_BRANCH || null,
+    control,
     readiness: {
       status: readiness.status,
       self_development_ready: readiness.self_development_ready,
@@ -87,24 +94,31 @@ export async function getAutonomyState(env, { repository = null } = {}) {
       teacher_approved: autonomyJobs.filter((job) => String(job.status || '').toUpperCase() === 'TEACHER_APPROVED').length,
       failed: autonomyJobs.filter((job) => String(job.status || '').toUpperCase() === 'FAILED').length,
     },
-    active_jobs: active
-      .slice()
-      .sort((a, b) => (a?.requested_by === 'owner-chat' ? 0 : 1) - (b?.requested_by === 'owner-chat' ? 0 : 1) || Number(a.created_at || 0) - Number(b.created_at || 0))
-      .map(safeJob),
+    active_jobs: active.slice().sort((a, b) => (a?.requested_by === 'owner-chat' ? 0 : 1) - (b?.requested_by === 'owner-chat' ? 0 : 1) || Number(a.created_at || 0) - Number(b.created_at || 0)).map(safeJob),
+    recent_activity: recent,
     next: safeRoadmapItem(state.next),
   };
 }
 
 /**
- * Authenticated operator API. GET is diagnostic only; POST tick runs the same
- * bounded candidate-only heartbeat as the scheduled cron. It does not deploy,
- * alter auth/DNS/billing, or bypass Teacher/CI gates.
+ * Operator API. The read-only /control endpoint intentionally exposes only the
+ * emergency pause bit so external supervised workers can obey the same red
+ * button. State, pause, resume and tick remain authenticated.
  */
 export async function maybeHandleAutonomyApi(request, env, { repository = null, fetchImpl = fetch } = {}) {
   const url = new URL(request.url);
+  const isPublicControl = url.pathname === '/api/gen2/autonomy/control';
   const isState = url.pathname === '/api/gen2/autonomy/state' || url.pathname === '/api/gen2/autonomy/status';
   const isTick = url.pathname === '/api/gen2/autonomy/tick';
-  if (!isState && !isTick) return null;
+  const isPause = url.pathname === '/api/gen2/autonomy/pause';
+  const isResume = url.pathname === '/api/gen2/autonomy/resume';
+  if (!isPublicControl && !isState && !isTick && !isPause && !isResume) return null;
+
+  if (isPublicControl) {
+    if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
+    const control = await getAutonomyControl(env.DB);
+    return Response.json({ ok: true, paused: control.paused === true, status: control.status, updated_at: control.updated_at }, { headers: { 'cache-control': 'no-store' } });
+  }
 
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
@@ -116,6 +130,18 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
 
   if (request.method !== 'POST') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'POST' } });
   const repo = repository || new D1DevJobRepository(env.DB);
+
+  if (isPause || isResume) {
+    const body = await request.clone().json().catch(() => ({}));
+    const control = await setAutonomyControl(env.DB, {
+      paused: isPause,
+      source: 'owner-ui',
+      reason: isPause ? (body?.reason || 'red-stop-button') : 'owner-resume',
+    });
+    const state = await getAutonomyState(env, { repository: repo });
+    return Response.json({ ok: true, control, state }, { headers: { 'cache-control': 'no-store' } });
+  }
+
   const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl });
   const state = await getAutonomyState(env, { repository: repo });
   return Response.json({ ok: true, tick, state }, { headers: { 'cache-control': 'no-store' } });
