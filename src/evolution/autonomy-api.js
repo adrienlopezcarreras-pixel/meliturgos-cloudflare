@@ -153,8 +153,16 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       source: 'owner-ui',
       reason: enabled ? 'owner-max-autonomy' : null,
     });
+    // MAX must not merely set a flag and then leave owner jobs parked until the
+    // next cron. Run one bounded autonomy heartbeat immediately. The runtime
+    // itself keeps the Council/candidate evidence gates and production release
+    // lock, while OWNER MAX can advance valid WAITING_TEACHER work internally.
+    let tick = null;
+    if (enabled) {
+      tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl });
+    }
     const state = await getAutonomyState(env, { repository: repo });
-    return Response.json({ ok: true, control, state }, { headers: { 'cache-control': 'no-store' } });
+    return Response.json({ ok: true, control, tick, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
   const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl });
