@@ -4,11 +4,17 @@ import religious from './avatar-data-religious.js';
 import aviation from './avatar-data-aviation.js';
 import paladin from './avatar-data-paladin.js';
 import amazon from './avatar-data-amazon.js';
+import fullAvatar from '../assets/generated/full-avatar.js';
+import bgCrusade from '../assets/generated/mel-bg-crusade.js';
+import bgReligious from '../assets/generated/mel-bg-religious.js';
+import bgGranada from '../assets/generated/mel-bg-granada.js';
+import bgAviation from '../assets/generated/mel-bg-aviation.js';
+import bgPaladin from '../assets/generated/mel-bg-paladin.js';
+import bgAmazon from '../assets/generated/mel-bg-amazon.js';
 
-// Stable theme routes are interface contracts. Granada currently reuses the
-// approved Andalusian religious portrait; Aviation, Paladin and Amazon now use
-// their dedicated owner-approved embedded portraits.
-const AVATAR_BASE64 = Object.freeze({
+// Normal-mode portraits stay exactly as approved. Only the full-mode portrait
+// and generated theme backgrounds are served from the newly generated assets.
+const ASSET_BASE64 = Object.freeze({
   classic,
   crusade,
   religious,
@@ -16,6 +22,13 @@ const AVATAR_BASE64 = Object.freeze({
   aviation,
   paladin,
   amazon,
+  fullAvatar,
+  bgCrusade,
+  bgReligious,
+  bgGranada,
+  bgAviation,
+  bgPaladin,
+  bgAmazon,
 });
 
 const ROUTES = Object.freeze({
@@ -26,6 +39,13 @@ const ROUTES = Object.freeze({
   '/assets/avatars/mel-aviation-1940s.webp': 'aviation',
   '/assets/avatars/mel-paladin-light-full-plate.webp': 'paladin',
   '/assets/avatars/mel-amazon-griffon.webp': 'amazon',
+  '/assets/avatars/mel-full.webp': 'fullAvatar',
+  '/assets/backgrounds/mel-bg-crusade.webp': 'bgCrusade',
+  '/assets/backgrounds/mel-bg-religious.webp': 'bgReligious',
+  '/assets/backgrounds/mel-bg-granada.webp': 'bgGranada',
+  '/assets/backgrounds/mel-bg-aviation.webp': 'bgAviation',
+  '/assets/backgrounds/mel-bg-paladin.webp': 'bgPaladin',
+  '/assets/backgrounds/mel-bg-amazon.webp': 'bgAmazon',
 });
 
 const THEME_ROUTES = Object.freeze({
@@ -52,13 +72,11 @@ export function getMelAvatarRoute(theme = 'classic') {
 export function serveMelAvatar(pathname) {
   const key = ROUTES[String(pathname || '')];
   if (!key) return null;
-  return new Response(decodeBase64(AVATAR_BASE64[key]), {
+  return new Response(decodeBase64(ASSET_BASE64[key]), {
     headers: {
       'content-type': 'image/webp',
-      // Keep development-safe caching: theme URLs are stable contracts, so immutable
-      // year-long caching can make a corrected portrait look permanently stale.
       'cache-control': 'public,max-age=300,must-revalidate',
-      'x-mel-avatar': key,
+      'x-mel-asset': key,
       'x-mel-avatar-fallback': key === 'granada' ? 'religious' : 'none',
     },
   });
