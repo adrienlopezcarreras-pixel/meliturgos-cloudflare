@@ -77,6 +77,7 @@ export function serveMelAvatar(pathname) {
       'content-type': 'image/webp',
       'cache-control': 'public,max-age=300,must-revalidate',
       'x-mel-asset': key,
+      'x-mel-avatar': key,
       'x-mel-avatar-fallback': key === 'granada' ? 'religious' : 'none',
     },
   });
