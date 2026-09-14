@@ -9,7 +9,7 @@
     "logs": { "head_sampling_rate": 1 }
   },
   "triggers": {
-    "crons": ["*/15 * * * *"]
+    "crons": ["* * * * *"]
   },
   "ai": {
     "binding": "AI"
