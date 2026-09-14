@@ -1,119 +1,75 @@
 const MVP_BEHAVIOR_PATCH = `<style id="mel-mvp-behavior-style">
-/* Final simple-mode layout: MEL alone at the top; chat and development share one surface. */
-.mel-title{margin:0 0 3px;text-align:center;font-size:clamp(1.5rem,4vw,2.05rem);line-height:1;letter-spacing:.12em;font-weight:850;color:#fff;text-shadow:0 2px 18px rgba(0,0,0,.44)}
-.mel-mode-label{margin:0 0 9px;text-align:center;font-size:.74rem;line-height:1.2;letter-spacing:.12em;font-weight:800;color:rgba(255,255,255,.82);text-transform:uppercase}
-.app:before,.app:after{display:none!important;content:none!important}
-.theme-switch{display:none!important}
-.mel-bottom-tools .theme-switch{display:block!important;position:relative!important;top:auto!important;left:auto!important;z-index:50!important;width:max-content!important}
-.mel-bottom-tools .theme-orb{width:44px!important;height:44px!important;font-size:20px!important}
-.mel-bottom-tools .theme-panel{top:auto!important;bottom:52px!important;left:0!important;max-height:min(68vh,560px)!important}
-#voiceStatus.mel-idle-voice{display:none!important}
-.controls{display:grid!important;grid-template-columns:1fr!important;max-width:none!important}
-.controls #send{width:100%!important}
-.drop{display:block!important}
-#fileInput{display:none!important}
-.mel-continue-row{min-height:22px;margin:2px 2px 4px;display:flex;align-items:center}
-.mel-continue-link{display:none;color:var(--accent);font-size:.84rem;font-weight:700;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;cursor:pointer;user-select:none}
-.mel-continue-link.visible{display:inline}
-.mel-continue-link:hover{filter:brightness(1.16)}
-.mel-continue-link:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
-.mel-bottom-tools{display:grid;grid-template-columns:1fr;gap:9px;align-items:start;margin:12px 0 0}
-.mel-bottom-tools #full{grid-column:1/-1;width:100%;min-height:46px;font-weight:800}
-.mel-ops{position:fixed;top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right));z-index:130;display:flex;align-items:center;gap:8px;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
-.mel-stop,.mel-activity-toggle{border:1px solid rgba(255,255,255,.34)!important;box-shadow:0 9px 30px rgba(0,0,0,.38)!important;font-weight:900!important;letter-spacing:.035em!important;cursor:pointer!important}
-.mel-stop{min-width:86px;height:48px;padding:0 14px!important;border-radius:999px!important;background:#bd1717!important;color:#fff!important}
-.mel-stop:hover{background:#dc2020!important}.mel-stop.paused{background:#216a3b!important}.mel-stop.pending{opacity:.62;pointer-events:none}
-.mel-activity-toggle{height:48px;padding:0 14px!important;border-radius:999px!important;background:rgba(16,19,26,.88)!important;color:#fff!important}
-.mel-activity-dot{display:inline-block;width:9px;height:9px;margin-right:7px;border-radius:50%;background:#44cf72;box-shadow:0 0 0 3px rgba(68,207,114,.16)}
-.mel-activity-dot.paused{background:#ffbf3f;box-shadow:0 0 0 3px rgba(255,191,63,.17)}.mel-activity-dot.error{background:#f05252}
-.mel-activity-panel{position:fixed;top:72px;right:12px;z-index:129;width:min(440px,calc(100vw - 24px));max-height:min(72vh,700px);overflow:auto;padding:16px;border:1px solid rgba(255,255,255,.2);border-radius:18px;background:rgba(13,15,21,.96);color:#f6f2e9;box-shadow:0 24px 80px rgba(0,0,0,.55);font-family:Inter,ui-sans-serif,system-ui,sans-serif;display:none}
-.mel-activity-panel.open{display:block}.mel-activity-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}.mel-activity-head strong{font-size:1.04rem}.mel-activity-close{border:0!important;background:transparent!important;color:#fff!important;font-size:24px!important;padding:2px 8px!important;cursor:pointer}.mel-activity-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}.mel-metric{padding:10px;border-radius:12px;background:rgba(255,255,255,.07);text-align:center}.mel-metric b{display:block;font-size:1.25rem}.mel-metric span{font-size:.7rem;opacity:.74}.mel-activity-status{padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.06);margin-bottom:10px;font-size:.84rem;line-height:1.45}.mel-job{padding:10px 0;border-top:1px solid rgba(255,255,255,.1);font-size:.78rem;line-height:1.42}.mel-job b{display:block;font-size:.82rem}.mel-job code{font-size:.7rem;opacity:.75}.mel-activity-refresh{width:100%;margin-top:10px!important;min-height:40px!important;background:rgba(255,255,255,.09)!important;color:#fff!important;border:1px solid rgba(255,255,255,.18)!important;border-radius:10px!important;font-weight:750!important}
-@media(max-width:700px){.mel-title{font-size:1.42rem;margin-bottom:3px}.mel-mode-label{font-size:.66rem}.avatar{width:min(43vw,172px)!important;height:min(43vw,172px)!important;min-width:136px!important;min-height:136px!important}.avatar-wrap:before{width:180px!important;height:180px!important}#messages{min-height:210px!important}.mel-bottom-tools{grid-template-columns:1fr;gap:7px}.mel-bottom-tools .theme-panel{width:min(300px,calc(100vw - 18px))!important}.mel-ops{top:max(8px,env(safe-area-inset-top));right:max(8px,env(safe-area-inset-right));gap:5px}.mel-stop,.mel-activity-toggle{height:42px!important;padding:0 10px!important;font-size:.72rem!important}.mel-stop{min-width:68px}.mel-activity-panel{top:58px;right:8px;width:calc(100vw - 16px);max-height:75vh}.mel-activity-summary{grid-template-columns:repeat(3,1fr)}}
+.mel-title{margin:0 0 4px;text-align:center;font-size:clamp(1.45rem,4vw,2rem);letter-spacing:.12em;font-weight:850;color:#fff;text-shadow:0 2px 18px rgba(0,0,0,.45)}
+.mel-mode-label{margin:0 0 9px;text-align:center;font-size:.72rem;letter-spacing:.12em;font-weight:800;color:rgba(255,255,255,.8);text-transform:uppercase}
+.mel-ops{position:fixed;top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));z-index:140;display:flex;gap:7px;align-items:center;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
+.mel-max,.mel-stop,.mel-activity-toggle{height:46px;border-radius:999px!important;padding:0 13px!important;border:1px solid rgba(255,255,255,.3)!important;color:#fff!important;font-weight:900!important;box-shadow:0 8px 28px rgba(0,0,0,.38)!important;cursor:pointer!important}
+.mel-max{min-width:94px;background:#c31515!important;letter-spacing:.035em}.mel-max:hover,.mel-max.active{background:#e21d1d!important;box-shadow:0 0 0 4px rgba(239,68,68,.2),0 10px 34px rgba(0,0,0,.4)!important}.mel-max.active::before{content:'● ';color:#fff}
+.mel-stop{background:rgba(31,41,55,.94)!important}.mel-stop.paused{background:#a16207!important}.mel-activity-toggle{background:rgba(12,18,28,.92)!important;font-weight:800!important}
+.mel-max.pending,.mel-stop.pending{opacity:.6;pointer-events:none}.mel-activity-dot{display:inline-block;width:9px;height:9px;margin-right:6px;border-radius:50%;background:#46d17a;box-shadow:0 0 0 3px rgba(70,209,122,.15)}.mel-activity-dot.paused{background:#fbbf24}.mel-activity-dot.max{background:#ef4444}.mel-activity-dot.error{background:#f87171}
+.mel-activity-panel{position:fixed;top:66px;right:10px;z-index:139;width:min(440px,calc(100vw - 20px));max-height:min(74vh,700px);overflow:auto;padding:15px;border:1px solid rgba(255,255,255,.18);border-radius:17px;background:rgba(10,14,21,.97);color:#f8fafc;box-shadow:0 24px 80px rgba(0,0,0,.55);display:none;font-family:Inter,ui-sans-serif,system-ui,sans-serif}.mel-activity-panel.open{display:block}.mel-activity-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:11px}.mel-activity-close{border:0!important;background:transparent!important;color:#fff!important;font-size:22px!important;padding:3px 7px!important}.mel-activity-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:10px}.mel-metric{padding:9px;border-radius:11px;background:rgba(255,255,255,.065);text-align:center}.mel-metric b{display:block;font-size:1.18rem}.mel-metric span{font-size:.69rem;opacity:.7}.mel-activity-status,.mel-job{padding:9px 10px;border-radius:11px;background:rgba(255,255,255,.055);margin:7px 0;font-size:.8rem;line-height:1.42}.mel-job{border-left:3px solid rgba(96,165,250,.5)}.mel-activity-refresh{width:100%;margin-top:9px!important;background:rgba(255,255,255,.09)!important;color:#fff!important}
+.mel-recall-row{display:grid;grid-template-columns:1fr;gap:7px;margin-top:8px}.mel-recall{width:100%;background:rgba(255,255,255,.07)!important;color:var(--button-text)!important;border:1px solid var(--border)!important;font-weight:750!important}.mel-continue-link{display:none;margin:5px 1px 0;color:var(--accent);font-size:.82rem;font-weight:750;text-decoration:underline;cursor:pointer}.mel-continue-link.visible{display:inline-block}
+@media(max-width:700px){.mel-ops{top:max(7px,env(safe-area-inset-top));right:max(7px,env(safe-area-inset-right));gap:4px}.mel-max,.mel-stop,.mel-activity-toggle{height:40px!important;padding:0 9px!important;font-size:.69rem!important}.mel-max{min-width:73px}.mel-activity-panel{top:54px;right:7px;width:calc(100vw - 14px)}.mel-title{font-size:1.35rem}}
 </style><script id="mel-mvp-behavior-runtime">
 (function(){
-  const CHAT_TIMEOUT_MS=120000;
-  const CHAT_ATTEMPTS=2;
-  const RETRYABLE_STATUS=new Set([502,503,504]);
+  const CHAT_TIMEOUT_MS=120000,CHAT_ATTEMPTS=2,RETRYABLE=new Set([502,503,504]);
   const CONTINUE_TEXT='Continue exactement à partir de ta dernière phrase, sans répéter ce qui précède. Termine complètement ta réponse.';
-  let autonomyState=null;
-  let activityTimer=null;
-
-  function timeoutSignal(){try{return typeof AbortSignal!=='undefined'&&typeof AbortSignal.timeout==='function'?AbortSignal.timeout(CHAT_TIMEOUT_MS):undefined}catch{return undefined}}
-  function esc(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
-  function shortSha(value){const v=String(value||'');return v?v.slice(0,8):'—'}
-  function age(value){const n=Number(value||0);if(!n)return '—';const d=Math.max(0,Date.now()-n);if(d<60000)return 'à l’instant';if(d<3600000)return Math.floor(d/60000)+' min';if(d<86400000)return Math.floor(d/3600000)+' h';return Math.floor(d/86400000)+' j'}
+  let autonomyState=null,activityTimer=null;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  function timeoutSignal(){try{return AbortSignal?.timeout?AbortSignal.timeout(CHAT_TIMEOUT_MS):undefined}catch{return undefined}}
 
   function patchChatTimeout(){
-    const nativeFetch=window.fetch&&window.fetch.bind(window);if(!nativeFetch||window.__melLongChatFetchPatched)return;window.__melLongChatFetchPatched=true;
-    window.fetch=async function(input,init){const url=typeof input==='string'?input:String(input&&input.url||'');if(!url.includes('/api/chat'))return nativeFetch(input,init);let lastError=null;for(let attempt=1;attempt<=CHAT_ATTEMPTS;attempt++){const next={...(init||{})};const signal=timeoutSignal();if(signal)next.signal=signal;else delete next.signal;try{const response=await nativeFetch(input,next);if(!RETRYABLE_STATUS.has(response.status)||attempt===CHAT_ATTEMPTS)return response;lastError=new Error('HTTP_'+response.status)}catch(error){lastError=error;if(attempt===CHAT_ATTEMPTS)throw error}}throw lastError||new Error('CHAT_RETRY_EXHAUSTED')};
+    if(window.__melLongChatFetchPatched||!window.fetch)return;const nativeFetch=window.fetch.bind(window);window.__melLongChatFetchPatched=true;
+    window.fetch=async function(input,init){const url=typeof input==='string'?input:String(input?.url||'');if(!url.includes('/api/chat'))return nativeFetch(input,init);let last;for(let attempt=1;attempt<=CHAT_ATTEMPTS;attempt++){const next={...(init||{})};const signal=timeoutSignal();if(signal)next.signal=signal;try{const response=await nativeFetch(input,next);if(!RETRYABLE.has(response.status)||attempt===CHAT_ATTEMPTS)return response;last=new Error('HTTP_'+response.status)}catch(error){last=error;if(attempt===CHAT_ATTEMPTS)throw error}}throw last||new Error('CHAT_RETRY_EXHAUSTED')};
   }
 
-  function normalizeUserLabels(root=document){root.querySelectorAll&&root.querySelectorAll('.who').forEach(node=>{const text=String(node.textContent||'');if(/^Vous(?:\\s*·.*)?$/i.test(text))node.textContent=text.replace(/^Vous/i,'Adrien')})}
+  function normalizeUserLabels(root=document){root.querySelectorAll?.('.who').forEach(node=>{const text=String(node.textContent||'');if(/^Vous(?:\\s*·.*)?$/i.test(text))node.textContent=text.replace(/^Vous/i,'Adrien')})}
 
-  function installContinueLink(){
-    const input=document.getElementById('input'),send=document.getElementById('send'),messages=document.getElementById('messages');if(!input||!send||!messages||document.getElementById('melContinueLink'))return;
-    const row=document.createElement('div');row.className='mel-continue-row';const link=document.createElement('span');link.id='melContinueLink';link.className='mel-continue-link';link.tabIndex=0;link.setAttribute('role','link');link.textContent='Continuer depuis la dernière phrase';row.appendChild(link);input.insertAdjacentElement('afterend',row);let lastMelText='';
-    const refresh=()=>{const mel=[...messages.querySelectorAll('.msg.mel')].at(-1);if(mel){const copy=mel.querySelector('div:last-child');lastMelText=String(copy?.textContent||mel.textContent||'').trim()}link.classList.toggle('visible',Boolean(lastMelText));normalizeUserLabels(messages)};
-    const continueFromLast=()=>{if(!lastMelText)return;input.value=CONTINUE_TEXT;input.dispatchEvent(new Event('input',{bubbles:true}));link.classList.remove('visible');send.click()};link.addEventListener('click',continueFromLast);link.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();continueFromLast()}});new MutationObserver(refresh).observe(messages,{childList:true,subtree:true,characterData:true});refresh();
+  function installHeader(){const app=document.querySelector('.app'),avatar=document.querySelector('.avatar-wrap');if(!app||!avatar||document.getElementById('melTitle'))return;const h=document.createElement('h1');h.id='melTitle';h.className='mel-title';h.textContent='MEL';const mode=document.createElement('div');mode.className='mel-mode-label';mode.textContent='IA + Développement';app.insertBefore(h,avatar);h.insertAdjacentElement('afterend',mode)}
+
+  function installContinue(){const input=document.getElementById('input'),send=document.getElementById('send'),messages=document.getElementById('messages');if(!input||!send||!messages||document.getElementById('melContinueLink'))return;const link=document.createElement('span');link.id='melContinueLink';link.className='mel-continue-link';link.textContent='Continuer depuis la dernière phrase';input.insertAdjacentElement('afterend',link);const refresh=()=>{normalizeUserLabels(messages);link.classList.toggle('visible',Boolean(messages.querySelector('.msg.mel')))};link.onclick=()=>{input.value=CONTINUE_TEXT;input.dispatchEvent(new Event('input',{bubbles:true}));send.click()};new MutationObserver(refresh).observe(messages,{childList:true,subtree:true,characterData:true});refresh()}
+
+  function addMessage(role,text){const messages=document.getElementById('messages');if(!messages)return;messages.querySelector('.empty')?.remove();const node=document.createElement('div');node.className='msg '+(role==='user'?'user':'mel');const who=document.createElement('span');who.className='who';who.textContent=role==='user'?'Adrien':'MEL';const body=document.createElement('div');body.textContent=String(text||'');node.append(who,body);messages.appendChild(node)}
+
+  async function restoreCurrentConversation(){
+    let should=false;try{should=sessionStorage.getItem('mel.resume.latest')==='1';sessionStorage.removeItem('mel.resume.latest')}catch{}if(!should)return;
+    const id=localStorage.getItem('mel.conversation');if(!id)return;const status=document.getElementById('status');
+    try{const response=await fetch('/api/gen2/conversations/messages?conversation_id='+encodeURIComponent(id),{cache:'no-store',credentials:'same-origin'});if(!response.ok)throw new Error('HTTP_'+response.status);const data=await response.json();const rows=Array.isArray(data.messages)?data.messages:[];const messages=document.getElementById('messages');if(messages)messages.innerHTML='';for(const row of rows.slice(-30)){const role=String(row?.role||'').toLowerCase();if(role==='user'||role==='assistant'||role==='mel')addMessage(role==='user'?'user':'mel',row?.content||row?.text||'')}if(status)status.textContent=rows.length?'Dernière conversation reprise · '+rows.length+' message(s) récents chargés.':'Conversation reprise.';normalizeUserLabels(messages)}catch(error){if(status)status.textContent='Impossible de reprendre la conversation : '+(error?.message||'ERREUR')}
   }
 
-  function syncVoiceStatus(){const node=document.getElementById('voiceStatus');if(!node)return;const refresh=()=>{const text=String(node.textContent||'').trim();node.classList.toggle('mel-idle-voice',/^(Touchez son visage pour parler|Reconnaissance vocale non disponible dans ce navigateur\.?|)$/i.test(text))};new MutationObserver(refresh).observe(node,{childList:true,subtree:true,characterData:true});refresh()}
-
-  function installMinimalLayout(){
-    const app=document.querySelector('.app'),avatarWrap=document.querySelector('.avatar-wrap'),windowPanel=document.querySelector('.window'),full=document.getElementById('full');if(!app||!avatarWrap||!windowPanel||!full)return;
-    if(!document.getElementById('melTitle')){const title=document.createElement('h1');title.id='melTitle';title.className='mel-title';title.textContent='MEL';app.insertBefore(title,avatarWrap);const mode=document.createElement('div');mode.className='mel-mode-label';mode.textContent='IA + Développement';title.insertAdjacentElement('afterend',mode)}
-    let bottom=document.getElementById('melBottomTools');if(!bottom){bottom=document.createElement('div');bottom.id='melBottomTools';bottom.className='mel-bottom-tools';windowPanel.insertAdjacentElement('afterend',bottom)}
-    const themeSwitch=document.querySelector('.theme-switch');if(themeSwitch&&!bottom.contains(themeSwitch))bottom.appendChild(themeSwitch);document.getElementById('melAudit')?.remove();if(!bottom.contains(full))bottom.appendChild(full);document.querySelectorAll('.mel-topline,.mel-recall-row,.mel-motto,.mel-idle-status,#skills,#skillsBtn,#skillsPanel,.skills').forEach(node=>node.remove());
+  async function resumeLatestChat(){
+    const button=document.getElementById('melRecallLatest'),status=document.getElementById('status');if(button)button.disabled=true;
+    try{const response=await fetch('/api/gen2/conversations',{cache:'no-store',credentials:'same-origin'});if(!response.ok)throw new Error('HTTP_'+response.status);const data=await response.json();const rows=Array.isArray(data.conversations)?data.conversations:[];const stamp=v=>{const n=Number(v);if(Number.isFinite(n)&&n>0)return n;const d=Date.parse(String(v||''));return Number.isFinite(d)?d:0};rows.sort((a,b)=>stamp(b.updated_at||b.created_at)-stamp(a.updated_at||a.created_at));const latest=rows[0];if(!latest?.id)throw new Error('AUCUNE_CONVERSATION');localStorage.setItem('mel.conversation',String(latest.id));sessionStorage.setItem('mel.resume.latest','1');if(status)status.textContent='Reprise du dernier chat…';location.reload()}catch(error){if(status)status.textContent='Reprise impossible : '+(error?.message||'ERREUR');if(button)button.disabled=false}
   }
 
-  function renderActivity(state,error){
-    const stop=document.getElementById('melEmergencyStop'),dot=document.getElementById('melActivityDot'),panel=document.getElementById('melActivityBody');if(!stop||!dot||!panel)return;
-    if(error){dot.className='mel-activity-dot error';panel.innerHTML='<div class="mel-activity-status">État d’activité indisponible : '+esc(error)+'</div>';return}
-    autonomyState=state;const paused=state?.control?.paused===true;stop.classList.toggle('paused',paused);stop.textContent=paused?'REPRENDRE':'STOP';stop.setAttribute('aria-label',paused?'Reprendre le développement autonome':'Arrêter le développement autonome');dot.className='mel-activity-dot'+(paused?' paused':'');
-    const c=state?.counts||{},ready=state?.readiness||{},jobs=Array.isArray(state?.active_jobs)?state.active_jobs:[],recent=Array.isArray(state?.recent_activity)?state.recent_activity:[];
-    const next=state?.next;let html='<div class="mel-activity-summary"><div class="mel-metric"><b>'+esc(c.active||0)+'</b><span>actifs</span></div><div class="mel-metric"><b>'+esc(c.completed||0)+'</b><span>terminés</span></div><div class="mel-metric"><b>'+esc(c.failed||0)+'</b><span>échecs</span></div></div>';
-    html+='<div class="mel-activity-status"><b>Autonomie : '+(paused?'EN PAUSE':'ACTIVE')+'</b><br>Readiness : '+esc(ready.status||'—')+' · Candidate : '+esc(state?.candidate_branch||'—')+(next?'<br>Prochain : <b>'+esc(next.id||'')+'</b> — '+esc(next.title||''):'')+'</div>';
-    if(jobs.length){html+='<div class="mel-activity-status"><b>Travaux en cours</b></div>';for(const job of jobs.slice(0,8)){html+='<div class="mel-job"><b>'+esc(job.roadmap_id||job.id||'travail')+' · '+esc(job.status||'')+'</b>'+esc(job.goal||'')+(job.completion?'<br><code>SHA '+shortSha(job.completion.candidate_sha)+' · CI '+esc(job.completion.ci_run_id||'—')+'</code>':'')+'<br><small>maj '+age(job.updated_at)+'</small></div>'}}
-    else html+='<div class="mel-activity-status">Aucun travail autonome actif.</div>';
-    const completedRecent=recent.filter(x=>x&&['COMPLETED','COMMITTED','FAILED'].includes(String(x.status||'').toUpperCase())).slice(0,5);if(completedRecent.length){html+='<div class="mel-activity-status"><b>Activité récente</b></div>';for(const job of completedRecent)html+='<div class="mel-job"><b>'+esc(job.roadmap_id||job.id||'activité')+' · '+esc(job.status||'')+'</b><small>maj '+age(job.updated_at)+'</small></div>'}
-    panel.innerHTML=html;
-  }
+  function installRecall(){const composer=document.querySelector('.composer'),controls=document.querySelector('.controls');if(!composer||!controls||document.getElementById('melRecallLatest'))return;const row=document.createElement('div');row.className='mel-recall-row';row.innerHTML='<button type="button" id="melRecallLatest" class="mel-recall">Reprendre le dernier message sur tous les chats</button>';controls.insertAdjacentElement('afterend',row);document.getElementById('melRecallLatest').addEventListener('click',resumeLatestChat)}
 
-  async function loadActivity(){
-    try{const response=await fetch('/api/gen2/autonomy/state',{credentials:'same-origin',cache:'no-store'});if(!response.ok)throw new Error('HTTP_'+response.status);renderActivity(await response.json(),null)}catch(error){renderActivity(null,error?.message||'ERREUR')}
-  }
+  function renderActivity(state,error){const max=document.getElementById('melMaxAutonomy'),stop=document.getElementById('melEmergencyStop'),dot=document.getElementById('melActivityDot'),body=document.getElementById('melActivityBody');if(!max||!stop||!dot||!body)return;if(error){dot.className='mel-activity-dot error';body.innerHTML='<div class="mel-activity-status">État indisponible : '+esc(error)+'</div>';return}autonomyState=state;const paused=state?.control?.paused===true,maximum=state?.control?.max_autonomy===true;max.classList.toggle('active',maximum);max.textContent=maximum?'MAX ACTIF':'MAX 100%';max.setAttribute('aria-pressed',String(maximum));stop.classList.toggle('paused',paused);stop.textContent=paused?'REPRENDRE':'STOP';dot.className='mel-activity-dot'+(paused?' paused':(maximum?' max':''));const c=state?.counts||{},ready=state?.readiness||{},jobs=Array.isArray(state?.active_jobs)?state.active_jobs:[],recent=Array.isArray(state?.recent_activity)?state.recent_activity:[];let html='<div class="mel-activity-summary"><div class="mel-metric"><b>'+esc(c.active||0)+'</b><span>actifs</span></div><div class="mel-metric"><b>'+esc(c.completed||0)+'</b><span>terminés</span></div><div class="mel-metric"><b>'+esc(c.failed||0)+'</b><span>échecs</span></div></div>';html+='<div class="mel-activity-status"><b>Autonomie : '+(paused?'PAUSE':(maximum?'MAX 100%':'SUPERVISÉE'))+'</b><br>Readiness : '+esc(ready.status||'—')+'<br>Branche candidate : '+esc(state?.candidate_branch||'—')+'</div>';if(jobs.length){html+='<div class="mel-activity-status"><b>Travaux en cours</b></div>';for(const job of jobs.slice(0,8))html+='<div class="mel-job"><b>'+esc(job.roadmap_id||job.id||'travail')+' · '+esc(job.status||'')+'</b>'+(job.teacher?.owner_override?'<br><small>Autorisation propriétaire MAX</small>':'')+'</div>'}else html+='<div class="mel-activity-status">Aucun travail autonome actif.</div>';const done=recent.filter(x=>x&&['COMPLETED','COMMITTED','FAILED'].includes(String(x.status||'').toUpperCase())).slice(0,5);if(done.length){html+='<div class="mel-activity-status"><b>Activité récente</b></div>';for(const job of done)html+='<div class="mel-job"><b>'+esc(job.roadmap_id||job.id||'activité')+' · '+esc(job.status||'')+'</b></div>'}body.innerHTML=html}
 
-  async function toggleAutonomy(){
-    const stop=document.getElementById('melEmergencyStop');if(!stop||stop.classList.contains('pending'))return;stop.classList.add('pending');
-    try{const paused=autonomyState?.control?.paused===true;const endpoint=paused?'/api/gen2/autonomy/resume':'/api/gen2/autonomy/pause';const response=await fetch(endpoint,{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:paused?'{}':JSON.stringify({reason:'red-stop-button'})});if(!response.ok)throw new Error('HTTP_'+response.status);const payload=await response.json();renderActivity(payload.state||null,null)}catch(error){renderActivity(null,error?.message||'ERREUR')}finally{stop.classList.remove('pending')}
-  }
+  async function loadActivity(){try{const r=await fetch('/api/gen2/autonomy/state',{credentials:'same-origin',cache:'no-store'});if(!r.ok)throw new Error('HTTP_'+r.status);renderActivity(await r.json())}catch(error){renderActivity(null,error?.message||'ERREUR')}}
+  async function setMax(){const button=document.getElementById('melMaxAutonomy');if(!button||button.classList.contains('pending'))return;button.classList.add('pending');try{const enabled=!(autonomyState?.control?.max_autonomy===true);const r=await fetch('/api/gen2/autonomy/max',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({enabled})});if(!r.ok)throw new Error('HTTP_'+r.status);const data=await r.json();renderActivity(data.state)}catch(error){renderActivity(null,error?.message||'ERREUR')}finally{button.classList.remove('pending')}}
+  async function toggleStop(){const button=document.getElementById('melEmergencyStop');if(!button||button.classList.contains('pending'))return;button.classList.add('pending');try{const paused=autonomyState?.control?.paused===true;const r=await fetch(paused?'/api/gen2/autonomy/resume':'/api/gen2/autonomy/pause',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({reason:paused?null:'owner-emergency-stop'})});if(!r.ok)throw new Error('HTTP_'+r.status);const data=await r.json();renderActivity(data.state)}catch(error){renderActivity(null,error?.message||'ERREUR')}finally{button.classList.remove('pending')}}
 
-  function installOperations(){
-    if(document.getElementById('melOps'))return;const ops=document.createElement('div');ops.id='melOps';ops.className='mel-ops';ops.innerHTML='<button type="button" id="melEmergencyStop" class="mel-stop">STOP</button><button type="button" id="melActivityToggle" class="mel-activity-toggle"><span id="melActivityDot" class="mel-activity-dot"></span>Activité</button>';document.body.appendChild(ops);
-    const panel=document.createElement('section');panel.id='melActivityPanel';panel.className='mel-activity-panel';panel.setAttribute('aria-label','Suivi des activités MEL');panel.innerHTML='<div class="mel-activity-head"><strong>Activité MEL</strong><button type="button" id="melActivityClose" class="mel-activity-close" aria-label="Fermer">×</button></div><div id="melActivityBody"><div class="mel-activity-status">Chargement…</div></div><button type="button" id="melActivityRefresh" class="mel-activity-refresh">Actualiser</button>';document.body.appendChild(panel);
-    document.getElementById('melEmergencyStop').addEventListener('click',toggleAutonomy);document.getElementById('melActivityToggle').addEventListener('click',()=>{panel.classList.toggle('open');if(panel.classList.contains('open')){loadActivity();clearInterval(activityTimer);activityTimer=setInterval(loadActivity,15000)}else{clearInterval(activityTimer);activityTimer=null}});document.getElementById('melActivityClose').addEventListener('click',()=>{panel.classList.remove('open');clearInterval(activityTimer);activityTimer=null});document.getElementById('melActivityRefresh').addEventListener('click',loadActivity);loadActivity();setInterval(()=>{if(!panel.classList.contains('open'))loadActivity()},60000);
-  }
+  function installOperations(){if(document.getElementById('melOps'))return;const ops=document.createElement('div');ops.id='melOps';ops.className='mel-ops';ops.innerHTML='<button type="button" id="melMaxAutonomy" class="mel-max" aria-pressed="false">MAX 100%</button><button type="button" id="melEmergencyStop" class="mel-stop">STOP</button><button type="button" id="melActivityToggle" class="mel-activity-toggle"><span id="melActivityDot" class="mel-activity-dot"></span>Activité</button>';const panel=document.createElement('div');panel.id='melActivityPanel';panel.className='mel-activity-panel';panel.innerHTML='<div class="mel-activity-head"><strong>Activité réelle de MEL</strong><button type="button" id="melActivityClose" class="mel-activity-close">×</button></div><div id="melActivityBody"><div class="mel-activity-status">Chargement…</div></div><button type="button" id="melActivityRefresh" class="mel-activity-refresh">Actualiser</button>';document.body.append(ops,panel);document.getElementById('melMaxAutonomy').onclick=setMax;document.getElementById('melEmergencyStop').onclick=toggleStop;document.getElementById('melActivityToggle').onclick=()=>{panel.classList.toggle('open');if(panel.classList.contains('open'))loadActivity()};document.getElementById('melActivityClose').onclick=()=>panel.classList.remove('open');document.getElementById('melActivityRefresh').onclick=loadActivity;loadActivity();activityTimer=setInterval(loadActivity,30000)}
 
-  patchChatTimeout();
-  const boot=()=>{installMinimalLayout();installContinueLink();syncVoiceStatus();normalizeUserLabels();installOperations()};
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+  function init(){patchChatTimeout();installHeader();installContinue();installRecall();installOperations();normalizeUserLabels();restoreCurrentConversation()}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+  window.addEventListener('beforeunload',()=>{if(activityTimer)clearInterval(activityTimer)},{once:true});
 })();
 </script>`;
 
 export async function enhanceMvpBehavior(response) {
   if (!(response instanceof Response)) return response;
-  const contentType = response.headers.get('content-type') || '';
-  if (!contentType.includes('text/html')) return response;
-  const text = await response.text();
-  if (!text.includes('id="input"') || text.includes('mel-mvp-behavior-runtime')) {
-    return new Response(text, { status: response.status, statusText: response.statusText, headers: response.headers });
+  const type = response.headers.get('content-type') || '';
+  if (!type.includes('text/html')) return response;
+  const html = await response.text();
+  if (!html.includes('id="input"') || !html.includes('id="messages"')) {
+    return new Response(html, { status: response.status, statusText: response.statusText, headers: response.headers });
   }
-  const patched = text.includes('</body>') ? text.replace('</body>', `${MVP_BEHAVIOR_PATCH}</body>`) : `${text}${MVP_BEHAVIOR_PATCH}`;
+  if (html.includes('mel-mvp-behavior-runtime')) {
+    return new Response(html, { status: response.status, statusText: response.statusText, headers: response.headers });
+  }
+  const body = html.includes('</body>') ? html.replace('</body>', `${MVP_BEHAVIOR_PATCH}</body>`) : html + MVP_BEHAVIOR_PATCH;
   const headers = new Headers(response.headers);
-  headers.set('content-type', 'text/html; charset=utf-8');
-  headers.set('cache-control', 'no-store');
-  headers.delete('content-length');
-  return new Response(patched, { status: response.status, statusText: response.statusText, headers });
+  headers.set('content-length', String(new TextEncoder().encode(body).length));
+  return new Response(body, { status: response.status, statusText: response.statusText, headers });
 }
-
-export { MVP_BEHAVIOR_PATCH };
