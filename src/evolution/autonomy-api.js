@@ -14,7 +14,6 @@ function safeJob(job) {
   const workProof = job?.result_json?.autonomy_proofs?.work_dag_resume || null;
   return {
     id: String(job?.id || ''),
-    goal: String(job?.goal || '').slice(0, 500),
     status: String(job?.status || ''),
     requested_by: String(job?.requested_by || ''),
     roadmap_id: job?.optional_context?.roadmap_id || null,
@@ -65,7 +64,7 @@ export async function getAutonomyState(env, { repository = null } = {}) {
     getAutonomyControl(env.DB),
   ]);
   const autonomyJobs = state.jobs.filter(isSupervisedAutonomyJob);
-  const active = autonomyJobs.filter((job) => !TERMINAL.has(String(job.status || '').toUpperCase()));
+  const active = autonomyJobs.filter(job => !TERMINAL.has(String(job.status || '').toUpperCase()));
   const recent = autonomyJobs.slice().sort((a, b) => Number(b.updated_at || 0) - Number(a.updated_at || 0)).slice(0, 20).map(safeJob);
   return {
     ok: true,
@@ -86,13 +85,13 @@ export async function getAutonomyState(env, { repository = null } = {}) {
     },
     counts: {
       total_autonomy_jobs: autonomyJobs.length,
-      owner_requested: autonomyJobs.filter((job) => job?.requested_by === 'owner-chat').length,
-      roadmap_requested: autonomyJobs.filter((job) => job?.requested_by === 'mel-autonomy').length,
+      owner_requested: autonomyJobs.filter(job => job?.requested_by === 'owner-chat').length,
+      roadmap_requested: autonomyJobs.filter(job => job?.requested_by === 'mel-autonomy').length,
       active: active.length,
-      completed: autonomyJobs.filter((job) => ['COMPLETED', 'COMMITTED'].includes(String(job.status || '').toUpperCase())).length,
-      waiting_teacher: autonomyJobs.filter((job) => String(job.status || '').toUpperCase() === 'WAITING_TEACHER').length,
-      teacher_approved: autonomyJobs.filter((job) => String(job.status || '').toUpperCase() === 'TEACHER_APPROVED').length,
-      failed: autonomyJobs.filter((job) => String(job.status || '').toUpperCase() === 'FAILED').length,
+      completed: autonomyJobs.filter(job => ['COMPLETED', 'COMMITTED'].includes(String(job.status || '').toUpperCase())).length,
+      waiting_teacher: autonomyJobs.filter(job => String(job.status || '').toUpperCase() === 'WAITING_TEACHER').length,
+      teacher_approved: autonomyJobs.filter(job => String(job.status || '').toUpperCase() === 'TEACHER_APPROVED').length,
+      failed: autonomyJobs.filter(job => String(job.status || '').toUpperCase() === 'FAILED').length,
     },
     active_jobs: active.slice().sort((a, b) => (a?.requested_by === 'owner-chat' ? 0 : 1) - (b?.requested_by === 'owner-chat' ? 0 : 1) || Number(a.created_at || 0) - Number(b.created_at || 0)).map(safeJob),
     recent_activity: recent,
@@ -100,11 +99,6 @@ export async function getAutonomyState(env, { repository = null } = {}) {
   };
 }
 
-/**
- * Operator API. The read-only /control endpoint intentionally exposes only the
- * emergency pause bit so external supervised workers can obey the same red
- * button. State, pause, resume and tick remain authenticated.
- */
 export async function maybeHandleAutonomyApi(request, env, { repository = null, fetchImpl = fetch } = {}) {
   const url = new URL(request.url);
   const isPublicControl = url.pathname === '/api/gen2/autonomy/control';
