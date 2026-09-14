@@ -24,15 +24,8 @@ function repositoryAndBranches(env = {}) {
 }
 
 export function defaultTeacherRepliesUrl(env = {}) {
-  const repository = String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
-  const branch = String(env.MEL_TEACHER_BRANCH || 'candidate/mel-clean-autonomy');
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
-    throw Object.assign(new Error('TEACHER_REPOSITORY_INVALID'), { code: 'TEACHER_REPOSITORY_INVALID' });
-  }
-  if (!branch.startsWith('candidate/')) {
-    throw Object.assign(new Error('TEACHER_BRANCH_NOT_CANDIDATE'), { code: 'TEACHER_BRANCH_NOT_CANDIDATE' });
-  }
-  return `https://raw.githubusercontent.com/${encodePath(repository)}/refs/heads/${encodePath(branch)}/teacher-bridge/replies.jsonl`;
+  const { repository, transportBranch } = repositoryAndBranches(env);
+  return `https://raw.githubusercontent.com/${encodePath(repository)}/refs/heads/${encodePath(transportBranch)}/teacher-bridge/replies.jsonl`;
 }
 
 export function parseTeacherRepliesJsonl(text) {
