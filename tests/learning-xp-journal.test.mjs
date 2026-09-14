@@ -27,6 +27,11 @@ const report = (validated = 0, trials = 0) => ({
   benchmark: { runs: 0, baseline_score: null, latest_score: null },
 });
 
+const benchmarkReport = (baseline, latest) => ({
+  ...report(0, 0),
+  benchmark: { runs: 2, baseline_score: baseline, latest_score: latest },
+});
+
 test('XP gain is awarded only from canonical evidence plus durable artifact', async () => {
   const memory = new Memory();
   const first = await recordLearningXpCheckpoint({
@@ -75,4 +80,41 @@ test('canonical XP never regresses or advances without durable proof', async () 
   assert.equal(recoveredWithProof.xp_after, 210);
   assert.equal(recoveredWithProof.xp_delta, 10);
   assert.equal(recoveredWithProof.awarded, true);
+});
+
+test('benchmark-derived XP is held until canonical comparison evidence is explicitly eligible', async () => {
+  const memory = new Memory();
+  const blocked = await recordLearningXpCheckpoint({
+    memory,
+    report: benchmarkReport(0.5, 0.6),
+    artifacts: ['ci:benchmark-candidate'],
+    benchmark_evidence: { xp_eligible: false, suite_id: 'mel-learning-canonical-v1' },
+  });
+  assert.equal(blocked.observed_xp, 200);
+  assert.equal(blocked.xp_after, 0);
+  assert.equal(blocked.awarded, false);
+  assert.equal(blocked.benchmark_proof_required, true);
+  assert.equal(blocked.benchmark_proof_valid, false);
+
+  const allowed = await recordLearningXpCheckpoint({
+    memory,
+    report: benchmarkReport(0.5, 0.6),
+    artifacts: ['ci:benchmark-candidate', 'benchmark:comparison'],
+    benchmark_evidence: {
+      schema: 'mel.canonical-benchmark-comparison',
+      suite_id: 'mel-learning-canonical-v1',
+      suite_digest: 'digest',
+      source_sha: 'sha',
+      xp_eligible: true,
+      comparison: { baseline: 0.5, candidate: 0.6, delta: 0.1 },
+      domain_regressions: [],
+      repeated_errors: [],
+      artifacts: ['benchmark:comparison'],
+    },
+  });
+  assert.equal(allowed.xp_before, 0);
+  assert.equal(allowed.xp_after, 200);
+  assert.equal(allowed.xp_delta, 200);
+  assert.equal(allowed.awarded, true);
+  assert.equal(allowed.benchmark_proof_valid, true);
 });
