@@ -35,6 +35,7 @@ test('activity snapshot exposes recorded evidence and no invented percentage', (
   assert.ok(snapshot.events.some((event) => event.category === 'backup'));
   assert.ok(snapshot.events.some((event) => event.category === 'test'));
   const waiting = snapshot.events.find((event) => event.id === 'job:owner-chat-1');
-  assert.match(waiting.explanation, /Teacher consulté/);
+  assert.match(waiting.explanation, /Teacher/);
+  assert.match(waiting.explanation, /poursuivre|avancer/);
   assert.doesNotMatch(JSON.stringify(snapshot), /progress_percent|fake_percentage|%/i);
 });
