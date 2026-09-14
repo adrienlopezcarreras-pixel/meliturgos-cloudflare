@@ -19,15 +19,20 @@ function makeRequest(jobId) {
   });
 }
 
-test('canonical Teacher reply URL stays on the candidate branch', () => {
+test('canonical Teacher reply URL stays on the dedicated transport branch', () => {
   const url = defaultTeacherRepliesUrl({
     MEL_GITHUB_REPOSITORY: 'owner/repo',
     MEL_TEACHER_BRANCH: TEST_CANDIDATE_BRANCH,
+    MEL_TEACHER_TRANSPORT_BRANCH: 'teacher-bridge/runtime',
   });
-  assert.equal(url, `https://raw.githubusercontent.com/owner/repo/refs/heads/${TEST_CANDIDATE_BRANCH}/teacher-bridge/replies.jsonl`);
+  assert.equal(url, 'https://raw.githubusercontent.com/owner/repo/refs/heads/teacher-bridge/runtime/teacher-bridge/replies.jsonl');
   assert.throws(
-    () => defaultTeacherRepliesUrl({ MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: 'main' }),
-    (error) => error?.code === 'TEACHER_BRANCH_NOT_CANDIDATE',
+    () => defaultTeacherRepliesUrl({
+      MEL_GITHUB_REPOSITORY: 'owner/repo',
+      MEL_TEACHER_BRANCH: TEST_CANDIDATE_BRANCH,
+      MEL_TEACHER_TRANSPORT_BRANCH: 'main',
+    }),
+    (error) => error?.code === 'TEACHER_TRANSPORT_BRANCH_INVALID',
   );
 });
 
@@ -52,10 +57,21 @@ test('reconciler applies only the canonical matching GitHub reply', async () => 
     JSON.stringify(teacherReply('other')),
     JSON.stringify(teacherReply(request.request_id, { feedback: 'matching reply' })),
   ].join('\n');
-  const fetchImpl = async () => new Response(jsonl, { status: 200 });
+  const fetchImpl = async (url) => {
+    if (String(url).includes('/branches/')) {
+      return Response.json({ commit: { sha: TEST_CANDIDATE_SHA } });
+    }
+    assert.match(String(url), /refs\/heads\/teacher-bridge\/runtime\/teacher-bridge\/replies\.jsonl$/);
+    return new Response(jsonl, { status: 200 });
+  };
   const result = await reconcileRuntimeTeacherReplies({
     repository: repo,
-    env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: TEST_CANDIDATE_BRANCH },
+    env: {
+      MEL_GITHUB_REPOSITORY: 'owner/repo',
+      MEL_GITHUB_BRANCH: TEST_CANDIDATE_BRANCH,
+      MEL_TEACHER_BRANCH: TEST_CANDIDATE_BRANCH,
+      MEL_TEACHER_TRANSPORT_BRANCH: 'teacher-bridge/runtime',
+    },
     fetchImpl,
   });
   assert.equal(result.applied.length, 1);
@@ -64,13 +80,25 @@ test('reconciler applies only the canonical matching GitHub reply', async () => 
   assert.equal((await repo.get(job.id)).status, 'TEACHER_APPROVED');
 });
 
-test('reconciler remains waiting when GitHub has no matching reply', async () => {
+test('reconciler remains waiting when transport branch has no matching reply', async () => {
   const repo = new D1DevJobRepository(null, { memoryStore: new Map() });
   const job = await repo.create({ id: `reconcile-wait-${crypto.randomUUID()}`, goal: 'Wait for Teacher' });
   const request = makeRequest(job.id);
   await queueRuntimeTeacherRequest(repo, job.id, request);
-  const fetchImpl = async () => new Response(JSON.stringify(teacherReply('different')), { status: 200 });
-  const result = await reconcileRuntimeTeacherReplies({ repository: repo, env: { MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: TEST_CANDIDATE_BRANCH }, fetchImpl });
+  const fetchImpl = async (url) => {
+    if (String(url).includes('/branches/')) return Response.json({ commit: { sha: TEST_CANDIDATE_SHA } });
+    return new Response(JSON.stringify(teacherReply('different')), { status: 200 });
+  };
+  const result = await reconcileRuntimeTeacherReplies({
+    repository: repo,
+    env: {
+      MEL_GITHUB_REPOSITORY: 'owner/repo',
+      MEL_GITHUB_BRANCH: TEST_CANDIDATE_BRANCH,
+      MEL_TEACHER_BRANCH: TEST_CANDIDATE_BRANCH,
+      MEL_TEACHER_TRANSPORT_BRANCH: 'teacher-bridge/runtime',
+    },
+    fetchImpl,
+  });
   assert.deepEqual(result.applied, []);
   assert.deepEqual(result.unmatched, [request.request_id]);
   assert.equal((await repo.get(job.id)).status, 'WAITING_TEACHER');
