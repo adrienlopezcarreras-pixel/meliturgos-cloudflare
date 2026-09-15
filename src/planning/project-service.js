@@ -1,20 +1,13 @@
 import { port, requireValue } from '../core/contracts.js';
 
 export const methods = [
-  'createProject',
-  'getProject',
-  'listProjects',
-  'setProjectStatus',
-  'recordDecision',
-  'getDecision',
-  'listDecisions',
-  'setDecisionStatus',
-  'addLesson',
+  'createProject','getProject','listProjects','setProjectStatus',
+  'recordDecision','getDecision','listDecisions','setDecisionStatus',
+  'addLesson','getLesson','listLessons',
 ];
 
 export const PROJECT_STATUSES = Object.freeze(['PLANNED','ACTIVE','PAUSED','COMPLETED','CANCELLED']);
 export const DECISION_STATUSES = Object.freeze(['PROPOSED','ADOPTED','REJECTED','SUPERSEDED','REVERSED']);
-
 export const createProjectService = adapters => port('planning.projects', methods, adapters);
 
 const isRecord = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -33,6 +26,25 @@ function normalizedStrings(values, code) {
   return normalized;
 }
 
+function normalizeStatusHistory(history, currentStatus, initialAt, allowedStatuses, code) {
+  const value = history === undefined ? [{ status: currentStatus, changed_at: initialAt, reason: 'created' }] : history;
+  requireValue(Array.isArray(value) && value.length > 0, code, 400);
+  const normalized = value.map(entry => {
+    requireValue(isRecord(entry) && allowedStatuses.includes(entry.status) && validTime(entry.changed_at), code, 400);
+    requireValue(entry.reason === undefined || typeof entry.reason === 'string', code, 400);
+    return {
+      status: entry.status,
+      changed_at: entry.changed_at,
+      ...(entry.reason === undefined ? {} : { reason: entry.reason }),
+    };
+  });
+  requireValue(normalized.at(-1).status === currentStatus, code, 400);
+  for (let index = 1; index < normalized.length; index += 1) {
+    requireValue(normalized[index].changed_at >= normalized[index - 1].changed_at, code, 400);
+  }
+  return normalized;
+}
+
 export function projectEntity(record) {
   requireValue(isRecord(record), 'PROJECT_INVALID', 400);
   requireValue(nonEmptyString(record.project_id), 'PROJECT_ID_INVALID', 400);
@@ -42,13 +54,12 @@ export function projectEntity(record) {
   requireValue(validTime(record.updated_at), 'PROJECT_UPDATED_AT_INVALID', 400);
   requireValue(record.updated_at >= record.created_at, 'PROJECT_TIME_RANGE_INVALID', 400);
   requireValue(validMetadata(record.metadata), 'PROJECT_METADATA_INVALID', 400);
-
   return clone({
     ...record,
     project_id: record.project_id.trim(),
     title: record.title.trim(),
     objectives: normalizedStrings(record.objectives, 'PROJECT_OBJECTIVES_INVALID'),
-    status_history: normalizeStatusHistory(record.status_history, record.status, record.created_at, 'PROJECT_STATUS_HISTORY_INVALID'),
+    status_history: normalizeStatusHistory(record.status_history, record.status, record.created_at, PROJECT_STATUSES, 'PROJECT_STATUS_HISTORY_INVALID'),
   });
 }
 
@@ -65,14 +76,13 @@ export function decisionEntity(record) {
   requireValue(nonEmptyString(record.source), 'DECISION_SOURCE_INVALID', 400);
   requireValue(Number.isFinite(record.confidence) && record.confidence >= 0 && record.confidence <= 1, 'DECISION_CONFIDENCE_INVALID', 400);
   requireValue(validMetadata(record.metadata), 'DECISION_METADATA_INVALID', 400);
-
   return clone({
     ...record,
     decision_id: record.decision_id.trim(),
     project_id: record.project_id.trim(),
     title: record.title.trim(),
     source: record.source.trim(),
-    status_history: normalizeStatusHistory(record.status_history, record.status, record.decided_at, 'DECISION_STATUS_HISTORY_INVALID'),
+    status_history: normalizeStatusHistory(record.status_history, record.status, record.decided_at, DECISION_STATUSES, 'DECISION_STATUS_HISTORY_INVALID'),
   });
 }
 
@@ -93,38 +103,16 @@ export function lessonEntity(record) {
   });
 }
 
-function normalizeStatusHistory(history, currentStatus, initialAt, code) {
-  const value = history === undefined ? [{ status: currentStatus, changed_at: initialAt, reason: 'created' }] : history;
-  requireValue(Array.isArray(value) && value.length > 0, code, 400);
-  const normalized = value.map(entry => {
-    requireValue(isRecord(entry), code, 400);
-    requireValue(nonEmptyString(entry.status), code, 400);
-    requireValue(validTime(entry.changed_at), code, 400);
-    requireValue(entry.reason === undefined || typeof entry.reason === 'string', code, 400);
-    return {
-      status: entry.status.trim(),
-      changed_at: entry.changed_at,
-      ...(entry.reason === undefined ? {} : { reason: entry.reason }),
-    };
-  });
-  requireValue(normalized.at(-1).status === currentStatus, code, 400);
-  for (let index = 1; index < normalized.length; index += 1) {
-    requireValue(normalized[index].changed_at >= normalized[index - 1].changed_at, code, 400);
-  }
-  return normalized;
-}
-
 function requiredId(input, key, code) {
   requireValue(isRecord(input) && nonEmptyString(input[key]), code, 400);
   return input[key].trim();
 }
 
-function listQuery(input = {}, { statuses, projectRequired = false } = {}) {
+function listQuery(input = {}, { statuses = null } = {}) {
   requireValue(isRecord(input), 'PLANNING_QUERY_INVALID', 400);
   const { project_id, status, limit = 100, order = 'asc' } = input;
-  requireValue(!projectRequired || nonEmptyString(project_id), 'DECISION_PROJECT_ID_INVALID', 400);
-  requireValue(project_id === undefined || nonEmptyString(project_id), 'DECISION_PROJECT_ID_INVALID', 400);
-  requireValue(status === undefined || statuses.includes(status), 'PLANNING_QUERY_STATUS_INVALID', 400);
+  requireValue(project_id === undefined || nonEmptyString(project_id), 'PLANNING_QUERY_PROJECT_ID_INVALID', 400);
+  requireValue(status === undefined || (statuses && statuses.includes(status)), 'PLANNING_QUERY_STATUS_INVALID', 400);
   requireValue(Number.isInteger(limit) && limit > 0 && limit <= 500, 'PLANNING_QUERY_LIMIT_INVALID', 400);
   requireValue(order === 'asc' || order === 'desc', 'PLANNING_QUERY_ORDER_INVALID', 400);
   return {
@@ -135,12 +123,13 @@ function listQuery(input = {}, { statuses, projectRequired = false } = {}) {
   };
 }
 
-/**
- * Reference adapter defining GEN2-13 semantics before durable persistence is wired.
- * All records are defensively cloned and decisions retain their complete status history.
- */
+/** Reference adapter defining GEN2-13 semantics before durable persistence is wired. */
 export function createInMemoryProjectAdapter(seed = {}) {
   requireValue(isRecord(seed), 'PLANNING_SEED_INVALID', 400);
+  requireValue(seed.projects === undefined || Array.isArray(seed.projects), 'PLANNING_SEED_PROJECTS_INVALID', 400);
+  requireValue(seed.decisions === undefined || Array.isArray(seed.decisions), 'PLANNING_SEED_DECISIONS_INVALID', 400);
+  requireValue(seed.lessons === undefined || Array.isArray(seed.lessons), 'PLANNING_SEED_LESSONS_INVALID', 400);
+
   const projects = new Map();
   const decisions = new Map();
   const lessons = new Map();
@@ -266,6 +255,23 @@ export function createInMemoryProjectAdapter(seed = {}) {
       requireValue(!lessons.has(lesson.lesson_id), 'LESSON_EXISTS', 409);
       lessons.set(lesson.lesson_id, lesson);
       return clone(lesson);
+    },
+
+    async getLesson(input = {}) {
+      const lessonId = requiredId(input, 'lesson_id', 'LESSON_ID_INVALID');
+      const lesson = lessons.get(lessonId);
+      requireValue(lesson, 'LESSON_NOT_FOUND', 404);
+      return clone(lesson);
+    },
+
+    async listLessons(input = {}) {
+      const query = listQuery(input);
+      const direction = query.order === 'asc' ? 1 : -1;
+      return [...lessons.values()]
+        .filter(lesson => query.project_id === undefined || lesson.project_id === query.project_id)
+        .sort((a, b) => direction * (a.learned_at - b.learned_at || a.lesson_id.localeCompare(b.lesson_id)))
+        .slice(0, query.limit)
+        .map(clone);
     },
   });
 }
