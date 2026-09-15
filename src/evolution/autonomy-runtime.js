@@ -7,6 +7,7 @@ import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-
 import { mirrorAllWaitingOwnerChatTeachers } from '../teachers/owner-chat-teacher-mirror.js';
 import { recoverPassiveRuntimeStates } from './passive-state-recovery.js';
 import { retireObsoleteQueueJobs } from './queue-hygiene.js';
+import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } from './autonomy-runtime-lease.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -270,7 +271,7 @@ export async function approveAllWaitingTeachersUnderOwnerMax(repository, { sourc
 // Every heartbeat persists/selects the next executable roadmap job before slow
 // external work only when MEL is genuinely idle. Existing active work must be
 // reconciled first so Teacher replies/completions keep their exact job ordering.
-export async function runAutonomyRuntimeTick(env, options = {}) {
+async function runAutonomyRuntimeTickUnlocked(env, options = {}) {
   const control = await getAutonomyControl(env?.DB);
   if (control.paused) {
     return {
@@ -423,4 +424,50 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     owner_max_bypassed_stage: 'WAITING_TEACHER',
     production_release_allowed: false,
   };
+}
+
+export async function runAutonomyRuntimeTick(env, options = {}) {
+  const control = await getAutonomyControl(env?.DB);
+  if (control.paused) {
+    return {
+      status: 'PAUSED',
+      paused: true,
+      advanced: false,
+      candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
+      control,
+    };
+  }
+
+  validateCandidateBranches(env);
+
+  const owner = String(options.runtimeLeaseOwner || crypto.randomUUID());
+  const lease = await tryAcquireAutonomyRuntimeLease({
+    db: env?.DB || null,
+    owner,
+    leaseMs: options.runtimeLeaseMs ?? env?.MEL_AUTONOMY_LEASE_MS,
+    memoryStore: options.runtimeLeaseStore,
+  });
+
+  if (!lease.acquired) {
+    return {
+      ok: true,
+      status: 'SKIPPED_LEASE_BUSY',
+      skipped: true,
+      advanced: false,
+      reason: 'AUTONOMY_RUNTIME_LEASE_BUSY',
+      candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
+      control,
+      lease: { expires_at: lease.expires_at || null },
+    };
+  }
+
+  try {
+    return await runAutonomyRuntimeTickUnlocked(env, options);
+  } finally {
+    await releaseAutonomyRuntimeLease({
+      db: env?.DB || null,
+      owner,
+      memoryStore: options.runtimeLeaseStore,
+    }).catch(() => false);
+  }
 }
