@@ -3,6 +3,7 @@ import { DevAgent } from './dev-agent.js';
 import { D1DevJobRepository } from './d1-dev-job-repository.js';
 import { D1BridgeRepository } from './d1-bridge-repository.js';
 import { AutonomySupervisor } from '../evolution/autonomy-supervisor.js';
+import { runAutonomyRuntimeTick } from '../evolution/autonomy-runtime.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { createTeacherReviewRequest } from '../teachers/teacher-request.js';
 import { queueRuntimeTeacherRequest, applyRuntimeTeacherReply } from '../teachers/runtime-teacher-bridge.js';
@@ -68,6 +69,43 @@ function mergeBridgePlan(job, body) {
   const existingPlan = objectOrEmpty(job?.plan_json);
   const submitted = objectOrEmpty(body?.plan_json);
   return Object.keys(submitted).length ? { ...existingPlan, dev_bridge: submitted } : existingPlan;
+}
+
+export function hasVerifiedCompletionForJob(reconciliation, jobId) {
+  const wanted = String(jobId || '');
+  if (!wanted || !Array.isArray(reconciliation?.completed)) return false;
+  return reconciliation.completed.some((row) => String(row?.job_id || '') === wanted && /^[a-f0-9]{40}$/i.test(String(row?.candidate_sha || '')) && Number(row?.ci_run_id || 0) > 0);
+}
+
+export async function continueAfterVerifiedCompletion({ env = {}, repository, reconciliation, jobId, runTick = runAutonomyRuntimeTick, fetchImpl = fetch } = {}) {
+  if (!hasVerifiedCompletionForJob(reconciliation, jobId)) {
+    return { attempted: false, ok: true, advanced: false, reason: 'NO_VERIFIED_COMPLETION' };
+  }
+  try {
+    const tick = await runTick(env, { repository, fetchImpl });
+    const job = tick?.job && typeof tick.job === 'object'
+      ? {
+          id: tick.job.id || null,
+          status: tick.job.status || null,
+          roadmap_id: tick.job.roadmap_id || tick.job.optional_context?.roadmap_id || null,
+        }
+      : null;
+    return {
+      attempted: true,
+      ok: tick?.ok !== false,
+      advanced: tick?.advanced === true || Boolean(job),
+      status: tick?.status || null,
+      job,
+      next: tick?.next || null,
+    };
+  } catch (error) {
+    return {
+      attempted: true,
+      ok: false,
+      advanced: false,
+      error: String(error?.code || error?.message || 'AUTONOMY_CONTINUATION_FAILED').slice(0, 180),
+    };
+  }
 }
 
 async function mirrorTeacherImmediately({ env, repo, job, state, fetchImpl = fetch } = {}) {
@@ -236,8 +274,6 @@ export function devRuntime(request, env) {
     if (path === '/api/dev-bridge/claim' && request.method === 'POST') {
       const job = await repo.claim();
       if (!job) return Response.json({ job: null });
-      // A supervised job already carries its Council/Teacher/Mentor plan. Do not
-      // overwrite that evidence with the legacy one-shot diagnostic plan.
       if (job?.result_json?.bridge_preparation?.status === 'READY') {
         return Response.json(job);
       }
@@ -294,6 +330,13 @@ export function devRuntime(request, env) {
         };
       }
       const refreshed = await repo.get(job.id) || updated;
+      const autonomousContinuation = await continueAfterVerifiedCompletion({
+        env,
+        repository: repo,
+        reconciliation: completionReconciliation,
+        jobId: job.id,
+        fetchImpl: fetch,
+      });
       return Response.json({
         ...refreshed,
         immediate_completion_reconciliation: {
@@ -303,6 +346,7 @@ export function devRuntime(request, env) {
           rejected: Array.isArray(completionReconciliation?.rejected) ? completionReconciliation.rejected : [],
           error: completionReconciliation?.error || null,
         },
+        immediate_autonomy_continuation: autonomousContinuation,
       });
     }
 
