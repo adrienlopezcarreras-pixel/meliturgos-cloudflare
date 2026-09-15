@@ -39,5 +39,37 @@
     "MEL_TEACHER_TRANSPORT_BRANCH": "teacher-bridge/runtime",
     "MEL_TEACHER_REPLIES_URL": "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/refs/heads/teacher-bridge/runtime/teacher-bridge/replies.jsonl",
     "MEL_TEACHER_COMPLETIONS_URL": "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/refs/heads/teacher-bridge/runtime/teacher-bridge/completions.jsonl"
+  },
+  "env": {
+    "preview": {
+      "triggers": {
+        "crons": []
+      },
+      "ai": {
+        "binding": "AI"
+      },
+      "r2_buckets": [
+        {
+          "binding": "MEDIA_BUCKET"
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB"
+        }
+      ],
+      "vars": {
+        "OWNER_NAME": "Adrien",
+        "MELITURGOS_USER": "adrien",
+        "MEL_GITHUB_REPOSITORY": "adrienlopezcarreras-pixel/meliturgos-cloudflare",
+        "MEL_GITHUB_BRANCH": "candidate/mel-clean-autonomy",
+        "MEL_TEACHER_BRANCH": "candidate/mel-clean-autonomy",
+        "MEL_TEACHER_TRANSPORT_BRANCH": "teacher-bridge/runtime",
+        "MEL_TEACHER_REPLIES_URL": "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/refs/heads/teacher-bridge/runtime/teacher-bridge/replies.jsonl",
+        "MEL_TEACHER_COMPLETIONS_URL": "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/refs/heads/teacher-bridge/runtime/teacher-bridge/completions.jsonl",
+        "MEL_RUNTIME_ENV": "preview",
+        "MEL_PREVIEW_ISOLATED": "true"
+      }
+    }
   }
 }
