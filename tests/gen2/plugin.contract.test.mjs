@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPluginRuntime } from '../../src/plugins/runtime.js';
+import { createPluginRuntime, Mel } from '../../src/plugins/sdk.js';
 
 function manifest(overrides = {}) {
   return {
@@ -41,6 +41,12 @@ function plugin(overrides = {}) {
     deactivate: deactivate || (async () => { state.deactivated += 1; }),
   };
 }
+
+test('SDK exposes the literal Mel.register(plugin) contract', () => {
+  assert.equal(typeof Mel.register, 'function');
+  assert.equal(typeof Mel.deactivate, 'function');
+  assert.equal(typeof Mel.execute, 'function');
+});
 
 test('Mel.register validates, activates and emits timeline-visible events', async () => {
   const events = [];
