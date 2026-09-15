@@ -22,28 +22,24 @@ function scene({ a, b, glow, accent, motif = '' }) {
 </svg>`);
 }
 
-// Classic and control remain generated so the application always has a local
-// fallback. The six themed scenes below are the real user-supplied images and
-// are served by Cloudflare Workers Static Assets from dist/assets/backgrounds.
-const classic = scene({
-  a:'#06172d', b:'#0b2545', glow:'#1d9bf0', accent:'#57d5ff',
-  motif:`<g fill="none" stroke="#6ddcff" stroke-opacity=".18" stroke-width="5"><path d="M260 420H1180L1440 680H2380L2700 360H3550"/><path d="M420 980H940L1190 730M2750 780H3370L3600 1010"/></g>`
-});
-
+// Control remains generated so the full interface always has a local fallback.
+// The normal themes use the original 1536x1024 user-owned media files instead
+// of the tiny/corrupted static copies that produced visibly degraded scenes.
 const control = scene({
   a:'#04111f', b:'#09263b', glow:'#21c7d9', accent:'#5eead4',
   motif:`<g opacity=".36"><path d="M380 1470V520H1260V1470M2580 1470V520H3460V1470" fill="#030913" stroke="#67e8f9" stroke-opacity=".32" stroke-width="7"/><rect x="520" y="680" width="600" height="440" rx="42" fill="#0a1b2a" stroke="#60a5fa" stroke-width="6"/><rect x="2720" y="680" width="600" height="440" rx="42" fill="#0a1b2a" stroke="#60a5fa" stroke-width="6"/><circle cx="1920" cy="800" r="430" fill="none" stroke="#5eead4" stroke-opacity=".28" stroke-width="10"/></g>`
 });
 
-const REAL_ASSET_VERSION = '20260915-real1';
-const asset = name => `/assets/backgrounds/mel-bg-${name}.webp?v=${REAL_ASSET_VERSION}`;
+const HD_MEDIA_BASE = 'https://verite-interdite.fr/wp-content/uploads/2026/09';
+const original = name => `${HD_MEDIA_BASE}/${name}`;
 
-const crusade = asset('crusade');
-const religious = asset('religious');
-const granada = asset('granada');
-const aviation = asset('aviation');
-const paladin = asset('paladin');
-const amazon = asset('amazon');
+const classic = original('mel-classic-hd.png');
+const crusade = original('mel-croise-hd-1.jpg');
+const religious = original('mel-religieux-hd-1.jpg');
+const granada = original('mel-grenade-hd.jpg');
+const aviation = original('mel-aviation-hd.jpg');
+const paladin = original('mel-paladin-hd.jpg');
+const amazon = original('mel-amazon-hd.jpg');
 
 export const HD_BACKGROUNDS = Object.freeze({ classic, crusade, religious, granada, aviation, paladin, amazon, control });
 
