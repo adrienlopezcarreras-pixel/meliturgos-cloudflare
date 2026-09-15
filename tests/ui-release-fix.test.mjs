@@ -15,7 +15,8 @@ test('production entry routes through the release UI repair wrapper', async () =
 
 test('full mode forces the embedded MEL portrait and explains live states', async () => {
   const source = await text('src/ui-release-fix-entry.js');
-  assert.match(source, /fullAvatar/);
+  assert.match(source, /FULL_AVATAR_DATA_URL\s*=\s*['"]\/assets\/avatars\/mel-full\.webp['"]/);
+  assert.match(source, /forceAvatar/);
   assert.match(source, /\.brand img,\.hero img/);
   assert.match(source, /mel-live-explanation/);
   for (const status of ['QUEUED','CLAIMED','WAITING_TEACHER','READY_FOR_REVIEW','COMPLETED','FAILED']) {
