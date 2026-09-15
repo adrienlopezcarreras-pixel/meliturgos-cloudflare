@@ -40,7 +40,19 @@ function requireExactSha(value, code = 'TEACHER_TARGET_SHA_REQUIRED') {
   return sha;
 }
 
+function degradedCouncilForTeacher(council) {
+  return council?.status === 'DEGRADED'
+    && council?.degraded === true
+    && council?.degraded_reason === 'NOT_ENOUGH_ZERO_COST_PROVIDERS'
+    && council?.phase === 'STATE_OF_PLAY_BEFORE_DEVELOPMENT'
+    && council?.teacher_required === true
+    && council?.council_ready_for_teacher === true
+    && council?.development_allowed === false;
+}
+
 function validateCouncilForTeacher(council) {
+  if (degradedCouncilForTeacher(council)) return council;
+
   if (council.status !== 'COMPLETE' || council.phase !== 'STATE_OF_PLAY_BEFORE_DEVELOPMENT') {
     throw Object.assign(new Error('TEACHER_COUNCIL_INCOMPLETE'), { code: 'TEACHER_COUNCIL_INCOMPLETE' });
   }
