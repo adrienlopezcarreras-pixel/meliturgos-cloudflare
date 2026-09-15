@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "meliturgos-memory-sync-preview-20260915",
+  "main": "src/memory/exchange-sync-preview-entry.js",
+  "compatibility_date": "2026-09-04",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 }
+  },
+  "vars": {
+    "MEL_RUNTIME_ENV": "memory-sync-preview",
+    "MEL_PREVIEW_ISOLATED": "true"
+  }
+}
