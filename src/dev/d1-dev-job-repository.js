@@ -39,9 +39,18 @@ export function isPreparedDevBridgeJob(job) {
   return job.tests_json.every((test) => test && typeof test.command === 'string');
 }
 
+export function isTeacherGatedDevJob(job) {
+  const requester = String(job?.requested_by || '').trim().toLowerCase();
+  return requester === 'mel-autonomy' || requester.startsWith('owner-chat');
+}
+
+export function isLegacyQueuedDevBridgeJob(job) {
+  return String(job?.status || '').toUpperCase() === 'QUEUED' && !isTeacherGatedDevJob(job);
+}
+
 function bridgeClaimPriority(job) {
   if (isPreparedDevBridgeJob(job)) return 0;
-  if (String(job?.status || '').toUpperCase() === 'QUEUED') return 1;
+  if (isLegacyQueuedDevBridgeJob(job)) return 1;
   return 99;
 }
 
@@ -164,9 +173,10 @@ export class D1DevJobRepository {
   }
 
   /**
-   * The local bridge may claim either a legacy QUEUED job or, with priority,
-   * a TEACHER_APPROVED job that has a correlated structured bridge package.
-   * Approval alone is never enough to make a job claimable.
+   * The local bridge may claim a legacy/manual QUEUED job or, with priority,
+   * a TEACHER_APPROVED job carrying a correlated structured Bridge package.
+   * Supervised autonomy/owner-chat jobs are never legacy claimable while
+   * QUEUED: they must pass Council + Teacher and become a prepared package.
    */
   async claim() {
     await this.init();
@@ -179,8 +189,18 @@ export class D1DevJobRepository {
       return this.update(job.id, { status: 'CLAIMED' });
     }
 
-    const rows = ((await this.db.prepare("SELECT * FROM dev_jobs WHERE status IN ('TEACHER_APPROVED','QUEUED') ORDER BY CASE status WHEN 'TEACHER_APPROVED' THEN 0 ELSE 1 END, created_at ASC LIMIT 25").all()).results || []).map((row) => this._row(row));
-    const candidate = rows.find((job) => isPreparedDevBridgeJob(job)) || rows.find((job) => String(job.status || '').toUpperCase() === 'QUEUED');
+    const rows = ((await this.db.prepare(`
+      SELECT * FROM dev_jobs
+      WHERE status='TEACHER_APPROVED'
+         OR (
+           status='QUEUED'
+           AND LOWER(requested_by) <> 'mel-autonomy'
+           AND LOWER(requested_by) NOT LIKE 'owner-chat%'
+         )
+      ORDER BY CASE status WHEN 'TEACHER_APPROVED' THEN 0 ELSE 1 END, created_at ASC
+      LIMIT 100
+    `).all()).results || []).map((row) => this._row(row));
+    const candidate = rows.find((job) => isPreparedDevBridgeJob(job)) || rows.find((job) => isLegacyQueuedDevBridgeJob(job));
     if (!candidate) return null;
     const expectedStatus = String(candidate.status || '').toUpperCase();
     const r = await this.db.prepare('UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status=?')
