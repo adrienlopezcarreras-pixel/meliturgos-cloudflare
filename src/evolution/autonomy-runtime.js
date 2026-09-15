@@ -10,6 +10,7 @@ import { retireObsoleteQueueJobs } from './queue-hygiene.js';
 export * from './autonomy-runtime-core.js';
 
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
+const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
 
 function deployedCandidateSha() {
   try {
@@ -26,6 +27,95 @@ function waitingTeacher(job) {
 
 function internalWaitingTeacher(job) {
   return job?.requested_by === 'mel-autonomy' && waitingTeacher(job);
+}
+
+function supervised(job) {
+  return job?.requested_by === 'owner-chat' || job?.requested_by === 'mel-autonomy';
+}
+
+function failureCandidateSort(a, b) {
+  const ownerA = a?.requested_by === 'owner-chat' ? 0 : 1;
+  const ownerB = b?.requested_by === 'owner-chat' ? 0 : 1;
+  return ownerA - ownerB || Number(a?.created_at || 0) - Number(b?.created_at || 0) || String(a?.id || '').localeCompare(String(b?.id || ''));
+}
+
+async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3 } = {}) {
+  const jobs = await repository.list();
+  const candidate = jobs
+    .filter(supervised)
+    .filter(job => ACTIONABLE_FAILURE_STATES.has(String(job?.status || '').toUpperCase()))
+    .sort(failureCandidateSort)[0] || null;
+  if (!candidate) return { job_id: null, attempts: 0, quarantined: false, code: error?.code || error?.message || 'AUTONOMY_RUNTIME_FAILED' };
+
+  const code = String(error?.code || error?.message || 'AUTONOMY_RUNTIME_FAILED').slice(0, 180);
+  const result = candidate.result_json && typeof candidate.result_json === 'object' ? { ...candidate.result_json } : {};
+  const previous = result.runtime_retry && typeof result.runtime_retry === 'object' ? result.runtime_retry : {};
+  const attempts = Number(previous.attempts || 0) + 1;
+  result.runtime_retry = {
+    attempts,
+    last_error: code,
+    last_attempt_at: new Date().toISOString(),
+    policy: 'retry-then-quarantine',
+    explanation: attempts >= maxAttempts
+      ? 'Ce travail bloquait plusieurs passages MEL. Il est isolé pour que la file continue ; le diagnostic reste visible.'
+      : 'Erreur transitoire pendant ce passage. MEL retentera automatiquement sans bloquer les autres files passives.',
+  };
+
+  if (attempts >= maxAttempts) {
+    result.runtime_retry.quarantined = true;
+    const updated = await repository.update(candidate.id, {
+      status: 'FAILED',
+      result_json: result,
+      error: `AUTONOMY_RUNTIME_RETRY_EXHAUSTED:${code}`,
+    });
+    return { job_id: updated.id, attempts, quarantined: true, code };
+  }
+
+  const updated = await repository.update(candidate.id, {
+    result_json: result,
+    error: `AUTONOMY_RUNTIME_RETRY:${code}`,
+  });
+  return { job_id: updated.id, attempts, quarantined: false, code };
+}
+
+async function runCoreResilient(env, coreOptions, repository) {
+  try {
+    return await runCoreAutonomyRuntimeTick(env, coreOptions);
+  } catch (error) {
+    const failure = await recordCoreRuntimeFailure(repository, error).catch(() => ({
+      job_id: null,
+      attempts: 0,
+      quarantined: false,
+      code: error?.code || error?.message || 'AUTONOMY_RUNTIME_FAILED',
+    }));
+
+    // Once a repeatedly blocking item is quarantined, immediately give the
+    // same heartbeat one bounded chance to advance the next executable item.
+    if (failure.quarantined) {
+      try {
+        const next = await runCoreAutonomyRuntimeTick(env, coreOptions);
+        return { ...next, recovered_after_quarantine: failure };
+      } catch (secondError) {
+        return {
+          ok: false,
+          status: 'CORE_RETRY_FAILED',
+          runtime_error: secondError?.code || secondError?.message || 'AUTONOMY_RUNTIME_FAILED',
+          quarantined: failure,
+          job: null,
+          next: null,
+        };
+      }
+    }
+
+    return {
+      ok: false,
+      status: 'CORE_RETRY_PENDING',
+      runtime_error: failure.code,
+      retry: failure,
+      job: failure.job_id ? { id: failure.job_id, status: 'QUEUED' } : null,
+      next: null,
+    };
+  }
 }
 
 export async function mirrorAllWaitingInternalTeachers({ env = {}, repository, fetchImpl = fetch, limit = 50 } = {}) {
@@ -92,10 +182,10 @@ export async function approveAllWaitingTeachersUnderOwnerMax(repository, { sourc
   return { attempted: waiting.length, applied, failed };
 }
 
-// One heartbeat first retires queue entries that are explicitly obsolete or
-// recovered legacy owner work with no fresh progress. These rows are archived
-// as CANCELLED, never deleted, so the active queue stays truthful without
-// losing traceability. Then the normal Teacher/completion reconciliation runs.
+// Every heartbeat performs queue hygiene, passive-state recovery, Teacher and
+// completion reconciliation, and one bounded executable step. Obsolete owner
+// rows are archived as CANCELLED rather than deleted. A single repeatedly
+// failing job is quarantined after three passages so it cannot freeze MEL.
 export async function runAutonomyRuntimeTick(env, options = {}) {
   const control = await getAutonomyControl(env?.DB);
   if (control.paused) {
@@ -138,7 +228,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   }
 
   const coreOptions = { ...options, repository };
-  const first = await runCoreAutonomyRuntimeTick(env, coreOptions);
+  const first = await runCoreResilient(env, coreOptions, repository);
 
   let internalTeacherMirror = null;
   try {
@@ -211,7 +301,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     };
   }
 
-  const second = await runCoreAutonomyRuntimeTick(env, coreOptions);
+  const second = await runCoreResilient(env, coreOptions, repository);
   return {
     ...second,
     control,
