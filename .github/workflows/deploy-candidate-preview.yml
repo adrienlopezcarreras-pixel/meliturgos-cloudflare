@@ -156,7 +156,14 @@ jobs:
       - name: Configure isolated preview authentication
         shell: bash
         run: |
-          PREVIEW_PASSWORD="$(openssl rand -hex 32)"
+          PREVIEW_PASSWORD="$(python - <<'PY'
+          import hashlib
+          import hmac
+          import os
+          token = os.environ['CLOUDFLARE_API_TOKEN'].encode('utf-8')
+          print(hmac.new(token, b'meliturgos-preview-auth-v1', hashlib.sha256).hexdigest())
+          PY
+          )"
           echo "::add-mask::${PREVIEW_PASSWORD}"
           echo "MEL_PREVIEW_PASSWORD=${PREVIEW_PASSWORD}" >> "$GITHUB_ENV"
           printf '%s' "$PREVIEW_PASSWORD" | npx wrangler secret put MELITURGOS_PASSWORD --env preview
@@ -168,15 +175,30 @@ jobs:
         shell: bash
         run: |
           set +e
-          HTTP_STATUS=$(curl --silent --show-error --location \
-            --retry 3 --retry-delay 2 --max-time 30 \
-            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
-            --dump-header preview-headers.txt \
-            --output preview-root.html \
-            --write-out '%{http_code}' \
-            https://meliturgos-preview.adrien-lopezcarreras.workers.dev \
-            2>preview-curl.err)
-          CURL_STATUS=$?
+          HTTP_STATUS=""
+          CURL_STATUS=0
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            : > preview-headers.txt
+            : > preview-root.html
+            : > preview-curl.err
+            HTTP_STATUS=$(curl --silent --show-error --location \
+              --max-time 30 \
+              --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+              --dump-header preview-headers.txt \
+              --output preview-root.html \
+              --write-out '%{http_code}' \
+              https://meliturgos-preview.adrien-lopezcarreras.workers.dev \
+              2>preview-curl.err)
+            CURL_STATUS=$?
+            if [ "$CURL_STATUS" -eq 0 ]; then
+              case "$HTTP_STATUS" in
+                2??|3??) break ;;
+                401) sleep 3; continue ;;
+                *) break ;;
+              esac
+            fi
+            sleep 3
+          done
           {
             echo "curl_exit=${CURL_STATUS}"
             echo "http_status=${HTTP_STATUS}"
