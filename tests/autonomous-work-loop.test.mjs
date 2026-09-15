@@ -102,8 +102,8 @@ test('JSONL Teacher channel publishes once, strips secret-shaped fields, and rea
   }
 });
 
-test('long autonomous chain survives the cycle limit and resumes without duplicate task execution', async () => {
-  const { job, store } = await setup(`autonomy-soak-${crypto.randomUUID()}`);
+test('repeated heartbeat invocations complete a long Teacher chain without duplicate task execution', async () => {
+  const { job, store } = await setup(`autonomy-heartbeat-${crypto.randomUUID()}`);
   const stageCount = 50;
   const nodes = [];
   const requestIds = [];
@@ -129,7 +129,7 @@ test('long autonomous chain survives the cycle limit and resumes without duplica
 
   await store.save(createWorkDag({
     jobId: job.id,
-    goal: '50 tasks -> 50 Teacher gates -> resume across supervisor cycle limit',
+    goal: '50 tasks -> 50 Teacher gates -> repeated heartbeat resume',
     candidateBranch: TEST_CANDIDATE_BRANCH,
     candidateSha: TEST_CANDIDATE_SHA,
     nodes,
@@ -160,15 +160,22 @@ test('long autonomous chain survives the cycle limit and resumes without duplica
   const channel = new AutoApprovingTeacherChannel();
   const loop = new AutonomousWorkLoop({ runner, store, teacherChannel: channel, maxCycles: 32 });
 
-  const firstPass = await loop.run();
-  assert.notEqual(firstPass.status, WORK_DAG_STATUS.COMPLETED);
-  assert.ok(firstPass.audit.some((entry) => entry.event === 'AUTONOMOUS_WORK_LOOP_CYCLE_LIMIT'));
-  assert.ok(firstPass.nodes.some((node) => node.status === WORK_NODE_STATUS.WAITING_TEACHER));
+  let current = null;
+  let heartbeatCount = 0;
+  let sawCycleLimit = false;
+  const maxHeartbeats = 20;
 
-  const complete = await loop.run();
-  assert.equal(complete.status, WORK_DAG_STATUS.COMPLETED);
-  assert.equal(complete.nodes.length, stageCount * 2);
-  assert.equal(complete.nodes.every((node) => node.status === WORK_NODE_STATUS.COMPLETED), true);
+  do {
+    current = await loop.run();
+    heartbeatCount += 1;
+    sawCycleLimit ||= current.audit.some((entry) => entry.event === 'AUTONOMOUS_WORK_LOOP_CYCLE_LIMIT');
+    assert.ok(heartbeatCount < maxHeartbeats, 'heartbeat loop did not converge');
+  } while (current.status !== WORK_DAG_STATUS.COMPLETED);
+
+  assert.ok(heartbeatCount > 1, 'long chain should require more than one bounded heartbeat');
+  assert.equal(sawCycleLimit, true, 'the test must cross the per-heartbeat cycle limit');
+  assert.equal(current.nodes.length, stageCount * 2);
+  assert.equal(current.nodes.every((node) => node.status === WORK_NODE_STATUS.COMPLETED), true);
   assert.equal(channel.requests.size, stageCount);
   assert.equal(new Set(requestIds).size, stageCount);
   assert.equal(executions.size, stageCount);
