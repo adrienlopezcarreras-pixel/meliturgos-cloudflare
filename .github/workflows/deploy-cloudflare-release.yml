@@ -16,7 +16,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout exact release SHA
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -30,6 +30,15 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
 
+      - name: Block high or critical dependency advisories
+        run: npm audit --audit-level=high
+
+      - name: Syntax gate
+        run: npm run check
+
+      - name: Test gate
+        run: npm test
+
       - name: Verify release branch
         shell: bash
         run: |
@@ -39,6 +48,7 @@ jobs:
       - name: Deploy Cloudflare Worker
         run: >
           npm run deploy --
+          --env=""
           --define "MEL_DEPLOYED_GIT_SHA:'${GITHUB_SHA}'"
           "MEL_DEPLOYED_GIT_BRANCH:'${GITHUB_REF_NAME}'"
         env:
