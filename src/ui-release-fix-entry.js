@@ -2,6 +2,7 @@ import app from './ui-entry.js';
 import { HD_BACKGROUNDS, HD_BACKGROUND_TONES } from './assets/generated/hd-backgrounds.js';
 
 const FULL_AVATAR_DATA_URL = '/assets/avatars/mel-full.webp';
+const FULL_CYBER_AVATAR_URL = 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-cyber-avatar-160-q55.jpg';
 
 function withBody(html, fragment) {
   return html.includes('</body>') ? html.replace('</body>', `${fragment}</body>`) : html + fragment;
@@ -58,7 +59,7 @@ const FULL_STYLE = `<style id="mel-full-release-fix">
 html,body{width:100%!important;max-width:100%!important;overflow-x:hidden!important}
 html body{background-image:linear-gradient(180deg,rgba(2,7,18,.24),rgba(2,8,18,.48)),url("${HD_BACKGROUNDS.control}")!important;background-size:cover,cover!important;background-position:center,center!important;background-repeat:no-repeat!important;background-attachment:fixed!important}
 .sidebar{background:rgba(3,9,18,.76)!important}.card{background:linear-gradient(180deg,rgba(20,32,52,.90),rgba(8,18,34,.84))!important;backdrop-filter:blur(12px)}
-.brand img,.hero img{display:block!important;object-fit:contain!important;object-position:center center!important;background:transparent!important;transform:none!important;transform-origin:center!important}
+.brand img,.hero img{display:block!important;object-fit:cover!important;object-position:center 28%!important;background:#07111f!important;transform:none!important;transform-origin:center!important;border-radius:50%!important;overflow:hidden!important}
 .brand img{width:58px!important;height:58px!important;min-width:58px!important;min-height:58px!important;max-width:58px!important;max-height:58px!important}
 .hero img{width:126px!important;height:126px!important;min-width:126px!important;min-height:126px!important;max-width:126px!important;max-height:126px!important}
 .brand img~img,.hero img~img{display:none!important}
@@ -68,7 +69,7 @@ html body{background-image:linear-gradient(180deg,rgba(2,7,18,.24),rgba(2,8,18,.
 
 const FULL_SCRIPT = `<script id="mel-full-release-runtime">
 (()=>{
- const AV=${JSON.stringify(FULL_AVATAR_DATA_URL)};
+ const AV=${JSON.stringify(FULL_CYBER_AVATAR_URL)};
  const descriptions={
    QUEUED:'Cette tâche est en file. MEL doit la réclamer puis exécuter son prochain état au lieu de la laisser geler la feuille de route.',
    CLAIMED:'MEL a pris cette tâche en charge et exécute son étape active.',
@@ -80,7 +81,7 @@ const FULL_SCRIPT = `<script id="mel-full-release-runtime">
    CANCELLED:'Ancienne demande retirée de la file active car obsolète ou remplacée ; sa trace reste archivée.',
    FAILED:'Cette tâche a rencontré une erreur réelle et reste visible pour diagnostic.'
  };
- function forceAvatar(){document.querySelectorAll('.brand,.hero').forEach(container=>{const imgs=[...container.querySelectorAll('img')];imgs.forEach((img,index)=>{if(index>0){img.remove();return}if(img.src!==AV)img.src=AV;img.style.objectFit='contain';img.style.objectPosition='center center';img.style.transform='none';img.style.background='transparent'})})}
+ function forceAvatar(){document.querySelectorAll('.brand,.hero').forEach(container=>{let imgs=[...container.querySelectorAll('img')];if(!imgs.length){const img=document.createElement('img');img.alt='MEL';container.prepend(img);imgs=[img]}imgs.forEach((img,index)=>{if(index>0){img.remove();return}if(img.src!==AV)img.src=AV;img.alt='MEL, avatar cybernétique';img.style.objectFit='cover';img.style.objectPosition='center 28%';img.style.transform='none';img.style.background='#07111f';img.style.borderRadius='50%'})})}
  function descriptionFor(entry){const text=String(entry?.textContent||'').toUpperCase();return Object.entries(descriptions).find(([key])=>text.includes(key))?.[1]||'MEL suit cette tâche et affichera son prochain changement d’état vérifiable.'}
  function enrichLive(){
    const log=document.getElementById('melLiveLog');
@@ -100,8 +101,8 @@ async function enhance(response, pathname) {
   if (!response.ok || !type.includes('text/html')) return response;
   let html = await response.text();
   if (pathname === '/professor') {
-    html = html.replaceAll('src="/meliturgos-avatar-fille.png"', `src="${FULL_AVATAR_DATA_URL}"`);
-    html = html.replaceAll('src="/assets/avatars/mel-full.webp"', `src="${FULL_AVATAR_DATA_URL}"`);
+    html = html.replaceAll('src="/meliturgos-avatar-fille.png"', `src="${FULL_CYBER_AVATAR_URL}"`);
+    html = html.replaceAll('src="/assets/avatars/mel-full.webp"', `src="${FULL_CYBER_AVATAR_URL}"`);
     html = withHead(html, FULL_STYLE);
     html = withBody(html, FULL_SCRIPT + CACHE_REFRESH);
   } else if (pathname === '/' || pathname === '/mvp') {
