@@ -8,9 +8,14 @@ async function text(path) {
   return readFile(new URL(path, root), 'utf8');
 }
 
-test('production entry routes through the release UI repair wrapper', async () => {
+test('production entry preserves the verified release UI wrapper under live-learning', async () => {
   const wrangler = await text('wrangler.jsonc');
-  assert.match(wrangler, /"main"\s*:\s*"src\/ui-release-fix-entry\.js"/);
+  const live = await text('src/professor-live-learning-entry.js');
+  const release = await text('src/ui-release-fix-entry.js');
+  assert.match(wrangler, /"main"\s*:\s*"src\/professor-live-learning-entry\.js"/);
+  assert.match(live, /import\s+app\s+from\s+['"]\.\/ui-release-fix-entry\.js['"]/);
+  assert.match(release, /import\s+app\s+from\s+['"]\.\/ui-entry\.js['"]/);
+  assert.match(live, /\/api\/learning\/progress/);
 });
 
 test('full mode forces the embedded MEL portrait and explains live states', async () => {
