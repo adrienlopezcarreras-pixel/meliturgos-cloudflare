@@ -22,16 +22,23 @@ function manifest(overrides = {}) {
 
 function plugin(overrides = {}) {
   const state = { activated: 0, deactivated: 0 };
+  const {
+    manifest: manifestOverrides = {},
+    capabilities: capabilityOverrides = {},
+    activate,
+    deactivate,
+    ...extra
+  } = overrides;
   return {
+    ...extra,
     state,
-    manifest: manifest(overrides.manifest),
+    manifest: manifest(manifestOverrides),
     capabilities: {
       echo: async (input, ctx) => ({ text: input.text, plugin: ctx.plugin.id }),
-      ...(overrides.capabilities || {}),
+      ...capabilityOverrides,
     },
-    async activate() { state.activated += 1; },
-    async deactivate() { state.deactivated += 1; },
-    ...overrides,
+    activate: activate || (async () => { state.activated += 1; }),
+    deactivate: deactivate || (async () => { state.deactivated += 1; }),
   };
 }
 
