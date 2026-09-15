@@ -101,3 +101,80 @@ test('JSONL Teacher channel publishes once, strips secret-shaped fields, and rea
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('long autonomous chain survives the cycle limit and resumes without duplicate task execution', async () => {
+  const { job, store } = await setup(`autonomy-soak-${crypto.randomUUID()}`);
+  const stageCount = 50;
+  const nodes = [];
+  const requestIds = [];
+
+  for (let index = 0; index < stageCount; index += 1) {
+    const taskId = `task-${index}`;
+    const teacherId = `teacher-${index}`;
+    const request = makeTeacherRequest();
+    requestIds.push(request.request_id);
+    nodes.push({
+      id: taskId,
+      kind: 'TASK',
+      depends_on: index === 0 ? [] : [`teacher-${index - 1}`],
+      idempotent: true,
+    });
+    nodes.push({
+      id: teacherId,
+      kind: 'TEACHER',
+      depends_on: [taskId],
+      payload: { request },
+    });
+  }
+
+  await store.save(createWorkDag({
+    jobId: job.id,
+    goal: '50 tasks -> 50 Teacher gates -> resume across supervisor cycle limit',
+    candidateBranch: TEST_CANDIDATE_BRANCH,
+    candidateSha: TEST_CANDIDATE_SHA,
+    nodes,
+  }));
+
+  const executions = new Map();
+  const runner = new WorkDagRunner({
+    store,
+    expectedCandidateSha: TEST_CANDIDATE_SHA,
+    executors: {
+      TASK: async (node) => {
+        executions.set(node.id, (executions.get(node.id) || 0) + 1);
+        return { node: node.id };
+      },
+    },
+  });
+
+  class AutoApprovingTeacherChannel extends InMemoryTeacherChannel {
+    async publishRequest(request, metadata = {}) {
+      const result = await super.publishRequest(request, metadata);
+      if (!this.replies.has(request.request_id)) {
+        await this.submitReply(teacherReply(request.request_id));
+      }
+      return result;
+    }
+  }
+
+  const channel = new AutoApprovingTeacherChannel();
+  const loop = new AutonomousWorkLoop({ runner, store, teacherChannel: channel, maxCycles: 32 });
+
+  const firstPass = await loop.run();
+  assert.notEqual(firstPass.status, WORK_DAG_STATUS.COMPLETED);
+  assert.ok(firstPass.audit.some((entry) => entry.event === 'AUTONOMOUS_WORK_LOOP_CYCLE_LIMIT'));
+  assert.ok(firstPass.nodes.some((node) => node.status === WORK_NODE_STATUS.WAITING_TEACHER));
+
+  const complete = await loop.run();
+  assert.equal(complete.status, WORK_DAG_STATUS.COMPLETED);
+  assert.equal(complete.nodes.length, stageCount * 2);
+  assert.equal(complete.nodes.every((node) => node.status === WORK_NODE_STATUS.COMPLETED), true);
+  assert.equal(channel.requests.size, stageCount);
+  assert.equal(new Set(requestIds).size, stageCount);
+  assert.equal(executions.size, stageCount);
+  assert.equal([...executions.values()].every((count) => count === 1), true);
+  assert.equal(
+    [...channel.requests.values()].every(({ metadata }) => metadata.candidate_branch === TEST_CANDIDATE_BRANCH),
+    true,
+  );
+});
