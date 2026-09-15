@@ -66,13 +66,32 @@ export async function runStateOfPlayCouncil({ goal, context = {}, members = [], 
   };
 }
 
+function isExplicitTeacherEscalation(report) {
+  return report?.status === 'DEGRADED'
+    && report?.degraded === true
+    && report?.degraded_reason === 'NOT_ENOUGH_ZERO_COST_PROVIDERS'
+    && report?.phase === 'STATE_OF_PLAY_BEFORE_DEVELOPMENT'
+    && report?.teacher_required === true
+    && report?.council_ready_for_teacher === true
+    && report?.development_allowed === false;
+}
+
 /**
  * Hard gate for Council completion only. This deliberately does not authorize
  * implementation: downstream code must still require MEL synthesis and Teacher
  * approval before entering implementation.
+ *
+ * A single explicit degraded state is accepted: there are too few authorized
+ * zero-cost providers. In that case MEL may gather code evidence and escalate
+ * to Teacher, but this function still grants no development authority.
  */
 export function requireStateOfPlayCouncil(report) {
-  if (!report || report.status !== 'COMPLETE' || report.phase !== 'STATE_OF_PLAY_BEFORE_DEVELOPMENT' || !Array.isArray(report.responses) || report.responses.length === 0) {
+  const complete = report
+    && report.status === 'COMPLETE'
+    && report.phase === 'STATE_OF_PLAY_BEFORE_DEVELOPMENT'
+    && Array.isArray(report.responses)
+    && report.responses.length > 0;
+  if (!complete && !isExplicitTeacherEscalation(report)) {
     throw Object.assign(new Error('AI_STATE_OF_PLAY_REQUIRED_BEFORE_DEVELOPMENT'), { code: 'AI_STATE_OF_PLAY_REQUIRED_BEFORE_DEVELOPMENT', status: 409 });
   }
   return report;
