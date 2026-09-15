@@ -104,7 +104,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          npx wrangler d1 migrations apply DB --env preview --remote --yes \
+          npx wrangler d1 migrations apply DB --env preview --remote \
             > wrangler-d1-preview.log 2>&1
           status=$?
           {
