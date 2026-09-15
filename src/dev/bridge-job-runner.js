@@ -1,6 +1,7 @@
 const MAX_FILES = 10;
 const MAX_TESTS = 4;
 const MAX_DIFF = 20_000;
+const MAX_TEST_OUTPUT = 20_000;
 
 function parseArray(value) {
   if (Array.isArray(value)) return value;
@@ -100,8 +101,8 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
         command: String(spec.command).slice(0, 100),
         passed: exitCode === 0,
         exit_code: exitCode,
-        stdout: String(result?.stdout ?? result?.result?.stdout ?? '').slice(0, 8000),
-        stderr: String(result?.stderr ?? result?.result?.stderr ?? '').slice(0, 8000),
+        stdout: String(result?.stdout ?? result?.result?.stdout ?? '').slice(0, MAX_TEST_OUTPUT),
+        stderr: String(result?.stderr ?? result?.result?.stderr ?? '').slice(0, MAX_TEST_OUTPUT),
       });
     } catch (error) {
       tests.push({
@@ -134,8 +135,8 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
       command: test.command,
       exit_code: test.exit_code,
       error: test.error || '',
-      stdout: String(test.stdout || '').slice(0, 4000),
-      stderr: String(test.stderr || '').slice(0, 4000),
+      stdout: String(test.stdout || '').slice(0, MAX_TEST_OUTPUT),
+      stderr: String(test.stderr || '').slice(0, MAX_TEST_OUTPUT),
     })),
     production_touched: false,
   };
