@@ -3,7 +3,6 @@ import { requireAuth } from './core/security.js';
 import { migrate } from './persistence/migrations.js';
 import { createConversationService } from './conversations/conversation-service.js';
 import { buildActivitySnapshot } from './activity/activity-snapshot.js';
-import fullAvatar from './assets/generated/full-avatar.js';
 
 function json(value, status = 200) {
   return new Response(JSON.stringify(value), {
@@ -79,108 +78,61 @@ async function latestConversationResponse(request, env) {
 }
 
 const NORMAL_PAGE_STYLE = `<style id="mel-owner-visual-fix">
-/* Restore the owner-approved HD scene files. The internal compressed previews
-   remain available as assets but are no longer forced over these HD sources. */
-html[data-theme="classic"]{--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-classic-hd-scaled.jpg?v=20260912-r4')!important;--mel-hd-pos:center center!important}
-html[data-theme="crusade"]{--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-crusade-hd.jpg?v=20260912-r4')!important;--mel-hd-pos:center center!important}
-html[data-theme="religious"]{--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-religious-hd-scaled.jpg?v=20260912-r4')!important;--mel-hd-pos:center center!important}
-html[data-theme="granada"]{--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-granada-hd-scaled.jpg?v=20260912-r4')!important;--mel-hd-pos:center center!important}
-html[data-theme="aviation"]{--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-aviation-hd-1-scaled.jpg?v=20260912-r4')!important;--mel-hd-pos:center center!important}
-html[data-theme="paladin"]{--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-paladin-hd-scaled.jpg?v=20260912-r4')!important;--mel-hd-pos:center center!important}
-html[data-theme="amazon"]{--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-amazon-hd.jpg?v=20260912-r4')!important;--mel-hd-pos:center center!important}
+/* Use the generated Worker-served scenes directly. This removes the dependency
+   on stale WordPress copies for the six generated theme backgrounds. */
+html[data-theme="classic"]{--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-classic-hd-scaled.jpg?v=20260915-r1')!important;--mel-hd-pos:center center!important}
+html[data-theme="crusade"]{--mel-hd-bg:url('/assets/backgrounds/mel-bg-crusade.webp?v=20260915-r1')!important;--mel-hd-pos:center center!important}
+html[data-theme="religious"]{--mel-hd-bg:url('/assets/backgrounds/mel-bg-religious.webp?v=20260915-r1')!important;--mel-hd-pos:center center!important}
+html[data-theme="granada"]{--mel-hd-bg:url('/assets/backgrounds/mel-bg-granada.webp?v=20260915-r1')!important;--mel-hd-pos:center center!important}
+html[data-theme="aviation"]{--mel-hd-bg:url('/assets/backgrounds/mel-bg-aviation.webp?v=20260915-r1')!important;--mel-hd-pos:center center!important}
+html[data-theme="paladin"]{--mel-hd-bg:url('/assets/backgrounds/mel-bg-paladin.webp?v=20260915-r1')!important;--mel-hd-pos:center center!important}
+html[data-theme="amazon"]{--mel-hd-bg:url('/assets/backgrounds/mel-bg-amazon.webp?v=20260915-r1')!important;--mel-hd-pos:center center!important}
+html body{background-image:linear-gradient(180deg,rgba(8,6,5,.10),rgba(8,5,3,.22) 48%,rgba(6,3,2,.40)),var(--mel-hd-bg)!important;background-size:cover,cover!important;background-position:center center,var(--mel-hd-pos,center center)!important;background-repeat:no-repeat,no-repeat!important;background-attachment:fixed,fixed!important}
 .avatar{overflow:hidden!important;border-radius:50%!important}
-.avatar img{display:block!important;width:100%!important;height:100%!important;object-fit:cover!important;object-position:center 23%!important;transform:scale(1.065)!important;transform-origin:center 28%!important}
+.avatar img{display:block!important;width:100%!important;height:100%!important;min-width:100%!important;min-height:100%!important;object-fit:cover!important;object-position:center 21%!important;transform:scale(1.14)!important;transform-origin:center 26%!important}
 .mel-owner-previous-row{min-height:22px;margin:2px 2px 4px;display:flex;align-items:center}
 .mel-owner-previous-link{color:var(--accent);font-size:.82rem;font-weight:750;text-decoration:underline;cursor:pointer}
 .mel-owner-previous-link[aria-busy="true"]{opacity:.55;pointer-events:none}
+@media(max-width:700px){html body{background-attachment:scroll,scroll!important}.avatar img{object-position:center 20%!important;transform:scale(1.17)!important}}
 </style>`;
 
 const NORMAL_PAGE_CLEANUP = `<script id="mel-normal-page-cleanup">
 (()=>{
-  const escText=v=>String(v??'');
-  const addMessage=(role,text)=>{
-    const messages=document.getElementById('messages');if(!messages)return;
-    messages.querySelector('.empty')?.remove();
-    const node=document.createElement('div');node.className='msg '+(role==='user'?'user':'mel');
-    const who=document.createElement('span');who.className='who';who.textContent=role==='user'?'Adrien':'MEL';
-    const body=document.createElement('div');body.textContent=escText(text);node.append(who,body);messages.appendChild(node);
-  };
+  const addMessage=(role,text)=>{const messages=document.getElementById('messages');if(!messages)return;messages.querySelector('.empty')?.remove();const node=document.createElement('div');node.className='msg '+(role==='user'?'user':'mel');const who=document.createElement('span');who.className='who';who.textContent=role==='user'?'Adrien':'MEL';const body=document.createElement('div');body.textContent=String(text??'');node.append(who,body);messages.appendChild(node)};
   const removeObsolete=()=>{
     document.getElementById('melTitle')?.remove();
     document.querySelectorAll('.mel-mode-label').forEach(node=>node.remove());
     document.querySelectorAll('#melRecallMvp,#melRecallLatest,.mel-recall-last,.mel-continue-row').forEach(node=>node.remove());
-    document.querySelectorAll('button,a,[role="link"],span').forEach(node=>{
-      const text=String(node.textContent||'').trim();
-      if(text==='Rappeler la dernière conversation'||text==='Reprendre la dernière conversation'||text==='Continuer depuis la dernière phrase') node.remove();
-    });
+    document.querySelectorAll('button,a,[role="link"],span').forEach(node=>{const text=String(node.textContent||'').trim();if(text==='Rappeler la dernière conversation'||text==='Reprendre la dernière conversation'||text==='Continuer depuis la dernière phrase')node.remove()});
   };
-  async function resumePrevious(link){
-    const status=document.getElementById('status');link?.setAttribute('aria-busy','true');
-    try{
-      const r=await fetch('/api/mel/conversations/latest',{cache:'no-store',credentials:'same-origin'});
-      const data=await r.json();if(!r.ok)throw new Error(data?.error||('HTTP_'+r.status));
-      const latest=data?.conversation,rows=Array.isArray(data?.messages)?data.messages:[];
-      if(!latest?.id)throw new Error('AUCUNE_CONVERSATION');
-      localStorage.setItem('mel.conversation',String(latest.id));
-      const messages=document.getElementById('messages');if(messages)messages.innerHTML='';
-      for(const row of rows.slice(-60)){
-        const role=String(row?.role||'').toLowerCase();
-        if(role==='user'||role==='assistant'||role==='mel')addMessage(role==='user'?'user':'mel',row?.content||row?.text||'');
-      }
-      if(messages)messages.scrollTop=messages.scrollHeight;
-      if(status)status.textContent=rows.length?'Échange précédent repris.':'Conversation précédente reprise.';
-    }catch(e){if(status)status.textContent='Reprise impossible : '+(e?.message||'ERREUR')}
-    finally{link?.setAttribute('aria-busy','false')}
-  }
-  const installPrevious=()=>{
-    const input=document.getElementById('input');if(!input||document.getElementById('melOwnerPreviousMessage'))return;
-    const row=document.createElement('div');row.className='mel-owner-previous-row';
-    const link=document.createElement('span');link.id='melOwnerPreviousMessage';link.className='mel-owner-previous-link';link.tabIndex=0;link.setAttribute('role','link');link.textContent='Message précédent';
-    row.appendChild(link);input.insertAdjacentElement('afterend',row);
-    const run=()=>resumePrevious(link);link.onclick=run;link.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();run()}};
-  };
-  const apply=()=>{removeObsolete();installPrevious()};
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',apply,{once:true});else apply();
-  const observer=new MutationObserver(apply);observer.observe(document.documentElement,{childList:true,subtree:true});
+  async function resumePrevious(link){const status=document.getElementById('status');link?.setAttribute('aria-busy','true');try{const r=await fetch('/api/mel/conversations/latest',{cache:'no-store',credentials:'same-origin'});const data=await r.json();if(!r.ok)throw new Error(data?.error||('HTTP_'+r.status));const latest=data?.conversation,rows=Array.isArray(data?.messages)?data.messages:[];if(!latest?.id)throw new Error('AUCUNE_CONVERSATION');localStorage.setItem('mel.conversation',String(latest.id));const messages=document.getElementById('messages');if(messages)messages.innerHTML='';for(const row of rows.slice(-60)){const role=String(row?.role||'').toLowerCase();if(role==='user'||role==='assistant'||role==='mel')addMessage(role==='user'?'user':'mel',row?.content||row?.text||'')}if(messages)messages.scrollTop=messages.scrollHeight;if(status)status.textContent=rows.length?'Échange précédent repris.':'Conversation précédente reprise.'}catch(e){if(status)status.textContent='Reprise impossible : '+(e?.message||'ERREUR')}finally{link?.setAttribute('aria-busy','false')}}
+  const installPrevious=()=>{const input=document.getElementById('input');if(!input||document.getElementById('melOwnerPreviousMessage'))return;const row=document.createElement('div');row.className='mel-owner-previous-row';const link=document.createElement('span');link.id='melOwnerPreviousMessage';link.className='mel-owner-previous-link';link.tabIndex=0;link.setAttribute('role','link');link.textContent='Message précédent';row.appendChild(link);input.insertAdjacentElement('afterend',row);const run=()=>resumePrevious(link);link.onclick=run;link.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();run()}}};
+  const apply=()=>{removeObsolete();installPrevious()};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',apply,{once:true});else apply();new MutationObserver(apply).observe(document.documentElement,{childList:true,subtree:true});
 })();
 </script>`;
 
 const FULL_MODE_STYLE = `<style id="mel-full-avatar-fix">
-.brand img,.hero img{display:block!important;object-fit:cover!important;object-position:center 24%!important;background:#07111f!important}
-.hero img{transform:scale(1.02);transform-origin:center center}
+.brand img,.hero img{display:block!important;object-fit:cover!important;object-position:center 20%!important;background:#07111f!important;border-radius:50%!important;overflow:hidden!important}
+.brand img{width:58px!important;height:58px!important;min-width:58px!important;min-height:58px!important;flex:0 0 58px!important}
+.hero{grid-template-columns:132px minmax(0,1fr)!important;align-items:center!important}
+.hero img{width:126px!important;height:126px!important;min-width:126px!important;min-height:126px!important;max-width:126px!important;max-height:126px!important;transform:scale(1.03)!important;transform-origin:center 25%!important}
+.mel-live-owner-explain{border:1px solid rgba(96,165,250,.24);background:rgba(8,23,43,.82);border-radius:14px;padding:12px 14px;margin:0 0 14px;line-height:1.48;color:#dbeafe}
+.mel-live-owner-explain strong{color:#fff}.mel-live-owner-explain .mel-line{margin-top:5px}.mel-live-owner-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.mel-live-owner-actions button{min-height:38px}.mel-live-owner-note{font-size:.78rem;color:#94a3b8;margin-top:7px}
+@media(max-width:700px){.hero{grid-template-columns:94px minmax(0,1fr)!important}.hero img{width:90px!important;height:90px!important;min-width:90px!important;min-height:90px!important;max-width:90px!important;max-height:90px!important}}
 </style>`;
 
 const FULL_MODE_CLEANUP = `<script id="mel-full-page-cleanup">
 (()=>{
-  const explain={
-    WAITING_TEACHER:'MEL a préparé la demande et l’a transmise au canal Teacher. Elle surveille la réponse et peut poursuivre les autres travaux compatibles.',
-    READY_FOR_REVIEW:'La candidate est prête. MEL vérifie la CI et la preuve de completion ; dès qu’elles arrivent, la réconciliation est relancée sans attendre un nouveau travail.',
-    TEACHER_APPROVED:'Le Teacher a validé le plan. MEL peut poursuivre l’implémentation sur la branche candidate.',
-    COUNCIL_COMPLETE:'Les IA prévues ont été consultées et leur synthèse est prête pour le contrôle Teacher.',
-    QUEUED:'Le travail est enregistré et attend son tour d’exécution.',
-    CLAIMED:'MEL a pris ce travail en charge.',
-    COMPLETED:'Le travail est terminé avec preuve corrélée.',
-    FAILED:'Une erreur réelle a interrompu ce travail ; MEL doit diagnostiquer ou réparer avant de le considérer terminé.'
-  };
-  const clean=()=>{
-    document.querySelectorAll('#melRecallFull').forEach(node=>node.remove());
-    const log=document.getElementById('melLiveLog');
-    if(log){
-      log.querySelectorAll('.mel-live-entry').forEach(entry=>{
-        const text=String(entry.textContent||'').toUpperCase();
-        const key=Object.keys(explain).find(k=>text.includes(k));
-        if(key&&!entry.querySelector('.mel-live-explanation')){
-          const p=document.createElement('div');p.className='mel-live-explanation';p.style.marginTop='6px';p.style.lineHeight='1.45';p.style.color='#dbeafe';p.textContent=explain[key];entry.appendChild(p);
-        }
-      });
-    }
-  };
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',clean,{once:true});else clean();
-  const observer=new MutationObserver(clean);observer.observe(document.documentElement,{childList:true,subtree:true});
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const explainStatus=(job,state)=>{const s=String(job?.status||'').toUpperCase();if(s==='WAITING_TEACHER')return state?.control?.max_autonomy?'Je relance le pont Teacher et, en mode MAX, j’applique l’override propriétaire si aucune réponse exploitable n’arrive afin que ce travail ne gèle pas la file.':'Je relance le pont Teacher configuré et je continue les autres travaux pendant l’attente ; ce statut ne bloque plus toute MEL.';if(s==='READY_FOR_REVIEW')return 'Je vérifie la chaîne Teacher, la CI et la preuve de completion. Si la chaîne est orpheline je remets le travail en file ; si les preuves sont présentes je le réconcilie et je poursuis.';if(s==='QUEUED')return 'Ce travail est prêt dans la file. Je le prendrai au prochain passage exécutable.';if(s==='CLAIMED')return 'Je travaille actuellement sur cette étape et j’enregistrerai le résultat avant de passer à la suivante.';if(s==='TEACHER_APPROVED')return 'Le plan a été validé ; je peux maintenant exécuter l’implémentation candidate.';if(s==='COUNCIL_COMPLETE')return 'La consultation multi-IA est terminée ; je prépare la validation Teacher et les preuves nécessaires.';if(s==='FAILED')return 'Cette étape a réellement échoué. Je conserve l’erreur et je tente la réparation/quarantaine sans masquer le problème.';return 'État réel observé : '+(s||'INCONNU')+'.'};
+  const nextText=(state)=>{const job=(state?.active_jobs||[])[0];if(job)return (job.roadmap_id||job.id||'travail')+' · '+String(job.status||'').toUpperCase();if(state?.next?.id)return state.next.id+' · '+(state.next.title||state.next.status||'prochaine étape');return 'aucun travail actif détecté';};
+  async function getJson(url,opts){const r=await fetch(url,{cache:'no-store',credentials:'same-origin',...(opts||{})});const t=await r.text();let d;try{d=JSON.parse(t)}catch{throw new Error('REPONSE_INVALIDE')}if(!r.ok)throw new Error(d?.error||d?.code||('HTTP_'+r.status));return d}
+  function ensureBox(){const panel=document.querySelector('[data-panel="live"]');if(!panel)return null;let box=document.getElementById('melLiveOwnerExplain');if(box)return box;box=document.createElement('div');box.id='melLiveOwnerExplain';box.className='mel-live-owner-explain';const grid=panel.querySelector('.mel-live-grid');(grid||panel.firstElementChild)?.insertAdjacentElement(grid?'beforebegin':'afterend',box);return box}
+  async function refreshNarrative(){const box=ensureBox();if(!box)return;try{const [state,activity]=await Promise.all([getJson('/api/gen2/autonomy/state'),getJson('/api/mel/activity')]);const jobs=Array.isArray(state?.active_jobs)?state.active_jobs:[];const job=jobs[0]||null;const events=Array.isArray(activity?.events)?activity.events:[];const last=events[0]||null;box.innerHTML='<strong>Ce que MEL fait maintenant</strong><div class="mel-line">'+esc(job?explainStatus(job,state):'Aucun travail autonome actif : je surveille la file, les réponses Teacher, les preuves CI et les nouveaux travaux.')+'</div><div class="mel-line"><b>Prochaine cible :</b> '+esc(nextText(state))+'</div>'+(last?'<div class="mel-line"><b>Dernière trace réelle :</b> '+esc(last.title||last.category||'activité')+' — '+esc(last.explanation||last.status||'enregistrée')+'</div>':'')+'<div class="mel-live-owner-actions"><button type="button" id="melResolvePassive">Réconcilier Teacher / Review maintenant</button></div><div class="mel-live-owner-note">Ce bouton lance des cycles réels : relance des ponts Teacher configurés, récupération des READY_FOR_REVIEW orphelins, vérification des preuves et poursuite de la file. Il ne simule aucune réponse externe.</div>';const b=document.getElementById('melResolvePassive');if(b)b.onclick=resolvePassive}catch(e){box.innerHTML='<strong>Ce que MEL fait maintenant</strong><div class="mel-line">État indisponible : '+esc(e?.message||'ERREUR')+'</div>'}}
+  async function resolvePassive(){const b=document.getElementById('melResolvePassive');if(b){b.disabled=true;b.textContent='Réconciliation…'}try{for(let i=0;i<3;i++){await getJson('/api/gen2/autonomy/tick',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});await new Promise(r=>setTimeout(r,220))}}catch(e){const box=ensureBox();if(box)box.insertAdjacentHTML('beforeend','<div class="mel-line"><b>Erreur de réconciliation :</b> '+esc(e?.message||'ERREUR')+'</div>')}finally{if(b){b.disabled=false;b.textContent='Réconcilier Teacher / Review maintenant'}refreshNarrative()}}
+  const clean=()=>{document.querySelectorAll('#melRecallFull').forEach(node=>node.remove());ensureBox()};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{clean();refreshNarrative()},{once:true});else{clean();refreshNarrative()}new MutationObserver(clean).observe(document.documentElement,{childList:true,subtree:true});setInterval(refreshNarrative,15000);
 })();
 </script>`;
-
-const FULL_AVATAR_DATA_URL = `data:image/webp;base64,${fullAvatar}`;
 
 export async function enhanceOwnerInterface(response, pathname = '/') {
   if (!['/', '/mvp', '/professor'].includes(pathname)) return response;
@@ -189,23 +141,14 @@ export async function enhanceOwnerInterface(response, pathname = '/') {
   let html = await response.text();
 
   if (pathname === '/professor') {
-    // Use the generated full-mode portrait inline so a broken asset route can
-    // never leave the full control room with an empty avatar.
-    html = html.replaceAll('src="/meliturgos-avatar-fille.png"', `src="${FULL_AVATAR_DATA_URL}"`);
-    html = html.replaceAll('src="/assets/avatars/mel-full.webp"', `src="${FULL_AVATAR_DATA_URL}"`);
-    if (!html.includes('mel-full-avatar-fix')) {
-      html = html.includes('</head>') ? html.replace('</head>', FULL_MODE_STYLE + '</head>') : FULL_MODE_STYLE + html;
-    }
-    if (!html.includes('mel-full-page-cleanup')) {
-      html = html.includes('</body>') ? html.replace('</body>', FULL_MODE_CLEANUP + '</body>') : html + FULL_MODE_CLEANUP;
-    }
+    const fullAvatarSrc = 'src="/assets/avatars/mel-full.webp?v=20260915-r2" onerror="this.onerror=null;this.src=\'/assets/avatars/mel-classic.webp?v=20260915-r2\'"';
+    html = html.replaceAll('src="/meliturgos-avatar-fille.png"', fullAvatarSrc);
+    html = html.replaceAll('src="/assets/avatars/mel-full.webp"', fullAvatarSrc);
+    if (!html.includes('mel-full-avatar-fix')) html = html.includes('</head>') ? html.replace('</head>', FULL_MODE_STYLE + '</head>') : FULL_MODE_STYLE + html;
+    if (!html.includes('mel-full-page-cleanup')) html = html.includes('</body>') ? html.replace('</body>', FULL_MODE_CLEANUP + '</body>') : html + FULL_MODE_CLEANUP;
   } else {
-    if (!html.includes('mel-owner-visual-fix')) {
-      html = html.includes('</head>') ? html.replace('</head>', NORMAL_PAGE_STYLE + '</head>') : NORMAL_PAGE_STYLE + html;
-    }
-    if (!html.includes('mel-normal-page-cleanup')) {
-      html = html.includes('</body>') ? html.replace('</body>', NORMAL_PAGE_CLEANUP + '</body>') : html + NORMAL_PAGE_CLEANUP;
-    }
+    if (!html.includes('mel-owner-visual-fix')) html = html.includes('</head>') ? html.replace('</head>', NORMAL_PAGE_STYLE + '</head>') : NORMAL_PAGE_STYLE + html;
+    if (!html.includes('mel-normal-page-cleanup')) html = html.includes('</body>') ? html.replace('</body>', NORMAL_PAGE_CLEANUP + '</body>') : html + NORMAL_PAGE_CLEANUP;
   }
 
   const headers = new Headers(response.headers);
