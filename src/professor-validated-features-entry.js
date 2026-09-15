@@ -1,0 +1,63 @@
+import app from './ui-release-fix-entry.js';
+
+function withHead(html, fragment) {
+  return html.includes('</head>') ? html.replace('</head>', `${fragment}</head>`) : fragment + html;
+}
+
+function withBody(html, fragment) {
+  return html.includes('</body>') ? html.replace('</body>', `${fragment}</body>`) : html + fragment;
+}
+
+const CONSOLIDATED_STYLE = `<style id="mel-professor-validated-features-style">
+.mel-validated-card{border-color:rgba(96,165,250,.18)!important}.mel-validated-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}.mel-validated-head h2,.mel-validated-head h3{margin:0}.mel-validated-badge{display:inline-flex;align-items:center;border:1px solid rgba(52,211,153,.25);border-radius:999px;padding:4px 8px;color:#a7f3d0;font-size:.72rem;white-space:nowrap}.mel-mentor-log{min-height:150px;max-height:330px;overflow:auto;display:grid;gap:8px;padding:10px;border:1px solid var(--line);border-radius:14px;background:rgba(2,6,23,.40)}.mel-mentor-msg{padding:9px 11px;border:1px solid rgba(255,255,255,.07);border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.45}.mel-mentor-msg.adrien{background:rgba(37,99,235,.14);margin-left:7%}.mel-mentor-msg.mel{background:rgba(34,211,238,.08);margin-right:7%}.mel-mentor-msg.mentor{background:rgba(167,139,250,.09);margin-right:7%}.mel-mentor-who{display:block;color:#cbd5e1;font-size:.69rem;font-weight:800;letter-spacing:.07em;text-transform:uppercase;margin-bottom:3px}.mel-mentor-compose{display:grid;grid-template-columns:150px minmax(0,1fr) auto;gap:8px;margin-top:9px}.mel-mentor-compose textarea{min-height:78px}.mel-validated-trace{display:grid;gap:7px}.mel-validated-row{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05)}.mel-validated-row:last-child{border-bottom:0}.mel-validated-key{color:var(--muted);font-size:.82rem}.mel-council-list{display:grid;gap:8px;margin-top:10px}.mel-council-item{border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:10px;background:rgba(255,255,255,.025)}.mel-council-meta{color:#93c5fd;font-size:.75rem;margin-bottom:5px}.mel-council-answer{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.4}.mel-validated-empty{color:var(--muted);padding:8px 0}@media(max-width:720px){.mel-mentor-compose{grid-template-columns:1fr}.mel-mentor-msg.adrien,.mel-mentor-msg.mel,.mel-mentor-msg.mentor{margin-left:0;margin-right:0}.mel-validated-row{grid-template-columns:1fr;gap:3px}}
+</style>`;
+
+const CONSOLIDATED_SCRIPT = `<script id="mel-professor-validated-features-runtime">
+(()=>{
+  if(window.__melProfessorValidatedFeatures)return;window.__melProfessorValidatedFeatures=true;
+  const esc=(v)=>String(v==null?'':v).replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
+  const stableId=(key)=>{try{let v=localStorage.getItem(key);if(!v){v=crypto.randomUUID();localStorage.setItem(key,v)}return v}catch{return crypto.randomUUID()}};
+  const json=async(url,opt)=>{const r=await fetch(url,opt);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||d.code||('HTTP '+r.status));return d};
+  const postJson=(url,body)=>json(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  const roomKey='mel.professor.mentor.room.v2';
+  const loadRoom=()=>{try{return JSON.parse(localStorage.getItem(roomKey)||'[]')}catch{return []}};
+  const saveRoom=(rows)=>{try{localStorage.setItem(roomKey,JSON.stringify(rows.slice(-50)))}catch{}};
+  const renderRoom=()=>{const log=document.getElementById('melValidatedMentorLog');if(!log)return;const rows=loadRoom();log.innerHTML=rows.length?rows.map(r=>'<div class="mel-mentor-msg '+esc(r.role)+'"><span class="mel-mentor-who">'+esc(r.label)+'</span>'+esc(r.text)+'</div>').join(''):'<div class="mel-validated-empty">Écris une consigne à MEL, au Mentor, ou aux deux.</div>';log.scrollTop=log.scrollHeight};
+  const pushRoom=(role,label,text)=>{const rows=loadRoom();rows.push({role,label,text:String(text||''),at:Date.now()});saveRoom(rows);renderRoom()};
+  const recentContext=()=>loadRoom().slice(-8).map(r=>r.label+': '+r.text).join('\n');
+  async function askMel(text){const d=await postJson('/api/chat',{text,conversation_id:stableId('mel.professor.mentor.conversation'),device_id:stableId('mel.device'),intent_context:{surface:'professor-canonical',target:'mel'}});return d.text||d.answer||d.response||'Réponse MEL vide.'}
+  async function askMentor(text){const input='Salon collaboratif canonique Adrien · MEL · Mentor. Tu es le Mentor consultatif. Réponds de façon concise et actionnable. Ne crée aucune implémentation parallèle. Contexte récent:\n'+recentContext()+'\n\nAdrien: '+text;const d=await postJson('/api/gen2/augmentio/fanout',{input,maxCandidates:1,capability:'GENERAL',teacherReview:true});const c=(d.candidates||[])[0]||d.best||d.result||{};return c.text||c.answer||c.content||'Mentor indisponible pour le moment.'}
+  async function sendRoom(){const input=document.getElementById('melValidatedMentorInput'),target=document.getElementById('melValidatedMentorTarget'),button=document.getElementById('melValidatedMentorSend');if(!input||!target||!button)return;const text=input.value.trim();if(!text)return;input.value='';pushRoom('adrien','Adrien',text);button.disabled=true;button.textContent='En cours…';try{if(target.value==='mel'||target.value==='all')pushRoom('mel','MEL',await askMel(text));if(target.value==='mentor'||target.value==='all')pushRoom('mentor','Mentor',await askMentor(text))}catch(e){pushRoom('mentor','Système','Erreur : '+e.message)}finally{button.disabled=false;button.textContent='Envoyer'}}
+  function installMentorRoom(){const panel=document.querySelector('.view[data-panel="multi"]');if(!panel||document.getElementById('melValidatedMentorRoom'))return;const card=document.createElement('article');card.id='melValidatedMentorRoom';card.className='card wide mel-validated-card';card.style.marginBottom='14px';card.innerHTML='<div class="mel-validated-head"><div><h2>Salon Adrien · MEL · Mentor</h2><div class="muted">Canal commun validé, rattaché au Professor canonique.</div></div><span class="mel-validated-badge">consolidé</span></div><div id="melValidatedMentorLog" class="mel-mentor-log"></div><div class="mel-mentor-compose"><select id="melValidatedMentorTarget"><option value="all">@tous · MEL + Mentor</option><option value="mel">@MEL</option><option value="mentor">@Mentor</option></select><textarea id="melValidatedMentorInput" placeholder="Donne une consigne à MEL et/ou au Mentor…"></textarea><button id="melValidatedMentorSend" class="primary" type="button">Envoyer</button></div><div class="footer-note">Le Mentor reste consultatif ; le Teacher gate et la candidate canonique restent les autorités de validation.</div>';const title=panel.querySelector('.section-title');if(title)title.insertAdjacentElement('afterend',card);else panel.prepend(card);renderRoom();document.getElementById('melValidatedMentorSend')?.addEventListener('click',sendRoom);document.getElementById('melValidatedMentorInput')?.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();sendRoom()}})}
+  function answerText(a){if(a==null)return '';if(typeof a==='string')return a;if(typeof a.content==='string')return a.content;if(typeof a.text==='string')return a.text;if(typeof a.answer==='string')return a.answer;try{return JSON.stringify(a,null,2)}catch{return String(a)}}
+  function installRuntimeCards(){const grid=document.querySelector('.view[data-panel="work"] .grid');if(!grid)return;if(!document.getElementById('melValidatedAutonomy')){const card=document.createElement('article');card.id='melValidatedAutonomy';card.className='card mel-validated-card';card.innerHTML='<div class="mel-validated-head"><h2>Autonomie réelle</h2><button id="melValidatedAutonomyRefresh" class="ghost" type="button">Actualiser</button></div><div id="melValidatedAutonomyBody" class="mel-validated-empty">Chargement…</div>';grid.appendChild(card);document.getElementById('melValidatedAutonomyRefresh')?.addEventListener('click',loadAutonomy)}if(!document.getElementById('melValidatedCouncil')){const card=document.createElement('article');card.id='melValidatedCouncil';card.className='card mel-validated-card';card.innerHTML='<div class="mel-validated-head"><h2>Council & Teacher du travail actif</h2><button id="melValidatedCouncilRefresh" class="ghost" type="button">Actualiser</button></div><div id="melValidatedCouncilBody" class="mel-validated-empty">Chargement…</div>';grid.appendChild(card);document.getElementById('melValidatedCouncilRefresh')?.addEventListener('click',loadCouncil)}}
+  async function loadAutonomy(){installRuntimeCards();const body=document.getElementById('melValidatedAutonomyBody');if(!body)return;try{const d=await json('/api/professor/dev/autonomy/status');const next=d.next||null;const active=Array.isArray(d.active_jobs)?d.active_jobs.length:(Array.isArray(d.active)?d.active.length:0);body.innerHTML='<div class="mel-validated-trace"><div class="mel-validated-row"><div class="mel-validated-key">Jobs actifs</div><div>'+esc(active)+'</div></div><div class="mel-validated-row"><div class="mel-validated-key">Prochaine étape</div><div><b>'+esc(next?.id||'—')+'</b> '+esc(next?.title||next?.next||'Aucune étape exécutable')+'</div></div></div>'}catch(e){body.innerHTML='<div class="mel-validated-empty">État indisponible : '+esc(e.message)+'</div>'}}
+  async function loadCouncil(){installRuntimeCards();const body=document.getElementById('melValidatedCouncilBody');if(!body)return;try{const d=await json('/api/professor/dev/jobs');const jobs=(d.jobs||[]).slice().sort((a,b)=>Number(b.updated_at||b.created_at||0)-Number(a.updated_at||a.created_at||0));const job=jobs.find(j=>j?.plan_json?.preflight?.council)||jobs[0];if(!job){body.innerHTML='<div class="mel-validated-empty">Aucun job enregistré.</div>';return}const council=job?.plan_json?.preflight?.council;const responses=council?.responses||[];const teacher=job?.result_json?.teacher_bridge||job?.result_json?.teacher||{};let html='<div class="mel-validated-trace"><div class="mel-validated-row"><div class="mel-validated-key">Job</div><div><b>'+esc(job.goal||job.id)+'</b></div></div><div class="mel-validated-row"><div class="mel-validated-key">État</div><div>'+esc(job.status||'—')+'</div></div><div class="mel-validated-row"><div class="mel-validated-key">Council</div><div>'+esc(council?.status||'pas encore disponible')+' · '+responses.length+' réponse(s)</div></div><div class="mel-validated-row"><div class="mel-validated-key">Teacher</div><div>'+esc(teacher?.status||job.teacher_status||'pas encore demandé')+'</div></div></div>';if(responses.length)html+='<div class="mel-council-list">'+responses.map((r,i)=>{const a=r.answer||{};const p=a.provenance||{};const name=r.member||a.provider_id||p.provider||('IA '+(i+1));const meta=(p.provider||a.provider_id||'provider')+' · '+(p.model||'modèle');return '<div class="mel-council-item"><div class="mel-council-meta">'+esc(name)+' · '+esc(meta)+'</div><div class="mel-council-answer">'+esc(answerText(a))+'</div></div>'}).join('')+'</div>';body.innerHTML=html}catch(e){body.innerHTML='<div class="mel-validated-empty">Activité indisponible : '+esc(e.message)+'</div>'}}
+  function apply(){installMentorRoom();installRuntimeCards()}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{apply();loadAutonomy();loadCouncil()},{once:true});else{apply();loadAutonomy();loadCouncil()}
+  setInterval(()=>{loadAutonomy();loadCouncil()},30000);
+})();
+</script>`;
+
+export async function enhanceProfessorValidatedFeatures(response, pathname) {
+  const type = response.headers.get('content-type') || '';
+  if (pathname !== '/professor' || !response.ok || !type.includes('text/html')) return response;
+  let html = await response.text();
+  html = withHead(html, CONSOLIDATED_STYLE);
+  html = withBody(html, CONSOLIDATED_SCRIPT);
+  const headers = new Headers(response.headers);
+  headers.delete('content-length');
+  headers.set('cache-control', 'no-store, no-cache, must-revalidate');
+  return new Response(html, { status: response.status, statusText: response.statusText, headers });
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    const response = await app.fetch(request, env, ctx);
+    if (request.method !== 'GET') return response;
+    return enhanceProfessorValidatedFeatures(response, new URL(request.url).pathname);
+  },
+  async scheduled(controller, env, ctx) {
+    return app.scheduled(controller, env, ctx);
+  },
+};
