@@ -1,8 +1,7 @@
 import app from './ui-entry.js';
 import { HD_BACKGROUNDS, HD_BACKGROUND_TONES } from './assets/generated/hd-backgrounds.js';
-import fullAvatar from './assets/generated/full-avatar.js';
 
-const FULL_AVATAR_DATA_URL = `data:image/webp;base64,${fullAvatar}`;
+const FULL_AVATAR_DATA_URL = '/assets/avatars/mel-full.webp';
 
 function withBody(html, fragment) {
   return html.includes('</body>') ? html.replace('</body>', `${fragment}</body>`) : html + fragment;
