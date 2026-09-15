@@ -14,7 +14,10 @@ test('active entrypoint protects and serves both canonical MVP routes', async ()
       const response = await worker.fetch(new Request(`http://localhost${path}`, { headers: auth() }), e);
       assert.equal(response.status, 200);
       assert.match(response.headers.get('content-type'), /^text\/html/);
-      assert.match(await response.text(), /MELITURGOS/);
+      const html = await response.text();
+      assert.match(html, /<title>MEL<\/title>/);
+      assert.match(html, /data-theme="classic"/);
+      assert.match(html, /id="messages"/);
     }
   } finally { e.DB.close(); }
 });
@@ -31,9 +34,17 @@ test('conversation REST route uses ConversationService and persists add-only arc
   } finally { e.DB.close(); }
 });
 
-test('professor serves self-development section in server HTML', async () => {
-  const env = { DB: sqliteD1(), MELITURGOS_USER: 'test', MELITURGOS_PASSWORD: 'test-only', AI: { async run(){ return {response:'ok'} } } };
-  try { const response = await worker.fetch(new Request('http://localhost/professor', {headers: auth()}), env); const body = await response.text(); assert.equal(response.status, 200); assert.ok(body.includes('id="professor-dev"')); assert.ok(body.includes('Développement de MEL')); assert.ok(body.includes('Préparer la modification')); assert.ok(body.includes('/api/professor/dev/jobs')); } finally { env.DB.close(); }
+test('professor serves current full-control center in server HTML', async () => {
+  const e = { DB: sqliteD1(), MELITURGOS_USER: 'test', MELITURGOS_PASSWORD: 'test-only', AI: { async run(){ return {response:'ok'} } } };
+  try {
+    const response = await worker.fetch(new Request('http://localhost/professor', {headers: auth()}), e);
+    const body = await response.text();
+    assert.equal(response.status, 200);
+    assert.match(body, /<title>Mode complet<\/title>/);
+    assert.match(body, /data-panel="roadmap"/);
+    assert.match(body, /data-panel="work"/);
+    assert.match(body, /Feuille de route complète/);
+  } finally { e.DB.close(); }
 });
 
 test('dev bridge token routes before Basic Auth while professor remains protected', async () => {
