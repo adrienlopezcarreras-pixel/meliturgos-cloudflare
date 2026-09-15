@@ -46,7 +46,7 @@ jobs:
         run: >
           npx wrangler deploy --env preview
           --define "MEL_DEPLOYED_GIT_SHA:'${GITHUB_SHA}'"
-          "MEL_DEPLOYED_GIT_BRANCH:'${GITHUB_REF_NAME}'"
+          --define "MEL_DEPLOYED_GIT_BRANCH:'${GITHUB_REF_NAME}'"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
