@@ -156,13 +156,43 @@ jobs:
       - name: Smoke test isolated preview HTTP
         shell: bash
         run: |
-          curl --fail --silent --show-error --location \
+          set +e
+          HTTP_STATUS=$(curl --silent --show-error --location \
             --retry 3 --retry-delay 2 --max-time 30 \
+            --dump-header preview-headers.txt \
+            --output preview-root.html \
+            --write-out '%{http_code}' \
             https://meliturgos-preview.adrien-lopezcarreras.workers.dev \
-            --output preview-root.html
+            2>preview-curl.err)
+          CURL_STATUS=$?
+          {
+            echo "curl_exit=${CURL_STATUS}"
+            echo "http_status=${HTTP_STATUS}"
+            echo '--- headers ---'
+            cat preview-headers.txt 2>/dev/null || true
+            echo '--- curl stderr ---'
+            cat preview-curl.err 2>/dev/null || true
+            echo '--- body sample ---'
+            head -c 1200 preview-root.html 2>/dev/null || true
+            echo
+          } > preview-http-diagnostic.txt
+          test "$CURL_STATUS" -eq 0 || exit "$CURL_STATUS"
+          case "$HTTP_STATUS" in
+            2??|3??) ;;
+            *) exit 22 ;;
+          esac
           test -s preview-root.html
           grep -Eiq '<!doctype html|<html' preview-root.html
           echo "Preview HTTP smoke passed."
+
+      - name: Upload preview HTTP diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preview-http-diagnostic-${{ github.sha }}
+          path: preview-http-diagnostic.txt
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Verify production still responds
         shell: bash
