@@ -98,7 +98,13 @@ export class AutonomousWorkLoop {
 
     const latest = await this.store.load();
     if (latest) {
-      latest.audit = [...(latest.audit || []), { event: 'AUTONOMOUS_WORK_LOOP_CYCLE_LIMIT', at: Date.now(), max_cycles: this.maxCycles }];
+      // Work DAG persistence sanitizes arrays to at most 100 entries. Keep the
+      // newest audit evidence so the cycle-limit marker itself cannot be
+      // truncated away on long Teacher chains.
+      latest.audit = [
+        ...(latest.audit || []).slice(-99),
+        { event: 'AUTONOMOUS_WORK_LOOP_CYCLE_LIMIT', at: Date.now(), max_cycles: this.maxCycles },
+      ];
       return this.store.save(latest);
     }
     return dag;
