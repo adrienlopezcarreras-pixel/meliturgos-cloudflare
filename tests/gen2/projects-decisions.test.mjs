@@ -83,7 +83,7 @@ test('decisions remain linked to projects and preserve past status changes', asy
   assert.equal(adopted.status_history.at(-1).reason, 'validated by tests');
 
   assert.deepEqual((await service.listDecisions({ project_id: 'p-1' })).map(item => item.decision_id), ['d-1', 'd-2']);
-  assert.deepEqual((await service.listDecisions({ project_id: 'p-1', status: 'ADOPTED' })).map(item => item.decision_id), ['d-2', 'd-1']);
+  assert.deepEqual((await service.listDecisions({ project_id: 'p-1', status: 'ADOPTED' })).map(item => item.decision_id), ['d-1', 'd-2']);
 
   await assert.rejects(() => service.recordDecision(decision('d-x', 'missing')), { code: 'PROJECT_NOT_FOUND', status: 404 });
   await assert.rejects(() => service.setDecisionStatus({ decision_id: 'd-1', status: 'REVERSED', changed_at: 2000 }), { code: 'DECISION_STATUS_TIME_INVALID' });
