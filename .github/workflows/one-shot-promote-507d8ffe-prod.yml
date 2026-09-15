@@ -46,7 +46,19 @@ jobs:
         run: npm run check
 
       - name: Test gate
-        run: npm test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee "${RUNNER_TEMP}/prod-test.log"
+
+      - name: Upload test diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prod-test-diagnostic-${{ github.run_attempt }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/prod-test.log
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Deploy exact validated SHA to production
         shell: bash
