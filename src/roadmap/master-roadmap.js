@@ -116,6 +116,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-21', 'Images / vision', 'PARTIAL', 'Stabiliser activation et modèles vision', 'P1'),
     item('GEN2-22', 'Audio / transcription / voix', 'PARTIAL', 'Fallback navigateur gratuit + voix provider', 'P0'),
     item('GEN2-23', 'Vidéo', 'PARTIAL', 'Ajouter pipeline avatar parlant', 'P1'),
+    item('MEL-DREAMINA-01', 'Dreamina : moteur créatif image / vidéo / avatar', 'PLANNED', 'Créer un adapter provider-neutral avec runner isolé, authentification, quotas/coût zéro, récupération des artefacts et fallback', 'P1'),
     item('GEN2-24', 'Documents', 'PARTIAL', 'Parsers PDF/doc plus robustes', 'P1'),
     item('MEL-VOICE-01', 'Réveil Bonjour MEL / Allô MEL', 'PLANNED', 'Détection locale/compagnon selon plateforme', 'P1'),
     item('MEL-VOICE-02', 'Conversation audio transcrite en mémoire', 'PARTIAL', 'Brancher archive systématique', 'P0'),
