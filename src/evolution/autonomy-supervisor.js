@@ -1,4 +1,5 @@
 import { flattenRoadmap, ROADMAP_STATUSES } from '../roadmap/master-roadmap.js';
+import { isClaimedPreparedDevBridgeJob } from '../dev/bridge-job-state.js';
 
 const TERMINAL_JOB = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const BLOCKED_ROADMAP = new Set([ROADMAP_STATUSES.BLOCKED_HUMAN, ROADMAP_STATUSES.BLOCKED_EXTERNAL]);
@@ -42,6 +43,10 @@ function isWaitingTeacher(job) {
 function isPassiveRuntimeJob(job) {
   const status = String(job?.status || '').toUpperCase();
   if (status === 'WAITING_TEACHER') return true;
+  // Once a correlated, approved Bridge package is CLAIMED, execution belongs
+  // to the local Dev Bridge. The runtime must not reinterpret that generic
+  // CLAIMED status as a fresh Council/Teacher preflight.
+  if (isClaimedPreparedDevBridgeJob(job)) return true;
   // READY_FOR_REVIEW without a failed local test has no runtime transition to
   // execute: it is waiting for externally recorded CI/completion evidence.
   // Treat it as passive so it cannot starve another job that can genuinely
@@ -55,6 +60,7 @@ function hasLiveExternalProgress(job) {
   if (status === 'WAITING_TEACHER') {
     return job?.result_json?.teacher_bridge?.status === 'WAITING_TEACHER';
   }
+  if (isClaimedPreparedDevBridgeJob(job)) return true;
   if (status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair !== true) {
     return job?.result_json?.teacher_bridge?.status === 'ANSWERED'
       && job?.result_json?.dev_bridge?.status === 'READY_FOR_REVIEW';
@@ -176,17 +182,17 @@ export class AutonomySupervisor {
       .sort(compareActiveJobs)[0];
     if (actionable) return { created: false, job: actionable, next: current.next };
 
-    // Teacher and CI/review are validation lanes, not global scheduler locks.
-    // A genuinely mirrored WAITING_TEACHER job or an approved candidate already
-    // waiting for external CI/completion evidence remains persisted and keeps
-    // reconciling, while MEL may start the next compatible roadmap item. This
-    // is normal supervised operation; MAX autonomy is only the failover path if
-    // the Teacher/development channel becomes unavailable.
+    // Teacher, Bridge execution and CI/review are validation/execution lanes,
+    // not global scheduler locks. A passive job remains persisted and keeps
+    // reconciling while MEL may start the next compatible roadmap item.
+    // Select a passive internal job only when its external progress has gone
+    // stale; do not let one healthy passive lane hide another stale one.
     const passiveInternal = current.active
       .filter(isSupervisedAutonomyJob)
       .filter((job) => isPassiveRuntimeJob(job) && job.requested_by === 'mel-autonomy')
+      .filter((job) => !hasLiveExternalProgress(job))
       .sort(compareActiveJobs)[0];
-    if (passiveInternal && !hasLiveExternalProgress(passiveInternal)) {
+    if (passiveInternal) {
       return { created: false, job: passiveInternal, next: current.next };
     }
 
@@ -195,6 +201,23 @@ export class AutonomySupervisor {
         .filter(isSupervisedAutonomyJob)
         .filter((job) => isPassiveRuntimeJob(job))
         .sort(compareActiveJobs)[0] || null;
+      // A prepared CLAIMED package is already executing outside the heartbeat.
+      // Returning it as `job` would make autonomy-runtime-core run its generic
+      // CLAIMED preflight path and race the Dev Bridge. Keep it visible in the
+      // repository, but give the core no job to mutate until Bridge reports a
+      // new persisted state.
+      if (passiveOwner && isClaimedPreparedDevBridgeJob(passiveOwner)) {
+        return {
+          created: false,
+          job: null,
+          next: null,
+          complete: false,
+          external_progress: {
+            job_id: passiveOwner.id,
+            status: 'BRIDGE_EXECUTION_IN_PROGRESS',
+          },
+        };
+      }
       return { created: false, job: passiveOwner, next: null, complete: !passiveOwner };
     }
 
