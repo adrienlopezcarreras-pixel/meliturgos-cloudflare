@@ -129,7 +129,14 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
     diff_summary: diffSummary,
     changed: actualDiff.trim().length > 0,
     needs_repair: failed.length > 0,
-    failed_tests: failed.map((test) => ({ name: test.name, command: test.command, exit_code: test.exit_code, error: test.error || '', stderr: String(test.stderr || '').slice(0, 4000) })),
+    failed_tests: failed.map((test) => ({
+      name: test.name,
+      command: test.command,
+      exit_code: test.exit_code,
+      error: test.error || '',
+      stdout: String(test.stdout || '').slice(0, 4000),
+      stderr: String(test.stderr || '').slice(0, 4000),
+    })),
     production_touched: false,
   };
 
