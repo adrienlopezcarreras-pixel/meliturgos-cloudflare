@@ -46,22 +46,59 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          LOG_FILE="$(mktemp)"
+          RAW_LOG="${RUNNER_TEMP}/wrangler-preview.raw.log"
           npx wrangler deploy --env preview \
             --define "MEL_DEPLOYED_GIT_SHA:'${GITHUB_SHA}'" \
             --define "MEL_DEPLOYED_GIT_BRANCH:'${GITHUB_REF_NAME}'" \
-            2>&1 | tee "$LOG_FILE"
+            2>&1 | tee "$RAW_LOG"
           STATUS=${PIPESTATUS[0]}
-          {
-            echo "### Wrangler preview deploy"
-            echo '```text'
-            tail -n 200 "$LOG_FILE"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
           exit "$STATUS"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Sanitize preview deploy diagnostic
+        if: always()
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          raw = Path(os.environ["RUNNER_TEMP"]) / "wrangler-preview.raw.log"
+          clean = Path(os.environ["RUNNER_TEMP"]) / "wrangler-preview.sanitized.log"
+          text = raw.read_text(encoding="utf-8", errors="replace") if raw.exists() else "Wrangler deploy produced no log file.\n"
+
+          for name in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
+              value = os.environ.get(name, "")
+              if value:
+                  text = text.replace(value, f"[REDACTED_{name}]")
+
+          text = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s]+", r"\1[REDACTED]", text)
+          text = re.sub(r"(?i)((?:api[_ -]?token|access[_ -]?token|password|secret)\s*[:=]\s*)[^\s]+", r"\1[REDACTED]", text)
+          clean.write_text(text, encoding="utf-8")
+
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              tail = "\n".join(text.splitlines()[-200:])
+              with open(summary, "a", encoding="utf-8") as handle:
+                  handle.write("### Wrangler preview deploy (sanitized)\n\n```text\n")
+                  handle.write(tail)
+                  handle.write("\n```\n")
+          PY
+
+      - name: Upload sanitized deploy diagnostic
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preview-deploy-diagnostic-${{ github.sha }}
+          path: ${{ runner.temp }}/wrangler-preview.sanitized.log
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Initialize isolated preview D1
         run: npx wrangler d1 migrations apply DB --env preview --remote --yes
