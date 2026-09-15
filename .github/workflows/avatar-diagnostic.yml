@@ -20,6 +20,18 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
+      - name: Inspect avatar base64
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fullAvatar from './src/assets/generated/full-avatar.js';
+          const invalid=[];
+          for(let i=0;i<fullAvatar.length;i++){
+            const ch=fullAvatar[i];
+            if(!/[A-Za-z0-9+/=\r\n\t ]/.test(ch)) invalid.push({i,code:ch.codePointAt(0),char:JSON.stringify(ch)});
+          }
+          console.log(JSON.stringify({length:fullAvatar.length,mod4:fullAvatar.replace(/\s/g,'').length%4,invalid:invalid.slice(0,20),invalidCount:invalid.length,tail:fullAvatar.slice(-32)}));
+          NODE
       - name: Exercise avatar response locally
         shell: bash
         run: |
