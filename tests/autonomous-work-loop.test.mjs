@@ -158,7 +158,10 @@ test('repeated heartbeat invocations complete a long Teacher chain without dupli
   }
 
   const channel = new AutoApprovingTeacherChannel();
-  const loop = new AutonomousWorkLoop({ runner, store, teacherChannel: channel, maxCycles: 32 });
+  // Deliberately keep each synthetic heartbeat small so this test proves that
+  // persisted state resumes cleanly across many invocations, independently of
+  // how much work a production heartbeat can finish within its own time budget.
+  const loop = new AutonomousWorkLoop({ runner, store, teacherChannel: channel, maxCycles: 4 });
 
   let current = null;
   let heartbeatCount = 0;
