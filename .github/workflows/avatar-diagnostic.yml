@@ -1,0 +1,35 @@
+name: avatar-diagnostic
+
+on:
+  push:
+    branches:
+      - ops/postdeploy-smoke-20260915
+    paths:
+      - '.github/workflows/avatar-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: candidate/mel-clean-autonomy
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Exercise avatar response locally
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { serveMelAvatar } from './src/pages/mel-avatar-assets.js';
+          const response = serveMelAvatar('/assets/avatars/mel-full.webp');
+          if (!response) throw new Error('NO_RESPONSE');
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          console.log(JSON.stringify({status: response.status, type: response.headers.get('content-type'), asset: response.headers.get('x-mel-asset'), bytes: bytes.length, magic: String.fromCharCode(...bytes.slice(0,4))}));
+          if (response.status !== 200) process.exit(2);
+          if (response.headers.get('content-type') !== 'image/webp') process.exit(3);
+          if (String.fromCharCode(...bytes.slice(0,4)) !== 'RIFF') process.exit(4);
+          NODE
