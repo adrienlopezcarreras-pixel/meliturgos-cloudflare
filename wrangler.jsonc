@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "meliturgos",
-  "main": "src/ui-release-fix-entry.js",
+  "main": "src/professor-validated-features-entry.js",
   "compatibility_date": "2026-09-04",
   "workers_dev": true,
   "assets": {
