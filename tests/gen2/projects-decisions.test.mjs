@@ -89,10 +89,10 @@ test('decisions remain linked to projects and preserve past status changes', asy
   await assert.rejects(() => service.setDecisionStatus({ decision_id: 'd-1', status: 'REVERSED', changed_at: 2000 }), { code: 'DECISION_STATUS_TIME_INVALID' });
 });
 
-test('lessons require an existing project and are defensively cloned', async () => {
-  const service = createProjectService(createInMemoryProjectAdapter({ projects: [project('p-1')] }));
+test('lessons require an existing project, are readable, ordered and defensively cloned', async () => {
+  const service = createProjectService(createInMemoryProjectAdapter({ projects: [project('p-1'), project('p-2', 1100)] }));
   const input = {
-    lesson_id: 'l-1',
+    lesson_id: 'l-2',
     project_id: 'p-1',
     content: 'Keep roadmap work isolated by branch.',
     learned_at: 3000,
@@ -100,9 +100,14 @@ test('lessons require an existing project and are defensively cloned', async () 
     metadata: { severity: 'high' },
   };
   const saved = await service.addLesson(input);
+  await service.addLesson({ ...input, lesson_id: 'l-1', content: 'Check candidate HEAD before integration.', learned_at: 2000 });
+  await service.addLesson({ ...input, lesson_id: 'l-other', project_id: 'p-2', learned_at: 1000 });
   input.metadata.severity = 'mutated';
   assert.equal(saved.metadata.severity, 'high');
+  assert.equal((await service.getLesson({ lesson_id: 'l-2' })).metadata.severity, 'high');
+  assert.deepEqual((await service.listLessons({ project_id: 'p-1' })).map(item => item.lesson_id), ['l-1', 'l-2']);
 
+  await assert.rejects(() => service.getLesson({ lesson_id: 'missing' }), { code: 'LESSON_NOT_FOUND', status: 404 });
   await assert.rejects(() => service.addLesson({ ...input, lesson_id: 'l-x', project_id: 'missing' }), { code: 'PROJECT_NOT_FOUND', status: 404 });
 });
 
