@@ -3,9 +3,10 @@ name: dependency-fix
 on:
   push:
     branches:
-      - 'candidate/augmentio-core'
+      - 'candidate/mel-20260915-complete'
     paths:
       - '.github/workflows/dependency-fix.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,17 +16,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Checkout current integration branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: candidate/augmentio-core
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+          ref: candidate/mel-20260915-complete
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
           cache: npm
       - name: Refresh Wrangler and lockfile
-        run: npm install --save-dev --save-exact wrangler@4.130.0
+        run: npm install --save-dev --save-exact wrangler@4.132.0
       - name: Require clean high-severity audit
         run: npm audit --audit-level=high
+      - name: Validate syntax and tests
+        run: |
+          npm run check
+          npm test
       - name: Commit audited lockfile
         run: |
           git config user.name "MEL dependency bot"
@@ -34,6 +42,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No dependency changes"
           else
-            git commit -m "security(deps): update Wrangler to audited 4.130.0"
-            git push origin HEAD:candidate/augmentio-core
+            git commit -m "security(deps): update Wrangler to audited 4.132.0"
+            git push origin HEAD:candidate/mel-20260915-complete
           fi
