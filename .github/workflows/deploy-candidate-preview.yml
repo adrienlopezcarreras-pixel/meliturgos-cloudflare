@@ -153,12 +153,24 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      - name: Configure isolated preview authentication
+        shell: bash
+        run: |
+          PREVIEW_PASSWORD="$(openssl rand -hex 32)"
+          echo "::add-mask::${PREVIEW_PASSWORD}"
+          echo "MEL_PREVIEW_PASSWORD=${PREVIEW_PASSWORD}" >> "$GITHUB_ENV"
+          printf '%s' "$PREVIEW_PASSWORD" | npx wrangler secret put MELITURGOS_PASSWORD --env preview
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Smoke test isolated preview HTTP
         shell: bash
         run: |
           set +e
           HTTP_STATUS=$(curl --silent --show-error --location \
             --retry 3 --retry-delay 2 --max-time 30 \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --dump-header preview-headers.txt \
             --output preview-root.html \
             --write-out '%{http_code}' \
@@ -183,7 +195,7 @@ jobs:
           esac
           test -s preview-root.html
           grep -Eiq '<!doctype html|<html' preview-root.html
-          echo "Preview HTTP smoke passed."
+          echo "Preview authenticated HTTP smoke passed."
 
       - name: Upload preview HTTP diagnostic
         if: always()
@@ -197,9 +209,16 @@ jobs:
       - name: Verify production still responds
         shell: bash
         run: |
-          curl --fail --silent --show-error --location \
+          set +e
+          PROD_STATUS=$(curl --silent --show-error --location \
             --retry 3 --retry-delay 2 --max-time 30 \
-            https://meliturgos.adrien-lopezcarreras.workers.dev \
-            --output production-root.html
-          test -s production-root.html
-          echo "Production HTTP read-only verification passed."
+            --output production-root.html \
+            --write-out '%{http_code}' \
+            https://meliturgos.adrien-lopezcarreras.workers.dev)
+          CURL_STATUS=$?
+          test "$CURL_STATUS" -eq 0 || exit "$CURL_STATUS"
+          case "$PROD_STATUS" in
+            2??|3??|401) ;;
+            *) echo "Unexpected production HTTP status: $PROD_STATUS"; exit 22 ;;
+          esac
+          echo "Production HTTP read-only verification passed with status ${PROD_STATUS}."
