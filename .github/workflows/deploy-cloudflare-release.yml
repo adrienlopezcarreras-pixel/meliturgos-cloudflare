@@ -36,9 +36,10 @@ jobs:
           test "${GITHUB_REF_NAME}" = "release/mel-2026-09-10-r3-3"
           echo "Deploying ${GITHUB_SHA} from ${GITHUB_REF_NAME}"
 
-      - name: Deploy Cloudflare Worker
+      - name: Deploy Cloudflare Worker (explicit top-level production config)
         run: >
           npm run deploy --
+          --env ""
           --define "MEL_DEPLOYED_GIT_SHA:'${GITHUB_SHA}'"
           "MEL_DEPLOYED_GIT_BRANCH:'${GITHUB_REF_NAME}'"
         env:
