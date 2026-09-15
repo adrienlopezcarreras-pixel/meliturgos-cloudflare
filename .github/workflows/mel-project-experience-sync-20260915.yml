@@ -6,6 +6,7 @@ on:
       - experience/full-history-20260915
     paths:
       - docs/experience/MEL_PROJECT_EXPERIENCE_FULL_HISTORY_20260915.md
+      - docs/experience/MEL_PROJECT_EXPERIENCE_SYNC_INCIDENTS_20260915.md
       - .github/workflows/mel-project-experience-sync-20260915.yml
 
 permissions:
@@ -32,19 +33,18 @@ jobs:
       - name: Install repository dependencies
         run: npm ci --ignore-scripts
 
-      - name: Compile canonical experience document to idempotent D1 SQL
+      - name: Compile canonical experience documents to idempotent D1 SQL
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const fs = require('node:fs');
           const crypto = require('node:crypto');
-          const sourcePath = 'docs/experience/MEL_PROJECT_EXPERIENCE_FULL_HISTORY_20260915.md';
-          const md = fs.readFileSync(sourcePath, 'utf8');
-          const declared = md.match(/## Catalogue causal complet \((\d+) entrées\)/);
-          if (!declared) throw new Error('Missing declared experience count');
-          const expected = Number(declared[1]);
-          const re = /^### \d+\. `([^`]+)` — ([^—\n]+) — ([^\n]+)\n([\s\S]*?)(?=^### \d+\.|^## Politique)/gm;
+          const sourcePaths = [
+            'docs/experience/MEL_PROJECT_EXPERIENCE_FULL_HISTORY_20260915.md',
+            'docs/experience/MEL_PROJECT_EXPERIENCE_SYNC_INCIDENTS_20260915.md'
+          ];
+          const re = /^### \d+\. `([^`]+)` — ([^—\n]+) — ([^\n]+)\n([\s\S]*?)(?=^### \d+\.|^## )/gm;
           const pick = (body, a, b) => {
             const start = body.indexOf(a);
             if (start < 0) return '';
@@ -55,31 +55,39 @@ jobs:
           const normalize = (s) => String(s).normalize('NFKC').toLocaleLowerCase('fr').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
           const sqlq = (s) => "'" + String(s).replaceAll("'", "''") + "'";
           const rows = [];
-          for (const m of md.matchAll(re)) {
-            const [_, id, domainRaw, statusRaw, body] = m;
-            const domain = domainRaw.trim();
-            const status = statusRaw.trim();
-            const period = pick(body, '**Période :**', '\n\n**Problème.**');
-            const problem = pick(body, '**Problème.**', '\n\n**Cause.**');
-            const cause = pick(body, '**Cause.**', '\n\n**Correction.**');
-            const correction = pick(body, '**Correction.**', '\n\n**Leçon.**');
-            const lesson = pick(body, '**Leçon.**', '\n\n**Règle active.**');
-            const rule = pick(body, '**Règle active.**', '\n\n**Preuves / références.**');
-            const evidence = pick(body, '**Preuves / références.**', null);
-            if (![id, domain, status, period, problem, cause, correction, lesson, rule].every(Boolean)) {
-              throw new Error(`Incomplete experience block: ${id}`);
+          let expected = 0;
+          for (const sourcePath of sourcePaths) {
+            const md = fs.readFileSync(sourcePath, 'utf8');
+            const declarations = [...md.matchAll(/## Catalogue causal(?: complet| complémentaire) \((\d+) entrées\)/g)];
+            if (declarations.length !== 1) throw new Error(`Expected one declared experience count in ${sourcePath}`);
+            expected += Number(declarations[0][1]);
+            const parseText = md.endsWith('\n') ? md + '## END\n' : md + '\n## END\n';
+            for (const m of parseText.matchAll(re)) {
+              const [_, id, domainRaw, statusRaw, body] = m;
+              const domain = domainRaw.trim();
+              const status = statusRaw.trim();
+              const period = pick(body, '**Période :**', '\n\n**Problème.**');
+              const problem = pick(body, '**Problème.**', '\n\n**Cause.**');
+              const cause = pick(body, '**Cause.**', '\n\n**Correction.**');
+              const correction = pick(body, '**Correction.**', '\n\n**Leçon.**');
+              const lesson = pick(body, '**Leçon.**', '\n\n**Règle active.**');
+              const rule = pick(body, '**Règle active.**', '\n\n**Preuves / références.**');
+              const evidence = pick(body, '**Preuves / références.**', null);
+              if (![id, domain, status, period, problem, cause, correction, lesson, rule].every(Boolean)) {
+                throw new Error(`Incomplete experience block: ${id}`);
+              }
+              const content = `MEL expérience ${id} [${status}; ${period}; ${domain}]. Erreur/problème: ${problem} Cause: ${cause} Correction: ${correction} Leçon: ${lesson} Règle active: ${rule}`;
+              const fingerprint = crypto.createHash('sha256').update(normalize(content)).digest('hex');
+              rows.push({id, domain, status, period, evidence, sourcePath, content, fingerprint});
             }
-            const content = `MEL expérience ${id} [${status}; ${period}; ${domain}]. Erreur/problème: ${problem} Cause: ${cause} Correction: ${correction} Leçon: ${lesson} Règle active: ${rule}`;
-            const fingerprint = crypto.createHash('sha256').update(normalize(content)).digest('hex');
-            rows.push({id, domain, status, period, evidence, content, fingerprint});
           }
           if (rows.length !== expected) throw new Error(`Expected ${expected} experience entries, parsed ${rows.length}`);
           if (new Set(rows.map(r => r.id)).size !== rows.length) throw new Error('Duplicate experience id');
           if (new Set(rows.map(r => r.fingerprint)).size !== rows.length) throw new Error('Duplicate experience fingerprint');
           const created = 1789500600000;
-          const statements = ['-- generated from canonical MEL experience document'];
+          const statements = ['-- generated from canonical MEL experience documents'];
           for (const row of rows) {
-            const confidence = ['current_open_not_merged','current_unproven_guard'].includes(row.status) ? 0.82 : 0.96;
+            const confidence = ['current_open_not_merged','current_unproven_guard','current_warning_unresolved'].includes(row.status) ? 0.82 : 0.96;
             const metadata = JSON.stringify({
               experience_schema: 'mel.project.experience/v1',
               experience_id: row.id,
@@ -87,7 +95,7 @@ jobs:
               period: row.period,
               domain: row.domain,
               evidence: row.evidence,
-              source_document: sourcePath,
+              source_document: row.sourcePath,
               consolidated_at: '2026-09-15T21:30:00+02:00'
             });
             statements.push(`INSERT INTO memories(created_at,kind,content,importance,confidence,valid_from,valid_until,supersedes_id,source,provenance,metadata,fingerprint) VALUES(${created},'lesson',${sqlq(row.content)},0.92,${confidence},${created},NULL,NULL,'project_experience_consolidation_v1','full-history-20260915',${sqlq(metadata)},${sqlq(row.fingerprint)}) ON CONFLICT(fingerprint) WHERE fingerprint IS NOT NULL DO UPDATE SET importance=MAX(memories.importance,excluded.importance),confidence=MAX(memories.confidence,excluded.confidence),provenance=excluded.provenance,metadata=excluded.metadata;`);
@@ -95,7 +103,7 @@ jobs:
           statements.push("SELECT COUNT(*) AS mel_project_experience_count FROM memories WHERE source='project_experience_consolidation_v1';");
           fs.writeFileSync('/tmp/mel-project-experience.sql', statements.join('\n') + '\n');
           fs.writeFileSync('/tmp/mel-project-experience-count', String(expected));
-          console.log(`Compiled ${rows.length} sanitized experience memories.`);
+          console.log(`Compiled ${rows.length} sanitized experience memories from ${sourcePaths.length} canonical documents.`);
           NODE
 
       - name: Validate production D1 target and generated SQL structure
