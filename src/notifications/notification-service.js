@@ -84,7 +84,7 @@ export function createMemoryNotificationStore() {
   return {
     async putSubscription(row) { subscriptions.set(row.id, structuredClone(row)); return structuredClone(row); },
     async deleteSubscription(id) { return subscriptions.delete(id); },
-    async listSubscriptions() { return [...subscriptions.values()].map(structuredClone); },
+    async listSubscriptions() { return [...subscriptions.values()].map(row => structuredClone(row)); },
     async claimDelivery(key, row) {
       if (deliveries.has(key)) return false;
       deliveries.set(key, structuredClone(row));
