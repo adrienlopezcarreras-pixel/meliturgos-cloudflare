@@ -25,14 +25,17 @@ test('explicit code file requests are routed to code.read', () => {
   assert.equal(inferCodeCapability('Quel temps fait-il ?'), null);
 });
 
-test('retired home and v1 UI modules only redirect to canonical Professor', async () => {
+test('normal home UI remains available while v1 redirects to canonical Professor', async () => {
   const mvp = await readFile(new URL('../src/pages/mvp-interface.js', import.meta.url), 'utf8');
   const v1 = await readFile(new URL('../src/pages/full-interface.js', import.meta.url), 'utf8');
-  for (const source of [mvp, v1]) {
-    assert.match(source, /status:\s*308/);
-    assert.match(source, /location:\s*["']\/professor["']/);
-    assert.match(source, /cache-control["']?:\s*["']no-store["']/);
-  }
+  assert.match(mvp, /<title>MEL<\/title>/);
+  assert.match(mvp, /id="avatar"/);
+  assert.match(mvp, /id="full"/);
+  assert.match(mvp, /location\.href='\/professor'/);
+  assert.doesNotMatch(mvp, /status:\s*308/);
+  assert.match(v1, /status:\s*308/);
+  assert.match(v1, /location:\s*["']\/professor["']/);
+  assert.match(v1, /cache-control["']?:\s*["']no-store["']/);
 });
 
 test('canonical full mode remains the contemporary control center wired at /professor', async () => {

@@ -1,13 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { onRequestGet as legacyMvp } from '../src/pages/mvp-interface.js';
+import { onRequestGet as normalMvp } from '../src/pages/mvp-interface.js';
 import { onRequestGet as professorPage } from '../src/pages/full-interface-v2.js';
 
-test('retired public MVP entry is a permanent no-store redirect to canonical /professor', async () => {
-  const response = await legacyMvp({});
-  assert.equal(response.status, 308);
-  assert.equal(response.headers.get('location'), '/professor');
+test('normal public MEL entry remains self-contained and links to canonical /professor', async () => {
+  const response = await normalMvp({});
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /text\/html/);
   assert.equal(response.headers.get('cache-control'), 'no-store');
+  const html = await response.text();
+  assert.match(html, /<!doctype html>/i);
+  assert.match(html, /<title>MEL<\/title>/);
+  assert.match(html, /id="avatar"/);
+  assert.match(html, /id="full"/);
+  assert.match(html, /location\.href='\/professor'/);
 });
 
 test('canonical Professor interface is self-contained HTML with chat and complete control views', async () => {

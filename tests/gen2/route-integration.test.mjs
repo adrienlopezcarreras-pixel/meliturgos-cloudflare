@@ -6,16 +6,25 @@ import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 function env() { return { DB: sqliteD1(), MELITURGOS_USER: 'test', MELITURGOS_PASSWORD: 'test-only' }; }
 function auth() { return { authorization: `Basic ${Buffer.from('test:test-only').toString('base64')}` }; }
 
-test('active entrypoint protects legacy MVP aliases and redirects them to canonical /professor', async () => {
+test('active entrypoint protects normal MEL while keeping legacy Professor v1 canonical', async () => {
   const e = env();
   try {
     for (const path of ['/', '/mvp', '/professor-v1']) {
       assert.equal((await worker.fetch(new Request(`http://localhost${path}`), e)).status, 401);
-      const response = await worker.fetch(new Request(`http://localhost${path}`, { headers: auth() }), e);
-      assert.equal(response.status, 308);
-      assert.equal(response.headers.get('location'), '/professor');
-      assert.equal(response.headers.get('cache-control'), 'no-store');
     }
+    for (const path of ['/', '/mvp']) {
+      const response = await worker.fetch(new Request(`http://localhost${path}`, { headers: auth() }), e);
+      const body = await response.text();
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get('content-type') || '', /text\/html/);
+      assert.match(body, /<title>MEL<\/title>/);
+      assert.match(body, /id="full"/);
+      assert.match(body, /\/professor/);
+    }
+    const legacyProfessor = await worker.fetch(new Request('http://localhost/professor-v1', { headers: auth() }), e);
+    assert.equal(legacyProfessor.status, 308);
+    assert.equal(legacyProfessor.headers.get('location'), '/professor');
+    assert.equal(legacyProfessor.headers.get('cache-control'), 'no-store');
   } finally { e.DB.close(); }
 });
 

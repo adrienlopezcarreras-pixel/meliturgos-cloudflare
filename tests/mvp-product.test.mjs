@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { onRequestGet as legacyMvp } from '../src/pages/mvp-interface.js';
+import { onRequestGet as normalMvp } from '../src/pages/mvp-interface.js';
 import { onRequestGet as professorPage } from '../src/pages/full-interface-v2.js';
 import { withConversationArchive } from '../src/conversations/intercept.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
@@ -13,12 +13,16 @@ async function canonicalProfessorHtml() {
   return response.text();
 }
 
-test('legacy MVP surface permanently redirects to the canonical Professor UI', async () => {
-  const response = await legacyMvp({});
-  assert.equal(response.status, 308);
-  assert.equal(response.headers.get('location'), '/professor');
+test('normal MEL surface remains available and links to the canonical Professor UI', async () => {
+  const response = await normalMvp({});
+  const html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') || '', /text\/html/);
   assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.equal(await response.text(), '');
+  assert.match(html, /<title>MEL<\/title>/);
+  assert.match(html, /id="avatar"/);
+  assert.match(html, /id="full"/);
+  assert.match(html, /location\.href='\/professor'/);
 });
 
 test('canonical Professor keeps chat in the same control surface and sends through /api/chat', async () => {
