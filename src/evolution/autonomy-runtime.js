@@ -12,6 +12,14 @@ export * from './autonomy-runtime-core.js';
 
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
 const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
+const ACTIVE_RUNTIME_STATES = new Set([
+  'QUEUED',
+  'CLAIMED',
+  'COUNCIL_COMPLETE',
+  'WAITING_TEACHER',
+  'TEACHER_APPROVED',
+  'READY_FOR_REVIEW',
+]);
 const FATAL_RUNTIME_CONFIGURATION_ERRORS = new Set([
   'AUTONOMY_BRANCH_NOT_CANDIDATE',
   'TEACHER_BRANCH_NOT_CANDIDATE',
@@ -49,6 +57,30 @@ function mustFailClosed(error) {
   return FATAL_RUNTIME_CONFIGURATION_ERRORS.has(String(error?.code || error?.message || '').toUpperCase());
 }
 
+function validateCandidateBranches(env = {}) {
+  const canonicalBranch = String(env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH).trim();
+  const teacherBranch = String(env?.MEL_TEACHER_BRANCH || canonicalBranch).trim();
+  if (!canonicalBranch.startsWith('candidate/')) {
+    throw Object.assign(new Error('AUTONOMY_BRANCH_NOT_CANDIDATE'), { code: 'AUTONOMY_BRANCH_NOT_CANDIDATE' });
+  }
+  if (!teacherBranch.startsWith('candidate/')) {
+    throw Object.assign(new Error('TEACHER_BRANCH_NOT_CANDIDATE'), { code: 'TEACHER_BRANCH_NOT_CANDIDATE' });
+  }
+  if (canonicalBranch !== teacherBranch) {
+    throw Object.assign(new Error('AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE'), {
+      code: 'AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE',
+      canonical_branch: canonicalBranch,
+      teacher_branch: teacherBranch,
+    });
+  }
+  return { canonicalBranch, teacherBranch };
+}
+
+async function hasActiveRuntimeWork(repository) {
+  const jobs = await repository.list();
+  return jobs.some((job) => supervised(job) && ACTIVE_RUNTIME_STATES.has(String(job?.status || '').toUpperCase()));
+}
+
 async function ensureNextRuntimeJob(repository) {
   try {
     const supervisor = new AutonomySupervisor({ repository });
@@ -72,6 +104,18 @@ async function ensureNextRuntimeJob(repository) {
       error: error?.code || error?.message || 'AUTONOMY_PRE_ENSURE_FAILED',
     };
   }
+}
+
+function preservePreEnsureCreation(result, preEnsure) {
+  if (!preEnsure?.created || !result || typeof result !== 'object') return result;
+  const ensured = result.ensured && typeof result.ensured === 'object' ? result.ensured : {};
+  return {
+    ...result,
+    ensured: {
+      ...ensured,
+      created: true,
+    },
+  };
 }
 
 async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3 } = {}) {
@@ -223,11 +267,9 @@ export async function approveAllWaitingTeachersUnderOwnerMax(repository, { sourc
   return { attempted: waiting.length, applied, failed };
 }
 
-// Every heartbeat first persists/selects the next executable roadmap job so the
-// live UI can show concrete work immediately, then performs queue hygiene,
-// passive-state recovery, Teacher/completion reconciliation and one bounded
-// executable step. Slow external reconciliation must never leave MEL looking
-// idle while executable roadmap work exists.
+// Every heartbeat persists/selects the next executable roadmap job before slow
+// external work only when MEL is genuinely idle. Existing active work must be
+// reconciled first so Teacher replies/completions keep their exact job ordering.
 export async function runAutonomyRuntimeTick(env, options = {}) {
   const control = await getAutonomyControl(env?.DB);
   if (control.paused) {
@@ -240,8 +282,28 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     };
   }
 
+  // Validate the candidate-only safety boundary before any pre-creation side effect.
+  validateCandidateBranches(env);
+
   const repository = options.repository || new D1DevJobRepository(env.DB);
-  const preEnsure = await ensureNextRuntimeJob(repository);
+  let preEnsure = {
+    created: false,
+    job_id: null,
+    status: null,
+    roadmap_id: null,
+    next_roadmap_id: null,
+    complete: false,
+  };
+  try {
+    if (!(await hasActiveRuntimeWork(repository))) {
+      preEnsure = await ensureNextRuntimeJob(repository);
+    }
+  } catch (error) {
+    preEnsure = {
+      ...preEnsure,
+      error: error?.code || error?.message || 'AUTONOMY_PRE_ENSURE_CHECK_FAILED',
+    };
+  }
 
   let queueHygiene = null;
   try {
@@ -271,7 +333,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   }
 
   const coreOptions = { ...options, repository };
-  const first = await runCoreResilient(env, coreOptions, repository);
+  const first = preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
 
   let internalTeacherMirror = null;
   try {
@@ -347,7 +409,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     };
   }
 
-  const second = await runCoreResilient(env, coreOptions, repository);
+  const second = preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
   return {
     ...second,
     control,
