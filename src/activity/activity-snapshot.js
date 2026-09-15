@@ -11,6 +11,13 @@ function at(value) {
 
 function explainJob(job) {
   const status = String(job?.status || '').toUpperCase();
+  const result = parseJson(job?.result_json, {}) || {};
+  if (status === 'CANCELLED' && result?.queue_retirement?.explanation) {
+    return String(result.queue_retirement.explanation);
+  }
+  if (result?.runtime_retry?.last_error && ['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE'].includes(status)) {
+    return `MEL a rencontré un blocage transitoire (${String(result.runtime_retry.last_error).slice(0, 180)}). Nouvelle tentative automatique ${Number(result.runtime_retry.attempts || 0)} ; le travail sera isolé s’il bloque plusieurs cycles.`;
+  }
   const map = {
     QUEUED: 'Travail enregistré et en attente d’un cycle exécutable.',
     CLAIMED: 'Travail pris en charge par le runtime MEL.',
@@ -20,6 +27,7 @@ function explainJob(job) {
     READY_FOR_REVIEW: 'Implémentation candidate produite ; preuves de tests/CI en cours de réconciliation.',
     COMPLETED: 'Travail terminé avec preuve de completion corrélée.',
     COMMITTED: 'Travail terminé et commit identifié.',
+    CANCELLED: 'Ancien travail retiré de la file active mais conservé pour traçabilité.',
     FAILED: 'Travail en échec ; voir le diagnostic associé.',
   };
   return map[status] || `État runtime observé : ${status || 'INCONNU'}.`;
@@ -33,7 +41,7 @@ export function classifyAuditAction(action = '') {
   if (/learn|train|lora|mentor|lesson/.test(a)) return 'learning';
   if (/memory|remember|rag|knowledge/.test(a)) return 'memory';
   if (/error|fail|exception/.test(a)) return 'error';
-  if (/dev|code|commit|patch|teacher|review|roadmap|autonomy/.test(a)) return 'development';
+  if (/dev|code|commit|patch|teacher|review|roadmap|autonomy|queue/.test(a)) return 'development';
   return 'system';
 }
 
@@ -51,7 +59,13 @@ export function buildActivitySnapshot({ jobs = [], audits = [], lessons = [], ba
       status: String(job.status || ''),
       title: job.goal || job.id,
       explanation: explainJob(job),
-      evidence: { job_id: job.id, requested_by: job.requested_by || null, candidate_branch: job.candidate_branch || null },
+      evidence: {
+        job_id: job.id,
+        requested_by: job.requested_by || null,
+        candidate_branch: job.candidate_branch || null,
+        queue_retirement: result?.queue_retirement || null,
+        runtime_retry: result?.runtime_retry || null,
+      },
     });
 
     if (tests && (Array.isArray(tests) ? tests.length : Object.keys(tests).length)) {
