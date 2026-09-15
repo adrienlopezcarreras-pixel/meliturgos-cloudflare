@@ -71,36 +71,48 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          HTTP="000"
           for attempt in 1 2 3 4 5 6; do
             HTTP=$(curl --silent --show-error --location --max-time 20 \
               --output health.json --write-out '%{http_code}' "${PREVIEW_URL}/health" || true)
+            echo "health attempt ${attempt}: HTTP ${HTTP}"
+            [ -s health.json ] && cat health.json || true
+            echo
             [ "$HTTP" = "200" ] && break
             sleep 3
           done
+
+          CAP_STATUS=$(curl --silent --show-error --location --max-time 20 \
+            --output capability.json --write-out '%{http_code}' "${PREVIEW_URL}/capability" || true)
+          echo "capability: HTTP ${CAP_STATUS}"
+          [ -s capability.json ] && cat capability.json || true
+          echo
+
+          GENERATE_STATUS=$(curl --silent --show-error --max-time 20 \
+            --output generate.json --write-out '%{http_code}' "${PREVIEW_URL}/generate" || true)
+          echo "generate: HTTP ${GENERATE_STATUS}"
+          [ -s generate.json ] && cat generate.json || true
+          echo
+
           test "$HTTP" = "200"
           grep -q '"ok": true' health.json
           grep -q '"paid_generation_enabled": false' health.json
-
-          CAP_STATUS=$(curl --silent --show-error --location --max-time 20 \
-            --output capability.json --write-out '%{http_code}' "${PREVIEW_URL}/capability")
           test "$CAP_STATUS" = "200"
           grep -q '"id": "dreamina-volcengine"' capability.json
           grep -q '"enabled": false' capability.json
           grep -q '"paid_generation_enabled": false' capability.json
-
-          GENERATE_STATUS=$(curl --silent --show-error --max-time 20 \
-            --output generate.json --write-out '%{http_code}' "${PREVIEW_URL}/generate")
           test "$GENERATE_STATUS" = "403"
           grep -q 'PREVIEW_GENERATION_DISABLED' generate.json
 
           {
             echo "### Smoke checks"
-            echo "- /health: 200"
-            echo "- /capability: 200, Dreamina disabled"
-            echo "- /generate: 403, paid generation blocked"
+            echo "- /health: ${HTTP}"
+            echo "- /capability: ${CAP_STATUS}, Dreamina disabled"
+            echo "- /generate: ${GENERATE_STATUS}, paid generation blocked"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify production still responds
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -108,6 +120,7 @@ jobs:
             --retry 3 --retry-delay 2 --max-time 30 \
             --output /dev/null --write-out '%{http_code}' \
             https://meliturgos.adrien-lopezcarreras.workers.dev)
+          echo "Production HTTP: ${PROD_STATUS}"
           case "$PROD_STATUS" in
             2??|3??|401) ;;
             *) echo "Unexpected production HTTP status: $PROD_STATUS"; exit 22 ;;
