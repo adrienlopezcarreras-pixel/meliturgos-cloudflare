@@ -170,7 +170,7 @@ export function buildRuntimeSbom({ packageJson, packageLock, policy = {} }) {
 
 export function evaluateRuntimeSupplyChain({ packageJson, packageLock, audit, policy = {} }) {
   const normalizedPolicy = normalizePolicy(policy);
-  const sbom = buildRuntimeSbom({ packageJson, packageLock, policy: normalizedPolicy });
+  const sbom = buildRuntimeSbom({ packageJson, packageLock, policy });
   const auditEvidence = normalizeAuditEvidence(audit);
   const blockers = [];
   if (auditEvidence.vulnerabilities.critical > normalizedPolicy.max_critical) {
