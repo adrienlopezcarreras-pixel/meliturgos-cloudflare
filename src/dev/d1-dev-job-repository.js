@@ -194,8 +194,8 @@ export class D1DevJobRepository {
       WHERE status='TEACHER_APPROVED'
          OR (
            status='QUEUED'
-           AND LOWER(requested_by) <> 'mel-autonomy'
-           AND LOWER(requested_by) NOT LIKE 'owner-chat%'
+           AND COALESCE(LOWER(requested_by), '') <> 'mel-autonomy'
+           AND COALESCE(LOWER(requested_by), '') NOT LIKE 'owner-chat%'
          )
       ORDER BY CASE status WHEN 'TEACHER_APPROVED' THEN 0 ELSE 1 END, created_at ASC
       LIMIT 100
