@@ -1,0 +1,121 @@
+name: MEL project experience sync 2026-09-15
+
+on:
+  push:
+    branches:
+      - experience/full-history-20260915
+    paths:
+      - docs/experience/MEL_PROJECT_EXPERIENCE_FULL_HISTORY_20260915.md
+      - .github/workflows/mel-project-experience-sync-20260915.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mel-project-experience-sync-20260915
+  cancel-in-progress: false
+
+jobs:
+  sync-experience:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact experience branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Compile canonical experience document to idempotent D1 SQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
+          const sourcePath = 'docs/experience/MEL_PROJECT_EXPERIENCE_FULL_HISTORY_20260915.md';
+          const md = fs.readFileSync(sourcePath, 'utf8');
+          const re = /^### \d+\. `([^`]+)` — ([^—\n]+) — ([^\n]+)\n([\s\S]*?)(?=^### \d+\.|^## Politique)/gm;
+          const pick = (body, a, b) => {
+            const start = body.indexOf(a);
+            if (start < 0) return '';
+            const from = start + a.length;
+            const end = b ? body.indexOf(b, from) : body.length;
+            return body.slice(from, end < 0 ? body.length : end).trim();
+          };
+          const normalize = (s) => String(s).normalize('NFKC').toLocaleLowerCase('fr').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+          const sqlq = (s) => "'" + String(s).replaceAll("'", "''") + "'";
+          const rows = [];
+          for (const m of md.matchAll(re)) {
+            const [_, id, domainRaw, statusRaw, body] = m;
+            const domain = domainRaw.trim();
+            const status = statusRaw.trim();
+            const period = pick(body, '**Période :**', '\n\n**Problème.**');
+            const problem = pick(body, '**Problème.**', '\n\n**Cause.**');
+            const cause = pick(body, '**Cause.**', '\n\n**Correction.**');
+            const correction = pick(body, '**Correction.**', '\n\n**Leçon.**');
+            const lesson = pick(body, '**Leçon.**', '\n\n**Règle active.**');
+            const rule = pick(body, '**Règle active.**', '\n\n**Preuves / références.**');
+            const evidence = pick(body, '**Preuves / références.**', null);
+            if (![id, domain, status, period, problem, cause, correction, lesson, rule].every(Boolean)) {
+              throw new Error(`Incomplete experience block: ${id}`);
+            }
+            const content = `MEL expérience ${id} [${status}; ${period}; ${domain}]. Erreur/problème: ${problem} Cause: ${cause} Correction: ${correction} Leçon: ${lesson} Règle active: ${rule}`;
+            const fingerprint = crypto.createHash('sha256').update(normalize(content)).digest('hex');
+            rows.push({id, domain, status, period, evidence, content, fingerprint});
+          }
+          if (rows.length !== 45) throw new Error(`Expected 45 experience entries, parsed ${rows.length}`);
+          const created = 1789500600000;
+          const statements = ['-- generated from canonical MEL experience document', 'BEGIN TRANSACTION;'];
+          for (const row of rows) {
+            const confidence = ['current_open_not_merged','current_unproven_guard'].includes(row.status) ? 0.82 : 0.96;
+            const metadata = JSON.stringify({
+              experience_schema: 'mel.project.experience/v1',
+              experience_id: row.id,
+              experience_status: row.status,
+              period: row.period,
+              domain: row.domain,
+              evidence: row.evidence,
+              source_document: sourcePath,
+              consolidated_at: '2026-09-15T21:30:00+02:00'
+            });
+            statements.push(`INSERT INTO memories(created_at,kind,content,importance,confidence,valid_from,valid_until,supersedes_id,source,provenance,metadata,fingerprint) VALUES(${created},'lesson',${sqlq(row.content)},0.92,${confidence},${created},NULL,NULL,'project_experience_consolidation_v1','full-history-20260915',${sqlq(metadata)},${sqlq(row.fingerprint)}) ON CONFLICT(fingerprint) WHERE fingerprint IS NOT NULL DO UPDATE SET importance=MAX(memories.importance,excluded.importance),confidence=MAX(memories.confidence,excluded.confidence),provenance=excluded.provenance,metadata=excluded.metadata;`);
+          }
+          statements.push('COMMIT;');
+          statements.push("SELECT COUNT(*) AS mel_project_experience_count FROM memories WHERE source='project_experience_consolidation_v1';");
+          fs.writeFileSync('/tmp/mel-project-experience.sql', statements.join('\n') + '\n');
+          console.log(`Compiled ${rows.length} sanitized experience memories.`);
+          NODE
+
+      - name: Validate production D1 target
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '"database_name": "meliturgos-memory"' wrangler.jsonc
+          if grep -Eiq '\b(DROP|ALTER|DELETE|TRUNCATE|CREATE TABLE|CREATE INDEX)\b' /tmp/mel-project-experience.sql; then
+            echo 'Refusing destructive/schema SQL'
+            exit 1
+          fi
+
+      - name: Import canonical experience into MEL production memory
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler d1 execute DB --remote --config wrangler.jsonc --file /tmp/mel-project-experience.sql
+
+      - name: Verify exactly 45 consolidated experience memories are present
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$(npx wrangler d1 execute DB --remote --config wrangler.jsonc --command "SELECT COUNT(*) AS n FROM memories WHERE source='project_experience_consolidation_v1';")"
+          echo "$OUT"
+          echo "$OUT" | grep -Eq '(^|[^0-9])45([^0-9]|$)'
