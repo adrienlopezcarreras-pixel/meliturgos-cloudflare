@@ -152,3 +152,24 @@ jobs:
           path: ${{ runner.temp }}/wrangler-d1-preview.sanitized.log
           if-no-files-found: error
           retention-days: 3
+
+      - name: Smoke test isolated preview HTTP
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 2 --max-time 30 \
+            https://meliturgos-preview.adrien-lopezcarreras.workers.dev \
+            --output preview-root.html
+          test -s preview-root.html
+          grep -Eiq '<!doctype html|<html' preview-root.html
+          echo "Preview HTTP smoke passed."
+
+      - name: Verify production still responds
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 2 --max-time 30 \
+            https://meliturgos.adrien-lopezcarreras.workers.dev \
+            --output production-root.html
+          test -s production-root.html
+          echo "Production HTTP read-only verification passed."
