@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "meliturgos-memory-export-preview-20260915",
+  "main": "src/memory/portable-export-preview-entry.js",
+  "compatibility_date": "2026-09-04",
+  "workers_dev": true,
+  "observability": { "enabled": true, "logs": { "head_sampling_rate": 1 } },
+  "vars": {
+    "MEL_RUNTIME_ENV": "memory-export-preview",
+    "MEL_PREVIEW_ISOLATED": "true"
+  }
+}
