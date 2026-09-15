@@ -1,0 +1,62 @@
+name: Security npm audit diagnose 2026-09-15
+
+on:
+  push:
+    branches:
+      - security/npm-audit-high-20260915
+    paths:
+      - .github/workflows/security-npm-audit-diagnose-20260915.yml
+      - package.json
+      - package-lock.json
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci --ignore-scripts
+      - name: Print actionable audit diagnosis
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit --json > /tmp/audit.json || true
+          node <<'NODE'
+          const fs = require('node:fs');
+          const a = JSON.parse(fs.readFileSync('/tmp/audit.json','utf8'));
+          const out = {
+            metadata: a.metadata,
+            vulnerabilities: Object.fromEntries(Object.entries(a.vulnerabilities || {}).map(([name,v]) => [name, {
+              severity: v.severity,
+              isDirect: v.isDirect,
+              via: (v.via || []).map(x => typeof x === 'string' ? x : ({source:x.source,name:x.name,severity:x.severity,title:x.title,url:x.url,range:x.range})),
+              effects: v.effects,
+              range: v.range,
+              nodes: v.nodes,
+              fixAvailable: v.fixAvailable
+            }]))
+          };
+          console.log('AUDIT_DIAGNOSIS_START');
+          console.log(JSON.stringify(out,null,2));
+          console.log('AUDIT_DIAGNOSIS_END');
+          NODE
+      - name: Show non-force fix dry run
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm audit fix --package-lock-only --dry-run --json > /tmp/fix.json || true
+          node <<'NODE'
+          const fs = require('node:fs');
+          const raw = fs.readFileSync('/tmp/fix.json','utf8');
+          console.log('AUDIT_FIX_DRY_RUN_START');
+          console.log(raw.slice(0,30000));
+          console.log('AUDIT_FIX_DRY_RUN_END');
+          NODE
