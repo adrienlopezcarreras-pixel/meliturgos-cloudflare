@@ -5,6 +5,7 @@ import { applyOwnerMaxApproval } from '../teachers/owner-max-approval.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
 import { mirrorAllWaitingOwnerChatTeachers } from '../teachers/owner-chat-teacher-mirror.js';
 import { recoverPassiveRuntimeStates } from './passive-state-recovery.js';
+import { retireObsoleteQueueJobs } from './queue-hygiene.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -91,13 +92,10 @@ export async function approveAllWaitingTeachersUnderOwnerMax(repository, { sourc
   return { attempted: waiting.length, applied, failed };
 }
 
-// Delegated core invariant remains unchanged inside autonomy-runtime-core.js:
-// reconcileRuntimeTeacherReplies -> reconcileRuntimeCompletions -> ensureNextJob()
-// -> prepareAutonomyTeacherRequest -> prepareApprovedImplementationProposal.
-// Emergency pause always wins. In normal mode every WAITING_TEACHER request is
-// retried on its Teacher transport until it is visible there; a prior transport
-// failure can therefore never become a silent permanent wait. MAX autonomy is
-// only the failover path when the normal Teacher/development channel is absent.
+// One heartbeat first retires queue entries that are explicitly obsolete or
+// recovered legacy owner work with no fresh progress. These rows are archived
+// as CANCELLED, never deleted, so the active queue stays truthful without
+// losing traceability. Then the normal Teacher/completion reconciliation runs.
 export async function runAutonomyRuntimeTick(env, options = {}) {
   const control = await getAutonomyControl(env?.DB);
   if (control.paused) {
@@ -111,6 +109,19 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   }
 
   const repository = options.repository || new D1DevJobRepository(env.DB);
+
+  let queueHygiene = null;
+  try {
+    queueHygiene = await retireObsoleteQueueJobs(repository, { limit: 200 });
+  } catch (error) {
+    queueHygiene = {
+      attempted: 0,
+      retired: [],
+      failed: [{ job_id: null, code: error?.code || error?.message || 'QUEUE_HYGIENE_FAILED' }],
+      policy: 'archive-not-delete',
+    };
+  }
+
   let passiveRecovery = null;
   try {
     passiveRecovery = await recoverPassiveRuntimeStates(repository, {
@@ -163,6 +174,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     return {
       ...first,
       control,
+      queue_hygiene: queueHygiene,
       passive_recovery: passiveRecovery,
       internal_teacher_mirror: internalTeacherMirror,
       owner_chat_teacher_mirror: ownerChatTeacherMirror,
@@ -177,6 +189,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     return {
       ...first,
       control,
+      queue_hygiene: queueHygiene,
       passive_recovery: passiveRecovery,
       internal_teacher_mirror: internalTeacherMirror,
       owner_chat_teacher_mirror: ownerChatTeacherMirror,
@@ -189,6 +202,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     return {
       ...first,
       control,
+      queue_hygiene: queueHygiene,
       passive_recovery: passiveRecovery,
       internal_teacher_mirror: internalTeacherMirror,
       owner_chat_teacher_mirror: ownerChatTeacherMirror,
@@ -201,6 +215,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   return {
     ...second,
     control,
+    queue_hygiene: queueHygiene,
     passive_recovery: passiveRecovery,
     internal_teacher_mirror: internalTeacherMirror,
     owner_chat_teacher_mirror: ownerChatTeacherMirror,
