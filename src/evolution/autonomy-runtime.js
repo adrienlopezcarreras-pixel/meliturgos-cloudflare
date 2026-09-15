@@ -11,6 +11,11 @@ export * from './autonomy-runtime-core.js';
 
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
 const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
+const FATAL_RUNTIME_CONFIGURATION_ERRORS = new Set([
+  'AUTONOMY_BRANCH_NOT_CANDIDATE',
+  'TEACHER_BRANCH_NOT_CANDIDATE',
+  'AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE',
+]);
 
 function deployedCandidateSha() {
   try {
@@ -37,6 +42,10 @@ function failureCandidateSort(a, b) {
   const ownerA = a?.requested_by === 'owner-chat' ? 0 : 1;
   const ownerB = b?.requested_by === 'owner-chat' ? 0 : 1;
   return ownerA - ownerB || Number(a?.created_at || 0) - Number(b?.created_at || 0) || String(a?.id || '').localeCompare(String(b?.id || ''));
+}
+
+function mustFailClosed(error) {
+  return FATAL_RUNTIME_CONFIGURATION_ERRORS.has(String(error?.code || error?.message || '').toUpperCase());
 }
 
 async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3 } = {}) {
@@ -82,6 +91,11 @@ async function runCoreResilient(env, coreOptions, repository) {
   try {
     return await runCoreAutonomyRuntimeTick(env, coreOptions);
   } catch (error) {
+    // Configuration/safety errors must never be converted into a retryable job.
+    // Retrying those would hide a bad branch configuration and weaken the
+    // candidate-only deployment boundary.
+    if (mustFailClosed(error)) throw error;
+
     const failure = await recordCoreRuntimeFailure(repository, error).catch(() => ({
       job_id: null,
       attempts: 0,
@@ -96,6 +110,7 @@ async function runCoreResilient(env, coreOptions, repository) {
         const next = await runCoreAutonomyRuntimeTick(env, coreOptions);
         return { ...next, recovered_after_quarantine: failure };
       } catch (secondError) {
+        if (mustFailClosed(secondError)) throw secondError;
         return {
           ok: false,
           status: 'CORE_RETRY_FAILED',
