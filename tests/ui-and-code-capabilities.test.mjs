@@ -25,21 +25,25 @@ test('explicit code file requests are routed to code.read', () => {
   assert.equal(inferCodeCapability('Quel temps fait-il ?'), null);
 });
 
-test('home UI uses avatar favicon, no redundant MEL heading and larger mobile target', async () => {
-  const source = await readFile(new URL('../src/pages/mvp-interface.js', import.meta.url), 'utf8');
-  assert.match(source, /rel="icon"[^>]+meliturgos-avatar-fille\.png/);
-  assert.doesNotMatch(source, /class="title">MEL</);
-  assert.match(source, /min-width:188px/);
-  assert.match(source, /Touchez son visage pour parler/);
+test('retired home and v1 UI modules only redirect to canonical Professor', async () => {
+  const mvp = await readFile(new URL('../src/pages/mvp-interface.js', import.meta.url), 'utf8');
+  const v1 = await readFile(new URL('../src/pages/full-interface.js', import.meta.url), 'utf8');
+  for (const source of [mvp, v1]) {
+    assert.match(source, /status:\s*308/);
+    assert.match(source, /location:\s*["']\/professor["']/);
+    assert.match(source, /cache-control["']?:\s*["']no-store["']/);
+  }
 });
 
-test('full mode is a separate contemporary interface and legacy Professor remains recoverable', async () => {
-  const page = await readFile(new URL('../src/pages/full-interface.js', import.meta.url), 'utf8');
+test('canonical full mode remains the contemporary control center wired at /professor', async () => {
+  const page = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
   assert.match(page, /Centre de contrôle/);
-  assert.match(page, /\.augmentio/);
-  assert.match(page, /professor-legacy/);
+  assert.match(page, /data-panel="roadmap"/);
+  assert.match(page, /data-panel="work"/);
+  assert.match(page, /data-panel="memory"/);
+  assert.match(page, /data-panel="diagnostics"/);
   assert.match(page, /meliturgos-avatar-fille\.png/);
-  assert.match(router, /handleFullMode/);
-  assert.match(router, /\/professor-legacy/);
+  assert.match(router, /handleFullModeV2/);
+  assert.match(router, /url\.pathname === "\/professor"/);
 });
