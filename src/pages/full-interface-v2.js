@@ -22,6 +22,7 @@ export async function onRequestGet(context = {}) {
     '</article><article class="card wide"><div class="section-head"><div><h2>État vivant</h2>',
     '</article><article class="card quarter"><div class="label">Expérience projet</div><div class="metric">48</div><div class="muted small">leçons consolidées · 15/09</div></article><article class="card wide"><div class="section-head"><div><h2>État vivant</h2>'
   );
+  body = body.replace('<h2>Feuille de route</h2>', '<h2>Feuille de route complète</h2>');
   body = body.replace(
     "var r=await getJson('/api/professor/dev/autonomy/next',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});",
     "var next=S.auto&&S.auto.next;if(!next)throw new Error('AUCUNE_ETAPE_SUIVANTE');var active=Array.isArray(S.auto&&S.auto.active_jobs)?S.auto.active_jobs:[];var existing=active.some(function(j){return String((j.optional_context&&j.optional_context.roadmap_id)||j.roadmap_id||'')===String(next.id||'')});var r=existing?{created:false}:await getJson('/api/professor/dev/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({goal:nextRoadPrompt(),optional_context:{roadmap_id:next.id,origin:'professor-control-room'}})});"
