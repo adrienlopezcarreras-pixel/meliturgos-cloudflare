@@ -1,5 +1,6 @@
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick } from './autonomy-runtime-core.js';
 import { getAutonomyControl } from './autonomy-control.js';
+import { AutonomySupervisor } from './autonomy-supervisor.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { applyOwnerMaxApproval } from '../teachers/owner-max-approval.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
@@ -46,6 +47,31 @@ function failureCandidateSort(a, b) {
 
 function mustFailClosed(error) {
   return FATAL_RUNTIME_CONFIGURATION_ERRORS.has(String(error?.code || error?.message || '').toUpperCase());
+}
+
+async function ensureNextRuntimeJob(repository) {
+  try {
+    const supervisor = new AutonomySupervisor({ repository });
+    const ensured = await supervisor.ensureNextJob();
+    return {
+      created: ensured?.created === true,
+      job_id: ensured?.job?.id || null,
+      status: ensured?.job?.status || null,
+      roadmap_id: ensured?.job?.optional_context?.roadmap_id || null,
+      next_roadmap_id: ensured?.next?.id || null,
+      complete: ensured?.complete === true,
+    };
+  } catch (error) {
+    return {
+      created: false,
+      job_id: null,
+      status: null,
+      roadmap_id: null,
+      next_roadmap_id: null,
+      complete: false,
+      error: error?.code || error?.message || 'AUTONOMY_PRE_ENSURE_FAILED',
+    };
+  }
 }
 
 async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3 } = {}) {
@@ -197,10 +223,11 @@ export async function approveAllWaitingTeachersUnderOwnerMax(repository, { sourc
   return { attempted: waiting.length, applied, failed };
 }
 
-// Every heartbeat performs queue hygiene, passive-state recovery, Teacher and
-// completion reconciliation, and one bounded executable step. Obsolete owner
-// rows are archived as CANCELLED rather than deleted. A single repeatedly
-// failing job is quarantined after three passages so it cannot freeze MEL.
+// Every heartbeat first persists/selects the next executable roadmap job so the
+// live UI can show concrete work immediately, then performs queue hygiene,
+// passive-state recovery, Teacher/completion reconciliation and one bounded
+// executable step. Slow external reconciliation must never leave MEL looking
+// idle while executable roadmap work exists.
 export async function runAutonomyRuntimeTick(env, options = {}) {
   const control = await getAutonomyControl(env?.DB);
   if (control.paused) {
@@ -214,6 +241,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   }
 
   const repository = options.repository || new D1DevJobRepository(env.DB);
+  const preEnsure = await ensureNextRuntimeJob(repository);
 
   let queueHygiene = null;
   try {
@@ -279,6 +307,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     return {
       ...first,
       control,
+      pre_ensure: preEnsure,
       queue_hygiene: queueHygiene,
       passive_recovery: passiveRecovery,
       internal_teacher_mirror: internalTeacherMirror,
@@ -294,6 +323,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     return {
       ...first,
       control,
+      pre_ensure: preEnsure,
       queue_hygiene: queueHygiene,
       passive_recovery: passiveRecovery,
       internal_teacher_mirror: internalTeacherMirror,
@@ -307,6 +337,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     return {
       ...first,
       control,
+      pre_ensure: preEnsure,
       queue_hygiene: queueHygiene,
       passive_recovery: passiveRecovery,
       internal_teacher_mirror: internalTeacherMirror,
@@ -320,6 +351,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   return {
     ...second,
     control,
+    pre_ensure: preEnsure,
     queue_hygiene: queueHygiene,
     passive_recovery: passiveRecovery,
     internal_teacher_mirror: internalTeacherMirror,
