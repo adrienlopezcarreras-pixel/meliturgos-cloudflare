@@ -27,11 +27,14 @@ jobs:
         with:
           ref: 507d8ffea47ce99dddba1369c2de892f78f74318
 
-      - name: Verify exact target
+      - name: Verify exact target on canonical local branch
         shell: bash
         run: |
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
-          echo "Promoting validated preview SHA ${TARGET_SHA}"
+          git switch -c "$TARGET_BRANCH"
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git branch --show-current)" = "$TARGET_BRANCH"
+          echo "Promoting validated preview SHA ${TARGET_SHA} on ${TARGET_BRANCH}"
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
