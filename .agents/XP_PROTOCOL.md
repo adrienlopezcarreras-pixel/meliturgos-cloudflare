@@ -33,6 +33,8 @@ Ne pas modifier `src/learning/bootstrap-corrections-legacy.js` pour une nouvelle
 
 Une XP contient : `id`, `source`, `domain`, `task`, `input`, `before`, `after`, `rationale`, `tests`, `tags`, `validated`, `quality`, `created_at`.
 
+Pour une XP réellement prouvée, la forme canonique explicite est `validated: true`. Sans preuve suffisante, utiliser `validated: false`.
+
 Le helper `src/learning/agent-xp-protocol.js` expose `validateAgentExperience()`, `createAgentExperience()` et `formatExperienceHandoff()`.
 
 ## Ce qui constitue une bonne XP
