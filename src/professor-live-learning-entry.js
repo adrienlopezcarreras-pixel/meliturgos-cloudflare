@@ -31,7 +31,25 @@ async function liveLearningProgressResponse(request, env) {
   }
 }
 
-const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-runtime">
+const PROFESSOR_LIVE_LEARNING_PATCH = `<style id="mel-professor-layout-fix">
+/* Keep Professor panels content-sized. Some release/theme layers can leave the
+   active view or its grid with surplus height; CSS Grid then stretches rows. */
+html body .main{min-height:0!important}
+html body .main>.view{min-height:0!important;height:auto!important}
+html body .main>.view.active{min-height:0!important;height:auto!important}
+html body .main>.view.active>.grid,
+html body .main>.view.active .grid,
+html body .mel-live-grid{grid-auto-rows:max-content!important;align-items:start!important;align-content:start!important}
+html body .card,
+html body .card.third,
+html body .card.wide{height:auto!important;min-height:0!important;align-self:start!important}
+html body article.card{max-height:none!important}
+html body .card>*{min-height:0}
+@media(max-width:1200px){
+  html body .main>.view.active>.grid,
+  html body .main>.view.active .grid{grid-auto-rows:max-content!important;align-content:start!important}
+}
+</style><script id="mel-professor-live-learning-runtime">
 (()=>{
   let timer=null;
   const q=s=>document.querySelector(s);
