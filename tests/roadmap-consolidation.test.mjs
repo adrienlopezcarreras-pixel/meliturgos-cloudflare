@@ -42,9 +42,9 @@ test('browser abstraction is partial until a real adapter is wired', () => {
   assert.match(row.next, /adapter navigateur réel/i);
 });
 
-test('canary rollback remains partial until the real rollback proof is executed', () => {
+test('canary rollback verification stays tied to the recorded real proof', () => {
   const row = byId('GEN2-53');
   assert.ok(row);
-  assert.equal(row.status, 'PARTIAL');
-  assert.match(row.next, /preuve canary\/rollback réelle/i);
+  assert.equal(row.status, 'DONE_VERIFIED');
+  assert.match(row.next, /Actions run 35093195456/i);
 });
