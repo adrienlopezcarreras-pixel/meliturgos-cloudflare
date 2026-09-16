@@ -7,21 +7,24 @@ const mvp = await readFile(new URL('../src/pages/mvp-interface.js', import.meta.
 const enhancer = await readFile(new URL('../src/pages/theme-avatar-enhancer.js', import.meta.url), 'utf8');
 const wrangler = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
 
-test('deployed entrypoint applies the rich theme enhancer to normal MEL surfaces', () => {
+test('deployed entrypoint retains the compatibility theme enhancer after the release pipeline', () => {
   assert.match(wrangler, /"main"\s*:\s*"src\/professor-live-learning-entry\.js"/);
   assert.match(entry, /import \{ enhanceThemeAvatars \} from '\.\/pages\/theme-avatar-enhancer\.js';/);
   assert.match(entry, /url\.pathname === '\/' \|\| url\.pathname === '\/mvp'/);
   const fetchIndex = entry.indexOf('await app.fetch(request, env, ctx)');
   const enhancerIndex = entry.indexOf('await enhanceThemeAvatars(response)');
   const professorIndex = entry.indexOf('return enhanceProfessorLearning(response, url.pathname)');
-  assert.ok(fetchIndex >= 0 && enhancerIndex > fetchIndex, 'theme enhancer must run after the release/UI pipeline');
-  assert.ok(professorIndex > enhancerIndex, 'theme enhancer must remain in the deployed outer entrypoint');
+  assert.ok(fetchIndex >= 0 && enhancerIndex > fetchIndex, 'compatibility enhancer must remain after the release/UI pipeline');
+  assert.ok(professorIndex > enhancerIndex, 'Professor learning enhancement must remain after the normal compatibility stage');
 });
 
-test('MVP markup exposes the hooks required by the theme enhancer', () => {
-  assert.match(mvp, /id="avatar" class="avatar"/);
-  assert.match(mvp, /data-theme-choice="classic"/);
-  assert.match(mvp, /data-theme-choice="amazon"/);
+test('normal MEL shell owns themes directly and deliberately bypasses legacy visual hooks', () => {
+  assert.match(mvp, /id="melAvatar" class="avatar"/);
+  assert.match(mvp, /data-mel-theme-choice="classic"/);
+  assert.match(mvp, /data-mel-theme-choice="amazon"/);
+  assert.match(mvp, /id="mel-normal-shell-v2-style"/);
+  assert.doesNotMatch(mvp, /id="avatar" class="avatar"/);
+  assert.doesNotMatch(mvp, /data-theme-choice="classic"/);
   assert.match(enhancer, /id="mel-theme-avatar-runtime"/);
   assert.match(enhancer, /mel-theme-decor-style/);
   assert.match(enhancer, /html\.includes\('data-theme-choice'\)/);
