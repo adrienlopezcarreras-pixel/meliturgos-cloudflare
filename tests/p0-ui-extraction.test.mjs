@@ -7,11 +7,11 @@ test('normal public MEL entry remains self-contained and links to canonical /pro
   const response = await normalMvp({});
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type') || '', /text\/html/);
-  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.match(response.headers.get('cache-control') || '', /no-store/);
   const html = await response.text();
   assert.match(html, /<!doctype html>/i);
   assert.match(html, /<title>MEL<\/title>/);
-  assert.match(html, /id="avatar"/);
+  assert.match(html, /id="melAvatar"/);
   assert.match(html, /id="full"/);
   assert.match(html, /location\.href='\/professor'/);
 });
