@@ -7,6 +7,11 @@ import { prepareOperatorLora, runOperatorBenchmark } from './learning/operator-a
 import { enhanceThemeAvatars } from './pages/theme-avatar-enhancer.js';
 import { runScheduledSystemBackup } from './backup/system-backup-runtime.js';
 
+const PROFESSOR_SAFE_DEV_BRIDGE_PATHS = new Set([
+  '/api/dev-bridge/health',
+  '/api/dev-bridge/jobs',
+]);
+
 function json(value, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
@@ -306,7 +311,7 @@ async function enhanceProfessorLearning(response, pathname) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname.startsWith('/api/dev-bridge/')) {
+    if (url.pathname.startsWith('/api/dev-bridge/') && !PROFESSOR_SAFE_DEV_BRIDGE_PATHS.has(url.pathname)) {
       const denied = authorizeDevBridge(request, env);
       if (denied) return denied;
     }
