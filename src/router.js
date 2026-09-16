@@ -10,9 +10,11 @@ import { handleMentorChat } from "./api/mentor-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface-v2.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v5.js";
 import { finalizeMvpInterface } from "./pages/mvp-interface-finalizer.js";
+import { enhanceMelProgress } from "./pages/mel-progress-enhancer.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
-import { getRoadmapPayload } from "./roadmap/master-roadmap.js";
+import { getRuntimeRoadmapPayload } from "./roadmap/runtime-roadmap.js";
+import { buildMelProgress } from "./learning/progress.js";
 
 let legacy;
 async function loadLegacy(env) {
@@ -69,7 +71,8 @@ async function handleConversationApi(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
 
-  if (path === "/api/gen2/roadmap" && request.method === "GET") return json(getRoadmapPayload());
+  if (path === "/api/gen2/roadmap" && request.method === "GET") return json(getRuntimeRoadmapPayload());
+  if (path === "/api/gen2/progress" && request.method === "GET") return json(buildMelProgress());
 
   if (path === "/api/gen2/code/self-check" && request.method === "GET") {
     try { return json(await codeSelfCheck(env)); }
@@ -180,7 +183,8 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/professor") {
-      return handleFullModeV2({ env, request, params: {} }).catch(e => html(`Error loading full mode: ${e.message}`, 500));
+      const response = await handleFullModeV2({ env, request, params: {} }).catch(e => html(`Error loading full mode: ${e.message}`, 500));
+      return enhanceMelProgress(response);
     }
 
     if (request.method === "GET" && url.pathname === "/professor-legacy") {
