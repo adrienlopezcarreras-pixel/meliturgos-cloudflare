@@ -8,6 +8,8 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
+export const ROADMAP_REGISTRY_REVISION = '2026-09-16.1';
+
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
 const VALID_PRIORITIES = new Set(['P0', 'P1', 'P2', 'P3']);
@@ -43,7 +45,8 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-08', 'Archivage exhaustif des messages', 'DONE', 'Garantir archivage non conditionnel', 'P1'),
     item('MEL-CONTEXT-01', 'Saisie continue pendant la réflexion / file de messages', 'DONE_VERIFIED', 'Valider sur mobile réel', 'P0'),
     item('MEL-CONTEXT-02', 'Contexte long avec compression sans perte de décisions', 'PARTIAL', 'Compiler les résumés hiérarchiques', 'P1'),
-    item('MEL-CONTEXT-03', 'Open loops: reprendre automatiquement les travaux inachevés', 'PLANNED', 'Lier tâches, conversations et événements', 'P1')
+    item('MEL-CONTEXT-03', 'Open loops: reprendre automatiquement les travaux inachevés', 'PLANNED', 'Lier tâches, conversations et événements', 'P1'),
+    item('MEL-CONTEXT-04', 'Interpréteur de contexte pré-LLM: pédagogique, scientifique et laboratoire', 'DONE_VERIFIED', 'Maintenir les tests de non-régression et la limitation ciblée des seuls détails réellement dangereux', 'P0')
   ]),
 
   phase('P03', 'Mémoire personnelle et connaissance', [
@@ -134,16 +137,16 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-28', 'Windows Companion runtime / agent', 'PLANNED', 'Implémenter l’agent local Windows et ses capacités', 'P0'),
     item('GEN2-59', 'Build et release Windows', 'PLANNED', 'Packaging, signature et mises à jour', 'P2'),
     item('GEN2-30', 'Computer Use abstraction', 'PLANNED', 'Permission tiers et sandbox', 'P0'),
-    item('GEN2-31', 'Browser capability', 'PLANNED', 'Navigateur contrôlé via compagnon/Work', 'P1'),
+    item('GEN2-31', 'Browser capability', 'PARTIAL', 'Brancher un adapter navigateur réel derrière l’abstraction testée et ses approval gates', 'P0'),
     item('MEL-DEVICE-01', 'Ouvrir/fermer applications et fichiers', 'PLANNED', 'Agent PC avec allowlist et confirmation', 'P1'),
     item('MEL-DEVICE-02', 'Commandes système / arrêt contrôlé', 'PLANNED', 'Permissions élevées explicites; arrêt propriétaire prioritaire', 'P2'),
     item('MEL-DEVICE-03', 'Wake-on-LAN séparé', 'PLANNED', 'Module réseau indépendant', 'P3')
   ]),
 
   phase('P11', 'Sécurité, audit et gouvernance', [
-    item('GEN2-44', 'Observability / diagnostics', 'PARTIAL', 'Dashboard santé unifié', 'P0'),
+    item('GEN2-44', 'Observability / diagnostics', 'PARTIAL', 'Relier le health dashboard aux métriques runtime et aux alertes', 'P0'),
     item('GEN2-45', 'Audit log', 'DONE', 'Persistance et corrélation de toutes les actions sensibles', 'P0'),
-    item('GEN2-46', 'Secrets / authentification', 'PARTIAL', 'Passer de Basic Auth à auth plus robuste', 'P0'),
+    item('GEN2-46', 'Secrets / authentification', 'PARTIAL', 'Étendre les auth gates robustes à toutes les surfaces sensibles', 'P0'),
     item('MEL-SEC-01', 'Prompt-injection firewall outils/RAG', 'PARTIAL', 'Étiqueter données vs instructions partout', 'P0'),
     item('MEL-SEC-02', 'Permissions par capacité', 'PARTIAL', 'Enforcement systématique', 'P0'),
     item('MEL-SEC-03', 'Supply-chain / dépendances / CI', 'PARTIAL', 'SBOM et dépendances runtime fail-closed', 'P1'),
@@ -152,7 +155,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P12', 'Résilience, sauvegarde et indépendance', [
-    item('GEN2-47', 'Backups / export système', 'PARTIAL', 'Automatiser snapshots vérifiés de l’ensemble du système', 'P1'),
+    item('GEN2-47', 'Backups / export système', 'PARTIAL', 'Étendre les snapshots vérifiés à l’ensemble du système et automatiser leur contrôle', 'P1'),
     item('GEN2-48', 'Restore / disaster recovery', 'PARTIAL', 'Faire drill complet de restauration', 'P1'),
     item('GEN2-49', 'Portabilité système provider-neutral', 'PLANNED', 'Bundle complet indépendant des fournisseurs', 'P1'),
     item('MEL-RES-01', 'Survival Mode: NORMAL/DEGRADED/READ_ONLY/RECOVERY/HALTED', 'DONE_VERIFIED', 'Brancher télémétrie runtime', 'P0'),
@@ -174,11 +177,12 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-UI-01', 'Accueil minimal et contemporain', 'DONE_VERIFIED', 'Polish mobile continu', 'P0'),
     item('MEL-UI-02', 'Avatar grand / cible tactile mobile', 'DONE_VERIFIED', 'Tester sur Android réel', 'P0'),
     item('MEL-UI-03', 'Favicon visage MEL', 'DONE_VERIFIED', '—', 'P3'),
+    item('MEL-UI-04', 'Thèmes et fonds HD pilotés par une source unique', 'DONE_VERIFIED', 'Maintenir le test de câblage du theme enhancer et éviter tout second registre de fonds', 'P0'),
     item('MEL-UI-05', 'État réel, pas de cartes factices', 'IN_PROGRESS', 'Toutes cartes reliées à API/health', 'P0')
   ]),
 
   phase('P15', 'Release, migration et maturité finale', [
-    item('GEN2-53', 'Canary pré-release / rollback', 'PARTIAL', 'Tester une release candidate avant promotion et prouver le rollback', 'P0'),
+    item('GEN2-53', 'Canary pré-release / rollback', 'PARTIAL', 'Exécuter la preuve canary/rollback réelle sur release/gen2-53-canary puis conserver la preuve', 'P0'),
     item('GEN2-57', 'Migration Gen1 sans perte', 'IN_PROGRESS', 'Réduire progressivement worker legacy', 'P0'),
     item('GEN2-55', 'Data integrity / final maturity tests', 'PLANNED', 'Suite finale après stabilisation', 'P1'),
     item('GEN2-60', 'Completion matrix', 'PLANNED', 'Générer automatiquement depuis ce registre', 'P2'),
@@ -245,5 +249,15 @@ export function roadmapSummary() {
 }
 
 export function getRoadmapPayload() {
-  return { ok: true, summary: roadmapSummary(), validation: validateRoadmap(), phases: MASTER_ROADMAP };
+  return {
+    ok: true,
+    source: {
+      kind: 'code_registry',
+      file: 'src/roadmap/master-roadmap.js',
+      revision: ROADMAP_REGISTRY_REVISION
+    },
+    summary: roadmapSummary(),
+    validation: validateRoadmap(),
+    phases: MASTER_ROADMAP
+  };
 }
