@@ -28,11 +28,11 @@ test('verified pre-LLM context interpreter is represented in the roadmap', () =>
   assert.match(row.title, /pré-LLM/i);
 });
 
-test('HD theme wiring is represented as one verified UI deliverable', () => {
-  const row = byId('MEL-UI-04');
+test('HD theme cleanup stays consolidated under the canonical control center deliverable', () => {
+  assert.equal(byId('MEL-UI-04'), undefined);
+  const row = byId('GEN2-54');
   assert.ok(row);
-  assert.equal(row.status, 'DONE_VERIFIED');
-  assert.match(row.title, /source unique/i);
+  assert.match(row.next, /une seule couche de présentation/i);
 });
 
 test('browser abstraction is partial until a real adapter is wired', () => {

@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-16.1';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-16.2';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -173,11 +173,10 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P14', 'Interface et expérience', [
-    item('GEN2-54', 'Control Center / Mode complet', 'IN_PROGRESS', 'Afficher roadmap, diagnostics et vraies capacités dans une interface contemporaine unique', 'P0'),
+    item('GEN2-54', 'Control Center / Mode complet', 'IN_PROGRESS', 'Afficher roadmap, diagnostics et vraies capacités dans une interface contemporaine unique; conserver une seule couche de présentation pour thèmes, fonds et avatar', 'P0'),
     item('MEL-UI-01', 'Accueil minimal et contemporain', 'DONE_VERIFIED', 'Polish mobile continu', 'P0'),
     item('MEL-UI-02', 'Avatar grand / cible tactile mobile', 'DONE_VERIFIED', 'Tester sur Android réel', 'P0'),
     item('MEL-UI-03', 'Favicon visage MEL', 'DONE_VERIFIED', '—', 'P3'),
-    item('MEL-UI-04', 'Thèmes et fonds HD pilotés par une source unique', 'DONE_VERIFIED', 'Maintenir le test de câblage du theme enhancer et éviter tout second registre de fonds', 'P0'),
     item('MEL-UI-05', 'État réel, pas de cartes factices', 'IN_PROGRESS', 'Toutes cartes reliées à API/health', 'P0')
   ]),
 

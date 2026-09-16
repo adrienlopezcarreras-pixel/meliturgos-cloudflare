@@ -31,6 +31,28 @@ async function liveLearningProgressResponse(request, env) {
   }
 }
 
+/**
+ * Normal mode historically accumulated visual patches in ui-entry and
+ * ui-release-fix-entry before the canonical theme enhancer ran. Strip only
+ * those presentation-only layers at the final edge; functional cleanup and
+ * cache scripts remain intact. This makes theme-avatar-enhancer the sole
+ * visual owner of normal mode without rewriting lower runtime behavior.
+ */
+export async function stripLegacyNormalVisualLayers(response) {
+  if (!(response instanceof Response)) return response;
+  const type = response.headers.get('content-type') || '';
+  if (!response.ok || !type.includes('text/html')) return response;
+  const html = await response.text();
+  const body = html
+    .replace(/<style id="mel-owner-visual-fix">[\s\S]*?<\/style>/g, '')
+    .replace(/<style id="mel-new-hd-scenes">[\s\S]*?<\/style>/g, '')
+    .replace(/<script id="mel-normal-release-runtime">[\s\S]*?<\/script>/g, '');
+  const headers = new Headers(response.headers);
+  headers.delete('content-length');
+  headers.set('cache-control', 'no-store, no-cache, must-revalidate');
+  return new Response(body, { status: response.status, statusText: response.statusText, headers });
+}
+
 const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-runtime">
 (()=>{
   let timer=null;
@@ -128,6 +150,7 @@ export default {
     let response = await app.fetch(request, env, ctx);
     if (request.method !== 'GET') return response;
     if (url.pathname === '/' || url.pathname === '/mvp') {
+      response = await stripLegacyNormalVisualLayers(response);
       response = await enhanceThemeAvatars(response);
     }
     return enhanceProfessorLearning(response, url.pathname);
