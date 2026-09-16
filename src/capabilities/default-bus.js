@@ -1,6 +1,7 @@
 import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
 import { registerWorkCapabilities } from './work-capabilities.js';
+import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { RAGService } from '../search/rag-service.js';
@@ -32,6 +33,7 @@ export function setDefaultCapabilityEnvironment(env = {}) {
     MEL_TEACHER_BRANCH: env.MEL_TEACHER_BRANCH,
     MEL_GITHUB_TOKEN: env.MEL_GITHUB_TOKEN,
     MEL_GITHUB_FETCH: env.MEL_GITHUB_FETCH,
+    MEL_BROWSER_COMPANION: env.MEL_BROWSER_COMPANION,
   });
   return {
     ai: Boolean(inheritedRuntimeEnv.AI),
@@ -41,6 +43,7 @@ export function setDefaultCapabilityEnvironment(env = {}) {
     github_repository: inheritedRuntimeEnv.MEL_GITHUB_REPOSITORY || DEFAULT_REPOSITORY,
     github_branch: inheritedRuntimeEnv.MEL_GITHUB_BRANCH || DEFAULT_BRANCH,
     teacher_branch: inheritedRuntimeEnv.MEL_TEACHER_BRANCH || DEFAULT_TEACHER_BRANCH,
+    browser_companion: Boolean(inheritedRuntimeEnv.MEL_BROWSER_COMPANION?.fetch),
   };
 }
 
@@ -204,7 +207,8 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   }, async () => ({
     ai: Boolean(runtimeEnv.AI), db: Boolean(runtimeEnv.DB), media_bucket: Boolean(runtimeEnv.MEDIA_BUCKET),
     github_repository: githubRepository, github_branch: githubBranch,
-    owner_configured: Boolean(runtimeEnv.MELITURGOS_USER)
+    owner_configured: Boolean(runtimeEnv.MELITURGOS_USER),
+    browser_companion: Boolean(runtimeEnv.MEL_BROWSER_COMPANION?.fetch),
   }));
 
   bus.discover({
@@ -242,6 +246,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ ok: true, preview: true, ...normalizeChatGPTArchive(input.archive ?? input).summary }));
 
+  registerBrowserRuntimeCapabilities(bus, { binding: runtimeEnv.MEL_BROWSER_COMPANION });
   registerWorkCapabilities(bus, { db: runtimeEnv.DB });
   return bus;
 }

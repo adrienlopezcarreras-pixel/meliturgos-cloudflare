@@ -6,7 +6,12 @@ on:
       - 'roadmap/gen2-31-browser-capability-chat'
     paths:
       - 'src/devices/browser-capability.js'
+      - 'src/devices/browser-companion-adapter.js'
+      - 'src/capabilities/browser-runtime-capabilities.js'
+      - 'src/capabilities/default-bus.js'
+      - 'src/roadmap/master-roadmap.js'
       - 'tests/gen2/browser-capability.test.mjs'
+      - 'tests/browser-runtime-capability.test.mjs'
       - '.github/workflows/gen2-31-browser-capability-ci.yml'
   workflow_dispatch:
 
@@ -27,10 +32,15 @@ jobs:
           cache: npm
       - name: Install exact lockfile
         run: npm ci
-      - name: Browser capability syntax
-        run: node --check src/devices/browser-capability.js
-      - name: Browser capability tests
-        run: node --test tests/gen2/browser-capability.test.mjs
+      - name: Browser runtime syntax
+        run: |
+          node --check src/devices/browser-capability.js
+          node --check src/devices/browser-companion-adapter.js
+          node --check src/capabilities/browser-runtime-capabilities.js
+          node --check src/capabilities/default-bus.js
+          node --check src/roadmap/master-roadmap.js
+      - name: Browser runtime tests
+        run: node --test tests/gen2/browser-capability.test.mjs tests/browser-runtime-capability.test.mjs
       - name: Full syntax gate
         run: npm run check
       - name: Full regression suite
