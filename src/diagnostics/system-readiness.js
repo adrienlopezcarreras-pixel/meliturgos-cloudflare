@@ -1,6 +1,7 @@
 import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
 import { roadmapSummary, flattenRoadmap } from '../roadmap/master-roadmap.js';
+import { buildHealthDashboard } from './health-dashboard.js';
 
 function costIsExplicitZero(model) {
   return model?.cost !== null && model?.cost !== undefined && model?.cost !== '' && Number(model.cost) === 0;
@@ -99,29 +100,42 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
   const readyCount = Object.values(critical).filter(Boolean).length;
   const totalCritical = Object.keys(critical).length;
   const percent = Math.round((readyCount / totalCritical) * 100);
+  const readiness = {
+    critical_ready: readyCount,
+    critical_total: totalCritical,
+    percent,
+    state: percent === 100 ? 'READY' : percent >= 70 ? 'PARTIAL' : 'DEGRADED'
+  };
+  const capabilitySummary = {
+    total: capabilities.length,
+    health,
+    ids: capabilities.map(x => x.id)
+  };
+  const modelSummary = {
+    configured: models.length,
+    explicit_zero_cost: zeroCostModels.length,
+    zero_cost_ids: zeroCostModels.map(x => x.id),
+    unknown_or_nonzero_cost: models.filter(x => !costIsExplicitZero(x)).map(x => x.id)
+  };
+  const dashboard = buildHealthDashboard({
+    readiness,
+    bindings,
+    selfCode,
+    critical,
+    capabilities: capabilitySummary,
+    models: modelSummary,
+    blockers,
+  });
 
   return {
     ok: true,
-    readiness: {
-      critical_ready: readyCount,
-      critical_total: totalCritical,
-      percent,
-      state: percent === 100 ? 'READY' : percent >= 70 ? 'PARTIAL' : 'DEGRADED'
-    },
+    readiness,
+    dashboard,
     bindings,
     self_code: selfCode,
     critical,
-    capabilities: {
-      total: capabilities.length,
-      health,
-      ids: capabilities.map(x => x.id)
-    },
-    models: {
-      configured: models.length,
-      explicit_zero_cost: zeroCostModels.length,
-      zero_cost_ids: zeroCostModels.map(x => x.id),
-      unknown_or_nonzero_cost: models.filter(x => !costIsExplicitZero(x)).map(x => x.id)
-    },
+    capabilities: capabilitySummary,
+    models: modelSummary,
     roadmap,
     blockers,
     invariants: {
