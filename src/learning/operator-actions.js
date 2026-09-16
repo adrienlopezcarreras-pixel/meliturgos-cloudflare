@@ -33,8 +33,11 @@ export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
   const sourceSha = String(options.source_sha || env.MEL_SOURCE_SHA || env.CF_PAGES_COMMIT_SHA || 'unknown').trim() || 'unknown';
 
   const benchmark = await benchmarkRunner({
-    modelId,
-    sourceSha,
+    metadata: {
+      model_id: modelId,
+      source_sha: sourceSha,
+      trigger: 'professor',
+    },
     respond: async (prompt) => {
       const result = await ai.run(modelId, {
         messages: [
