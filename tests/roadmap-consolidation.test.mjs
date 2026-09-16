@@ -21,6 +21,13 @@ test('roadmap registry stays structurally unique and exposes its revision', () =
   assert.equal(payload.source.revision, ROADMAP_REGISTRY_REVISION);
 });
 
+test('verified prompt/strategy versioning stays tied to the merged registry proof', () => {
+  const row = byId('GEN2-52');
+  assert.ok(row);
+  assert.equal(row.status, 'DONE_VERIFIED');
+  assert.match(row.next, /PR #56/i);
+});
+
 test('verified pre-LLM context interpreter is represented in the roadmap', () => {
   const row = byId('MEL-CONTEXT-04');
   assert.ok(row);
