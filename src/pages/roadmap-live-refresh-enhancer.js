@@ -3,6 +3,17 @@ export const ROADMAP_LIVE_REFRESH_PATCH = `<script id="mel-roadmap-live-refresh-
   const REFRESH_MS=30000;
   let timer=null,busy=false;
 
+  function patchRoadmapFetch(){
+    if(window.__melRoadmapFetchPatched||!window.fetch)return;
+    const nativeFetch=window.fetch.bind(window);
+    window.__melRoadmapFetchPatched=true;
+    window.fetch=function(resource,options){
+      const path=typeof resource==='string'?resource:String(resource?.url||'');
+      if(path.includes('/api/gen2/roadmap'))return nativeFetch(resource,{...(options||{}),cache:'no-store'});
+      return nativeFetch(resource,options);
+    };
+  }
+
   async function refreshRoadmap(){
     if(busy)return;
     const panel=document.querySelector('[data-panel="roadmap"]');
@@ -32,6 +43,7 @@ export const ROADMAP_LIVE_REFRESH_PATCH = `<script id="mel-roadmap-live-refresh-
   function install(){
     if(window.__melRoadmapLiveRefresh)return;
     window.__melRoadmapLiveRefresh=true;
+    patchRoadmapFetch();
     const button=document.querySelector('#nav button[data-view="roadmap"]');
     if(button)button.addEventListener('click',()=>setTimeout(refreshRoadmap,0));
     timer=setInterval(()=>{
