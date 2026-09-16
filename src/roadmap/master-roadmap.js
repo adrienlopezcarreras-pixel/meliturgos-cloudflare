@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-16.2';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-16.4';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -85,7 +85,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-16', 'Module Lab', 'PARTIAL', 'Brancher préflight Council -> spec -> code -> tests', 'P0'),
     item('GEN2-17', 'Dev Agent / auto-évolution supervisée', 'PARTIAL', 'Prouver plusieurs cycles cohérents complets sur candidate avant toute promotion', 'P0'),
     item('MEL-EVOL-01', 'Détecter une compétence manquante à partir d’une demande', 'DONE_VERIFIED', 'Maintenir la détection sans doublon et n’entrer au Module Lab que pour un vrai gap', 'P0'),
-    item('MEL-EVOL-02', 'Proposer ou générer un module', 'PLANNED', 'Relier gap detector au Module Lab', 'P0'),
+    item('MEL-EVOL-02', 'Proposer ou générer un module', 'DONE_VERIFIED', 'Maintenir la proposition non activante, le Council gate et l’entrée au Module Lab uniquement pour un vrai gap', 'P0'),
     item('MEL-EVOL-03', 'Tests, benchmark, critique et correction en boucle', 'PARTIAL', 'Unifier runner de preuves', 'P0'),
     item('MEL-EVOL-04', 'EVOLUTION_LEDGER immuable et explicable', 'PARTIAL', 'Persister chaque évolution et ses preuves', 'P1'),
     item('MEL-EVOL-05', 'Skill Registry durable', 'PLANNED', 'Compiler les acquis système dans un registre portable', 'P1'),
@@ -181,7 +181,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P15', 'Release, migration et maturité finale', [
-    item('GEN2-53', 'Canary pré-release / rollback', 'PARTIAL', 'Exécuter la preuve canary/rollback réelle sur release/gen2-53-canary puis conserver la preuve', 'P0'),
+    item('GEN2-53', 'Canary pré-release / rollback', 'DONE_VERIFIED', 'Preuve réelle validée: Actions run 35093195456; répéter avant promotion sensible', 'P0'),
     item('GEN2-57', 'Migration Gen1 sans perte', 'IN_PROGRESS', 'Réduire progressivement worker legacy', 'P0'),
     item('GEN2-55', 'Data integrity / final maturity tests', 'PLANNED', 'Suite finale après stabilisation', 'P1'),
     item('GEN2-60', 'Completion matrix', 'PLANNED', 'Générer automatiquement depuis ce registre', 'P2'),
