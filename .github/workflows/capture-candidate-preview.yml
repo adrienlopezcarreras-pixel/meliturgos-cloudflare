@@ -1,0 +1,97 @@
+name: capture-candidate-preview
+
+on:
+  push:
+    branches:
+      - candidate/mel-clean-autonomy
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meliturgos-preview-capture
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Derive isolated preview credential
+        shell: bash
+        run: |
+          PREVIEW_PASSWORD="$(python - <<'PY'
+          import hashlib
+          import hmac
+          import os
+          token = os.environ['CLOUDFLARE_API_TOKEN'].encode('utf-8')
+          print(hmac.new(token, b'meliturgos-preview-auth-v1', hashlib.sha256).hexdigest())
+          PY
+          )"
+          echo "::add-mask::${PREVIEW_PASSWORD}"
+          echo "MEL_PREVIEW_PASSWORD=${PREVIEW_PASSWORD}" >> "$GITHUB_ENV"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Fetch exact authenticated preview HTML
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --location \
+            --max-time 30 \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            --output preview-root.html \
+            --write-out '%{http_code}' \
+            https://meliturgos-preview.adrien-lopezcarreras.workers.dev/)
+          echo "Preview HTTP status: ${status}"
+          case "$status" in 2??|3??) ;; *) exit 22 ;; esac
+          test -s preview-root.html
+          grep -Eiq '<!doctype html|<html' preview-root.html
+
+      - name: Prepare faithful browser render
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('preview-root.html').read_text(encoding='utf-8', errors='replace')
+          base = '<base href="https://meliturgos-preview.adrien-lopezcarreras.workers.dev/">'
+          if '<head>' in source:
+              source = source.replace('<head>', '<head>' + base, 1)
+          else:
+              source = base + source
+          Path('preview-render.html').write_text(source, encoding='utf-8')
+          PY
+
+      - name: Capture mobile preview screenshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$browser" ]; then
+            echo "No Chromium-compatible browser available on runner" >&2
+            exit 1
+          fi
+          "$browser" \
+            --headless=new \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --allow-file-access-from-files \
+            --hide-scrollbars \
+            --window-size=430,932 \
+            --virtual-time-budget=3500 \
+            --screenshot=mel-preview-mobile.png \
+            "file://${GITHUB_WORKSPACE}/preview-render.html"
+          test -s mel-preview-mobile.png
+
+      - name: Upload preview screenshot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-preview-screenshot-${{ github.sha }}
+          path: mel-preview-mobile.png
+          if-no-files-found: error
+          retention-days: 3
