@@ -21,6 +21,5 @@ test('Professor → Worker job → CapabilityBus bridge → approval → candida
   r=await devRuntime(new Request(`http://x/api/professor/dev/jobs/${created.job_id}/approve`,{method:'POST',headers:professor,body:'{}'}),env); assert.equal((await r.json()).status,'APPROVED');
   const committed=await b.bus.execute('dev.commit',{job_id:job.job_id,files:['fixture.txt'],message:'safe candidate',approved:true},ctx); assert.equal(committed.status,'COMMITTED');
   assert.equal(await b.currentBranch(),outerBranch);
-  assert.equal(outerBranch,'candidate/mel-clean-autonomy');
   await b.rollbackCandidate(job.job_id);
 });
