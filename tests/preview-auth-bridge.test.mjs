@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bridgePreviewBasicAuth } from '../src/preview-auth-entry.js';
 
-const verifierUrl = 'https://meliturgos.adrien-lopezcarreras.workers.dev/';
+const verifierUrl = 'https://meliturgos.adrien-lopezcarreras.workers.dev/sw.js';
 const previewUrl = 'https://meliturgos-preview.adrien-lopezcarreras.workers.dev/';
 const basic = 'Basic ' + btoa('adrien:mot-de-passe-habituel');
 
