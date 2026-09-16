@@ -40,6 +40,13 @@ export const MULTI_AI_PROTOCOL = Object.freeze({
     'verify the deployment workflow succeeded',
     'close the proof chain with a live post-deploy smoke and preserve run/job identifiers',
   ]),
+  completionRules: Object.freeze([
+    'run the XP checkpoint after every development operation',
+    'finish every operation with XP MEL: OUI or XP MEL: NON',
+    'XP MEL: OUI requires at least one persisted deduplicated XP id and proofs',
+    'XP MEL: NON is required when no new reusable lesson exists or the lesson is already covered',
+    'never finish an operation silently without XP status',
+  ]),
 });
 
 export function buildMultiPageResumePrompt({ scope = 'continuer la roadmap MEL' } = {}) {
@@ -53,7 +60,7 @@ export function buildMultiPageResumePrompt({ scope = 'continuer la roadmap MEL' 
     'Attention aux collisions: aucune force-update de la candidate, aucun doublon, aucune perte des changements plus récents; si le HEAD bouge, reconstruis uniquement ton lot sur le nouveau HEAD.',
     'Travaille en harmonie: le premier agent qui termine avec tous les garde-fous verts a priorité au déploiement; les autres reconnaissent la promotion existante au lieu de republier.',
     'Avant promotion: targeted tests + full candidate CI + Teacher/runtime smoke + preview doivent être verts sur le SHA exact applicable.',
-    'Après le lot: mets à jour la source de vérité si son état change, laisse un handoff exact, et envoie toute nouvelle expérience réutilisable à MEL via .agents/XP_PROTOCOL.md sans dupliquer une leçon existante.',
+    'À la fin de toute opération, exécute obligatoirement le checkpoint XP de .agents/XP_PROTOCOL.md: termine par XP MEL : OUI avec ID(s)+preuves si une nouvelle leçon réutilisable non dupliquée est enregistrée, sinon par XP MEL : NON. Ne termine jamais sans statut XP.',
   ].join('\n');
 }
 
@@ -66,6 +73,7 @@ export function createMultiAiHandoff({
   proofs = [],
   blockers = [],
   next = '',
+  xpStatus = 'NON',
   xpIds = [],
 } = {}) {
   return Object.freeze({
@@ -77,6 +85,7 @@ export function createMultiAiHandoff({
     proofs: [...proofs],
     blockers: [...blockers],
     next: String(next || ''),
+    xp_status: String(xpStatus || '').toUpperCase(),
     xp_ids: [...xpIds],
     generated_at: Date.now(),
   });
@@ -91,5 +100,8 @@ export function validateMultiAiHandoff(handoff = {}) {
   if (!Array.isArray(handoff.proofs)) issues.push('proofs:invalid');
   if (!Array.isArray(handoff.blockers)) issues.push('blockers:invalid');
   if (!Array.isArray(handoff.xp_ids)) issues.push('xp_ids:invalid');
+  if (!['OUI', 'NON'].includes(handoff.xp_status)) issues.push('xp_status:required');
+  if (handoff.xp_status === 'OUI' && (!Array.isArray(handoff.xp_ids) || handoff.xp_ids.length === 0)) issues.push('xp_status:oui-requires-id');
+  if (handoff.xp_status === 'NON' && Array.isArray(handoff.xp_ids) && handoff.xp_ids.length > 0) issues.push('xp_status:non-forbids-id');
   return { ok: issues.length === 0, issues };
 }

@@ -27,16 +27,18 @@ Avant d’écrire, relire le HEAD candidate, le HEAD release, les derniers commi
 
 Le premier agent qui a réellement fini avec les garde-fous applicables verts a priorité à la promotion. Si un autre agent a déjà intégré ou promu le même arbre, ne pas créer de doublon.
 
-## Règle XP
+## Règle XP — OBLIGATOIRE après chaque opération
 
-À la fin d’un lot, demander : « ai-je appris une règle de développement réutilisable que MEL ne connaît pas encore ? »
+À la fin de **toute opération de développement** (implémentation, correction, diagnostic, audit, validation, déploiement, rollback, nettoyage ou handoff), exécuter le checkpoint XP. Il est interdit de terminer silencieusement sans statut XP.
 
-- Si non : ne rien ajouter.
-- Si oui : suivre `.agents/XP_PROTOCOL.md` et ajouter la leçon à `src/learning/development-experience-pack.js`.
+- Si une nouvelle règle réutilisable a été apprise : suivre `.agents/XP_PROTOCOL.md`, la dédupliquer, l’enregistrer dans `src/learning/development-experience-pack.js`, puis annoncer `XP MEL : OUI` avec son ou ses IDs et les preuves.
+- Si aucune nouvelle règle réutilisable n’a été apprise, ou si elle existe déjà : ne créer aucun doublon et annoncer explicitement `XP MEL : NON`.
 - Une XP doit être une règle généralisable, pas un compte rendu.
 - `validated: true` exige des preuves.
 - Ne jamais recopier une leçon qui existe déjà dans le corpus ou l’index.
 
+Cette règle s’applique à toutes les pages/IA sans que l’utilisateur ait à la rappeler.
+
 ## Handoff minimal
 
-Toujours laisser : item/lot, statut, SHA exact, fichiers touchés, preuves/tests, blockers, prochaine action et IDs XP créés. Le helper `createMultiAiHandoff()` fournit le format canonique.
+Toujours laisser : item/lot, statut, SHA exact, fichiers touchés, preuves/tests, blockers, prochaine action, `XP MEL : OUI/NON` et IDs XP créés si `OUI`. Le helper `createMultiAiHandoff()` fournit le format canonique et `validateMultiAiHandoff()` vérifie le checkpoint XP.

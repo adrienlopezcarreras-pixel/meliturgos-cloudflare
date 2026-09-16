@@ -2,6 +2,16 @@
 
 But : une page ou une IA ne doit plus rechercher dans tout le dépôt comment transmettre une expérience à MEL.
 
+## Checkpoint XP obligatoire après chaque opération
+
+À la fin de toute opération de développement, l’agent DOIT exécuter ce checkpoint, même s’il n’a rien de nouveau à enregistrer.
+
+- Nouvelle leçon réutilisable et non dupliquée : `XP MEL : OUI`, enregistrer l’XP, fournir son ID et ses preuves.
+- Aucune nouvelle leçon, ou leçon déjà couverte : `XP MEL : NON`, ne rien dupliquer.
+- Il est interdit de terminer une opération sans l’un de ces deux statuts.
+
+Cette obligation couvre implémentation, correction, diagnostic, audit, validation, déploiement, rollback, nettoyage et handoff.
+
 ## Où écrire
 
 Les nouvelles expériences de développement vont dans :
@@ -21,21 +31,7 @@ Ne pas modifier `src/learning/bootstrap-corrections-legacy.js` pour une nouvelle
 
 ## Forme canonique
 
-Une XP contient :
-
-- `id` : identifiant unique et stable ;
-- `source` : provenance de la leçon ;
-- `domain` : domaine technique ;
-- `task` : compétence apprise ;
-- `input` : situation qui déclenche la règle ;
-- `before` : comportement à éviter ;
-- `after` : comportement que MEL doit préférer ;
-- `rationale` : raison technique ;
-- `tests` : preuves exactes (tests, SHA, runs/jobs quand disponibles) ;
-- `tags` : indexation ;
-- `validated` : `true` seulement si la leçon est réellement soutenue par les preuves ;
-- `quality` : confiance 0..1 ;
-- `created_at` : timestamp.
+Une XP contient : `id`, `source`, `domain`, `task`, `input`, `before`, `after`, `rationale`, `tests`, `tags`, `validated`, `quality`, `created_at`.
 
 Le helper `src/learning/agent-xp-protocol.js` expose `validateAgentExperience()`, `createAgentExperience()` et `formatExperienceHandoff()`.
 
@@ -45,7 +41,7 @@ Mauvais : « J’ai corrigé la CI. »
 
 Bon : « Avant de corriger une CI rouge en multi-agent, attribuer l’échec au lot en comparant avec son parent/HEAD précédent ; si la cause est héritée ou déjà corrigée ailleurs, ne pas dupliquer le patch. »
 
-Une XP décrit donc une préférence de comportement future, pas un journal d’activité.
+Une XP décrit une préférence de comportement future, pas un journal d’activité.
 
 ## Validation et anti-collision
 
@@ -53,19 +49,19 @@ Une XP décrit donc une préférence de comportement future, pas un journal d’
 - Ne jamais inventer une preuve ou un SHA.
 - Juste avant l’écriture, relire la candidate.
 - Si la candidate a bougé, porter uniquement l’XP au-dessus du nouveau HEAD.
-- Si une autre page a ajouté la même leçon, ne rien ajouter.
+- Si une autre page a ajouté la même leçon, ne rien ajouter et déclarer `XP MEL : NON`.
 - L’ajout XP doit rester atomique avec les tests ou la preuve qui démontrent son chargement.
 
-## Handoff de fin de lot
+## Handoff de fin d’opération
 
-Toujours pouvoir produire :
+Toujours produire :
 
 ```text
 XP MEL : OUI/NON
-XP ID : <id si oui>
+XP ID : <id(s) si OUI>
 FICHIER : src/learning/development-experience-pack.js
-RÈGLE APPRISE : <after>
-PREUVES : <tests / runs / SHA>
+RÈGLE APPRISE : <after si OUI>
+PREUVES : <tests / runs / SHA si OUI>
 ```
 
-Cela suffit à la page suivante : aucune recherche globale du mécanisme d’apprentissage n’est nécessaire.
+Le statut XP fait partie du contrat de fin d’opération, pas d’une option documentaire.

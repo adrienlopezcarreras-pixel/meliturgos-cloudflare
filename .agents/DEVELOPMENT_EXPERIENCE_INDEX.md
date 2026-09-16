@@ -31,6 +31,7 @@ Cet index permet à une IA de savoir immédiatement ce que MEL a déjà appris a
 - `bootstrap-roadmap-same-lot-truth-20260916` — roadmap modifiée dans le même lot et jamais promue au-delà des preuves.
 - `bootstrap-gen2-43-model-watch-20260916` — découverte/benchmark de modèles avec autorisation fail-closed, seuils explicites et isolation des erreurs.
 - `bootstrap-dreamina-provider-runner-20260916` — multimodal provider-neutral, zéro-dépense par défaut, quota/fallback et récupération d’artefacts.
+- `bootstrap-mandatory-xp-checkpoint-20260916` — checkpoint XP obligatoire après chaque opération, avec `XP MEL : OUI/NON` explicite.
 
 ## Règle de déduplication
 
@@ -38,4 +39,4 @@ Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le
 
 ## Couverture actuelle
 
-Le corpus couvre : architecture, coûts, sécurité, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, observabilité, UI partagée et gouvernance de preuve.
+Le corpus couvre : architecture, coûts, sécurité, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, observabilité, UI partagée, gouvernance de preuve et checkpoint XP systématique.

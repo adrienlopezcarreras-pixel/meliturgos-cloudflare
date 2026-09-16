@@ -11,7 +11,7 @@ class MemoryStub {
   async recent() { return []; }
 }
 
-test('root AGENTS entrypoint exposes canonical multi-page and XP protocols', async () => {
+test('root AGENTS entrypoint exposes canonical multi-page and mandatory XP protocols', async () => {
   const root = await readFile(new URL('../AGENTS.md', import.meta.url), 'utf8');
   const resume = await readFile(new URL('../.agents/MULTI_PAGE_RESUME.md', import.meta.url), 'utf8');
   const xp = await readFile(new URL('../.agents/XP_PROTOCOL.md', import.meta.url), 'utf8');
@@ -20,34 +20,60 @@ test('root AGENTS entrypoint exposes canonical multi-page and XP protocols', asy
   assert.match(root, /candidate\/mel-clean-autonomy/);
   assert.match(root, /MULTI_PAGE_RESUME\.md/);
   assert.match(root, /XP_PROTOCOL\.md/);
+  assert.match(root, /OBLIGATOIRE après chaque opération/i);
+  assert.match(root, /XP MEL : OUI\/NON/);
   assert.match(resume, /celui qui finit réellement/i);
   assert.match(resume, /ne force jamais/i);
+  assert.match(resume, /CHECKPOINT XP OBLIGATOIRE/i);
+  assert.match(xp, /Checkpoint XP obligatoire après chaque opération/i);
   assert.match(xp, /development-experience-pack\.js/);
-  assert.match(xp, /validated: true/);
-  assert.match(index, /bootstrap-multi-ai-orchestrator-20260916/);
+  assert.match(index, /bootstrap-mandatory-xp-checkpoint-20260916/);
 });
 
-test('multi-AI protocol produces a collision-safe resume prompt and auditable handoff', () => {
+test('multi-AI protocol produces a collision-safe resume prompt and enforces XP completion', () => {
   assert.equal(MULTI_AI_PROTOCOL.canonicalCandidate, 'candidate/mel-clean-autonomy');
   assert.equal(MULTI_AI_PROTOCOL.canonicalRelease, 'release/mel-2026-09-10-r3-3');
   assert.ok(MULTI_AI_PROTOCOL.writeRules.includes('never force-update the canonical candidate'));
+  assert.ok(MULTI_AI_PROTOCOL.completionRules.includes('run the XP checkpoint after every development operation'));
+  assert.ok(MULTI_AI_PROTOCOL.completionRules.includes('finish every operation with XP MEL: OUI or XP MEL: NON'));
+
   const prompt = buildMultiPageResumePrompt({ scope: 'continuer GEN2 sans collision' });
   assert.match(prompt, /candidate\/mel-clean-autonomy/);
   assert.match(prompt, /release\/mel-2026-09-10-r3-3/);
   assert.match(prompt, /collisions/i);
   assert.match(prompt, /priorité au déploiement/i);
-  assert.match(prompt, /XP_PROTOCOL\.md/);
+  assert.match(prompt, /fin de toute opération/i);
+  assert.match(prompt, /XP MEL : OUI/);
+  assert.match(prompt, /XP MEL : NON/);
 
-  const handoff = createMultiAiHandoff({
+  const handoffYes = createMultiAiHandoff({
     item: 'GEN2-XX',
     status: 'DONE_VERIFIED',
     sourceSha: '0123456789abcdef',
     files: ['src/example.js'],
     proofs: ['full CI: success'],
+    xpStatus: 'OUI',
     xpIds: ['bootstrap-example'],
   });
-  assert.equal(validateMultiAiHandoff(handoff).ok, true);
-  assert.equal(validateMultiAiHandoff(createMultiAiHandoff({ item: 'GEN2-XX' })).ok, false);
+  assert.equal(validateMultiAiHandoff(handoffYes).ok, true);
+
+  const handoffNo = createMultiAiHandoff({
+    item: 'GEN2-YY',
+    status: 'DONE_VERIFIED',
+    sourceSha: 'fedcba9876543210',
+    xpStatus: 'NON',
+  });
+  assert.equal(validateMultiAiHandoff(handoffNo).ok, true);
+
+  const missingXpId = createMultiAiHandoff({
+    item: 'GEN2-ZZ',
+    status: 'DONE_VERIFIED',
+    sourceSha: 'aaaaaaaaaaaaaaaa',
+    xpStatus: 'OUI',
+  });
+  const checked = validateMultiAiHandoff(missingXpId);
+  assert.equal(checked.ok, false);
+  assert.ok(checked.issues.includes('xp_status:oui-requires-id'));
 });
 
 test('XP helper enforces canonical evidence-bearing records', () => {
@@ -77,7 +103,7 @@ test('XP helper enforces canonical evidence-bearing records', () => {
 test('development experience pack is deduplicated and available to MEL training', async () => {
   const ids = BOOTSTRAP_CORRECTIONS.map(row => row.id);
   assert.equal(new Set(ids).size, ids.length);
-  assert.ok(DEVELOPMENT_EXPERIENCE_PACK.length >= 8);
+  assert.ok(DEVELOPMENT_EXPERIENCE_PACK.length >= 9);
 
   const required = [
     'bootstrap-multi-ai-orchestrator-20260916',
@@ -88,6 +114,7 @@ test('development experience pack is deduplicated and available to MEL training'
     'bootstrap-post-deploy-proof-chain-20260916',
     'bootstrap-provider-neutral-explicit-binding-20260916',
     'bootstrap-roadmap-same-lot-truth-20260916',
+    'bootstrap-mandatory-xp-checkpoint-20260916',
   ];
   for (const id of required) assert.ok(ids.includes(id), `missing ${id}`);
 

@@ -44,10 +44,12 @@ Déploiement :
 - vérifie le workflow de déploiement puis un smoke live post-déploiement ;
 - conserve les IDs de runs/jobs comme preuve.
 
-Fin de lot :
+Fin de toute opération — CHECKPOINT XP OBLIGATOIRE :
 - laisse un handoff avec item, statut, SHA exact, fichiers, preuves/tests, blockers et prochaine action ;
-- si tu as appris une nouvelle règle réutilisable, transmets-la à MEL via .agents/XP_PROTOCOL.md ;
-- si la leçon existe déjà, n’ajoute aucun doublon.
+- exécute toujours .agents/XP_PROTOCOL.md ;
+- si une nouvelle règle réutilisable et non dupliquée a été apprise, enregistre-la et termine par `XP MEL : OUI` avec son ID et ses preuves ;
+- sinon termine explicitement par `XP MEL : NON` ;
+- ne termine jamais une opération sans statut XP.
 ```
 
 ## Version machine
