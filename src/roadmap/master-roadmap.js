@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-16.7';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-16.8';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -155,7 +155,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P12', 'Résilience, sauvegarde et indépendance', [
-    item('GEN2-47', 'Backups / export système', 'PARTIAL', 'Étendre les snapshots vérifiés à l’ensemble du système et automatiser leur contrôle', 'P1'),
+    item('GEN2-47', 'Backups / export système', 'PARTIAL', 'Snapshots D1 complets + inventaire R2 automatisés et vérifiés; ajouter copie des octets R2, chiffrement et drill de restauration avant DONE_VERIFIED', 'P1'),
     item('GEN2-48', 'Restore / disaster recovery', 'PARTIAL', 'Faire drill complet de restauration', 'P1'),
     item('GEN2-49', 'Portabilité système provider-neutral', 'PLANNED', 'Bundle complet indépendant des fournisseurs', 'P1'),
     item('MEL-RES-01', 'Survival Mode: NORMAL/DEGRADED/READ_ONLY/RECOVERY/HALTED', 'DONE_VERIFIED', 'Brancher télémétrie runtime', 'P0'),
