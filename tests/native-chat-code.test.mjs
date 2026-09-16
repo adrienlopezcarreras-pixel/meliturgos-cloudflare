@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { inferNativeCodeCapability } from '../src/api/native-chat.js';
 
-test('self code access question proves access by reading router', () => {
-  assert.deepEqual(
+test('self code access question does not invent a default read target', () => {
+  assert.equal(
     inferNativeCodeCapability('et maintenant tu peux lire ton code ?'),
-    { id: 'code.read', input: { path: 'src/router.js' } }
+    null
   );
 });
 
