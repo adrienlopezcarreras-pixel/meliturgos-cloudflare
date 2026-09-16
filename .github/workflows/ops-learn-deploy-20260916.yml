@@ -1,0 +1,141 @@
+name: ops-learn-deploy-20260916
+
+on:
+  push:
+    branches:
+      - ops/mel-deploy-learning-20260916
+
+permissions:
+  contents: read
+
+jobs:
+  persist-deployment-lesson:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout operational branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Smoke exact production Professor route
+        shell: bash
+        run: |
+          set +e
+          : > professor-headers.txt
+          : > professor-body.txt
+          STATUS=$(curl --silent --show-error --location \
+            --retry 3 --retry-delay 2 --max-time 30 \
+            --dump-header professor-headers.txt \
+            --output professor-body.txt \
+            --write-out '%{http_code}' \
+            https://meliturgos.adrien-lopezcarreras.workers.dev/professor)
+          CURL_STATUS=$?
+          echo "PROFESSOR_HTTP_STATUS=${STATUS}" >> "$GITHUB_ENV"
+          echo "curl_exit=${CURL_STATUS} http_status=${STATUS}"
+          test "$CURL_STATUS" -eq 0 || exit "$CURL_STATUS"
+          case "$STATUS" in
+            2??|3??) ;;
+            401)
+              grep -Eiq '^www-authenticate:[[:space:]]*Basic[[:space:]]+realm="MELITURGOS"' professor-headers.txt || {
+                echo "401 received without expected MELITURGOS auth challenge" >&2
+                exit 22
+              }
+              ;;
+            *) echo "Unexpected Professor HTTP status: ${STATUS}" >&2; exit 22 ;;
+          esac
+          echo "Exact /professor production smoke passed with status ${STATUS}."
+
+      - name: Build idempotent mentor lesson SQL
+        shell: bash
+        env:
+          CANDIDATE_SHA: dfe2f4558005c2156b260f85eab88c308e1af17c
+          RELEASE_SHA: e3e2bc0d0fc1e630c1fb84d5a2e44424d6306809
+          ROLLBACK_SHA: 8a5a33e240e34d54dc3fa5182f0448cbf927aa70
+          DEPLOY_WORKFLOW_RUN_ID: '35082833095'
+          CLOUDFLARE_VERSION_ID: df2dfe8a-a280-43e9-a121-7362d080b528
+        run: |
+          python - <<'PY'
+          import json, os, time
+          record_id = 'deployment-experience:2026-09-16:e3e2bc0d'
+          lesson = (
+              'Lecon de release MEL: verrouiller le SHA candidat exact avant promotion. '
+              'Si la tete candidate change pendant les validations, invalider les preuves precedentes et relancer toutes les gates sur le nouveau SHA. '
+              'Promouvoir exactement arbre valide sans rebuild ni mutation. Ne jamais force-push la branche de release. '
+              'Conserver le commit de production precedent comme parent de rollback. '
+              'Considerer la release terminee seulement lorsque CI complete, smoke Teacher/runtime, preview, deploiement Cloudflare et smoke HTTP de /professor sont confirmes. '
+              'Si un checkout local ou le reseau local est indisponible, preferer les preuves deterministes GitHub commit/tree/Actions plutot que creer une copie divergente.'
+          )
+          evidence = {
+              'date': '2026-09-16',
+              'production_route': 'https://meliturgos.adrien-lopezcarreras.workers.dev/professor',
+              'candidate_sha': os.environ['CANDIDATE_SHA'],
+              'release_sha': os.environ['RELEASE_SHA'],
+              'rollback_sha': os.environ['ROLLBACK_SHA'],
+              'deploy_workflow_run_id': int(os.environ['DEPLOY_WORKFLOW_RUN_ID']),
+              'cloudflare_version_id': os.environ['CLOUDFLARE_VERSION_ID'],
+              'professor_http_status': int(os.environ.get('PROFESSOR_HTTP_STATUS') or 0),
+              'validated_gates': ['full-candidate-ci', 'runtime-teacher-smoke', 'candidate-preview'],
+              'promotion_rule': 'EXACT_VALIDATED_TREE_NO_FORCE_PUSH',
+              'rollback_preserved': True,
+              'local_network_issue': 'Local checkout/DNS paths were unavailable; GitHub tree and Actions evidence were used instead.'
+          }
+          tags = ['development', 'outcome', 'release', 'deployment', 'cloudflare', 'rollback', 'professor', 'sha-pinning']
+          def sql_text(value):
+              return "'" + str(value).replace("'", "''") + "'"
+          sql = f'''CREATE TABLE IF NOT EXISTS mentor_lessons (
+            id TEXT PRIMARY KEY,
+            job_id TEXT,
+            goal TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL DEFAULT 'LESSON',
+            lesson TEXT NOT NULL,
+            evidence_json TEXT,
+            outcome TEXT NOT NULL DEFAULT 'UNKNOWN',
+            score REAL NOT NULL DEFAULT 0,
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            created_at INTEGER NOT NULL
+          );
+          INSERT OR REPLACE INTO mentor_lessons
+            (id,job_id,goal,kind,lesson,evidence_json,outcome,score,tags_json,created_at)
+          VALUES(
+            {sql_text(record_id)},
+            {sql_text('release:e3e2bc0d')},
+            {sql_text('Deploy validated MEL candidate to production Professor with deterministic rollback')},
+            {sql_text('DEVELOPMENT_OUTCOME')},
+            {sql_text(lesson)},
+            {sql_text(json.dumps(evidence, ensure_ascii=False, separators=(',', ':')))},
+            {sql_text('SUCCEEDED')},
+            1,
+            {sql_text(json.dumps(tags, ensure_ascii=False, separators=(',', ':')))},
+            {int(time.time() * 1000)}
+          );
+          '''
+          open('mel-deployment-lesson.sql', 'w', encoding='utf-8').write(sql)
+          PY
+
+      - name: Persist lesson in production D1 mentor memory
+        run: npx wrangler d1 execute DB --remote --file mel-deployment-lesson.sql
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify lesson persisted
+        shell: bash
+        run: |
+          npx wrangler d1 execute DB --remote \
+            --command "SELECT id,kind,outcome,score,created_at FROM mentor_lessons WHERE id='deployment-experience:2026-09-16:e3e2bc0d';" \
+            | tee mentor-lesson-verify.txt
+          grep -Fq 'deployment-experience:2026-09-16:e3e2bc0d' mentor-lesson-verify.txt
+          grep -Fq 'DEVELOPMENT_OUTCOME' mentor-lesson-verify.txt
+          grep -Fq 'SUCCEEDED' mentor-lesson-verify.txt
+          echo 'MEL deployment lesson persisted and verified.'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
