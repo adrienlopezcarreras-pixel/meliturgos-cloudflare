@@ -11,7 +11,7 @@ import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } from './a
 
 export * from './autonomy-runtime-core.js';
 
-const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
+const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-security-env-fix-20260916';
 const ACTIONABLE_FAILURE_STATES = new Set(['QUEUED', 'CLAIMED', 'COUNCIL_COMPLETE', 'TEACHER_APPROVED']);
 const ACTIVE_RUNTIME_STATES = new Set([
   'QUEUED',
