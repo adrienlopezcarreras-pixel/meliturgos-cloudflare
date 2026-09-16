@@ -3,7 +3,7 @@ name: deploy-candidate-preview
 on:
   push:
     branches:
-      - candidate/mel-clean-autonomy
+      - candidate/mel-security-env-fix-20260916
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,7 @@ concurrency:
 jobs:
   preview:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout exact candidate SHA
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -33,14 +33,24 @@ jobs:
       - name: Verify canonical candidate branch
         shell: bash
         run: |
-          test "${GITHUB_REF_NAME}" = "candidate/mel-clean-autonomy"
+          test "${GITHUB_REF_NAME}" = "candidate/mel-security-env-fix-20260916"
           echo "Preparing isolated preview for ${GITHUB_SHA} from ${GITHUB_REF_NAME}"
+          echo "candidate_sha=${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Syntax gate
         run: npm run check
 
-      - name: Test gate
+      - name: Full test gate
         run: npm test
+
+      - name: Explicit MEL gate
+        run: npm run test:mel
+
+      - name: Explicit Professor Teacher gate
+        run: npm run test:teacher
+
+      - name: Release heartbeat gate
+        run: npm run test:release-gates
 
       - name: Deploy isolated preview Worker
         shell: bash
@@ -72,16 +82,13 @@ jobs:
           raw = Path(os.environ["RUNNER_TEMP"]) / "wrangler-preview.raw.log"
           clean = Path(os.environ["RUNNER_TEMP"]) / "wrangler-preview.sanitized.log"
           text = raw.read_text(encoding="utf-8", errors="replace") if raw.exists() else "Wrangler deploy produced no log file.\n"
-
           for name in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
               value = os.environ.get(name, "")
               if value:
                   text = text.replace(value, f"[REDACTED_{name}]")
-
           text = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s]+", r"\1[REDACTED]", text)
           text = re.sub(r"(?i)((?:api[_ -]?token|access[_ -]?token|password|secret)\s*[:=]\s*)[^\s]+", r"\1[REDACTED]", text)
           clean.write_text(text, encoding="utf-8")
-
           summary = os.environ.get("GITHUB_STEP_SUMMARY")
           if summary:
               tail = "\n".join(text.splitlines()[-200:])
@@ -99,6 +106,66 @@ jobs:
           path: ${{ runner.temp }}/wrangler-preview.sanitized.log
           if-no-files-found: error
           retention-days: 3
+
+      - name: Verify real isolated Cloudflare bindings
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          config = json.loads(Path('wrangler.jsonc').read_text(encoding='utf-8'))
+          prod_d1 = (config.get('d1_databases') or [{}])[0]
+          prod_r2 = (config.get('r2_buckets') or [{}])[0]
+          preview = (config.get('env') or {}).get('preview') or {}
+          preview_d1 = (preview.get('d1_databases') or [{}])[0]
+          preview_r2 = (preview.get('r2_buckets') or [{}])[0]
+          preview_ai = (preview.get('ai') or {}).get('binding')
+          preview_vars = preview.get('vars') or {}
+
+          required = {
+              'preview_d1_name': preview_d1.get('database_name'),
+              'preview_d1_id': preview_d1.get('database_id'),
+              'preview_r2_name': preview_r2.get('bucket_name'),
+              'preview_ai_binding': preview_ai,
+          }
+          missing = [key for key, value in required.items() if not value]
+          if missing:
+              raise SystemExit('Preview binding provisioning incomplete: ' + ', '.join(missing))
+          if preview_d1.get('database_id') == prod_d1.get('database_id'):
+              raise SystemExit('Preview D1 points to production D1')
+          if preview_d1.get('database_name') == prod_d1.get('database_name'):
+              raise SystemExit('Preview D1 name matches production D1')
+          if preview_r2.get('bucket_name') == prod_r2.get('bucket_name'):
+              raise SystemExit('Preview R2 points to production bucket')
+          if preview_ai != 'AI':
+              raise SystemExit('Preview AI binding missing')
+          if preview_vars.get('MEL_PREVIEW_ISOLATED') != 'true':
+              raise SystemExit('Preview isolation flag missing')
+          if preview_vars.get('MEL_GITHUB_BRANCH') != 'candidate/mel-security-env-fix-20260916':
+              raise SystemExit('Preview candidate branch mismatch')
+
+          env_file = Path(os.environ['GITHUB_ENV'])
+          with env_file.open('a', encoding='utf-8') as handle:
+              handle.write(f"MEL_PREVIEW_D1_NAME={preview_d1['database_name']}\n")
+              handle.write(f"MEL_PREVIEW_R2_NAME={preview_r2['bucket_name']}\n")
+
+          summary = Path(os.environ['GITHUB_STEP_SUMMARY'])
+          with summary.open('a', encoding='utf-8') as handle:
+              handle.write('### Isolated binding proof\n')
+              handle.write(f"- D1 preview: `{preview_d1['database_name']}` (distinct ID verified)\n")
+              handle.write(f"- R2 preview: `{preview_r2['bucket_name']}` (distinct name verified)\n")
+              handle.write('- AI preview binding: `AI`\n')
+              handle.write('- Preview isolation flag: `true`\n')
+          PY
+          npx wrangler d1 info "$MEL_PREVIEW_D1_NAME" --json > "$RUNNER_TEMP/preview-d1-info.json"
+          npx wrangler r2 bucket info "$MEL_PREVIEW_R2_NAME" --json > "$RUNNER_TEMP/preview-r2-info.json"
+          test -s "$RUNNER_TEMP/preview-d1-info.json"
+          test -s "$RUNNER_TEMP/preview-r2-info.json"
 
       - name: Initialize isolated preview D1
         shell: bash
@@ -129,16 +196,13 @@ jobs:
           from pathlib import Path
           import os
           import re
-
           raw = Path("wrangler-d1-preview.log")
           clean = Path(os.environ["RUNNER_TEMP"]) / "wrangler-d1-preview.sanitized.log"
           text = raw.read_text(encoding="utf-8", errors="replace") if raw.exists() else "D1 migration produced no log file.\n"
-
           for name in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
               value = os.environ.get(name, "")
               if value:
                   text = text.replace(value, f"[REDACTED_{name}]")
-
           text = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s]+", r"\1[REDACTED]", text)
           text = re.sub(r"(?i)((?:api[_ -]?token|access[_ -]?token|password|secret)\s*[:=]\s*)[^\s]+", r"\1[REDACTED]", text)
           clean.write_text(text, encoding="utf-8")
@@ -219,16 +283,47 @@ jobs:
           grep -Eiq '<!doctype html|<html' preview-root.html
           echo "Preview authenticated HTTP smoke passed."
 
+      - name: Smoke test runtime and Professor on preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://meliturgos-preview.adrien-lopezcarreras.workers.dev'
+          AUTH="Authorization: Bearer ${MEL_PREVIEW_PASSWORD}"
+
+          curl --fail --silent --show-error --location \
+            --header "$AUTH" \
+            "$BASE/api/gen2/autonomy/state" \
+            --output preview-autonomy.json
+          node -e "const j=require('./preview-autonomy.json'); if(!j || typeof j!=='object') process.exit(1)"
+
+          curl --fail --silent --show-error --location \
+            --header "$AUTH" \
+            "$BASE/professor" \
+            --output preview-professor.html
+          grep -Eiq '<!doctype html|<html' preview-professor.html
+          grep -Fq 'Lancer' preview-professor.html
+          grep -Fq 'Teacher' preview-professor.html
+
+          {
+            echo '### Runtime / Professor smoke'
+            echo '- autonomy state: PASS'
+            echo '- Professor HTML: PASS'
+            echo '- Lancer/Teacher release text: PASS'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload preview HTTP diagnostic
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: preview-http-diagnostic-${{ github.sha }}
-          path: preview-http-diagnostic.txt
-          if-no-files-found: error
+          path: |
+            preview-http-diagnostic.txt
+            preview-autonomy.json
+            preview-professor.html
+          if-no-files-found: warn
           retention-days: 3
 
-      - name: Verify production still responds
+      - name: Verify production still responds read-only
         shell: bash
         run: |
           set +e
