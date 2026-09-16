@@ -16,10 +16,9 @@ function baseEnv(extra = {}) {
   };
 }
 
-test('self-code access question deterministically selects code.read', () => {
+test('self-code access question does not invent a default code.read target', () => {
   const inferred = inferNativeCodeCapability('et maintenant tu peux lire ton code ?');
-  assert.equal(inferred?.id, 'code.read');
-  assert.equal(inferred?.input?.path, 'src/router.js');
+  assert.equal(inferred, null);
 });
 
 test('GitHub code reader remains usable when REST API is rate-limited', async () => {

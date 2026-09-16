@@ -66,6 +66,8 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
     return (points>0?'+':'')+points+' pt';
   };
   const xp=value=>Number(value||0).toLocaleString('fr-FR')+' XP';
+  const shortSha=value=>value?String(value).slice(0,8):null;
+  const humanBenchmarkStatus=value=>({RAN:'mesuré',MEASURED:'mesuré',NOT_DUE:'à jour',DUE:'dû',SKIPPED_EVALUATOR_UNAVAILABLE:'dû · évaluateur indisponible',FAILED:'échec',NO_MEASUREMENT:'aucune mesure'})[String(value||'')]||String(value||'inconnu').toLowerCase();
   function ensureDetailRows(){
     const details=q('#learningDetails');
     const grid=details?.firstElementChild;
@@ -90,19 +92,25 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
     if(!d||d.ok===false)return;
     ensureDetailRows();
     const e=d.evidence||{};
+    const b=d.benchmark_status||{};
+    const l=d.lora_status||{};
     const p=Math.max(0,Math.min(100,Number(d.level_progress_percent||0)));
-    const benchRuns=Math.max(0,Number(e.benchmark_runs||0));
-    const benchBase=e.benchmark_baseline_score;
-    const benchLatest=e.benchmark_latest_score;
+    const benchRuns=Math.max(0,Number(b.runs??e.benchmark_runs??0));
+    const benchBase=b.baseline_score??e.benchmark_baseline_score;
+    const benchLatest=b.latest_score??e.benchmark_latest_score;
     const bench=benchLatest==null?'bench —':'bench '+pct(benchLatest);
+    const benchStatus=humanBenchmarkStatus(b.status);
+    const benchSha=shortSha(b.source_sha);
+    const cadence=b.cadence&&Number(b.cadence.every_verified_jobs||0)>0
+      ? ' · cadence '+Number(b.cadence.verified_jobs_since_benchmark||0)+'/'+Number(b.cadence.every_verified_jobs||0)
+      : '';
     const benchDetail=benchRuns<1
-      ? 'aucune mesure persistée'
-      : (benchBase==null
-        ? benchRuns+' run'+(benchRuns>1?'s':'')+' · latest '+pct(benchLatest)
-        : benchRuns+' run'+(benchRuns>1?'s':'')+' · '+pct(benchBase)+' → '+pct(benchLatest));
-    const adapterCount=Math.max(0,Number(e.active_adapter_count||0));
-    const loraActive=e.neural_weights_changed===true&&adapterCount>0;
-    const lora=loraActive?'LoRA actif':'LoRA inactif';
+      ? benchStatus+(b.failure?' · '+String(b.failure):'')
+      : benchStatus+' · '+benchRuns+' run'+(benchRuns>1?'s':'')+' · '+(benchBase==null?pct(benchLatest):pct(benchBase)+' → '+pct(benchLatest))+(benchSha?' · '+benchSha:'')+cadence;
+    const adapterCount=Math.max(0,Number(l.active_adapter_count??e.active_adapter_count??0));
+    const loraState=String(l.state||(e.neural_weights_changed===true&&adapterCount>0?'ACTIVE':'BLOCKED')).toUpperCase();
+    const lora=loraState==='ACTIVE'?'LoRA actif':'LoRA '+loraState.toLowerCase();
+    const loraDetail=loraState+(l.reason?' · '+String(l.reason):'')+(l.plan_id?' · plan '+String(l.plan_id).slice(0,26):'');
     const lessons=d.project_experience?.available?(Number(d.project_experience.count||0)+' leçons'):'leçons —';
     txt('#learnLevel',d.level??'—');
     txt('#learnRank',(d.rank||'')+' · '+p.toFixed(0)+'%');
@@ -114,13 +122,13 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
     txt('#learnXpSource',d.xp_source==='verified-journal'?'journal XP vérifié':'rapport d’apprentissage courant');
     txt('#learnObservedXp',xp(d.observed_xp));
     txt('#learnBenchmark',benchDetail);
-    txt('#learnBenchmarkGain',gain(e.benchmark_gain));
-    txt('#learnLora',loraActive?'actif · poids adaptateurs validés':'inactif · aucun adaptateur actif');
+    txt('#learnBenchmarkGain',gain(b.gain??e.benchmark_gain));
+    txt('#learnLora',loraDetail);
     txt('#learnLoraAdapters',adapterCount.toLocaleString('fr-FR'));
     const measured=d.measured_at?new Date(d.measured_at):null;
     txt('#learnMeasuredAt',measured&&!Number.isNaN(measured.getTime())?measured.toLocaleString('fr-FR'):'—');
     const chip=q('#learningChip');
-    if(chip)chip.title='Données live · '+xp(d.canonical_xp??d.xp)+' · '+bench+' · '+lora+' · roadmap exclue';
+    if(chip)chip.title='Données live persistées · '+xp(d.canonical_xp??d.xp)+' · '+benchStatus+' · '+loraState+' · roadmap exclue';
   }
   async function refresh(){
     try{

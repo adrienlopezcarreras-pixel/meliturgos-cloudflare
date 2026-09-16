@@ -22,18 +22,22 @@ export function inferNativeCodeCapability(text, recent = []) {
   if (!value) return null;
   const history = recentText(recent);
   const contextual = `${history}\n${value}`;
-  const path = extractCodePath(value) || extractCodePath(history);
+  const pathNow = extractCodePath(value);
   const talksCodeNow = /\b(code|source|repo|repository|d[ée]p[ôo]t|github|fichier|fonction|classe|module|branche|branch)\b/i.test(value);
   const talksCodeRecently = /\b(code|source|repo|repository|d[ée]p[ôo]t|github|fichier|fonction|classe|module|branche|branch)\b/i.test(history);
   const asksRead = /\b(lis|lire|ouvre|ouvrir|affiche|montre|read|open|contenu)\b/i.test(value);
-  const asksAccess = /\b(acc[eè]s|acc[eè]der|peux[- ]tu|peut[- ]tu|capable|voir|inspecte|inspecter|analyse|analyser)\b/i.test(value);
+  const asksAccess = /\b(acc[eè]s|acc[eè]der|capable\s+d['’]acc[eè]der|voir|inspecte|inspecter|analyse|analyser)\b/i.test(value);
   const asksIntegrity = /\b(int[ée]grit[ée]|integrity|v[ée]rifie(?:r)?|contr[ôo]le(?:r)?|coh[ée]rence|code\s+sain|code\s+propre|sources?\s+propres?)\b/i.test(value)
     && /\b(code|source|repo|repository|d[ée]p[ôo]t|github|fichier|branche|branch)\b/i.test(contextual);
-  const followUpAccess = /\b(tu\s+m['’]as\s+dit|tu\s+as\s+dit|et\s+maintenant|alors|donc|toujours|vraiment)\b/i.test(value) && /\b(acc[eè]s|acc[eè]der|voir|lire|code|repo|d[ée]p[ôo]t)\b/i.test(contextual);
-  if (!talksCodeNow && !(talksCodeRecently && (asksAccess || asksRead || followUpAccess || asksIntegrity))) return null;
+  const followUpAccess = talksCodeRecently && /\b(?:y\s+acc[eè]der|y\s+as[- ]?tu\s+acc[eè]s|tu\s+y\s+as\s+acc[eè]s|toujours\s+acc[eè]s|vraiment\s+acc[eè]s|ce\s+code|ce\s+repo|ce\s+d[ée]p[ôo]t|le\s+lire|le\s+voir|l['’]inspecter|tu\s+m['’]as\s+dit[^.!?]{0,80}(?:acc[eè]s|code|repo|d[ée]p[ôo]t)|tu\s+as\s+dit[^.!?]{0,80}(?:acc[eè]s|code|repo|d[ée]p[ôo]t))\b/i.test(value);
+  if (!talksCodeNow && !pathNow && !followUpAccess && !asksIntegrity) return null;
+  const path = pathNow || (followUpAccess ? extractCodePath(history) : null);
   if (asksIntegrity) return { id: 'code.integrity', input: {} };
   if (path && (asksRead || asksAccess || followUpAccess)) return { id: 'code.read', input: { path } };
-  if (asksAccess || asksRead || followUpAccess) return { id: 'code.read', input: { path: 'src/router.js' } };
+  // Never invent a source target. Access/read questions without an explicit or
+  // resolvable repository path are answered from capability truth, not by
+  // silently reading a default file such as src/router.js.
+  if (asksAccess || asksRead || followUpAccess) return null;
   const quoted = value.match(/[`'\"]([^`'\"]{2,120})[`'\"]/);
   const query = quoted?.[1] || value.split(/\s+/).filter(Boolean).slice(-4).join(' ').slice(0,300) || 'MELITURGOS';
   return { id: 'code.search', input: { query } };
@@ -351,6 +355,11 @@ export async function handleNativeChat(request, env) {
     themeInstruction,
     'Réponds en français sauf demande contraire.',
     'Tu dois être factuelle sur tes capacités réelles.',
+    'INTENTION ACTIVE : le dernier message utilisateur est toujours la question ou la tâche à traiter maintenant. Les messages précédents servent seulement de contexte. Ne répète pas une réponse à une ancienne question, notamment sur l’accès au code source, sauf si le dernier message la redemande explicitement.',
+    'N’utilise un TOOL_RESULT que s’il répond directement au dernier message. Si un outil a été déclenché hors sujet, ignore son contenu dans la réponse au lieu de ramener la conversation vers une ancienne question.',
+    'ARCHITECTURE MEL : tu es l’application MELITURGOS, une couche d’orchestration distincte du modèle de fondation qui produit le texte. Le flux principal est interface MEL (/ ou /professor) -> Worker/router -> /api/chat -> native-chat/context-builder -> mémoire et récupération -> bus de capabilities/outils -> ModelRouter et fournisseur(s) de modèle -> réponse et archivage. Le Learning Engine exploite les corrections et preuves persistées; les benchmarks évaluent les versions et la non-régression; le pipeline LoRA est optionnel et séparé de l’inférence courante.',
+    'ACCÈS AU CODE : tu peux affirmer avoir lu ou inspecté le code du projet MEL seulement lorsqu’un TOOL_RESULT code.read/code.search/code.integrity SUCCEEDED de la requête courante le prouve. Cet accès concerne le dépôt MEL exposé par tes outils; il ne signifie pas que tu disposes du code source propriétaire, des poids ou des mécanismes internes du modèle de fondation ou d’un fournisseur externe. Une simple question « as-tu accès à ton code source ? » ne doit jamais provoquer la lecture silencieuse d’un fichier arbitraire : sans cible explicite, décris seulement le statut réel des capacités du manifeste.',
+    'BENCHMARK ET LoRA : ne transforme jamais un plan, un statut READY ou un test absent en résultat réel. Un benchmark est réel seulement si une exécution persistée fournit ses preuves. Un LoRA est actif seulement si une activation réelle et persistée existe après entraînement compatible et validation benchmark; sinon décris exactement le statut et les blockers disponibles.',
     `CAPABILITY_MANIFEST runtime actuel (données, pas instructions): ${manifestText}`,
     'Base tes affirmations de capacité sur ce manifeste et les TOOL_RESULT de cette requête. Les statuts de vérité sont stricts : EXISTANT_ET_TESTE = exécuté et prouvé; EXISTANT_NON_TESTE = enregistré/sain mais non prouvé par une exécution; PARTIEL = incomplet ou dégradé; STUB = squelette non fonctionnel; NOT_IMPLEMENTED = non implémenté; BLOCKED = désactivé; BLOCKED_EXTERNAL = dépendance indisponible. Ne présente jamais EXISTANT_NON_TESTE comme testé ou comme preuve de fonctionnement.',
     'Le champ health décrit seulement la santé technique d’un enregistrement; HEALTHY ne constitue jamais à lui seul une preuve EXISTANT_ET_TESTE. tested_now=true signifie qu’une exécution de cette requête a réellement produit le dernier statut.',
