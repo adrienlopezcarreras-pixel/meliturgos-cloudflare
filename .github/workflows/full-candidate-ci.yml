@@ -3,9 +3,7 @@ name: full-candidate-ci
 on:
   push:
     branches:
-      - 'candidate/augmentio-core'
-      - 'candidate/mel-ui-selfaware-integration'
-      - 'candidate/mel-clean-autonomy'
+      - 'candidate/mel-security-env-fix-20260916'
   workflow_dispatch:
 
 permissions:
@@ -14,34 +12,69 @@ permissions:
 jobs:
   full-suite:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Setup Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
           cache: npm
+
+      - name: Verify exact candidate branch
+        shell: bash
+        run: |
+          test "${GITHUB_REF_NAME}" = "candidate/mel-security-env-fix-20260916"
+          echo "candidate_sha=${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Install exact lockfile
         run: npm ci
+
+      - name: Verify security dependency floors
+        run: |
+          node - <<'NODE'
+          const lock = require('./package-lock.json');
+          const wrangler = lock.packages?.['node_modules/wrangler']?.version;
+          const sharp = lock.packages?.['node_modules/sharp']?.version;
+          if (wrangler !== '4.131.2') throw new Error(`Wrangler must be 4.131.2, got ${wrangler}`);
+          if (!sharp) throw new Error('Sharp is missing from lockfile');
+          const parts = sharp.split('.').map(Number);
+          const ok = parts[0] > 0 || parts[1] > 35 || (parts[1] === 35 && parts[2] >= 4);
+          if (!ok) throw new Error(`Sharp must be >=0.35.4, got ${sharp}`);
+          console.log({wrangler, sharp});
+          NODE
+
       - name: Runtime dependency security gate
         run: npm audit --omit=dev --audit-level=high
-      - name: Development dependency advisory report
-        run: |
-          npm audit --audit-level=high || echo 'DEV_DEPENDENCY_ADVISORY_PRESENT - non-runtime tooling advisory recorded; runtime gate passed.'
-      - name: Syntax
+
+      - name: Full dependency security gate
+        run: npm audit --audit-level=high
+
+      - name: Syntax gate
         run: npm run check
+
       - name: Full test suite
         shell: bash
         run: |
-          set +e
+          set -o pipefail
           npm test 2>&1 | tee test-report.log
-          code=${PIPESTATUS[0]}
-          echo "exit_code=$code" >> test-report.log
-          exit $code
+
+      - name: Explicit MEL integration suite
+        run: npm run test:mel
+
+      - name: Explicit Professor Teacher suite
+        run: npm run test:teacher
+
+      - name: Release and heartbeat gates
+        run: npm run test:release-gates
+
       - name: Upload test report on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: full-test-report
+          name: full-test-report-${{ github.sha }}
           path: test-report.log
-          retention-days: 1
+          if-no-files-found: ignore
+          retention-days: 3
