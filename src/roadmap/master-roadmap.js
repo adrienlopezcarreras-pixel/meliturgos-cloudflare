@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-16.10';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-16.13';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -77,7 +77,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-05', 'Model Council / benchmarks', 'IN_PROGRESS', 'Passer du squelette à un Council réellement connecté aux providers', 'P0'),
     item('MEL-COUNCIL-01', 'Pré-audit multi-IA obligatoire avant développement', 'DONE_VERIFIED', 'Brancher le Council réel au Module Lab', 'P0'),
     item('MEL-COUNCIL-02', 'Critiques indépendantes + synthèse MEL', 'PARTIAL', 'Ajouter rôles architecte, sécurité, test, produit', 'P1'),
-    item('MEL-COUNCIL-03', 'Teacher escalation vers ChatGPT/autres IA', 'PARTIAL', 'Standardiser provenance et paquet de revue', 'P1'),
+    item('MEL-COUNCIL-03', 'Teacher escalation vers ChatGPT/autres IA', 'PARTIAL', 'Standardiser provenance, paquet de revue et handoff avec le protocole multi-IA canonique', 'P1'),
     item('MEL-COUNCIL-04', 'Apprentissage du meilleur modèle selon la tâche', 'PLANNED', 'Stocker score qualité/coût/latence par tâche', 'P1')
   ]),
 
@@ -86,18 +86,18 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-17', 'Dev Agent / auto-évolution supervisée', 'PARTIAL', 'Prouver plusieurs cycles cohérents complets sur candidate avant toute promotion', 'P0'),
     item('MEL-EVOL-01', 'Détecter une compétence manquante à partir d’une demande', 'DONE_VERIFIED', 'Maintenir la détection sans doublon et n’entrer au Module Lab que pour un vrai gap', 'P0'),
     item('MEL-EVOL-02', 'Proposer ou générer un module', 'DONE_VERIFIED', 'Maintenir la proposition non activante, le Council gate et l’entrée au Module Lab uniquement pour un vrai gap', 'P0'),
-    item('MEL-EVOL-03', 'Tests, benchmark, critique et correction en boucle', 'IN_PROGRESS', 'Runner unique ajouté; valider tests ciblés + CI complète + smoke Teacher/runtime + preview avant DONE_VERIFIED', 'P0'),
+    item('MEL-EVOL-03', 'Tests, benchmark, critique et correction en boucle', 'DONE_VERIFIED', 'Preuve candidate e0dc435ec6daf4971243709c76f5ed077a72f0cc: CI 35100248725; smoke Teacher/runtime 35100248854; preview 35100248729; maintenir la boucle runner et ses tests de non-régression', 'P0'),
     item('MEL-EVOL-04', 'EVOLUTION_LEDGER immuable et explicable', 'PARTIAL', 'Persister chaque évolution et ses preuves', 'P1'),
     item('MEL-EVOL-05', 'Skill Registry durable', 'PLANNED', 'Compiler les acquis système dans un registre portable', 'P1'),
     item('MEL-EVOL-06', 'Fine-tuning / LoRA open-weight optionnel', 'PLANNED', 'Séparer apprentissage système et poids du modèle', 'P3'),
     item('GEN2-18', 'Self Healing contrôlé', 'PLANNED', 'Limiter à détection, rollback approuvé et réparation testée', 'P2'),
-    item('GEN2-20', 'Learning Engine', 'PARTIAL', 'Étendre les leçons validées aux cycles autonomes; conserver la provenance CI avant correction comme invariant testable', 'P1')
+    item('GEN2-20', 'Learning Engine', 'PARTIAL', 'Corpus XP développement canonique et protocole d’envoi ajoutés; brancher automatiquement les handoffs validés aux cycles autonomes en conservant provenance et déduplication', 'P1')
   ]),
 
   phase('P07', 'Work, agents et automatisations', [
     item('MEL-WORK-01', 'Work Engine persistant', 'PARTIAL', 'État de tâche, artefacts, checkpoints, reprise', 'P0'),
     item('GEN2-38', 'Tasks / goals / planning', 'PARTIAL', 'Créer planning engine unique', 'P1'),
-    item('GEN2-39', 'Agents / automations', 'PLANNED', 'Exécution par capacités et permission tiers', 'P1'),
+    item('GEN2-39', 'Agents / automations', 'PARTIAL', 'Brancher MULTI_AI_PROTOCOL au Work Engine/Council pour orchestration runtime et réservations de lots', 'P1'),
     item('GEN2-40', 'Event Bus idempotent / follow-ups', 'PLANNED', 'Transporter événements et relances idempotentes entre services', 'P1'),
     item('GEN2-41', 'Notifications', 'PLANNED', 'Web Push + compagnons', 'P2'),
     item('MEL-WORK-02', 'Planifier, reprendre et terminer un travail multi-étapes', 'PARTIAL', 'Prouver reprise et terminaison sur plusieurs cycles autonomes cohérents', 'P0'),
@@ -119,7 +119,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-21', 'Images / vision', 'PARTIAL', 'Stabiliser activation et modèles vision', 'P1'),
     item('GEN2-22', 'Audio / transcription / voix', 'PARTIAL', 'Fallback navigateur gratuit + voix provider', 'P0'),
     item('GEN2-23', 'Vidéo', 'PARTIAL', 'Ajouter pipeline avatar parlant', 'P1'),
-    item('MEL-DREAMINA-01', 'Dreamina : moteur créatif image / vidéo / avatar', 'PLANNED', 'Créer un adapter provider-neutral avec runner isolé, authentification, quotas/coût zéro, récupération des artefacts et fallback', 'P1'),
+    item('MEL-DREAMINA-01', 'Dreamina : moteur créatif image / vidéo / avatar', 'DONE_VERIFIED', 'Preuves: PR #18; merge 1614dbf98bd70dbb8a71a8d451481107c3cc2c03; Actions 35099730664 vert avec tests ciblés, preview, smoke et vérification production; appels payants toujours fail-closed et désactivés par défaut', 'P1'),
     item('GEN2-24', 'Documents', 'PARTIAL', 'Parsers PDF/doc plus robustes', 'P1'),
     item('MEL-VOICE-01', 'Réveil Bonjour MEL / Allô MEL', 'PLANNED', 'Détection locale/compagnon selon plateforme', 'P1'),
     item('MEL-VOICE-02', 'Conversation audio transcrite en mémoire', 'PARTIAL', 'Brancher archive systématique', 'P0'),
@@ -167,7 +167,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P13', 'Évaluation et amélioration continue', [
     item('GEN2-42', 'Capability Watch planifié', 'PLANNED', 'Exécuter régulièrement les benchmarks par compétence', 'P1'),
-    item('GEN2-43', 'Model Watch / découverte', 'PLANNED', 'Découvrir et benchmarker de nouveaux modèles autorisés', 'P1'),
+    item('GEN2-43', 'Model Watch / découverte', 'DONE_VERIFIED', 'Preuves: PR #28; merge ceec81a6edb11d378dcb686c9495c0a01d86baea; 5/5 tests ciblés; autorisation fail-closed, seuils score/latence/coût et isolation des erreurs par modèle', 'P1'),
     item('MEL-EVAL-01', 'Suites de benchmark conversation / code / recherche / mémoire', 'PARTIAL', 'Maintenir une suite de score stable réutilisée par les watches', 'P1'),
     item('MEL-EVAL-03', 'Qualité mesurée avant/après évolution', 'PLANNED', 'Bloquer toute régression significative', 'P0')
   ]),

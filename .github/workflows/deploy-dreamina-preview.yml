@@ -1,0 +1,129 @@
+name: deploy-dreamina-preview
+
+on:
+  push:
+    branches:
+      - roadmap/multimodal-dreamina-20260915
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meliturgos-dreamina-preview-20260915
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact branch SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Verify isolated branch
+        shell: bash
+        run: |
+          test "${GITHUB_REF_NAME}" = "roadmap/multimodal-dreamina-20260915"
+          echo "Deploying isolated Dreamina preview for ${GITHUB_SHA}"
+
+      - name: Syntax gate
+        run: |
+          node --check src/multimodal/provider-contract.js
+          node --check src/multimodal/dreamina-volcengine-adapter.js
+          node --check src/multimodal/dreamina-runner.js
+          node --check src/multimodal/dreamina-preview-entry.js
+
+      - name: Targeted Dreamina tests
+        run: node --test tests/multimodal/dreamina-volcengine-adapter.test.mjs tests/dreamina-runner.test.mjs
+
+      - name: Deploy isolated zero-spend Worker
+        id: deploy
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          RAW_LOG="${RUNNER_TEMP}/dreamina-preview-deploy.log"
+          npx wrangler deploy --config wrangler.dreamina-preview.jsonc \
+            --var "MEL_DEPLOYED_GIT_SHA:${GITHUB_SHA}" \
+            --var "MEL_DEPLOYED_GIT_BRANCH:${GITHUB_REF_NAME}" \
+            2>&1 | tee "$RAW_LOG"
+          PREVIEW_URL=$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' "$RAW_LOG" | tail -1 || true)
+          if [ -z "$PREVIEW_URL" ]; then
+            PREVIEW_URL="https://meliturgos-dreamina-preview-20260915.adrien-lopezcarreras.workers.dev"
+          fi
+          echo "PREVIEW_URL=${PREVIEW_URL}" >> "$GITHUB_ENV"
+          echo "preview_url=${PREVIEW_URL}" >> "$GITHUB_OUTPUT"
+          echo "### Dreamina preview" >> "$GITHUB_STEP_SUMMARY"
+          echo "${PREVIEW_URL}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Smoke health and capability
+        shell: bash
+        run: |
+          set -euo pipefail
+          HTTP="000"
+          for attempt in 1 2 3 4 5 6; do
+            HTTP=$(curl --silent --show-error --location --max-time 20 \
+              --output health.json --write-out '%{http_code}' "${PREVIEW_URL}/health" || true)
+            echo "health attempt ${attempt}: HTTP ${HTTP}"
+            [ -s health.json ] && cat health.json || true
+            echo
+            [ "$HTTP" = "200" ] && break
+            sleep 3
+          done
+
+          CAP_STATUS=$(curl --silent --show-error --location --max-time 20 \
+            --output capability.json --write-out '%{http_code}' "${PREVIEW_URL}/capability" || true)
+          echo "capability: HTTP ${CAP_STATUS}"
+          [ -s capability.json ] && cat capability.json || true
+          echo
+
+          GENERATE_STATUS=$(curl --silent --show-error --max-time 20 \
+            --output generate.json --write-out '%{http_code}' "${PREVIEW_URL}/generate" || true)
+          echo "generate: HTTP ${GENERATE_STATUS}"
+          [ -s generate.json ] && cat generate.json || true
+          echo
+
+          test "$HTTP" = "200"
+          grep -q '"ok": true' health.json
+          grep -q '"paid_generation_enabled": false' health.json
+          test "$CAP_STATUS" = "200"
+          grep -q '"id": "dreamina-volcengine"' capability.json
+          grep -q '"enabled": false' capability.json
+          grep -q '"paid_generation_enabled": false' capability.json
+          test "$GENERATE_STATUS" = "403"
+          grep -q 'PREVIEW_GENERATION_DISABLED' generate.json
+
+          {
+            echo "### Smoke checks"
+            echo "- /health: ${HTTP}"
+            echo "- /capability: ${CAP_STATUS}, Dreamina disabled"
+            echo "- /generate: ${GENERATE_STATUS}, paid generation blocked"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify production still responds
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROD_STATUS=$(curl --silent --show-error --location \
+            --retry 3 --retry-delay 2 --max-time 30 \
+            --output /dev/null --write-out '%{http_code}' \
+            https://meliturgos.adrien-lopezcarreras.workers.dev)
+          echo "Production HTTP: ${PROD_STATUS}"
+          case "$PROD_STATUS" in
+            2??|3??|401) ;;
+            *) echo "Unexpected production HTTP status: $PROD_STATUS"; exit 22 ;;
+          esac
+          echo "Production read-only verification: ${PROD_STATUS}" >> "$GITHUB_STEP_SUMMARY"

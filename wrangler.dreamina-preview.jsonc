@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "meliturgos-dreamina-preview-20260915",
+  "main": "src/multimodal/dreamina-preview-entry.js",
+  "compatibility_date": "2026-09-04",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 }
+  },
+  "triggers": {
+    "crons": []
+  },
+  "vars": {
+    "MEL_RUNTIME_ENV": "dreamina-preview",
+    "MEL_PREVIEW_ISOLATED": "true",
+    "MEL_DREAMINA_PAID_ENABLED": "false"
+  }
+}
