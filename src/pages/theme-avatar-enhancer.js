@@ -1,40 +1,69 @@
-import { HD_BACKGROUNDS } from '../assets/generated/hd-backgrounds.js';
-
 const THEME_AVATAR_SCRIPT = `<style id="mel-theme-decor-style">
-/* Theme enhancer: theme materials, approved MEL portrait, full-screen HD scene only. */
+/* Canonical MEL home visual layer: themes + compact responsive layout. */
 .avatar img{width:100%!important;height:100%!important;object-fit:cover!important;object-position:center 24%!important}
 .avatar,.window,button,textarea,.theme-panel,#themePanel{transition:background .28s ease,border-color .28s ease,box-shadow .28s ease,color .28s ease}
-/* Regression guard: themes remain visibly reachable. */
-html body .mel-bottom-tools .theme-switch.theme-switch{display:block!important;position:fixed!important;top:max(12px,env(safe-area-inset-top))!important;left:max(12px,env(safe-area-inset-left))!important;bottom:auto!important;z-index:120!important;width:max-content!important}
-html body .mel-bottom-tools .theme-switch .theme-orb{width:auto!important;min-width:54px!important;height:48px!important;padding:0 14px!important;border-radius:999px!important;display:flex!important;align-items:center!important;justify-content:center!important;gap:7px!important;font-size:20px!important;white-space:nowrap!important}
-html body .mel-bottom-tools .theme-switch .theme-orb::after{content:'Thèmes';font-size:.82rem;font-weight:800;letter-spacing:.02em}
-html body .mel-bottom-tools .theme-switch .theme-panel{top:56px!important;bottom:auto!important;left:0!important;width:min(300px,calc(100vw - 24px))!important;max-height:min(72vh,620px)!important}
 
-html[data-theme="classic"]{--mel-hd-bg:url('${HD_BACKGROUNDS.classic}');--mel-hd-pos:center center}
-html[data-theme="crusade"]{--bg:#24120a;--bg2:#4b2514;--text:#f6e7bd;--ink:#2d1b0f;--panel:#d9bb79;--panel2:#c7a566;--composer:rgba(244,220,160,.74);--border:#7b4d22;--accent:#8b1e1e;--accent2:#5d1111;--button:#4b2e17;--button-text:#f8e9be;--radius:8px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#d6aa4e 18%,#7a1717 50%,#d6aa4e 82%,transparent);--mel-hd-bg:url('${HD_BACKGROUNDS.crusade}');--mel-hd-pos:center center}
-html[data-theme="religious"]{--bg:#19120e;--bg2:#332116;--text:#fff0cc;--ink:#342415;--panel:#eee0bd;--panel2:#d9c397;--composer:rgba(255,247,221,.84);--border:#b58b2f;--accent:#294a73;--accent2:#162e50;--button:#294a73;--button-text:#fff8df;--radius:14px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#d8b85f 16%,#fff1af 31%,#b88c2f 50%,#fff1af 69%,#d8b85f 84%,transparent);--mel-hd-bg:url('${HD_BACKGROUNDS.religious}');--mel-hd-pos:center center}
-html[data-theme="granada"]{--bg:#171411;--bg2:#423626;--text:#fff6d7;--ink:#302718;--panel:#f1e7c9;--panel2:#d9c69c;--composer:rgba(255,250,231,.86);--border:#b88929;--accent:#8a651c;--accent2:#543a10;--button:#6f4c13;--button-text:#fff5d0;--radius:9px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#a8761b 10%,#ffeaa0 28%,#c79a32 50%,#ffeaa0 72%,#a8761b 90%,transparent);--mel-hd-bg:url('${HD_BACKGROUNDS.granada}');--mel-hd-pos:center center}
-html[data-theme="aviation"]{--bg:#141017;--bg2:#33213b;--text:#f2e9dd;--ink:#181419;--panel:#c7b9a8;--panel2:#998a7c;--composer:rgba(226,216,204,.82);--border:#a37839;--accent:#6d315f;--accent2:#391a35;--button:#3e2d30;--button-text:#f5eadb;--radius:10px;--font:Inter,ui-sans-serif,system-ui,sans-serif;--ornament:linear-gradient(90deg,transparent,#b5904c 18%,#6d315f 50%,#b5904c 82%,transparent);--mel-hd-bg:url('${HD_BACKGROUNDS.aviation}');--mel-hd-pos:center center}
-html[data-theme="paladin"]{--bg:#151c27;--bg2:#36485f;--text:#fff9df;--ink:#263144;--panel:#f5f0dd;--panel2:#ddd4ba;--composer:rgba(255,252,239,.88);--border:#d0ac4b;--accent:#c39a37;--accent2:#85631c;--button:#465d7c;--button-text:#fff9e8;--radius:13px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#fff1a9 13%,#c5962e 36%,#fff8d0 50%,#c5962e 64%,#fff1a9 87%,transparent);--mel-hd-bg:url('${HD_BACKGROUNDS.paladin}');--mel-hd-pos:center center}
-html[data-theme="amazon"]{--bg:#17100f;--bg2:#3a1818;--text:#f8e8c7;--ink:#2a1c16;--panel:#d5bd91;--panel2:#aa8a61;--composer:rgba(232,214,178,.84);--border:#9b6d2f;--accent:#8f2e2e;--accent2:#52201f;--button:#4a2a20;--button-text:#f9e6bd;--radius:9px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#b88735 12%,#6f2422 35%,#d7b45c 50%,#6f2422 65%,#b88735 88%,transparent);--mel-hd-bg:url('${HD_BACKGROUNDS.amazon}');--mel-hd-pos:center center}
+/* Theme selector stays reachable on desktop and mobile. */
+.theme-switch,html body .mel-bottom-tools .theme-switch.theme-switch{display:block!important;position:fixed!important;top:max(12px,env(safe-area-inset-top))!important;left:max(12px,env(safe-area-inset-left))!important;bottom:auto!important;z-index:120!important;width:max-content!important}
+.theme-switch .theme-orb,html body .mel-bottom-tools .theme-switch .theme-orb{width:auto!important;min-width:54px!important;height:48px!important;padding:0 14px!important;border-radius:999px!important;display:flex!important;align-items:center!important;justify-content:center!important;gap:7px!important;font-size:20px!important;white-space:nowrap!important}
+.theme-switch .theme-orb::after,html body .mel-bottom-tools .theme-switch .theme-orb::after{content:'Thèmes';font-size:.82rem;font-weight:800;letter-spacing:.02em}
+.theme-switch .theme-panel,html body .mel-bottom-tools .theme-switch .theme-panel{top:56px!important;bottom:auto!important;left:0!important;width:min(300px,calc(100vw - 24px))!important;max-height:min(72vh,620px)!important}
 
-/* Real HD backgrounds: no avatar-as-background, no blur, no negative-z pseudo layer. */
-html body{background-color:var(--bg)!important;background-image:linear-gradient(180deg,rgba(8,6,5,.18),rgba(8,5,3,.34) 48%,rgba(6,3,2,.58)),var(--mel-hd-bg)!important;background-size:cover,cover!important;background-position:center center,var(--mel-hd-pos,center center)!important;background-repeat:no-repeat,no-repeat!important;background-attachment:fixed,fixed!important;isolation:auto!important}
+html[data-theme="classic"]{--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-classic-hd-scaled.jpg');--mel-hd-pos:center center}
+html[data-theme="crusade"]{--bg:#24120a;--bg2:#4b2514;--text:#f6e7bd;--ink:#2d1b0f;--muted:#654323;--soft:#493019;--panel:#d9bb79;--panel2:#c7a566;--composer:rgba(244,220,160,.82);--border:#7b4d22;--accent:#8b1e1e;--accent2:#5d1111;--button:#4b2e17;--button-text:#f8e9be;--radius:8px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#d6aa4e 18%,#7a1717 50%,#d6aa4e 82%,transparent);--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-crusade-hd.jpg');--mel-hd-pos:center center}
+html[data-theme="religious"]{--bg:#19120e;--bg2:#332116;--text:#fff0cc;--ink:#342415;--muted:#6b5434;--soft:#49351f;--panel:#eee0bd;--panel2:#d9c397;--composer:rgba(255,247,221,.90);--border:#b58b2f;--accent:#294a73;--accent2:#162e50;--button:#294a73;--button-text:#fff8df;--radius:14px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#d8b85f 16%,#fff1af 31%,#b88c2f 50%,#fff1af 69%,#d8b85f 84%,transparent);--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-religious-hd-scaled.jpg');--mel-hd-pos:center center}
+html[data-theme="granada"]{--bg:#171411;--bg2:#423626;--text:#fff6d7;--ink:#302718;--muted:#655534;--soft:#453a25;--panel:#f1e7c9;--panel2:#d9c69c;--composer:rgba(255,250,231,.92);--border:#b88929;--accent:#8a651c;--accent2:#543a10;--button:#6f4c13;--button-text:#fff5d0;--radius:9px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#a8761b 10%,#ffeaa0 28%,#c79a32 50%,#ffeaa0 72%,#a8761b 90%,transparent);--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-granada-hd-scaled.jpg');--mel-hd-pos:center center}
+html[data-theme="aviation"]{--bg:#141017;--bg2:#33213b;--text:#f2e9dd;--ink:#181419;--muted:#554a49;--soft:#30292b;--panel:#c7b9a8;--panel2:#998a7c;--composer:rgba(226,216,204,.90);--border:#a37839;--accent:#6d315f;--accent2:#391a35;--button:#3e2d30;--button-text:#f5eadb;--radius:10px;--font:Inter,ui-sans-serif,system-ui,sans-serif;--ornament:linear-gradient(90deg,transparent,#b5904c 18%,#6d315f 50%,#b5904c 82%,transparent);--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-aviation-hd-1-scaled.jpg');--mel-hd-pos:center center}
+html[data-theme="paladin"]{--bg:#151c27;--bg2:#36485f;--text:#fff9df;--ink:#263144;--muted:#566077;--soft:#354158;--panel:#f5f0dd;--panel2:#ddd4ba;--composer:rgba(255,252,239,.94);--border:#d0ac4b;--accent:#9b741c;--accent2:#6d5118;--button:#465d7c;--button-text:#fff9e8;--radius:13px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#fff1a9 13%,#c5962e 36%,#fff8d0 50%,#c5962e 64%,#fff1a9 87%,transparent);--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-paladin-hd-scaled.jpg');--mel-hd-pos:center center}
+html[data-theme="amazon"]{--bg:#17100f;--bg2:#3a1818;--text:#f8e8c7;--ink:#2a1c16;--muted:#654534;--soft:#3f2b22;--panel:#d5bd91;--panel2:#aa8a61;--composer:rgba(232,214,178,.90);--border:#9b6d2f;--accent:#8f2e2e;--accent2:#52201f;--button:#4a2a20;--button-text:#f9e6bd;--radius:9px;--font:Georgia,'Times New Roman',serif;--ornament:linear-gradient(90deg,transparent,#b88735 12%,#6f2422 35%,#d7b45c 50%,#6f2422 65%,#b88735 88%,transparent);--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-amazon-hd.jpg');--mel-hd-pos:center center}
+
+/* Real full-screen backgrounds. */
+html body{background-color:var(--bg)!important;background-image:linear-gradient(180deg,rgba(8,6,5,.14),rgba(8,5,3,.26) 48%,rgba(6,3,2,.48)),var(--mel-hd-bg)!important;background-size:cover,cover!important;background-position:center center,var(--mel-hd-pos,center center)!important;background-repeat:no-repeat,no-repeat!important;background-attachment:fixed,fixed!important;isolation:auto!important}
 html body:before,html body:after{display:none!important;content:none!important}
 
-html[data-theme="crusade"] .avatar{border:5px double #d5ad55!important;box-shadow:0 0 0 5px #5a1b16,0 20px 55px #000!important}
-html[data-theme="religious"] .avatar{border:5px double #d9b95d!important;box-shadow:0 0 0 5px #352112,0 0 0 8px #b18a42,0 20px 65px #000!important}
-html[data-theme="granada"] .avatar{border:6px double #e4c266!important;box-shadow:0 0 0 4px #f7ecc8,0 0 0 8px #795618,0 22px 70px #000!important}
-html[data-theme="aviation"] .avatar{border:5px solid #a37a3b!important;box-shadow:0 0 0 3px #34262a,0 0 0 7px #6b315d,0 22px 60px #000!important}html[data-theme="aviation"] .avatar img{object-position:center 23%!important}
-html[data-theme="paladin"] .avatar{border:5px double #efd986!important;box-shadow:0 0 0 4px #f7f2db,0 0 0 8px #6c819d,0 0 36px rgba(255,232,141,.34)!important}
-html[data-theme="amazon"] .avatar{border:5px double #c79a47!important;box-shadow:0 0 0 4px #552422,0 0 0 8px #241412,0 22px 66px #000!important}html[data-theme="amazon"] .avatar img{object-position:center 22%!important}
-html[data-theme="crusade"] .window{border:5px double #775023!important;box-shadow:0 0 0 3px #b78a42,0 0 0 8px #3a1b0d,0 25px 80px #000!important}
-html[data-theme="religious"] .window{border:5px double #b88b35!important;box-shadow:0 0 0 3px #ead9a4,0 0 0 8px #362316,0 25px 85px #000!important}
-html[data-theme="granada"] .window{border:6px double #bd8f2f!important;box-shadow:0 0 0 3px #fff0b2,0 0 0 9px #624715,0 25px 90px #000!important}
-html[data-theme="aviation"] .window{border:4px double #92703c!important;box-shadow:0 0 0 3px #3c3031,0 0 0 7px #271a25,0 24px 78px #000!important}
-html[data-theme="paladin"] .window{border:5px double #d1ab48!important;box-shadow:0 0 0 3px #fff9df,0 0 0 8px #536a87,0 0 46px rgba(255,236,163,.22)!important}
-html[data-theme="amazon"] .window{border:5px double #966b31!important;box-shadow:0 0 0 3px #c39a53,0 0 0 8px #351917,0 25px 85px #000!important}
-@media(max-width:700px){.theme-panel,#themePanel{max-height:70vh;overflow:auto}.avatar img{object-position:center 22%!important}html body{background-attachment:scroll,scroll!important}html body .mel-bottom-tools .theme-switch.theme-switch{top:max(8px,env(safe-area-inset-top))!important;left:max(8px,env(safe-area-inset-left))!important}html body .mel-bottom-tools .theme-switch .theme-orb{height:44px!important;padding:0 11px!important}html body .mel-bottom-tools .theme-switch .theme-orb::after{font-size:.76rem}}
+/* Compact home layout: remove the oversized empty panel visible on desktop. */
+html body .app{width:min(840px,100%)!important;padding-top:0!important}
+html body .avatar-wrap{margin:2px 0 7px!important}
+html body .avatar-wrap:before{width:clamp(160px,19vw,205px)!important;height:clamp(160px,19vw,205px)!important}
+html body .avatar{width:clamp(145px,17vw,180px)!important;height:clamp(145px,17vw,180px)!important;min-width:0!important;min-height:0!important}
+html body #voiceStatus{min-height:20px!important;margin:0 0 8px!important;font-size:.88rem!important}
+html body .window{height:auto!important;min-height:0!important;max-height:none!important}
+html body #messages{height:auto!important;min-height:clamp(155px,22vh,220px)!important;max-height:38vh!important;padding:16px 18px!important}
+html body .composer{height:auto!important;min-height:0!important;padding:11px 14px 13px!important}
+html body textarea{min-height:82px!important;max-height:26vh!important;color:var(--ink)!important}
+html body textarea::placeholder{color:var(--muted)!important;opacity:.92!important}
+html body .empty,.composer-meta,.drop,#status{color:var(--muted)!important}
+html body .drop{margin-top:6px!important;padding:8px 11px!important}
+html body .controls{margin-top:8px!important}
+html body .msg{line-height:1.42!important}
+
+html[data-theme="crusade"] .avatar{border:5px double #d5ad55!important;box-shadow:0 0 0 5px #5a1b16,0 18px 48px #000!important}
+html[data-theme="religious"] .avatar{border:5px double #d9b95d!important;box-shadow:0 0 0 5px #352112,0 0 0 8px #b18a42,0 18px 52px #000!important}
+html[data-theme="granada"] .avatar{border:6px double #e4c266!important;box-shadow:0 0 0 4px #f7ecc8,0 0 0 8px #795618,0 18px 56px #000!important}
+html[data-theme="aviation"] .avatar{border:5px solid #a37a3b!important;box-shadow:0 0 0 3px #34262a,0 0 0 7px #6b315d,0 18px 50px #000!important}html[data-theme="aviation"] .avatar img{object-position:center 23%!important}
+html[data-theme="paladin"] .avatar{border:5px double #efd986!important;box-shadow:0 0 0 4px #f7f2db,0 0 0 8px #6c819d,0 0 32px rgba(255,232,141,.30)!important}
+html[data-theme="amazon"] .avatar{border:5px double #c79a47!important;box-shadow:0 0 0 4px #552422,0 0 0 8px #241412,0 18px 54px #000!important}html[data-theme="amazon"] .avatar img{object-position:center 22%!important}
+html[data-theme="crusade"] .window{border:5px double #775023!important;box-shadow:0 0 0 3px #b78a42,0 0 0 8px #3a1b0d,0 20px 62px #000!important}
+html[data-theme="religious"] .window{border:5px double #b88b35!important;box-shadow:0 0 0 3px #ead9a4,0 0 0 8px #362316,0 20px 66px #000!important}
+html[data-theme="granada"] .window{border:6px double #bd8f2f!important;box-shadow:0 0 0 3px #fff0b2,0 0 0 9px #624715,0 20px 68px #000!important}
+html[data-theme="aviation"] .window{border:4px double #92703c!important;box-shadow:0 0 0 3px #3c3031,0 0 0 7px #271a25,0 20px 62px #000!important}
+html[data-theme="paladin"] .window{border:5px double #d1ab48!important;box-shadow:0 0 0 3px #fff9df,0 0 0 8px #536a87,0 0 38px rgba(255,236,163,.20)!important}
+html[data-theme="amazon"] .window{border:5px double #966b31!important;box-shadow:0 0 0 3px #c39a53,0 0 0 8px #351917,0 20px 66px #000!important}
+
+@media(max-width:700px){
+ .theme-panel,#themePanel{max-height:70vh;overflow:auto}.avatar img{object-position:center 22%!important}html body{background-attachment:scroll,scroll!important}
+ .theme-switch,html body .mel-bottom-tools .theme-switch.theme-switch{top:max(8px,env(safe-area-inset-top))!important;left:max(8px,env(safe-area-inset-left))!important}
+ .theme-switch .theme-orb,html body .mel-bottom-tools .theme-switch .theme-orb{height:44px!important;padding:0 11px!important}
+ .theme-switch .theme-orb::after,html body .mel-bottom-tools .theme-switch .theme-orb::after{font-size:.76rem}
+ html body .app{width:100%!important}.avatar-wrap:before{width:178px!important;height:178px!important}
+ html body .avatar{width:min(43vw,162px)!important;height:min(43vw,162px)!important;min-width:132px!important;min-height:132px!important}
+ html body #messages{min-height:170px!important;max-height:35vh!important;padding:13px!important}
+ html body .composer{padding:10px 11px!important}html body textarea{min-height:92px!important;max-height:30vh!important}
+}
+@media(max-height:760px) and (min-width:701px){
+ html body .avatar{width:138px!important;height:138px!important}.avatar-wrap:before{width:158px!important;height:158px!important}
+ html body #messages{min-height:135px!important;max-height:31vh!important}html body textarea{min-height:70px!important}
+}
 @media(prefers-reduced-motion:reduce){.avatar,.window,button,textarea{transition:none!important;animation:none!important}}
 </style><script id="mel-theme-avatar-runtime">
 (function(){

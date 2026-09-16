@@ -4,6 +4,7 @@ import { authorizeDevBridge } from './core/dev-bridge-auth.js';
 import { createLearningEngine } from './learning/learning-engine.js';
 import { getLiveLearningProgress } from './learning/live-progress.js';
 import { enhanceThemeAvatars } from './pages/theme-avatar-enhancer.js';
+import { runScheduledSystemBackup } from './backup/system-backup-runtime.js';
 
 function json(value, status = 200) {
   return new Response(JSON.stringify(value), {
@@ -156,6 +157,14 @@ export default {
     return enhanceProfessorLearning(response, url.pathname);
   },
   async scheduled(controller, env, ctx) {
-    return app.scheduled(controller, env, ctx);
+    await app.scheduled(controller, env, ctx);
+    const scheduledAt = Number(controller?.scheduledTime);
+    const now = () => new Date(Number.isFinite(scheduledAt) ? scheduledAt : Date.now()).toISOString();
+    const backupWork = runScheduledSystemBackup(env, { now }).catch((error) => {
+      console.error('[MEL backup] scheduled snapshot failed:', error?.code || error?.message || error);
+      return null;
+    });
+    if (ctx?.waitUntil) ctx.waitUntil(backupWork);
+    else await backupWork;
   },
 };
