@@ -3,6 +3,7 @@ import { requireAuth } from './core/security.js';
 import { authorizeDevBridge } from './core/dev-bridge-auth.js';
 import { createLearningEngine } from './learning/learning-engine.js';
 import { getLiveLearningProgress } from './learning/live-progress.js';
+import { enhanceThemeAvatars } from './pages/theme-avatar-enhancer.js';
 
 function json(value, status = 200) {
   return new Response(JSON.stringify(value), {
@@ -124,8 +125,11 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/learning/progress') {
       return liveLearningProgressResponse(request, env);
     }
-    const response = await app.fetch(request, env, ctx);
+    let response = await app.fetch(request, env, ctx);
     if (request.method !== 'GET') return response;
+    if (url.pathname === '/' || url.pathname === '/mvp') {
+      response = await enhanceThemeAvatars(response);
+    }
     return enhanceProfessorLearning(response, url.pathname);
   },
   async scheduled(controller, env, ctx) {
