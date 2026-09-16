@@ -1,6 +1,7 @@
 import { createLearningEngine } from './learning-engine.js';
 import { runLearningBenchmark } from './benchmark-suite.js';
 import { extractModelText } from '../models/ModelRouter.js';
+import { standardRegistry } from '../models/ModelRegistry.js';
 
 export const DEFAULT_OPERATOR_BENCHMARK_MODEL = '@cf/zai-org/glm-4.7-flash';
 
@@ -15,6 +16,30 @@ function cleanQuality(value, fallback = 0.65) {
   return Math.max(0, Math.min(1, number));
 }
 
+function benchmarkModel(env = {}) {
+  const modelId = cleanModelId(env.MEL_BENCHMARK_MODEL, DEFAULT_OPERATOR_BENCHMARK_MODEL);
+  const model = standardRegistry.get(modelId);
+  if (!model || model.enabled === false || model.cost === null || model.cost === undefined || Number(model.cost) !== 0) {
+    const error = new Error('benchmark_model_not_verified_zero_cost');
+    error.code = 'BENCHMARK_MODEL_NOT_VERIFIED_ZERO_COST';
+    error.model_id = modelId;
+    throw error;
+  }
+  return modelId;
+}
+
+function benchmarkSourceSha(env = {}, options = {}) {
+  const compiled = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') : '';
+  return String(
+    options.source_sha
+      || compiled
+      || env.MEL_DEPLOYED_GIT_SHA
+      || env.MEL_SOURCE_SHA
+      || env.CF_PAGES_COMMIT_SHA
+      || 'unknown'
+  ).trim() || 'unknown';
+}
+
 export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
   const ai = deps.ai || env.AI;
   if (!ai || typeof ai.run !== 'function') {
@@ -26,13 +51,15 @@ export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
   const createEngine = deps.createLearningEngine || createLearningEngine;
   const benchmarkRunner = deps.runLearningBenchmark || runLearningBenchmark;
   const extractText = deps.extractModelText || extractModelText;
-  // The operator endpoint never accepts a request-selected model. Keep model
-  // choice on the trusted server side so an authenticated UI action cannot
-  // accidentally turn into an arbitrary-cost model launcher.
-  const modelId = cleanModelId(env.MEL_BENCHMARK_MODEL, DEFAULT_OPERATOR_BENCHMARK_MODEL);
-  const sourceSha = String(options.source_sha || env.MEL_SOURCE_SHA || env.CF_PAGES_COMMIT_SHA || 'unknown').trim() || 'unknown';
+  // The operator endpoint never accepts a request-selected model. Model choice
+  // stays on the trusted server side and must be explicitly zero-cost in the
+  // canonical registry before any Workers AI call is allowed.
+  const modelId = benchmarkModel(env);
+  const sourceSha = benchmarkSourceSha(env, options);
 
   const benchmark = await benchmarkRunner({
+    modelId,
+    sourceSha,
     metadata: {
       model_id: modelId,
       source_sha: sourceSha,
