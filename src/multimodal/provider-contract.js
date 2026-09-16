@@ -1,6 +1,6 @@
 import { DomainError, requireValue } from '../core/contracts.js';
 
-export const MULTIMODAL_KINDS = Object.freeze(['IMAGE', 'VIDEO', 'AUDIO']);
+export const MULTIMODAL_KINDS = Object.freeze(['IMAGE', 'VIDEO', 'AUDIO', 'AVATAR']);
 
 export function normalizeGenerationRequest(input = {}) {
   const kind = String(input.kind || 'IMAGE').toUpperCase();

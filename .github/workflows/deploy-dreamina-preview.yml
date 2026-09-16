@@ -40,10 +40,11 @@ jobs:
         run: |
           node --check src/multimodal/provider-contract.js
           node --check src/multimodal/dreamina-volcengine-adapter.js
+          node --check src/multimodal/dreamina-runner.js
           node --check src/multimodal/dreamina-preview-entry.js
 
       - name: Targeted Dreamina tests
-        run: node --test tests/multimodal/dreamina-volcengine-adapter.test.mjs
+        run: node --test tests/multimodal/dreamina-volcengine-adapter.test.mjs tests/dreamina-runner.test.mjs
 
       - name: Deploy isolated zero-spend Worker
         id: deploy
