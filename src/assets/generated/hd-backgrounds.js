@@ -23,25 +23,37 @@ function scene({ a, b, glow, accent, motif = '' }) {
 }
 
 // Control remains generated so the full interface always has a local fallback.
-// The normal themes use the original 1536x1024 user-owned media files instead
-// of the tiny/corrupted static copies that produced visibly degraded scenes.
 const control = scene({
   a:'#04111f', b:'#09263b', glow:'#21c7d9', accent:'#5eead4',
   motif:`<g opacity=".36"><path d="M380 1470V520H1260V1470M2580 1470V520H3460V1470" fill="#030913" stroke="#67e8f9" stroke-opacity=".32" stroke-width="7"/><rect x="520" y="680" width="600" height="440" rx="42" fill="#0a1b2a" stroke="#60a5fa" stroke-width="6"/><rect x="2720" y="680" width="600" height="440" rx="42" fill="#0a1b2a" stroke="#60a5fa" stroke-width="6"/><circle cx="1920" cy="800" r="430" fill="none" stroke="#5eead4" stroke-opacity=".28" stroke-width="10"/></g>`
 });
 
+// Canonical WordPress media entries verified through the site media library on
+// 2026-09-16. Keep filenames and dimensions here so every UI surface resolves
+// the same known-good HD asset instead of maintaining parallel URL lists.
 const HD_MEDIA_BASE = 'https://verite-interdite.fr/wp-content/uploads/2026/09';
-const original = name => `${HD_MEDIA_BASE}/${name}`;
+export const HD_BACKGROUND_MEDIA = Object.freeze({
+  classic: Object.freeze({ id: 555, filename: 'mel-bg-classic-hd-scaled.jpg', width: 1707, height: 2560 }),
+  crusade: Object.freeze({ id: 556, filename: 'mel-bg-crusade-hd.jpg', width: 2560, height: 1920 }),
+  religious: Object.freeze({ id: 557, filename: 'mel-bg-religious-hd-scaled.jpg', width: 2560, height: 1700 }),
+  granada: Object.freeze({ id: 558, filename: 'mel-bg-granada-hd-scaled.jpg', width: 2560, height: 1087 }),
+  aviation: Object.freeze({ id: 560, filename: 'mel-bg-aviation-hd-1-scaled.jpg', width: 2560, height: 1714 }),
+  paladin: Object.freeze({ id: 561, filename: 'mel-bg-paladin-hd-scaled.jpg', width: 2560, height: 1920 }),
+  amazon: Object.freeze({ id: 562, filename: 'mel-bg-amazon-hd.jpg', width: 1400, height: 2100 }),
+});
 
-const classic = original('mel-classic-hd.png');
-const crusade = original('mel-croise-hd-1.jpg');
-const religious = original('mel-religieux-hd-1.jpg');
-const granada = original('mel-grenade-hd.jpg');
-const aviation = original('mel-aviation-hd.jpg');
-const paladin = original('mel-paladin-hd.jpg');
-const amazon = original('mel-amazon-hd.jpg');
+const mediaUrl = key => `${HD_MEDIA_BASE}/${HD_BACKGROUND_MEDIA[key].filename}`;
 
-export const HD_BACKGROUNDS = Object.freeze({ classic, crusade, religious, granada, aviation, paladin, amazon, control });
+export const HD_BACKGROUNDS = Object.freeze({
+  classic: mediaUrl('classic'),
+  crusade: mediaUrl('crusade'),
+  religious: mediaUrl('religious'),
+  granada: mediaUrl('granada'),
+  aviation: mediaUrl('aviation'),
+  paladin: mediaUrl('paladin'),
+  amazon: mediaUrl('amazon'),
+  control,
+});
 
 // Tones were measured from the actual user-supplied images. Keeping this map
 // deterministic avoids fragile runtime canvas sampling/CORS behaviour.
