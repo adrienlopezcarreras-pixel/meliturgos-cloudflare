@@ -29,6 +29,8 @@ Cet index permet à une IA de savoir immédiatement ce que MEL a déjà appris a
 - `bootstrap-post-deploy-proof-chain-20260916` — chaîne candidate -> tree release -> deploy -> smoke live post-release.
 - `bootstrap-provider-neutral-explicit-binding-20260916` — adapters explicites, provider-neutral, zéro coût implicite, données minimales.
 - `bootstrap-roadmap-same-lot-truth-20260916` — roadmap modifiée dans le même lot et jamais promue au-delà des preuves.
+- `bootstrap-gen2-43-model-watch-20260916` — découverte/benchmark de modèles avec autorisation fail-closed, seuils explicites et isolation des erreurs.
+- `bootstrap-dreamina-provider-runner-20260916` — multimodal provider-neutral, zéro-dépense par défaut, quota/fallback et récupération d’artefacts.
 
 ## Règle de déduplication
 
