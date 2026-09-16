@@ -3,6 +3,7 @@ import { requireAuth } from './core/security.js';
 import { authorizeDevBridge } from './core/dev-bridge-auth.js';
 import { createLearningEngine } from './learning/learning-engine.js';
 import { getLiveLearningProgress } from './learning/live-progress.js';
+import { prepareOperatorLora, runOperatorBenchmark } from './learning/operator-actions.js';
 import { enhanceThemeAvatars } from './pages/theme-avatar-enhancer.js';
 import { runScheduledSystemBackup } from './backup/system-backup-runtime.js';
 
@@ -14,6 +15,15 @@ function json(value, status = 200) {
       'cache-control': 'no-store, no-cache, must-revalidate',
     },
   });
+}
+
+async function safeJsonBody(request) {
+  try {
+    const value = await request.json();
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
 }
 
 async function liveLearningProgressResponse(request, env) {
@@ -29,6 +39,41 @@ async function liveLearningProgressResponse(request, env) {
       error: 'LIVE_LEARNING_PROGRESS_UNAVAILABLE',
       detail: String(error?.message || 'unknown').slice(0, 180),
     }, 503);
+  }
+}
+
+async function operatorBenchmarkResponse(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  try {
+    const result = await runOperatorBenchmark(env);
+    return json({ ok: true, ...result });
+  } catch (error) {
+    const unavailable = error?.code === 'AI_BINDING_UNAVAILABLE';
+    return json({
+      ok: false,
+      error: unavailable ? 'BENCHMARK_AI_UNAVAILABLE' : 'BENCHMARK_RUN_FAILED',
+      detail: String(error?.message || 'unknown').slice(0, 220),
+    }, unavailable ? 503 : 500);
+  }
+}
+
+async function operatorLoraPrepareResponse(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  try {
+    const body = await safeJsonBody(request);
+    const result = await prepareOperatorLora(env, {
+      base_model: body.base_model,
+      min_quality: body.min_quality,
+    });
+    return json({ ok: true, ...result });
+  } catch (error) {
+    return json({
+      ok: false,
+      error: 'LORA_PREPARE_FAILED',
+      detail: String(error?.message || 'unknown').slice(0, 220),
+    }, 500);
   }
 }
 
@@ -88,9 +133,52 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
       grid.append(span,strong);
     }
   }
+  function ensureOperatorControls(){
+    const details=q('#learningDetails');
+    if(!details||q('#melLearningOperatorControls'))return;
+    const wrap=document.createElement('div');
+    wrap.id='melLearningOperatorControls';
+    wrap.style.cssText='display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid rgba(148,163,184,.22)';
+    const benchmark=document.createElement('button');
+    benchmark.id='melRunBenchmark';benchmark.type='button';benchmark.textContent='Lancer benchmark';
+    benchmark.style.cssText='border:1px solid #64748b;border-radius:8px;padding:7px 10px;background:#172033;color:#f8fafc;cursor:pointer';
+    const lora=document.createElement('button');
+    lora.id='melPrepareLora';lora.type='button';lora.textContent='Préparer LoRA';
+    lora.style.cssText=benchmark.style.cssText;
+    const state=document.createElement('span');
+    state.id='melLearningActionState';state.style.cssText='font-size:12px;color:#b6c2d2';state.textContent='Actions opérateur prêtes';
+    wrap.append(benchmark,lora,state);details.append(wrap);
+    benchmark.addEventListener('click',()=>runAction(benchmark,'/api/learning/benchmark/run','Benchmark en cours…',data=>{
+      const score=data?.benchmark?.score;
+      const count=data?.benchmark?.case_count;
+      return 'Benchmark terminé · '+pct(score)+(count!=null?' · '+count+' cas':'');
+    }));
+    lora.addEventListener('click',()=>runAction(lora,'/api/learning/lora/prepare','Préparation LoRA…',data=>{
+      const status=data?.plan?.status||data?.plan?.readiness?.status||'plan enregistré';
+      const trainer=data?.trainer?.available===true?'trainer disponible':'entraînement externe non lancé';
+      return 'LoRA '+String(status).toLowerCase()+' · '+trainer;
+    }));
+  }
+  async function runAction(button,url,busyLabel,formatResult){
+    const state=q('#melLearningActionState');
+    if(button)button.disabled=true;
+    if(state)state.textContent=busyLabel;
+    try{
+      const response=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:'{}',cache:'no-store',credentials:'same-origin'});
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok||data.ok===false)throw new Error(data.detail||data.error||('HTTP_'+response.status));
+      if(state)state.textContent=formatResult(data);
+      await refresh();
+    }catch(error){
+      if(state)state.textContent='Échec · '+String(error?.message||error).slice(0,140);
+    }finally{
+      if(button)button.disabled=false;
+    }
+  }
   function render(d){
     if(!d||d.ok===false)return;
     ensureDetailRows();
+    ensureOperatorControls();
     const e=d.evidence||{};
     const b=d.benchmark_status||{};
     const l=d.lora_status||{};
@@ -142,6 +230,7 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
   }
   function start(){
     ensureDetailRows();
+    ensureOperatorControls();
     refresh();
     if(timer)clearInterval(timer);
     timer=setInterval(refresh,30000);
@@ -178,6 +267,12 @@ export default {
     }
     if (request.method === 'GET' && url.pathname === '/api/learning/progress') {
       return liveLearningProgressResponse(request, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/learning/benchmark/run') {
+      return operatorBenchmarkResponse(request, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/learning/lora/prepare') {
+      return operatorLoraPrepareResponse(request, env);
     }
     let response = await app.fetch(request, env, ctx);
     if (request.method !== 'GET') return response;
