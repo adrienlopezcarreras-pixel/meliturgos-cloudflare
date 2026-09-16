@@ -30,10 +30,11 @@ test('root AGENTS entrypoint exposes canonical multi-page and XP protocols', asy
 test('multi-AI protocol produces a collision-safe resume prompt and auditable handoff', () => {
   assert.equal(MULTI_AI_PROTOCOL.canonicalCandidate, 'candidate/mel-clean-autonomy');
   assert.equal(MULTI_AI_PROTOCOL.canonicalRelease, 'release/mel-2026-09-10-r3-3');
+  assert.ok(MULTI_AI_PROTOCOL.writeRules.includes('never force-update the canonical candidate'));
   const prompt = buildMultiPageResumePrompt({ scope: 'continuer GEN2 sans collision' });
   assert.match(prompt, /candidate\/mel-clean-autonomy/);
   assert.match(prompt, /release\/mel-2026-09-10-r3-3/);
-  assert.match(prompt, /aucune force-update/i);
+  assert.match(prompt, /collisions/i);
   assert.match(prompt, /priorité au déploiement/i);
   assert.match(prompt, /XP_PROTOCOL\.md/);
 
