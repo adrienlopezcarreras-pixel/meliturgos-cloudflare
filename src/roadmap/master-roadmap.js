@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-16.12';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-16.13';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -119,7 +119,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-21', 'Images / vision', 'PARTIAL', 'Stabiliser activation et modèles vision', 'P1'),
     item('GEN2-22', 'Audio / transcription / voix', 'PARTIAL', 'Fallback navigateur gratuit + voix provider', 'P0'),
     item('GEN2-23', 'Vidéo', 'PARTIAL', 'Ajouter pipeline avatar parlant', 'P1'),
-    item('MEL-DREAMINA-01', 'Dreamina : moteur créatif image / vidéo / avatar', 'PLANNED', 'Créer un adapter provider-neutral avec runner isolé, authentification, quotas/coût zéro, récupération des artefacts et fallback', 'P1'),
+    item('MEL-DREAMINA-01', 'Dreamina : moteur créatif image / vidéo / avatar', 'DONE_VERIFIED', 'Preuves: PR #18; merge 1614dbf98bd70dbb8a71a8d451481107c3cc2c03; Actions 35099730664 vert avec tests ciblés, preview, smoke et vérification production; appels payants toujours fail-closed et désactivés par défaut', 'P1'),
     item('GEN2-24', 'Documents', 'PARTIAL', 'Parsers PDF/doc plus robustes', 'P1'),
     item('MEL-VOICE-01', 'Réveil Bonjour MEL / Allô MEL', 'PLANNED', 'Détection locale/compagnon selon plateforme', 'P1'),
     item('MEL-VOICE-02', 'Conversation audio transcrite en mémoire', 'PARTIAL', 'Brancher archive systématique', 'P0'),
@@ -167,7 +167,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P13', 'Évaluation et amélioration continue', [
     item('GEN2-42', 'Capability Watch planifié', 'PLANNED', 'Exécuter régulièrement les benchmarks par compétence', 'P1'),
-    item('GEN2-43', 'Model Watch / découverte', 'PLANNED', 'Découvrir et benchmarker de nouveaux modèles autorisés', 'P1'),
+    item('GEN2-43', 'Model Watch / découverte', 'DONE_VERIFIED', 'Preuves: PR #28; merge ceec81a6edb11d378dcb686c9495c0a01d86baea; 5/5 tests ciblés; autorisation fail-closed, seuils score/latence/coût et isolation des erreurs par modèle', 'P1'),
     item('MEL-EVAL-01', 'Suites de benchmark conversation / code / recherche / mémoire', 'PARTIAL', 'Maintenir une suite de score stable réutilisée par les watches', 'P1'),
     item('MEL-EVAL-03', 'Qualité mesurée avant/après évolution', 'PLANNED', 'Bloquer toute régression significative', 'P0')
   ]),
