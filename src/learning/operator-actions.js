@@ -26,7 +26,10 @@ export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
   const createEngine = deps.createLearningEngine || createLearningEngine;
   const benchmarkRunner = deps.runLearningBenchmark || runLearningBenchmark;
   const extractText = deps.extractModelText || extractModelText;
-  const modelId = cleanModelId(options.model_id || env.MEL_BENCHMARK_MODEL, DEFAULT_OPERATOR_BENCHMARK_MODEL);
+  // The operator endpoint never accepts a request-selected model. Keep model
+  // choice on the trusted server side so an authenticated UI action cannot
+  // accidentally turn into an arbitrary-cost model launcher.
+  const modelId = cleanModelId(env.MEL_BENCHMARK_MODEL, DEFAULT_OPERATOR_BENCHMARK_MODEL);
   const sourceSha = String(options.source_sha || env.MEL_SOURCE_SHA || env.CF_PAGES_COMMIT_SHA || 'unknown').trim() || 'unknown';
 
   const benchmark = await benchmarkRunner({
