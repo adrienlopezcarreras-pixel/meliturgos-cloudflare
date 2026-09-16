@@ -1,4 +1,4 @@
-import { CANONICAL_LEARNING_BENCHMARK_SUITE } from '../evaluation/benchmarks.js';
+import { CANONICAL_LEARNING_BENCHMARK_SUITE, scoreBenchmarkResults } from '../evaluation/benchmarks.js';
 
 // Compatibility prompts/rubrics for the older text-response evaluator.
 // The benchmark case IDs, domains, objectives and weights come exclusively
@@ -108,11 +108,18 @@ export async function runLearningBenchmark({ respond, cases = DEFAULT_CASES, met
       });
     }
   }
+  const scored = scoreBenchmarkResults(results);
+  const completedAt = Date.now();
   return {
+    benchmark_id: `mel-learning-canonical-v1:${metadata?.source_sha || 'unknown'}:${completedAt}`,
     suite: 'mel-learning-canonical-v1',
+    version: 'v1',
     cases: results,
+    case_count: scored.cases,
+    score: scored.overall,
+    domains: scored.domains,
     metadata,
-    completed_at: Date.now(),
+    completed_at: completedAt,
   };
 }
 
