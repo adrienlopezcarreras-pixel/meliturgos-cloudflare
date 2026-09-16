@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-16.7';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-16.8';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -91,7 +91,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-EVOL-05', 'Skill Registry durable', 'PLANNED', 'Compiler les acquis système dans un registre portable', 'P1'),
     item('MEL-EVOL-06', 'Fine-tuning / LoRA open-weight optionnel', 'PLANNED', 'Séparer apprentissage système et poids du modèle', 'P3'),
     item('GEN2-18', 'Self Healing contrôlé', 'PLANNED', 'Limiter à détection, rollback approuvé et réparation testée', 'P2'),
-    item('GEN2-20', 'Learning Engine', 'PARTIAL', 'Brancher apprentissage durable sur résultats vérifiés', 'P1')
+    item('GEN2-20', 'Learning Engine', 'PARTIAL', 'Étendre les leçons validées aux cycles autonomes; conserver la provenance CI avant correction comme invariant testable', 'P1')
   ]),
 
   phase('P07', 'Work, agents et automatisations', [
