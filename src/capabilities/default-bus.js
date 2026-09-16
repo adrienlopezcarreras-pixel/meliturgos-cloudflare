@@ -4,6 +4,7 @@ import { registerWorkCapabilities } from './work-capabilities.js';
 import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
+import { inspectZeroCostProviderReadiness } from '../augmentio/zero-cost-readiness.js';
 import { RAGService } from '../search/rag-service.js';
 import { getRoadmapPayload } from '../roadmap/master-roadmap.js';
 import { normalizeChatGPTArchive } from '../persistence/chatgpt-archive-importer.js';
@@ -34,6 +35,7 @@ export function setDefaultCapabilityEnvironment(env = {}) {
     MEL_GITHUB_TOKEN: env.MEL_GITHUB_TOKEN,
     MEL_GITHUB_FETCH: env.MEL_GITHUB_FETCH,
     MEL_BROWSER_COMPANION: env.MEL_BROWSER_COMPANION,
+    MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS: env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS,
   });
   return {
     ai: Boolean(inheritedRuntimeEnv.AI),
@@ -85,6 +87,14 @@ const augmentioMessageSchema = {
   additionalProperties: false,
 };
 
+function zeroCostHealth(runtimeEnv, minimum = 1) {
+  return async () => inspectZeroCostProviderReadiness(runtimeEnv, {
+    capability: 'GENERAL',
+    minimum,
+    refreshHealth: true,
+  });
+}
+
 /** Safe capability bus used by MEL's Gen2 runtime. Only real executable handlers are registered. */
 export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl } = {}) {
   const runtimeEnv = env === undefined ? inheritedRuntimeEnv : env;
@@ -110,7 +120,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   });
 
   bus.discover({
-    id: 'augmentio.fanout', name: '.augmentio multi-AI', category: 'orchestration', version: '0.2.0', provider: 'mel',
+    id: 'augmentio.fanout', name: '.augmentio multi-AI', category: 'orchestration', version: '0.3.0', provider: 'mel',
     description: 'Runs real parallel multi-model orchestration through the explicitly zero-added-cost provider pool.',
     input_schema: {
       type: 'object',
@@ -125,7 +135,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       additionalProperties: false
     },
     output_schema: { type: 'object', additionalProperties: true },
-    risk: 'LOW', permissions: [], health: runtimeEnv.AI ? 'HEALTHY' : 'DEGRADED', enabled: true
+    risk: 'LOW', permissions: [], health: 'DEGRADED', healthcheck: zeroCostHealth(runtimeEnv, 1), enabled: true
   }, async input => {
     if (!runtimeEnv.AI) throw capabilityError('AI_BINDING_MISSING');
     const augmentio = new Augmentio({ pool: createDefaultAugmentioPool(runtimeEnv) });
@@ -138,11 +148,11 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   });
 
   bus.discover({
-    id: 'council.state-of-play', name: 'Council multi-IA — état des lieux', category: 'evolution', version: '1.0.0', provider: 'mel',
+    id: 'council.state-of-play', name: 'Council multi-IA — état des lieux', category: 'evolution', version: '1.1.0', provider: 'mel',
     description: 'Asks multiple explicitly zero-added-cost AIs for an independent state-of-play before development starts.',
     input_schema: councilInputSchema,
     output_schema: { type: 'object', additionalProperties: true },
-    risk: 'LOW', permissions: [], health: runtimeEnv.AI ? 'HEALTHY' : 'DEGRADED', enabled: true
+    risk: 'LOW', permissions: [], health: 'DEGRADED', healthcheck: zeroCostHealth(runtimeEnv, 2), enabled: true
   }, async input => {
     if (!String(input.goal || '').trim()) throw capabilityError('COUNCIL_GOAL_REQUIRED', 'COUNCIL_GOAL_REQUIRED', 400);
     if (!runtimeEnv.AI) throw capabilityError('AI_BINDING_MISSING');
@@ -155,11 +165,11 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   });
 
   bus.discover({
-    id: 'evolution.preflight', name: 'Préflight de nouvelle compétence', category: 'evolution', version: '1.0.0', provider: 'mel',
+    id: 'evolution.preflight', name: 'Préflight de nouvelle compétence', category: 'evolution', version: '1.1.0', provider: 'mel',
     description: 'Enforces AI-first state-of-play and stops before code generation until existing code is inspected.',
     input_schema: councilInputSchema,
     output_schema: { type: 'object', additionalProperties: true },
-    risk: 'LOW', permissions: [], health: runtimeEnv.AI ? 'HEALTHY' : 'DEGRADED', enabled: true
+    risk: 'LOW', permissions: [], health: 'DEGRADED', healthcheck: zeroCostHealth(runtimeEnv, 2), enabled: true
   }, async input => {
     if (!String(input.goal || '').trim()) throw capabilityError('DEVELOPMENT_GOAL_REQUIRED', 'DEVELOPMENT_GOAL_REQUIRED', 400);
     if (!runtimeEnv.AI) throw capabilityError('AI_BINDING_MISSING');
@@ -176,7 +186,10 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     description: 'Persists an owner-requested development job, runs the mandatory multi-AI Council and candidate inspection, then queues the Teacher review so work can continue asynchronously.',
     input_schema: enqueueInputSchema,
     output_schema: { type: 'object', additionalProperties: true },
-    risk: 'MEDIUM', permissions: [], health: runtimeEnv.AI && runtimeEnv.DB ? 'HEALTHY' : 'DEGRADED', enabled: true
+    risk: 'MEDIUM', permissions: [], health: runtimeEnv.DB ? 'DEGRADED' : 'UNAVAILABLE', healthcheck: async () => {
+      if (!runtimeEnv.DB) return { status: 'OFFLINE', reason: 'DB_BINDING_UNAVAILABLE' };
+      return inspectZeroCostProviderReadiness(runtimeEnv, { capability: 'GENERAL', minimum: 2, refreshHealth: true });
+    }, enabled: true
   }, async input => {
     if (!runtimeEnv.AI) throw capabilityError('AI_BINDING_MISSING');
     if (!runtimeEnv.DB) throw capabilityError('DB_BINDING_MISSING');
