@@ -39,12 +39,19 @@ test('dev bridge accepts only the exact configured bearer token', () => {
   assert.equal(response, null);
 });
 
-test('deployed entrypoint runs the bridge gate before delegating to the application', async () => {
+test('deployed entrypoint keeps the bridge gate before delegation while exempting only safe Professor preflight routes', async () => {
   const source = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
-  const gate = source.indexOf("if (url.pathname.startsWith('/api/dev-bridge/'))");
+  const safeSet = source.indexOf('PROFESSOR_SAFE_DEV_BRIDGE_PATHS');
+  const gate = source.indexOf("url.pathname.startsWith('/api/dev-bridge/')");
+  const safeExemption = source.indexOf('!PROFESSOR_SAFE_DEV_BRIDGE_PATHS.has(url.pathname)', gate);
   const auth = source.indexOf('authorizeDevBridge(request, env)', gate);
   const delegate = source.indexOf('await app.fetch(request, env, ctx)');
-  assert.ok(gate >= 0, 'deployed entrypoint must recognize dev bridge routes');
-  assert.ok(auth > gate, 'deployed entrypoint must invoke the dedicated bridge auth');
+
+  assert.ok(safeSet >= 0, 'deployed entrypoint must define the narrow safe Professor dev-bridge allowlist');
+  assert.ok(source.includes("'/api/dev-bridge/health'"), 'safe allowlist must include only the read-only health surface');
+  assert.ok(source.includes("'/api/dev-bridge/jobs'"), 'safe allowlist must include the owner-authenticated preflight jobs surface');
+  assert.ok(gate >= 0, 'deployed entrypoint must recognize all dev bridge routes');
+  assert.ok(safeExemption > gate, 'only the explicit safe Professor routes may bypass dedicated bridge auth');
+  assert.ok(auth > safeExemption, 'all remaining dev bridge routes must invoke the dedicated bridge auth');
   assert.ok(delegate > auth, 'bridge auth must run before application delegation');
 });
