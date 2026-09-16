@@ -69,7 +69,7 @@
         "MEL_TEACHER_COMPLETIONS_URL": "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/refs/heads/teacher-bridge/runtime/teacher-bridge/completions.jsonl",
         "MEL_RUNTIME_ENV": "preview",
         "MEL_PREVIEW_ISOLATED": "true",
-        "MEL_PREVIEW_AUTH_VERIFY_URL": "https://meliturgos.adrien-lopezcarreras.workers.dev/"
+        "MEL_PREVIEW_AUTH_VERIFY_URL": "https://meliturgos.adrien-lopezcarreras.workers.dev/sw.js"
       }
     }
   }
