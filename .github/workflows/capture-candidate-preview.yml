@@ -52,21 +52,27 @@ jobs:
           test -s preview-root.html
           grep -Eiq '<!doctype html|<html' preview-root.html
 
-      - name: Prepare faithful browser render
+      - name: Prepare faithful browser renders for every theme
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+          themes = ['classic','crusade','religious','granada','aviation','paladin','amazon']
           source = Path('preview-root.html').read_text(encoding='utf-8', errors='replace')
           base = '<base href="https://meliturgos-preview.adrien-lopezcarreras.workers.dev/">'
           if '<head>' in source:
               source = source.replace('<head>', '<head>' + base, 1)
           else:
               source = base + source
-          Path('preview-render.html').write_text(source, encoding='utf-8')
+          marker = "try{setTheme(localStorage.getItem('mel.theme.v3')||localStorage.getItem('mel.theme.v2')||localStorage.getItem('mel.theme')||'classic')}catch{setTheme('classic')}"
+          for theme in themes:
+              themed = source.replace(marker, f"try{{setTheme('{theme}')}}catch{{setTheme('{theme}')}}")
+              if themed == source:
+                  raise SystemExit('Theme bootstrap marker not found in preview HTML')
+              Path(f'preview-{theme}.html').write_text(themed, encoding='utf-8')
           PY
 
-      - name: Capture mobile preview screenshot
+      - name: Capture all mobile theme screenshots
         shell: bash
         run: |
           set -euo pipefail
@@ -75,23 +81,27 @@ jobs:
             echo "No Chromium-compatible browser available on runner" >&2
             exit 1
           fi
-          "$browser" \
-            --headless=new \
-            --no-sandbox \
-            --disable-gpu \
-            --disable-dev-shm-usage \
-            --allow-file-access-from-files \
-            --hide-scrollbars \
-            --window-size=430,932 \
-            --virtual-time-budget=3500 \
-            --screenshot=mel-preview-mobile.png \
-            "file://${GITHUB_WORKSPACE}/preview-render.html"
-          test -s mel-preview-mobile.png
+          mkdir -p theme-screenshots
+          for theme in classic crusade religious granada aviation paladin amazon; do
+            "$browser" \
+              --headless=new \
+              --no-sandbox \
+              --disable-gpu \
+              --disable-dev-shm-usage \
+              --allow-file-access-from-files \
+              --hide-scrollbars \
+              --window-size=430,932 \
+              --virtual-time-budget=3500 \
+              --screenshot="theme-screenshots/mel-${theme}-mobile.png" \
+              "file://${GITHUB_WORKSPACE}/preview-${theme}.html"
+            test -s "theme-screenshots/mel-${theme}-mobile.png"
+          done
+          ls -lh theme-screenshots
 
-      - name: Upload preview screenshot
+      - name: Upload all preview theme screenshots
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: mel-preview-screenshot-${{ github.sha }}
-          path: mel-preview-mobile.png
+          name: mel-preview-themes-${{ github.sha }}
+          path: theme-screenshots/*.png
           if-no-files-found: error
           retention-days: 3
