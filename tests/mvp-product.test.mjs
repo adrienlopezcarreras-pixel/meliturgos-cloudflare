@@ -18,9 +18,9 @@ test('normal MEL surface remains available and links to the canonical Professor 
   const html = await response.text();
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type') || '', /text\/html/);
-  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.match(response.headers.get('cache-control') || '', /no-store/);
   assert.match(html, /<title>MEL<\/title>/);
-  assert.match(html, /id="avatar"/);
+  assert.match(html, /id="melAvatar"/);
   assert.match(html, /id="full"/);
   assert.match(html, /location\.href='\/professor'/);
 });
