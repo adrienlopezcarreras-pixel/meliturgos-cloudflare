@@ -1,59 +1,102 @@
-/** Minimal MEL interface for daily use while the full client continues to evolve. */
+/** Clean MEL daily interface. Visual ownership stays here: no themes or legacy decorators. */
 export async function onRequestGet() {
   const body = `<!doctype html>
-<html lang="fr" data-theme="classic"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>MEL</title><link rel="icon" type="image/png" href="/meliturgos-avatar-fille.png"><link rel="apple-touch-icon" href="/meliturgos-avatar-fille.png">
-<style>
-*{box-sizing:border-box}:root{color-scheme:dark;--bg:#08111f;--bg2:#172554;--glow:#2563eb;--glow2:#0f766e;--text:#fff;--ink:#fff;--muted:#94a3b8;--soft:#cbd5e1;--panel:rgba(15,23,42,.84);--panel2:rgba(9,15,28,.94);--composer:rgba(2,6,23,.22);--border:rgba(255,255,255,.12);--accent:#2563eb;--accent2:#1d4ed8;--user:rgba(37,99,235,.19);--mel:rgba(255,255,255,.055);--button:#26364d;--button-text:#fff;--radius:24px;--font:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;--ornament:none}
-body{margin:0;min-height:100vh;background:var(--bg);color:var(--text);font-family:var(--font);padding:clamp(12px,2.5vw,24px);overflow-x:hidden;transition:background .3s ease,color .3s ease}body:before,body:after{content:"";position:fixed;pointer-events:none;border-radius:50%;z-index:-2}body:before{width:54vw;height:54vw;left:-18vw;top:-18vw;background:radial-gradient(circle,var(--glow) 0,var(--bg2) 49%,transparent 72%);filter:blur(70px);opacity:.48}body:after{width:52vw;height:52vw;right:-16vw;bottom:-24vw;background:radial-gradient(circle,var(--glow2) 0,var(--bg2) 48%,transparent 74%);filter:blur(76px);opacity:.42}
-.theme-switch{position:fixed;top:max(14px,env(safe-area-inset-top));left:max(14px,env(safe-area-inset-left));z-index:40}.theme-orb{width:56px;height:56px;border-radius:50%;padding:0;border:2px solid var(--border);display:grid;place-items:center;background:linear-gradient(145deg,var(--button),var(--panel2));color:var(--button-text);font-size:26px;box-shadow:0 12px 36px rgba(0,0,0,.42),0 0 0 5px rgba(255,255,255,.035);cursor:pointer}.theme-panel{position:absolute;top:66px;left:0;width:300px;max-height:min(72vh,620px);overflow:auto;padding:12px;background:linear-gradient(180deg,var(--panel),var(--panel2));border:2px solid var(--border);border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.5);display:none;color:var(--ink)}.theme-panel.open{display:block}.theme-title{font-weight:800;margin:2px 4px 9px}.theme-choice{width:100%;display:flex;align-items:center;gap:11px;text-align:left;margin:6px 0;padding:10px 11px;border-radius:10px;background:rgba(255,255,255,.10);border:1px solid transparent;color:inherit;cursor:pointer;font-family:inherit}.theme-choice:hover,.theme-choice.active{border-color:var(--border);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)}.theme-icon{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--button);color:var(--button-text);font-size:18px;flex:0 0 32px}.theme-copy strong{display:block;font-size:.93rem}.theme-copy span{display:block;color:var(--muted);font-size:.75rem;margin-top:2px}
-.app{width:min(960px,100%);margin:auto;padding-top:clamp(2px,1vh,12px);position:relative}.app:before{content:"";display:block;height:3px;margin:0 auto 8px;width:min(410px,52vw);background:var(--ornament);opacity:.9}.avatar-wrap{display:flex;justify-content:center;margin:4px 0 10px;position:relative}.avatar-wrap:before{content:"";position:absolute;width:clamp(190px,24vw,250px);height:clamp(190px,24vw,250px);border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--accent) 28%,transparent),transparent 70%);filter:blur(12px)}.avatar{position:relative;width:clamp(168px,22vw,220px);height:clamp(168px,22vw,220px);border-radius:50%;overflow:hidden;border:2px solid var(--border);box-shadow:0 18px 70px rgba(0,0,0,.44),0 0 0 7px rgba(255,255,255,.035);cursor:pointer;background:#111;touch-action:manipulation}.avatar:hover{transform:translateY(-2px) scale(1.01)}.avatar img{width:100%;height:100%;object-fit:cover;object-position:center 24%}.avatar.listening{box-shadow:0 0 0 7px color-mix(in srgb,var(--accent) 32%,transparent),0 0 65px color-mix(in srgb,var(--accent) 75%,transparent)}.avatar.thinking{animation:melPulse 1.15s ease-in-out infinite}@keyframes melPulse{50%{transform:scale(1.025);filter:brightness(1.12)}}#voiceStatus{text-align:center;color:var(--text);min-height:26px;margin:2px 0 12px;font-size:.95rem}
-.window{position:relative;background:linear-gradient(180deg,var(--panel),var(--panel2));color:var(--ink);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.36)}.window:before{content:"";display:block;height:3px;background:var(--ornament);opacity:.95}.window:after{content:none!important;display:none!important}#messages{min-height:330px;max-height:49vh;overflow-y:auto;padding:20px}.empty{color:var(--muted)}.msg{padding:12px 14px;border-radius:15px;margin:0 0 11px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;border:1px solid rgba(255,255,255,.10)}.msg.user{background:var(--user);color:var(--button-text);margin-left:min(8vw,60px)}.msg.mel{background:var(--mel);color:var(--ink);margin-right:min(8vw,60px)}.msg.pending{opacity:.72;border-style:dashed}.msg.failed{border-color:rgba(184,35,35,.7)}.who{display:block;font-size:.77rem;color:inherit;opacity:.65;margin-bottom:4px}.composer{border-top:1px solid var(--border);padding:14px;background:var(--composer)}textarea{width:100%;min-height:104px;resize:vertical;border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:1rem;line-height:1.5}textarea::placeholder{color:var(--muted)}.composer-meta{display:flex;justify-content:space-between;gap:12px;color:var(--muted);font-size:.78rem;margin:5px 2px 0}.char-count.near{color:#c69a3b}.char-count.over{color:#e25b4c}.drop{margin-top:8px;border:1px dashed color-mix(in srgb,var(--muted) 65%,transparent);border-radius:10px;padding:10px 12px;color:var(--muted);font-size:.9rem;cursor:pointer;background:rgba(255,255,255,.08)}.drop.drag{border-color:var(--accent);background:rgba(255,255,255,.16)}#fileInput{display:none}.controls{display:grid;grid-template-columns:minmax(120px,1.2fr) minmax(120px,1fr);gap:9px;margin-top:11px;max-width:310px}button{border:1px solid var(--border);border-radius:10px;padding:11px 15px;font:inherit;cursor:pointer;background:var(--button);color:var(--button-text);min-height:44px}button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 8px 24px rgba(0,0,0,.18)}button:disabled{opacity:.55;cursor:wait}#status{margin:8px 2px 0;color:var(--soft);min-height:20px}
-@media(max-width:600px){body{padding:10px 10px calc(14px + env(safe-area-inset-bottom))}.theme-orb{width:49px;height:49px;font-size:22px}.theme-panel{top:58px;width:min(300px,calc(100vw - 28px))}.app{padding-top:0}.avatar-wrap{margin-top:0}.avatar-wrap:before{width:236px;height:236px}.avatar{width:min(58vw,226px);height:min(58vw,226px);min-width:188px;min-height:188px}.window{border-radius:min(var(--radius),20px)}#messages{min-height:300px;max-height:43vh;padding:15px}.composer{padding:12px}textarea{min-height:112px}.controls{grid-template-columns:1fr 1fr;max-width:none}.controls button{width:100%;padding:11px 8px}.composer-meta{font-size:.72rem}}@media(prefers-reduced-motion:reduce){.avatar,.theme-orb,body,.window{transition:none;animation:none}}
-</style></head><body>
-<div class="theme-switch"><button id="themeButton" class="theme-orb" type="button" aria-label="Changer le thème" aria-expanded="false">✦</button><div id="themePanel" class="theme-panel" role="dialog" aria-label="Thèmes de MEL"><div class="theme-title">Apparence de MEL</div>
-<button class="theme-choice" data-theme-choice="classic" type="button"><span class="theme-icon">◆</span><span class="theme-copy"><strong>Classique</strong><span>Bleu nuit · interface moderne</span></span></button>
-<button class="theme-choice" data-theme-choice="crusade" type="button"><span class="theme-icon">✠</span><span class="theme-copy"><strong>Croisés · Parchemin</strong><span>Medieval Idle Prayer · cuir · or vieilli</span></span></button>
-<button class="theme-choice" data-theme-choice="religious" type="button"><span class="theme-icon">✝</span><span class="theme-copy"><strong>Baroque andalou religieux</strong><span>Cueva · pierre · cierges · dorures</span></span></button>
-<button class="theme-choice" data-theme-choice="granada" type="button"><span class="theme-icon">♛</span><span class="theme-copy"><strong>Cathédrale de Grenade</strong><span>Grand retable · ivoire · or monumental</span></span></button>
-<button class="theme-choice" data-theme-choice="aviation" type="button"><span class="theme-icon">✈</span><span class="theme-copy"><strong>Aviation 1940s</strong><span>Cockpit · cuir violet · instruments analogiques</span></span></button>
-<button class="theme-choice" data-theme-choice="paladin" type="button"><span class="theme-icon">⚜</span><span class="theme-copy"><strong>Paladin Light Full Plate</strong><span>Armure claire · argent · ivoire · or</span></span></button>
-<button class="theme-choice" data-theme-choice="amazon" type="button"><span class="theme-icon">⚡</span><span class="theme-copy"><strong>Amazon · Diadème du Griffon</strong><span>Bronze · grenat · orage · ruines</span></span></button>
-</div></div>
-<main class="app">
-<div class="avatar-wrap"><div id="avatar" class="avatar" role="button" tabindex="0" aria-label="Parler à MEL"><img src="/assets/avatars/mel-classic.webp" alt="MEL"></div></div>
-<div id="voiceStatus">Touchez son visage pour parler</div>
-<section class="window">
-  <div id="messages"><div class="empty" id="empty">Écris ci-dessous pour commencer.</div></div>
-  <div class="composer">
-    <textarea id="input" maxlength="100000" autofocus placeholder="Écris ou colle un long prompt… Entrée pour envoyer · Maj+Entrée pour une nouvelle ligne."></textarea>
-    <div class="composer-meta"><span>Prompts longs Gen2 activés</span><span id="charCount" class="char-count">0 / 100 000</span></div>
-    <div class="drop" id="drop">Glisse un fichier ici ou clique pour le choisir<input id="fileInput" type="file" multiple></div>
-    <div class="controls"><button class="primary" id="send">Envoyer</button><button id="full">Mode complet</button></div>
-    <div id="status" role="status" aria-live="polite"></div>
-  </div>
-</section>
-<script>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>MEL</title>
+<link rel="icon" type="image/png" href="/meliturgos-avatar-fille.png">
+<link rel="apple-touch-icon" href="/meliturgos-avatar-fille.png">
+<style id="mel-clean-shell-style">
+*{box-sizing:border-box}
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f8fafc;background:#070b12}
+html,body{margin:0;min-height:100%;background:#070b12;color:#f8fafc}
+body{min-height:100vh;min-height:100dvh;padding:clamp(14px,2vw,24px);background:linear-gradient(180deg,#0b111c 0%,#070b12 60%,#05080d 100%);overflow-x:hidden}
+button,textarea{font:inherit}
+button{cursor:pointer}
+.shell{width:min(980px,100%);margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.topbar{display:flex;justify-content:flex-end;min-height:42px}
+.professor-link{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 15px;border:1px solid #2a3545;border-radius:12px;background:#101824;color:#e5edf8;text-decoration:none;font-weight:700}
+.identity{display:flex;flex-direction:column;align-items:center;gap:8px;padding:0 0 4px}
+.avatar-wrap{position:relative;width:clamp(132px,18vw,184px);height:clamp(132px,18vw,184px)}
+.avatar{width:100%;height:100%;display:block;border-radius:50%;object-fit:cover;object-position:center 24%;border:2px solid #334155;background:#111827;box-shadow:0 14px 36px rgba(0,0,0,.35)}
+.mic{position:absolute;right:2px;bottom:5px;width:48px;height:48px;border-radius:50%;border:2px solid #0b111c;background:#2563eb;color:white;display:grid;place-items:center;font-size:21px;box-shadow:0 8px 22px rgba(0,0,0,.35)}
+.mic.listening{background:#dc2626;box-shadow:0 0 0 6px rgba(220,38,38,.15),0 8px 22px rgba(0,0,0,.35)}
+.voice-status{min-height:22px;color:#9fb0c5;font-size:.9rem;text-align:center}
+.chat{display:flex;flex-direction:column;min-height:min(650px,68dvh);border:1px solid #263244;border-radius:20px;background:#0d141f;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.28)}
+.messages{flex:1;min-height:300px;max-height:52dvh;overflow-y:auto;padding:20px;scrollbar-gutter:stable}
+.empty{color:#718198}
+.msg{max-width:86%;margin:0 0 12px;padding:11px 13px;border-radius:14px;line-height:1.48;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.user{margin-left:auto;background:#17356a;border:1px solid #2856a0;color:#f8fbff}
+.msg.mel{margin-right:auto;background:#151f2d;border:1px solid #26364c;color:#edf4fd}
+.msg.pending{opacity:.62;border-style:dashed}.msg.failed{border-color:#b91c1c}
+.who{display:block;margin-bottom:4px;font-size:.75rem;font-weight:700;opacity:.62}
+.composer{border-top:1px solid #263244;background:#0a1019;padding:14px}
+.input{display:block;width:100%;min-height:104px;max-height:30dvh;resize:vertical;border:1px solid #2a374a;border-radius:14px;padding:13px 14px;background:#101925;color:#f8fafc;outline:none;line-height:1.5}
+.input:focus{border-color:#4f83d9;box-shadow:0 0 0 3px rgba(79,131,217,.12)}
+.input::placeholder{color:#73839a}
+.meta{display:flex;justify-content:flex-end;margin:7px 2px 0;color:#718198;font-size:.75rem}
+.drop{margin-top:10px;border:1px dashed #41516a;border-radius:12px;padding:11px 13px;color:#a4b1c3;background:#0d1622;cursor:pointer;text-align:center}
+.drop.drag{border-color:#60a5fa;background:#10213a}
+#fileInput{display:none}
+.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:11px}
+.action{min-height:44px;border:1px solid #334155;border-radius:11px;padding:0 16px;background:#172131;color:#eef5ff;font-weight:700}
+.action.primary{background:#2563eb;border-color:#3474dd;color:white}
+.action.primary:hover{background:#2f6ee5}.action:hover{background:#202d40}.action:disabled{opacity:.55;cursor:wait}
+.status{min-height:20px;margin-top:9px;color:#9fb0c5;font-size:.88rem}
+.footer-actions{display:flex;justify-content:center;padding:2px 0 8px}
+.mode-full{min-height:44px;border:1px solid #334155;border-radius:12px;padding:0 18px;background:#101824;color:#e5edf8;font-weight:750}
+@media(max-width:640px){body{padding:10px 10px calc(12px + env(safe-area-inset-bottom))}.topbar{min-height:38px}.professor-link{min-height:38px;padding:0 12px;font-size:.88rem}.avatar-wrap{width:136px;height:136px}.mic{width:44px;height:44px}.chat{min-height:calc(100dvh - 246px);border-radius:16px}.messages{min-height:220px;max-height:46dvh;padding:14px}.composer{padding:11px}.input{min-height:96px}.drop{font-size:.88rem}.actions{display:grid;grid-template-columns:1fr}.action{width:100%}.msg{max-width:92%}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<main class="shell" id="melCleanShell">
+  <div class="topbar"><a class="professor-link" id="professor" href="/professor">Professor</a></div>
+  <section class="identity" aria-label="MEL">
+    <div class="avatar-wrap">
+      <img class="avatar" id="avatar" src="/assets/avatars/mel-classic.webp" alt="MEL">
+      <button class="mic" id="mic" type="button" aria-label="Parler à MEL" aria-pressed="false">🎙</button>
+    </div>
+    <div class="voice-status" id="voiceStatus" role="status" aria-live="polite">Micro prêt</div>
+  </section>
+  <section class="chat" aria-label="Conversation avec MEL">
+    <div class="messages" id="messages" aria-live="polite"><div class="empty" id="empty">Écris à MEL pour commencer.</div></div>
+    <div class="composer">
+      <textarea class="input" id="input" maxlength="100000" autofocus placeholder="Écris ou colle ton message… Entrée pour envoyer · Maj+Entrée pour une nouvelle ligne."></textarea>
+      <div class="meta"><span id="charCount">0 / 100 000</span></div>
+      <div class="drop" id="drop" role="button" tabindex="0">Dépose un fichier ici ou touche pour le choisir<input id="fileInput" type="file" multiple></div>
+      <div class="actions"><button class="action primary" id="send" type="button">Envoyer</button></div>
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+    </div>
+  </section>
+  <div class="footer-actions"><button class="mode-full" id="full" type="button">Mode complet</button></div>
+</main>
+<script id="mel-clean-shell-runtime">
 const MAX_INPUT=100000,LEGACY_INPUT=12000;
-const input=document.getElementById('input'),send=document.getElementById('send'),status=document.getElementById('status'),messages=document.getElementById('messages'),empty=document.getElementById('empty'),full=document.getElementById('full'),avatar=document.getElementById('avatar'),voiceStatus=document.getElementById('voiceStatus'),drop=document.getElementById('drop'),fileInput=document.getElementById('fileInput'),charCount=document.getElementById('charCount'),themeButton=document.getElementById('themeButton'),themePanel=document.getElementById('themePanel');
-const THEMES=['classic','crusade','religious','granada','aviation','paladin','amazon'],THEME_ICONS={classic:'✦',crusade:'✠',religious:'✝',granada:'♛',aviation:'✈',paladin:'⚜',amazon:'⚡'};
+const input=document.getElementById('input'),send=document.getElementById('send'),status=document.getElementById('status'),messages=document.getElementById('messages'),empty=document.getElementById('empty'),full=document.getElementById('full'),mic=document.getElementById('mic'),voiceStatus=document.getElementById('voiceStatus'),drop=document.getElementById('drop'),fileInput=document.getElementById('fileInput'),charCount=document.getElementById('charCount');
 let sending=false,recognition=null,listening=false,messageQueue=[];
 function stableId(key){try{let v=localStorage.getItem(key);if(!v){v=crypto.randomUUID();localStorage.setItem(key,v)}return v}catch{return crypto.randomUUID()}}
 const conversationId=stableId('mel.conversation'),deviceId=stableId('mel.device');
-function currentTheme(){const value=document.documentElement.dataset.theme;return THEMES.includes(value)?value:'classic'}
-function setTheme(name){const theme=THEMES.includes(name)?name:'classic';document.documentElement.dataset.theme=theme;themeButton.textContent=THEME_ICONS[theme]||'✦';try{localStorage.setItem('mel.theme.v3',theme);localStorage.setItem('mel.theme.v2',theme)}catch{}document.querySelectorAll('[data-theme-choice]').forEach(b=>b.classList.toggle('active',b.dataset.themeChoice===theme));themePanel.classList.remove('open');themeButton.setAttribute('aria-expanded','false')}
-try{setTheme(localStorage.getItem('mel.theme.v3')||localStorage.getItem('mel.theme.v2')||localStorage.getItem('mel.theme')||'classic')}catch{setTheme('classic')}
-themeButton.addEventListener('click',function(){const open=!themePanel.classList.contains('open');themePanel.classList.toggle('open',open);themeButton.setAttribute('aria-expanded',String(open))});document.querySelectorAll('[data-theme-choice]').forEach(b=>b.addEventListener('click',()=>setTheme(b.dataset.themeChoice)));document.addEventListener('click',e=>{if(!e.target.closest('.theme-switch')){themePanel.classList.remove('open');themeButton.setAttribute('aria-expanded','false')}});
-function updateCount(){const n=input.value.length;charCount.textContent=n.toLocaleString('fr-FR')+' / '+MAX_INPUT.toLocaleString('fr-FR');charCount.classList.toggle('near',n>MAX_INPUT*.85&&n<=MAX_INPUT);charCount.classList.toggle('over',n>MAX_INPUT)}input.addEventListener('input',updateCount);updateCount();
-function add(role,text){empty?.remove();const d=document.createElement('div');d.className='msg '+(role==='user'?'user':'mel');const w=document.createElement('span');w.className='who';w.textContent=role==='user'?'Vous':'MEL';const c=document.createElement('div');c.textContent=text;d.append(w,c);messages.appendChild(d);messages.scrollTop=messages.scrollHeight;return d}
+function updateCount(){const n=input.value.length;charCount.textContent=n.toLocaleString('fr-FR')+' / '+MAX_INPUT.toLocaleString('fr-FR')}
+input.addEventListener('input',updateCount);updateCount();
+function add(role,text){empty?.remove();const d=document.createElement('div');d.className='msg '+(role==='user'?'user':'mel');const w=document.createElement('span');w.className='who';w.textContent=role==='user'?'Vous':'MEL';const c=document.createElement('div');c.textContent=String(text??'');d.append(w,c);messages.appendChild(d);messages.scrollTop=messages.scrollHeight;return d}
 function setPending(node,pending){if(!node)return;node.classList.toggle('pending',pending);const who=node.querySelector('.who');if(who)who.textContent=pending?'Vous · en attente':'Vous'}
-function queueMessage(text=input.value){text=String(text||'').trim();if(!text)return;if(text.length>MAX_INPUT){status.textContent='Message trop long : '+MAX_INPUT.toLocaleString('fr-FR')+' caractères maximum.';return}input.value='';updateCount();const node=add('user',text);const pending=sending||messageQueue.length>0;setPending(node,pending);messageQueue.push({text,node});if(sending)status.textContent='Ajout mis en attente sans interrompre MEL · '+messageQueue.length+' message(s) en attente.';pumpQueue();input.focus()}
-async function pumpQueue(){if(sending)return;sending=true;send.textContent='Ajouter';avatar.classList.add('thinking');try{while(messageQueue.length){const item=messageQueue.shift();setPending(item.node,false);const started=performance.now();status.textContent=item.text.length>LEGACY_INPUT?'Lecture du prompt long par Gen2…':'MEL réagit…';try{const theme=currentTheme();const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:item.text,conversation_id:conversationId,device_id:deviceId,ui_theme:theme,intent_context:{ui_theme:theme,surface:'mel-mvp'}}),signal:AbortSignal.timeout(90000)});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||d.code||(r.status===429?'Limite atteinte, réessaie plus tard.':'MEL est indisponible.'));if(!d.text)throw new Error('Réponse vide.');add('mel',d.text);const ms=Math.round(performance.now()-started);status.textContent=d.development_job?'Développement autonome lancé.':d.long_input?'Prompt long traité · '+Number(d.input_chars||item.text.length).toLocaleString('fr-FR')+' caractères.':d.fast_lane?'Voie rapide · '+ms+' ms':(d.archive_saved===false?'Réponse reçue, historique non sauvegardé.':'')}catch(e){item.node?.classList.add('failed');const who=item.node?.querySelector('.who');if(who)who.textContent='Vous · à réessayer';if(!input.value.trim())input.value=item.text;updateCount();status.textContent=(e.name==='TimeoutError'?'Délai dépassé, tu peux réessayer.':e.message)+(messageQueue.length?' · '+messageQueue.length+' message(s) restent en attente.':'');break}}}finally{sending=false;send.textContent='Envoyer';avatar.classList.remove('thinking');input.focus()}}
-send.addEventListener('click',()=>queueMessage());input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();queueMessage()}});full.addEventListener('click',()=>location.href='/professor');
-function initVoice(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){voiceStatus.textContent='Reconnaissance vocale non disponible dans ce navigateur.';return}recognition=new SR();recognition.lang='fr-FR';recognition.interimResults=true;recognition.continuous=false;recognition.onstart=()=>{listening=true;avatar.classList.add('listening');voiceStatus.textContent='J’écoute…'};recognition.onend=()=>{listening=false;avatar.classList.remove('listening');voiceStatus.textContent='Touchez son visage pour parler'};recognition.onerror=e=>{listening=false;avatar.classList.remove('listening');voiceStatus.textContent='Micro : '+e.error};recognition.onresult=e=>{let final='',interim='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;if(e.results[i].isFinal)final+=t;else interim+=t}input.value=final||interim;updateCount();if(final)queueMessage(final)}}
-function toggleVoice(){if(!recognition)initVoice();if(!recognition)return;listening?recognition.stop():recognition.start()}avatar.addEventListener('click',toggleVoice);avatar.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleVoice()}});
-drop.addEventListener('click',()=>fileInput.click());drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag')});drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('drag');handleFiles([...e.dataTransfer.files])});fileInput.addEventListener('change',e=>handleFiles([...e.target.files]));
+function queueMessage(text=input.value){text=String(text||'').trim();if(!text)return;if(text.length>MAX_INPUT){status.textContent='Message trop long : '+MAX_INPUT.toLocaleString('fr-FR')+' caractères maximum.';return}input.value='';updateCount();const node=add('user',text);setPending(node,sending||messageQueue.length>0);messageQueue.push({text,node});if(sending)status.textContent='Message ajouté à la file.';pumpQueue();input.focus()}
+async function pumpQueue(){if(sending)return;sending=true;send.textContent='Ajouter';send.disabled=false;try{while(messageQueue.length){const item=messageQueue.shift();setPending(item.node,false);status.textContent=item.text.length>LEGACY_INPUT?'Lecture du message long…':'MEL réfléchit…';try{const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:item.text,conversation_id:conversationId,device_id:deviceId,intent_context:{surface:'mel-clean'}}),signal:AbortSignal.timeout(90000)});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||d.code||(r.status===429?'Limite atteinte, réessaie plus tard.':'MEL est indisponible.'));if(!d.text)throw new Error('Réponse vide.');add('mel',d.text);status.textContent=d.development_job?'Développement autonome lancé.':d.archive_saved===false?'Réponse reçue, historique non sauvegardé.':''}catch(e){item.node?.classList.add('failed');const who=item.node?.querySelector('.who');if(who)who.textContent='Vous · à réessayer';if(!input.value.trim())input.value=item.text;updateCount();status.textContent=(e.name==='TimeoutError'?'Délai dépassé, tu peux réessayer.':e.message)+(messageQueue.length?' · messages en attente.':'');break}}}finally{sending=false;send.textContent='Envoyer';input.focus()}}
+send.addEventListener('click',()=>queueMessage());
+input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();queueMessage()}});
+full.addEventListener('click',()=>location.href='/professor');
+function initVoice(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){voiceStatus.textContent='Reconnaissance vocale non disponible dans ce navigateur.';mic.disabled=true;return}recognition=new SR();recognition.lang='fr-FR';recognition.interimResults=true;recognition.continuous=false;recognition.onstart=()=>{listening=true;mic.classList.add('listening');mic.setAttribute('aria-pressed','true');voiceStatus.textContent='J’écoute…'};recognition.onend=()=>{listening=false;mic.classList.remove('listening');mic.setAttribute('aria-pressed','false');voiceStatus.textContent='Micro prêt'};recognition.onerror=e=>{listening=false;mic.classList.remove('listening');mic.setAttribute('aria-pressed','false');voiceStatus.textContent='Micro : '+e.error};recognition.onresult=e=>{let final='',interim='';for(let i=e.resultIndex;i<e.results.length;i++){const t=e.results[i][0].transcript;if(e.results[i].isFinal)final+=t;else interim+=t}input.value=final||interim;updateCount();if(final)queueMessage(final)}}
+function toggleVoice(){if(!recognition)initVoice();if(!recognition)return;listening?recognition.stop():recognition.start()}
+mic.addEventListener('click',toggleVoice);
+drop.addEventListener('click',()=>fileInput.click());drop.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();fileInput.click()}});drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag')});drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('drag');handleFiles([...e.dataTransfer.files])});fileInput.addEventListener('change',e=>handleFiles([...e.target.files]));
 async function handleFiles(files){for(const file of files){status.textContent='Envoi de '+file.name+'…';const fd=new FormData();fd.append('file',file);try{const r=await fetch('/api/files/upload',{method:'POST',body:fd});if(!r.ok)throw new Error('upload');const d=await r.json();add('user','📎 '+file.name);if(input.value.trim())queueMessage(input.value+' · Fichier: '+(d.url||file.name));else status.textContent='Fichier chargé : '+file.name}catch{status.textContent='Échec du fichier : '+file.name}}}
 initVoice();
-</script></main></body></html>`;
-  return new Response(body,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
+</script>
+</body>
+</html>`;
+  return new Response(body,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store, no-cache, must-revalidate'}});
 }
