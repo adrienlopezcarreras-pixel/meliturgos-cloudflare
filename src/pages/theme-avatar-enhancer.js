@@ -1,5 +1,5 @@
 const THEME_AVATAR_SCRIPT = `<style id="mel-theme-decor-style">
-/* Canonical MEL home visual layer: themes + compact responsive layout. */
+/* Canonical MEL home visual layer: themes + balanced responsive layout. */
 .avatar img{width:100%!important;height:100%!important;object-fit:cover!important;object-position:center 24%!important}
 .avatar,.window,button,textarea,.theme-panel,#themePanel{transition:background .28s ease,border-color .28s ease,box-shadow .28s ease,color .28s ease}
 
@@ -21,21 +21,21 @@ html[data-theme="amazon"]{--bg:#17100f;--bg2:#3a1818;--text:#f8e8c7;--ink:#2a1c1
 html body{background-color:var(--bg)!important;background-image:linear-gradient(180deg,rgba(8,6,5,.14),rgba(8,5,3,.26) 48%,rgba(6,3,2,.48)),var(--mel-hd-bg)!important;background-size:cover,cover!important;background-position:center center,var(--mel-hd-pos,center center)!important;background-repeat:no-repeat,no-repeat!important;background-attachment:fixed,fixed!important;isolation:auto!important}
 html body:before,html body:after{display:none!important;content:none!important}
 
-/* Compact home layout: remove the oversized empty panel visible on desktop. */
-html body .app{width:min(840px,100%)!important;padding-top:0!important}
-html body .avatar-wrap{margin:2px 0 7px!important}
-html body .avatar-wrap:before{width:clamp(160px,19vw,205px)!important;height:clamp(160px,19vw,205px)!important}
-html body .avatar{width:clamp(145px,17vw,180px)!important;height:clamp(145px,17vw,180px)!important;min-width:0!important;min-height:0!important}
-html body #voiceStatus{min-height:20px!important;margin:0 0 8px!important;font-size:.88rem!important}
-html body .window{height:auto!important;min-height:0!important;max-height:none!important}
-html body #messages{height:auto!important;min-height:clamp(155px,22vh,220px)!important;max-height:38vh!important;padding:16px 18px!important}
-html body .composer{height:auto!important;min-height:0!important;padding:11px 14px 13px!important}
-html body textarea{min-height:82px!important;max-height:26vh!important;color:var(--ink)!important}
+/* Balanced home layout: occupy the viewport without recreating the old giant empty parchment. */
+html body .app{width:min(1280px,calc(100vw - 64px))!important;max-width:1280px!important;padding-top:8px!important}
+html body .avatar-wrap{margin:6px 0 12px!important}
+html body .avatar-wrap:before{width:clamp(205px,18vw,260px)!important;height:clamp(205px,18vw,260px)!important}
+html body .avatar{width:clamp(185px,16vw,230px)!important;height:clamp(185px,16vw,230px)!important;min-width:0!important;min-height:0!important}
+html body #voiceStatus{min-height:22px!important;margin:0 0 10px!important;font-size:.94rem!important}
+html body .window{width:100%!important;height:auto!important;min-height:0!important;max-height:none!important}
+html body #messages{height:auto!important;min-height:clamp(240px,29vh,360px)!important;max-height:48vh!important;padding:20px 22px!important}
+html body .composer{height:auto!important;min-height:0!important;padding:14px 17px 16px!important}
+html body textarea{min-height:104px!important;max-height:28vh!important;color:var(--ink)!important;font-size:1rem!important;line-height:1.45!important}
 html body textarea::placeholder{color:var(--muted)!important;opacity:.92!important}
 html body .empty,.composer-meta,.drop,#status{color:var(--muted)!important}
-html body .drop{margin-top:6px!important;padding:8px 11px!important}
-html body .controls{margin-top:8px!important}
-html body .msg{line-height:1.42!important}
+html body .drop{margin-top:8px!important;padding:10px 13px!important}
+html body .controls{margin-top:10px!important}
+html body .msg{line-height:1.46!important}
 
 html[data-theme="crusade"] .avatar{border:5px double #d5ad55!important;box-shadow:0 0 0 5px #5a1b16,0 18px 48px #000!important}
 html[data-theme="religious"] .avatar{border:5px double #d9b95d!important;box-shadow:0 0 0 5px #352112,0 0 0 8px #b18a42,0 18px 52px #000!important}
@@ -55,14 +55,15 @@ html[data-theme="amazon"] .window{border:5px double #966b31!important;box-shadow
  .theme-switch,html body .mel-bottom-tools .theme-switch.theme-switch{top:max(8px,env(safe-area-inset-top))!important;left:max(8px,env(safe-area-inset-left))!important}
  .theme-switch .theme-orb,html body .mel-bottom-tools .theme-switch .theme-orb{height:44px!important;padding:0 11px!important}
  .theme-switch .theme-orb::after,html body .mel-bottom-tools .theme-switch .theme-orb::after{font-size:.76rem}
- html body .app{width:100%!important}.avatar-wrap:before{width:178px!important;height:178px!important}
+ html body .app{width:100%!important;max-width:100%!important;padding-top:0!important}.avatar-wrap:before{width:178px!important;height:178px!important}
  html body .avatar{width:min(43vw,162px)!important;height:min(43vw,162px)!important;min-width:132px!important;min-height:132px!important}
- html body #messages{min-height:170px!important;max-height:35vh!important;padding:13px!important}
- html body .composer{padding:10px 11px!important}html body textarea{min-height:92px!important;max-height:30vh!important}
+ html body #messages{min-height:190px!important;max-height:38vh!important;padding:14px!important}
+ html body .composer{padding:10px 11px!important}html body textarea{min-height:96px!important;max-height:30vh!important}
 }
 @media(max-height:760px) and (min-width:701px){
- html body .avatar{width:138px!important;height:138px!important}.avatar-wrap:before{width:158px!important;height:158px!important}
- html body #messages{min-height:135px!important;max-height:31vh!important}html body textarea{min-height:70px!important}
+ html body .app{width:min(1080px,calc(100vw - 48px))!important}
+ html body .avatar{width:158px!important;height:158px!important}.avatar-wrap:before{width:180px!important;height:180px!important}
+ html body #messages{min-height:180px!important;max-height:35vh!important}html body textarea{min-height:78px!important}
 }
 @media(prefers-reduced-motion:reduce){.avatar,.window,button,textarea{transition:none!important;animation:none!important}}
 </style><script id="mel-theme-avatar-runtime">

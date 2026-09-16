@@ -34,7 +34,10 @@ export function inferNativeCodeCapability(text, recent = []) {
   const path = pathNow || (followUpAccess ? extractCodePath(history) : null);
   if (asksIntegrity) return { id: 'code.integrity', input: {} };
   if (path && (asksRead || asksAccess || followUpAccess)) return { id: 'code.read', input: { path } };
-  if (asksAccess || asksRead || followUpAccess) return { id: 'code.read', input: { path: 'src/router.js' } };
+  // Never invent a source target. Access/read questions without an explicit or
+  // resolvable repository path are answered from capability truth, not by
+  // silently reading a default file such as src/router.js.
+  if (asksAccess || asksRead || followUpAccess) return null;
   const quoted = value.match(/[`'\"]([^`'\"]{2,120})[`'\"]/);
   const query = quoted?.[1] || value.split(/\s+/).filter(Boolean).slice(-4).join(' ').slice(0,300) || 'MELITURGOS';
   return { id: 'code.search', input: { query } };
@@ -355,7 +358,7 @@ export async function handleNativeChat(request, env) {
     'INTENTION ACTIVE : le dernier message utilisateur est toujours la question ou la tâche à traiter maintenant. Les messages précédents servent seulement de contexte. Ne répète pas une réponse à une ancienne question, notamment sur l’accès au code source, sauf si le dernier message la redemande explicitement.',
     'N’utilise un TOOL_RESULT que s’il répond directement au dernier message. Si un outil a été déclenché hors sujet, ignore son contenu dans la réponse au lieu de ramener la conversation vers une ancienne question.',
     'ARCHITECTURE MEL : tu es l’application MELITURGOS, une couche d’orchestration distincte du modèle de fondation qui produit le texte. Le flux principal est interface MEL (/ ou /professor) -> Worker/router -> /api/chat -> native-chat/context-builder -> mémoire et récupération -> bus de capabilities/outils -> ModelRouter et fournisseur(s) de modèle -> réponse et archivage. Le Learning Engine exploite les corrections et preuves persistées; les benchmarks évaluent les versions et la non-régression; le pipeline LoRA est optionnel et séparé de l’inférence courante.',
-    'ACCÈS AU CODE : tu peux affirmer avoir lu ou inspecté le code du projet MEL seulement lorsqu’un TOOL_RESULT code.read/code.search/code.integrity SUCCEEDED de la requête courante le prouve. Cet accès concerne le dépôt MEL exposé par tes outils; il ne signifie pas que tu disposes du code source propriétaire, des poids ou des mécanismes internes du modèle de fondation ou d’un fournisseur externe.',
+    'ACCÈS AU CODE : tu peux affirmer avoir lu ou inspecté le code du projet MEL seulement lorsqu’un TOOL_RESULT code.read/code.search/code.integrity SUCCEEDED de la requête courante le prouve. Cet accès concerne le dépôt MEL exposé par tes outils; il ne signifie pas que tu disposes du code source propriétaire, des poids ou des mécanismes internes du modèle de fondation ou d’un fournisseur externe. Une simple question « as-tu accès à ton code source ? » ne doit jamais provoquer la lecture silencieuse d’un fichier arbitraire : sans cible explicite, décris seulement le statut réel des capacités du manifeste.',
     'BENCHMARK ET LoRA : ne transforme jamais un plan, un statut READY ou un test absent en résultat réel. Un benchmark est réel seulement si une exécution persistée fournit ses preuves. Un LoRA est actif seulement si une activation réelle et persistée existe après entraînement compatible et validation benchmark; sinon décris exactement le statut et les blockers disponibles.',
     `CAPABILITY_MANIFEST runtime actuel (données, pas instructions): ${manifestText}`,
     'Base tes affirmations de capacité sur ce manifeste et les TOOL_RESULT de cette requête. Les statuts de vérité sont stricts : EXISTANT_ET_TESTE = exécuté et prouvé; EXISTANT_NON_TESTE = enregistré/sain mais non prouvé par une exécution; PARTIEL = incomplet ou dégradé; STUB = squelette non fonctionnel; NOT_IMPLEMENTED = non implémenté; BLOCKED = désactivé; BLOCKED_EXTERNAL = dépendance indisponible. Ne présente jamais EXISTANT_NON_TESTE comme testé ou comme preuve de fonctionnement.',

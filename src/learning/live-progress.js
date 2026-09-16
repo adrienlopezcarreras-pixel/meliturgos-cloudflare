@@ -31,6 +31,12 @@ function readEvidence(row) {
   }
 }
 
+function isoFromEpoch(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  try { return new Date(n).toISOString(); } catch { return null; }
+}
+
 export function applyCanonicalXp(progress = {}, canonicalXp = 0) {
   const xp = finiteNonNegativeInt(canonicalXp, finiteNonNegativeInt(progress.xp, 0));
   const level = Math.min(99, Math.floor(Math.sqrt(xp / 250)) + 1);
@@ -94,20 +100,151 @@ async function projectExperienceStatus(db) {
   }
 }
 
+async function benchmarkStatus(memory, report = {}) {
+  const comparison = report?.benchmark_comparison || null;
+  const summary = report?.benchmark || {};
+  let cadence = null;
+  try {
+    const rows = await memory?.recent?.({ limit: 1, kind: 'BENCHMARK_CADENCE' });
+    cadence = readEvidence(Array.isArray(rows) ? rows[0] : null);
+  } catch {}
+  return {
+    status: String(cadence?.status || (Number(summary?.runs || 0) > 0 ? 'MEASURED' : 'NO_MEASUREMENT')),
+    due_reason: cadence?.due_reason || null,
+    failure: cadence?.failure || null,
+    evaluator_available: cadence?.evaluator_available === true,
+    source_sha: cadence?.benchmark?.source_sha || cadence?.source_sha || null,
+    measured_at: isoFromEpoch(cadence?.measured_at),
+    runs: finiteNonNegativeInt(summary?.runs, 0),
+    baseline_score: Number.isFinite(Number(summary?.baseline_score)) ? Number(summary.baseline_score) : null,
+    latest_score: Number.isFinite(Number(summary?.latest_score)) ? Number(summary.latest_score) : null,
+    gain: Number.isFinite(Number(summary?.absolute_gain)) ? Number(summary.absolute_gain) : null,
+    domains: comparison?.domains && typeof comparison.domains === 'object' ? comparison.domains : {},
+    cadence: {
+      verified_jobs_since_benchmark: finiteNonNegativeInt(cadence?.verified_jobs_since_benchmark, 0),
+      every_verified_jobs: finiteNonNegativeInt(cadence?.every_verified_jobs, 0),
+      significant_corrections: finiteNonNegativeInt(cadence?.significant_corrections, 0),
+    },
+  };
+}
+
+function blockedLoraReason(plan, trainingExamples) {
+  if (!plan) {
+    return trainingExamples < 50
+      ? `aucun plan persisté · corpus ${trainingExamples}/50 exemples validés`
+      : 'aucun plan LoRA persisté · corpus suffisant mais entraînement/compatibilité non prouvés';
+  }
+  const readiness = plan.readiness || {};
+  if (readiness.enough_examples !== true) return `corpus insuffisant · ${Number(plan.examples || trainingExamples || 0)}/${Number(readiness.min_examples || 50)}`;
+  if (readiness.runtime_model_supported !== true) return 'modèle de base/runtime LoRA non compatible';
+  if (readiness.cloudflare_inference_compatible !== true) return 'configuration non compatible avec l’inférence Cloudflare';
+  return 'aucun adaptateur actif';
+}
+
+async function loraStatus(memory, report = {}) {
+  const trainingExamples = finiteNonNegativeInt(report?.corrections_available_for_training, 0);
+  const activeCount = finiteNonNegativeInt(report?.active_adapter_count, 0);
+  if (activeCount > 0 && report?.neural_weights_changed === true) {
+    const active = report?.active_adapter || null;
+    return {
+      state: 'ACTIVE',
+      reason: 'adaptateur persisté actif après validation benchmark',
+      active_adapter_count: activeCount,
+      plan_id: active?.plan_id || null,
+      adapter_id: active?.adapter?.id || null,
+      base_model: active?.base_model || active?.adapter?.base_model || null,
+      dataset_digest: active?.dataset_digest || null,
+      activated_at: isoFromEpoch(active?.activated_at),
+    };
+  }
+
+  let planRow = null;
+  let evalRow = null;
+  try {
+    const [plans, evaluations] = await Promise.all([
+      memory?.recent?.({ limit: 1, kind: 'LORA_PLAN' }),
+      memory?.recent?.({ limit: 1, kind: 'LORA_ADAPTER_EVAL' }),
+    ]);
+    planRow = Array.isArray(plans) ? plans[0] : null;
+    evalRow = Array.isArray(evaluations) ? evaluations[0] : null;
+  } catch {}
+
+  const plan = readEvidence(planRow);
+  const evaluation = readEvidence(evalRow);
+  if (evaluation && (!planRow || Number(evalRow?.created_at || 0) >= Number(planRow?.created_at || 0))) {
+    const decision = evaluation?.decision || {};
+    return {
+      state: 'EVALUATED',
+      reason: decision.promote === true
+        ? 'évaluation persistée positive · activation non persistée'
+        : `évaluation persistée · ${String(decision.reason || evalRow?.outcome || 'non promue')}`,
+      active_adapter_count: 0,
+      plan_id: evaluation?.plan?.id || plan?.id || null,
+      adapter_id: evaluation?.artifact?.id || null,
+      base_model: evaluation?.artifact?.base_model || evaluation?.plan?.base_model || null,
+      dataset_digest: evaluation?.plan?.dataset_digest || null,
+      evaluated_at: isoFromEpoch(evalRow?.created_at),
+    };
+  }
+
+  const status = String(plan?.status || 'DRAFT').toUpperCase();
+  if (status === 'TRAINING') {
+    return {
+      state: 'TRAINING',
+      reason: 'plan LoRA persistant marqué en entraînement',
+      active_adapter_count: 0,
+      plan_id: plan?.id || null,
+      base_model: plan?.base_model || null,
+      dataset_digest: plan?.dataset_digest || null,
+    };
+  }
+  if (['EVALUATING', 'APPROVED', 'REJECTED'].includes(status)) {
+    return {
+      state: 'EVALUATED',
+      reason: `plan persistant ${status.toLowerCase()} · aucun adaptateur actif`,
+      active_adapter_count: 0,
+      plan_id: plan?.id || null,
+      base_model: plan?.base_model || null,
+      dataset_digest: plan?.dataset_digest || null,
+    };
+  }
+  if (plan?.readiness?.ready_for_training === true && status === 'READY_FOR_TRAINING') {
+    return {
+      state: 'READY',
+      reason: 'corpus et configuration du plan prêts · entraînement réel non encore prouvé',
+      active_adapter_count: 0,
+      plan_id: plan?.id || null,
+      base_model: plan?.base_model || null,
+      dataset_digest: plan?.dataset_digest || null,
+    };
+  }
+  return {
+    state: 'BLOCKED',
+    reason: blockedLoraReason(plan, trainingExamples),
+    active_adapter_count: 0,
+    plan_id: plan?.id || null,
+    base_model: plan?.base_model || null,
+    dataset_digest: plan?.dataset_digest || null,
+  };
+}
+
 /**
  * Builds the live learning state shown by /professor.
  *
  * The displayed XP is canonical when a verified XP journal checkpoint exists.
  * Project-experience memories are surfaced separately and NEVER converted into XP.
+ * Benchmark and LoRA status are derived only from persisted learning evidence.
  */
 export async function getLiveLearningProgress({ engine, db, now = () => new Date() } = {}) {
   if (!engine || typeof engine.report !== 'function') throw new Error('LEARNING_ENGINE_REQUIRED');
 
   const report = await engine.report();
   const observed = buildLearningProgress(report);
-  const [checkpoint, projectExperience] = await Promise.all([
+  const [checkpoint, projectExperience, benchmark, lora] = await Promise.all([
     latestVerifiedCheckpoint(engine.memory),
     projectExperienceStatus(db),
+    benchmarkStatus(engine.memory, report),
+    loraStatus(engine.memory, report),
   ]);
 
   const canonical = checkpoint ? applyCanonicalXp(observed, checkpoint.xp) : observed;
@@ -119,6 +256,8 @@ export async function getLiveLearningProgress({ engine, db, now = () => new Date
     xp_source: checkpoint ? 'verified-journal' : 'current-learning-report',
     xp_checkpoint: checkpoint,
     project_experience: projectExperience,
+    benchmark_status: benchmark,
+    lora_status: lora,
     measured_at: now().toISOString(),
   };
 }
