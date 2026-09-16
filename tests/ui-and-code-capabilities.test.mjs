@@ -29,7 +29,7 @@ test('normal home UI remains available while v1 redirects to canonical Professor
   const mvp = await readFile(new URL('../src/pages/mvp-interface.js', import.meta.url), 'utf8');
   const v1 = await readFile(new URL('../src/pages/full-interface.js', import.meta.url), 'utf8');
   assert.match(mvp, /<title>MEL<\/title>/);
-  assert.match(mvp, /id="avatar"/);
+  assert.match(mvp, /id="melAvatar"/);
   assert.match(mvp, /id="full"/);
   assert.match(mvp, /location\.href='\/professor'/);
   assert.doesNotMatch(mvp, /status:\s*308/);
