@@ -51,6 +51,91 @@ function deploymentIdentity(env = {}) {
   };
 }
 
+function dashboardCheck(id, label, ok, detail = null, severity = 'warning') {
+  return {
+    id,
+    label,
+    ok: Boolean(ok),
+    severity,
+    detail: detail == null ? null : String(detail),
+  };
+}
+
+function dashboardSection(id, label, checks) {
+  const failed = checks.filter(check => !check.ok);
+  const criticalFailed = failed.some(check => check.severity === 'critical');
+  return {
+    id,
+    label,
+    state: criticalFailed ? 'DEGRADED' : failed.length ? 'ATTENTION' : 'HEALTHY',
+    ok: failed.length === 0,
+    checks,
+  };
+}
+
+/**
+ * Stable, non-secret health model consumed by diagnostics/UI clients.
+ * It aggregates existing truth instead of creating a second monitoring path.
+ */
+export function buildUnifiedHealthDashboard(snapshot = {}) {
+  const critical = snapshot.critical || {};
+  const bindings = snapshot.bindings || {};
+  const selfCode = snapshot.self_code || {};
+  const capabilities = snapshot.capabilities || {};
+  const models = snapshot.models || {};
+  const roadmap = snapshot.roadmap || {};
+  const blockers = Array.isArray(snapshot.blockers) ? snapshot.blockers : [];
+
+  const sections = [
+    dashboardSection('runtime', 'Runtime', [
+      dashboardCheck('conversation', 'Conversation', critical.conversation, 'service conversation', 'critical'),
+      dashboardCheck('capability_bus', 'Capability Bus', critical.capability_bus, `${Number(capabilities.total || 0)} capacités`, 'critical'),
+      dashboardCheck('persistent_work', 'Work persistant', critical.persistent_work_registered, 'capacités work.create/run/open', 'warning'),
+    ]),
+    dashboardSection('persistence', 'Persistance', [
+      dashboardCheck('memory_db', 'Mémoire D1', critical.memory_db ?? bindings.db, bindings.db ? 'DB liée' : 'DB absente', 'critical'),
+      dashboardCheck('media_bucket', 'Stockage média', bindings.media_bucket, bindings.media_bucket ? 'bucket lié' : 'bucket absent', 'warning'),
+    ]),
+    dashboardSection('intelligence', 'IA et modèles', [
+      dashboardCheck('ai_binding', 'Workers AI', critical.ai ?? bindings.ai, bindings.ai ? 'binding AI présent' : 'binding AI absent', 'critical'),
+      dashboardCheck('multi_ai', 'Multi-IA', critical.multi_ai_registered, 'augmentio.fanout', 'warning'),
+      dashboardCheck('zero_cost_pool', 'Pool zéro coût', critical.multi_ai_zero_cost_candidates, `${Number(models.explicit_zero_cost || 0)} modèle(s) explicitement zéro coût`, 'warning'),
+    ]),
+    dashboardSection('code', 'Code et identité déployée', [
+      dashboardCheck('code_reader', 'Lecture/recherche code', critical.code_reader_registered, 'code.read + code.search', 'critical'),
+      dashboardCheck('code_integrity', 'Intégrité code', critical.code_integrity_registered, 'code.integrity', 'warning'),
+      dashboardCheck('deployment_identity', 'Identité exacte du déploiement', selfCode.exact_identity_known, selfCode.exact_identity_known ? `${selfCode.branch}@${selfCode.commit}` : 'branche/SHA exact non exposé', 'warning'),
+    ]),
+    dashboardSection('governance', 'Roadmap et gouvernance', [
+      dashboardCheck('roadmap', 'Roadmap disponible', critical.roadmap_available, `${Number(roadmap.total || 0)} éléments`, 'critical'),
+      dashboardCheck('external_blockers', 'Aucun blocage externe/humain', blockers.length === 0, blockers.length ? `${blockers.length} blocage(s)` : 'aucun', 'warning'),
+    ]),
+  ];
+
+  const checks = sections.flatMap(section => section.checks);
+  const criticalFailures = checks.filter(check => !check.ok && check.severity === 'critical').length;
+  const warnings = checks.filter(check => !check.ok && check.severity !== 'critical').length;
+  const state = criticalFailures ? 'DEGRADED' : warnings ? 'ATTENTION' : 'HEALTHY';
+  const alerts = sections.flatMap(section => section.checks
+    .filter(check => !check.ok)
+    .map(check => ({ section: section.id, id: check.id, label: check.label, severity: check.severity, detail: check.detail })));
+
+  return {
+    schema: 'mel.health-dashboard.v1',
+    state,
+    generated_at: new Date().toISOString(),
+    summary: {
+      sections: sections.length,
+      checks: checks.length,
+      healthy: checks.filter(check => check.ok).length,
+      critical_failures: criticalFailures,
+      warnings,
+    },
+    sections,
+    alerts,
+  };
+}
+
 /**
  * Non-secret readiness snapshot. This is descriptive, not an authorization
  * mechanism: it never exposes tokens/credentials and never changes state.
@@ -99,15 +184,16 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
   const readyCount = Object.values(critical).filter(Boolean).length;
   const totalCritical = Object.keys(critical).length;
   const percent = Math.round((readyCount / totalCritical) * 100);
+  const readiness = {
+    critical_ready: readyCount,
+    critical_total: totalCritical,
+    percent,
+    state: percent === 100 ? 'READY' : percent >= 70 ? 'PARTIAL' : 'DEGRADED'
+  };
 
-  return {
+  const snapshot = {
     ok: true,
-    readiness: {
-      critical_ready: readyCount,
-      critical_total: totalCritical,
-      percent,
-      state: percent === 100 ? 'READY' : percent >= 70 ? 'PARTIAL' : 'DEGRADED'
-    },
+    readiness,
     bindings,
     self_code: selfCode,
     critical,
@@ -133,4 +219,6 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
       production_activation_requires_human_approval: true,
     }
   };
+
+  return { ...snapshot, dashboard: buildUnifiedHealthDashboard(snapshot) };
 }
