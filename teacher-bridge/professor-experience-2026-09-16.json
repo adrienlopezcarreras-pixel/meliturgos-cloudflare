@@ -1,71 +1,89 @@
 {
   "kind": "PROFESSOR_EXPERIENCE_HANDOFF",
-  "version": 1,
+  "version": 2,
   "created_at": "2026-09-16T12:20:00+02:00",
+  "updated_from_production_evidence_at": "2026-09-16T12:26:31Z",
   "source": "chatgpt-professor",
   "scope": "production-deployment-and-teacher-bridge",
   "target": "MEL",
   "candidate": {
     "branch": "candidate/mel-clean-autonomy",
-    "sha": "dfe2f4558005c2156b260f85eab88c308e1af17c",
-    "tree_sha": "d3073ed7e63910b827512dc3812f63a246b164d8"
+    "sha": "6b1f067574fffc01ad4d03c0148b1632110188f9",
+    "tree_sha": "86913768a56f59f5c30813cbc319c08315baf551"
   },
   "production": {
+    "branch": "release/mel-2026-09-10-r3-3",
+    "release_commit": "e6113988c89e3e86174dbe954d73b4ab12f5f3eb",
+    "deployed_tree_sha": "86913768a56f59f5c30813cbc319c08315baf551",
+    "deploy_workflow": "deploy-cloudflare-release",
+    "deploy_run_id": 35095732691,
+    "deploy_result": "success",
     "worker_url": "https://meliturgos.adrien-lopezcarreras.workers.dev",
     "professor_url": "https://meliturgos.adrien-lopezcarreras.workers.dev/professor",
-    "deployed_tree_sha": "d3073ed7e63910b827512dc3812f63a246b164d8",
-    "cloudflare_version": "df2dfe8a-a280-43e9-a121-7362d080b528",
-    "post_deploy_teacher_smoke": "success",
-    "professor_html_render_independently_verified": false
+    "post_deploy_teacher_smoke_run_id": 35095330359,
+    "post_deploy_teacher_smoke_attempt": 2,
+    "post_deploy_teacher_smoke": "success"
   },
   "lessons": [
     {
-      "id": "exact-tree-promotion",
-      "lesson": "Promote and compare the exact validated Git tree, not only a branch label or commit title. If production already contains the exact validated tree, avoid a duplicate deployment."
+      "id": "inspect-release-trigger-first",
+      "lesson": "Before promotion, inspect the deployment workflow that exists on the actual production release lineage. Do not assume release/** is accepted: this production workflow listens specifically to release/mel-2026-09-10-r3-3."
     },
     {
-      "id": "workflow-drift",
-      "lesson": "A stale release branch can carry an older GitHub Actions workflow with weaker gates. Production deployment policy must not depend on an obsolete workflow copy living on the release branch. Prefer a centrally trusted or reusable deployment workflow whose gates are current."
+      "id": "exact-sha-green-gates",
+      "lesson": "Promote only an exact candidate SHA after full-candidate-ci, deploy-candidate-preview and runtime-teacher-smoke are all green for that same SHA."
     },
     {
-      "id": "ci-is-not-deploy",
-      "lesson": "Keep candidate CI, deployment, and live functional proof as separate states. Green full-candidate-ci is necessary but is not a deployment; deployment success is not proof that the Professor UI rendered correctly."
+      "id": "recheck-head-before-promotion",
+      "lesson": "Re-read the shared candidate HEAD immediately before promotion. If another page has advanced it, close or abandon the stale promotion and validate the new HEAD instead of deploying an older candidate."
     },
     {
-      "id": "security-gate",
-      "lesson": "npm ci succeeding is not a security approval. Run an explicit runtime dependency security gate, syntax checks and the full test suite. Distinguish runtime dependency risk from development/tooling findings while keeping the latter visible for maintenance."
+      "id": "preserve-divergent-release-history",
+      "lesson": "When the canonical release branch has diverged, never force it merely to deploy. Reconcile history explicitly while preserving the exact validated candidate tree; a merge commit may have two parents while its tree remains byte-for-byte the validated candidate tree."
     },
     {
-      "id": "post-deploy-smoke",
-      "lesson": "After deployment, query the live Worker and record concrete evidence. Teacher Bridge status, pending, work and bridge.txt must answer successfully; UI routes such as /professor should also get an explicit HTML/render smoke when tooling permits."
+      "id": "post-deploy-live-smoke",
+      "lesson": "Deployment success is not the end of verification. Re-run the live Teacher Bridge smoke after production deployment and require success before declaring the operation closed."
     },
     {
-      "id": "teacher-sha-integrity",
-      "lesson": "Never write recurring Teacher transport metadata onto the executable candidate branch. Keep review traffic on teacher-bridge/runtime so teaching metadata cannot invalidate the exact candidate SHA under review."
+      "id": "existing-code-before-new-work",
+      "lesson": "Before implementing a roadmap item, inspect existing code, tests and history. If the capability is already implemented and verified, reconcile the roadmap/source of truth instead of creating a duplicate implementation."
     },
     {
-      "id": "no-fake-learning",
-      "lesson": "Do not fabricate a TEACHER_REPLY when no matching runtime request is pending. A lesson should enter persistent Mentor/Learning memory only through a supported, correlated and verifiable path."
+      "id": "separate-code-and-teacher-metadata",
+      "lesson": "Never put recurring Teacher or experience transport metadata on candidate/mel-clean-autonomy. Use teacher-bridge/runtime so learning traffic cannot invalidate the executable candidate SHA."
     },
     {
-      "id": "deployment-traceability",
-      "lesson": "Keep the candidate SHA, tree SHA, release/deploy run and Cloudflare version together as deployment provenance so later audits can prove what code was actually published."
+      "id": "no-fake-teacher-reply",
+      "lesson": "Do not fabricate a TEACHER_REPLY without a matching pending request_id. Free-form Professor experience must stay explicit transport metadata until a supported verified Mentor/Learning ingestion path consumes it."
+    },
+    {
+      "id": "deployment-provenance",
+      "lesson": "Keep candidate SHA, tree SHA, release commit, deployment run and post-deploy smoke together so MEL can audit exactly what was validated and published."
     }
   ],
-  "observed_anomalies": [
-    "The production run that published the validated tree used an older release-branch workflow and did not itself rerun the modern audit/check/test gates.",
-    "npm ci in that production run reported three high-severity findings; the validated candidate separately passed npm audit --omit=dev --audit-level=high, so the runtime dependency gate passed while development/tooling findings remain maintenance debt.",
-    "The public Teacher Bridge was healthy after deployment but reported pending_count=0 and mutation_allowed=false, so this handoff is transport metadata and is not falsely presented as already ingested into D1 Mentor memory."
-  ],
+  "evidence": {
+    "candidate_full_ci": "success",
+    "candidate_preview": "success",
+    "candidate_teacher_smoke": "success",
+    "production_deploy": "success",
+    "post_deploy_teacher_smoke": "success"
+  },
+  "previous_handoff": {
+    "candidate_sha": "dfe2f4558005c2156b260f85eab88c308e1af17c",
+    "tree_sha": "d3073ed7e63910b827512dc3812f63a246b164d8",
+    "note": "Preserved as prior same-day Professor experience; superseded for current production provenance by version 2."
+  },
   "recommended_follow_up": [
-    "Make production deployment call a trusted central/reusable workflow so stale release branches cannot weaken gates.",
-    "Add a live smoke for GET /professor that validates HTTP status, content type and a stable Professor-page marker after each production deploy.",
-    "Add a supported authenticated/correlated Professor-experience ingestion path that converts validated handoffs into mentor_lessons without requiring a fake pending Teacher request.",
-    "Keep exact-tree duplicate-deployment detection before promotion."
+    "Provide a supported authenticated/correlated Professor-experience ingestion path that converts validated handoffs into persistent mentor_lessons without a fake Teacher request.",
+    "Make production deployment gates centrally trusted or reusable so release-branch workflow drift cannot weaken validation.",
+    "Keep a dedicated live /professor HTML/render smoke in addition to Teacher Bridge health checks.",
+    "Keep exact-tree duplicate-deployment detection before future promotions."
   ],
   "learning_status": {
     "transported_to_teacher_branch": true,
+    "transport_branch": "teacher-bridge/runtime",
     "d1_mentor_ingestion_proven": false,
-    "reason": "No pending correlated Teacher request and the public Teacher Bridge is read-only."
+    "reason": "The official public Teacher Bridge is read-only and there is no matching pending request_id; the experience has been delivered to MEL's canonical Teacher transport without fabricating a correlated reply."
   }
 }
