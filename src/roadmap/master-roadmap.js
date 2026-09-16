@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-16.11';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-16.12';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -77,7 +77,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-05', 'Model Council / benchmarks', 'IN_PROGRESS', 'Passer du squelette à un Council réellement connecté aux providers', 'P0'),
     item('MEL-COUNCIL-01', 'Pré-audit multi-IA obligatoire avant développement', 'DONE_VERIFIED', 'Brancher le Council réel au Module Lab', 'P0'),
     item('MEL-COUNCIL-02', 'Critiques indépendantes + synthèse MEL', 'PARTIAL', 'Ajouter rôles architecte, sécurité, test, produit', 'P1'),
-    item('MEL-COUNCIL-03', 'Teacher escalation vers ChatGPT/autres IA', 'PARTIAL', 'Standardiser provenance et paquet de revue', 'P1'),
+    item('MEL-COUNCIL-03', 'Teacher escalation vers ChatGPT/autres IA', 'PARTIAL', 'Standardiser provenance, paquet de revue et handoff avec le protocole multi-IA canonique', 'P1'),
     item('MEL-COUNCIL-04', 'Apprentissage du meilleur modèle selon la tâche', 'PLANNED', 'Stocker score qualité/coût/latence par tâche', 'P1')
   ]),
 
@@ -91,13 +91,13 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-EVOL-05', 'Skill Registry durable', 'PLANNED', 'Compiler les acquis système dans un registre portable', 'P1'),
     item('MEL-EVOL-06', 'Fine-tuning / LoRA open-weight optionnel', 'PLANNED', 'Séparer apprentissage système et poids du modèle', 'P3'),
     item('GEN2-18', 'Self Healing contrôlé', 'PLANNED', 'Limiter à détection, rollback approuvé et réparation testée', 'P2'),
-    item('GEN2-20', 'Learning Engine', 'PARTIAL', 'Étendre les leçons validées aux cycles autonomes; conserver la provenance CI avant correction comme invariant testable', 'P1')
+    item('GEN2-20', 'Learning Engine', 'PARTIAL', 'Corpus XP développement canonique et protocole d’envoi ajoutés; brancher automatiquement les handoffs validés aux cycles autonomes en conservant provenance et déduplication', 'P1')
   ]),
 
   phase('P07', 'Work, agents et automatisations', [
     item('MEL-WORK-01', 'Work Engine persistant', 'PARTIAL', 'État de tâche, artefacts, checkpoints, reprise', 'P0'),
     item('GEN2-38', 'Tasks / goals / planning', 'PARTIAL', 'Créer planning engine unique', 'P1'),
-    item('GEN2-39', 'Agents / automations', 'PLANNED', 'Exécution par capacités et permission tiers', 'P1'),
+    item('GEN2-39', 'Agents / automations', 'PARTIAL', 'Brancher MULTI_AI_PROTOCOL au Work Engine/Council pour orchestration runtime et réservations de lots', 'P1'),
     item('GEN2-40', 'Event Bus idempotent / follow-ups', 'PLANNED', 'Transporter événements et relances idempotentes entre services', 'P1'),
     item('GEN2-41', 'Notifications', 'PLANNED', 'Web Push + compagnons', 'P2'),
     item('MEL-WORK-02', 'Planifier, reprendre et terminer un travail multi-étapes', 'PARTIAL', 'Prouver reprise et terminaison sur plusieurs cycles autonomes cohérents', 'P0'),
