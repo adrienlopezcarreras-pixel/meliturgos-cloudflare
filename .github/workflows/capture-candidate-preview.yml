@@ -37,6 +37,51 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      - name: Verify deployed browser login surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://meliturgos-preview.adrien-lopezcarreras.workers.dev'
+          ready=0
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            : > unauth-headers.txt
+            status=$(curl --silent --show-error --max-time 30 \
+              --dump-header unauth-headers.txt \
+              --output /dev/null \
+              --write-out '%{http_code}' \
+              "${base}/" || true)
+            location=$(awk 'BEGIN{IGNORECASE=1} /^location:/{gsub(/\r/,""); print $2}' unauth-headers.txt | tail -n1)
+            if [ "$status" = '303' ] && [ "$location" = '/__preview/login' ]; then
+              ready=1
+              break
+            fi
+            sleep 3
+          done
+          test "$ready" -eq 1
+
+          login_status=$(curl --silent --show-error --max-time 30 \
+            --output preview-login.html \
+            --write-out '%{http_code}' \
+            "${base}/__preview/login")
+          test "$login_status" = '200'
+          grep -Fq 'Connexion à MEL' preview-login.html
+          grep -Fq 'action="/__preview/login"' preview-login.html
+
+          wrong_status=$(curl --silent --show-error --max-time 30 \
+            --dump-header wrong-login-headers.txt \
+            --output wrong-login.html \
+            --write-out '%{http_code}' \
+            --data-urlencode 'username=adrien' \
+            --data-urlencode 'password=definitely-not-the-owner-password' \
+            "${base}/__preview/login")
+          test "$wrong_status" = '401'
+          grep -Fq 'Identifiant ou mot de passe incorrect.' wrong-login.html
+          if grep -Eiq '^www-authenticate:' wrong-login-headers.txt; then
+            echo 'Legacy browser Basic challenge leaked into the new login flow' >&2
+            exit 1
+          fi
+          echo 'Deployed browser login surface verified.'
+
       - name: Fetch exact authenticated preview HTML
         shell: bash
         run: |
