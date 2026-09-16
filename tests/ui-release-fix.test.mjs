@@ -8,9 +8,9 @@ async function text(path) {
   return readFile(new URL(path, root), 'utf8');
 }
 
-test('production entry routes through the release UI repair wrapper', async () => {
+test('production entry routes through the Professor live-learning wrapper', async () => {
   const wrangler = await text('wrangler.jsonc');
-  assert.match(wrangler, /"main"\s*:\s*"src\/ui-release-fix-entry\.js"/);
+  assert.match(wrangler, /"main"\s*:\s*"src\/professor-live-learning-entry\.js"/);
 });
 
 test('full mode forces the embedded MEL portrait and explains live states', async () => {

@@ -1,92 +1,34 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
-import { onRequestGet } from '../src/pages/mvp-interface.js';
+import { onRequestGet as legacyMvp } from '../src/pages/mvp-interface.js';
 import { withConversationArchive } from '../src/conversations/intercept.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import worker from '../src/index.js';
 
-const tick = () => new Promise(resolve => setTimeout(resolve, 30));
+function auth() { return { authorization: `Basic ${Buffer.from('test:test-only').toString('base64')}` }; }
 
-async function ui(chatFetch) {
-  const html = await (await onRequestGet({})).text();
-  const dom = new JSDOM(html, {
-    url: 'http://localhost',
-    runScripts: 'dangerously',
-    beforeParse(window) {
-      window.fetch = chatFetch;
-      window.AbortSignal = AbortSignal;
-    },
-  });
-  await tick();
-  return dom;
-}
-
-test('MEL MVP has the requested single-window interface without redundant title, conversation selector or skills button', async () => {
-  const html = await (await onRequestGet({})).text();
-  assert.match(html, /<title>MEL<\/title>/);
-  assert.match(html, /rel="icon"[^>]+meliturgos-avatar-fille\.png/);
-  assert.doesNotMatch(html, /<div class="title">MEL<\/div>/);
-  assert.doesNotMatch(html, /conversationSelect|newConversation|interaction_count/i);
-  assert.match(html, /id="messages"/);
-  assert.match(html, /id="input"/);
-  assert.match(html, /id="send"/);
-  assert.match(html, /id="full"/);
-  assert.match(html, /id="fileInput"/);
-  assert.doesNotMatch(html, /id="skills"|id="skillsPanel"|id="skillsList"/);
-  assert.match(html, /min-width:188px/);
-  assert.match(html, /maxlength="100000"/);
-  assert.match(html, /Paladin Light Full Plate/);
-  assert.match(html, /Amazon · Diadème du Griffon/);
+test('legacy MVP entry redirects permanently to the canonical Professor UI without caching', async () => {
+  const response = await legacyMvp({});
+  assert.equal(response.status, 308);
+  assert.equal(response.headers.get('location'), '/professor');
+  assert.equal(response.headers.get('cache-control'), 'no-store');
 });
 
-test('MVP sends text with current theme/context, renders answer in the same window and prevents double send', async () => {
-  const calls = [];
-  let finish;
-  const dom = await ui((path, init) => {
-    calls.push({ path, body: JSON.parse(init.body) });
-    return new Promise(resolve => { finish = resolve; });
-  });
-  const document = dom.window.document;
-  document.querySelector('#input').value = 'Bonjour';
-  document.querySelector('#send').click();
-  document.querySelector('#send').click();
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].path, '/api/chat');
-  assert.equal(calls[0].body.text, 'Bonjour');
-  assert.ok(calls[0].body.conversation_id);
-  assert.equal(calls[0].body.ui_theme, 'classic');
-  assert.equal(calls[0].body.intent_context?.surface, 'mel-mvp');
-  assert.match(document.querySelector('#status').textContent, /Réflexion|réfléchit|réagit/i);
-  finish(Response.json({ text: 'Bonjour Adrien' }));
-  await tick();
-  assert.match(document.querySelector('#messages').textContent, /Bonjour Adrien/);
-  assert.equal(document.querySelector('#input').value, '');
-  dom.window.close();
-});
-
-test('MVP keeps draft on failure and renders text safely', async () => {
-  const dom = await ui(async () => Response.json({ error: 'failed' }, { status: 503 }));
-  const document = dom.window.document;
-  const payload = '<img src=x onerror=alert(1)>';
-  document.querySelector('#input').value = payload;
-  document.querySelector('#send').click();
-  await tick();
-  assert.match(document.querySelector('#status').textContent, /indisponible|failed/i);
-  assert.equal(document.querySelector('#input').value, payload);
-  assert.equal(document.querySelectorAll('#messages img').length, 0);
-  assert.equal(document.querySelector('#send').disabled, false);
-  dom.window.close();
-});
-
-test('MVP exposes all seven visual choices while capability inspection remains a chat/runtime concern', async () => {
-  const dom = await ui(async () => Response.json({ text: 'ok' }));
-  const document = dom.window.document;
-  const choices = [...document.querySelectorAll('[data-theme-choice]')].map(node => node.dataset.themeChoice);
-  assert.deepEqual(choices, ['classic','crusade','religious','granada','aviation','paladin','amazon']);
-  assert.equal(document.querySelector('#skills'), null);
-  assert.equal(document.querySelector('#skillsPanel'), null);
-  dom.window.close();
+test('canonical Professor UI is served by the real entrypoint', async () => {
+  const DB = sqliteD1();
+  const env = { DB, MELITURGOS_USER: 'test', MELITURGOS_PASSWORD: 'test-only' };
+  try {
+    const response = await worker.fetch(new Request('http://localhost/professor', { headers: auth() }), env);
+    const html = await response.text();
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /^text\/html/);
+    assert.match(html, /<title>Mode complet<\/title>/);
+    assert.match(html, /data-panel="chat"/);
+    assert.match(html, /id="chatInput"/);
+    assert.match(html, /id="chatSend"/);
+    assert.match(html, /data-panel="roadmap"/);
+    assert.match(html, /data-panel="work"/);
+  } finally { DB.close(); }
 });
 
 test('archive survives request consumption and stores text, device, model and attachments', async () => {

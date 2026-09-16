@@ -6,18 +6,15 @@ import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 function env() { return { DB: sqliteD1(), MELITURGOS_USER: 'test', MELITURGOS_PASSWORD: 'test-only' }; }
 function auth() { return { authorization: `Basic ${Buffer.from('test:test-only').toString('base64')}` }; }
 
-test('active entrypoint protects and serves both canonical MVP routes', async () => {
+test('active entrypoint protects legacy MVP routes and redirects authenticated requests to canonical Professor', async () => {
   const e = env();
   try {
     for (const path of ['/', '/mvp']) {
       assert.equal((await worker.fetch(new Request(`http://localhost${path}`), e)).status, 401);
       const response = await worker.fetch(new Request(`http://localhost${path}`, { headers: auth() }), e);
-      assert.equal(response.status, 200);
-      assert.match(response.headers.get('content-type'), /^text\/html/);
-      const html = await response.text();
-      assert.match(html, /<title>MEL<\/title>/);
-      assert.match(html, /data-theme="classic"/);
-      assert.match(html, /id="messages"/);
+      assert.equal(response.status, 308);
+      assert.equal(response.headers.get('location'), '/professor');
+      assert.equal(response.headers.get('cache-control'), 'no-store');
     }
   } finally { e.DB.close(); }
 });
