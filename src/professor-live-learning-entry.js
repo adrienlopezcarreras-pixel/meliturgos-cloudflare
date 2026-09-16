@@ -49,12 +49,18 @@ async function operatorBenchmarkResponse(request, env) {
     const result = await runOperatorBenchmark(env);
     return json({ ok: true, ...result });
   } catch (error) {
-    const unavailable = error?.code === 'AI_BINDING_UNAVAILABLE';
+    const code = String(error?.code || '');
+    const unavailable = code === 'AI_BINDING_UNAVAILABLE';
+    const invalidModel = code === 'BENCHMARK_MODEL_NOT_VERIFIED_ZERO_COST';
     return json({
       ok: false,
-      error: unavailable ? 'BENCHMARK_AI_UNAVAILABLE' : 'BENCHMARK_RUN_FAILED',
+      error: unavailable
+        ? 'BENCHMARK_AI_UNAVAILABLE'
+        : invalidModel
+          ? 'BENCHMARK_MODEL_NOT_VERIFIED_ZERO_COST'
+          : 'BENCHMARK_RUN_FAILED',
       detail: String(error?.message || 'unknown').slice(0, 220),
-    }, unavailable ? 503 : 500);
+    }, unavailable ? 503 : invalidModel ? 409 : 500);
   }
 }
 
@@ -113,26 +119,33 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
   const xp=value=>Number(value||0).toLocaleString('fr-FR')+' XP';
   const shortSha=value=>value?String(value).slice(0,8):null;
   const humanBenchmarkStatus=value=>({RAN:'mesuré',MEASURED:'mesuré',NOT_DUE:'à jour',DUE:'dû',SKIPPED_EVALUATOR_UNAVAILABLE:'dû · évaluateur indisponible',FAILED:'échec',NO_MEASUREMENT:'aucune mesure'})[String(value||'')]||String(value||'inconnu').toLowerCase();
+
   function ensureDetailRows(){
     const details=q('#learningDetails');
     const grid=details?.firstElementChild;
     if(!grid||q('#learnProjectExperience'))return;
+    // #learnBenchmark already exists in the base learning meter. Do not create
+    // a second element with the same id; the live renderer updates that row.
     const rows=[
       ['Leçons projet','learnProjectExperience'],
       ['Source XP','learnXpSource'],
       ['XP observée','learnObservedXp'],
-      ['Benchmark','learnBenchmark'],
       ['Gain benchmark','learnBenchmarkGain'],
       ['LoRA','learnLora'],
       ['Adaptateurs actifs','learnLoraAdapters'],
       ['Dernière mesure','learnMeasuredAt'],
     ];
     for(const [label,id] of rows){
-      const span=document.createElement('span');span.style.color='#b6c2d2';span.textContent=label;
-      const strong=document.createElement('strong');strong.id=id;strong.textContent='—';
+      const span=document.createElement('span');
+      span.style.color='#b6c2d2';
+      span.textContent=label;
+      const strong=document.createElement('strong');
+      strong.id=id;
+      strong.textContent='—';
       grid.append(span,strong);
     }
   }
+
   function ensureOperatorControls(){
     const details=q('#learningDetails');
     if(!details||q('#melLearningOperatorControls'))return;
@@ -140,31 +153,56 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
     wrap.id='melLearningOperatorControls';
     wrap.style.cssText='display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;padding-top:10px;border-top:1px solid rgba(148,163,184,.22)';
     const benchmark=document.createElement('button');
-    benchmark.id='melRunBenchmark';benchmark.type='button';benchmark.textContent='Lancer benchmark';
+    benchmark.id='melRunBenchmark';
+    benchmark.type='button';
+    benchmark.textContent='Lancer benchmark';
     benchmark.style.cssText='border:1px solid #64748b;border-radius:8px;padding:7px 10px;background:#172033;color:#f8fafc;cursor:pointer';
     const lora=document.createElement('button');
-    lora.id='melPrepareLora';lora.type='button';lora.textContent='Préparer LoRA';
+    lora.id='melPrepareLora';
+    lora.type='button';
+    lora.textContent='Préparer LoRA';
     lora.style.cssText=benchmark.style.cssText;
     const state=document.createElement('span');
-    state.id='melLearningActionState';state.style.cssText='font-size:12px;color:#b6c2d2';state.textContent='Actions opérateur prêtes';
-    wrap.append(benchmark,lora,state);details.append(wrap);
-    benchmark.addEventListener('click',()=>runAction(benchmark,'/api/learning/benchmark/run','Benchmark en cours…',data=>{
-      const score=data?.benchmark?.score;
-      const count=data?.benchmark?.case_count;
-      return 'Benchmark terminé · '+pct(score)+(count!=null?' · '+count+' cas':'');
-    }));
-    lora.addEventListener('click',()=>runAction(lora,'/api/learning/lora/prepare','Préparation LoRA…',data=>{
-      const status=data?.plan?.status||data?.plan?.readiness?.status||'plan enregistré';
-      const trainer=data?.trainer?.available===true?'trainer disponible':'entraînement externe non lancé';
-      return 'LoRA '+String(status).toLowerCase()+' · '+trainer;
-    }));
+    state.id='melLearningActionState';
+    state.style.cssText='font-size:12px;color:#b6c2d2';
+    state.textContent='Actions opérateur prêtes';
+    wrap.append(benchmark,lora,state);
+    details.append(wrap);
+
+    benchmark.addEventListener('click',()=>runAction(
+      benchmark,
+      '/api/learning/benchmark/run',
+      'Benchmark en cours…',
+      data=>{
+        const score=data?.benchmark?.score;
+        const count=data?.benchmark?.case_count;
+        return 'Benchmark terminé · '+pct(score)+(count!=null?' · '+count+' cas':'');
+      }
+    ));
+    lora.addEventListener('click',()=>runAction(
+      lora,
+      '/api/learning/lora/prepare',
+      'Préparation LoRA…',
+      data=>{
+        const status=data?.plan?.status||data?.plan?.readiness?.status||'plan enregistré';
+        const trainer=data?.trainer?.available===true?'trainer disponible':'entraînement externe non lancé';
+        return 'LoRA '+String(status).toLowerCase()+' · '+trainer;
+      }
+    ));
   }
+
   async function runAction(button,url,busyLabel,formatResult){
     const state=q('#melLearningActionState');
     if(button)button.disabled=true;
     if(state)state.textContent=busyLabel;
     try{
-      const response=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:'{}',cache:'no-store',credentials:'same-origin'});
+      const response=await fetch(url,{
+        method:'POST',
+        headers:{'content-type':'application/json'},
+        body:'{}',
+        cache:'no-store',
+        credentials:'same-origin'
+      });
       const data=await response.json().catch(()=>({}));
       if(!response.ok||data.ok===false)throw new Error(data.detail||data.error||('HTTP_'+response.status));
       if(state)state.textContent=formatResult(data);
@@ -175,6 +213,7 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
       if(button)button.disabled=false;
     }
   }
+
   function render(d){
     if(!d||d.ok===false)return;
     ensureDetailRows();
@@ -200,9 +239,11 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
     const lora=loraState==='ACTIVE'?'LoRA actif':'LoRA '+loraState.toLowerCase();
     const loraDetail=loraState+(l.reason?' · '+String(l.reason):'')+(l.plan_id?' · plan '+String(l.plan_id).slice(0,26):'');
     const lessons=d.project_experience?.available?(Number(d.project_experience.count||0)+' leçons'):'leçons —';
+
     txt('#learnLevel',d.level??'—');
     txt('#learnRank',(d.rank||'')+' · '+p.toFixed(0)+'%');
-    const bar=q('#learnBar');if(bar)bar.style.width=p+'%';
+    const bar=q('#learnBar');
+    if(bar)bar.style.width=p+'%';
     txt('#learnXp',xp(d.canonical_xp??d.xp));
     txt('#learnMeta',Number(e.corrections_validated||0)+' corr. · '+lessons+' · '+bench+' · '+lora);
     txt('#learnNext',xp(d.xp_to_next_level));
@@ -218,6 +259,7 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
     const chip=q('#learningChip');
     if(chip)chip.title='Données live persistées · '+xp(d.canonical_xp??d.xp)+' · '+benchStatus+' · '+loraState+' · roadmap exclue';
   }
+
   async function refresh(){
     try{
       const response=await fetch('/api/learning/progress',{cache:'no-store',credentials:'same-origin'});
@@ -228,6 +270,7 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
       if(meta&&!meta.textContent.includes('indisponible'))meta.textContent+=' · live indisponible';
     }
   }
+
   function start(){
     ensureDetailRows();
     ensureOperatorControls();
@@ -235,7 +278,9 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
     if(timer)clearInterval(timer);
     timer=setInterval(refresh,30000);
   }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});
+  else start();
   window.addEventListener('focus',refresh);
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh()});
   window.addEventListener('beforeunload',()=>{if(timer)clearInterval(timer)},{once:true});
