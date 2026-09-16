@@ -13,11 +13,12 @@ async function text(path) {
 test('deployed worker exposes the canonical persistent autonomy heartbeat', async () => {
   const wrangler = JSON.parse(await text('wrangler.jsonc'));
 
-  assert.equal(wrangler.main, 'src/professor-live-learning-entry.js');
+  assert.equal(wrangler.main, 'src/preview-auth-entry.js');
   assert.deepEqual(wrangler.triggers?.crons, [AUTONOMY_RUNTIME_CRON]);
   assert.deepEqual(wrangler.env?.preview?.triggers?.crons, [], 'preview must not run a second heartbeat');
 
   const delegationChain = [
+    'src/preview-auth-entry.js',
     'src/professor-live-learning-entry.js',
     'src/ui-release-fix-entry.js',
     'src/ui-entry.js',
