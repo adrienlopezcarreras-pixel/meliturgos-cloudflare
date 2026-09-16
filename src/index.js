@@ -3,6 +3,7 @@ import router from "./router.js";
 import { requireAuth } from "./core/security.js";
 import { setDefaultCapabilityEnvironment } from "./capabilities/default-bus.js";
 import { importChatGPTArchive } from "./persistence/chatgpt-archive-importer.js";
+import { createMemoryExportResponse, runScheduledMemoryBackup } from "./persistence/memory-backup.js";
 import { runAugmentioStateOfPlay } from "./teachers/augmentio-council.js";
 import { prepareDevelopmentRequest } from "./evolution/development-preflight.js";
 import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
@@ -181,27 +182,7 @@ async function maybeHandleMemoryCompatibility(request, env) {
     }, { headers: { 'cache-control': 'no-store' } });
   }
 
-  const [memories, archiveMessages, conversations] = await Promise.all([
-    safeRows(env.DB, 'memories'),
-    safeRows(env.DB, 'archive_messages'),
-    safeRows(env.DB, 'conversations')
-  ]);
-  const payload = {
-    format: 'meliturgos-memory-export',
-    version: 1,
-    exported_at: new Date().toISOString(),
-    owner: env.MELITURGOS_USER || '',
-    memories,
-    conversations,
-    archive_messages: archiveMessages
-  };
-  return new Response(JSON.stringify(payload, null, 2), {
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'content-disposition': `attachment; filename="meliturgos-memory-${new Date().toISOString().slice(0,10)}.json"`,
-      'cache-control': 'no-store'
-    }
-  });
+  return createMemoryExportResponse(env);
 }
 
 async function maybeHandleSafeWork(request, env) {
@@ -380,11 +361,19 @@ export default {
   },
 
   async scheduled(_controller, env, ctx) {
-    const work = runAutonomyRuntimeTick(env).catch((error) => {
+    const autonomyWork = runAutonomyRuntimeTick(env).catch((error) => {
       console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
       return null;
     });
-    if (ctx?.waitUntil) ctx.waitUntil(work);
-    else await work;
+    const backupWork = runScheduledMemoryBackup(env).catch((error) => {
+      console.error('[MEL backup] scheduled backup failed:', error?.code || error?.message || error);
+      return null;
+    });
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(autonomyWork);
+      ctx.waitUntil(backupWork);
+    } else {
+      await Promise.all([autonomyWork, backupWork]);
+    }
   }
 };

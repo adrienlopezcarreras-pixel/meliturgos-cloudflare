@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import worker from '../src/index.js';
 import {
   buildMemoryExportPayload,
   createMemoryExportResponse,
   memoryBackupKey,
   runScheduledMemoryBackup
 } from '../src/persistence/memory-backup.js';
-import { createWorkerEntrypoint } from '../src/worker-entry.js';
 
 function mockDb(data) {
   return {
@@ -85,42 +85,29 @@ test('scheduled backup is daily and idempotent', async () => {
   assert.equal(puts, 0);
 });
 
-test('worker entrypoint preserves the autonomy scheduler while adding backup work', async () => {
-  let baseScheduled = 0;
-  let backupScheduled = 0;
+test('canonical scheduler runs backup independently from the autonomy tick', async () => {
+  const writes = [];
   const registered = [];
-  const baseWorker = {
-    async fetch() { return new Response('delegated'); },
-    async scheduled(_controller, _env, ctx) {
-      baseScheduled += 1;
-      ctx.waitUntil(Promise.resolve('autonomy'));
+  const env = {
+    MELITURGOS_USER: 'adrien',
+    DB: mockDb({ memories: [], conversations: [], archive_messages: [] }),
+    MEDIA_BUCKET: {
+      async head() { return null; },
+      async put(key, body, options) { writes.push({ key, body, options }); }
     }
   };
-  const entrypoint = createWorkerEntrypoint(baseWorker, {
-    backupRunner: async () => {
-      backupScheduled += 1;
-      return { ok: true };
-    }
-  });
   const ctx = { waitUntil(promise) { registered.push(Promise.resolve(promise)); } };
 
-  await entrypoint.scheduled({}, {}, ctx);
+  await worker.scheduled({}, env, ctx);
   await Promise.all(registered);
 
-  assert.equal(baseScheduled, 1);
-  assert.equal(backupScheduled, 1);
   assert.equal(registered.length, 2);
+  assert.equal(writes.length, 1);
+  assert.match(writes[0].key, /^backups\/memory\/\d{4}-\d{2}-\d{2}\.json$/);
+  assert.equal(JSON.parse(writes[0].body).format, 'meliturgos-memory-export');
 });
 
-test('/api/export is served by the shared exporter instead of the legacy handler', async () => {
-  let delegated = false;
-  const baseWorker = {
-    async fetch() {
-      delegated = true;
-      return new Response('legacy');
-    }
-  };
-  const entrypoint = createWorkerEntrypoint(baseWorker);
+test('/api/export uses the shared portable exporter on the canonical worker', async () => {
   const auth = Buffer.from('adrien:secret', 'utf8').toString('base64');
   const request = new Request('https://mel.example/api/export', {
     headers: { Authorization: `Basic ${auth}` }
@@ -131,8 +118,13 @@ test('/api/export is served by the shared exporter instead of the legacy handler
     DB: mockDb({ memories: [], conversations: [], archive_messages: [] })
   };
 
-  const response = await entrypoint.fetch(request, env, {});
+  const response = await worker.fetch(request, env, {});
   assert.equal(response.status, 200);
-  assert.equal(delegated, false);
-  assert.equal((await response.json()).format, 'meliturgos-memory-export');
+  assert.match(response.headers.get('content-disposition'), /meliturgos-memory-\d{4}-\d{2}-\d{2}\.json/);
+  const payload = await response.json();
+  assert.equal(payload.format, 'meliturgos-memory-export');
+  assert.equal(payload.version, 1);
+  assert.deepEqual(payload.memories, []);
+  assert.deepEqual(payload.conversations, []);
+  assert.deepEqual(payload.archive_messages, []);
 });
