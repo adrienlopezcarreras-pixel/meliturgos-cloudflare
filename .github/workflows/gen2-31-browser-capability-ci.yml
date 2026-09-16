@@ -1,0 +1,54 @@
+name: gen2-31-browser-capability-ci
+
+on:
+  push:
+    branches:
+      - 'roadmap/gen2-31-browser-capability-chat'
+    paths:
+      - 'src/devices/browser-capability.js'
+      - 'tests/gen2/browser-capability.test.mjs'
+      - '.github/workflows/gen2-31-browser-capability-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Browser capability syntax
+        run: node --check src/devices/browser-capability.js
+      - name: Browser capability tests
+        run: node --test tests/gen2/browser-capability.test.mjs
+      - name: Full syntax gate
+        run: npm run check
+      - name: Full regression suite
+        shell: bash
+        run: |
+          # One legacy self-dev invariant hardcodes candidate/mel-clean-autonomy as
+          # the outer local branch. Rename only the ephemeral runner branch so the
+          # invariant tests branch preservation rather than GitHub ref naming.
+          git branch -m candidate/mel-clean-autonomy
+          set +e
+          npm test 2>&1 | tee gen2-31-full-test.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> gen2-31-full-test.log
+          exit $code
+      - name: Preserve regression report on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-31-full-test-report
+          path: gen2-31-full-test.log
+          retention-days: 1
