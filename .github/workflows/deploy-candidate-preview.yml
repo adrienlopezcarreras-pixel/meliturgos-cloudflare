@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - candidate/mel-clean-autonomy
+      - candidate/professor-tests-20260916
   workflow_dispatch:
 
 permissions:
@@ -30,10 +31,13 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
 
-      - name: Verify canonical candidate branch
+      - name: Verify allowed candidate branch
         shell: bash
         run: |
-          test "${GITHUB_REF_NAME}" = "candidate/mel-clean-autonomy"
+          case "${GITHUB_REF_NAME}" in
+            candidate/mel-clean-autonomy|candidate/professor-tests-20260916) ;;
+            *) echo "Unexpected candidate branch: ${GITHUB_REF_NAME}"; exit 1 ;;
+          esac
           echo "Preparing isolated preview for ${GITHUB_SHA} from ${GITHUB_REF_NAME}"
 
       - name: Syntax gate

@@ -5,6 +5,7 @@ on:
     branches:
       - candidate/augmentio-core
       - candidate/mel-clean-autonomy
+      - candidate/professor-tests-20260916
   workflow_dispatch:
 
 permissions:

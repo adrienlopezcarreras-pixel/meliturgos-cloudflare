@@ -6,6 +6,7 @@ on:
       - 'candidate/augmentio-core'
       - 'candidate/mel-ui-selfaware-integration'
       - 'candidate/mel-clean-autonomy'
+      - 'candidate/professor-tests-20260916'
   workflow_dispatch:
 
 permissions:
