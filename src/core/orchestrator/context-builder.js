@@ -1,3 +1,5 @@
+import { buildContextInterpreterInstruction } from './context-interpreter.js';
+
 /** Single context assembly point for chat. Retrieved records are data with
  * provenance, never instructions. Output is ModelRouter-compatible messages.
  */
@@ -82,6 +84,7 @@ export function boundRecentMessages(recent = [], {
 
 export function buildContext({ system, recent = [], retrieved = null, toolResults = [], current }) {
   const messages = [{ role: 'system', content: String(system || '') }];
+  messages[0].content += `\n\n${buildContextInterpreterInstruction(current)}`;
   if (retrieved?.prompt) messages[0].content += retrieved.prompt;
 
   if (toolResults.length) {
