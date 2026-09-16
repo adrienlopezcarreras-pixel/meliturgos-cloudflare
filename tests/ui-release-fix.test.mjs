@@ -8,11 +8,14 @@ async function text(path) {
   return readFile(new URL(path, root), 'utf8');
 }
 
-test('production entry preserves the verified release UI wrapper under live-learning', async () => {
+test('production entry preserves the verified release UI wrapper under preview auth and live-learning', async () => {
   const wrangler = await text('wrangler.jsonc');
+  const previewAuth = await text('src/preview-auth-entry.js');
   const live = await text('src/professor-live-learning-entry.js');
   const release = await text('src/ui-release-fix-entry.js');
-  assert.match(wrangler, /"main"\s*:\s*"src\/professor-live-learning-entry\.js"/);
+  assert.match(wrangler, /"main"\s*:\s*"src\/preview-auth-entry\.js"/);
+  assert.match(previewAuth, /import\s+app\s+from\s+['"]\.\/professor-live-learning-entry\.js['"]/);
+  assert.match(previewAuth, /async\s+scheduled\s*\([^)]*\)\s*\{[\s\S]*app\.scheduled\(controller,\s*env,\s*ctx\)/);
   assert.match(live, /import\s+app\s+from\s+['"]\.\/ui-release-fix-entry\.js['"]/);
   assert.match(release, /import\s+app\s+from\s+['"]\.\/ui-entry\.js['"]/);
   assert.match(live, /\/api\/learning\/progress/);
