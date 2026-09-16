@@ -31,10 +31,18 @@ const canonicalApiPaths = Object.freeze([
   '/api/dev-bridge/jobs',
 ]);
 
+function sourceHasHtmlId(source, id) {
+  return source.includes(`id="${id}"`) || source.includes(`id=\\"${id}\\"`);
+}
+
+function sourceHasHref(source, href) {
+  return source.includes(`href="${href}"`) || source.includes(`href=\\"${href}\\"`);
+}
+
 test('every canonical Professor button has a concrete client-side handler', async () => {
   const source = await read('src/pages/full-interface-v2.js');
   for (const [id, evidence] of Object.entries(canonicalButtonHandlers)) {
-    assert.match(source, new RegExp(`id=\\\\?"${id}\\\\?"`), `missing button #${id}`);
+    assert.ok(sourceHasHtmlId(source, id), `missing button #${id}`);
     for (const token of evidence) assert.ok(source.includes(token), `button #${id} lost handler evidence: ${token}`);
   }
   assert.ok(source.includes("qsa('#nav button').forEach"), 'navigation buttons lost generic handler');
@@ -54,7 +62,7 @@ test('every API path called by canonical Professor is implemented in the active 
     assert.ok(page.includes(path), `canonical UI no longer references expected path ${path}`);
     assert.ok(backend.includes(path), `backend route missing for canonical UI path ${path}`);
   }
-  assert.ok(page.includes('href=\\"/professor-legacy\\"') || page.includes('href="/professor-legacy"'));
+  assert.ok(sourceHasHref(page, '/professor-legacy'), 'legacy compatibility link missing in Professor');
   assert.ok(router.includes('/professor-legacy'), 'legacy compatibility link has no backend route');
 });
 
