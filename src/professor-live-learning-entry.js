@@ -1,5 +1,6 @@
 import app from './ui-release-fix-entry.js';
 import { requireAuth } from './core/security.js';
+import { authorizeDevBridge } from './core/dev-bridge-auth.js';
 import { createLearningEngine } from './learning/learning-engine.js';
 import { getLiveLearningProgress } from './learning/live-progress.js';
 
@@ -116,6 +117,10 @@ async function enhanceProfessorLearning(response, pathname) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith('/api/dev-bridge/')) {
+      const denied = authorizeDevBridge(request, env);
+      if (denied) return denied;
+    }
     if (request.method === 'GET' && url.pathname === '/api/learning/progress') {
       return liveLearningProgressResponse(request, env);
     }
