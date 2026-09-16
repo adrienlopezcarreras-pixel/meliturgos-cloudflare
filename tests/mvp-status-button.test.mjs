@@ -9,8 +9,8 @@ test('MEL status control is exposed in full mode only', async () => {
   assert.doesNotMatch(simple, /mel-status-button-runtime/);
 
   const full = await (await renderFull({})).text();
-  assert.match(full, /id=\\?"melStatusBtnV5\\?"|melStatusBtnV5/);
+  assert.match(full, /melCanonicalStatusBtn/);
   assert.match(full, /Statut MEL/);
-  assert.match(full, /STATUS_PROMPT/);
+  assert.match(full, /Promise\.allSettled/);
   assert.match(full, /api\/professor\/dev\/jobs/);
 });

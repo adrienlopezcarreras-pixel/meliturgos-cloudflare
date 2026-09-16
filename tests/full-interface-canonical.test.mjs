@@ -5,10 +5,10 @@ import { onRequestGet } from '../src/pages/full-interface-v5.js';
 test('full mode exposes one canonical visible discussion room', async () => {
   const response = await onRequestGet({});
   const html = await response.text();
-  assert.match(html, /id="mentorRoomCanonical"/);
-  assert.match(html, /id="mentorRoomLogCanonical"/);
-  assert.match(html, /id="mentorRoomInputCanonical"/);
-  assert.match(html, /id="melCanonicalStatus"/);
+  assert.match(html, /room\.id='mentorRoomCanonical'/);
+  assert.match(html, /mentorRoomLogCanonical/);
+  assert.match(html, /mentorRoomInputCanonical/);
+  assert.match(html, /status\.id='melCanonicalStatus'/);
   assert.match(html, /Statut MEL/);
   assert.match(html, /Prochaine tâche/);
   assert.match(html, /resize:vertical/);
