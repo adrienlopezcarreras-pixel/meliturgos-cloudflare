@@ -2,13 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
+const outerEntry = await readFile(new URL('../src/preview-auth-entry.js', import.meta.url), 'utf8');
 const entry = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
 const mvp = await readFile(new URL('../src/pages/mvp-interface.js', import.meta.url), 'utf8');
 const enhancer = await readFile(new URL('../src/pages/theme-avatar-enhancer.js', import.meta.url), 'utf8');
 const wrangler = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
 
-test('deployed entrypoint retains the compatibility theme enhancer after the release pipeline', () => {
-  assert.match(wrangler, /"main"\s*:\s*"src\/professor-live-learning-entry\.js"/);
+test('deployed entrypoint keeps preview auth outermost and retains the compatibility theme enhancer', () => {
+  assert.match(wrangler, /"main"\s*:\s*"src\/preview-auth-entry\.js"/);
+  assert.match(outerEntry, /import app from '\.\/professor-live-learning-entry\.js';/);
+  assert.match(outerEntry, /bridgePreviewBasicAuth\(request, env\)/);
   assert.match(entry, /import \{ enhanceThemeAvatars \} from '\.\/pages\/theme-avatar-enhancer\.js';/);
   assert.match(entry, /url\.pathname === '\/' \|\| url\.pathname === '\/mvp'/);
   const fetchIndex = entry.indexOf('await app.fetch(request, env, ctx)');
