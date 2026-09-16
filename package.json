@@ -14,6 +14,8 @@
     "test:openhands": "node --test tests/gen2/contracts.test.mjs",
     "test:integration": "node --test tests/integration/gen2-flow.test.mjs tests/integration/dev-media-flow.test.mjs tests/integration/local-services.test.mjs tests/integration/ninjachat-fallback.test.mjs tests/integration/d1-runtime.test.mjs tests/integration/dev-bridge.test.mjs tests/integration/dev-runtime-api.test.mjs tests/integration/self-dev-e2e.test.mjs",
     "test:mel": "node --test tests/integration/gen2-flow.test.mjs tests/integration/dev-media-flow.test.mjs tests/integration/local-services.test.mjs tests/integration/ninjachat-fallback.test.mjs tests/integration/d1-runtime.test.mjs tests/integration/dev-bridge.test.mjs tests/integration/dev-runtime-api.test.mjs tests/integration/self-dev-e2e.test.mjs",
+    "test:teacher": "node --test tests/integration/self-dev-e2e.test.mjs tests/integration/release-gates.test.mjs",
+    "test:release-gates": "node --test tests/integration/release-gates.test.mjs",
     "test:acceptance": "node --test tests/integration/acceptance-flow.test.mjs",
     "mel:dev-bridge": "node scripts/mel-dev-bridge.mjs",
     "test:mvp": "node --test tests/mvp-product.test.mjs",
