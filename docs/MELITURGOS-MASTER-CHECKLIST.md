@@ -50,7 +50,7 @@
 | GEN2-44 | Observability / diagnostics | PARTIAL | Core | `worker.js` status/diagnostic | `orchestration-registry.test.mjs` | PARTIAL | pas d'audit persistant | AuditService persist |
 | GEN2-45 | Audit log | DONE | Core | `src/audit/audit-service.js` | — | NON_PROD | persistance future | Câbler persistance |
 | GEN2-46 | Secrets / authentication | PARTIAL | Core | `worker.js` authorized, secret() | `orchestration-registry.test.mjs` | PARTIAL | Basic Auth unique | Auth v2 future |
-| GEN2-47 | Backups / export | DONE_VERIFIED | Core, D1, R2, Scheduler | `src/persistence/memory-backup.js`, `src/worker-entry.js`, `/api/export` | `gen2-backup-export.test.mjs` | READY_FOR_RELEASE | — | Backup quotidien R2 idempotent via cron existant |
+| GEN2-47 | Backups / export | DONE_VERIFIED | Core, D1, R2, Scheduler | `src/index.js`, `src/persistence/memory-backup.js`, `/api/export` | `gen2-backup-export.test.mjs` (4/4 passing) | READY_FOR_RELEASE | — | Backup quotidien R2 idempotent via cron existant |
 | GEN2-48 | Restore / disaster recovery | PARTIAL | Backups | `backups/`, rollback.md | — | PARTIAL | pas testé end-to-end | Drill restore |
 | GEN2-49 | Portability | NOT_STARTED | Backups | `src/backup/` | — | NON_PROD | — | — |
 | GEN2-50 | MCP compatibility | NOT_STARTED | Capability Bus | `src/api/mcp/` | — | NON_PROD | — | — |
