@@ -36,13 +36,14 @@ test('operator benchmark executes model cases and persists measured evidence', a
     {},
     {
       createLearningEngine: () => engine,
-      runLearningBenchmark: async ({ respond, modelId, sourceSha }) => {
+      runLearningBenchmark: async ({ respond, modelId, sourceSha, metadata }) => {
         const output = await respond('Réponds 42.');
         return {
           benchmark_id: `test:${sourceSha}:${modelId}`,
           version: 'test-v1',
           model_id: modelId,
           source_sha: sourceSha,
+          metadata,
           case_count: 1,
           score: 1,
           cases: [{ id: 'case-1', domain: 'reasoning', output, weight: 1, score: 1 }],
@@ -54,6 +55,8 @@ test('operator benchmark executes model cases and persists measured evidence', a
   assert.equal(result.model_id, DEFAULT_OPERATOR_BENCHMARK_MODEL);
   assert.equal(result.source_sha, 'source-sha-123');
   assert.equal(result.benchmark.score, 1);
+  assert.equal(result.benchmark.metadata.source_sha, 'source-sha-123');
+  assert.equal(result.benchmark.metadata.model_id, DEFAULT_OPERATOR_BENCHMARK_MODEL);
   assert.equal(aiCalls.length, 1);
   assert.equal(aiCalls[0].model, DEFAULT_OPERATOR_BENCHMARK_MODEL);
   assert.equal(aiCalls[0].request.temperature, 0);
@@ -65,15 +68,16 @@ test('operator benchmark executes model cases and persists measured evidence', a
   assert.equal(recorded[0].metadata.measured_score, 1);
 });
 
-test('operator benchmark honors configured benchmark model but not request-side arbitrary model input', async () => {
+test('operator benchmark honors only a configured model that is explicitly zero-cost', async () => {
   const models = [];
   const engine = { async recordBenchmark(value) { return value; } };
+  const configuredModel = '@cf/google/gemma-3-12b-it';
   const result = await runOperatorBenchmark(
     {
       AI: { async run(model) { models.push(model); return { response: 'ok' }; } },
-      MEL_BENCHMARK_MODEL: '@cf/example/approved-model',
+      MEL_BENCHMARK_MODEL: configuredModel,
     },
-    { model_id: '' },
+    { model_id: '@cf/ignored/request-selected-model' },
     {
       createLearningEngine: () => engine,
       runLearningBenchmark: async ({ respond, modelId, sourceSha }) => ({
@@ -84,8 +88,20 @@ test('operator benchmark honors configured benchmark model but not request-side 
     },
   );
 
-  assert.equal(result.model_id, '@cf/example/approved-model');
-  assert.deepEqual(models, ['@cf/example/approved-model']);
+  assert.equal(result.model_id, configuredModel);
+  assert.deepEqual(models, [configuredModel]);
+});
+
+test('operator benchmark rejects an unknown or non-verified-cost configured model before calling AI', async () => {
+  let called = false;
+  await assert.rejects(
+    () => runOperatorBenchmark({
+      AI: { async run() { called = true; return { response: 'should-not-run' }; } },
+      MEL_BENCHMARK_MODEL: '@cf/example/unknown-cost-model',
+    }),
+    (error) => error?.code === 'BENCHMARK_MODEL_NOT_VERIFIED_ZERO_COST',
+  );
+  assert.equal(called, false);
 });
 
 test('LoRA preparation persists a plan and explicitly reports that no trainer is configured', async () => {
