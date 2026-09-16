@@ -9,6 +9,7 @@ const basic = 'Basic ' + btoa('adrien:mot-de-passe-habituel');
 function previewEnv(extra = {}) {
   return {
     MEL_RUNTIME_ENV: 'preview',
+    MEL_PREVIEW_ISOLATED: 'true',
     MELITURGOS_PASSWORD: 'preview-local-secret',
     MEL_PREVIEW_AUTH_VERIFY_URL: verifierUrl,
     ...extra,
