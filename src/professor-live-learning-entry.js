@@ -60,6 +60,11 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
   const q=s=>document.querySelector(s);
   const txt=(selector,value)=>{const node=q(selector);if(node)node.textContent=String(value??'—')};
   const pct=value=>value==null?'—':(Math.round(Number(value)*1000)/10)+'%';
+  const gain=value=>{
+    if(value==null||!Number.isFinite(Number(value)))return '—';
+    const points=Math.round(Number(value)*1000)/10;
+    return (points>0?'+':'')+points+' pt';
+  };
   const xp=value=>Number(value||0).toLocaleString('fr-FR')+' XP';
   function ensureDetailRows(){
     const details=q('#learningDetails');
@@ -69,6 +74,10 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
       ['Leçons projet','learnProjectExperience'],
       ['Source XP','learnXpSource'],
       ['XP observée','learnObservedXp'],
+      ['Benchmark','learnBenchmark'],
+      ['Gain benchmark','learnBenchmarkGain'],
+      ['LoRA','learnLora'],
+      ['Adaptateurs actifs','learnLoraAdapters'],
       ['Dernière mesure','learnMeasuredAt'],
     ];
     for(const [label,id] of rows){
@@ -82,22 +91,36 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
     ensureDetailRows();
     const e=d.evidence||{};
     const p=Math.max(0,Math.min(100,Number(d.level_progress_percent||0)));
+    const benchRuns=Math.max(0,Number(e.benchmark_runs||0));
+    const benchBase=e.benchmark_baseline_score;
+    const benchLatest=e.benchmark_latest_score;
+    const bench=benchLatest==null?'bench —':'bench '+pct(benchLatest);
+    const benchDetail=benchRuns<1
+      ? 'aucune mesure persistée'
+      : (benchBase==null
+        ? benchRuns+' run'+(benchRuns>1?'s':'')+' · latest '+pct(benchLatest)
+        : benchRuns+' run'+(benchRuns>1?'s':'')+' · '+pct(benchBase)+' → '+pct(benchLatest));
+    const adapterCount=Math.max(0,Number(e.active_adapter_count||0));
+    const loraActive=e.neural_weights_changed===true&&adapterCount>0;
+    const lora=loraActive?'LoRA actif':'LoRA inactif';
+    const lessons=d.project_experience?.available?(Number(d.project_experience.count||0)+' leçons'):'leçons —';
     txt('#learnLevel',d.level??'—');
     txt('#learnRank',(d.rank||'')+' · '+p.toFixed(0)+'%');
     const bar=q('#learnBar');if(bar)bar.style.width=p+'%';
     txt('#learnXp',xp(d.canonical_xp??d.xp));
-    const bench=e.benchmark_latest_score==null?'bench —':'bench '+pct(e.benchmark_latest_score);
-    const lora=e.neural_weights_changed?'LoRA actif':'LoRA inactif';
-    const lessons=d.project_experience?.available?(Number(d.project_experience.count||0)+' leçons'):'leçons —';
     txt('#learnMeta',Number(e.corrections_validated||0)+' corr. · '+lessons+' · '+bench+' · '+lora);
     txt('#learnNext',xp(d.xp_to_next_level));
     txt('#learnProjectExperience',d.project_experience?.available?(Number(d.project_experience.count||0)+' en mémoire active'):'indisponible');
     txt('#learnXpSource',d.xp_source==='verified-journal'?'journal XP vérifié':'rapport d’apprentissage courant');
     txt('#learnObservedXp',xp(d.observed_xp));
+    txt('#learnBenchmark',benchDetail);
+    txt('#learnBenchmarkGain',gain(e.benchmark_gain));
+    txt('#learnLora',loraActive?'actif · poids adaptateurs validés':'inactif · aucun adaptateur actif');
+    txt('#learnLoraAdapters',adapterCount.toLocaleString('fr-FR'));
     const measured=d.measured_at?new Date(d.measured_at):null;
     txt('#learnMeasuredAt',measured&&!Number.isNaN(measured.getTime())?measured.toLocaleString('fr-FR'):'—');
     const chip=q('#learningChip');
-    if(chip)chip.title='Données live · '+xp(d.canonical_xp??d.xp)+' · '+lessons+' · roadmap exclue';
+    if(chip)chip.title='Données live · '+xp(d.canonical_xp??d.xp)+' · '+bench+' · '+lora+' · roadmap exclue';
   }
   async function refresh(){
     try{
