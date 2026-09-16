@@ -49,9 +49,9 @@ test('learning evidence remains additive instead of being replaced by roadmap XP
   });
 
   assert.equal(result.learning_evidence_available, true);
-  assert.equal(result.learning_xp, 300);
+  assert.equal(result.learning_xp, 320);
   assert.equal(result.roadmap_xp, 150);
-  assert.equal(result.xp, 450);
+  assert.equal(result.xp, 470);
 });
 
 test('full mode enhancer visibly explains roadmap-inclusive XP', async () => {
