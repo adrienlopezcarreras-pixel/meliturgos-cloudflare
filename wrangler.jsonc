@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "meliturgos",
-  "main": "src/professor-live-learning-entry.js",
+  "main": "src/preview-auth-entry.js",
   "compatibility_date": "2026-09-04",
   "workers_dev": true,
   "assets": {
@@ -68,7 +68,8 @@
         "MEL_TEACHER_REPLIES_URL": "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/refs/heads/teacher-bridge/runtime/teacher-bridge/replies.jsonl",
         "MEL_TEACHER_COMPLETIONS_URL": "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/refs/heads/teacher-bridge/runtime/teacher-bridge/completions.jsonl",
         "MEL_RUNTIME_ENV": "preview",
-        "MEL_PREVIEW_ISOLATED": "true"
+        "MEL_PREVIEW_ISOLATED": "true",
+        "MEL_PREVIEW_AUTH_VERIFY_URL": "https://meliturgos.adrien-lopezcarreras.workers.dev/"
       }
     }
   }
