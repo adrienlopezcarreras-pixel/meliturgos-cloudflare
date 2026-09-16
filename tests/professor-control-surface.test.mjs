@@ -66,7 +66,7 @@ test('every API path called by canonical Professor is implemented in the active 
   assert.ok(router.includes('/professor-legacy'), 'legacy compatibility link has no backend route');
 });
 
-test('injected learning controls are wired to authenticated Worker endpoints', async () => {
+test('injected learning controls are wired to authenticated Worker endpoints without duplicate benchmark ids', async () => {
   const [entry, actions] = await Promise.all([
     read('src/professor-live-learning-entry.js'),
     read('src/learning/operator-actions.js'),
@@ -82,6 +82,20 @@ test('injected learning controls are wired to authenticated Worker endpoints', a
   assert.ok(actions.includes('recordBenchmark'), 'benchmark action must persist evidence');
   assert.ok(actions.includes('prepareLora'), 'LoRA action must build the persisted plan');
   assert.ok(actions.includes("available: false"), 'LoRA control must not pretend an external trainer exists');
+  assert.ok(!entry.includes("['Benchmark','learnBenchmark']"), 'live learning patch must reuse the base benchmark row instead of duplicating its id');
+});
+
+test('Professor Work routes remain usable with owner auth while privileged bridge routes keep bridge-token protection', async () => {
+  const [entry, index] = await Promise.all([
+    read('src/professor-live-learning-entry.js'),
+    read('src/index.js'),
+  ]);
+  assert.ok(entry.includes("'/api/dev-bridge/health'"), 'safe Work health path missing from Professor allowlist');
+  assert.ok(entry.includes("'/api/dev-bridge/jobs'"), 'safe Work jobs path missing from Professor allowlist');
+  assert.ok(entry.includes('!PROFESSOR_SAFE_DEV_BRIDGE_PATHS.has(url.pathname)'), 'bridge token protection must exclude only the safe Professor routes');
+  assert.ok(entry.includes('authorizeDevBridge(request, env)'), 'privileged dev-bridge paths must retain bridge-token authorization');
+  assert.ok(index.includes("mode: 'preflight-only'"), 'safe Professor Work route must remain preflight-only');
+  assert.ok(index.includes('requireAuth(request, env)'), 'safe Professor Work route must retain owner authentication');
 });
 
 test('live autonomy controls point to real authenticated autonomy endpoints', async () => {
