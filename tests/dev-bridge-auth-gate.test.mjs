@@ -26,7 +26,7 @@ test('dev bridge fails closed when its dedicated secret is absent', async () => 
 
 test('dev bridge rejects missing, malformed and incorrect bearer credentials', async () => {
   const env = { MEL_DEV_BRIDGE_TOKEN: 'correct-secret' };
-  for (const authorization of [undefined, '', 'Basic correct-secret', 'Bearer wrong-secret', 'Bearer correct-secret ']) {
+  for (const authorization of [undefined, '', 'Basic correct-secret', 'Bearer wrong-secret', 'Bearer  correct-secret']) {
     const response = authorizeDevBridge(request(authorization), env);
     assert.ok(response instanceof Response);
     assert.equal(response.status, 401);
