@@ -5,23 +5,26 @@ import { getMelAvatarRoute, serveMelAvatar } from '../src/pages/mel-avatar-asset
 import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
 import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface.js';
 
-test('each MEL visual mode resolves to its stable embedded fallback avatar route', async () => {
-  const cases = [
-    ['classic', '/assets/avatars/mel-classic.webp', 'classic'],
-    ['crusade', '/assets/avatars/mel-crusade.webp', 'crusade'],
-    ['religious', '/assets/avatars/mel-religious-andalusian.webp', 'religious'],
-    ['granada', '/assets/avatars/mel-granada.webp', 'granada'],
-    ['aviation', '/assets/avatars/mel-aviation-1940s.webp', 'aviation'],
-    ['paladin', '/assets/avatars/mel-paladin-light-full-plate.webp', 'paladin'],
-    ['amazon', '/assets/avatars/mel-amazon-griffon.webp', 'amazon'],
-  ];
-  for (const [theme, path, header] of cases) {
+const AVATARS = [
+  ['classic', '/assets/avatars/mel-classic.webp', 'avatarClassic'],
+  ['granada', '/assets/avatars/mel-granada.webp', 'avatarGranada'],
+  ['guadix', '/assets/avatars/mel-religious-andalusian.webp', 'avatarGuadix'],
+  ['crusade', '/assets/avatars/mel-crusade.webp', 'avatarCrusade'],
+  ['aviation', '/assets/avatars/mel-aviation-1940s.webp', 'avatarAviation'],
+  ['amazon', '/assets/avatars/mel-amazon-griffon.webp', 'avatarAmazon'],
+  ['paladin', '/assets/avatars/mel-paladin-light-full-plate.webp', 'avatarPaladin'],
+  ['futuristic', '/assets/avatars/mel-full.webp', 'avatarFuturistic'],
+];
+
+test('each MEL visual mode resolves to its clean embedded avatar route', async () => {
+  for (const [theme, path, assetKey] of AVATARS) {
     assert.equal(getMelAvatarRoute(theme), path);
     const response = serveMelAvatar(path);
     assert.ok(response instanceof Response);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'image/webp');
-    assert.equal(response.headers.get('x-mel-avatar'), header);
+    assert.equal(response.headers.get('x-mel-asset'), assetKey);
+    assert.equal(response.headers.get('x-mel-avatar'), assetKey);
     assert.equal(response.headers.get('cache-control'), 'public,max-age=300,must-revalidate');
     const bytes = new Uint8Array(await response.arrayBuffer());
     assert.ok(bytes.length > 3000);
@@ -31,21 +34,13 @@ test('each MEL visual mode resolves to its stable embedded fallback avatar route
   assert.equal(serveMelAvatar('/assets/avatars/unknown.webp'), null);
 });
 
-test('embedded fallback portraits remain byte-distinct where dedicated', async () => {
-  const dedicated = [
-    '/assets/avatars/mel-classic.webp',
-    '/assets/avatars/mel-crusade.webp',
-    '/assets/avatars/mel-religious-andalusian.webp',
-    '/assets/avatars/mel-aviation-1940s.webp',
-    '/assets/avatars/mel-paladin-light-full-plate.webp',
-    '/assets/avatars/mel-amazon-griffon.webp',
-  ];
+test('clean embedded portraits remain byte-distinct', async () => {
   const hashes = [];
-  for (const path of dedicated) {
+  for (const [, path] of AVATARS) {
     const bytes = Buffer.from(await serveMelAvatar(path).arrayBuffer());
     hashes.push(createHash('sha256').update(bytes).digest('hex'));
   }
-  assert.equal(new Set(hashes).size, dedicated.length);
+  assert.equal(new Set(hashes).size, AVATARS.length);
 });
 
 test('legacy theme enhancer stays transparent while canonical normal page owns eight themes', async () => {
@@ -62,21 +57,12 @@ test('legacy theme enhancer stays transparent while canonical normal page owns e
   assert.doesNotMatch(html, /mel-theme-avatar-runtime/);
   assert.doesNotMatch(html, /mel-theme-decor-style/);
 
-  for (const id of ['classic','granada','guadix','crusade','aviation','amazon','paladin','futuristic']) {
-    assert.match(html, new RegExp(`data-mel-theme-choice="${id}"`));
+  for (const id of ['classic', 'granada', 'guadix', 'crusade', 'aviation', 'amazon', 'paladin', 'futuristic']) {
+    assert.match(html, new RegExp('data-mel-theme-choice="' + id + '"'));
   }
   assert.equal((html.match(/data-mel-theme-choice=/g) || []).length, 8);
 
-  for (const portrait of [
-    'mel-classic-v3.webp',
-    'mel-granada-v3.webp',
-    'mel-religious-v3.webp',
-    'mel-crusade-v3.webp',
-    'mel-aviation-v3.webp',
-    'mel-amazon-v3.webp',
-    'mel-paladin-v3.webp',
-    'meliturgos-avatar-fille.png',
-  ]) assert.match(html, new RegExp(portrait.replace('.', '\\.')));
+  for (const [, path] of AVATARS) assert.ok(html.includes(path), 'missing avatar route: ' + path);
 
   assert.match(html, /object-fit:cover/);
   assert.match(html, /transform:none/);

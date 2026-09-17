@@ -21,14 +21,14 @@ const EXPECTED = Object.freeze({
 });
 
 const FINAL_BACKGROUNDS = Object.freeze([
-  '13-11-02-olb-by-RalfR-03-scaled.jpg',
-  'mel-bg-granada-capilla-mayor-real-hd-scaled.jpg',
-  'mel-bg-guadix-nuestra-senora-gracia-real-hd-scaled.jpg',
-  '/assets/backgrounds/mel-bg-crusade-final.jpg',
-  '/assets/backgrounds/mel-bg-aviation.webp',
-  '/assets/backgrounds/mel-bg-diablo-final.jpg',
-  '/assets/backgrounds/mel-bg-paladin.webp',
-  'mel-bg-futuristic-project-816-control-room-hd-scaled.jpg',
+  '/assets/backgrounds/mel-bg-library-hd.jpg',
+  '/assets/backgrounds/mel-bg-granada-cathedral-hd.jpg',
+  '/assets/backgrounds/mel-bg-guadix-virgen-gracia-hd.jpg',
+  '/assets/backgrounds/mel-bg-crusade-jerusalem-hd.jpg',
+  '/assets/backgrounds/mel-bg-aviation-1940-hd.jpg',
+  '/assets/backgrounds/mel-bg-amazon-act1-hd.jpg',
+  '/assets/backgrounds/mel-bg-paladin-act4-hd.jpg',
+  '/assets/backgrounds/mel-bg-futuristic-hd.jpg',
 ]);
 
 test('legacy HD background metadata remains available for compatibility', () => {
@@ -36,19 +36,19 @@ test('legacy HD background metadata remains available for compatibility', () => 
     assert.deepEqual(HD_BACKGROUND_MEDIA[theme], EXPECTED[theme]);
     assert.equal(
       HD_BACKGROUNDS[theme],
-      `https://verite-interdite.fr/wp-content/uploads/2026/09/${EXPECTED[theme].filename}`,
+      'https://verite-interdite.fr/wp-content/uploads/2026/09/' + EXPECTED[theme].filename,
     );
     assert.ok(Math.min(EXPECTED[theme].width, EXPECTED[theme].height) >= 1080);
   }
 });
 
-test('final normal response uses the approved eight backgrounds without a second visual runtime', async () => {
+test('final normal response uses the clean eight-background pack without a second visual runtime', async () => {
   const canonical = await renderNormalMode();
   const response = await finalizeVisualResponse(canonical, '/');
   const html = await response.text();
 
   for (const asset of FINAL_BACKGROUNDS) {
-    assert.ok(html.includes(asset), `final normal response must contain ${asset}`);
+    assert.ok(html.includes(asset), 'final normal response must contain ' + asset);
   }
 
   assert.match(html, /data-visual-owner="mel-normal-v3"/);
