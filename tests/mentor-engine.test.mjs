@@ -16,7 +16,7 @@ function provider(id, payload) {
   };
 }
 
-test('mentor engine selects a valid multi-provider code proposal and stores the proposal lesson', async () => {
+test('mentor engine selects a valid multi-provider code proposal and stores it as an unvalidated observation', async () => {
   const DB = sqliteD1();
   try {
     const memory = new MentorMemoryRepository(DB);
@@ -60,7 +60,11 @@ test('mentor engine selects a valid multi-provider code proposal and stores the 
 
     const rows = (await DB.prepare('SELECT * FROM mentor_lessons WHERE job_id=?').bind('job-1').all()).results;
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].outcome, 'PROPOSED');
+    assert.equal(rows[0].kind, 'EXPERIENCE');
+    assert.equal(rows[0].outcome, 'OBSERVED');
+    const evidence = JSON.parse(rows[0].evidence_json);
+    assert.equal(evidence.experience.validated, false);
+    assert.equal(evidence.experience.source_type, 'MENTOR_COUNCIL_CODE_PROPOSAL');
   } finally { DB.close(); }
 });
 
