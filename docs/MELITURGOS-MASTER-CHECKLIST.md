@@ -67,6 +67,9 @@
 | GEN2-61 | Final status report | NOT_STARTED | Tous | `docs/final-status-report.md` | — | NON_PROD | — | Rédiger en fin |
 | GEN2-62 | human-actions-required | NOT_STARTED | Tous | `docs/human-actions-required.md` | — | NON_PROD | — | Rédiger maintenant |
 | GEN2-63 | Règle NON-IDLE / continue-when-blocked | IN_PROGRESS | Process | ce fichier | — | ACTIF | — | Appliquer systématiquement |
+| GEN2-64 | Structural code cleanup | NOT_STARTED | Stabilisation UI / gates | `docs/CLEANUP-ROADMAP.md` | lint, `node --check` | NON_PROD | — | Exécuter après validation UI sans bloquer LoRA |
+| GEN2-65 | MEL v2 — migration cerveau Qwen3.8-27B | IN_PROGRESS | Model Registry, Professor benchmarks, LoRA pipeline | `docs/MEL-DEVELOPMENT-ROADMAP.md`, `docs/MEL-V2-QWEN38-MIGRATION.md` | compatibility probe, smoke QLoRA, Professor A/B | NON_PROD | GPU gratuit adapté non encore validé | Écrire le probe Qwen puis mesurer VRAM avant tout entraînement massif |
+| GEN2-66 | MEL agentic SFT — raisonnement/outils avec replay du socle | IN_PROGRESS | Learning Engine, Council, LoRA pipeline | `docs/MEL-DEVELOPMENT-ROADMAP.md` | agentic benchmark + non-régression socle | NON_PROD | datasets à normaliser/auditer | Construire corpus agentique séparé puis tester mélange avec replay |
 
 ## Métriques rapides
 
