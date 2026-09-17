@@ -1,5 +1,5 @@
 import { createLearningEngine } from './learning-engine.js';
-import { runLearningBenchmark } from './benchmark-suite.js';
+import { MEL_LEARNING_BENCHMARK_CASES, runLearningBenchmark, scoreBenchmarkResponse } from './benchmark-suite.js';
 import { extractModelText } from '../models/ModelRouter.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
 
@@ -40,6 +40,63 @@ function benchmarkSourceSha(env = {}, options = {}) {
   ).trim() || 'unknown';
 }
 
+function benchmarkResponder(ai, modelId, extractText) {
+  return async (prompt) => {
+    const result = await ai.run(modelId, {
+      messages: [
+        {
+          role: 'system',
+          content: 'Tu es MEL en mode benchmark. Réponds directement à la consigne, sans commentaire sur le benchmark.',
+        },
+        { role: 'user', content: String(prompt || '') },
+      ],
+      temperature: 0,
+      max_tokens: 512,
+    });
+    const text = extractText(result);
+    if (typeof text !== 'string' || !text.trim()) throw new Error('empty_benchmark_response');
+    return text.trim();
+  };
+}
+
+export function createZeroCostBenchmarkEvaluator(env = {}, deps = {}) {
+  const ai = deps.ai || env.AI;
+  if (!ai || typeof ai.run !== 'function') {
+    const error = new Error('ai_binding_unavailable');
+    error.code = 'AI_BINDING_UNAVAILABLE';
+    throw error;
+  }
+
+  const modelId = benchmarkModel(env);
+  const extractText = deps.extractModelText || extractModelText;
+  const respond = benchmarkResponder(ai, modelId, extractText);
+  const casesById = new Map(MEL_LEARNING_BENCHMARK_CASES.map((row) => [String(row.id), row]));
+
+  return {
+    model_id: modelId,
+    evaluator: async (testCase = {}) => {
+      const fixture = casesById.get(String(testCase.id || ''));
+      if (!fixture) {
+        const error = new Error('benchmark_case_fixture_missing');
+        error.code = 'BENCHMARK_CASE_FIXTURE_MISSING';
+        error.case_id = String(testCase.id || '');
+        throw error;
+      }
+      const response = await respond(fixture.prompt);
+      const scored = scoreBenchmarkResponse(response, fixture.rubric);
+      return {
+        score: scored.score,
+        repeated_error: String(testCase.domain || '') === 'taught_error_correction' && scored.score < 1,
+        evidence: {
+          model_id: modelId,
+          case_id: fixture.id,
+          checks: scored.checks,
+        },
+      };
+    },
+  };
+}
+
 export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
   const ai = deps.ai || env.AI;
   if (!ai || typeof ai.run !== 'function') {
@@ -57,6 +114,7 @@ export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
   const modelId = benchmarkModel(env);
   const sourceSha = benchmarkSourceSha(env, options);
 
+  const respond = benchmarkResponder(ai, modelId, extractText);
   const benchmark = await benchmarkRunner({
     modelId,
     sourceSha,
@@ -65,22 +123,7 @@ export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
       source_sha: sourceSha,
       trigger: 'professor',
     },
-    respond: async (prompt) => {
-      const result = await ai.run(modelId, {
-        messages: [
-          {
-            role: 'system',
-            content: 'Tu es MEL en mode benchmark. Réponds directement à la consigne, sans commentaire sur le benchmark.',
-          },
-          { role: 'user', content: String(prompt || '') },
-        ],
-        temperature: 0,
-        max_tokens: 512,
-      });
-      const text = extractText(result);
-      if (typeof text !== 'string' || !text.trim()) throw new Error('empty_benchmark_response');
-      return text.trim();
-    },
+    respond,
   });
 
   const engine = createEngine(env);

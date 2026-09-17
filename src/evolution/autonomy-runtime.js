@@ -8,6 +8,8 @@ import { mirrorAllWaitingOwnerChatTeachers } from '../teachers/owner-chat-teache
 import { recoverPassiveRuntimeStates } from './passive-state-recovery.js';
 import { retireObsoleteQueueJobs } from './queue-hygiene.js';
 import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } from './autonomy-runtime-lease.js';
+import { createLearningEngine } from '../learning/learning-engine.js';
+import { createZeroCostBenchmarkEvaluator } from '../learning/operator-actions.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -33,6 +35,54 @@ function deployedCandidateSha() {
   } catch {
     return '';
   }
+}
+
+function benchmarkSourceSha(env = {}) {
+  return String(
+    deployedCandidateSha()
+      || env?.MEL_DEPLOYED_GIT_SHA
+      || env?.MEL_SOURCE_SHA
+      || env?.CF_PAGES_COMMIT_SHA
+      || ''
+  ).trim() || null;
+}
+
+export async function advanceRuntimeBenchmarkCadence({
+  env = {},
+  runtimeResult = {},
+  deps = {},
+} = {}) {
+  const completed = Array.isArray(runtimeResult?.completions?.completed)
+    ? runtimeResult.completions.completed.length
+    : 0;
+  if (completed < 1) return null;
+
+  const createEngine = deps.createLearningEngine || createLearningEngine;
+  const createEvaluator = deps.createZeroCostBenchmarkEvaluator || createZeroCostBenchmarkEvaluator;
+  let evaluator = null;
+  let modelId = '';
+  let evaluatorError = null;
+
+  try {
+    const prepared = createEvaluator(env, deps.evaluatorDeps || {});
+    evaluator = prepared?.evaluator || null;
+    modelId = String(prepared?.model_id || '');
+  } catch (error) {
+    evaluatorError = String(error?.code || error?.message || 'BENCHMARK_EVALUATOR_UNAVAILABLE').slice(0, 180);
+  }
+
+  const engine = createEngine(env);
+  return engine.advanceBenchmarkCadence({
+    verifiedJobsDelta: completed,
+    evaluator,
+    model_id: modelId,
+    source_sha: benchmarkSourceSha(env),
+    metadata: {
+      trigger: 'autonomy-runtime',
+      completed_job_count: completed,
+      evaluator_error: evaluatorError,
+    },
+  });
 }
 
 function waitingTeacher(job) {
@@ -462,7 +512,21 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   }
 
   try {
-    return await runAutonomyRuntimeTickUnlocked(env, options);
+    const runtimeResult = await runAutonomyRuntimeTickUnlocked(env, options);
+    let benchmarkCadence = null;
+    try {
+      benchmarkCadence = await advanceRuntimeBenchmarkCadence({
+        env,
+        runtimeResult,
+        deps: options.benchmarkDeps || {},
+      });
+    } catch (error) {
+      benchmarkCadence = {
+        status: 'FAILED',
+        failure: String(error?.code || error?.message || 'BENCHMARK_CADENCE_FAILED').slice(0, 180),
+      };
+    }
+    return benchmarkCadence ? { ...runtimeResult, benchmark_cadence: benchmarkCadence } : runtimeResult;
   } finally {
     await releaseAutonomyRuntimeLease({
       db: env?.DB || null,
