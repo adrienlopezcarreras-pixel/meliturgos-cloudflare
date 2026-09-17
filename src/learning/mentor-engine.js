@@ -146,6 +146,10 @@ export class MentorEngine {
     return this.memory.acquireExperience(input);
   }
 
+  async validateExperience(input = {}) {
+    return this.memory.validateExperience(input);
+  }
+
   async experienceContext(goal, options = {}) {
     return this.memory.experienceContext(goal, options);
   }
@@ -264,7 +268,7 @@ export class MentorEngine {
   async recordOutcome({ jobId, goal = '', outcome, lesson, evidence = null, score = 0, tags = [] } = {}) {
     const normalizedOutcome = String(outcome || 'UNKNOWN').toUpperCase();
     const text = bounded(lesson || `Développement ${normalizedOutcome.toLowerCase()} pour ${goal || jobId || 'MEL'}.`, 8000);
-    return this.memory.remember({
+    const stored = await this.memory.remember({
       job_id: jobId || null,
       goal,
       kind: 'DEVELOPMENT_OUTCOME',
@@ -274,6 +278,34 @@ export class MentorEngine {
       score,
       tags: ['development', 'outcome', ...tags],
     });
+
+    const requestId = String(evidence?.request_id || '');
+    const ci = evidence?.ci;
+    if (normalizedOutcome === 'SUCCEEDED' && jobId && requestId && ci?.verified === true) {
+      try {
+        const validated = await this.memory.validateExperience({
+          fingerprint: `teacher-review:${jobId}:${requestId}`,
+          proof: ci,
+        });
+        return {
+          ...stored,
+          experience_validation: {
+            validated: true,
+            experience_id: validated.id,
+            proof_status: validated.evidence?.proof_status || 'VERIFIED_CANDIDATE_CI',
+          },
+        };
+      } catch (error) {
+        return {
+          ...stored,
+          experience_validation: {
+            validated: false,
+            reason: String(error?.code || error?.message || 'MENTOR_EXPERIENCE_VALIDATION_FAILED').slice(0, 160),
+          },
+        };
+      }
+    }
+    return stored;
   }
 }
 
