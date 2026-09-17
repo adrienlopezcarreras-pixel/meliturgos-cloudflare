@@ -1,0 +1,44 @@
+{
+  "version": "2026-09-17-clean",
+  "rules": {
+    "reuse_old_visuals": false,
+    "background_min_width": 1920,
+    "background_min_height": 1080,
+    "single_visual_owner": true
+  },
+  "themes": {
+    "classic": {
+      "avatar": "avatars/mel-classic-new.webp",
+      "background": "backgrounds/bg-library-hd.jpg"
+    },
+    "granada": {
+      "avatar": "avatars/mel-granada-new.webp",
+      "background": "backgrounds/bg-granada-cathedral-hd.jpg"
+    },
+    "guadix": {
+      "avatar": "avatars/mel-guadix-new.webp",
+      "background": "backgrounds/bg-guadix-virgen-gracia-hd.jpg"
+    },
+    "crusade": {
+      "avatar": "avatars/mel-crusade-new.webp",
+      "background": "backgrounds/bg-crusade-jerusalem-hd.jpg"
+    },
+    "aviation": {
+      "avatar": "avatars/mel-aviation-new.webp",
+      "background": "backgrounds/bg-aviation-1940-hd.jpg"
+    },
+    "amazon": {
+      "avatar": "avatars/mel-amazon-new.webp",
+      "background": "backgrounds/bg-amazon-act1-hd.jpg"
+    },
+    "paladin": {
+      "avatar": "avatars/mel-paladin-new.webp",
+      "background": "backgrounds/bg-paladin-act4-hd.jpg"
+    },
+    "futuristic": {
+      "avatar": "avatars/mel-futuristic-new.webp",
+      "background": "backgrounds/bg-futuristic-hd.jpg",
+      "must_equal_full_mode_avatar": true
+    }
+  }
+}
