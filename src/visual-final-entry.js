@@ -13,31 +13,31 @@ const LEGACY_VISUAL_IDS = Object.freeze([
 const NORMAL_VISUALS = Object.freeze({
   classic: Object.freeze({
     label: 'Normal · Bibliothèque',
-    background: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-classic-hd-scaled.jpg',
+    background: 'https://verite-interdite.fr/wp-content/uploads/2026/09/13-11-02-olb-by-RalfR-03-scaled.jpg',
     avatar: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-classic-v3.webp?v=20260912-r3',
     position: 'center 22%',
   }),
   granada: Object.freeze({
     label: 'Granada · Cathédrale',
-    background: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-granada-hd-scaled.jpg',
+    background: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-granada-capilla-mayor-real-hd-scaled.jpg',
     avatar: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-granada-v3.webp?v=20260912-r3',
     position: 'center 22%',
   }),
   guadix: Object.freeze({
     label: 'Guadix · Virgen de Gracia',
-    background: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-religious-hd-scaled.jpg',
+    background: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-guadix-nuestra-senora-gracia-real-hd-scaled.jpg',
     avatar: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-religious-v3.webp?v=20260912-r3',
     position: 'center 22%',
   }),
   crusade: Object.freeze({
     label: 'Croisé · Jérusalem',
-    background: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-crusade-hd.jpg',
+    background: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-crusade-jerusalem-citadel-real-hd-scaled.jpg',
     avatar: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-crusade-v3.webp?v=20260912-r3',
     position: 'center 22%',
   }),
   aviation: Object.freeze({
     label: 'Aviation · Années 40',
-    background: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-aviation-hd-1-scaled.jpg',
+    background: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-aviation-bf109-vaernes-1940-real.jpg',
     avatar: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-aviation-v3.webp?v=20260912-r3',
     position: 'center 22%',
   }),
