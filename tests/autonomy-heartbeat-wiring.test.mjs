@@ -44,3 +44,22 @@ test('autonomy status reports the same cadence deployed by Wrangler', async () =
   assert.match(api, /runtime_schedule:\s*AUTONOMY_RUNTIME_CRON/);
   assert.equal(api.includes("runtime_schedule: '*/15 * * * *'"), false);
 });
+
+
+test('legacy OpenHands queue cannot become a second scheduler', async () => {
+  const priority = await text('docs/CURRENT-PRIORITY.md');
+  const runbook = await text('docs/AUTONOMY-RUN.md');
+  const legacyAlias = await text('docs/OPENHANDS-INTEGRATION-QUEUE.md');
+
+  assert.match(priority, /CURRENT_TASK=CANONICAL_MASTER_ROADMAP/);
+  assert.match(priority, /SOURCE=src\/roadmap\/master-roadmap\.js/);
+  assert.match(priority, /LEGACY_OPENHANDS_QUEUE=ARCHIVED_DO_NOT_EXECUTE/);
+  assert.doesNotMatch(priority, /CURRENT_TASK=M\d{3}/);
+
+  assert.match(runbook, /src\/roadmap\/master-roadmap\.js/);
+  assert.match(runbook, /only authority that selects the next roadmap item/i);
+  assert.doesNotMatch(runbook, /then `docs\/OPENHANDS-INTEGRATION-QUEUE\.md`/);
+
+  assert.match(legacyAlias, /ARCHIVED \/ DO NOT EXECUTE AS AN ACTIVE QUEUE/);
+  assert.match(legacyAlias, /must not compete with MEL's runtime roadmap/);
+});
