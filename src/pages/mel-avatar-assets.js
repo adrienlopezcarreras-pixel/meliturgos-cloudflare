@@ -67,7 +67,15 @@ const THEME_ROUTES = Object.freeze({
 });
 
 function decodeBase64(value) {
-  const binary = atob(value);
+  let normalized = String(value || '')
+    .replace(/[^A-Za-z0-9+/_=-]/g, '')
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .replace(/=/g, '');
+  const remainder = normalized.length % 4;
+  if (remainder === 1) throw new Error('Invalid embedded image payload');
+  if (remainder) normalized += '='.repeat(4 - remainder);
+  const binary = atob(normalized);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
@@ -75,9 +83,13 @@ function decodeBase64(value) {
 
 function decodeAsset(value) {
   const source = String(value || '');
-  const dataUri = source.match(/^data:([^;,]+);base64,([\s\S]+)$/i);
-  if (dataUri) {
-    return { bytes: decodeBase64(dataUri[2]), contentType: dataUri[1] || 'application/octet-stream' };
+  if (/^data:/i.test(source)) {
+    const comma = source.indexOf(',');
+    if (comma < 0) throw new Error('Invalid embedded image data URI');
+    const meta = source.slice(5, comma);
+    if (!/(?:^|;)base64(?:;|$)/i.test(meta)) throw new Error('Embedded image must use base64 encoding');
+    const contentType = meta.split(';')[0] || 'application/octet-stream';
+    return { bytes: decodeBase64(source.slice(comma + 1)), contentType };
   }
   return { bytes: decodeBase64(source), contentType: 'image/webp' };
 }
