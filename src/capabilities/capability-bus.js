@@ -28,9 +28,11 @@ export class CapabilityBus {
       const status = typeof observed === 'string' ? observed : observed?.status;
       entry.record.health = status === 'ONLINE' || status === 'HEALTHY'
         ? 'HEALTHY'
-        : status === 'OFFLINE' || status === 'UNAVAILABLE'
-          ? 'UNAVAILABLE'
-          : 'DEGRADED';
+        : status === 'SAFE_IDLE' || status === 'PROTECTED'
+          ? 'PROTECTED'
+          : status === 'OFFLINE' || status === 'UNAVAILABLE'
+            ? 'UNAVAILABLE'
+            : 'DEGRADED';
     } catch { entry.record.health = 'DEGRADED'; }
     return this.describe(id);
   }
