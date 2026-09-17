@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - 'run/lora-free-smoke-20260918'
+  pull_request:
+    branches:
+      - 'candidate/mel-clean-autonomy'
   workflow_dispatch:
 
 permissions:
