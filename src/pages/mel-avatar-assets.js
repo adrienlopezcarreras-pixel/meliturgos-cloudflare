@@ -11,10 +11,13 @@ import bgGranada from '../assets/generated/mel-bg-granada.js';
 import bgAviation from '../assets/generated/mel-bg-aviation.js';
 import bgPaladin from '../assets/generated/mel-bg-paladin.js';
 import bgAmazon from '../assets/generated/mel-bg-amazon.js';
+import bgCrusadeFinal from '../assets/theme-bg-croise-final.js';
+import bgDiabloFinal from '../assets/theme-bg-diablo-final.js';
 
-// Normal-mode portraits stay exactly as approved. Only the full-mode portrait
-// and generated theme backgrounds are served from the newly generated assets.
-const ASSET_BASE64 = Object.freeze({
+// Normal-mode portraits stay exactly as approved. The full-mode portrait and
+// theme backgrounds are served from repository-owned assets so the canonical UI
+// never depends on a second visual layer.
+const ASSETS = Object.freeze({
   classic,
   crusade,
   religious,
@@ -29,6 +32,8 @@ const ASSET_BASE64 = Object.freeze({
   bgAviation,
   bgPaladin,
   bgAmazon,
+  bgCrusadeFinal,
+  bgDiabloFinal,
 });
 
 const ROUTES = Object.freeze({
@@ -46,6 +51,8 @@ const ROUTES = Object.freeze({
   '/assets/backgrounds/mel-bg-aviation.webp': 'bgAviation',
   '/assets/backgrounds/mel-bg-paladin.webp': 'bgPaladin',
   '/assets/backgrounds/mel-bg-amazon.webp': 'bgAmazon',
+  '/assets/backgrounds/mel-bg-crusade-final.jpg': 'bgCrusadeFinal',
+  '/assets/backgrounds/mel-bg-diablo-final.jpg': 'bgDiabloFinal',
 });
 
 const THEME_ROUTES = Object.freeze({
@@ -56,6 +63,7 @@ const THEME_ROUTES = Object.freeze({
   aviation: '/assets/avatars/mel-aviation-1940s.webp',
   paladin: '/assets/avatars/mel-paladin-light-full-plate.webp',
   amazon: '/assets/avatars/mel-amazon-griffon.webp',
+  futuristic: '/assets/avatars/mel-full.webp',
 });
 
 function decodeBase64(value) {
@@ -65,6 +73,15 @@ function decodeBase64(value) {
   return bytes;
 }
 
+function decodeAsset(value) {
+  const source = String(value || '');
+  const dataUri = source.match(/^data:([^;,]+);base64,([\s\S]+)$/i);
+  if (dataUri) {
+    return { bytes: decodeBase64(dataUri[2]), contentType: dataUri[1] || 'application/octet-stream' };
+  }
+  return { bytes: decodeBase64(source), contentType: 'image/webp' };
+}
+
 export function getMelAvatarRoute(theme = 'classic') {
   return THEME_ROUTES[String(theme || '')] || THEME_ROUTES.classic;
 }
@@ -72,9 +89,10 @@ export function getMelAvatarRoute(theme = 'classic') {
 export function serveMelAvatar(pathname) {
   const key = ROUTES[String(pathname || '')];
   if (!key) return null;
-  return new Response(decodeBase64(ASSET_BASE64[key]), {
+  const asset = decodeAsset(ASSETS[key]);
+  return new Response(asset.bytes, {
     headers: {
-      'content-type': 'image/webp',
+      'content-type': asset.contentType,
       'cache-control': 'public,max-age=300,must-revalidate',
       'x-mel-asset': key,
       'x-mel-avatar': key,
