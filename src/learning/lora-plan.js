@@ -4,7 +4,7 @@ const ALLOWED_QUANT = new Set(['none','8bit','4bit']);
 const ALLOWED_STATUS = new Set(['DRAFT','READY_FOR_TRAINING','TRAINING','EVALUATING','APPROVED','REJECTED','ACTIVE','ROLLED_BACK']);
 const READY_REQUIRED_STATUS = new Set(['READY_FOR_TRAINING','TRAINING','EVALUATING','APPROVED','ACTIVE']);
 const MAX_CLOUDFLARE_ADAPTER_BYTES = 300_000_000;
-export const MIN_LORA_VALIDATED_EXAMPLES = 30;
+export const MIN_LORA_VALIDATED_EXAMPLES = 50;
 
 export const CLOUDFLARE_LORA_MODEL_PAIRS = Object.freeze({
   'mistralai/Mistral-7B-Instruct-v0.2':'@cf/mistral/mistral-7b-instruct-v0.2-lora',
