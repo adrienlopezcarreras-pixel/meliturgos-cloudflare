@@ -5,9 +5,10 @@ import {
   HD_BACKGROUNDS,
   HD_BACKGROUND_MEDIA,
 } from '../src/assets/generated/hd-backgrounds.js';
-import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
+import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface.js';
+import { finalizeVisualResponse } from '../src/visual-final-entry.js';
 
-const THEMES = ['classic', 'crusade', 'religious', 'granada', 'aviation', 'paladin', 'amazon'];
+const LEGACY_THEMES = ['classic', 'crusade', 'religious', 'granada', 'aviation', 'paladin', 'amazon'];
 
 const EXPECTED = Object.freeze({
   classic: { id: 555, filename: 'mel-bg-classic-hd-scaled.jpg', width: 1707, height: 2560 },
@@ -19,8 +20,19 @@ const EXPECTED = Object.freeze({
   amazon: { id: 562, filename: 'mel-bg-amazon-hd.jpg', width: 1400, height: 2100 },
 });
 
-test('canonical HD background metadata matches the verified WordPress media entries', () => {
-  for (const theme of THEMES) {
+const FINAL_BACKGROUNDS = Object.freeze([
+  '13-11-02-olb-by-RalfR-03-scaled.jpg',
+  'mel-bg-granada-capilla-mayor-real-hd-scaled.jpg',
+  'mel-bg-guadix-nuestra-senora-gracia-real-hd-scaled.jpg',
+  'mel-bg-crusade-jerusalem-citadel-real-hd-scaled.jpg',
+  'mel-bg-aviation-bf109-vaernes-1940-real.jpg',
+  'mel-bg-amazon-hd.jpg',
+  'mel-bg-paladin-hd-scaled.jpg',
+  'mel-bg-futuristic-project-816-control-room-hd-scaled.jpg',
+]);
+
+test('legacy HD background metadata remains available for compatibility', () => {
+  for (const theme of LEGACY_THEMES) {
     assert.deepEqual(HD_BACKGROUND_MEDIA[theme], EXPECTED[theme]);
     assert.equal(
       HD_BACKGROUNDS[theme],
@@ -30,25 +42,20 @@ test('canonical HD background metadata matches the verified WordPress media entr
   }
 });
 
-test('theme enhancer injects the canonical HD background URLs', async () => {
-  const input = '<!doctype html><html data-theme="classic"><body><button data-theme-choice="classic">Classic</button><div id="avatar" class="avatar"><img src=""></div></body></html>';
-  const response = new Response(input, { headers: { 'content-type': 'text/html; charset=utf-8' } });
-  const enhanced = await enhanceThemeAvatars(response);
-  const html = await enhanced.text();
+test('final normal response uses the approved eight backgrounds without a second visual runtime', async () => {
+  const canonical = await renderNormalMode();
+  const response = await finalizeVisualResponse(canonical, '/');
+  const html = await response.text();
 
-  for (const theme of THEMES) {
-    assert.ok(html.includes(`url('${HD_BACKGROUNDS[theme]}')`), `${theme} must use its canonical HD background`);
+  for (const filename of FINAL_BACKGROUNDS) {
+    assert.ok(html.includes(filename), `final normal response must contain ${filename}`);
   }
 
-  for (const stale of [
-    'mel-classic-hd.png',
-    'mel-croise-hd-1.jpg',
-    'mel-religieux-hd-1.jpg',
-    'mel-grenade-hd.jpg',
-    'mel-aviation-hd.jpg',
-    'mel-paladin-hd.jpg',
-    'mel-amazon-hd.jpg',
-  ]) {
-    assert.equal(html.includes(stale), false, `stale background reference must stay removed: ${stale}`);
-  }
+  assert.match(html, /data-visual-owner="mel-normal-v3"/);
+  assert.match(html, /id="mel-normal-v3-runtime"/);
+  assert.doesNotMatch(html, /id="mel-normal-canonical-runtime"/);
+  assert.doesNotMatch(html, /id="mel-normal-canonical-visuals"/);
+  assert.doesNotMatch(html, /mel-theme-avatar-runtime/);
+  assert.doesNotMatch(html, /mel-theme-decor-style/);
+  assert.match(html, /avatar:'\/assets\/avatars\/mel-full\.webp'/);
 });
