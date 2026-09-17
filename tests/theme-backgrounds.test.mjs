@@ -24,10 +24,10 @@ const FINAL_BACKGROUNDS = Object.freeze([
   '13-11-02-olb-by-RalfR-03-scaled.jpg',
   'mel-bg-granada-capilla-mayor-real-hd-scaled.jpg',
   'mel-bg-guadix-nuestra-senora-gracia-real-hd-scaled.jpg',
-  'mel-bg-crusade-jerusalem-citadel-real-hd-scaled.jpg',
-  'mel-bg-aviation-bf109-vaernes-1940-real.jpg',
-  'mel-bg-amazon-hd.jpg',
-  'mel-bg-paladin-hd-scaled.jpg',
+  '/assets/backgrounds/mel-bg-crusade-final.jpg',
+  '/assets/backgrounds/mel-bg-aviation.webp',
+  '/assets/backgrounds/mel-bg-diablo-final.jpg',
+  '/assets/backgrounds/mel-bg-paladin.webp',
   'mel-bg-futuristic-project-816-control-room-hd-scaled.jpg',
 ]);
 
@@ -47,8 +47,8 @@ test('final normal response uses the approved eight backgrounds without a second
   const response = await finalizeVisualResponse(canonical, '/');
   const html = await response.text();
 
-  for (const filename of FINAL_BACKGROUNDS) {
-    assert.ok(html.includes(filename), `final normal response must contain ${filename}`);
+  for (const asset of FINAL_BACKGROUNDS) {
+    assert.ok(html.includes(asset), `final normal response must contain ${asset}`);
   }
 
   assert.match(html, /data-visual-owner="mel-normal-v3"/);
@@ -57,5 +57,5 @@ test('final normal response uses the approved eight backgrounds without a second
   assert.doesNotMatch(html, /id="mel-normal-canonical-visuals"/);
   assert.doesNotMatch(html, /mel-theme-avatar-runtime/);
   assert.doesNotMatch(html, /mel-theme-decor-style/);
-  assert.ok(html.includes('"futuristic":"/meliturgos-avatar-fille.png"'), 'futuristic must reuse the current full-mode MEL avatar');
+  assert.ok(html.includes('"futuristic":"/assets/avatars/mel-full.webp"'), 'futuristic must reuse the exact full-mode MEL avatar');
 });
