@@ -13,11 +13,12 @@ async function text(path) {
 test('deployed worker exposes the canonical persistent autonomy heartbeat', async () => {
   const wrangler = JSON.parse(await text('wrangler.jsonc'));
 
-  assert.equal(wrangler.main, 'src/preview-auth-entry.js');
+  assert.equal(wrangler.main, 'src/visual-final-entry.js');
   assert.deepEqual(wrangler.triggers?.crons, [AUTONOMY_RUNTIME_CRON]);
   assert.deepEqual(wrangler.env?.preview?.triggers?.crons, [], 'preview must not run a second heartbeat');
 
   const delegationChain = [
+    'src/visual-final-entry.js',
     'src/preview-auth-entry.js',
     'src/professor-live-learning-entry.js',
     'src/ui-release-fix-entry.js',
@@ -29,6 +30,9 @@ test('deployed worker exposes the canonical persistent autonomy heartbeat', asyn
     const source = await text(path);
     assert.match(source, /scheduled\s*\([^)]*\)\s*\{[^}]*app\.scheduled\s*\(/s, `${path} must delegate scheduled events`);
   }
+
+  const finalVisual = await text('src/visual-final-entry.js');
+  assert.match(finalVisual, /import\s+app\s+from\s+["']\.\/preview-auth-entry\.js["']/, 'final visual entrypoint must delegate to preview-auth-entry.js');
 
   const canonical = await text('src/index.js');
   assert.match(canonical, /async\s+scheduled\s*\([^)]*\)/, 'canonical entrypoint must expose scheduled()');
