@@ -16,6 +16,23 @@ function safeProvider(provider, evaluation = {}) {
 }
 
 /**
+ * Distinguish a broken runtime from a healthy runtime deliberately protected by
+ * the zero-euro policy. SAFE_IDLE is not an authorization to spend: it means
+ * providers are reachable but none has the explicit zero-added-cost proof that
+ * the governor requires. LIMITED means some providers are authorized, but not
+ * enough for the requested quorum.
+ */
+export function classifyZeroCostReadiness({ minimum = 1, healthyCount = 0, authorizedCount = 0 } = {}) {
+  const required = boundedMinimum(minimum);
+  const healthy = Math.max(0, Math.floor(Number(healthyCount) || 0));
+  const authorized = Math.max(0, Math.floor(Number(authorizedCount) || 0));
+  if (healthy === 0) return { status: 'DEGRADED', reason: 'NO_HEALTHY_PROVIDER', minimum: required };
+  if (authorized >= required) return { status: 'ONLINE', reason: 'ZERO_EURO_QUORUM_READY', minimum: required };
+  if (authorized === 0) return { status: 'SAFE_IDLE', reason: 'ZERO_EURO_POLICY_PROTECTED', minimum: required };
+  return { status: 'LIMITED', reason: 'ZERO_EURO_QUORUM_INSUFFICIENT', minimum: required };
+}
+
+/**
  * Descriptive zero-added-cost readiness for .augmentio.
  * This never authorizes a provider and never treats registry cost=0 as proof.
  * It only reports what the existing ZeroEuroGovernor would allow right now.
@@ -60,15 +77,14 @@ export async function inspectZeroCostProviderReadiness(env = {}, {
   }
 
   const authorizedCount = authorized.length;
-  const status = authorizedCount >= required ? 'ONLINE' : 'DEGRADED';
-  const reason = status === 'ONLINE'
-    ? 'ZERO_EURO_QUORUM_READY'
-    : authorizedCount === 0
-      ? 'NO_VERIFIED_ZERO_COST_PROVIDER'
-      : 'ZERO_EURO_QUORUM_INSUFFICIENT';
+  const classified = classifyZeroCostReadiness({
+    minimum: required,
+    healthyCount: healthy.length,
+    authorizedCount,
+  });
 
   return {
-    status,
+    status: classified.status,
     capability: targetCapability,
     minimum: required,
     provider_count: candidates.length,
@@ -76,6 +92,6 @@ export async function inspectZeroCostProviderReadiness(env = {}, {
     authorized_zero_cost_count: authorizedCount,
     authorized_provider_ids: authorized.map(provider => String(provider.id || '')),
     blocked,
-    reason,
+    reason: classified.reason,
   };
 }
