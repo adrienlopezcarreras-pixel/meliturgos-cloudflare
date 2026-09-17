@@ -6,12 +6,12 @@ function boundedMinimum(value) {
   return Math.max(1, Math.min(12, Number.isFinite(n) ? Math.round(n) : 1));
 }
 
-function safeProvider(provider, explanation = {}) {
+function safeProvider(provider, evaluation = {}) {
   return {
-    provider_id: String(provider?.id || ''),
-    model_id: String(provider?.modelId || ''),
-    adapter_id: String(provider?.adapterId || ''),
-    reason: String(explanation?.reason || 'ZERO_EURO_POLICY_BLOCKED'),
+    provider_id: String(provider?.providerId || provider?.provider_id || ''),
+    model_id: String(provider?.modelId || provider?.model_id || ''),
+    adapter_id: String(provider?.id || ''),
+    reason: String(evaluation?.code || 'ZERO_EURO_POLICY_BLOCKED'),
   };
 }
 
@@ -30,7 +30,7 @@ export async function inspectZeroCostProviderReadiness(env = {}, {
 
   if (!aiAvailable) {
     return {
-      status: 'OFFLINE',
+      status: 'DEGRADED',
       capability: String(capability || 'GENERAL'),
       minimum: required,
       provider_count: 0,
@@ -44,17 +44,19 @@ export async function inspectZeroCostProviderReadiness(env = {}, {
 
   const pool = createDefaultAugmentioPool(env);
   if (refreshHealth) await pool.refreshHealth();
-  const governor = new ZeroEuroGovernor({ allowedProviders: pool.providers });
+  const governor = new ZeroEuroGovernor();
   const targetCapability = String(capability || 'GENERAL');
-  const candidates = pool.providers.filter(provider => provider?.supports?.(targetCapability));
-  const healthy = pool.list({ capability: targetCapability, healthyOnly: true });
+  const candidates = [...pool.adapters.values()]
+    .filter(provider => provider?.enabled !== false)
+    .filter(provider => provider?.supports?.(targetCapability));
+  const healthy = candidates.filter(provider => provider.healthStatus === 'HEALTHY');
   const authorized = [];
   const blocked = [];
 
   for (const provider of healthy) {
-    const explanation = governor.explain(provider);
-    if (explanation.allowed) authorized.push(provider);
-    else blocked.push(safeProvider(provider, explanation));
+    const evaluation = governor.evaluate(provider);
+    if (evaluation.allowed) authorized.push(provider);
+    else blocked.push(safeProvider(provider, evaluation));
   }
 
   const authorizedCount = authorized.length;
