@@ -9,7 +9,18 @@ function unique(label) {
   return `${label}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-test('acquired experiences are deduplicated and isolated from trusted memory until validated', async () => {
+function verifiedCiProof(sha = 'b'.repeat(40), runId = 424242) {
+  return {
+    verified: true,
+    workflow: 'full-candidate-ci',
+    run_id: runId,
+    head_sha: sha,
+    head_branch: 'candidate/mel-clean-autonomy',
+    conclusion: 'success',
+  };
+}
+
+test('acquired experiences are deduplicated, proof-gated, validated, and reread without downgrade', async () => {
   const memory = new MentorMemoryRepository(null);
   const marker = unique('experience-loop');
   const fingerprint = `teacher:${marker}`;
@@ -47,8 +58,44 @@ test('acquired experiences are deduplicated and isolated from trusted memory unt
   assert.equal(observation.occurrences, 2);
   assert.equal(split.validated.some(row => row.id === first.id), false);
 
-  const trusted = await memory.context(goal, { limit: 20 });
-  assert.equal(trusted.some(row => row.id === first.id), false, 'unvalidated observation must never enter trusted context');
+  const trustedBeforeProof = await memory.context(goal, { limit: 20 });
+  assert.equal(trustedBeforeProof.some(row => row.id === first.id), false, 'unvalidated observation must never enter trusted context');
+
+  await assert.rejects(
+    memory.validateExperience({ fingerprint, proof: { verified: true } }),
+    error => error?.code === 'MENTOR_EXPERIENCE_PROOF_REQUIRED',
+    'an asserted validation without exact candidate CI evidence must fail closed',
+  );
+
+  const validated = await memory.validateExperience({ fingerprint, proof: verifiedCiProof() });
+  assert.equal(validated.id, first.id);
+  assert.equal(validated.trust, 'VALIDATED');
+  assert.equal(validated.evidence.experience.validated, true);
+  assert.equal(validated.evidence.validation.validated, true);
+  assert.equal(validated.evidence.validation.workflow, 'full-candidate-ci');
+  assert.equal(validated.evidence.proof_status, 'VERIFIED_CANDIDATE_CI');
+  assert.equal(validated.tags.includes('validated'), true);
+  assert.equal(validated.tags.includes('unvalidated'), false);
+
+  const splitAfterProof = await memory.experienceContext(goal, { limit: 20 });
+  assert.equal(splitAfterProof.validated.some(row => row.id === first.id), true, 'validated experience must be reread as trusted on the next cycle');
+  assert.equal(splitAfterProof.observations.some(row => row.id === first.id), false);
+  const trustedAfterProof = await memory.context(goal, { limit: 20 });
+  assert.equal(trustedAfterProof.some(row => row.id === first.id), true);
+
+  const third = await memory.acquireExperience({
+    fingerprint,
+    job_id: `job-${marker}`,
+    goal,
+    source_type: 'TEACHER_REVIEW',
+    lesson: `Le Teacher observe ${marker}: ajouter une garde explicite.`,
+    evidence: { proof_status: 'UNVALIDATED_OBSERVATION' },
+  });
+  assert.equal(third.evidence.experience.occurrences, 3);
+  assert.equal(third.evidence.experience.validated, true, 'a duplicate acquisition must never downgrade a validated experience');
+  assert.equal(third.evidence.proof_status, 'VERIFIED_CANDIDATE_CI');
+  assert.equal(third.tags.includes('validated'), true);
+  assert.equal(third.tags.includes('unvalidated'), false);
 });
 
 test('mentor rereads observations as non-facts and stores Council proposals as unvalidated experience', async () => {
@@ -205,4 +252,57 @@ test('runtime Teacher feedback is acquired immediately but remains unvalidated p
 
   const trusted = await memory.context(request.objective, { limit: 20 });
   assert.equal(trusted.some(row => row.id === acquired.id), false);
+});
+
+test('verified development outcome promotes the matching Teacher experience and only that experience', async () => {
+  const memory = new MentorMemoryRepository(null);
+  const mentor = new MentorEngine({ memory, providerFactory: () => [] });
+  const marker = unique('teacher-promotion');
+  const jobId = `job-${marker}`;
+  const requestId = `request-${marker}`;
+  const otherRequestId = `request-other-${marker}`;
+  const goal = `Valider ${marker} seulement après preuve CI exacte.`;
+
+  const target = await memory.acquireExperience({
+    fingerprint: `teacher-review:${jobId}:${requestId}`,
+    job_id: jobId,
+    goal,
+    source_type: 'TEACHER_REVIEW',
+    lesson: `Teacher approuve le plan ${marker}.`,
+    evidence: { teacher_request_id: requestId, proof_status: 'UNVALIDATED_OBSERVATION' },
+  });
+  const unrelated = await memory.acquireExperience({
+    fingerprint: `teacher-review:${jobId}:${otherRequestId}`,
+    job_id: jobId,
+    goal,
+    source_type: 'TEACHER_REVIEW',
+    lesson: `Autre observation Teacher ${marker}.`,
+    evidence: { teacher_request_id: otherRequestId, proof_status: 'UNVALIDATED_OBSERVATION' },
+  });
+
+  const outcome = await mentor.recordOutcome({
+    jobId,
+    goal,
+    outcome: 'SUCCEEDED',
+    lesson: `Le développement ${marker} a passé la CI complète.`,
+    evidence: {
+      request_id: requestId,
+      ci: verifiedCiProof('c'.repeat(40), 515151),
+    },
+    score: 1,
+    tags: ['verified-completion'],
+  });
+
+  assert.equal(outcome.experience_validation.validated, true);
+  assert.equal(outcome.experience_validation.experience_id, target.id);
+
+  const targetAfter = (await memory.recent({ kind: 'EXPERIENCE', limit: 500 })).find(row => row.id === target.id);
+  const unrelatedAfter = (await memory.recent({ kind: 'EXPERIENCE', limit: 500 })).find(row => row.id === unrelated.id);
+  assert.equal(targetAfter.evidence.experience.validated, true);
+  assert.equal(targetAfter.evidence.validation.workflow, 'full-candidate-ci');
+  assert.equal(unrelatedAfter.evidence.experience.validated, false, 'proof for one Teacher request must not validate unrelated observations');
+
+  const reread = await memory.experienceContext(goal, { limit: 20 });
+  assert.equal(reread.validated.some(row => row.id === target.id), true);
+  assert.equal(reread.observations.some(row => row.id === unrelated.id), true);
 });
