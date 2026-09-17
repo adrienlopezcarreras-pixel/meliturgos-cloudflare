@@ -57,5 +57,5 @@ test('final normal response uses the approved eight backgrounds without a second
   assert.doesNotMatch(html, /id="mel-normal-canonical-visuals"/);
   assert.doesNotMatch(html, /mel-theme-avatar-runtime/);
   assert.doesNotMatch(html, /mel-theme-decor-style/);
-  assert.match(html, /avatar:'\/assets\/avatars\/mel-full\.webp'/);
+  assert.ok(html.includes('"futuristic":"/meliturgos-avatar-fille.png"'), 'futuristic must reuse the current full-mode MEL avatar');
 });
