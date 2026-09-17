@@ -27,17 +27,35 @@ const NORMAL_ASSET_REWRITES = Object.freeze([
   ],
   [
     'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-crusader-jerusalem-real.jpg',
-    'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-crusade-jerusalem-citadel-real-hd-scaled.jpg',
+    'https://cdn.openart.ai/openart-uploads/production/attachment-transfers/4a1359b18bf4757f4c78914c57bc52cb9ee7418a14c32412f5972fdca1c3e94f.png',
   ],
   [
     'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-aviation-bf109-real.jpg',
-    'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-aviation-bf109-vaernes-1940-real.jpg',
+    'https://cdn.openart.ai/openart-uploads/production/attachment-transfers/81f905b6f73ee8846020caa054c34dc4f451c03b4a8e4f8003788a101244ad1f.png',
+  ],
+  [
+    'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-amazon-hd.jpg',
+    'https://cdn.openart.ai/openart-uploads/production/attachment-transfers/87c28cce6bdf344ec72b94095566b681664ed0ad93e883a55ae4a0a8e2a7f48e.png',
+  ],
+  [
+    'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-paladin-hd-scaled.jpg',
+    'https://cdn.openart.ai/openart-uploads/production/attachment-transfers/3b57dcab5cc7b04a7a3d7f3a6de7234912e0168f124eb44dd9c82cd990747e04.png',
   ],
   [
     "--mel-bg:radial-gradient(circle at 75% 18%,rgba(29,255,238,.20),transparent 27%),linear-gradient(135deg,#08191d 0%,#03090c 48%,#111821 100%)",
-    "--mel-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-futuristic-project-816-control-room-hd-scaled.jpg')",
+    "--mel-bg:url('https://cdn.openart.ai/openart-uploads/production/attachment-transfers/8ab7ec595d5bef8a91f322fb6aac807c24d81ff03ae5a12aec13ff4f22af49ab.png')",
   ],
-  ["avatar:'/meliturgos-avatar-fille.png'", "avatar:'/assets/avatars/mel-full.webp'"],
+]);
+
+const NORMAL_HTML_REWRITES = Object.freeze([
+  [
+    '.avatar{width:clamp(150px,13vw,195px);height:clamp(150px,13vw,195px);aspect-ratio:1;border-radius:50%;overflow:hidden;border:4px double var(--ornament);box-shadow:0 0 0 4px color-mix(in srgb,var(--button) 82%,#000),0 12px 34px rgba(0,0,0,.42);cursor:pointer;background:transparent;position:relative}',
+    '.avatar{width:clamp(150px,13vw,195px);height:clamp(150px,13vw,195px);aspect-ratio:1;border-radius:50%;overflow:hidden;border:4px double var(--ornament);box-shadow:0 0 0 4px color-mix(in srgb,var(--button) 82%,#000),0 12px 34px rgba(0,0,0,.42);cursor:pointer;background:transparent;position:relative;padding:0;line-height:0;isolation:isolate;touch-action:manipulation}',
+  ],
+  [
+    '.avatar img{width:100%;height:100%;display:block;object-fit:cover;object-position:var(--avatar-pos);transform:none;border-radius:50%;clip-path:circle(50%)}',
+    '.avatar img{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover;object-position:50% 50%;transform:none;border:0;border-radius:0;clip-path:none;margin:0;padding:0;pointer-events:none}',
+  ],
 ]);
 
 function stripElementById(html, id) {
@@ -56,6 +74,7 @@ export function stripLegacyVisualLayers(html) {
 export function normalizeCanonicalNormalAssets(html) {
   let output = String(html ?? '');
   for (const [from, to] of NORMAL_ASSET_REWRITES) output = output.split(from).join(to);
+  for (const [from, to] of NORMAL_HTML_REWRITES) output = output.split(from).join(to);
   return output;
 }
 
