@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { getMelAvatarRoute, serveMelAvatar } from '../src/pages/mel-avatar-assets.js';
 import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
+import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface.js';
 
 test('each MEL visual mode resolves to its stable embedded fallback avatar route', async () => {
   const cases = [
@@ -47,40 +48,46 @@ test('embedded fallback portraits remain byte-distinct where dedicated', async (
   assert.equal(new Set(hashes).size, dedicated.length);
 });
 
-test('theme enhancer keeps seven themes reachable and uses approved remote MEL portrait series', async () => {
-  const source = '<!doctype html><html data-theme="classic"><body><div class="theme-switch"><button id="themeButton"></button><div id="themePanel"><button data-theme-choice="classic">Classique</button><button data-theme-choice="crusade">Croisés</button><button data-theme-choice="religious">Religieux</button><button data-theme-choice="granada">Grenade</button><button data-theme-choice="aviation">Aviation</button><button data-theme-choice="paladin">Paladin</button><button data-theme-choice="amazon">Amazon</button></div></div><main class="app"><div class="avatar-wrap"><div id="avatar" class="avatar"><img src="/meliturgos-avatar-fille.png" alt="MEL"></div></div><section class="window"><div id="messages"></div><div class="composer"><textarea id="input" maxlength="100000"></textarea><div class="controls"><button id="send">Envoyer</button><button id="full">Mode complet</button></div></div></section><div id="melBottomTools" class="mel-bottom-tools"></div></main></body></html>';
-  const response = await enhanceThemeAvatars(new Response(source, { headers: { 'content-type': 'text/html; charset=utf-8' } }));
-  const html = await response.text();
-  assert.match(html, /mel-theme-avatar-runtime/);
-  assert.match(html, /mel-theme-decor-style/);
-  for (const name of ['classic','crusade','religious','granada','aviation','paladin','amazon']) {
-    assert.match(html, new RegExp(`mel-${name}-v3\\.webp`));
+test('legacy theme enhancer stays transparent while canonical normal page owns eight themes', async () => {
+  const source = '<!doctype html><html data-theme="classic"><body><div id="avatar" class="avatar"><img src="/legacy.webp" alt="MEL"></div></body></html>';
+  const original = new Response(source, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+  const enhanced = await enhanceThemeAvatars(original);
+  assert.equal(enhanced, original);
+  assert.equal(await enhanced.text(), source);
+
+  const html = await (await renderNormalMode()).text();
+  assert.match(html, /data-visual-owner="mel-normal-v3"/);
+  assert.match(html, /id="mel-normal-v3-style"/);
+  assert.match(html, /id="mel-normal-v3-runtime"/);
+  assert.doesNotMatch(html, /mel-theme-avatar-runtime/);
+  assert.doesNotMatch(html, /mel-theme-decor-style/);
+
+  for (const id of ['classic','granada','guadix','crusade','aviation','amazon','paladin','futuristic']) {
+    assert.match(html, new RegExp(`data-mel-theme-choice="${id}"`));
   }
-  for (const bg of ['classic','crusade','religious','granada','aviation','paladin','amazon']) {
-    assert.match(html, new RegExp(`mel-bg-${bg}-hd`));
-  }
-  assert.match(html, /--mel-hd-bg/);
-  assert.match(html, /background-image:linear-gradient/);
-  assert.match(html, /background-size:cover,cover!important/);
-  assert.match(html, /background-attachment:fixed,fixed!important/);
-  assert.match(html, /body:before,html body:after\{display:none!important/);
-  assert.doesNotMatch(html, /filter:blur\(30px\)/);
-  assert.doesNotMatch(html, /mel-classic-v3\.webp[^\n]*--mel-hd-bg/);
-  assert.match(html, /theme-orb::after\{content:'Thèmes'/);
-  assert.match(html, /position:fixed!important/);
-  assert.match(html, /body\.ui_theme/);
-  assert.match(html, /body\.intent_context/);
-  assert.match(html, /object-fit:cover!important/);
-  assert.match(html, /maxlength','100000/);
-  assert.doesNotMatch(html, /const choices=/);
-  assert.doesNotMatch(html, /renderChoices/);
-  assert.doesNotMatch(html, /mel-idle-status/);
-  assert.equal((html.match(/data-theme-choice=/g) || []).length, 7, 'enhancer must not clone or replace theme choices');
+  assert.equal((html.match(/data-mel-theme-choice=/g) || []).length, 8);
+
+  for (const portrait of [
+    'mel-classic-v3.webp',
+    'mel-granada-v3.webp',
+    'mel-religious-v3.webp',
+    'mel-crusade-v3.webp',
+    'mel-aviation-v3.webp',
+    'mel-amazon-v3.webp',
+    'mel-paladin-v3.webp',
+    'meliturgos-avatar-fille.png',
+  ]) assert.match(html, new RegExp(portrait.replace('.', '\\.')));
+
+  assert.match(html, /object-fit:cover/);
+  assert.match(html, /transform:none/);
+  assert.match(html, /clip-path:circle\(50%\)/);
+  assert.match(html, /maxlength="100000"/);
 });
 
 test('theme enhancer ignores unrelated HTML and non-HTML responses', async () => {
   const unrelated = new Response('<html><body><div id="avatar"></div></body></html>', { headers: { 'content-type': 'text/html' } });
   const unchanged = await enhanceThemeAvatars(unrelated);
+  assert.equal(unchanged, unrelated);
   assert.doesNotMatch(await unchanged.text(), /mel-theme-avatar-runtime/);
 
   const original = Response.json({ ok: true });
