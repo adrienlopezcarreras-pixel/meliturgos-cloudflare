@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createLoraTrainingPlan, assertAdapterActivationEvidence } from '../src/learning/lora-plan.js';
+import { createLoraTrainingPlan, assertAdapterArtifact, assertAdapterActivationEvidence } from '../src/learning/lora-plan.js';
 import { runLearningBenchmark } from '../src/learning/benchmark-suite.js';
 
 const digest = (char) => `sha256:${char.repeat(64)}`;
@@ -48,6 +48,27 @@ function makeEvidence(plan, artifact, overrides = {}) {
 function hasCode(code) {
   return (error) => error?.code === code;
 }
+
+test('generic LoRA artifact validation remains compatible without activation provenance', () => {
+  const plan = makePlan();
+  const artifact = makeArtifact(plan);
+  delete artifact.dataset_digest;
+  delete artifact.training_manifest_digest;
+  const checked = assertAdapterArtifact(artifact);
+  assert.equal(checked.dataset_digest, null);
+  assert.equal(checked.training_manifest_digest, null);
+});
+
+test('LoRA activation fails closed when artifact provenance is missing', () => {
+  const plan = makePlan();
+  const artifact = makeArtifact(plan);
+  delete artifact.dataset_digest;
+  delete artifact.training_manifest_digest;
+  assert.throws(
+    () => assertAdapterActivationEvidence(makeEvidence(plan, artifact)),
+    hasCode('LORA_ARTIFACT_PROVENANCE_REQUIRED'),
+  );
+});
 
 test('LoRA activation accepts only exact dataset, manifest, artifact and benchmark provenance', () => {
   const plan = makePlan();

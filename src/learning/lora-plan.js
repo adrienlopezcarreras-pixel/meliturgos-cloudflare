@@ -114,14 +114,14 @@ export function createLoraTrainingPlan({id=`mel-lora-${Date.now()}`,base_model=D
 
 export function assertAdapterArtifact(artifact={}){
   const id=safeId(artifact.id,'ARTIFACT_ID'); const digest=safeId(artifact.digest,'ARTIFACT_DIGEST'); const baseModel=safeId(artifact.base_model,'BASE_MODEL'); const runtimeModel=safeId(artifact.runtime_model,'RUNTIME_MODEL'); const runtime=safeId(artifact.runtime||'cloudflare-workers-ai','RUNTIME'); const format=bounded(artifact.format||'safetensors',80); const sizeBytes=Math.trunc(finiteNumber(artifact.size_bytes,0)); const rank=Math.trunc(finiteNumber(artifact.rank,0));
-  const datasetDigest=safeId(artifact.dataset_digest,'DATASET_DIGEST'); const trainingManifestDigest=safeId(artifact.training_manifest_digest,'TRAINING_MANIFEST_DIGEST');
+  const datasetDigest=artifact.dataset_digest?safeId(artifact.dataset_digest,'DATASET_DIGEST'):null; const trainingManifestDigest=artifact.training_manifest_digest?safeId(artifact.training_manifest_digest,'TRAINING_MANIFEST_DIGEST'):null;
   if(!['safetensors','peft'].includes(format))throw Object.assign(new Error('LORA_UNSUPPORTED_ARTIFACT_FORMAT'),{code:'LORA_UNSUPPORTED_ARTIFACT_FORMAT'});
   if(!SHA256_DIGEST.test(digest))throw Object.assign(new Error('LORA_ARTIFACT_SHA256_REQUIRED'),{code:'LORA_ARTIFACT_SHA256_REQUIRED'});
-  if(!SHA256_DIGEST.test(trainingManifestDigest))throw Object.assign(new Error('LORA_TRAINING_MANIFEST_SHA256_REQUIRED'),{code:'LORA_TRAINING_MANIFEST_SHA256_REQUIRED'});
+  if(trainingManifestDigest&&!SHA256_DIGEST.test(trainingManifestDigest))throw Object.assign(new Error('LORA_TRAINING_MANIFEST_SHA256_REQUIRED'),{code:'LORA_TRAINING_MANIFEST_SHA256_REQUIRED'});
   if(sizeBytes<=0||sizeBytes>MAX_CLOUDFLARE_ADAPTER_BYTES)throw Object.assign(new Error('LORA_ARTIFACT_SIZE_INVALID'),{code:'LORA_ARTIFACT_SIZE_INVALID'});
   if(rank<1||rank>32)throw Object.assign(new Error('LORA_ARTIFACT_RANK_INVALID'),{code:'LORA_ARTIFACT_RANK_INVALID'});
   if(runtime!=='cloudflare-workers-ai'||!isSupportedCloudflareLoraPair(baseModel,runtimeModel))throw Object.assign(new Error('LORA_RUNTIME_INCOMPATIBLE'),{code:'LORA_RUNTIME_INCOMPATIBLE'});
-  return {id,digest:digest.toLowerCase(),base_model:baseModel,runtime_model:runtimeModel,runtime,size_bytes:sizeBytes,rank,format,uri:bounded(artifact.uri,2000)||null,dataset_digest:datasetDigest,training_manifest_digest:trainingManifestDigest.toLowerCase()};
+  return {id,digest:digest.toLowerCase(),base_model:baseModel,runtime_model:runtimeModel,runtime,size_bytes:sizeBytes,rank,format,uri:bounded(artifact.uri,2000)||null,dataset_digest:datasetDigest,training_manifest_digest:trainingManifestDigest?trainingManifestDigest.toLowerCase():null};
 }
 
 export function assertAdapterActivationEvidence({plan,artifact,baseline,candidate}={}){
@@ -130,6 +130,7 @@ export function assertAdapterActivationEvidence({plan,artifact,baseline,candidat
   const planManifestDigest=String(plan?.training_manifest_digest||'').trim().toLowerCase();
   if(!SHA256_DIGEST.test(planManifestDigest))throw Object.assign(new Error('LORA_TRAINING_MANIFEST_REQUIRED'),{code:'LORA_TRAINING_MANIFEST_REQUIRED'});
   const checked=assertAdapterArtifact(artifact);
+  if(!checked.dataset_digest||!checked.training_manifest_digest)throw Object.assign(new Error('LORA_ARTIFACT_PROVENANCE_REQUIRED'),{code:'LORA_ARTIFACT_PROVENANCE_REQUIRED'});
   if(checked.base_model!==plan.base_model)throw Object.assign(new Error('LORA_BASE_MODEL_MISMATCH'),{code:'LORA_BASE_MODEL_MISMATCH'});
   if(checked.runtime_model!==plan.runtime_model||checked.runtime!==plan.runtime)throw Object.assign(new Error('LORA_RUNTIME_INCOMPATIBLE'),{code:'LORA_RUNTIME_INCOMPATIBLE'});
   if(checked.rank!==plan.rank)throw Object.assign(new Error('LORA_RANK_MISMATCH'),{code:'LORA_RANK_MISMATCH'});
