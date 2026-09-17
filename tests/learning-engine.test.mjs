@@ -24,7 +24,7 @@ test('corrections become cumulative persistent training pairs', async () => {
   const learned = bundle.preference.find(row => row.id === 'learn-1'); assert.ok(learned); assert.equal(learned.chosen, 'Le runner ne découvre pas le test imbriqué.'); assert.equal(learned.rejected, 'Le code métier est faux.'); assert.match(bundle.digest, /^fnv1a-/);
 });
 
-test('bootstrap corpus stays truthful and reaches LoRA readiness at 30 validated examples', async () => {
+test('bootstrap corpus stays truthful and reaches LoRA readiness only after 50 validated examples', async () => {
   const memory = new MemoryStub();
   const engine = new LearningEngine({ memory });
 
@@ -34,10 +34,34 @@ test('bootstrap corpus stays truthful and reaches LoRA readiness at 30 validated
   assert.equal(bootstrap.sft.length, bootstrap.accepted);
   assert.equal(bootstrap.preference.length, bootstrap.accepted);
 
+  const blocked = await engine.prepareLora({ base_model: DEFAULT_LORA_BASE_MODEL });
+  assert.equal(blocked.corpus.accepted, 30);
+  assert.equal(blocked.plan.examples, 30);
+  assert.equal(blocked.plan.readiness.min_examples, 50);
+  assert.equal(blocked.plan.readiness.enough_examples, false);
+  assert.equal(blocked.plan.readiness.ready_for_training, false);
+  assert.equal(blocked.plan.status, 'DRAFT');
+  assert.equal((await memory.recent({ kind: 'LORA_PLAN' }))[0].outcome, 'BLOCKED_DATA');
+
+  for (let i = 0; i < 20; i += 1) {
+    await engine.recordCorrection({
+      id: `threshold-${i}`,
+      domain: 'coding',
+      input: `validated input ${i}`,
+      before: `incorrect answer ${i}`,
+      after: `corrected answer ${i}`,
+      rationale: `validated reason ${i}`,
+      validated: true,
+      quality: 0.9,
+    });
+  }
+
+  const expanded = await engine.trainingBundle();
+  assert.equal(expanded.accepted, 50);
   const prepared = await engine.prepareLora({ base_model: DEFAULT_LORA_BASE_MODEL });
-  assert.equal(prepared.corpus.accepted, 30);
-  assert.equal(prepared.plan.examples, 30);
-  assert.equal(prepared.plan.readiness.min_examples, 30);
+  assert.equal(prepared.corpus.accepted, 50);
+  assert.equal(prepared.plan.examples, 50);
+  assert.equal(prepared.plan.readiness.min_examples, 50);
   assert.equal(prepared.plan.readiness.enough_examples, true);
   assert.equal(prepared.plan.readiness.cloudflare_inference_compatible, true);
   assert.equal(prepared.plan.readiness.ready_for_training, true);
