@@ -11,6 +11,12 @@ function finiteNonNegativeInt(value, fallback = 0) {
   return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : fallback;
 }
 
+function nullableNumber(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function rankForLevel(level) {
   if (level >= 30) return 'Évolution';
   if (level >= 20) return 'Maîtrise';
@@ -116,9 +122,9 @@ async function benchmarkStatus(memory, report = {}) {
     source_sha: cadence?.benchmark?.source_sha || cadence?.source_sha || null,
     measured_at: isoFromEpoch(cadence?.measured_at),
     runs: finiteNonNegativeInt(summary?.runs, 0),
-    baseline_score: Number.isFinite(Number(summary?.baseline_score)) ? Number(summary.baseline_score) : null,
-    latest_score: Number.isFinite(Number(summary?.latest_score)) ? Number(summary.latest_score) : null,
-    gain: Number.isFinite(Number(summary?.absolute_gain)) ? Number(summary.absolute_gain) : null,
+    baseline_score: nullableNumber(summary?.baseline_score),
+    latest_score: nullableNumber(summary?.latest_score),
+    gain: nullableNumber(summary?.absolute_gain),
     domains: comparison?.domains && typeof comparison.domains === 'object' ? comparison.domains : {},
     cadence: {
       verified_jobs_since_benchmark: finiteNonNegativeInt(cadence?.verified_jobs_since_benchmark, 0),
