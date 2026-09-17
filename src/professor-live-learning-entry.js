@@ -3,7 +3,7 @@ import { requireAuth } from './core/security.js';
 import { authorizeDevBridge } from './core/dev-bridge-auth.js';
 import { createLearningEngine } from './learning/learning-engine.js';
 import { getLiveLearningProgress } from './learning/live-progress.js';
-import { ensureZeroCostBenchmarkBaseline, prepareOperatorLora, runOperatorBenchmark } from './learning/operator-actions.js';
+import { ensureZeroCostBenchmarkBaseline, prepareOperatorLora, runOperatorBenchmark, runOperatorLoraBenchmark } from './learning/operator-actions.js';
 import { enhanceThemeAvatars } from './pages/theme-avatar-enhancer.js';
 import { runScheduledSystemBackup } from './backup/system-backup-runtime.js';
 
@@ -66,6 +66,27 @@ async function operatorBenchmarkResponse(request, env) {
           : 'BENCHMARK_RUN_FAILED',
       detail: String(error?.message || 'unknown').slice(0, 220),
     }, unavailable ? 503 : invalidModel ? 409 : 500);
+  }
+}
+
+async function operatorLoraBenchmarkResponse(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  try {
+    const body = await safeJsonBody(request);
+    const result = await runOperatorLoraBenchmark(env, {
+      plan: body.plan,
+      artifact: body.artifact,
+      activate: body.activate === true,
+    });
+    return json({ ok: true, ...result });
+  } catch (error) {
+    const code = String(error?.code || '');
+    return json({
+      ok: false,
+      error: code || 'LORA_BENCHMARK_FAILED',
+      detail: String(error?.message || 'unknown').slice(0, 220),
+    }, code === 'AI_BINDING_UNAVAILABLE' ? 503 : 409);
   }
 }
 
@@ -323,6 +344,9 @@ export default {
     }
     if (request.method === 'POST' && url.pathname === '/api/learning/lora/prepare') {
       return operatorLoraPrepareResponse(request, env);
+    }
+    if (request.method === 'POST' && url.pathname === '/api/learning/lora/benchmark') {
+      return operatorLoraBenchmarkResponse(request, env);
     }
     let response = await app.fetch(request, env, ctx);
     if (request.method !== 'GET') return response;

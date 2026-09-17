@@ -2,7 +2,7 @@ import { MentorMemoryRepository } from './mentor-memory.js';
 import { buildTrainingCorpus, createCorrectionRecord, decideAdapterPromotion, summarizeLearning } from './correction-corpus.js';
 import { CANONICAL_LEARNING_BENCHMARK_SUITE, compareBenchmarkScores, runLearningBenchmarkSuite, scoreBenchmarkResults } from '../evaluation/benchmarks.js';
 import { chooseBestSettings, proposeNeighborSettings, sanitizeInferenceSettings } from './inference-adaptation.js';
-import { assertAdapterArtifact, createLoraTrainingPlan } from './lora-plan.js';
+import { assertAdapterActivationEvidence, assertAdapterArtifact, createLoraTrainingPlan } from './lora-plan.js';
 import { BOOTSTRAP_CORRECTIONS } from './bootstrap-corrections.js';
 
 function evidenceObject(row) {
@@ -336,40 +336,42 @@ export class LearningEngine {
 
   async evaluateAdapter({ plan, artifact, baseline, candidate } = {}) {
     const checkedArtifact = assertAdapterArtifact(artifact);
-    const decision = decideAdapterPromotion({ baseline, candidate });
+    let exactEvidence = null;
+    let decision;
+    try {
+      exactEvidence = assertAdapterActivationEvidence({ plan, artifact: checkedArtifact, baseline, candidate });
+      decision = decideAdapterPromotion({ baseline, candidate, minOverallGain: exactEvidence.minimum_gain });
+    } catch (error) {
+      decision = { promote: false, reason: String(error?.code || error?.message || 'LORA_EVIDENCE_INVALID') };
+    }
     await this.memory.remember({
       goal: `Evaluate MEL adapter ${plan?.id || checkedArtifact.id}`,
       kind: 'LORA_ADAPTER_EVAL',
-      lesson: decision.promote ? 'Adaptateur candidat accepté par le benchmark.' : `Adaptateur rejeté: ${decision.reason}.`,
-      evidence: { plan, artifact: checkedArtifact, baseline, candidate, decision },
+      lesson: decision.promote ? 'Adaptateur candidat accepté par le benchmark et les preuves exactes.' : `Adaptateur rejeté: ${decision.reason}.`,
+      evidence: { plan, artifact: checkedArtifact, baseline, candidate, exact_evidence: exactEvidence, decision },
       outcome: decision.promote ? 'APPROVED' : 'REJECTED',
       score: Number(candidate?.overall || 0),
       tags: ['learning', 'lora', 'evaluation'],
     });
-    return decision;
+    return { ...decision, exact_evidence: exactEvidence };
   }
 
   async activateAdapter({ plan, artifact, baseline, candidate } = {}) {
-    const checkedArtifact = assertAdapterArtifact(artifact);
-    const decision = decideAdapterPromotion({ baseline, candidate });
+    const exactEvidence = assertAdapterActivationEvidence({ plan, artifact, baseline, candidate });
+    const checkedArtifact = exactEvidence.artifact;
+    const decision = decideAdapterPromotion({ baseline, candidate, minOverallGain: exactEvidence.minimum_gain });
     if (!decision.promote) {
       throw Object.assign(new Error(`LORA_ACTIVATION_DENIED:${decision.reason}`), { code: 'LORA_ACTIVATION_DENIED', decision });
-    }
-    if (!plan?.readiness?.base_weights_frozen || plan?.readiness?.benchmark_required_before_activation !== true) {
-      throw Object.assign(new Error('LORA_PLAN_NOT_ACTIVATABLE'), { code: 'LORA_PLAN_NOT_ACTIVATABLE' });
-    }
-    if (plan?.readiness?.cloudflare_inference_compatible !== true || plan?.readiness?.ready_for_training !== true) {
-      throw Object.assign(new Error('LORA_RUNTIME_INCOMPATIBLE'), { code: 'LORA_RUNTIME_INCOMPATIBLE' });
-    }
-    if (checkedArtifact.base_model !== plan.base_model) {
-      throw Object.assign(new Error('LORA_BASE_MODEL_MISMATCH'), { code: 'LORA_BASE_MODEL_MISMATCH' });
     }
     const active = {
       plan_id: plan.id,
       adapter: checkedArtifact,
+      finetune_id: checkedArtifact.finetune_id,
       base_model: checkedArtifact.base_model,
+      runtime_model: checkedArtifact.runtime_model,
       dataset_digest: plan.dataset_digest,
-      benchmark: { baseline, candidate, decision },
+      training_manifest_digest: plan.training_manifest_digest,
+      benchmark: { baseline, candidate, decision, exact_evidence: exactEvidence },
       activated_at: Date.now(),
     };
     await this.memory.remember({
