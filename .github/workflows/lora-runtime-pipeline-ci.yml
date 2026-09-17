@@ -1,0 +1,101 @@
+name: lora-runtime-pipeline-ci
+
+on:
+  push:
+    branches:
+      - 'candidate/mel-clean-autonomy'
+      - 'fix/lora-*'
+    paths:
+      - 'src/learning/**'
+      - 'src/evaluation/**'
+      - 'src/api/native-chat.js'
+      - 'src/professor-live-learning-entry.js'
+      - 'scripts/*lora*'
+      - 'tests/*lora*'
+      - 'tests/learning-engine.test.mjs'
+      - 'notebooks/MEL-QLORA-SMOKE-COLAB.ipynb'
+      - 'docs/LORA-FREE-GPU-RUNBOOK.md'
+      - '.github/workflows/lora-runtime-pipeline-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lora-runtime-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Syntax
+        run: npm run check
+
+      - name: Python trainer syntax
+        run: python -m py_compile scripts/train-mel-lora.py
+
+      - name: Targeted LoRA runtime tests
+        run: node --test tests/lora-runtime-pipeline.test.mjs tests/learning-engine.test.mjs
+
+      - name: Canonical plan digest parity
+        shell: bash
+        run: |
+          mkdir -p .tmp-lora-ci
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          out = Path('.tmp-lora-ci/dataset.jsonl')
+          with out.open('w', encoding='utf-8') as fh:
+              for i in range(50):
+                  fh.write(json.dumps({
+                      'messages': [
+                          {'role': 'user', 'content': f'question {i}'},
+                          {'role': 'assistant', 'content': f'answer {i}'},
+                      ]
+                  }, ensure_ascii=False) + '\n')
+          PY
+
+          node scripts/create-lora-plan.mjs             --dataset .tmp-lora-ci/dataset.jsonl             --output .tmp-lora-ci/plan.json             --epochs 1             --seed 42
+
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          plan = json.loads(Path('.tmp-lora-ci/plan.json').read_text(encoding='utf-8'))
+          manifest = plan['training_manifest']
+          canonical = json.dumps(
+              manifest,
+              ensure_ascii=False,
+              sort_keys=True,
+              separators=(',', ':'),
+          )
+          digest = 'sha256:' + hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+          assert digest == plan['training_manifest_digest'], (digest, plan['training_manifest_digest'])
+          assert plan['examples'] == 50
+          assert plan['readiness']['ready_for_training'] is True
+          assert manifest['quantization'] == 'none'
+          print(json.dumps({
+              'status': 'PASS',
+              'training_manifest_digest': digest,
+              'dataset_digest': plan['dataset_digest'],
+          }, indent=2))
+          PY
+
+      - name: Full regression suite
+        run: npm test
