@@ -132,6 +132,12 @@ def main() -> int:
         help="Deterministically sample N rows for a smoke run; 0 trains the full dataset.",
     )
     ap.add_argument("--gradient-accumulation-steps", type=int, default=8)
+    ap.add_argument("--batch-size", type=int, default=1)
+    ap.add_argument(
+        "--cpu-4bit",
+        action="store_true",
+        help="Use bitsandbytes 4-bit CPU backend for a zero-cost GitHub Actions smoke run.",
+    )
     ap.add_argument("--save-steps", type=int, default=250)
     ap.add_argument(
         "--resume-from-checkpoint",
@@ -153,6 +159,8 @@ def main() -> int:
         raise SystemExit("LORA_MAX_SAMPLES_INVALID: max-samples must be >= 0")
     if args.gradient_accumulation_steps < 1:
         raise SystemExit("LORA_GRADIENT_ACCUMULATION_INVALID")
+    if args.batch_size < 1:
+        raise SystemExit("LORA_BATCH_SIZE_INVALID")
     if args.save_steps < 1:
         raise SystemExit("LORA_SAVE_STEPS_INVALID")
     if args.base_model != DEFAULT_BASE or args.runtime_model != DEFAULT_RUNTIME:
@@ -211,7 +219,7 @@ def main() -> int:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    if cuda:
+    if cuda or args.cpu_4bit:
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
@@ -222,17 +230,19 @@ def main() -> int:
             args.base_model,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
-            device_map="auto",
+            device_map="auto" if cuda else {"": "cpu"},
+            low_cpu_mem_usage=True,
         )
         model = prepare_model_for_kbit_training(
             model,
             use_gradient_checkpointing=True,
         )
-        training_mode = "qlora-4bit-nf4"
+        training_mode = "qlora-4bit-nf4" if cuda else "qlora-4bit-nf4-cpu-smoke"
     else:
         model = AutoModelForCausalLM.from_pretrained(
             args.base_model,
             torch_dtype=torch.float32,
+            low_cpu_mem_usage=True,
         )
         model.gradient_checkpointing_enable()
         training_mode = "cpu-fp32-debug"
@@ -270,7 +280,7 @@ def main() -> int:
         output_dir=str(output_dir),
         num_train_epochs=args.epochs,
         learning_rate=args.learning_rate,
-        per_device_train_batch_size=1,
+        per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         gradient_checkpointing=True,
         optim="paged_adamw_8bit" if cuda else "adamw_torch",
@@ -325,9 +335,9 @@ def main() -> int:
             "digest": dataset_digest,
         },
         "quantization": {
-            "enabled": cuda,
-            "bits": 4 if cuda else None,
-            "type": "nf4" if cuda else None,
+            "enabled": bool(cuda or args.cpu_4bit),
+            "bits": 4 if (cuda or args.cpu_4bit) else None,
+            "type": "nf4" if (cuda or args.cpu_4bit) else None,
             "double_quant": bool(cuda),
             "compute_dtype": str(compute_dtype).replace("torch.", ""),
         },
