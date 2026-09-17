@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { getSystemReadiness } from '../src/diagnostics/system-readiness.js';
+import { createDefaultCapabilityBus } from '../src/capabilities/default-bus.js';
 import worker from '../src/index.js';
 
 const noNetwork = async () => new Response('', { status: 503 });
@@ -29,6 +30,7 @@ test('readiness report covers complete Gen2 runtime and explicit zero-cost model
   assert.ok(report.models.explicit_zero_cost >= 2);
   assert.ok(report.models.unknown_or_nonzero_cost.includes('ninjachat-default'));
   assert.equal(report.invariants.unknown_cost_is_not_free, true);
+  assert.equal(report.invariants.catalog_zero_cost_is_not_runtime_authorization, true);
   assert.equal(report.invariants.ai_council_before_development, true);
   assert.equal(report.invariants.owner_shutdown_wins, true);
   assert.equal(report.invariants.production_activation_requires_human_approval, true);
@@ -42,6 +44,37 @@ test('readiness report covers complete Gen2 runtime and explicit zero-cost model
   assert.equal(report.critical.persistent_work_registered, true);
   assert.equal(JSON.stringify(report).includes('password'), false);
   assert.equal(JSON.stringify(report).includes('token'), false);
+});
+
+test('catalog cost=0 never becomes runtime zero-euro authorization by itself', async () => {
+  const env = {
+    MELITURGOS_USER: 'adrien',
+    AI: { async run() { return { response: 'ok' }; } },
+    DB: minimalDb(),
+    MEDIA_BUCKET: {},
+  };
+  const report = await getSystemReadiness({ env, fetchImpl: noNetwork });
+  assert.ok(report.models.explicit_zero_cost_catalog >= 2);
+  assert.equal(report.models.runtime_zero_cost.authorized_zero_cost_count, 0);
+  assert.equal(report.models.runtime_zero_cost.status, 'DEGRADED');
+  assert.equal(report.critical.multi_ai_zero_cost_catalog_candidates, true);
+  assert.equal(report.critical.multi_ai_zero_cost_runtime_quorum, false);
+});
+
+test('CapabilityBus executes inline .augmentio zero-cost healthcheck', async () => {
+  const bus = createDefaultCapabilityBus({
+    env: {
+      MELITURGOS_USER: 'adrien',
+      AI: { async run() { return { response: 'ok' }; } },
+      DB: minimalDb(),
+    },
+    fetchImpl: noNetwork,
+  });
+  const before = bus.describe('augmentio.fanout');
+  assert.equal(before.health, 'DEGRADED');
+  const after = await bus.refreshHealth('augmentio.fanout');
+  assert.equal(after.health, 'DEGRADED');
+  assert.equal(Object.hasOwn(after, 'healthcheck'), false);
 });
 
 test('readiness exposes a deployment identity only from explicit deployment metadata', async () => {
