@@ -8,8 +8,12 @@ export class CapabilityBus {
   discover(record, execute, healthcheck = null) {
     for (const field of ['id','name','category','version','provider','description','input_schema','output_schema','risk','permissions','health','enabled']) requireValue(record[field] !== undefined, 'INVALID_CAPABILITY');
     requireValue(!this.records.has(record.id) && typeof execute === 'function' && Array.isArray(record.permissions) && typeof record.enabled === 'boolean', 'INVALID_CAPABILITY');
-    requireValue(healthcheck === null || typeof healthcheck === 'function', 'INVALID_CAPABILITY');
-    this.records.set(record.id, {record: structuredClone(record), execute, healthcheck});
+    const inlineHealthcheck = record.healthcheck ?? null;
+    const resolvedHealthcheck = healthcheck ?? inlineHealthcheck;
+    requireValue(resolvedHealthcheck === null || typeof resolvedHealthcheck === 'function', 'INVALID_CAPABILITY');
+    const storedRecord = { ...record };
+    delete storedRecord.healthcheck;
+    this.records.set(record.id, {record: structuredClone(storedRecord), execute, healthcheck: resolvedHealthcheck});
     return this.describe(record.id);
   }
   list() { return [...this.records.values()].map(x => structuredClone(x.record)); }
@@ -21,7 +25,12 @@ export class CapabilityBus {
     if (!entry.healthcheck) return this.describe(id);
     try {
       const observed = await entry.healthcheck();
-      entry.record.health = observed === 'ONLINE' ? 'HEALTHY' : observed === 'OFFLINE' ? 'UNAVAILABLE' : 'DEGRADED';
+      const status = typeof observed === 'string' ? observed : observed?.status;
+      entry.record.health = status === 'ONLINE' || status === 'HEALTHY'
+        ? 'HEALTHY'
+        : status === 'OFFLINE' || status === 'UNAVAILABLE'
+          ? 'UNAVAILABLE'
+          : 'DEGRADED';
     } catch { entry.record.health = 'DEGRADED'; }
     return this.describe(id);
   }
