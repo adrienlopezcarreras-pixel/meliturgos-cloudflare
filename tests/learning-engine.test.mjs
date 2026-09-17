@@ -24,6 +24,25 @@ test('corrections become cumulative persistent training pairs', async () => {
   const learned = bundle.preference.find(row => row.id === 'learn-1'); assert.ok(learned); assert.equal(learned.chosen, 'Le runner ne découvre pas le test imbriqué.'); assert.equal(learned.rejected, 'Le code métier est faux.'); assert.match(bundle.digest, /^fnv1a-/);
 });
 
+test('canonical bootstrap corpus alone clears the real LoRA minimum', async () => {
+  const memory = new MemoryStub();
+  const engine = new LearningEngine({ memory });
+  const bundle = await engine.trainingBundle();
+  assert.ok(bundle.accepted >= 50, `expected at least 50 validated examples, got ${bundle.accepted}`);
+  assert.equal(new Set(bundle.sft.map(row => row.id)).size, bundle.accepted);
+  assert.equal(bundle.sft.length, bundle.accepted);
+  assert.equal(bundle.preference.length, bundle.accepted);
+
+  const prepared = await engine.prepareLora({ base_model: DEFAULT_LORA_BASE_MODEL });
+  assert.equal(prepared.corpus.accepted, bundle.accepted);
+  assert.equal(prepared.plan.examples, bundle.accepted);
+  assert.equal(prepared.plan.readiness.enough_examples, true);
+  assert.equal(prepared.plan.readiness.cloudflare_inference_compatible, true);
+  assert.equal(prepared.plan.readiness.ready_for_training, true);
+  assert.equal(prepared.plan.status, 'READY_FOR_TRAINING');
+  assert.equal((await memory.recent({ kind: 'LORA_PLAN' }))[0].outcome, 'READY');
+});
+
 test('benchmark report measures gain without pretending weights changed', async () => {
   const engine = new LearningEngine({ memory: new MemoryStub() });
   await engine.recordBenchmark({ kind: 'baseline', cases: [{ id: 'a', domain: 'memory', score: 0.5 }, { id: 'b', domain: 'code', score: 0.6 }] });
