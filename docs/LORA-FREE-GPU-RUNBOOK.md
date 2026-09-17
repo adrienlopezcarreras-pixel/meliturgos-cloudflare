@@ -4,7 +4,19 @@ Status cible avant entraînement : `DATASET_PREPARED_UNTRAINED`.
 
 Ce runbook lance un entraînement réel de l'adaptateur MEL en QLoRA 4-bit. Il ne promeut jamais automatiquement l'adaptateur : le script produit `TRAINED_UNBENCHMARKED` et le benchmark Professor reste obligatoire avant activation.
 
-## 1. Préparer le notebook GPU
+## Lancement le plus simple : notebook Colab
+
+Notebook prêt à exécuter :
+
+https://colab.research.google.com/github/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/candidate/mel-clean-autonomy/notebooks/MEL-QLORA-SMOKE-COLAB.ipynb
+
+1. Ouvrir le lien.
+2. Choisir un runtime GPU si Colab n'en a pas déjà attribué un.
+3. Exécuter **Run all**.
+
+Le notebook refuse de continuer sans CUDA. Il clone la branche MEL, installe les dépendances, prépare un échantillon déterministe de 500 conversations depuis les deux sources ShareGPT vérifiées, entraîne réellement l'adaptateur QLoRA 4-bit, valide les trois artefacts attendus et produit `/content/MEL-QLORA-smoke-500.zip`.
+
+## 1. Préparer manuellement un notebook GPU
 
 Utiliser un environnement CUDA (T4, L4, A10, A100 ou équivalent), puis :
 
