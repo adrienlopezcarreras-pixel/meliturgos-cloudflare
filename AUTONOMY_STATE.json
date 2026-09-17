@@ -1,19 +1,20 @@
 {
   "schema": "mel.autonomy-state",
   "version": 2,
-  "updated_at": "2026-09-18T00:18:00+02:00",
+  "updated_at": "2026-09-18T00:32:45+02:00",
   "branch": "candidate/mel-clean-autonomy",
   "priority": "P0",
   "objective": "Fermer la boucle MEL -> travail -> Teacher Bridge -> ChatGPT -> reprise automatique, puis continuer le prochain travail sans attente humaine inutile.",
   "candidate_code_checkpoint": {
-    "status": "VERIFIED_CI_PRE_STATE_UPDATE",
-    "last_verified_ci_head_before_state_update": "48307507f753413f9aca10d34b6e89d4926866d2",
-    "full_candidate_ci_run_id": 35281013404,
-    "runtime_teacher_smoke_run_id": 35281013413,
-    "capture_candidate_preview_run_id": 35281013427,
-    "deploy_candidate_preview_run_id": 35281013455,
+    "status": "VERIFIED_PRELAUNCH_ALL_GATES",
+    "last_verified_ci_head_before_state_update": "e3f393063b9af620a2daa40927eb0a9152d1c077",
+    "full_candidate_ci_run_id": 35282420501,
+    "lora_runtime_pipeline_ci_run_id": 35282420570,
+    "runtime_teacher_smoke_run_id": 35282420543,
+    "capture_candidate_preview_run_id": 35282420590,
+    "deploy_candidate_preview_run_id": 35282420550,
     "conclusion": "success",
-    "notes": "Le HEAD 48307507 est entièrement vert: full CI, runtime Teacher smoke, capture et preview. Il inclut le fallback MediaRecorder vers /api/voice/transcribe pour Firefox/Android et conserve le heartbeat canonique."
+    "notes": "Le HEAD e3f39306 est vert sur les cinq gates: full candidate CI, pipeline runtime LoRA, runtime Teacher smoke, capture candidate et déploiement/smoke HTTP preview. Il contient le fallback micro MediaRecorder Firefox/Android, la roadmap canonique unique, les corrections LoRA à provenance exacte et la CI LoRA branch-safe."
   },
   "verified": [
     {
@@ -111,14 +112,14 @@
     }
   ],
   "not_yet_proven": [
-    "Le HEAD final de pré-lancement, après ce commit de consolidation, doit repasser les quatre gates CI/preview.",
     "Le micro MediaRecorder est couvert par tests et preview mais reste à valider physiquement sur Firefox Android avec permission micro.",
-    "La boucle runtime complète doit encore être lancée volontairement par le propriétaire; aucune promotion production autonome n'est autorisée."
+    "La boucle runtime complète doit encore être lancée volontairement par le propriétaire; le heartbeat et la sélection de roadmap sont validés, mais aucun lancement utilisateur n'est enregistré dans ce checkpoint.",
+    "Aucune promotion production autonome n'est autorisée; la production reste séparée de la candidate."
   ],
   "next_p0": [
-    "Valider le HEAD final de pré-lancement avec full-candidate-ci, runtime-teacher-smoke, capture et deploy-candidate-preview.",
-    "Conserver candidate/mel-clean-autonomy comme seule branche opérationnelle et ignorer les files OpenHands archivées.",
-    "Après validation, le propriétaire peut lancer la boucle; le heartbeat reprendra les éléments éligibles de master-roadmap et ignorera les blockers externes.",
+    "Valider ce commit documentaire final avec les mêmes gates sans modifier le comportement.",
+    "Après succès, réaligner les anciens aliases candidate/* sur le HEAD canonique final; leurs anciens tips divergents sont déjà conservés sous archive/prelaunch-20260918/*.",
+    "Le propriétaire peut ensuite lancer la boucle autonome; le heartbeat reprend les éléments éligibles de master-roadmap et contourne uniquement les blockers explicitement externes sans les considérer terminés.",
     "Conserver production_deploy_allowed=false jusqu'à validation humaine explicite."
   ],
   "live_runtime_observation": {
@@ -179,13 +180,17 @@
     "production_requires_human_release_approval": true
   },
   "prelaunch_cleanup": {
-    "status": "IN_PROGRESS_BEFORE_FINAL_HEAD_VALIDATION",
+    "status": "VERIFIED_PARENT_READY_FOR_FINAL_METADATA_GATE",
     "canonical_branch": "candidate/mel-clean-autonomy",
+    "verified_parent_sha": "e3f393063b9af620a2daa40927eb0a9152d1c077",
     "planning_source": "src/roadmap/master-roadmap.js",
     "scheduler": "src/evolution/autonomy-supervisor.js",
     "heartbeat": "* * * * *",
     "legacy_openhands_queue": "ARCHIVED_DO_NOT_EXECUTE",
+    "divergent_candidate_tips_archived": true,
+    "archive_prefix": "archive/prelaunch-20260918/",
+    "candidate_alias_policy": "ALIGN_TO_FINAL_CANONICAL_HEAD_AFTER_FINAL_METADATA_GATE",
     "production_touched": false,
-    "notes": "Les anciennes files OpenHands M001-M014 sont retirées du chemin d'exécution actif. Les branches historiques restent des références de traçabilité/rollback et ne sont pas des sources opérationnelles."
+    "notes": "Une seule roadmap et un seul scheduler sont actifs. Les anciens tips divergents sont sauvegardés sous archive/prelaunch-20260918 avant réalignement des aliases candidate. Aucun historique de récupération ni production n'est réécrit."
   }
 }

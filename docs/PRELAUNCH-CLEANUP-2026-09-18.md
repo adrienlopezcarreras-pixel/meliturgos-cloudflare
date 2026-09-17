@@ -2,8 +2,8 @@
 
 Canonical active development branch: `candidate/mel-clean-autonomy`.
 
-Verified pre-cleanup HEAD: `48307507f753413f9aca10d34b6e89d4926866d2`.
-All four gates were green on that HEAD: full candidate CI, runtime Teacher smoke, candidate capture and candidate preview deployment.
+Verified pre-launch behavior HEAD: `e3f393063b9af620a2daa40927eb0a9152d1c077`.
+All five gates were green on that HEAD: full candidate CI (35282420501), LoRA runtime pipeline (35282420570), runtime Teacher smoke (35282420543), candidate capture (35282420590) and candidate preview deployment/HTTP smoke (35282420550).
 
 ## Operational cleanup
 
@@ -13,6 +13,7 @@ All four gates were green on that HEAD: full candidate CI, runtime Teacher smoke
 - Historical OpenHands M001–M014 queue: archived and forbidden as an independent scheduler.
 - Canonical candidate only: `candidate/mel-clean-autonomy`.
 - Production/main and rollback/archive refs are preserved and are not rewritten by this cleanup.
+- Divergent historical candidate tips have dedicated `archive/prelaunch-20260918/*` refs before alias realignment.
 
 ## Historical candidate refs
 
@@ -56,4 +57,4 @@ The canonical branch itself is intentionally omitted from this archive list. Bac
 
 ## Launch gate
 
-Do not launch the autonomous loop until the final cleanup HEAD has all four candidate gates green. The loop may continue roadmap work automatically, but production deployment remains a separate human-approved action.
+The behavior HEAD above passed all five pre-launch gates. This metadata commit must pass the same gates; after that, historical candidate aliases can be aligned to the final canonical HEAD and the autonomous loop may be launched. Production deployment remains a separate human-approved action.
