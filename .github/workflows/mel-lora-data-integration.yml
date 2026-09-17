@@ -1,0 +1,126 @@
+name: MEL LoRA dataset integration
+
+on:
+  push:
+    branches:
+      - candidate/mel-clean-autonomy
+    paths:
+      - scripts/prepare-sharegpt-lora.py
+      - .github/workflows/mel-lora-data-integration.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-integrated-sharegpt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install streaming JSON parser
+        run: python -m pip install --disable-pip-version-check ijson
+
+      - name: Show disk before preparation
+        run: df -h
+
+      - name: Prepare both ShareGPT variants with deduplication
+        run: |
+          mkdir -p artifacts/lora-data
+          python scripts/prepare-sharegpt-lora.py \
+            --variant both \
+            --output artifacts/lora-data/sharegpt-mel-integrated.jsonl \
+            | tee artifacts/lora-data/prepare.stdout.json
+
+      - name: Validate evidence and output structure
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path('artifacts/lora-data')
+          dataset = root / 'sharegpt-mel-integrated.jsonl'
+          meta = root / 'sharegpt-mel-integrated.jsonl.meta.json'
+          provenance = root / 'sharegpt-mel-integrated.jsonl.provenance.jsonl'
+
+          assert dataset.is_file() and dataset.stat().st_size > 0, 'dataset missing'
+          assert meta.is_file() and provenance.is_file(), 'evidence sidecars missing'
+
+          evidence = json.loads(meta.read_text(encoding='utf-8'))
+          assert evidence['schema'] == 'mel.lora-dataset-evidence.v2'
+          assert evidence['integration_mode'] == 'both'
+          assert evidence['conversations'] >= 50
+          assert evidence['deduplication']['unique_conversations_before_sampling'] >= evidence['conversations']
+          assert set(evidence['sources']) == {'standard', 'no-imsorry'}
+          for source in evidence['sources'].values():
+              assert source['reference_hash_matches'] is True
+
+          count = 0
+          seen = set()
+          with dataset.open('r', encoding='utf-8') as fh:
+              for line in fh:
+                  if not line.strip():
+                      continue
+                  row = json.loads(line)
+                  assert isinstance(row.get('messages'), list) and row['messages']
+                  fp = row.get('conversation_sha256')
+                  assert isinstance(fp, str) and len(fp) == 64
+                  assert fp not in seen, 'duplicate fingerprint in final dataset'
+                  seen.add(fp)
+                  variants = set(row.get('source_variants', []))
+                  assert variants and variants <= {'standard', 'no-imsorry'}
+                  count += 1
+
+          assert count == evidence['conversations'], (count, evidence['conversations'])
+          print(json.dumps({
+              'status': 'PASS',
+              'conversations': count,
+              'dataset_bytes': dataset.stat().st_size,
+              'overlap': evidence['deduplication']['overlap'],
+              'duplicate_hits': evidence['deduplication']['duplicate_hits'],
+              'output_sha256': evidence['output_sha256'],
+          }, indent=2))
+          PY
+
+      - name: Publish run summary
+        if: always()
+        run: |
+          if [ -f artifacts/lora-data/sharegpt-mel-integrated.jsonl.meta.json ]; then
+            python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          p = Path('artifacts/lora-data/sharegpt-mel-integrated.jsonl.meta.json')
+          m = json.loads(p.read_text(encoding='utf-8'))
+          print('# MEL LoRA ShareGPT integration')
+          print()
+          print(f"- integration mode: `{m['integration_mode']}`")
+          print(f"- conversations: `{m['conversations']}`")
+          print(f"- messages: `{m['messages']}`")
+          print(f"- duplicate hits removed: `{m['deduplication']['duplicate_hits']}`")
+          print(f"- overlap: `{m['deduplication']['overlap']}`")
+          print(f"- output SHA-256: `{m['output_sha256']}`")
+          print('- promotion: **not attempted; GPU training + benchmark still required**')
+          PY
+          else
+            echo '# MEL LoRA ShareGPT integration' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Preparation did not produce metadata.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload compact evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mel-lora-sharegpt-integration-evidence
+          path: |
+            artifacts/lora-data/sharegpt-mel-integrated.jsonl.meta.json
+            artifacts/lora-data/sharegpt-mel-integrated.jsonl.provenance.jsonl
+            artifacts/lora-data/prepare.stdout.json
+          if-no-files-found: warn
+          retention-days: 7
