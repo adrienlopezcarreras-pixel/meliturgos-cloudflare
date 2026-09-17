@@ -2,6 +2,7 @@ import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
 import { roadmapSummary, flattenRoadmap } from '../roadmap/master-roadmap.js';
 import { buildHealthDashboard } from './health-dashboard.js';
+import { inspectZeroCostProviderReadiness } from '../augmentio/zero-cost-readiness.js';
 
 function costIsExplicitZero(model) {
   return model?.cost !== null && model?.cost !== undefined && model?.cost !== '' && Number(model.cost) === 0;
@@ -62,12 +63,17 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
   const capabilities = refreshHealth ? await runtime.bus.refreshHealthAll() : runtime.bus.list();
   const models = standardRegistry.list();
   const zeroCostModels = models.filter(model => model.enabled !== false && costIsExplicitZero(model));
+  const zeroCostRuntime = await inspectZeroCostProviderReadiness(runtimeEnv, {
+    capability: 'GENERAL',
+    minimum: 2,
+    refreshHealth: true,
+  });
   const roadmap = roadmapSummary();
   const blockers = blockersFromRoadmap();
   const selfCode = deploymentIdentity(env);
 
   const bindings = {
-    ai: Boolean(env.AI),
+    ai: Boolean(env.AI && typeof env.AI.run === 'function'),
     db: Boolean(env.DB),
     media_bucket: Boolean(env.MEDIA_BUCKET),
     owner: Boolean(env.MELITURGOS_USER),
@@ -93,7 +99,8 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
     council_registered: ids.has('council.state-of-play') && ids.has('evolution.preflight'),
     module_proposal_registered: ids.has('evolution.gap.detect') && ids.has('evolution.module.propose'),
     persistent_work_registered: ids.has('work.create') && ids.has('work.run') && ids.has('work.open'),
-    multi_ai_zero_cost_candidates: zeroCostModels.length >= 2,
+    multi_ai_zero_cost_catalog_candidates: zeroCostModels.length >= 2,
+    multi_ai_zero_cost_runtime_quorum: zeroCostRuntime.status === 'ONLINE' && zeroCostRuntime.authorized_zero_cost_count >= 2,
     roadmap_available: roadmap.total >= 90
   };
 
@@ -113,9 +120,17 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
   };
   const modelSummary = {
     configured: models.length,
-    explicit_zero_cost: zeroCostModels.length,
-    zero_cost_ids: zeroCostModels.map(x => x.id),
-    unknown_or_nonzero_cost: models.filter(x => !costIsExplicitZero(x)).map(x => x.id)
+    explicit_zero_cost_catalog: zeroCostModels.length,
+    zero_cost_catalog_ids: zeroCostModels.map(x => x.id),
+    unknown_or_nonzero_cost: models.filter(x => !costIsExplicitZero(x)).map(x => x.id),
+    runtime_zero_cost: {
+      status: zeroCostRuntime.status,
+      minimum: zeroCostRuntime.minimum,
+      healthy_provider_count: zeroCostRuntime.healthy_provider_count,
+      authorized_zero_cost_count: zeroCostRuntime.authorized_zero_cost_count,
+      authorized_provider_ids: zeroCostRuntime.authorized_provider_ids,
+      reason: zeroCostRuntime.reason,
+    }
   };
   const dashboard = buildHealthDashboard({
     readiness,
@@ -140,6 +155,7 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
     blockers,
     invariants: {
       unknown_cost_is_not_free: true,
+      catalog_zero_cost_is_not_runtime_authorization: true,
       ai_council_before_development: true,
       code_inspection_before_generation: true,
       owner_shutdown_wins: true,
