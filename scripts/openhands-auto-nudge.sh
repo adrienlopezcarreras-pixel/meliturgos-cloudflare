@@ -14,71 +14,29 @@ idle_checks=0
 last_nudge=0
 nudge_count=0
 
-PROMPT_NORMAL="Reprends depuis l'état réel du dépôt et des checkpoints.
+PROMPT_NORMAL="Reprends depuis l'état réel du dépôt et du runtime MEL.
 
-Lis docs/AUTONOMY-RUN.md, docs/MELITURGOS-MASTER-CHECKLIST.md,
-docs/gen2-progress.md et docs/gen2-resume.md.
+Lis docs/AUTONOMY-RUN.md, docs/CURRENT-PRIORITY.md et src/roadmap/master-roadmap.js.
 
-RÈGLE IMPORTANTE :
-ne reprends PAS aveuglément le même blocage.
+RÈGLE CANONIQUE :
+- une seule branche active : candidate/mel-clean-autonomy ;
+- une seule roadmap : src/roadmap/master-roadmap.js ;
+- un seul sélecteur : AutonomySupervisor ;
+- n'exécute jamais l'ancienne file M001-M014 comme plan parallèle ;
+- si un job supervisé existe, reprends exactement ce job ;
+- si un travail est bloqué, consigne la cause et laisse le scheduler canonique choisir le suivant ;
+- ne crée aucune branche candidate ou architecture parallèle.
 
-Si le lot actuel est réellement progressable :
-continue-le.
-
-Si le même problème a déjà subi plusieurs tentatives sans progrès,
-ou si un refactor non essentiel bloque le produit :
-1. checkpoint ;
-2. documente le problème ;
-3. marque la tâche DEFERRED, BLOCKED ou LOW_PRIORITY ;
-4. restaure uniquement le petit changement fautif si nécessaire ;
-5. passe immédiatement à la prochaine tâche PRODUIT READY.
-
-Priorité stricte :
-P0 interface fonctionnelle
-P1 modules exécutables
-P2 Internet réel
-P3 connecteurs
-P4 autonomie
-P5 Module Lab
-P6 médias
-P7 Professeur / Work
-
-Ne t'arrête pas en fin de lot.
-CONTINUE tant qu'une tâche réalisable existe."
+Avant toute écriture, vérifie que le HEAD candidate n'a pas changé.
+Après le plus petit diff sûr : tests, checkpoint, preuve exacte, puis laisse la boucle canonique continuer."
 
 PROMPT_ESCALATION="ANTI-BOUCLE MELITURGOS.
 
-Tu as déjà été relancé plusieurs fois.
-
-NE PAS continuer indéfiniment le même problème.
-
-Inspecte immédiatement :
-- git status
-- dernier checkpoint
-- tâche courante
-- erreurs répétées
-- temps déjà consacré
-
-Si le même blocage/refactor persiste :
-CHECKPOINT
-→ DEFERRED/BLOCKED
-→ restaurer seulement le changement local fautif si nécessaire
-→ tests critiques
-→ prochaine tâche PRODUIT READY.
-
-Ne consacre plus de temps à :
-- refactor cosmétique
-- nettoyage non bloquant
-- test runner perfection
-- architecture idéale
-
-tant que P0-P7 ne sont pas livrés.
-
-Priorité immédiate :
-P0 interface principale réelle,
-puis modules, Internet, connecteurs, autonomie, médias, Professeur/Work.
-
-CONTINUE."
+Relis docs/AUTONOMY-RUN.md et l'état réel du job supervisé.
+N'invente aucune nouvelle file, branche, roadmap ou tâche M00x.
+Si deux tentatives identiques n'ont pas progressé : consigne l'échec, marque le travail bloqué/failed avec diagnostic précis, puis rends la main au scheduler canonique.
+Aucun reset global, aucune production, aucun contournement d'une approbation Teacher périmée.
+CONTINUE uniquement via la roadmap canonique."
 
 mkdir -p "$(dirname "$LOG")"
 

@@ -1,17 +1,19 @@
 {
   "schema": "mel.autonomy-state",
   "version": 2,
-  "updated_at": "2026-09-12T19:33:00Z",
+  "updated_at": "2026-09-18T00:18:00+02:00",
   "branch": "candidate/mel-clean-autonomy",
   "priority": "P0",
   "objective": "Fermer la boucle MEL -> travail -> Teacher Bridge -> ChatGPT -> reprise automatique, puis continuer le prochain travail sans attente humaine inutile.",
   "candidate_code_checkpoint": {
-    "status": "VERIFIED_CI",
-    "last_verified_ci_head_before_state_update": "5fd11f047a00a4948868f590013f7b5098e5d0b1",
-    "full_candidate_ci_run_id": 34714438052,
-    "workflow": "full-candidate-ci",
+    "status": "VERIFIED_CI_PRE_STATE_UPDATE",
+    "last_verified_ci_head_before_state_update": "48307507f753413f9aca10d34b6e89d4926866d2",
+    "full_candidate_ci_run_id": 35281013404,
+    "runtime_teacher_smoke_run_id": 35281013413,
+    "capture_candidate_preview_run_id": 35281013427,
+    "deploy_candidate_preview_run_id": 35281013455,
     "conclusion": "success",
-    "notes": "Le HEAD vérifié inclut la correction GEN2-17 qui permet à MEL de créer le prochain job roadmap lorsque seuls des jobs owner-chat WAITING_TEACHER sont passifs, tout en conservant un job interne WAITING_TEACHER comme gate et en laissant les jobs owner intacts. Les tests couvrent aussi deux transitions autonomes consécutives simulées."
+    "notes": "Le HEAD 48307507 est entièrement vert: full CI, runtime Teacher smoke, capture et preview. Il inclut le fallback MediaRecorder vers /api/voice/transcribe pour Firefox/Android et conserve le heartbeat canonique."
   },
   "verified": [
     {
@@ -109,17 +111,14 @@
     }
   ],
   "not_yet_proven": [
-    "La fermeture complète d'un deuxième cycle consécutif MEL-WORK-02/GEN2-17 jusqu'au completion record vérifié sur candidate/mel-clean-autonomy.",
-    "L'exécution live D1 de la nouvelle règle de scheduling du HEAD 5fd11f047a00a4948868f590013f7b5098e5d0b1; le Worker live observé n'est pas prouvé comme déployé sur ce HEAD.",
-    "Le Council live du job GEN2-17 avec les quatre rôles obligatoires architecture, sécurité, tests/QA et intégration/produit : le smoke 34714438056 montre deux réponses Workers AI mais role=null, required_roles=[], all_required_roles_satisfied=false et synthesis=null.",
-    "Plusieurs cycles runtime consécutifs démontrant la continuité autonome au-delà du premier changement de job.",
-    "Le déploiement production des changements candidate récents; aucune autorisation de promotion production n'est enregistrée dans ce checkpoint."
+    "Le HEAD final de pré-lancement, après ce commit de consolidation, doit repasser les quatre gates CI/preview.",
+    "Le micro MediaRecorder est couvert par tests et preview mais reste à valider physiquement sur Firefox Android avec permission micro.",
+    "La boucle runtime complète doit encore être lancée volontairement par le propriétaire; aucune promotion production autonome n'est autorisée."
   ],
   "next_p0": [
-    "Conserver GEN2-17 comme job interne courant tant que son cycle runtime réel n'est pas terminé.",
-    "Au prochain heartbeat du runtime déployé compatible, exiger un Council zéro-coût avec rôles architecture, sécurité, tests/QA et intégration/produit réellement appelés, provenance et synthèse MEL; fail closed si la preuve manque.",
-    "Exiger pour tout paquet d'implémentation un candidate_sha égal exactement au HEAD observé avant application; un paquet stale doit être régénéré, jamais forcé.",
-    "Après Teacher approval corrélée, appliquer seulement le plus petit diff sûr via Dev Bridge, exécuter les tests, réparer dans le même scope si nécessaire, puis exiger full-candidate-ci exact avant completion.",
+    "Valider le HEAD final de pré-lancement avec full-candidate-ci, runtime-teacher-smoke, capture et deploy-candidate-preview.",
+    "Conserver candidate/mel-clean-autonomy comme seule branche opérationnelle et ignorer les files OpenHands archivées.",
+    "Après validation, le propriétaire peut lancer la boucle; le heartbeat reprendra les éléments éligibles de master-roadmap et ignorera les blockers externes.",
     "Conserver production_deploy_allowed=false jusqu'à validation humaine explicite."
   ],
   "live_runtime_observation": {
@@ -141,7 +140,10 @@
     "council_evidence": {
       "status": "COMPLETE",
       "responses": 2,
-      "providers": ["workers-ai:@cf/zai-org/glm-4.7-flash", "workers-ai:@cf/meta/llama-3.3-70b-instruct-fp8-fast"],
+      "providers": [
+        "workers-ai:@cf/zai-org/glm-4.7-flash",
+        "workers-ai:@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+      ],
       "roles_present": false,
       "required_roles_present": false,
       "synthesis_present": false
@@ -175,5 +177,15 @@
     "owner_shutdown_wins": true,
     "no_uncontrolled_replication": true,
     "production_requires_human_release_approval": true
+  },
+  "prelaunch_cleanup": {
+    "status": "IN_PROGRESS_BEFORE_FINAL_HEAD_VALIDATION",
+    "canonical_branch": "candidate/mel-clean-autonomy",
+    "planning_source": "src/roadmap/master-roadmap.js",
+    "scheduler": "src/evolution/autonomy-supervisor.js",
+    "heartbeat": "* * * * *",
+    "legacy_openhands_queue": "ARCHIVED_DO_NOT_EXECUTE",
+    "production_touched": false,
+    "notes": "Les anciennes files OpenHands M001-M014 sont retirées du chemin d'exécution actif. Les branches historiques restent des références de traçabilité/rollback et ne sont pas des sources opérationnelles."
   }
 }
