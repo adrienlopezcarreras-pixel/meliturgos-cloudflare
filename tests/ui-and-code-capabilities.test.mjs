@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { inferCodeCapability } from '../src/router.js';
+import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface.js';
 
 test('code questions are routed to search automatically', () => {
   assert.deepEqual(inferCodeCapability('Peux-tu accéder à ton code et chercher ModelRouter ?'), {
@@ -26,9 +27,11 @@ test('explicit code file requests are routed to code.read', () => {
 });
 
 test('normal home UI remains available while v1 redirects to canonical Professor', async () => {
-  const mvp = await readFile(new URL('../src/pages/mvp-interface.js', import.meta.url), 'utf8');
+  const response = await renderNormalMode();
+  const mvp = await response.text();
   const v1 = await readFile(new URL('../src/pages/full-interface.js', import.meta.url), 'utf8');
   assert.match(mvp, /<title>MEL<\/title>/);
+  assert.match(mvp, /data-visual-owner="mel-normal-v3"/);
   assert.match(mvp, /id="melAvatar"/);
   assert.match(mvp, /id="full"/);
   assert.match(mvp, /location\.href='\/professor'/);
@@ -47,6 +50,7 @@ test('canonical full mode remains the contemporary control center wired at /prof
   assert.match(page, /data-panel="memory"/);
   assert.match(page, /data-panel="diagnostics"/);
   assert.match(page, /meliturgos-avatar-fille\.png/);
+  assert.doesNotMatch(page, /data-mel-theme-choice/);
   assert.match(router, /handleFullModeV2/);
   assert.match(router, /url\.pathname === "\/professor"/);
 });
