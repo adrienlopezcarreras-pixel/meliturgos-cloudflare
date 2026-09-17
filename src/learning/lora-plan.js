@@ -114,30 +114,37 @@ export function createLoraTrainingPlan({id=`mel-lora-${Date.now()}`,base_model=D
 
 export function assertAdapterArtifact(artifact={}){
   const id=safeId(artifact.id,'ARTIFACT_ID'); const digest=safeId(artifact.digest,'ARTIFACT_DIGEST'); const baseModel=safeId(artifact.base_model,'BASE_MODEL'); const runtimeModel=safeId(artifact.runtime_model,'RUNTIME_MODEL'); const runtime=safeId(artifact.runtime||'cloudflare-workers-ai','RUNTIME'); const format=bounded(artifact.format||'safetensors',80); const sizeBytes=Math.trunc(finiteNumber(artifact.size_bytes,0)); const rank=Math.trunc(finiteNumber(artifact.rank,0));
-  const datasetDigest=artifact.dataset_digest?safeId(artifact.dataset_digest,'DATASET_DIGEST'):null; const trainingManifestDigest=artifact.training_manifest_digest?safeId(artifact.training_manifest_digest,'TRAINING_MANIFEST_DIGEST'):null;
+  const datasetDigest=artifact.dataset_digest?safeId(artifact.dataset_digest,'DATASET_DIGEST'):null; const trainingManifestDigest=artifact.training_manifest_digest?safeId(artifact.training_manifest_digest,'TRAINING_MANIFEST_DIGEST'):null; const finetuneId=artifact.finetune_id?safeId(artifact.finetune_id,'FINETUNE_ID'):null;
   if(!['safetensors','peft'].includes(format))throw Object.assign(new Error('LORA_UNSUPPORTED_ARTIFACT_FORMAT'),{code:'LORA_UNSUPPORTED_ARTIFACT_FORMAT'});
   if(!SHA256_DIGEST.test(digest))throw Object.assign(new Error('LORA_ARTIFACT_SHA256_REQUIRED'),{code:'LORA_ARTIFACT_SHA256_REQUIRED'});
   if(trainingManifestDigest&&!SHA256_DIGEST.test(trainingManifestDigest))throw Object.assign(new Error('LORA_TRAINING_MANIFEST_SHA256_REQUIRED'),{code:'LORA_TRAINING_MANIFEST_SHA256_REQUIRED'});
   if(sizeBytes<=0||sizeBytes>MAX_CLOUDFLARE_ADAPTER_BYTES)throw Object.assign(new Error('LORA_ARTIFACT_SIZE_INVALID'),{code:'LORA_ARTIFACT_SIZE_INVALID'});
   if(rank<1||rank>32)throw Object.assign(new Error('LORA_ARTIFACT_RANK_INVALID'),{code:'LORA_ARTIFACT_RANK_INVALID'});
   if(runtime!=='cloudflare-workers-ai'||!isSupportedCloudflareLoraPair(baseModel,runtimeModel))throw Object.assign(new Error('LORA_RUNTIME_INCOMPATIBLE'),{code:'LORA_RUNTIME_INCOMPATIBLE'});
-  return {id,digest:digest.toLowerCase(),base_model:baseModel,runtime_model:runtimeModel,runtime,size_bytes:sizeBytes,rank,format,uri:bounded(artifact.uri,2000)||null,dataset_digest:datasetDigest,training_manifest_digest:trainingManifestDigest?trainingManifestDigest.toLowerCase():null};
+  return {id,digest:digest.toLowerCase(),base_model:baseModel,runtime_model:runtimeModel,runtime,size_bytes:sizeBytes,rank,format,uri:bounded(artifact.uri,2000)||null,finetune_id:finetuneId,dataset_digest:datasetDigest,training_manifest_digest:trainingManifestDigest?trainingManifestDigest.toLowerCase():null};
 }
 
-export function assertAdapterActivationEvidence({plan,artifact,baseline,candidate}={}){
+export function assertAdapterArtifactForPlan({plan,artifact}={}){
   if(!plan?.readiness?.ready_for_training||!plan?.readiness?.benchmark_required_before_activation)throw Object.assign(new Error('LORA_PLAN_NOT_ACTIVATABLE'),{code:'LORA_PLAN_NOT_ACTIVATABLE'});
   if(!plan?.readiness?.cloudflare_inference_compatible||!isSupportedCloudflareLoraPair(plan?.base_model,plan?.runtime_model))throw Object.assign(new Error('LORA_RUNTIME_INCOMPATIBLE'),{code:'LORA_RUNTIME_INCOMPATIBLE'});
   const planManifestDigest=String(plan?.training_manifest_digest||'').trim().toLowerCase();
   if(!SHA256_DIGEST.test(planManifestDigest))throw Object.assign(new Error('LORA_TRAINING_MANIFEST_REQUIRED'),{code:'LORA_TRAINING_MANIFEST_REQUIRED'});
   const checked=assertAdapterArtifact(artifact);
   if(!checked.dataset_digest||!checked.training_manifest_digest)throw Object.assign(new Error('LORA_ARTIFACT_PROVENANCE_REQUIRED'),{code:'LORA_ARTIFACT_PROVENANCE_REQUIRED'});
+  if(!checked.finetune_id)throw Object.assign(new Error('LORA_FINETUNE_ID_REQUIRED'),{code:'LORA_FINETUNE_ID_REQUIRED'});
   if(checked.base_model!==plan.base_model)throw Object.assign(new Error('LORA_BASE_MODEL_MISMATCH'),{code:'LORA_BASE_MODEL_MISMATCH'});
   if(checked.runtime_model!==plan.runtime_model||checked.runtime!==plan.runtime)throw Object.assign(new Error('LORA_RUNTIME_INCOMPATIBLE'),{code:'LORA_RUNTIME_INCOMPATIBLE'});
   if(checked.rank!==plan.rank)throw Object.assign(new Error('LORA_RANK_MISMATCH'),{code:'LORA_RANK_MISMATCH'});
   if(checked.dataset_digest!==plan.dataset_digest)throw Object.assign(new Error('LORA_DATASET_MISMATCH'),{code:'LORA_DATASET_MISMATCH'});
   if(checked.training_manifest_digest!==planManifestDigest)throw Object.assign(new Error('LORA_TRAINING_MANIFEST_MISMATCH'),{code:'LORA_TRAINING_MANIFEST_MISMATCH'});
+  return checked;
+}
+
+export function assertAdapterActivationEvidence({plan,artifact,baseline,candidate}={}){
+  const planManifestDigest=String(plan?.training_manifest_digest||'').trim().toLowerCase();
+  const checked=assertAdapterArtifactForPlan({plan,artifact});
   const baseOverall=benchmarkOverall(baseline),candidateOverall=benchmarkOverall(candidate); if(!Number.isFinite(baseOverall)||!Number.isFinite(candidateOverall))throw Object.assign(new Error('LORA_BENCHMARK_REQUIRED'),{code:'LORA_BENCHMARK_REQUIRED'});
-  if(candidateOverall<=0||candidate?.passed===false)throw Object.assign(new Error('LORA_BENCHMARK_FAILED'),{code:'LORA_BENCHMARK_FAILED'});
+  if(baseOverall<0||candidateOverall<=0||baseline?.passed===false||candidate?.passed===false)throw Object.assign(new Error('LORA_BENCHMARK_FAILED'),{code:'LORA_BENCHMARK_FAILED'});
   const baseSuite=String(baseline?.suite_digest||baseline?.metadata?.suite_digest||'').trim(),candidateSuite=String(candidate?.suite_digest||candidate?.metadata?.suite_digest||'').trim(); if(!baseSuite||!candidateSuite||baseSuite!==candidateSuite)throw Object.assign(new Error('LORA_BENCHMARK_SUITE_MISMATCH'),{code:'LORA_BENCHMARK_SUITE_MISMATCH'});
   const candidateArtifactDigest=benchmarkField(candidate,'artifact_digest').toLowerCase();
   const candidateManifestDigest=benchmarkField(candidate,'training_manifest_digest').toLowerCase();
@@ -150,4 +157,4 @@ export function assertAdapterActivationEvidence({plan,artifact,baseline,candidat
   return {artifact:checked,measured_gain:gain,minimum_gain:minimumGain,suite_digest:baseSuite,dataset_digest:plan.dataset_digest,training_manifest_digest:planManifestDigest,benchmark_artifact_digest:candidateArtifactDigest};
 }
 
-export const loraPolicy=Object.freeze({minimum_validated_examples:MIN_LORA_VALIDATED_EXAMPLES,base_weights_frozen:true,preferred_quantization:'none',preferred_rank:8,maximum_cloudflare_rank:32,maximum_cloudflare_adapter_bytes:MAX_CLOUDFLARE_ADAPTER_BYTES,preferred_target_modules:['q_proj','v_proj'],activation_requires_benchmark:true,activation_requires_measured_gain:true,activation_requires_no_major_regression:true,activation_requires_exact_base_model_match:true,activation_requires_runtime_model_match:true,activation_requires_exact_dataset_match:true,activation_requires_exact_training_manifest_match:true,activation_requires_exact_benchmark_artifact_match:true,artifact_sha256_required:true});
+export const loraPolicy=Object.freeze({minimum_validated_examples:MIN_LORA_VALIDATED_EXAMPLES,base_weights_frozen:true,preferred_quantization:'none',preferred_rank:8,maximum_cloudflare_rank:32,maximum_cloudflare_adapter_bytes:MAX_CLOUDFLARE_ADAPTER_BYTES,preferred_target_modules:['q_proj','v_proj'],activation_requires_benchmark:true,activation_requires_measured_gain:true,activation_requires_no_major_regression:true,activation_requires_exact_base_model_match:true,activation_requires_runtime_model_match:true,activation_requires_exact_dataset_match:true,activation_requires_exact_training_manifest_match:true,activation_requires_exact_benchmark_artifact_match:true,activation_requires_cloudflare_finetune_id:true,artifact_sha256_required:true});
