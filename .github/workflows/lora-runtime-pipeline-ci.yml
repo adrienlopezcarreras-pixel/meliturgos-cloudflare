@@ -5,6 +5,9 @@ on:
     branches:
       - 'candidate/mel-clean-autonomy'
       - 'fix/lora-*'
+  pull_request:
+    branches:
+      - 'candidate/mel-clean-autonomy'
     paths:
       - 'src/learning/**'
       - 'src/evaluation/**'
