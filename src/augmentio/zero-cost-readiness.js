@@ -15,6 +15,14 @@ function safeProvider(provider, evaluation = {}) {
   };
 }
 
+function providerSupportsCapability(provider, capability) {
+  if (!provider || provider.enabled === false) return false;
+  if (typeof provider.supports === 'function') return Boolean(provider.supports(capability));
+  const wanted = String(capability || '').toUpperCase();
+  return Array.isArray(provider.capabilities)
+    && provider.capabilities.some(value => String(value || '').toUpperCase() === wanted);
+}
+
 /**
  * Distinguish a broken runtime from a healthy runtime deliberately protected by
  * the zero-euro policy. SAFE_IDLE is not an authorization to spend: it means
@@ -64,8 +72,7 @@ export async function inspectZeroCostProviderReadiness(env = {}, {
   const governor = new ZeroEuroGovernor();
   const targetCapability = String(capability || 'GENERAL');
   const candidates = [...pool.adapters.values()]
-    .filter(provider => provider?.enabled !== false)
-    .filter(provider => provider?.supports?.(targetCapability));
+    .filter(provider => providerSupportsCapability(provider, targetCapability));
   const healthy = candidates.filter(provider => provider.healthStatus === 'HEALTHY');
   const authorized = [];
   const blocked = [];
