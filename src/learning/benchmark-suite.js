@@ -48,6 +48,14 @@ function jsonEqual(a, b) {
   return JSON.stringify(a, Object.keys(a || {}).sort()) === JSON.stringify(b, Object.keys(b || {}).sort());
 }
 
+function normalizeProvenance(provenance = {}) {
+  return {
+    artifact_digest: String(provenance?.artifact_digest || '').trim().toLowerCase(),
+    training_manifest_digest: String(provenance?.training_manifest_digest || '').trim().toLowerCase(),
+    dataset_digest: String(provenance?.dataset_digest || '').trim(),
+  };
+}
+
 export function scoreBenchmarkResponse(response, rubric = {}) {
   const text = String(response ?? '').trim();
   const haystack = norm(text);
@@ -79,7 +87,7 @@ export function scoreBenchmarkResponse(response, rubric = {}) {
   return { score: passed / checks.length, checks, valid: true };
 }
 
-export async function runLearningBenchmark({ respond, cases = DEFAULT_CASES, metadata = {} } = {}) {
+export async function runLearningBenchmark({ respond, cases = DEFAULT_CASES, metadata = {}, provenance = {} } = {}) {
   if (typeof respond !== 'function') throw Object.assign(new Error('LEARNING_BENCHMARK_RESPONDER_REQUIRED'), { code: 'LEARNING_BENCHMARK_RESPONDER_REQUIRED' });
   const results = [];
   for (const item of cases) {
@@ -110,15 +118,22 @@ export async function runLearningBenchmark({ respond, cases = DEFAULT_CASES, met
   }
   const scored = scoreBenchmarkResults(results);
   const completedAt = Date.now();
+  const boundProvenance = normalizeProvenance(provenance);
   return {
     benchmark_id: `mel-learning-canonical-v1:${metadata?.source_sha || 'unknown'}:${completedAt}`,
     suite: 'mel-learning-canonical-v1',
     version: 'v1',
+    suite_digest: String(metadata?.suite_digest || '').trim() || null,
     cases: results,
     case_count: scored.cases,
     score: scored.overall,
+    overall: scored.overall,
     domains: scored.domains,
     metadata,
+    provenance: boundProvenance,
+    artifact_digest: boundProvenance.artifact_digest,
+    training_manifest_digest: boundProvenance.training_manifest_digest,
+    dataset_digest: boundProvenance.dataset_digest,
     completed_at: completedAt,
   };
 }
