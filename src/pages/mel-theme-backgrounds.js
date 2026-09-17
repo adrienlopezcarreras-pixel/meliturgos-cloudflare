@@ -9,51 +9,16 @@ export const MEL_THEME_BACKGROUND_LEGACY = Object.freeze({
 });
 
 /**
- * Single source of truth for MEL backgrounds.
- * To replace one theme, update only the corresponding URL after uploading the
- * new owner-provided image. The UI layout and theme logic do not need editing.
+ * Legacy diagnostic mapping retained for compatibility only.
+ * The canonical normal-mode page owns its own visual assets directly.
  */
-export const MEL_THEME_BACKGROUNDS = Object.freeze({
-  classic: MEL_THEME_BACKGROUND_LEGACY.classic,
-  crusade: MEL_THEME_BACKGROUND_LEGACY.crusade,
-  religious: MEL_THEME_BACKGROUND_LEGACY.religious,
-  granada: MEL_THEME_BACKGROUND_LEGACY.granada,
-  aviation: MEL_THEME_BACKGROUND_LEGACY.aviation,
-  paladin: MEL_THEME_BACKGROUND_LEGACY.paladin,
-  amazon: MEL_THEME_BACKGROUND_LEGACY.amazon,
-});
+export const MEL_THEME_BACKGROUNDS = Object.freeze({ ...MEL_THEME_BACKGROUND_LEGACY });
 
-export function rewriteMelThemeBackgrounds(html, backgrounds = MEL_THEME_BACKGROUNDS) {
-  let output = String(html ?? '');
-  for (const [theme, legacyUrl] of Object.entries(MEL_THEME_BACKGROUND_LEGACY)) {
-    const replacement = String(backgrounds?.[theme] || legacyUrl).trim() || legacyUrl;
-    if (replacement !== legacyUrl && output.includes(legacyUrl)) {
-      output = output.split(legacyUrl).join(replacement);
-    }
-  }
-  return output;
+export function rewriteMelThemeBackgrounds(html) {
+  return String(html ?? '');
 }
 
-export async function applyMelThemeBackgrounds(response, backgrounds = MEL_THEME_BACKGROUNDS) {
-  if (!(response instanceof Response)) return response;
-  const contentType = response.headers.get('content-type') || '';
-  if (!/text\/html/i.test(contentType)) return response;
-
-  const hasOverride = Object.entries(MEL_THEME_BACKGROUND_LEGACY)
-    .some(([theme, legacyUrl]) => String(backgrounds?.[theme] || legacyUrl).trim() !== legacyUrl);
-  if (!hasOverride) return response;
-
-  const source = await response.text();
-  const rewritten = rewriteMelThemeBackgrounds(source, backgrounds);
-  if (rewritten === source) {
-    return new Response(source, response);
-  }
-
-  const headers = new Headers(response.headers);
-  headers.delete('content-length');
-  return new Response(rewritten, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+/** Transparent compatibility shim: never post-process page HTML. */
+export async function applyMelThemeBackgrounds(response) {
+  return response;
 }
