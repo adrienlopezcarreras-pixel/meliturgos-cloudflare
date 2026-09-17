@@ -59,12 +59,25 @@ Commencer par 500 conversations sélectionnées de manière déterministe :
 
 ```bash
 mkdir -p artifacts/lora-train
-python scripts/train-mel-lora.py \
-  --dataset artifacts/lora-data/sharegpt-mel-integrated.jsonl \
-  --output artifacts/lora-train/smoke-500 \
-  --max-samples 500 \
+python scripts/prepare-sharegpt-lora.py \
+  --variant both \
+  --max-conversations 500 \
+  --seed 42 \
+  --output artifacts/lora-data/sharegpt-mel-smoke-500.jsonl
+
+node scripts/create-lora-plan.mjs \
+  --dataset artifacts/lora-data/sharegpt-mel-smoke-500.jsonl \
+  --output artifacts/lora-data/lora-plan-smoke-500.json \
   --epochs 1 \
-  --save-steps 50
+  --seed 42
+
+python scripts/train-mel-lora.py \
+  --dataset artifacts/lora-data/sharegpt-mel-smoke-500.jsonl \
+  --plan artifacts/lora-data/lora-plan-smoke-500.json \
+  --output artifacts/lora-train/smoke-500 \
+  --epochs 1 \
+  --save-steps 50 \
+  --seed 42
 ```
 
 Le run n'est considéré comme réellement entraîné que si ces fichiers existent :
@@ -73,6 +86,8 @@ Le run n'est considéré comme réellement entraîné que si ces fichiers existe
 adapter_model.safetensors
 adapter_config.json
 training-evidence.json
+artifact-evidence.json
+lora-plan.json
 ```
 
 `training-evidence.json` doit contenir notamment :
@@ -89,11 +104,19 @@ cuda_available = true
 Après réussite du smoke test :
 
 ```bash
+node scripts/create-lora-plan.mjs \
+  --dataset artifacts/lora-data/sharegpt-mel-integrated.jsonl \
+  --output artifacts/lora-data/lora-plan-full.json \
+  --epochs 2 \
+  --seed 42
+
 python scripts/train-mel-lora.py \
   --dataset artifacts/lora-data/sharegpt-mel-integrated.jsonl \
+  --plan artifacts/lora-data/lora-plan-full.json \
   --output artifacts/lora-train/sharegpt-full \
   --epochs 2 \
-  --save-steps 250
+  --save-steps 250 \
+  --seed 42
 ```
 
 `--max-samples 0` est la valeur par défaut : toutes les conversations sont utilisées.
@@ -105,6 +128,7 @@ Les notebooks gratuits peuvent être interrompus. Le trainer garde les deux dern
 ```bash
 python scripts/train-mel-lora.py \
   --dataset artifacts/lora-data/sharegpt-mel-integrated.jsonl \
+  --plan artifacts/lora-data/lora-plan-full.json \
   --output artifacts/lora-train/sharegpt-full \
   --epochs 2 \
   --save-steps 250 \
@@ -113,7 +137,39 @@ python scripts/train-mel-lora.py \
 
 Remplacer `checkpoint-N` par le dernier checkpoint réellement présent.
 
-## 6. Gate après entraînement
+## 6. Charger l'adaptateur sur Cloudflare
+
+Le trainer produit aussi `artifact-evidence.json` et une copie de `lora-plan.json`. Après le run GPU, charger les deux fichiers LoRA sur Workers AI :
+
+```bash
+export CLOUDFLARE_ACCOUNT_ID="..."
+export CLOUDFLARE_API_TOKEN="..."
+
+node scripts/upload-cloudflare-lora.mjs \
+  --dir artifacts/lora-train/sharegpt-full \
+  --name mel-sharegpt-full
+```
+
+Le script crée le fine-tune Cloudflare, charge exactement `adapter_model.safetensors` et `adapter_config.json`, puis inscrit le `finetune_id` réel dans `artifact-evidence.json`.
+
+## 7. Benchmark réel base vs LoRA et activation
+
+Une fois la version MEL contenant l'endpoint LoRA déployée :
+
+```bash
+export MELITURGOS_PASSWORD="..."
+export MEL_BASE_URL="https://votre-worker.example"
+
+node scripts/finalize-lora.mjs \
+  --dir artifacts/lora-train/sharegpt-full \
+  --url "$MEL_BASE_URL"
+```
+
+Cette commande exécute le même benchmark canonique deux fois sur le même runtime : d'abord sans adaptateur, puis avec le `finetune_id` exact. Le candidat conserve les preuves `dataset_digest + training_manifest_digest + artifact_digest`. L'activation n'est persistée que si le benchmark LoRA passe, améliore suffisamment le score et n'introduit pas de régression de domaine au-delà de la politique.
+
+Après activation, le chat natif charge `LORA_ADAPTER_ACTIVE`, sélectionne le runtime LoRA en priorité et transmet `lora: finetune_id` à Workers AI. En l'absence d'adaptateur actif, le routage standard reste inchangé.
+
+## 8. Gate après entraînement
 
 La présence de poids LoRA ne vaut pas promotion. La séquence reste :
 
