@@ -19,6 +19,7 @@ function makePlan(overrides = {}) {
 function makeArtifact(plan, overrides = {}) {
   return {
     id: 'adapter-provenance-test',
+    finetune_id: 'ft-provenance-test',
     digest: digest('a'),
     base_model: plan.base_model,
     runtime_model: plan.runtime_model,
