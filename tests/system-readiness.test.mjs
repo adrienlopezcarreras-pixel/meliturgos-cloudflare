@@ -20,6 +20,17 @@ function minimalDb() {
   };
 }
 
+async function withoutVerifiedZeroCostTestFixture(run) {
+  const previous = process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+  process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '0';
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) delete process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+    else process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = previous;
+  }
+}
+
 test('readiness report covers complete Gen2 runtime and explicit zero-cost models', async () => {
   const report = await getSystemReadiness({
     env: { MELITURGOS_USER: 'adrien', AI: {}, DB: minimalDb(), MEDIA_BUCKET: {} },
@@ -47,34 +58,39 @@ test('readiness report covers complete Gen2 runtime and explicit zero-cost model
 });
 
 test('catalog cost=0 never becomes runtime zero-euro authorization by itself', async () => {
-  const env = {
-    MELITURGOS_USER: 'adrien',
-    AI: { async run() { return { response: 'ok' }; } },
-    DB: minimalDb(),
-    MEDIA_BUCKET: {},
-  };
-  const report = await getSystemReadiness({ env, fetchImpl: noNetwork });
-  assert.ok(report.models.explicit_zero_cost_catalog >= 2);
-  assert.equal(report.models.runtime_zero_cost.authorized_zero_cost_count, 0);
-  assert.equal(report.models.runtime_zero_cost.status, 'DEGRADED');
-  assert.equal(report.critical.multi_ai_zero_cost_catalog_candidates, true);
-  assert.equal(report.critical.multi_ai_zero_cost_runtime_quorum, false);
-});
-
-test('CapabilityBus executes inline .augmentio zero-cost healthcheck', async () => {
-  const bus = createDefaultCapabilityBus({
-    env: {
+  await withoutVerifiedZeroCostTestFixture(async () => {
+    const env = {
       MELITURGOS_USER: 'adrien',
       AI: { async run() { return { response: 'ok' }; } },
       DB: minimalDb(),
-    },
-    fetchImpl: noNetwork,
+      MEDIA_BUCKET: {},
+    };
+    const report = await getSystemReadiness({ env, fetchImpl: noNetwork });
+    assert.ok(report.models.explicit_zero_cost_catalog >= 2);
+    assert.equal(report.models.runtime_zero_cost.authorized_zero_cost_count, 0);
+    assert.equal(report.models.runtime_zero_cost.status, 'SAFE_IDLE');
+    assert.equal(report.models.runtime_zero_cost.reason, 'ZERO_EURO_POLICY_PROTECTED');
+    assert.equal(report.critical.multi_ai_zero_cost_catalog_candidates, true);
+    assert.equal(report.critical.multi_ai_zero_cost_runtime_quorum, false);
   });
-  const before = bus.describe('augmentio.fanout');
-  assert.equal(before.health, 'DEGRADED');
-  const after = await bus.refreshHealth('augmentio.fanout');
-  assert.equal(after.health, 'DEGRADED');
-  assert.equal(Object.hasOwn(after, 'healthcheck'), false);
+});
+
+test('CapabilityBus executes inline .augmentio zero-cost healthcheck', async () => {
+  await withoutVerifiedZeroCostTestFixture(async () => {
+    const bus = createDefaultCapabilityBus({
+      env: {
+        MELITURGOS_USER: 'adrien',
+        AI: { async run() { return { response: 'ok' }; } },
+        DB: minimalDb(),
+      },
+      fetchImpl: noNetwork,
+    });
+    const before = bus.describe('augmentio.fanout');
+    assert.equal(before.health, 'DEGRADED');
+    const after = await bus.refreshHealth('augmentio.fanout');
+    assert.equal(after.health, 'PROTECTED');
+    assert.equal(Object.hasOwn(after, 'healthcheck'), false);
+  });
 });
 
 test('readiness exposes a deployment identity only from explicit deployment metadata', async () => {
