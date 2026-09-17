@@ -82,6 +82,26 @@ export function boundRecentMessages(recent = [], {
   return { messages: kept, omitted, chars: used, total_limit: totalLimit, per_message_limit: itemLimit };
 }
 
+/**
+ * Appended after every retrieved-memory/tool block so historical context cannot
+ * become more authoritative merely because it lives in the system message.
+ * The actual current request remains a user-role message and is not promoted to
+ * system-level text.
+ */
+export function buildCurrentTurnPriorityInstruction() {
+  return [
+    '',
+    'PRIORITÉ DU TOUR ACTUEL — RÈGLES OBLIGATOIRES :',
+    'Le dernier message utilisateur qui suit est la source autoritative pour l’intention, le sujet et l’état ACTUELS d’Adrien.',
+    'Tout souvenir, résumé, ancien échange ou fait récupéré ci-dessus est un contexte historique potentiellement obsolète : il ne peut ni contredire ni remplacer le dernier message utilisateur.',
+    'N’introduis aucun ancien sujet sans lien direct avec la demande actuelle, même s’il est présent dans la mémoire.',
+    'Respecte exactement les états temporels : « on finit », « on termine », « on continue », « on est en train de » ou « avant de » signifient que le travail est encore en cours, sauf confirmation explicite plus récente qu’il est terminé.',
+    'Avec Adrien, le tutoiement est obligatoire. Ne réutilise pas un vouvoiement présent dans un ancien message assistant comme modèle de style.',
+    'Réponds d’abord au dernier message utilisateur, puis utilise seulement le contexte historique directement pertinent.',
+    '[/PRIORITÉ DU TOUR ACTUEL]',
+  ].join('\n');
+}
+
 export function buildContext({ system, recent = [], retrieved = null, toolResults = [], current }) {
   const messages = [{ role: 'system', content: String(system || '') }];
   messages[0].content += `\n\n${buildContextInterpreterInstruction(current)}`;
@@ -100,6 +120,12 @@ export function buildContext({ system, recent = [], retrieved = null, toolResult
   if (bounded.omitted > 0) {
     messages[0].content += `\n\nCONTEXTE RÉCENT : ${bounded.omitted} message(s) plus ancien(s) ont été omis du prompt actif pour éviter un dépassement de fenêtre. Les faits durables doivent venir de la mémoire récupérée, pas être inventés.`;
   }
+
+  // This guard is deliberately appended last in the system layer, after
+  // retrieved memories and tool data, so they cannot dilute current-turn
+  // semantics. The current message itself is still sent only with role=user.
+  messages[0].content += `\n\n${buildCurrentTurnPriorityInstruction()}`;
+
   messages.push(...bounded.messages);
   messages.push({ role: 'user', content: String(current || '') });
   return messages;
