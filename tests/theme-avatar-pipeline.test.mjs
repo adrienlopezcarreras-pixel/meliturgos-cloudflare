@@ -5,38 +5,43 @@ import { readFile } from 'node:fs/promises';
 const finalEntry = await readFile(new URL('../src/visual-final-entry.js', import.meta.url), 'utf8');
 const previewAuth = await readFile(new URL('../src/preview-auth-entry.js', import.meta.url), 'utf8');
 const liveEntry = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
-const mvp = await readFile(new URL('../src/pages/mvp-interface.js', import.meta.url), 'utf8');
+const mvpEntry = await readFile(new URL('../src/pages/mvp-interface.js', import.meta.url), 'utf8');
+const mvp = await readFile(new URL('../src/pages/mvp-interface-v3.js', import.meta.url), 'utf8');
 const enhancer = await readFile(new URL('../src/pages/theme-avatar-enhancer.js', import.meta.url), 'utf8');
 const wrangler = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
 
-test('deployed entrypoint makes the final visual owner outermost while preserving preview auth below it', () => {
+test('deployed entrypoint keeps preview auth and strips retired visual layers without injecting a second owner', () => {
   assert.match(wrangler, /"main"\s*:\s*"src\/visual-final-entry\.js"/);
   assert.match(finalEntry, /import app from '\.\/preview-auth-entry\.js';/);
   assert.match(previewAuth, /import app from '\.\/professor-live-learning-entry\.js';/);
   assert.match(previewAuth, /bridgePreviewBasicAuth\(request, env\)/);
   assert.match(finalEntry, /const NORMAL_PATHS = new Set\(\['\/', '\/mvp'\]\)/);
   assert.match(finalEntry, /stripLegacyVisualLayers/);
-  assert.match(finalEntry, /if \(NORMAL_PATHS\.has\(pathname\)\)/);
-  assert.match(finalEntry, /mel-theme-decor-style/);
-  assert.match(finalEntry, /mel-theme-avatar-runtime/);
+  assert.match(finalEntry, /normalizeCanonicalNormalAssets/);
+  assert.doesNotMatch(finalEntry, /NORMAL_CANONICAL_STYLE/);
+  assert.doesNotMatch(finalEntry, /NORMAL_CANONICAL_RUNTIME/);
+  assert.doesNotMatch(finalEntry, /appendBeforeHead/);
+  assert.doesNotMatch(finalEntry, /appendBeforeBody/);
   assert.match(liveEntry, /import \{ enhanceThemeAvatars \} from '\.\/pages\/theme-avatar-enhancer\.js';/);
+  assert.match(enhancer, /return response/);
 });
 
-test('normal MEL shell keeps functional theme hooks while final owner replaces the old seven-theme presentation', () => {
+test('canonical normal V3 is the single theme and avatar owner', () => {
+  assert.match(mvpEntry, /export \{ onRequestGet \} from '\.\/mvp-interface-v3\.js';/);
+  assert.match(mvp, /data-visual-owner="mel-normal-v3"/);
+  assert.match(mvp, /id="mel-normal-v3-style"/);
+  assert.match(mvp, /id="mel-normal-v3-runtime"/);
   assert.match(mvp, /id="melAvatar" class="avatar"/);
-  assert.match(mvp, /id="themePanelV2"/);
-  assert.match(mvp, /id="mel-normal-shell-v2-style"/);
-  assert.doesNotMatch(mvp, /id="avatar" class="avatar"/);
+  assert.match(mvp, /id="themePanelV3"/);
+  assert.doesNotMatch(mvp, /mel-theme-avatar-runtime/);
+  assert.doesNotMatch(mvp, /mel-theme-decor-style/);
 
-  for (const id of ['classic','granada','guadix','crusade','aviation','diablo','paladin','futuristic']) {
-    assert.match(finalEntry, new RegExp(`\\b${id}\\b`));
+  for (const id of ['classic','granada','guadix','crusade','aviation','amazon','paladin','futuristic']) {
+    assert.match(mvp, new RegExp(`id:'${id}'`));
   }
-  assert.match(finalEntry, /religious:'guadix',amazon:'diablo'/);
-  assert.match(finalEntry, /avatar-wrap::before,.avatar-wrap::after,.avatar::before,.avatar::after/);
-  assert.match(finalEntry, /avatar>img~img/);
-
-  // The historical enhancer may remain as compatibility source code, but the
-  // final deployed layer strips its output so it cannot stack in the browser.
-  assert.match(enhancer, /id="mel-theme-avatar-runtime"/);
-  assert.match(enhancer, /mel-theme-decor-style/);
+  assert.match(mvp, /v==='religious'\)v='guadix'/);
+  assert.match(mvp, /overflow:hidden/);
+  assert.match(mvp, /object-fit:cover/);
+  assert.match(mvp, /transform:none/);
+  assert.match(mvp, /clip-path:circle\(50%\)/);
 });
