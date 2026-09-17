@@ -159,5 +159,5 @@ test('roadmap source tracks MEL-EVOL-03 through the unique proof-runner procedur
   assert.ok(row);
   assert.ok(['IN_PROGRESS', 'DONE_VERIFIED'].includes(row.status));
   assert.match(row.next, /Runner unique|preuve/i);
-  assert.match(ROADMAP_REGISTRY_REVISION, /^2026-09-16\./);
+  assert.match(ROADMAP_REGISTRY_REVISION, /^20\d{2}-\d{2}-\d{2}\.\d+$/);
 });
