@@ -44,10 +44,19 @@ test('normal mode has exactly one canonical visual owner and the eight V3 themes
 
   assert.ok(body.includes('border-radius:50%;overflow:hidden'));
   assert.ok(body.includes('object-fit:cover;object-position:var(--avatar-pos);transform:none;border-radius:50%;clip-path:circle(50%)'));
-  assert.ok(body.includes('"futuristic":"/meliturgos-avatar-fille.png"'));
+  assert.ok(body.includes('"futuristic":"/assets/avatars/mel-full.webp"'));
+
+  for (const asset of [
+    '/assets/backgrounds/mel-bg-crusade-final.jpg',
+    '/assets/backgrounds/mel-bg-aviation.webp',
+    '/assets/backgrounds/mel-bg-diablo-final.jpg',
+    '/assets/backgrounds/mel-bg-paladin.webp',
+    '/assets/avatars/mel-aviation-1940s.webp',
+    '/assets/avatars/mel-paladin-light-full-plate.webp',
+  ]) assert.ok(body.includes(asset), `final asset missing: ${asset}`);
 });
 
-test('Professor receives no normal-mode theme system', async () => {
+test('Professor receives no normal-mode theme system and shares the full avatar with Futuriste', async () => {
   const source = await professorPage({});
   const body = await html(await finalizeVisualResponse(source, '/professor'));
 
@@ -57,5 +66,7 @@ test('Professor receives no normal-mode theme system', async () => {
   assert.equal(body.includes('Guadix · Virgen de Gracia'), false);
   assert.equal(body.includes('Diablo · Amazone · Acte I'), false);
   assert.equal(body.includes('data-mel-theme-choice'), false);
+  assert.ok(body.includes('/assets/avatars/mel-full.webp'));
+  assert.equal(body.includes('/meliturgos-avatar-fille.png'), false);
   for (const id of LEGACY_IDS) assert.equal(body.includes(`id="${id}"`), false, `${id} must not reach Professor`);
 });
