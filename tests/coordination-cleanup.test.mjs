@@ -15,7 +15,7 @@ test('shared candidate workflows only listen to the canonical candidate branch',
   }
 });
 
-test('normal surface delivers one visual owner while preserving functional cleanup', async () => {
+test('normal surface strips retired visual layers and legacy enhancer stays transparent', async () => {
   const html = `<!doctype html><html data-theme="classic"><head>
     <style id="mel-owner-visual-fix">.legacy-a{display:block}</style>
     <style id="mel-new-hd-scenes">.legacy-b{display:block}</style>
@@ -27,13 +27,13 @@ test('normal surface delivers one visual owner while preserving functional clean
   </body></html>`;
   const stripped = await stripLegacyNormalVisualLayers(new Response(html, { headers: { 'content-type': 'text/html' } }));
   const themed = await enhanceThemeAvatars(stripped);
+  assert.equal(themed, stripped);
   const body = await themed.text();
   assert.doesNotMatch(body, /mel-owner-visual-fix/);
   assert.doesNotMatch(body, /mel-new-hd-scenes/);
   assert.doesNotMatch(body, /mel-normal-release-runtime/);
   assert.match(body, /mel-normal-page-cleanup/);
-  assert.match(body, /mel-theme-avatar-runtime/);
-  assert.equal((body.match(/mel-theme-avatar-runtime/g) || []).length, 1);
+  assert.doesNotMatch(body, /mel-theme-avatar-runtime/);
 });
 
 test('MEL durable learning contains the canonical cleanup and handoff lesson', () => {
