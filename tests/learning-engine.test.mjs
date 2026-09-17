@@ -153,7 +153,7 @@ test('adapter cannot become active without a measured benchmark gain', async () 
 
 test('adapter activation rejects incompatible plan even after benchmark gain', async () => {
   const engine = new LearningEngine({ memory:new MemoryStub() }); const plan = createLoraTrainingPlan({ dataset_digest:'fnv1a-12345678', examples:80, quantization:'4bit' }); const artifact = validArtifact(plan); const { baseline, candidate } = scores(plan, artifact);
-  await assert.rejects(() => engine.activateAdapter({ plan, artifact, baseline, candidate }), error => error.code === 'LORA_RUNTIME_INCOMPATIBLE');
+  await assert.rejects(() => engine.activateAdapter({ plan, artifact, baseline, candidate }), error => error.code === 'LORA_PLAN_NOT_ACTIVATABLE');
 });
 
 test('adapter activation rejects base-model mismatch', async () => {
