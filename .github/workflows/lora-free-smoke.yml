@@ -1,0 +1,105 @@
+name: lora-free-smoke
+
+on:
+  push:
+    branches:
+      - 'run/lora-free-smoke-20260918'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      HF_HUB_DISABLE_TELEMETRY: '1'
+      TOKENIZERS_PARALLELISM: 'false'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Free runner disk
+        shell: bash
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android || true
+          df -h
+
+      - name: Install training dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-lora.txt "bitsandbytes>=0.50.2"
+
+      - name: Build exact MEL smoke corpus and plan
+        shell: bash
+        run: |
+          mkdir -p artifacts/lora-free-smoke/train
+          node scripts/build-lora-free-smoke-dataset.mjs artifacts/lora-free-smoke/dataset.jsonl
+          node scripts/create-lora-plan.mjs             --dataset artifacts/lora-free-smoke/dataset.jsonl             --output artifacts/lora-free-smoke/plan.json             --rank 4 --alpha 8 --dropout 0.05 --learning-rate 0.0001 --epochs 1 --seed 42
+
+      - name: Train real 4-bit CPU LoRA
+        shell: bash
+        run: |
+          python scripts/train-mel-lora.py             --dataset artifacts/lora-free-smoke/dataset.jsonl             --plan artifacts/lora-free-smoke/plan.json             --output artifacts/lora-free-smoke/train             --rank 4 --alpha 8 --dropout 0.05 --learning-rate 0.0001 --epochs 1 --seed 42             --max-length 128 --batch-size 4 --gradient-accumulation-steps 1 --save-steps 100             --allow-cpu --cpu-4bit
+
+      - name: Verify trained artifact
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path('artifacts/lora-free-smoke/train')
+          e=json.loads((root/'training-evidence.json').read_text())
+          a=json.loads((root/'artifact-evidence.json').read_text())
+          assert e['status']=='TRAINED_UNBENCHMARKED'
+          assert e['training_mode']=='qlora-4bit-nf4-cpu-smoke'
+          assert (root/'adapter_model.safetensors').stat().st_size > 0
+          assert a['training_manifest_digest']==e['training_manifest_digest']
+          print(json.dumps({'status':'TRAINED','mode':e['training_mode'],'artifact':a['digest'],'bytes':a['size_bytes']}, indent=2))
+          PY
+
+      - name: Upload adapter to Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/upload-cloudflare-lora.mjs --dir artifacts/lora-free-smoke/train --name mel-free-smoke-${{ github.run_id }}
+
+      - name: Benchmark exact adapter on isolated preview
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          PREVIEW_PASSWORD="$(python - <<'PY'
+          import hashlib,hmac,os
+          print(hmac.new(os.environ['CLOUDFLARE_API_TOKEN'].encode(), b'meliturgos-preview-auth-v1', hashlib.sha256).hexdigest())
+          PY
+          )"
+          echo "::add-mask::${PREVIEW_PASSWORD}"
+          export MELITURGOS_PASSWORD="${PREVIEW_PASSWORD}"
+          set +e
+          node scripts/finalize-lora.mjs             --dir artifacts/lora-free-smoke/train             --url https://meliturgos-preview.adrien-lopezcarreras.workers.dev             | tee artifacts/lora-free-smoke/benchmark-result.json
+          code=${PIPESTATUS[0]}
+          if [ "$code" -eq 2 ]; then
+            echo "Benchmark completed; adapter correctly not activated because promotion gate did not pass."
+            exit 0
+          fi
+          exit "$code"
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-lora-free-smoke-${{ github.run_id }}
+          path: |
+            artifacts/lora-free-smoke/plan.json
+            artifacts/lora-free-smoke/train/training-evidence.json
+            artifacts/lora-free-smoke/train/artifact-evidence.json
+            artifacts/lora-free-smoke/benchmark-result.json
+          if-no-files-found: warn
+          retention-days: 3
