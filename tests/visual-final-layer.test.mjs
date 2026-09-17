@@ -42,8 +42,8 @@ test('normal mode has exactly one canonical visual owner and the eight V3 themes
     'Futuriste',
   ]) assert.ok(body.includes(label), `theme missing: ${label}`);
 
-  assert.match(body, /\.avatar\{[^}]*border-radius:50%;[^}]*overflow:hidden/);
-  assert.match(body, /\.avatar img\{[^}]*object-fit:cover;[^}]*transform:none;[^}]*border-radius:50%;clip-path:circle\(50%\)/);
+  assert.ok(body.includes('border-radius:50%;overflow:hidden'));
+  assert.ok(body.includes('object-fit:cover;object-position:var(--avatar-pos);transform:none;border-radius:50%;clip-path:circle(50%)'));
   assert.ok(body.includes('"futuristic":"/meliturgos-avatar-fille.png"'));
 });
 
