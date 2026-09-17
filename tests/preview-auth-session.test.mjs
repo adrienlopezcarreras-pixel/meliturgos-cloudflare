@@ -67,12 +67,11 @@ assert.match(verificationOptions.headers.authorization, /^Basic\s+/);
 const refused = await verifyBasicAgainstProduction(browserBasicRequest, env, async () => new Response('no', { status: 401 }));
 assert.equal(refused, false, 'production 401 must reject browser credentials');
 
-const themes = ['classic', 'crusade', 'religious', 'granada', 'aviation', 'paladin', 'amazon'];
-assert.deepEqual(Object.keys(MEL_THEME_BACKGROUNDS), themes, 'all seven MEL themes must have one centralized background slot');
-assert.deepEqual(Object.keys(MEL_THEME_BACKGROUND_LEGACY), themes);
+const legacyThemes = ['classic', 'crusade', 'religious', 'granada', 'aviation', 'paladin', 'amazon'];
+assert.deepEqual(Object.keys(MEL_THEME_BACKGROUNDS), legacyThemes, 'legacy theme metadata remains stable for compatibility');
+assert.deepEqual(Object.keys(MEL_THEME_BACKGROUND_LEGACY), legacyThemes);
 const sample = `before ${MEL_THEME_BACKGROUND_LEGACY.granada} after`;
-const replacement = 'https://example.invalid/new-granada-background.webp';
-const rewritten = rewriteMelThemeBackgrounds(sample, { ...MEL_THEME_BACKGROUNDS, granada: replacement });
-assert.equal(rewritten, `before ${replacement} after`, 'one owner-provided background must be replaceable without editing UI layout');
+const rewritten = rewriteMelThemeBackgrounds(sample, { ...MEL_THEME_BACKGROUNDS, granada: 'https://example.invalid/new.webp' });
+assert.equal(rewritten, sample, 'retired background rewriter must stay transparent so V3 remains the sole visual owner');
 
-console.log('preview auth session + theme background slots: ok');
+console.log('preview auth session + transparent legacy theme shim: ok');
