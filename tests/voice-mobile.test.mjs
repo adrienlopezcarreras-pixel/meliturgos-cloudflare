@@ -32,10 +32,18 @@ async function transcribe(bindings=env(),audio=new Blob(["audio"],{type:"audio/w
  assert.equal((await response.json()).code,"AUDIO_REQUIRED");
 }
 
-const source=await (await import("node:fs/promises")).readFile(new URL("../worker.js",import.meta.url),"utf8");
+const fs=await import("node:fs/promises");
+const source=await fs.readFile(new URL("../worker.js",import.meta.url),"utf8");
+const uiSource=await fs.readFile(new URL("../src/pages/mvp-interface-v3.js",import.meta.url),"utf8");
 assert.match(source,/MediaRecorder/);
 assert.match(source,/mel-avatar/);
-assert.match(source,/getTracks\(\)\.forEach/);
-assert.match(source,/fallback:\"text\"/);
+assert.match(source,/getTracks\\(\\)\\.forEach/);
+assert.match(source,/fallback:"text"/);
+assert.match(uiSource,/navigator\\.mediaDevices\\?\\.getUserMedia/);
+assert.match(uiSource,/new MediaRecorder/);
+assert.match(uiSource,/\\/api\\/voice\\/transcribe/);
+assert.match(uiSource,/getTracks\\(\\)\\.forEach/);
+assert.match(uiSource,/showVoice\\('Reconnaissance vocale et enregistrement micro indisponibles\\.',true\\)/);
+assert.match(uiSource,/avatar\\.addEventListener\\('click'/);
 await unlink(testWorker);
-console.log("voice-mobile: transcription, fallback texte, auth et libération micro validés");
+console.log("voice-mobile: transcription serveur, fallback MediaRecorder Firefox/Android, auth et libération micro validés");
