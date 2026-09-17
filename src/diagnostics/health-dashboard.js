@@ -38,8 +38,14 @@ export function buildHealthDashboard({
   const failedCapabilities = countHealth(capabilities.health, state => BAD_CAPABILITY_STATES.has(state));
   const unknownCapabilities = countHealth(capabilities.health, state => UNKNOWN_CAPABILITY_STATES.has(state));
   const totalCapabilities = Math.max(0, Number(capabilities.total) || 0);
-  const zeroCostModels = Math.max(0, Number(models.explicit_zero_cost) || 0);
+  const zeroCostCatalogModels = Math.max(0, Number(models.explicit_zero_cost) || 0);
   const configuredModels = Math.max(0, Number(models.configured) || 0);
+  const runtimeZeroCost = models.runtime_zero_cost && typeof models.runtime_zero_cost === 'object'
+    ? models.runtime_zero_cost
+    : null;
+  const authorizedZeroCost = Math.max(0, Number(runtimeZeroCost?.authorized_zero_cost_count) || 0);
+  const runtimeMinimum = Math.max(1, Number(runtimeZeroCost?.minimum) || 2);
+  const runtimeQuorumReady = runtimeZeroCost?.status === 'ONLINE' && authorizedZeroCost >= runtimeMinimum;
   const exactDeploymentIdentity = selfCode.exact_identity_known === true;
   const blockerCount = Array.isArray(blockers) ? blockers.length : 0;
 
@@ -71,10 +77,19 @@ export function buildHealthDashboard({
     ),
     component(
       'models',
-      'Modèles autorisés',
-      zeroCostModels >= 2 ? 'OK' : configuredModels > 0 ? 'WARN' : 'UNKNOWN',
-      `${zeroCostModels}/${configuredModels} modèle(s) à coût explicitement nul`,
-      { configured: configuredModels, explicit_zero_cost: zeroCostModels }
+      'Multi-IA zéro-euro',
+      runtimeQuorumReady ? 'OK' : configuredModels > 0 ? 'WARN' : 'UNKNOWN',
+      runtimeQuorumReady
+        ? `${authorizedZeroCost} fournisseur(s) runtime autorisé(s), quorum ${runtimeMinimum} atteint`
+        : `${authorizedZeroCost} fournisseur(s) runtime autorisé(s) sur quorum ${runtimeMinimum}; ${zeroCostCatalogModels} modèle(s) seulement catalogué(s) coût 0`,
+      {
+        configured: configuredModels,
+        explicit_zero_cost_catalog: zeroCostCatalogModels,
+        authorized_zero_cost_runtime: authorizedZeroCost,
+        runtime_minimum: runtimeMinimum,
+        runtime_status: runtimeZeroCost?.status || 'UNKNOWN',
+        runtime_reason: runtimeZeroCost?.reason || null,
+      }
     ),
     component(
       'deployment',
