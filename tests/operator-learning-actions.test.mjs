@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_OPERATOR_BENCHMARK_MODEL,
+  ensureZeroCostBenchmarkBaseline,
   prepareOperatorLora,
   runOperatorBenchmark,
 } from '../src/learning/operator-actions.js';
@@ -140,4 +141,70 @@ test('LoRA quality input is clamped before reaching the learning engine', async 
 
   await prepareOperatorLora({}, { min_quality: 9 }, { createLearningEngine: () => engine });
   assert.equal(received.minQuality, 1);
+});
+
+
+test('baseline bootstrap runs the canonical suite once when the current suite has no baseline', async () => {
+  let received = null;
+  const engine = {
+    async benchmarks() { return []; },
+    async runCanonicalBenchmark(value) {
+      received = value;
+      return {
+        reused: false,
+        score: { overall: 0.75, cases: 7 },
+        suite_digest: 'suite-current',
+      };
+    },
+  };
+  const result = await ensureZeroCostBenchmarkBaseline(
+    {
+      AI: { async run() { return { response: 'unused-by-stub-engine' }; } },
+      MEL_SOURCE_SHA: 'bootstrap-source-sha',
+    },
+    { trigger: 'test-bootstrap' },
+    { createLearningEngine: () => engine },
+  );
+  assert.equal(result.status, 'RAN');
+  assert.equal(result.created, true);
+  assert.equal(result.score, 0.75);
+  assert.equal(result.cases, 7);
+  assert.equal(result.model_id, DEFAULT_OPERATOR_BENCHMARK_MODEL);
+  assert.equal(result.source_sha, 'bootstrap-source-sha');
+  assert.equal(received.kind, 'baseline');
+  assert.equal(received.model_id, DEFAULT_OPERATOR_BENCHMARK_MODEL);
+  assert.equal(received.source_sha, 'bootstrap-source-sha');
+  assert.equal(received.metadata.trigger, 'test-bootstrap');
+  assert.equal(typeof received.evaluator, 'function');
+});
+
+test('baseline bootstrap reuses a persisted baseline for the current canonical suite without calling AI', async () => {
+  const { CANONICAL_LEARNING_BENCHMARK_SUITE, benchmarkSuiteFingerprint } = await import('../src/evaluation/benchmarks.js');
+  const suiteDigest = benchmarkSuiteFingerprint(CANONICAL_LEARNING_BENCHMARK_SUITE);
+  let aiCalled = false;
+  let runCalled = false;
+  const engine = {
+    async benchmarks() {
+      return [{
+        kind: 'baseline',
+        overall: 0.82,
+        cases: 7,
+        model_id: 'persisted-model',
+        source_sha: 'persisted-sha',
+        metadata: { suite_digest: suiteDigest },
+      }];
+    },
+    async runCanonicalBenchmark() { runCalled = true; throw new Error('should_not_run'); },
+  };
+  const result = await ensureZeroCostBenchmarkBaseline(
+    { AI: { async run() { aiCalled = true; return { response: 'no' }; } } },
+    {},
+    { createLearningEngine: () => engine },
+  );
+  assert.equal(result.status, 'EXISTS');
+  assert.equal(result.created, false);
+  assert.equal(result.score, 0.82);
+  assert.equal(result.suite_digest, suiteDigest);
+  assert.equal(aiCalled, false);
+  assert.equal(runCalled, false);
 });

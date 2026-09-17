@@ -2,6 +2,7 @@ import { createLearningEngine } from './learning-engine.js';
 import { MEL_LEARNING_BENCHMARK_CASES, runLearningBenchmark, scoreBenchmarkResponse } from './benchmark-suite.js';
 import { extractModelText } from '../models/ModelRouter.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
+import { CANONICAL_LEARNING_BENCHMARK_SUITE, benchmarkSuiteFingerprint } from '../evaluation/benchmarks.js';
 
 export const DEFAULT_OPERATOR_BENCHMARK_MODEL = '@cf/zai-org/glm-4.7-flash';
 
@@ -94,6 +95,52 @@ export function createZeroCostBenchmarkEvaluator(env = {}, deps = {}) {
         },
       };
     },
+  };
+}
+
+export async function ensureZeroCostBenchmarkBaseline(env = {}, options = {}, deps = {}) {
+  const createEngine = deps.createLearningEngine || createLearningEngine;
+  const engine = createEngine(env);
+  const suiteDigest = benchmarkSuiteFingerprint(CANONICAL_LEARNING_BENCHMARK_SUITE);
+  const existing = typeof engine.benchmarks === 'function'
+    ? await engine.benchmarks({ limit: 200 })
+    : [];
+  const baseline = (Array.isArray(existing) ? existing : []).find(
+    (row) => row?.kind === 'baseline' && row?.metadata?.suite_digest === suiteDigest,
+  );
+
+  if (baseline) {
+    return {
+      status: 'EXISTS',
+      created: false,
+      score: Number.isFinite(Number(baseline.overall)) ? Number(baseline.overall) : null,
+      cases: Number.isFinite(Number(baseline.cases)) ? Number(baseline.cases) : null,
+      suite_digest: suiteDigest,
+      model_id: baseline.model_id || null,
+      source_sha: baseline.source_sha || null,
+    };
+  }
+
+  const prepared = createZeroCostBenchmarkEvaluator(env, deps);
+  const sourceSha = benchmarkSourceSha(env, options);
+  const run = await engine.runCanonicalBenchmark({
+    kind: 'baseline',
+    evaluator: prepared.evaluator,
+    model_id: prepared.model_id,
+    source_sha: sourceSha,
+    metadata: {
+      trigger: String(options.trigger || 'scheduled-bootstrap'),
+    },
+  });
+
+  return {
+    status: run?.reused === true ? 'REUSED' : 'RAN',
+    created: run?.reused !== true,
+    score: Number.isFinite(Number(run?.score?.overall)) ? Number(run.score.overall) : null,
+    cases: Number.isFinite(Number(run?.score?.cases)) ? Number(run.score.cases) : null,
+    suite_digest: run?.suite_digest || suiteDigest,
+    model_id: prepared.model_id,
+    source_sha: sourceSha,
   };
 }
 

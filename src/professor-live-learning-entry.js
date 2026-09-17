@@ -3,7 +3,7 @@ import { requireAuth } from './core/security.js';
 import { authorizeDevBridge } from './core/dev-bridge-auth.js';
 import { createLearningEngine } from './learning/learning-engine.js';
 import { getLiveLearningProgress } from './learning/live-progress.js';
-import { prepareOperatorLora, runOperatorBenchmark } from './learning/operator-actions.js';
+import { ensureZeroCostBenchmarkBaseline, prepareOperatorLora, runOperatorBenchmark } from './learning/operator-actions.js';
 import { enhanceThemeAvatars } from './pages/theme-avatar-enhancer.js';
 import { runScheduledSystemBackup } from './backup/system-backup-runtime.js';
 
@@ -333,6 +333,11 @@ export default {
     return enhanceProfessorLearning(response, url.pathname);
   },
   async scheduled(controller, env, ctx) {
+    try {
+      await ensureZeroCostBenchmarkBaseline(env, { trigger: 'scheduled-bootstrap' });
+    } catch (error) {
+      console.error('[MEL benchmark] baseline bootstrap skipped:', error?.code || error?.message || error);
+    }
     await app.scheduled(controller, env, ctx);
     const scheduledAt = Number(controller?.scheduledTime);
     const now = () => new Date(Number.isFinite(scheduledAt) ? scheduledAt : Date.now()).toISOString();
