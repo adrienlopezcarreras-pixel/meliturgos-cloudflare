@@ -1,9 +1,10 @@
 import { enhanceFullModeControls } from './full-mode-control-enhancer.js';
 import { enhanceRoadmapLiveRefresh } from './roadmap-live-refresh-enhancer.js';
+import { enhanceWorkTruth } from './work-truth-enhancer.js';
 
 export const MVP_BEHAVIOR_PATCH = `<style id="mel-mvp-behavior-style">
 .app:before,.app:after{display:none!important;content:none!important}.theme-switch{display:none!important}.mel-bottom-tools .theme-switch{display:block!important;position:relative!important;top:auto!important;left:auto!important;z-index:50!important;width:max-content!important}.mel-bottom-tools .theme-orb{width:44px!important;height:44px!important;font-size:20px!important}.mel-bottom-tools .theme-panel{top:auto!important;bottom:52px!important;left:0!important;max-height:min(68vh,560px)!important}
-#voiceStatus.mel-idle-voice{display:none!important}.controls{display:grid!important;grid-template-columns:1fr!important;max-width:none!important}.controls #send{width:100%!important}.drop{display:block!important}#fileInput{display:none!important}.mel-bottom-tools{display:grid;grid-template-columns:1fr;gap:9px;align-items:start;margin:12px 0 0}.mel-bottom-tools #full{grid-column:1/-1;width:100%;min-height:46px;font-weight:800}
+#voiceStatus.mel-idle-voice{display:none!important}.controls{display:grid!important;grid-template-columns:1fr!important;max-width:none!important}.controls #send{width:100%!important}.drop{display:block!important}#fileInput{display:none!important}.mel-bottom-tools{display:grid;grid-template-columns:1fr;gap:9px;align-items:start;margin:12px 0 0}.mel-bottom-tools #full{grid-column:1/-1;width:100%!important;min-height:46px;font-weight:800}
 @media(max-width:700px){.mel-bottom-tools{gap:7px}}
 </style><script id="mel-mvp-behavior-runtime">
 (function(){
@@ -24,7 +25,8 @@ export async function enhanceMvpBehavior(response) {
   const html=await response.text();
   if(html.includes('data-panel="chat"')&&html.includes('id="chatInput"')){
     const controlled=await enhanceFullModeControls(new Response(html,{status:response.status,statusText:response.statusText,headers:response.headers}));
-    return enhanceRoadmapLiveRefresh(controlled);
+    const roadmapped=await enhanceRoadmapLiveRefresh(controlled);
+    return enhanceWorkTruth(roadmapped);
   }
   if(!html.includes('id="input"'))return new Response(html,{status:response.status,statusText:response.statusText,headers:response.headers});
   if(html.includes('mel-mvp-behavior-runtime'))return new Response(html,{status:response.status,statusText:response.statusText,headers:response.headers});
