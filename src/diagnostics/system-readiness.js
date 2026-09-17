@@ -118,10 +118,14 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
     health,
     ids: capabilities.map(x => x.id)
   };
+  const zeroCostIds = zeroCostModels.map(x => x.id);
   const modelSummary = {
     configured: models.length,
+    // Compatibility aliases retained for existing consumers.
+    explicit_zero_cost: zeroCostModels.length,
+    zero_cost_ids: zeroCostIds,
     explicit_zero_cost_catalog: zeroCostModels.length,
-    zero_cost_catalog_ids: zeroCostModels.map(x => x.id),
+    zero_cost_catalog_ids: zeroCostIds,
     unknown_or_nonzero_cost: models.filter(x => !costIsExplicitZero(x)).map(x => x.id),
     runtime_zero_cost: {
       status: zeroCostRuntime.status,
