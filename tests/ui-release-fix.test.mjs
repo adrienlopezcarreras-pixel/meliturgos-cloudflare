@@ -8,12 +8,15 @@ async function text(path) {
   return readFile(new URL(path, root), 'utf8');
 }
 
-test('production entry preserves the verified release UI wrapper under preview auth and live-learning', async () => {
+test('production entry preserves preview auth, live-learning and verified release UI below the final visual owner', async () => {
   const wrangler = await text('wrangler.jsonc');
+  const finalVisual = await text('src/visual-final-entry.js');
   const previewAuth = await text('src/preview-auth-entry.js');
   const live = await text('src/professor-live-learning-entry.js');
   const release = await text('src/ui-release-fix-entry.js');
-  assert.match(wrangler, /"main"\s*:\s*"src\/preview-auth-entry\.js"/);
+  assert.match(wrangler, /"main"\s*:\s*"src\/visual-final-entry\.js"/);
+  assert.match(finalVisual, /import\s+app\s+from\s+['"]\.\/preview-auth-entry\.js['"]/);
+  assert.match(finalVisual, /async\s+scheduled\s*\([^)]*\)\s*\{[\s\S]*app\.scheduled\(controller,\s*env,\s*ctx\)/);
   assert.match(previewAuth, /import\s+app\s+from\s+['"]\.\/professor-live-learning-entry\.js['"]/);
   assert.match(previewAuth, /async\s+scheduled\s*\([^)]*\)\s*\{[\s\S]*app\.scheduled\(controller,\s*env,\s*ctx\)/);
   assert.match(live, /import\s+app\s+from\s+['"]\.\/ui-release-fix-entry\.js['"]/);
@@ -32,7 +35,7 @@ test('full mode forces the embedded MEL portrait and explains live states', asyn
   }
 });
 
-test('all owner themes and full control mode use self-contained 4K backgrounds', async () => {
+test('generated fallback background inventory remains self-contained and 4K-capable', async () => {
   const source = await text('src/assets/generated/hd-backgrounds.js');
   assert.match(source, /viewBox="0 0 3840 2160"/);
   for (const theme of ['classic','crusade','religious','granada','aviation','paladin','amazon','control']) {
