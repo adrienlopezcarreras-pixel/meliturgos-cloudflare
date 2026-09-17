@@ -32,6 +32,16 @@ Cet index permet à une IA de savoir immédiatement ce que MEL a déjà appris a
 - `bootstrap-gen2-43-model-watch-20260916` — découverte/benchmark de modèles avec autorisation fail-closed, seuils explicites et isolation des erreurs.
 - `bootstrap-dreamina-provider-runner-20260916` — multimodal provider-neutral, zéro-dépense par défaut, quota/fallback et récupération d’artefacts.
 - `bootstrap-mandatory-xp-checkpoint-20260916` — checkpoint XP obligatoire après chaque opération, avec `XP MEL : OUI/NON` explicite.
+- `bootstrap-stale-regression-test-policy-20260916` — un ancien test peut être obsolète face à une politique plus récente déjà prouvée; corriger l’attente sans restaurer l’ancien bug.
+
+## Réconciliation 2026-09-17
+
+- `bootstrap-sensitive-context-intent-20260917` — distinguer contexte sensible légitime, ambigu et opérationnel sans contourner les garde-fous.
+- `bootstrap-learning-operator-truthfulness-20260917` — benchmark réellement mesuré; préparation LoRA != entraînement; trainer absent affiché comme tel.
+- `bootstrap-dev-bridge-auth-scope-20260917` — périmètre d’auth par contrat de route, exemption minimale, routes privilégiées toujours protégées.
+- `bootstrap-zero-euro-runtime-readiness-20260917` — le catalogue `cost:0` ne vaut pas autorisation; readiness calculée avec le governor runtime réel.
+
+Rapport exhaustif : `.agents/XP_RECONCILIATION_20260917.md`.
 
 ## Règle de déduplication
 
@@ -39,4 +49,6 @@ Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le
 
 ## Couverture actuelle
 
-Le corpus couvre : architecture, coûts, sécurité, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, observabilité, UI partagée, gouvernance de preuve et checkpoint XP systématique.
+Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, Benchmark/LoRA, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, Dev Bridge, observabilité, UI partagée, gouvernance de preuve, readiness zéro-euro runtime et checkpoint XP systématique.
+
+Total bootstrap documenté après réconciliation : **30 leçons validées** (14 historiques + 12 pack courant + 4 réconciliées).
