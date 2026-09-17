@@ -3,6 +3,7 @@ import { MEL_LEARNING_BENCHMARK_CASES, runLearningBenchmark, scoreBenchmarkRespo
 import { extractModelText } from '../models/ModelRouter.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
 import { CANONICAL_LEARNING_BENCHMARK_SUITE, benchmarkSuiteFingerprint } from '../evaluation/benchmarks.js';
+import { assertAdapterArtifactForPlan } from './lora-plan.js';
 
 export const DEFAULT_OPERATOR_BENCHMARK_MODEL = '@cf/zai-org/glm-4.7-flash';
 
@@ -41,9 +42,9 @@ function benchmarkSourceSha(env = {}, options = {}) {
   ).trim() || 'unknown';
 }
 
-function benchmarkResponder(ai, modelId, extractText) {
+function benchmarkResponder(ai, modelId, extractText, { lora = null } = {}) {
   return async (prompt) => {
-    const result = await ai.run(modelId, {
+    const input = {
       messages: [
         {
           role: 'system',
@@ -53,7 +54,9 @@ function benchmarkResponder(ai, modelId, extractText) {
       ],
       temperature: 0,
       max_tokens: 512,
-    });
+    };
+    if (lora) input.lora = String(lora);
+    const result = await ai.run(modelId, input);
     const text = extractText(result);
     if (typeof text !== 'string' || !text.trim()) throw new Error('empty_benchmark_response');
     return text.trim();
@@ -192,6 +195,110 @@ export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
     benchmark,
     persisted,
     model_id: modelId,
+    source_sha: sourceSha,
+  };
+}
+
+export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}) {
+  const ai = deps.ai || env.AI;
+  if (!ai || typeof ai.run !== 'function') {
+    const error = new Error('ai_binding_unavailable');
+    error.code = 'AI_BINDING_UNAVAILABLE';
+    throw error;
+  }
+
+  const plan = options.plan;
+  const checkedArtifact = assertAdapterArtifactForPlan({ plan, artifact: options.artifact });
+  const createEngine = deps.createLearningEngine || createLearningEngine;
+  const benchmarkRunner = deps.runLearningBenchmark || runLearningBenchmark;
+  const extractText = deps.extractModelText || extractModelText;
+  const sourceSha = benchmarkSourceSha(env, options);
+  const suiteDigest = benchmarkSuiteFingerprint(CANONICAL_LEARNING_BENCHMARK_SUITE);
+  const runtimeModel = checkedArtifact.runtime_model;
+
+  const baseline = await benchmarkRunner({
+    metadata: {
+      model_id: runtimeModel,
+      source_sha: sourceSha,
+      trigger: 'lora-gate-baseline',
+      suite_digest: suiteDigest,
+    },
+    respond: benchmarkResponder(ai, runtimeModel, extractText),
+  });
+  baseline.passed = Array.isArray(baseline.cases) && baseline.cases.length > 0 && baseline.cases.every((row) => !row?.error);
+
+  const candidate = await benchmarkRunner({
+    metadata: {
+      model_id: runtimeModel,
+      adapter_id: checkedArtifact.finetune_id,
+      source_sha: sourceSha,
+      trigger: 'lora-gate-candidate',
+      suite_digest: suiteDigest,
+    },
+    provenance: {
+      artifact_digest: checkedArtifact.digest,
+      training_manifest_digest: checkedArtifact.training_manifest_digest,
+      dataset_digest: checkedArtifact.dataset_digest,
+    },
+    respond: benchmarkResponder(ai, runtimeModel, extractText, { lora: checkedArtifact.finetune_id }),
+  });
+  candidate.passed = Array.isArray(candidate.cases) && candidate.cases.length > 0 && candidate.cases.every((row) => !row?.error);
+
+  const engine = createEngine(env);
+  await engine.recordBenchmark({
+    cases: baseline.cases,
+    kind: 'lora-baseline',
+    model_id: runtimeModel,
+    source_sha: sourceSha,
+    metadata: {
+      suite_digest: suiteDigest,
+      benchmark_id: baseline.benchmark_id,
+      measured_score: baseline.overall,
+      passed: baseline.passed,
+    },
+  });
+  await engine.recordBenchmark({
+    cases: candidate.cases,
+    kind: 'lora-candidate',
+    model_id: runtimeModel,
+    adapter_id: checkedArtifact.finetune_id,
+    source_sha: sourceSha,
+    metadata: {
+      suite_digest: suiteDigest,
+      benchmark_id: candidate.benchmark_id,
+      measured_score: candidate.overall,
+      passed: candidate.passed,
+      artifact_digest: checkedArtifact.digest,
+      training_manifest_digest: checkedArtifact.training_manifest_digest,
+      dataset_digest: checkedArtifact.dataset_digest,
+    },
+  });
+
+  const decision = await engine.evaluateAdapter({
+    plan,
+    artifact: checkedArtifact,
+    baseline,
+    candidate,
+  });
+
+  let active = null;
+  if (options.activate === true && decision.promote === true) {
+    active = await engine.activateAdapter({
+      plan,
+      artifact: checkedArtifact,
+      baseline,
+      candidate,
+    });
+  }
+
+  return {
+    plan_id: plan?.id || null,
+    artifact: checkedArtifact,
+    baseline,
+    candidate,
+    decision,
+    active,
+    activated: Boolean(active),
     source_sha: sourceSha,
   };
 }
