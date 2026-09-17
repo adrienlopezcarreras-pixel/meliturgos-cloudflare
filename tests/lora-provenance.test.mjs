@@ -26,6 +26,7 @@ function makeArtifact(plan, overrides = {}) {
     size_bytes: 1024,
     rank: plan.rank,
     format: 'safetensors',
+    finetune_id: 'mel-test-finetune-provenance',
     dataset_digest: plan.dataset_digest,
     training_manifest_digest: plan.training_manifest_digest,
     ...overrides,
