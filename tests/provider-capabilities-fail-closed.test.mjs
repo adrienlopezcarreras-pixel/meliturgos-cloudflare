@@ -25,10 +25,10 @@ for (const capability of [
   });
 }
 
-test('evolution.enqueue remains MEDIUM risk and is not deep-executed by this zero-cost proof', () => {
+test('evolution.enqueue remains MEDIUM risk and is unavailable without its required DB binding', () => {
   const bus = createDefaultCapabilityBus({ env: {} });
   const record = bus.describe('evolution.enqueue');
   assert.equal(record.enabled, true);
   assert.equal(record.risk, 'MEDIUM');
-  assert.equal(record.health, 'DEGRADED');
+  assert.equal(record.health, 'UNAVAILABLE');
 });
