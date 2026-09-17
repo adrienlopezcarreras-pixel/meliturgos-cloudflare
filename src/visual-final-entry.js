@@ -1,6 +1,7 @@
 import app from './preview-auth-entry.js';
 
 const NORMAL_PATHS = new Set(['/', '/mvp']);
+const PROFESSOR_PATHS = new Set(['/professor']);
 const RETIRED_VISUAL_IDS = Object.freeze([
   'mel-owner-visual-fix',
   'mel-new-hd-scenes',
@@ -12,6 +13,8 @@ const RETIRED_VISUAL_IDS = Object.freeze([
   'mel-normal-canonical-runtime',
 ]);
 
+// Final asset selection happens once, at the canonical response boundary. This
+// is a deterministic URL replacement only: no extra CSS, DOM or runtime layer.
 const NORMAL_ASSET_REWRITES = Object.freeze([
   [
     'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-classic-hd-scaled.jpg',
@@ -27,17 +30,36 @@ const NORMAL_ASSET_REWRITES = Object.freeze([
   ],
   [
     'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-crusader-jerusalem-real.jpg',
-    'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-crusade-jerusalem-citadel-real-hd-scaled.jpg',
+    '/assets/backgrounds/mel-bg-crusade-final.jpg',
   ],
   [
     'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-aviation-bf109-real.jpg',
-    'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-aviation-bf109-vaernes-1940-real.jpg',
+    '/assets/backgrounds/mel-bg-aviation.webp',
+  ],
+  [
+    'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-amazon-hd.jpg',
+    '/assets/backgrounds/mel-bg-diablo-final.jpg',
+  ],
+  [
+    'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-paladin-hd-scaled.jpg',
+    '/assets/backgrounds/mel-bg-paladin.webp',
   ],
   [
     "--mel-bg:radial-gradient(circle at 75% 18%,rgba(29,255,238,.20),transparent 27%),linear-gradient(135deg,#08191d 0%,#03090c 48%,#111821 100%)",
     "--mel-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-futuristic-project-816-control-room-hd-scaled.jpg')",
   ],
-  ["avatar:'/meliturgos-avatar-fille.png'", "avatar:'/assets/avatars/mel-full.webp'"],
+  ['https://verite-interdite.fr/wp-content/uploads/2026/09/mel-classic-v3.webp?v=20260912-r3', '/assets/avatars/mel-classic.webp'],
+  ['https://verite-interdite.fr/wp-content/uploads/2026/09/mel-granada-v3.webp?v=20260912-r3', '/assets/avatars/mel-granada.webp'],
+  ['https://verite-interdite.fr/wp-content/uploads/2026/09/mel-religious-v3.webp?v=20260912-r3', '/assets/avatars/mel-religious-andalusian.webp'],
+  ['https://verite-interdite.fr/wp-content/uploads/2026/09/mel-crusade-v3.webp?v=20260912-r3', '/assets/avatars/mel-crusade.webp'],
+  ['https://verite-interdite.fr/wp-content/uploads/2026/09/mel-aviation-v3.webp?v=20260912-r3', '/assets/avatars/mel-aviation-1940s.webp'],
+  ['https://verite-interdite.fr/wp-content/uploads/2026/09/mel-amazon-v3.webp?v=20260912-r3', '/assets/avatars/mel-amazon-griffon.webp'],
+  ['https://verite-interdite.fr/wp-content/uploads/2026/09/mel-paladin-v3.webp?v=20260912-r3', '/assets/avatars/mel-paladin-light-full-plate.webp'],
+  ['"futuristic":"/meliturgos-avatar-fille.png"', '"futuristic":"/assets/avatars/mel-full.webp"'],
+]);
+
+const PROFESSOR_ASSET_REWRITES = Object.freeze([
+  ['/meliturgos-avatar-fille.png', '/assets/avatars/mel-full.webp'],
 ]);
 
 function stripElementById(html, id) {
@@ -53,10 +75,18 @@ export function stripLegacyVisualLayers(html) {
   return output;
 }
 
-export function normalizeCanonicalNormalAssets(html) {
+function rewriteAssets(html, rewrites) {
   let output = String(html ?? '');
-  for (const [from, to] of NORMAL_ASSET_REWRITES) output = output.split(from).join(to);
+  for (const [from, to] of rewrites) output = output.split(from).join(to);
   return output;
+}
+
+export function normalizeCanonicalNormalAssets(html) {
+  return rewriteAssets(html, NORMAL_ASSET_REWRITES);
+}
+
+export function normalizeProfessorAssets(html) {
+  return rewriteAssets(html, PROFESSOR_ASSET_REWRITES);
 }
 
 export async function finalizeVisualResponse(response, pathname) {
@@ -66,6 +96,7 @@ export async function finalizeVisualResponse(response, pathname) {
 
   let html = stripLegacyVisualLayers(await response.text());
   if (NORMAL_PATHS.has(pathname)) html = normalizeCanonicalNormalAssets(html);
+  else if (PROFESSOR_PATHS.has(pathname)) html = normalizeProfessorAssets(html);
 
   const headers = new Headers(response.headers);
   headers.delete('content-length');
