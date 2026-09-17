@@ -5,6 +5,7 @@ const MAX_LESSON = 8000;
 const MAX_EVIDENCE = 12000;
 const EXPERIENCE_KIND = 'EXPERIENCE';
 const UNTRUSTED_PROPOSAL_KINDS = new Set(['CODE_PROPOSAL', 'REPAIR_PROPOSAL']);
+const SHA_RE = /^[a-f0-9]{40}$/i;
 
 function bounded(value, max, fallbackValue = '') {
   const out = String(value ?? fallbackValue).trim();
@@ -51,6 +52,33 @@ function isTrustedRow(row) {
   if (UNTRUSTED_PROPOSAL_KINDS.has(row?.kind) && String(row?.outcome || '').toUpperCase() === 'PROPOSED') return false;
   if (evidence?.validation && evidence.validation.validated === false) return false;
   return true;
+}
+
+function assertVerifiedCandidateCiProof(proof) {
+  const value = proof && typeof proof === 'object' ? proof : {};
+  const runId = Number(value.run_id || 0);
+  const workflow = String(value.workflow || '');
+  const headSha = String(value.head_sha || '');
+  const headBranch = String(value.head_branch || '');
+  const conclusion = String(value.conclusion || '').toLowerCase();
+  const valid = value.verified === true
+    && workflow === 'full-candidate-ci'
+    && Number.isSafeInteger(runId) && runId > 0
+    && SHA_RE.test(headSha)
+    && headBranch.startsWith('candidate/')
+    && conclusion === 'success';
+  if (!valid) {
+    throw Object.assign(new Error('MENTOR_EXPERIENCE_PROOF_REQUIRED'), { code: 'MENTOR_EXPERIENCE_PROOF_REQUIRED', status: 422 });
+  }
+  return {
+    verified: true,
+    proof_type: 'VERIFIED_CANDIDATE_CI',
+    workflow,
+    run_id: runId,
+    head_sha: headSha,
+    head_branch: headBranch,
+    conclusion,
+  };
 }
 
 function relevance(goal, rows) {
@@ -199,8 +227,19 @@ export class MentorMemoryRepository {
     if (existing) {
       const previousEvidence = evidenceObject(existing);
       const previousMeta = experienceMetadata(existing);
+      if (previousMeta.fingerprint && normalizeFingerprintPart(previousMeta.fingerprint) !== normalizeFingerprintPart(canonical)) {
+        throw Object.assign(new Error('MENTOR_EXPERIENCE_FINGERPRINT_COLLISION'), { code: 'MENTOR_EXPERIENCE_FINGERPRINT_COLLISION', status: 409 });
+      }
+      const validated = previousMeta.validated === true;
       const occurrences = Math.max(1, Number(previousMeta.occurrences) || 1) + 1;
-      const mergedTags = [...new Set([...(existing.tags || []), ...tags, 'experience', 'unvalidated'])].slice(0, 20);
+      const tagSet = new Set([...(existing.tags || []), ...tags, 'experience']);
+      tagSet.delete(validated ? 'unvalidated' : 'validated');
+      tagSet.add(validated ? 'validated' : 'unvalidated');
+      const mergedEvidence = { ...previousEvidence, ...incomingEvidence };
+      if (validated) {
+        if (previousEvidence.validation) mergedEvidence.validation = previousEvidence.validation;
+        if (previousEvidence.proof_status) mergedEvidence.proof_status = previousEvidence.proof_status;
+      }
       const updated = await this._replace({
         ...existing,
         job_id: existing.job_id || jobId || job_id || null,
@@ -208,21 +247,20 @@ export class MentorMemoryRepository {
         kind: EXPERIENCE_KIND,
         lesson: existing.lesson || text,
         evidence: {
-          ...previousEvidence,
-          ...incomingEvidence,
+          ...mergedEvidence,
           experience: {
             ...previousMeta,
-            fingerprint: canonical,
-            source_type: source,
-            validated: previousMeta.validated === true,
+            fingerprint: previousMeta.fingerprint || canonical,
+            source_type: previousMeta.source_type || source,
+            validated,
             occurrences,
             first_seen_at: previousMeta.first_seen_at || existing.created_at || now,
             last_seen_at: now,
           },
         },
-        outcome: previousMeta.validated === true ? 'VALIDATED' : 'OBSERVED',
+        outcome: validated ? 'VALIDATED' : 'OBSERVED',
         score: Math.max(Number(existing.score || 0), Number(score) || 0),
-        tags: mergedTags,
+        tags: [...tagSet].slice(0, 20),
         created_at: existing.created_at || now,
       });
       return { ...updated, trust: experienceMetadata(updated).validated === true ? 'VALIDATED' : 'OBSERVATION' };
@@ -252,6 +290,51 @@ export class MentorMemoryRepository {
     });
     const normalized = this._row(stored);
     return { ...normalized, trust: 'OBSERVATION' };
+  }
+
+  async validateExperience({ id = null, fingerprint = '', proof = null, validated_at = Date.now() } = {}) {
+    const verified = assertVerifiedCandidateCiProof(proof);
+    const suppliedFingerprint = bounded(fingerprint, 1000);
+    const targetId = id ? String(id) : suppliedFingerprint ? deterministicExperienceId(suppliedFingerprint) : '';
+    if (!targetId) {
+      throw Object.assign(new Error('MENTOR_EXPERIENCE_ID_REQUIRED'), { code: 'MENTOR_EXPERIENCE_ID_REQUIRED', status: 422 });
+    }
+    const existing = await this._getById(targetId);
+    if (!existing || existing.kind !== EXPERIENCE_KIND) {
+      throw Object.assign(new Error('MENTOR_EXPERIENCE_NOT_FOUND'), { code: 'MENTOR_EXPERIENCE_NOT_FOUND', status: 404 });
+    }
+    const previousEvidence = evidenceObject(existing);
+    const previousMeta = experienceMetadata(existing);
+    if (suppliedFingerprint && previousMeta.fingerprint
+      && normalizeFingerprintPart(previousMeta.fingerprint) !== normalizeFingerprintPart(suppliedFingerprint)) {
+      throw Object.assign(new Error('MENTOR_EXPERIENCE_FINGERPRINT_MISMATCH'), { code: 'MENTOR_EXPERIENCE_FINGERPRINT_MISMATCH', status: 409 });
+    }
+    if (previousMeta.validated === true) return { ...existing, trust: 'VALIDATED' };
+
+    const now = Number(validated_at || Date.now());
+    const tags = new Set([...(existing.tags || []), 'experience', 'validated']);
+    tags.delete('unvalidated');
+    const updated = await this._replace({
+      ...existing,
+      evidence: {
+        ...previousEvidence,
+        proof_status: 'VERIFIED_CANDIDATE_CI',
+        validation: {
+          ...(previousEvidence.validation && typeof previousEvidence.validation === 'object' ? previousEvidence.validation : {}),
+          ...verified,
+          validated: true,
+          validated_at: now,
+        },
+        experience: {
+          ...previousMeta,
+          validated: true,
+          validated_at: now,
+        },
+      },
+      outcome: 'VALIDATED',
+      tags: [...tags].slice(0, 20),
+    });
+    return { ...updated, trust: 'VALIDATED' };
   }
 
   async recent({ limit = 12, kind = null, outcome = null } = {}) {
