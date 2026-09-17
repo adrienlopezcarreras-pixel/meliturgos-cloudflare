@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { inferNativeCodeCapability } from '../src/api/native-chat.js';
-import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
+import { onRequestGet as normalModePage } from '../src/pages/mvp-interface.js';
 import { getLiveLearningProgress } from '../src/learning/live-progress.js';
 
 test('source access questions never invent a default code path', () => {
@@ -20,15 +20,15 @@ test('explicit source path still invokes code.read', () => {
   );
 });
 
-test('normal mode visual layer uses the wide balanced layout', async () => {
-  const response = new Response('<html><body><button data-theme-choice="classic">Classic</button><div id="avatar" class="avatar"><img></div></body></html>', {
-    headers: { 'content-type': 'text/html; charset=utf-8' },
-  });
-  const enhanced = await enhanceThemeAvatars(response);
-  const html = await enhanced.text();
-  assert.match(html, /width:min\(1280px,calc\(100vw - 64px\)\)!important/);
-  assert.match(html, /min-height:clamp\(240px,29vh,360px\)!important/);
-  assert.doesNotMatch(html, /width:min\(840px,100%\)!important/);
+test('normal mode visual layer is owned by the canonical v3 surface', async () => {
+  const response = await normalModePage({});
+  const html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(html, /data-visual-owner="mel-normal-v3"/);
+  assert.match(html, /id="mel-normal-v3-style"/);
+  assert.match(html, /\.normal-shell\{width:min\(1080px,calc\(100vw - 24px\)\)/);
+  assert.match(html, /#messages\{min-height:clamp\(245px,29vh,370px\)/);
+  assert.doesNotMatch(html, /mel-theme-avatar-runtime|mel-owner-visual-fix|mel-new-hd-scenes/);
 });
 
 test('benchmark and LoRA live state are evidence-backed', async () => {
