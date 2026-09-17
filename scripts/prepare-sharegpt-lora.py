@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """Prepare ShareGPT/Vicuna conversations for MEL LoRA training.
 
-Converts the public ShareGPT_Vicuna_unfiltered JSON array into the JSONL
+Converts the public ShareGPT_Vicuna_unfiltered JSON arrays into the JSONL
 {"messages": [...]} format expected by scripts/train-mel-lora.py.
 
-Default choice: the standard cleaned split.  The more aggressively filtered
-"no_imsorry" variant is available explicitly with --variant no-imsorry.
+By default both published variants are integrated. Conversations are
+content-deduplicated so the no-imsorry derivative cannot accidentally double
+weight examples also present in the standard corpus. A provenance sidecar
+records whether every retained conversation came from standard, no-imsorry,
+or both.
 
-This script intentionally does not add another keyword-based censorship pass:
-its job is reproducible format conversion, validation, sampling and provenance.
-Model promotion remains gated by MEL's benchmark after training.
+This script intentionally does not add another keyword-based filtering pass:
+its job is reproducible format conversion, validation, deduplication, sampling
+and provenance. Model promotion remains gated by MEL's benchmark after training.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
-import os
 import random
 import shutil
 import tempfile
@@ -63,7 +65,7 @@ def dataset_url(filename: str) -> str:
 
 
 def download(url: str, destination: Path) -> None:
-    req = urllib.request.Request(url, headers={"User-Agent": "mel-lora-preparer/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "mel-lora-preparer/2.0"})
     with urllib.request.urlopen(req) as src, destination.open("wb") as dst:
         shutil.copyfileobj(src, dst, length=1024 * 1024)
 
@@ -127,6 +129,27 @@ def normalize_messages(row: dict) -> list[dict[str, str]] | None:
     return messages
 
 
+def conversation_fingerprint(messages: list[dict[str, str]]) -> str:
+    canonical = json.dumps(messages, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def converted_rows(source: Path, variant: str) -> Iterator[dict]:
+    for row in iter_json_array(source):
+        messages = normalize_messages(row)
+        if messages is None:
+            continue
+        fingerprint = conversation_fingerprint(messages)
+        out = {
+            "messages": messages,
+            "conversation_sha256": fingerprint,
+            "source_variant": variant,
+        }
+        if isinstance(row.get("id"), str):
+            out["source_id"] = row["id"]
+        yield out
+
+
 def reservoir_sample(rows: Iterable[dict], k: int, seed: int) -> list[dict]:
     rng = random.Random(seed)
     sample: list[dict] = []
@@ -140,15 +163,75 @@ def reservoir_sample(rows: Iterable[dict], k: int, seed: int) -> list[dict]:
     return sample
 
 
-def converted_rows(source: Path) -> Iterator[dict]:
-    for row in iter_json_array(source):
-        messages = normalize_messages(row)
-        if messages is None:
+def selected_variants(mode: str) -> list[str]:
+    return ["standard", "no-imsorry"] if mode == "both" else [mode]
+
+
+def resolve_sources(
+    mode: str,
+    input_path: str | None,
+    input_standard: str | None,
+    input_no_imsorry: str | None,
+    temp_root: Path,
+) -> tuple[dict[str, Path], dict[str, str | None]]:
+    variants = selected_variants(mode)
+    sources: dict[str, Path] = {}
+    urls: dict[str, str | None] = {}
+
+    if input_path and mode == "both":
+        raise SystemExit(
+            "INPUT_AMBIGUOUS_FOR_BOTH: use --input-standard and --input-no-imsorry with --variant both"
+        )
+
+    explicit = {
+        "standard": input_standard,
+        "no-imsorry": input_no_imsorry,
+    }
+    if mode != "both" and input_path:
+        explicit[mode] = input_path
+
+    for variant in variants:
+        candidate = explicit[variant]
+        if candidate:
+            path = Path(candidate).resolve()
+            if not path.is_file():
+                raise SystemExit(f"SHAREGPT_SOURCE_NOT_FOUND: {variant}: {path}")
+            sources[variant] = path
+            urls[variant] = None
             continue
-        out = {"messages": messages}
-        if isinstance(row.get("id"), str):
-            out["source_id"] = row["id"]
-        yield out
+
+        spec = VARIANTS[variant]
+        path = temp_root / spec["filename"]
+        url = dataset_url(spec["filename"])
+        print(f"Downloading {variant}: {url}")
+        download(url, path)
+        sources[variant] = path
+        urls[variant] = url
+
+    return sources, urls
+
+
+def validate_sources(
+    sources: dict[str, Path], skip_hash_check: bool
+) -> dict[str, dict[str, str | bool]]:
+    evidence: dict[str, dict[str, str | bool]] = {}
+    for variant, source in sources.items():
+        expected = VARIANTS[variant]["sha256"]
+        actual = sha256_file(source)
+        matches = actual == expected
+        if not skip_hash_check and not matches:
+            raise SystemExit(
+                "SHAREGPT_SOURCE_HASH_MISMATCH: "
+                f"{variant}: expected {expected}, got {actual}. "
+                "Use --skip-source-hash-check only after manually reviewing the new source revision."
+            )
+        evidence[variant] = {
+            "filename": source.name,
+            "sha256": actual,
+            "reference_sha256": expected,
+            "reference_hash_matches": matches,
+        }
+    return evidence
 
 
 def main() -> int:
@@ -156,19 +239,21 @@ def main() -> int:
     ap.add_argument("--output", required=True, help="Destination JSONL for train-mel-lora.py")
     ap.add_argument(
         "--variant",
-        choices=sorted(VARIANTS),
-        default="standard",
-        help="Dataset variant; standard is the default, no-imsorry must be explicit",
+        choices=["both", *sorted(VARIANTS)],
+        default="both",
+        help="Dataset integration mode; both is the default and content-deduplicates the two variants",
     )
     ap.add_argument(
         "--input",
-        help="Optional local ShareGPT JSON file; skips download but still validates/converts",
+        help="Optional local source for a single variant; invalid with --variant both",
     )
+    ap.add_argument("--input-standard", help="Optional local standard ShareGPT JSON source")
+    ap.add_argument("--input-no-imsorry", help="Optional local no-imsorry ShareGPT JSON source")
     ap.add_argument(
         "--max-conversations",
         type=int,
         default=0,
-        help="0 keeps all valid conversations; positive values use deterministic reservoir sampling",
+        help="0 keeps all unique conversations; positive values sample deterministically after deduplication",
     )
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument(
@@ -178,81 +263,158 @@ def main() -> int:
     )
     args = ap.parse_args()
 
-    spec = VARIANTS[args.variant]
+    if args.max_conversations < 0:
+        raise SystemExit("MAX_CONVERSATIONS_INVALID")
+
     output = Path(args.output).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    cleanup_dir: tempfile.TemporaryDirectory[str] | None = None
-    if args.input:
-        source = Path(args.input).resolve()
-        if not source.is_file():
-            raise SystemExit("SHAREGPT_SOURCE_NOT_FOUND")
-        source_url = None
-    else:
-        cleanup_dir = tempfile.TemporaryDirectory(prefix="mel-sharegpt-")
-        source = Path(cleanup_dir.name) / spec["filename"]
-        source_url = dataset_url(spec["filename"])
-        print(f"Downloading {source_url}")
-        download(source_url, source)
-
-    actual_hash = sha256_file(source)
-    expected_hash = spec["sha256"]
-    if not args.skip_source_hash_check and actual_hash != expected_hash:
-        raise SystemExit(
-            "SHAREGPT_SOURCE_HASH_MISMATCH: "
-            f"expected {expected_hash}, got {actual_hash}. "
-            "Use --skip-source-hash-check only after manually reviewing the new source revision."
+    with tempfile.TemporaryDirectory(prefix="mel-sharegpt-") as temp_dir:
+        temp_root = Path(temp_dir)
+        sources, source_urls = resolve_sources(
+            args.variant,
+            args.input,
+            args.input_standard,
+            args.input_no_imsorry,
+            temp_root,
         )
+        source_evidence = validate_sources(sources, args.skip_source_hash_check)
 
-    rows_iter = converted_rows(source)
-    if args.max_conversations < 0:
-        raise SystemExit("MAX_CONVERSATIONS_INVALID")
-    if args.max_conversations:
-        rows: Iterable[dict] = reservoir_sample(rows_iter, args.max_conversations, args.seed)
-    else:
-        rows = rows_iter
+        # Keep only compact membership state in RAM. Rows themselves stream to a
+        # temporary JSONL file, so integrating ~1.3 GB of source JSON does not
+        # require holding the corpora in memory.
+        memberships: dict[str, set[str]] = {}
+        primary_source: dict[str, str] = {}
+        per_source_valid: dict[str, int] = {variant: 0 for variant in sources}
+        per_source_unique_first_seen: dict[str, int] = {variant: 0 for variant in sources}
+        duplicate_hits = 0
+        unique_count = 0
+        message_count = 0
+        deduped_path = temp_root / "deduped.jsonl"
 
-    count = 0
-    message_count = 0
-    with output.open("w", encoding="utf-8") as fh:
-        for row in rows:
-            fh.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
-            count += 1
-            message_count += len(row["messages"])
+        with deduped_path.open("w", encoding="utf-8") as deduped:
+            for variant in selected_variants(args.variant):
+                for row in converted_rows(sources[variant], variant):
+                    per_source_valid[variant] += 1
+                    fingerprint = row["conversation_sha256"]
+                    membership = memberships.setdefault(fingerprint, set())
+                    if membership:
+                        duplicate_hits += 1
+                        membership.add(variant)
+                        continue
 
-    if count < 50:
-        output.unlink(missing_ok=True)
-        raise SystemExit(f"LORA_DATASET_TOO_SMALL_AFTER_CONVERSION: {count}; minimum is 50")
+                    membership.add(variant)
+                    primary_source[fingerprint] = variant
+                    per_source_unique_first_seen[variant] += 1
+                    unique_count += 1
+                    message_count += len(row["messages"])
+                    deduped.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
 
-    metadata = {
-        "schema": "mel.lora-dataset-evidence.v1",
-        "prepared_at": datetime.now(timezone.utc).isoformat(),
-        "dataset_repo": DATASET_REPO,
-        "variant": args.variant,
-        "source_filename": spec["filename"],
-        "source_url": source_url,
-        "source_sha256": actual_hash,
-        "reference_sha256": expected_hash,
-        "output_file": output.name,
-        "output_sha256": sha256_file(output),
-        "conversations": count,
-        "messages": message_count,
-        "sampling": {
-            "max_conversations": args.max_conversations or None,
-            "seed": args.seed,
-            "method": "reservoir" if args.max_conversations else "all-valid",
-        },
-        "notes": [
-            "Converted to the messages JSONL format consumed by train-mel-lora.py.",
-            "No additional keyword-based refusal/safety stripping was applied by this converter.",
-            "Training output must still pass MEL benchmark/promotion gates before activation.",
-        ],
-    }
-    meta_path = output.with_suffix(output.suffix + ".meta.json")
-    meta_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        if unique_count < 50:
+            raise SystemExit(
+                f"LORA_DATASET_TOO_SMALL_AFTER_CONVERSION: {unique_count}; minimum is 50"
+            )
 
-    if cleanup_dir is not None:
-        cleanup_dir.cleanup()
+        def iter_deduped() -> Iterator[dict]:
+            with deduped_path.open("r", encoding="utf-8") as fh:
+                for line in fh:
+                    if line.strip():
+                        yield json.loads(line)
+
+        if args.max_conversations:
+            selected: Iterable[dict] = reservoir_sample(
+                iter_deduped(), args.max_conversations, args.seed
+            )
+        else:
+            selected = iter_deduped()
+
+        written = 0
+        written_messages = 0
+        selected_fingerprints: set[str] = set()
+        with output.open("w", encoding="utf-8") as fh:
+            for row in selected:
+                fingerprint = row["conversation_sha256"]
+                selected_fingerprints.add(fingerprint)
+                row["source_variants"] = sorted(memberships[fingerprint])
+                fh.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+                written += 1
+                written_messages += len(row["messages"])
+
+        if written < 50:
+            output.unlink(missing_ok=True)
+            raise SystemExit(
+                f"LORA_DATASET_TOO_SMALL_AFTER_SAMPLING: {written}; minimum is 50"
+            )
+
+        provenance_path = output.with_suffix(output.suffix + ".provenance.jsonl")
+        with provenance_path.open("w", encoding="utf-8") as fh:
+            for fingerprint in sorted(selected_fingerprints):
+                fh.write(
+                    json.dumps(
+                        {
+                            "conversation_sha256": fingerprint,
+                            "source_variants": sorted(memberships[fingerprint]),
+                            "primary_source_variant": primary_source[fingerprint],
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                )
+
+        overlap_counts = {
+            "standard_only": sum(
+                1 for variants in memberships.values() if variants == {"standard"}
+            ),
+            "no_imsorry_only": sum(
+                1 for variants in memberships.values() if variants == {"no-imsorry"}
+            ),
+            "both": sum(1 for variants in memberships.values() if len(variants) > 1),
+        }
+
+        metadata = {
+            "schema": "mel.lora-dataset-evidence.v2",
+            "prepared_at": datetime.now(timezone.utc).isoformat(),
+            "dataset_repo": DATASET_REPO,
+            "integration_mode": args.variant,
+            "sources": {
+                variant: {
+                    **source_evidence[variant],
+                    "source_url": source_urls[variant],
+                    "valid_conversations": per_source_valid[variant],
+                    "unique_first_seen": per_source_unique_first_seen[variant],
+                }
+                for variant in selected_variants(args.variant)
+            },
+            "deduplication": {
+                "algorithm": "sha256-canonical-messages",
+                "unique_conversations_before_sampling": unique_count,
+                "duplicate_hits": duplicate_hits,
+                "overlap": overlap_counts,
+            },
+            "output_file": output.name,
+            "output_sha256": sha256_file(output),
+            "provenance_file": provenance_path.name,
+            "provenance_sha256": sha256_file(provenance_path),
+            "conversations": written,
+            "messages": written_messages,
+            "sampling": {
+                "max_conversations": args.max_conversations or None,
+                "seed": args.seed,
+                "method": "reservoir-after-dedup" if args.max_conversations else "all-unique",
+            },
+            "notes": [
+                "Both public variants are integrated by default.",
+                "Exact duplicate conversations are retained once, never double-weighted.",
+                "source_variants records standard/no-imsorry membership for every retained row.",
+                "No additional keyword-based refusal/safety stripping is applied by this converter.",
+                "Training output must still pass MEL benchmark/promotion gates before activation.",
+            ],
+        }
+        meta_path = output.with_suffix(output.suffix + ".meta.json")
+        meta_path.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
 
     print(json.dumps(metadata, ensure_ascii=False))
     return 0
