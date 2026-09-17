@@ -55,7 +55,7 @@ const NORMAL_VISUALS = Object.freeze({
   }),
   futuristic: Object.freeze({
     label: 'Futuriste',
-    background: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-classic-hd-scaled.jpg',
+    background: 'https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-futuristic-project-816-control-room-hd-scaled.jpg',
     avatar: '/assets/avatars/mel-full.webp',
     position: 'center 24%',
   }),
@@ -69,7 +69,7 @@ html[data-theme="crusade"]{--mel-final-bg:url('${NORMAL_VISUALS.crusade.backgrou
 html[data-theme="aviation"]{--mel-final-bg:url('${NORMAL_VISUALS.aviation.background}')}
 html[data-theme="diablo"]{--mel-final-bg:url('${NORMAL_VISUALS.diablo.background}');--text:#f8e8c7;--ink:#2a1c16;--muted:#654534;--panel:#d5bd91;--panel2:#aa8a61;--composer:rgba(232,214,178,.96);--border:#9b6d2f;--accent:#8f2e2e;--accent2:#52201f;--button:#4a2a20;--button-text:#f9e6bd;--ornament:#c79a47}
 html[data-theme="paladin"]{--mel-final-bg:url('${NORMAL_VISUALS.paladin.background}')}
-html[data-theme="futuristic"]{--mel-final-bg:linear-gradient(135deg,#020711,#0a1828 45%,#112d37);--text:#e6fbff;--ink:#e6fbff;--muted:#9bcbd2;--panel:rgba(4,18,28,.92);--panel2:rgba(2,10,18,.96);--composer:rgba(3,15,24,.94);--border:#3d8793;--accent:#21c7d9;--accent2:#0d7180;--button:#123440;--button-text:#e8fdff;--ornament:#5eead4}
+html[data-theme="futuristic"]{--mel-final-bg:url('${NORMAL_VISUALS.futuristic.background}');--text:#e6fbff;--ink:#e6fbff;--muted:#9bcbd2;--panel:rgba(4,18,28,.92);--panel2:rgba(2,10,18,.96);--composer:rgba(3,15,24,.94);--border:#3d8793;--accent:#21c7d9;--accent2:#0d7180;--button:#123440;--button-text:#e8fdff;--ornament:#5eead4}
 html body{background-image:linear-gradient(180deg,rgba(4,7,12,.08),rgba(4,7,12,.20) 52%,rgba(3,5,9,.38)),var(--mel-final-bg)!important;background-size:cover,cover!important;background-position:center,center!important;background-repeat:no-repeat,no-repeat!important;background-attachment:fixed,fixed!important}
 .avatar-wrap{position:relative!important}
 .avatar-wrap::before,.avatar-wrap::after,.avatar::before,.avatar::after{display:none!important;content:none!important;background:none!important}
