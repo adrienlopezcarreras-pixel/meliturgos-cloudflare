@@ -333,11 +333,7 @@ export default {
     return enhanceProfessorLearning(response, url.pathname);
   },
   async scheduled(controller, env, ctx) {
-    try {
-      await ensureZeroCostBenchmarkBaseline(env, { trigger: 'scheduled-bootstrap' });
-    } catch (error) {
-      console.error('[MEL benchmark] baseline bootstrap skipped:', error?.code || error?.message || error);
-    }
+    await ensureZeroCostBenchmarkBaseline(env).catch((error) => console.error('[MEL benchmark] baseline bootstrap skipped:', error?.code || error?.message || error));
     await app.scheduled(controller, env, ctx);
     const scheduledAt = Number(controller?.scheduledTime);
     const now = () => new Date(Number.isFinite(scheduledAt) ? scheduledAt : Date.now()).toISOString();
