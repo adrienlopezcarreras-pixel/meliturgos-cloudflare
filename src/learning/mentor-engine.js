@@ -96,7 +96,7 @@ function sourceBlock(files) {
   return files.map(file => `\n===== FILE ${file.path} =====\n${file.content}\n===== END ${file.path} =====`).join('\n');
 }
 
-function buildPrompt({ role, goal, files, lessons, previousAttempts, mode }) {
+function buildPrompt({ role, goal, files, lessons, experiences, previousAttempts, mode }) {
   return [
     'Tu es un membre du Mentor Council de MELITURGOS chargé de produire du code réellement applicable.',
     `RÔLE INDÉPENDANT: ${role}.`,
@@ -109,7 +109,9 @@ function buildPrompt({ role, goal, files, lessons, previousAttempts, mode }) {
     'Ne prétends pas qu’un test est passé: tu proposes seulement les tests à exécuter.',
     'Privilégie une modification petite, cohérente et testable qui fait avancer réellement l’objectif.',
     'OBJECTIF UTILISATEUR:', bounded(goal, 12_000),
-    'LEÇONS MÉMORISÉES DU MENTOR:', JSON.stringify(lessons || []),
+    'LEÇONS MÉMORISÉES VALIDÉES/OPÉRATIONNELLES DU MENTOR:', JSON.stringify(lessons || []),
+    'EXPÉRIENCES VALIDÉES:', JSON.stringify(experiences?.validated || []),
+    'OBSERVATIONS ACQUISES NON VALIDÉES — HYPOTHÈSES/SIGNAUX UNIQUEMENT, NE JAMAIS LES TRAITER COMME DES FAITS:', JSON.stringify(experiences?.observations || []),
     'TENTATIVES/ERREURS PRÉCÉDENTES:', JSON.stringify(previousAttempts || []),
     'SOURCES INSPECTÉES:', sourceBlock(files),
   ].join('\n');
@@ -140,13 +142,24 @@ export class MentorEngine {
     };
   }
 
+  async acquireExperience(input = {}) {
+    return this.memory.acquireExperience(input);
+  }
+
+  async experienceContext(goal, options = {}) {
+    return this.memory.experienceContext(goal, options);
+  }
+
   async propose({ env, jobId, goal, inspectedFiles = [], previousAttempts = [], mode = 'implement' } = {}) {
     const objective = bounded(goal, 12_000).trim();
     if (!objective) throw Object.assign(new Error('MENTOR_GOAL_REQUIRED'), { code: 'MENTOR_GOAL_REQUIRED', status: 400 });
     const files = normalizeInspectedFiles(inspectedFiles);
     if (!files.length) throw Object.assign(new Error('MENTOR_INSPECTION_REQUIRED'), { code: 'MENTOR_INSPECTION_REQUIRED', status: 422 });
     const learned = await this._learnedRuntime();
-    const remembered = await this.memory.context(objective, { limit: learned.inference.memory_results });
+    const [remembered, experiences] = await Promise.all([
+      this.memory.context(objective, { limit: learned.inference.memory_results }),
+      this.memory.experienceContext(objective, { limit: learned.inference.memory_results }),
+    ]);
     const providers = await this._providers(env);
     if (!providers.length) throw Object.assign(new Error('MENTOR_NO_ZERO_COST_CODE_PROVIDER'), { code: 'MENTOR_NO_ZERO_COST_CODE_PROVIDER', status: 503 });
 
@@ -155,7 +168,7 @@ export class MentorEngine {
       const active = learned.activeAdapter;
       const lora = active?.base_model === provider.modelId ? active?.adapter?.id : null;
       return provider.invoke({
-        input: buildPrompt({ role: roles[index % roles.length], goal: objective, files, lessons: remembered, previousAttempts, mode }),
+        input: buildPrompt({ role: roles[index % roles.length], goal: objective, files, lessons: remembered, experiences, previousAttempts, mode }),
         context: {
           purpose: 'mel-autonomous-development',
           job_id: jobId || null,
@@ -192,21 +205,28 @@ export class MentorEngine {
 
     proposals.sort((a, b) => b.score - a.score);
     const best = proposals[0];
-    await this.memory.remember({
+    await this.memory.acquireExperience({
+      fingerprint: [
+        'mentor-council-proposal',
+        jobId || 'no-job',
+        mode,
+        best.summary,
+        best.changes.map(change => change.path).join(','),
+      ].join('|'),
       job_id: jobId || null,
       goal: objective,
-      kind: mode === 'repair' ? 'REPAIR_PROPOSAL' : 'CODE_PROPOSAL',
+      source_type: mode === 'repair' ? 'MENTOR_COUNCIL_REPAIR_PROPOSAL' : 'MENTOR_COUNCIL_CODE_PROPOSAL',
       lesson: best.summary,
       evidence: {
+        proposal_kind: mode === 'repair' ? 'REPAIR_PROPOSAL' : 'CODE_PROPOSAL',
         files: best.changes.map(x => x.path),
         tests: best.tests,
         provider: best.provenance,
         inference_settings: learned.inference,
         active_adapter_id: learned.activeAdapter?.adapter?.id || null,
       },
-      outcome: 'PROPOSED',
       score: best.confidence,
-      tags: ['development', 'mentor', mode],
+      tags: ['development', 'mentor', 'council', mode],
     });
 
     return {
@@ -230,6 +250,8 @@ export class MentorEngine {
       },
       learning: {
         memory_context_count: remembered.length,
+        acquired_observation_count: experiences.observations.length,
+        validated_experience_count: experiences.validated.length,
         inference_settings: learned.inference,
         active_adapter_id: learned.activeAdapter?.adapter?.id || null,
         active_adapter_base_model: learned.activeAdapter?.base_model || null,

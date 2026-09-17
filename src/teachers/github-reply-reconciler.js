@@ -1,4 +1,5 @@
 import { listPendingRuntimeTeacherRequests, applyRuntimeTeacherReply } from './runtime-teacher-bridge.js';
+import { createMentorEngine } from '../learning/mentor-engine.js';
 
 const ALLOWED_VERDICTS = new Set(['APPROVE_PLAN', 'NEEDS_CHANGES', 'REJECT']);
 const SHA40 = /^[0-9a-f]{40}$/i;
@@ -119,6 +120,36 @@ async function requeueStaleRequest(repository, request, currentSha) {
   return { request_id: request.request_id, job_id: updated.id, previous_target_sha: request.target_sha || null, current_candidate_sha: currentSha };
 }
 
+async function acquireTeacherExperience(env, request, result) {
+  if (result?.duplicate) return null;
+  const review = result?.state?.review;
+  const feedback = String(review?.feedback || '').trim();
+  if (!feedback) return null;
+  const mentor = createMentorEngine(env);
+  const experience = await mentor.acquireExperience({
+    fingerprint: `teacher-review:${result.job.id}:${request.request_id}`,
+    job_id: result.job.id,
+    goal: request.objective || result.job.goal || '',
+    source_type: 'TEACHER_REVIEW',
+    lesson: feedback,
+    evidence: {
+      teacher_request_id: request.request_id,
+      verdict: review.verdict || null,
+      target_sha: review.target_sha || request.target_sha || null,
+      target_branch: String(env.MEL_GITHUB_BRANCH || env.MEL_TEACHER_BRANCH || 'candidate/mel-clean-autonomy'),
+      proof_status: 'UNVALIDATED_OBSERVATION',
+    },
+    tags: ['teacher', 'review'],
+  });
+  return {
+    experience_id: experience.id,
+    trust: experience.trust,
+    validated: false,
+    source_type: 'TEACHER_REVIEW',
+    occurrences: experience.evidence?.experience?.occurrences || 1,
+  };
+}
+
 export async function reconcileRuntimeTeacherReplies({ repository, env = {}, fetchImpl = fetch } = {}) {
   if (!repository) throw Object.assign(new Error('TEACHER_REPOSITORY_REQUIRED'), { code: 'TEACHER_REPOSITORY_REQUIRED' });
   const pending = await listPendingRuntimeTeacherRequests(repository, { limit: 50 });
@@ -150,12 +181,22 @@ export async function reconcileRuntimeTeacherReplies({ repository, env = {}, fet
       continue;
     }
     const result = await applyRuntimeTeacherReply(repository, reply);
+    let learning = null;
+    try {
+      learning = await acquireTeacherExperience(env, request, result);
+    } catch (error) {
+      learning = {
+        recorded: false,
+        error: String(error?.code || error?.message || 'TEACHER_EXPERIENCE_RECORD_FAILED').slice(0, 300),
+      };
+    }
     applied.push({
       request_id: request.request_id,
       target_sha: result.state.review?.target_sha || reply.target_sha,
       job_id: result.job.id,
       status: result.job.status,
       verdict: result.state.review?.verdict || reply.verdict,
+      learning,
     });
   }
   return { ok: true, pending: pending.length, current_sha: currentSha, stale, applied, unmatched };
