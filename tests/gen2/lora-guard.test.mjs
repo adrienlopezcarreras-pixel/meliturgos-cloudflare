@@ -32,6 +32,7 @@ function artifact(overrides = {}) {
 
 function activationArtifact(plan, overrides = {}) {
   return artifact({
+    finetune_id: 'ft-mel-guard-1',
     dataset_digest: plan.dataset_digest,
     training_manifest_digest: plan.training_manifest_digest,
     ...overrides,
