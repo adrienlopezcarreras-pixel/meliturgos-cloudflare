@@ -13,8 +13,32 @@ class MemoryStub {
 
 const digest = 'sha256:' + 'a'.repeat(64);
 const suite = 'suite-fixture-v1';
-const validArtifact = (overrides = {}) => ({ id: 'mel-adapter-1', digest, base_model: DEFAULT_LORA_BASE_MODEL, runtime_model: DEFAULT_LORA_RUNTIME_MODEL, runtime: 'cloudflare-workers-ai', size_bytes: 1024, rank: 8, format: 'safetensors', ...overrides });
-const scores = (baseline = 0.7, candidate = 0.8) => ({ baseline: { overall: baseline, domains: { code: baseline }, suite_digest: suite }, candidate: { overall: candidate, domains: { code: candidate }, suite_digest: suite } });
+const validArtifact = (plan, overrides = {}) => ({
+  id: 'mel-adapter-1',
+  finetune_id: 'ft-mel-adapter-1',
+  digest,
+  base_model: plan?.base_model || DEFAULT_LORA_BASE_MODEL,
+  runtime_model: plan?.runtime_model || DEFAULT_LORA_RUNTIME_MODEL,
+  runtime: plan?.runtime || 'cloudflare-workers-ai',
+  size_bytes: 1024,
+  rank: plan?.rank || 8,
+  format: 'safetensors',
+  dataset_digest: plan?.dataset_digest || 'fnv1a-12345678',
+  training_manifest_digest: plan?.training_manifest_digest,
+  ...overrides,
+});
+const scores = (plan, artifact, baseline = 0.7, candidate = 0.8) => ({
+  baseline: { overall: baseline, domains: { code: baseline }, suite_digest: suite, passed: true },
+  candidate: {
+    overall: candidate,
+    domains: { code: candidate },
+    suite_digest: suite,
+    passed: true,
+    artifact_digest: artifact.digest,
+    training_manifest_digest: plan.training_manifest_digest,
+    dataset_digest: plan.dataset_digest,
+  },
+});
 
 test('corrections become cumulative persistent training pairs', async () => {
   const engine = new LearningEngine({ memory: new MemoryStub() });
@@ -123,17 +147,17 @@ test('prepareLora reports runtime incompatibility instead of READY', async () =>
 });
 
 test('adapter cannot become active without a measured benchmark gain', async () => {
-  const memory = new MemoryStub(); const engine = new LearningEngine({ memory }); const plan = createLoraTrainingPlan({ dataset_digest:'fnv1a-12345678', examples:80 }); const { baseline, candidate } = scores(0.8,0.79);
-  await assert.rejects(() => engine.activateAdapter({ plan, artifact: validArtifact(), baseline, candidate }), error => error.code === 'LORA_ACTIVATION_DENIED'); assert.equal((await memory.recent({ kind:'LORA_ADAPTER_ACTIVE' })).length,0);
+  const memory = new MemoryStub(); const engine = new LearningEngine({ memory }); const plan = createLoraTrainingPlan({ dataset_digest:'fnv1a-12345678', examples:80 }); const artifact = validArtifact(plan); const { baseline, candidate } = scores(plan, artifact, 0.8, 0.79);
+  await assert.rejects(() => engine.activateAdapter({ plan, artifact, baseline, candidate }), error => error.code === 'LORA_MEASURED_GAIN_INSUFFICIENT'); assert.equal((await memory.recent({ kind:'LORA_ADAPTER_ACTIVE' })).length,0);
 });
 
 test('adapter activation rejects incompatible plan even after benchmark gain', async () => {
-  const engine = new LearningEngine({ memory:new MemoryStub() }); const plan = createLoraTrainingPlan({ dataset_digest:'fnv1a-12345678', examples:80, quantization:'4bit' }); const { baseline, candidate } = scores();
-  await assert.rejects(() => engine.activateAdapter({ plan, artifact: validArtifact(), baseline, candidate }), error => error.code === 'LORA_RUNTIME_INCOMPATIBLE');
+  const engine = new LearningEngine({ memory:new MemoryStub() }); const plan = createLoraTrainingPlan({ dataset_digest:'fnv1a-12345678', examples:80, quantization:'4bit' }); const artifact = validArtifact(plan); const { baseline, candidate } = scores(plan, artifact);
+  await assert.rejects(() => engine.activateAdapter({ plan, artifact, baseline, candidate }), error => error.code === 'LORA_RUNTIME_INCOMPATIBLE');
 });
 
 test('adapter activation rejects base-model mismatch', async () => {
-  const engine = new LearningEngine({ memory:new MemoryStub() }); const plan = createLoraTrainingPlan({ dataset_digest:'fnv1a-12345678', examples:80 }); const { baseline, candidate } = scores();
-  const otherBase='google/gemma-7b-it'; const otherRuntime=CLOUDFLARE_LORA_MODEL_PAIRS[otherBase]; const artifact=validArtifact({ id:'mel-adapter-gemma', base_model:otherBase, runtime_model:otherRuntime });
+  const engine = new LearningEngine({ memory:new MemoryStub() }); const plan = createLoraTrainingPlan({ dataset_digest:'fnv1a-12345678', examples:80 }); const baseArtifact = validArtifact(plan); const { baseline, candidate } = scores(plan, baseArtifact);
+  const otherBase='google/gemma-7b-it'; const otherRuntime=CLOUDFLARE_LORA_MODEL_PAIRS[otherBase]; const artifact=validArtifact(plan, { id:'mel-adapter-gemma', base_model:otherBase, runtime_model:otherRuntime });
   await assert.rejects(() => engine.activateAdapter({ plan, artifact, baseline, candidate }), error => error.code === 'LORA_BASE_MODEL_MISMATCH');
 });
