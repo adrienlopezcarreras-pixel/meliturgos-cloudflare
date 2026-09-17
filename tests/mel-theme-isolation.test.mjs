@@ -31,11 +31,11 @@ test('normal mode has one visual owner and exactly the eight requested themes', 
 
 test('normal mode uses the new stable real-image assets and clean avatar clipping', async () => {
   const html = await (await normalMvp({})).text();
-  assert.match(html, /mel-bg-granada-cathedral-real-scaled\.jpg/);
-  assert.match(html, /mel-bg-guadix-cueva-real-scaled\.jpg/);
-  assert.match(html, /mel-bg-crusader-jerusalem-real\.jpg/);
-  assert.match(html, /mel-bg-aviation-bf109-real\.jpg/);
-  assert.match(html, /futuristic[^}]+meliturgos-avatar-fille\.png|AVATARS=.*meliturgos-avatar-fille\.png/s);
+  assert.match(html, /mel-bg-granada-cathedral-hd\.jpg/);
+  assert.match(html, /mel-bg-guadix-virgen-gracia-hd\.jpg/);
+  assert.match(html, /mel-bg-crusade-jerusalem-hd\.jpg/);
+  assert.match(html, /mel-bg-aviation-1940-hd\.jpg/);
+  assert.match(html, /futuristic[^}]+mel-full\.webp|AVATARS=.*mel-full\.webp/s);
   assert.match(html, /transform:none/);
   assert.match(html, /clip-path:circle\(50%\)/);
   assert.match(html, /if\(v==='religious'\)v='guadix'/);
