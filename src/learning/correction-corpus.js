@@ -190,8 +190,9 @@ export function decideAdapterPromotion({
   const baseDomains = baseline?.domains || {};
   const candDomains = candidate?.domains || {};
   for (const [domain, baseScoreRaw] of Object.entries(baseDomains)) {
-    const baseScore = Number(baseScoreRaw);
-    const candScore = Number(candDomains[domain]);
+    const baseScore = Number(baseScoreRaw?.score ?? baseScoreRaw);
+    const candidateScoreRaw = candDomains[domain];
+    const candScore = Number(candidateScoreRaw?.score ?? candidateScoreRaw);
     if (!Number.isFinite(baseScore) || !Number.isFinite(candScore)) continue;
     const delta = candScore - baseScore;
     if (delta < -Math.abs(maxDomainRegression)) regressions.push({ domain, delta });
