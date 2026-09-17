@@ -8,7 +8,6 @@ import { mirrorAllWaitingOwnerChatTeachers } from '../teachers/owner-chat-teache
 import { recoverPassiveRuntimeStates } from './passive-state-recovery.js';
 import { retireObsoleteQueueJobs } from './queue-hygiene.js';
 import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } from './autonomy-runtime-lease.js';
-import { createLearningEngine } from '../learning/learning-engine.js';
 import { createZeroCostBenchmarkEvaluator } from '../learning/operator-actions.js';
 
 export * from './autonomy-runtime-core.js';
@@ -37,54 +36,30 @@ function deployedCandidateSha() {
   }
 }
 
-function benchmarkSourceSha(env = {}) {
-  return String(
-    deployedCandidateSha()
-      || env?.MEL_DEPLOYED_GIT_SHA
-      || env?.MEL_SOURCE_SHA
-      || env?.CF_PAGES_COMMIT_SHA
-      || ''
-  ).trim() || null;
-}
-
-export async function advanceRuntimeBenchmarkCadence({
-  env = {},
-  runtimeResult = {},
-  deps = {},
-} = {}) {
-  const completed = Array.isArray(runtimeResult?.completions?.completed)
-    ? runtimeResult.completions.completed.length
-    : 0;
-  if (completed < 1) return null;
-
-  const createEngine = deps.createLearningEngine || createLearningEngine;
-  const createEvaluator = deps.createZeroCostBenchmarkEvaluator || createZeroCostBenchmarkEvaluator;
-  let evaluator = null;
-  let modelId = '';
-  let evaluatorError = null;
-
-  try {
-    const prepared = createEvaluator(env, deps.evaluatorDeps || {});
-    evaluator = prepared?.evaluator || null;
-    modelId = String(prepared?.model_id || '');
-  } catch (error) {
-    evaluatorError = String(error?.code || error?.message || 'BENCHMARK_EVALUATOR_UNAVAILABLE').slice(0, 180);
+export function resolveRuntimeBenchmarkEvaluator(env = {}, options = {}) {
+  if (typeof options.benchmarkEvaluator === 'function') {
+    return {
+      evaluator: options.benchmarkEvaluator,
+      model_id: String(options.benchmarkModelId || ''),
+      error: null,
+    };
   }
 
-  const engine = createEngine(env);
-  return engine.advanceBenchmarkCadence({
-    verifiedJobsDelta: completed,
-    evaluator,
-    model_id: modelId,
-    source_sha: benchmarkSourceSha(env),
-    metadata: {
-      trigger: 'autonomy-runtime',
-      completed_job_count: completed,
-      evaluator_error: evaluatorError,
-    },
-  });
+  try {
+    const prepared = createZeroCostBenchmarkEvaluator(env, options.benchmarkDeps?.evaluatorDeps || {});
+    return {
+      evaluator: prepared?.evaluator || null,
+      model_id: String(prepared?.model_id || ''),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      evaluator: null,
+      model_id: '',
+      error: String(error?.code || error?.message || 'BENCHMARK_EVALUATOR_UNAVAILABLE').slice(0, 180),
+    };
+  }
 }
-
 function waitingTeacher(job) {
   return String(job?.status || '').toUpperCase() === 'WAITING_TEACHER'
     && job?.result_json?.teacher_bridge?.status === 'WAITING_TEACHER';
@@ -383,7 +358,13 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}) {
     };
   }
 
-  const coreOptions = { ...options, repository };
+  const benchmarkRuntime = resolveRuntimeBenchmarkEvaluator(env, options);
+  const coreOptions = {
+    ...options,
+    repository,
+    benchmarkEvaluator: benchmarkRuntime.evaluator,
+    benchmarkModelId: benchmarkRuntime.model_id,
+  };
   const first = preservePreEnsureCreation(await runCoreResilient(env, coreOptions, repository), preEnsure);
 
   let internalTeacherMirror = null;
@@ -512,21 +493,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   }
 
   try {
-    const runtimeResult = await runAutonomyRuntimeTickUnlocked(env, options);
-    let benchmarkCadence = null;
-    try {
-      benchmarkCadence = await advanceRuntimeBenchmarkCadence({
-        env,
-        runtimeResult,
-        deps: options.benchmarkDeps || {},
-      });
-    } catch (error) {
-      benchmarkCadence = {
-        status: 'FAILED',
-        failure: String(error?.code || error?.message || 'BENCHMARK_CADENCE_FAILED').slice(0, 180),
-      };
-    }
-    return benchmarkCadence ? { ...runtimeResult, benchmark_cadence: benchmarkCadence } : runtimeResult;
+    return await runAutonomyRuntimeTickUnlocked(env, options);
   } finally {
     await releaseAutonomyRuntimeLease({
       db: env?.DB || null,

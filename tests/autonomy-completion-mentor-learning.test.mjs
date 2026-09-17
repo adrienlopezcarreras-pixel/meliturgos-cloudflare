@@ -136,9 +136,18 @@ test('a previous NEEDS_CHANGES Teacher review becomes a validated correction onl
       repository,
       env: { DB, MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
       fetchImpl: fetchImpl(),
+      benchmarkEvaluator: async (testCase) => ({
+        score: 1,
+        repeated_error: false,
+        evidence: { case_id: testCase.id, source: 'completion-test' },
+      }),
+      benchmarkModelId: '@cf/test-zero-cost',
     });
     assert.equal(result.completed.length, 1);
     assert.equal(result.completed[0].corrections_recorded, 1);
+    const completedJob = await repository.get(JOB);
+    assert.equal(completedJob.result_json.autonomy_completion.mentor_learning.benchmark_cadence.status, 'RAN');
+    assert.equal(completedJob.result_json.autonomy_completion.mentor_learning.benchmark_cadence.benchmark.overall, 1);
 
     const correction = await DB.prepare("SELECT * FROM mentor_lessons WHERE job_id=? AND kind='TEACHER_CORRECTION'").bind(JOB).first();
     assert.ok(correction);

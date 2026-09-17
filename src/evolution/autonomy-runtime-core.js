@@ -277,7 +277,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
  * cycle instead of planning against unreviewed code. Production is never
  * committed or deployed here.
  */
-export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null } = {}) {
+export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '' } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
   const reconciliation = await reconcileRuntimeTeacherReplies({ repository: jobRepository, env, fetchImpl }).catch((error) => ({
     ok: false,
@@ -285,7 +285,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     applied: [],
   }));
 
-  const completions = await reconcileRuntimeCompletions({ repository: jobRepository, env, fetchImpl }).catch((error) => ({
+  const completions = await reconcileRuntimeCompletions({ repository: jobRepository, env, fetchImpl, benchmarkEvaluator, benchmarkModelId }).catch((error) => ({
     ok: false,
     error: error?.code || error?.message || 'COMPLETION_RECONCILE_FAILED',
     completed: [],

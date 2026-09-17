@@ -264,7 +264,7 @@ async function recordVerifiedTeacherCorrections(env, job, record, proposal, ci) 
   return { recorded, failures };
 }
 
-async function recordVerifiedCompletionLesson(env, job, record, proposal, ci, benchmarkEvaluator = null) {
+async function recordVerifiedCompletionLesson(env, job, record, proposal, ci, benchmarkEvaluator = null, benchmarkModelId = '') {
   if (!env?.DB) return { recorded: false, reason: 'DB_BINDING_MISSING', corrections_recorded: 0 };
   try {
     const engine = createMentorEngine(env);
@@ -299,6 +299,7 @@ async function recordVerifiedCompletionLesson(env, job, record, proposal, ci, be
         verifiedJobsDelta: 1,
         significantCorrections: correctionsRecorded,
         evaluator: benchmarkEvaluator,
+        model_id: String(benchmarkModelId || ''),
         source_sha: record.candidate_sha,
         metadata: {
           job_id: job.id,
@@ -326,7 +327,7 @@ async function recordVerifiedCompletionLesson(env, job, record, proposal, ci, be
   }
 }
 
-export async function reconcileRuntimeCompletions({ repository, env = {}, fetchImpl = fetch, benchmarkEvaluator = null } = {}) {
+export async function reconcileRuntimeCompletions({ repository, env = {}, fetchImpl = fetch, benchmarkEvaluator = null, benchmarkModelId = '' } = {}) {
   if (!repository) throw Object.assign(new Error('COMPLETION_JOB_REPOSITORY_REQUIRED'), { code: 'COMPLETION_JOB_REPOSITORY_REQUIRED' });
   const records = await fetchCompletionRecords(env, { fetchImpl });
   if (!records.length) return { ok: true, records: 0, completed: [], rejected: [] };
@@ -355,7 +356,7 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
 
     try {
       const ci = await verifyCompletionEvidence(record, env, { fetchImpl });
-      const mentorLearning = await recordVerifiedCompletionLesson(env, job, record, proposal, ci, benchmarkEvaluator);
+      const mentorLearning = await recordVerifiedCompletionLesson(env, job, record, proposal, ci, benchmarkEvaluator, benchmarkModelId);
       const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
       result.autonomy_completion = {
         status: 'VERIFIED',
