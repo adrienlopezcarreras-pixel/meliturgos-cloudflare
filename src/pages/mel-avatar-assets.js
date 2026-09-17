@@ -1,68 +1,68 @@
-import classic from './avatar-data-classic.js';
-import crusade from './avatar-data-crusade.js';
-import religious from './avatar-data-religious.js';
-import aviation from './avatar-data-aviation.js';
-import paladin from './avatar-data-paladin.js';
-import amazon from './avatar-data-amazon.js';
-import fullAvatar from '../assets/generated/full-avatar.js';
-import bgCrusade from '../assets/generated/mel-bg-crusade.js';
-import bgReligious from '../assets/generated/mel-bg-religious.js';
-import bgGranada from '../assets/generated/mel-bg-granada.js';
-import bgAviation from '../assets/generated/mel-bg-aviation.js';
-import bgPaladin from '../assets/generated/mel-bg-paladin.js';
-import bgAmazon from '../assets/generated/mel-bg-amazon.js';
-import bgCrusadeFinal from '../assets/theme-bg-croise-final.js';
-import bgDiabloFinal from '../assets/theme-bg-diablo-final.js';
+import avatarClassic from '../assets/mel-themes-20260917/generated/avatarClassic.js';
+import avatarGranada from '../assets/mel-themes-20260917/generated/avatarGranada.js';
+import avatarGuadix from '../assets/mel-themes-20260917/generated/avatarGuadix.js';
+import avatarCrusade from '../assets/mel-themes-20260917/generated/avatarCrusade.js';
+import avatarAviation from '../assets/mel-themes-20260917/generated/avatarAviation.js';
+import avatarAmazon from '../assets/mel-themes-20260917/generated/avatarAmazon.js';
+import avatarPaladin from '../assets/mel-themes-20260917/generated/avatarPaladin.js';
+import avatarFuturistic from '../assets/mel-themes-20260917/generated/avatarFuturistic.js';
 
-// Normal-mode portraits stay exactly as approved. The full-mode portrait and
-// theme backgrounds are served from repository-owned assets so the canonical UI
-// never depends on a second visual layer.
+import bgLibrary from '../assets/mel-themes-20260917/generated/bgLibrary.js';
+import bgGranada from '../assets/mel-themes-20260917/generated/bgGranada.js';
+import bgGuadix from '../assets/mel-themes-20260917/generated/bgGuadix.js';
+import bgCrusade from '../assets/mel-themes-20260917/generated/bgCrusade.js';
+import bgAviation from '../assets/mel-themes-20260917/generated/bgAviation.js';
+import bgAmazon from '../assets/mel-themes-20260917/generated/bgAmazon.js';
+import bgPaladin from '../assets/mel-themes-20260917/generated/bgPaladin.js';
+import bgFuturistic from '../assets/mel-themes-20260917/generated/bgFuturistic.js';
+
 const ASSETS = Object.freeze({
-  classic,
-  crusade,
-  religious,
-  granada: religious,
-  aviation,
-  paladin,
-  amazon,
-  fullAvatar,
-  bgCrusade,
-  bgReligious,
+  avatarClassic,
+  avatarGranada,
+  avatarGuadix,
+  avatarCrusade,
+  avatarAviation,
+  avatarAmazon,
+  avatarPaladin,
+  avatarFuturistic,
+  bgLibrary,
   bgGranada,
+  bgGuadix,
+  bgCrusade,
   bgAviation,
-  bgPaladin,
   bgAmazon,
-  bgCrusadeFinal,
-  bgDiabloFinal,
+  bgPaladin,
+  bgFuturistic,
 });
 
 const ROUTES = Object.freeze({
-  '/assets/avatars/mel-classic.webp': 'classic',
-  '/assets/avatars/mel-crusade.webp': 'crusade',
-  '/assets/avatars/mel-religious-andalusian.webp': 'religious',
-  '/assets/avatars/mel-granada.webp': 'granada',
-  '/assets/avatars/mel-aviation-1940s.webp': 'aviation',
-  '/assets/avatars/mel-paladin-light-full-plate.webp': 'paladin',
-  '/assets/avatars/mel-amazon-griffon.webp': 'amazon',
-  '/assets/avatars/mel-full.webp': 'fullAvatar',
-  '/assets/backgrounds/mel-bg-crusade.webp': 'bgCrusade',
-  '/assets/backgrounds/mel-bg-religious.webp': 'bgReligious',
-  '/assets/backgrounds/mel-bg-granada.webp': 'bgGranada',
-  '/assets/backgrounds/mel-bg-aviation.webp': 'bgAviation',
-  '/assets/backgrounds/mel-bg-paladin.webp': 'bgPaladin',
-  '/assets/backgrounds/mel-bg-amazon.webp': 'bgAmazon',
-  '/assets/backgrounds/mel-bg-crusade-final.jpg': 'bgCrusadeFinal',
-  '/assets/backgrounds/mel-bg-diablo-final.jpg': 'bgDiabloFinal',
+  '/assets/avatars/mel-classic.webp': 'avatarClassic',
+  '/assets/avatars/mel-granada.webp': 'avatarGranada',
+  '/assets/avatars/mel-religious-andalusian.webp': 'avatarGuadix',
+  '/assets/avatars/mel-crusade.webp': 'avatarCrusade',
+  '/assets/avatars/mel-aviation-1940s.webp': 'avatarAviation',
+  '/assets/avatars/mel-amazon-griffon.webp': 'avatarAmazon',
+  '/assets/avatars/mel-paladin-light-full-plate.webp': 'avatarPaladin',
+  '/assets/avatars/mel-full.webp': 'avatarFuturistic',
+
+  '/assets/backgrounds/mel-bg-library-hd.jpg': 'bgLibrary',
+  '/assets/backgrounds/mel-bg-granada-cathedral-hd.jpg': 'bgGranada',
+  '/assets/backgrounds/mel-bg-guadix-virgen-gracia-hd.jpg': 'bgGuadix',
+  '/assets/backgrounds/mel-bg-crusade-jerusalem-hd.jpg': 'bgCrusade',
+  '/assets/backgrounds/mel-bg-aviation-1940-hd.jpg': 'bgAviation',
+  '/assets/backgrounds/mel-bg-amazon-act1-hd.jpg': 'bgAmazon',
+  '/assets/backgrounds/mel-bg-paladin-act4-hd.jpg': 'bgPaladin',
+  '/assets/backgrounds/mel-bg-futuristic-hd.jpg': 'bgFuturistic',
 });
 
 const THEME_ROUTES = Object.freeze({
   classic: '/assets/avatars/mel-classic.webp',
-  crusade: '/assets/avatars/mel-crusade.webp',
-  religious: '/assets/avatars/mel-religious-andalusian.webp',
   granada: '/assets/avatars/mel-granada.webp',
+  guadix: '/assets/avatars/mel-religious-andalusian.webp',
+  crusade: '/assets/avatars/mel-crusade.webp',
   aviation: '/assets/avatars/mel-aviation-1940s.webp',
-  paladin: '/assets/avatars/mel-paladin-light-full-plate.webp',
   amazon: '/assets/avatars/mel-amazon-griffon.webp',
+  paladin: '/assets/avatars/mel-paladin-light-full-plate.webp',
   futuristic: '/assets/avatars/mel-full.webp',
 });
 
@@ -72,32 +72,37 @@ function decodeBase64(value) {
     .replace(/-/g, '+')
     .replace(/_/g, '/')
     .replace(/=/g, '');
-  let remainder = normalized.length % 4;
-  // A base64 payload cannot encode a one-character final quantum. The two
-  // generated final JPEG modules may end with one orphan sextet; dropping only
-  // that non-decodable tail preserves every complete byte already encoded.
-  if (remainder === 1) {
-    normalized = normalized.slice(0, -1);
-    remainder = normalized.length % 4;
-  }
+
+  const remainder = normalized.length % 4;
   if (remainder) normalized += '='.repeat(4 - remainder);
+
   const binary = atob(normalized);
   const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
   return bytes;
 }
 
 function decodeAsset(value) {
   const source = String(value || '');
-  if (/^data:/i.test(source)) {
-    const comma = source.indexOf(',');
-    if (comma < 0) throw new Error('Invalid embedded image data URI');
-    const meta = source.slice(5, comma);
-    if (!/(?:^|;)base64(?:;|$)/i.test(meta)) throw new Error('Embedded image must use base64 encoding');
-    const contentType = meta.split(';')[0] || 'application/octet-stream';
-    return { bytes: decodeBase64(source.slice(comma + 1)), contentType };
+
+  if (!/^data:/i.test(source)) {
+    throw new Error('MEL visual asset must be a data URI');
   }
-  return { bytes: decodeBase64(source), contentType: 'image/webp' };
+
+  const comma = source.indexOf(',');
+  if (comma < 0) throw new Error('Invalid embedded MEL asset');
+
+  const meta = source.slice(5, comma);
+  const contentType = meta.split(';')[0] || 'application/octet-stream';
+
+  return {
+    bytes: decodeBase64(source.slice(comma + 1)),
+    contentType,
+  };
 }
 
 export function getMelAvatarRoute(theme = 'classic') {
@@ -107,14 +112,15 @@ export function getMelAvatarRoute(theme = 'classic') {
 export function serveMelAvatar(pathname) {
   const key = ROUTES[String(pathname || '')];
   if (!key) return null;
+
   const asset = decodeAsset(ASSETS[key]);
+
   return new Response(asset.bytes, {
     headers: {
       'content-type': asset.contentType,
       'cache-control': 'public,max-age=300,must-revalidate',
       'x-mel-asset': key,
       'x-mel-avatar': key,
-      'x-mel-avatar-fallback': key === 'granada' ? 'religious' : 'none',
     },
   });
 }
