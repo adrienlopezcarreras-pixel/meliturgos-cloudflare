@@ -102,14 +102,14 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          themes = ['classic','crusade','religious','granada','aviation','paladin','amazon']
+          themes = ['classic','granada','guadix','crusade','aviation','amazon','paladin','futuristic']
           source = Path('preview-root.html').read_text(encoding='utf-8', errors='replace')
           base = '<base href="https://meliturgos-preview.adrien-lopezcarreras.workers.dev/">'
           if '<head>' in source:
               source = source.replace('<head>', '<head>' + base, 1)
           else:
               source = base + source
-          marker = "try{setTheme(localStorage.getItem('mel.theme.v3')||localStorage.getItem('mel.theme.v2')||localStorage.getItem('mel.theme')||'classic')}catch{setTheme('classic')}"
+          marker = "try{setTheme(localStorage.getItem('mel.theme.v4')||localStorage.getItem('mel.theme.v3')||localStorage.getItem('mel.theme.v2')||localStorage.getItem('mel.theme')||'classic')}catch{setTheme('classic')}"
           for theme in themes:
               themed = source.replace(marker, f"try{{setTheme('{theme}')}}catch{{setTheme('{theme}')}}")
               if themed == source:
@@ -127,7 +127,7 @@ jobs:
             exit 1
           fi
           mkdir -p theme-screenshots
-          for theme in classic crusade religious granada aviation paladin amazon; do
+          for theme in classic granada guadix crusade aviation amazon paladin futuristic; do
             "$browser" \
               --headless=new \
               --no-sandbox \
