@@ -268,6 +268,7 @@ def main() -> int:
             text,
             truncation=True,
             max_length=args.max_length,
+            padding="max_length",
         )
         tokenized["labels"] = list(tokenized["input_ids"])
         return tokenized
