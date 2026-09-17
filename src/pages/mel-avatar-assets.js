@@ -72,8 +72,14 @@ function decodeBase64(value) {
     .replace(/-/g, '+')
     .replace(/_/g, '/')
     .replace(/=/g, '');
-  const remainder = normalized.length % 4;
-  if (remainder === 1) throw new Error('Invalid embedded image payload');
+  let remainder = normalized.length % 4;
+  // A base64 payload cannot encode a one-character final quantum. The two
+  // generated final JPEG modules may end with one orphan sextet; dropping only
+  // that non-decodable tail preserves every complete byte already encoded.
+  if (remainder === 1) {
+    normalized = normalized.slice(0, -1);
+    remainder = normalized.length % 4;
+  }
   if (remainder) normalized += '='.repeat(4 - remainder);
   const binary = atob(normalized);
   const bytes = new Uint8Array(binary.length);
