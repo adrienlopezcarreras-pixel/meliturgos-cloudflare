@@ -11,7 +11,16 @@ function healthyInput(overrides = {}) {
     selfCode: { branch_known: true, commit_known: true, exact_identity_known: true },
     critical: { conversation: true, memory_db: true, ai: true },
     capabilities: { total: 4, health: { HEALTHY: 4 } },
-    models: { configured: 3, explicit_zero_cost: 2 },
+    models: {
+      configured: 3,
+      explicit_zero_cost: 2,
+      runtime_zero_cost: {
+        status: 'ONLINE',
+        minimum: 2,
+        authorized_zero_cost_count: 2,
+        reason: 'ZERO_EURO_QUORUM_READY',
+      },
+    },
     blockers: [],
     now: NOW,
     ...overrides,
@@ -26,6 +35,22 @@ test('health dashboard is OK when all observed components are healthy', () => {
   assert.equal(result.summary.ERROR, 0);
   assert.equal(result.summary.WARN, 0);
   assert.deepEqual(result.alerts, []);
+});
+
+test('catalog zero-cost labels without runtime authorization remain WARN', () => {
+  const input = healthyInput();
+  input.models.runtime_zero_cost = {
+    status: 'DEGRADED',
+    minimum: 2,
+    authorized_zero_cost_count: 0,
+    reason: 'NO_VERIFIED_ZERO_COST_PROVIDER',
+  };
+  const result = buildHealthDashboard(input);
+  const models = result.components.find(x => x.id === 'models');
+  assert.equal(result.state, 'WARN');
+  assert.equal(models.status, 'WARN');
+  assert.equal(models.evidence.authorized_zero_cost_runtime, 0);
+  assert.equal(models.evidence.explicit_zero_cost_catalog, 2);
 });
 
 test('critical readiness and capability failures become ERROR alerts', () => {
