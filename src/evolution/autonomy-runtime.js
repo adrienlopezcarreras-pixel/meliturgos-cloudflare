@@ -335,32 +335,8 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     };
   }
 
-  let queueHygiene = null;
-  try {
-    queueHygiene = await retireObsoleteQueueJobs(repository, { limit: 200 });
-  } catch (error) {
-    queueHygiene = {
-      attempted: 0,
-      retired: [],
-      failed: [{ job_id: null, code: error?.code || error?.message || 'QUEUE_HYGIENE_FAILED' }],
-      policy: 'archive-not-delete',
-    };
-  }
-
-  let passiveRecovery = null;
-  try {
-    passiveRecovery = await recoverPassiveRuntimeStates(repository, {
-      canonicalSha: deployedCandidateSha(),
-      limit: 200,
-    });
-  } catch (error) {
-    passiveRecovery = {
-      attempted: 0,
-      recovered: [],
-      failed: [{ job_id: null, code: error?.code || error?.message || 'PASSIVE_RECOVERY_FAILED' }],
-      canonical_sha: deployedCandidateSha() || null,
-    };
-  }
+  const queueHygiene = null;
+  const passiveRecovery = null;
 
   const benchmarkRuntime = resolveRuntimeBenchmarkEvaluator(env, options);
   const coreOptions = {
@@ -465,6 +441,74 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
     owner_max_bypassed_stage: 'WAITING_TEACHER',
     production_release_allowed: false,
   };
+}
+
+
+export async function runAutonomyMaintenance(env, options = {}) {
+  const repository = options.repository || new D1DevJobRepository(env?.DB);
+  if (!env?.DB && !options.repository) {
+    throw Object.assign(new Error('AUTONOMY_MAINTENANCE_DB_REQUIRED'), { code: 'AUTONOMY_MAINTENANCE_DB_REQUIRED', status: 503 });
+  }
+
+  const owner = String(options.runtimeLeaseOwner || `maintenance-${crypto.randomUUID()}`);
+  const lease = await tryAcquireAutonomyRuntimeLease({
+    db: env?.DB || null,
+    owner,
+    leaseMs: options.runtimeLeaseMs ?? env?.MEL_AUTONOMY_LEASE_MS,
+    memoryStore: options.runtimeLeaseStore,
+  });
+
+  if (!lease.acquired) {
+    return {
+      ok: true,
+      status: 'SKIPPED_LEASE_BUSY',
+      skipped: true,
+      reason: 'AUTONOMY_RUNTIME_LEASE_BUSY',
+      lease: { expires_at: lease.expires_at || null },
+    };
+  }
+
+  try {
+    let queueHygiene;
+    try {
+      queueHygiene = await retireObsoleteQueueJobs(repository, { limit: 200 });
+    } catch (error) {
+      queueHygiene = {
+        attempted: 0,
+        retired: [],
+        failed: [{ job_id: null, code: error?.code || error?.message || 'QUEUE_HYGIENE_FAILED' }],
+        policy: 'archive-not-delete',
+      };
+    }
+
+    let passiveRecovery;
+    try {
+      passiveRecovery = await recoverPassiveRuntimeStates(repository, {
+        canonicalSha: deployedCandidateSha(),
+        limit: 200,
+      });
+    } catch (error) {
+      passiveRecovery = {
+        attempted: 0,
+        recovered: [],
+        failed: [{ job_id: null, code: error?.code || error?.message || 'PASSIVE_RECOVERY_FAILED' }],
+        canonical_sha: deployedCandidateSha() || null,
+      };
+    }
+
+    return {
+      ok: true,
+      status: 'MAINTENANCE_COMPLETE',
+      queue_hygiene: queueHygiene,
+      passive_recovery: passiveRecovery,
+    };
+  } finally {
+    await releaseAutonomyRuntimeLease({
+      db: env?.DB || null,
+      owner,
+      memoryStore: options.runtimeLeaseStore,
+    }).catch(() => false);
+  }
 }
 
 export async function runAutonomyRuntimeTick(env, options = {}) {
