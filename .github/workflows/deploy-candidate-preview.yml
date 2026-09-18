@@ -314,6 +314,40 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      - name: Prove preview starts paused then enable isolated autonomy proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          AUTH="Authorization: Bearer \${MEL_PREVIEW_PASSWORD}"
+
+          curl --fail-with-body --show-error --silent --max-time 45 \
+            --header "$AUTH" \
+            "$BASE_URL/api/gen2/autonomy/state" \
+            > preview-autonomy-initial.json
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const state=JSON.parse(fs.readFileSync('preview-autonomy-initial.json','utf8'));
+          const control=state?.control||state;
+          if(control?.paused!==true) throw new Error('FRESH_PREVIEW_AUTONOMY_NOT_PAUSED');
+          if(control?.source!=='default-d1-fail-closed') throw new Error('FRESH_PREVIEW_PAUSE_SOURCE_INVALID:'+control?.source);
+          NODE
+
+          curl --fail-with-body --show-error --silent --max-time 45 \
+            --header "$AUTH" \
+            --header "content-type: application/json" \
+            --data '{}' \
+            "$BASE_URL/api/gen2/autonomy/resume" \
+            > preview-autonomy-resume.json
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const payload=JSON.parse(fs.readFileSync('preview-autonomy-resume.json','utf8'));
+          const control=payload?.control||payload?.state?.control||payload?.state||payload;
+          if(control?.paused===true) throw new Error('PREVIEW_AUTONOMY_RESUME_FAILED');
+          NODE
+
       - name: Run isolated GEN2-42 sourced watch proof
         shell: bash
         run: |
@@ -507,6 +541,18 @@ jobs:
             lora-prepare-refresh.json
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Pause isolated preview after autonomy proof
+        if: always()
+        shell: bash
+        run: |
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          curl --show-error --silent --max-time 30 \
+            --header "Authorization: Bearer \${MEL_PREVIEW_PASSWORD}" \
+            --header "content-type: application/json" \
+            --data '{"reason":"preview-proof-complete"}' \
+            "$BASE_URL/api/gen2/autonomy/pause" \
+            > /dev/null || true
 
       - name: Verify production still responds
         shell: bash
