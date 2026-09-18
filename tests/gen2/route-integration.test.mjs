@@ -19,8 +19,12 @@ test('active entrypoint protects normal MEL while keeping legacy Professor v1 ca
       assert.match(response.headers.get('content-type') || '', /text\/html/);
       assert.match(body, /<title>MEL<\/title>/);
       assert.match(body, /id="full"/);
-      assert.match(body, /\/professor/);
+      assert.match(body, /\/normal-runtime\.js\?v=5/);
     }
+    const runtimeResponse = await worker.fetch(new Request('http://localhost/normal-runtime.js?v=5', { headers: auth() }), e);
+    assert.equal(runtimeResponse.status, 200);
+    assert.match(runtimeResponse.headers.get('content-type') || '', /application\/javascript/);
+    assert.match(await runtimeResponse.text(), /location\.href='\/professor'/);
     const legacyProfessor = await worker.fetch(new Request('http://localhost/professor-v1', { headers: auth() }), e);
     assert.equal(legacyProfessor.status, 308);
     assert.equal(legacyProfessor.headers.get('location'), '/professor');
