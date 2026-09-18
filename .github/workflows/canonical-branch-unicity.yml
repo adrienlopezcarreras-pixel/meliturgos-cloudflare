@@ -38,14 +38,9 @@ jobs:
             lower="${branch,,}"
 
             case "$branch" in
-              HEAD|candidate/mel-clean-autonomy|teacher-bridge/runtime)
-                continue
-                ;;
-            esac
-
-            case "$lower" in
-              *lora*|compat-activateadapter-1|compatfix-1f70|compatfix-1f70b|compatfix-main|mel-compatfix-final|tmpcompatadapter|x1f70compat)
-                # Temporary separate workspace owned by the LoRA/adapter chantier.
+              HEAD|candidate/mel-clean-autonomy|teacher-bridge/runtime|archive/*)
+                # teacher-bridge/runtime is transport data, archive/* is immutable history.
+                # Every active code branch, including LoRA/compat workspaces, must converge.
                 continue
                 ;;
             esac
