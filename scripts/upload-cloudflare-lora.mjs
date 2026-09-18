@@ -83,7 +83,7 @@ async function main() {
   };
   await writeFile(artifactPath, JSON.stringify(updated, null, 2) + '\n', 'utf8');
   process.stdout.write(JSON.stringify({
-    status: 'UPLOADED_UNBENCHMARKED',
+    status: 'UPLOADED_UNAPPROVED',
     finetune_id: finetuneId,
     runtime_model: training.runtime_model,
     artifact_digest: updated.digest,
