@@ -16,32 +16,32 @@ function createRuntimeHarness() {
 
 test('Professor job lifecycle reaches explicit approval through bridge API', async () => {
   const runtime = createRuntimeHarness();
-  let r = await runtime.call(new Request('http://x/api/professor/dev/jobs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'safe fixture change' }) }), env);
+  let r = await runtime.call(new Request('http://x/api/professor/dev/jobs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'safe fixture change' }) }));
   const j = await r.json();
   assert.equal(r.status, 201);
-  r = await runtime.call(new Request('http://x/api/dev-bridge/claim', { method: 'POST', headers: auth, body: '{}' }), env);
+  r = await runtime.call(new Request('http://x/api/dev-bridge/claim', { method: 'POST', headers: auth, body: '{}' }));
   const c = await r.json();
   assert.equal(c.job_id, j.job_id);
-  r = await runtime.call(new Request('http://x/api/dev-bridge/result', { method: 'POST', headers: auth, body: JSON.stringify({ job_id: j.job_id, status: 'READY_FOR_REVIEW', tests: [{ passed: true }], diff_summary: 'fixture' }) }), env);
+  r = await runtime.call(new Request('http://x/api/dev-bridge/result', { method: 'POST', headers: auth, body: JSON.stringify({ job_id: j.job_id, status: 'READY_FOR_REVIEW', tests: [{ passed: true }], diff_summary: 'fixture' }) }));
   assert.equal((await r.json()).status, 'READY_FOR_REVIEW');
-  r = await runtime.call(new Request(`http://x/api/professor/dev/jobs/${j.job_id}/approve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }), env);
+  r = await runtime.call(new Request(`http://x/api/professor/dev/jobs/${j.job_id}/approve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }));
   assert.equal((await r.json()).status, 'APPROVED');
 });
 
 test('failed tests persist REPAIR_REQUIRED and only a passing retest can restore READY_FOR_REVIEW', async () => {
   const runtime = createRuntimeHarness();
-  let r = await runtime.call(new Request('http://x/api/professor/dev/jobs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'repair fixture change' }) }), env);
+  let r = await runtime.call(new Request('http://x/api/professor/dev/jobs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: 'repair fixture change' }) }));
   const j = await r.json();
-  r = await runtime.call(new Request('http://x/api/dev-bridge/result', { method: 'POST', headers: auth, body: JSON.stringify({ job_id: j.job_id, status: 'READY_FOR_REVIEW', tests: [{ name: 'targeted', passed: false, exit_code: 1 }], diff_summary: 'candidate needs repair' }) }), env);
+  r = await runtime.call(new Request('http://x/api/dev-bridge/result', { method: 'POST', headers: auth, body: JSON.stringify({ job_id: j.job_id, status: 'READY_FOR_REVIEW', tests: [{ name: 'targeted', passed: false, exit_code: 1 }], diff_summary: 'candidate needs repair' }) }));
   const failed = await r.json();
   assert.equal(failed.status, 'REPAIR_REQUIRED');
   assert.equal(failed.result_json.dev_bridge.needs_repair, true);
-  await assert.rejects(() => runtime.call(new Request(`http://x/api/professor/dev/jobs/${j.job_id}/approve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }), env), (error) => error?.code === 'JOB_NOT_READY');
-  r = await runtime.call(new Request('http://x/api/dev-bridge/result', { method: 'POST', headers: auth, body: JSON.stringify({ job_id: j.job_id, status: 'READY_FOR_REVIEW', tests: [{ name: 'targeted', passed: true, exit_code: 0 }], diff_summary: 'candidate repaired and retested' }) }), env);
+  await assert.rejects(() => runtime.call(new Request(`http://x/api/professor/dev/jobs/${j.job_id}/approve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })), (error) => error?.code === 'JOB_NOT_READY');
+  r = await runtime.call(new Request('http://x/api/dev-bridge/result', { method: 'POST', headers: auth, body: JSON.stringify({ job_id: j.job_id, status: 'READY_FOR_REVIEW', tests: [{ name: 'targeted', passed: true, exit_code: 0 }], diff_summary: 'candidate repaired and retested' }) }));
   const repaired = await r.json();
   assert.equal(repaired.status, 'READY_FOR_REVIEW');
   assert.equal(repaired.result_json.dev_bridge.needs_repair, false);
-  r = await runtime.call(new Request(`http://x/api/professor/dev/jobs/${j.job_id}/approve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }), env);
+  r = await runtime.call(new Request(`http://x/api/professor/dev/jobs/${j.job_id}/approve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }));
   assert.equal((await r.json()).status, 'APPROVED');
 });
 
@@ -112,7 +112,7 @@ test('completion without exact SHA/CI proof cannot auto-continue', async () => {
 });
 
 test('bridge rejects missing token', async () => {
-  const r = await devRuntime(new Request('http://x/api/dev-bridge/heartbeat', { method: 'POST' }), env);
+  const r = await devRuntime(new Request('http://x/api/dev-bridge/heartbeat', { method: 'POST' }));
   assert.equal(r.status, 401);
 });
 
