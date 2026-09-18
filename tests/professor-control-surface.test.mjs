@@ -11,7 +11,7 @@ const canonicalButtonHandlers = Object.freeze({
   workCreate: ['#workCreate', '/api/dev-bridge/jobs'],
   workRefresh: ['#workRefresh', 'loadWork'],
   memoryRefresh: ['#memoryRefresh', 'loadMemory'],
-  chatgptImport: ['#chatgptImport', '/api/import/chatgpt-context'],
+  chatgptImport: ['#chatgptImport', '/api/gen2/import/chatgpt-archive'],
   codeSelfCheck: ['#codeSelfCheck', '/api/gen2/code/self-check'],
   diagCaps: ['#diagCaps', '/api/gen2/capabilities'],
   diagRoadmap: ['#diagRoadmap', '/api/gen2/roadmap'],
@@ -26,7 +26,7 @@ const canonicalApiPaths = Object.freeze([
   '/api/gen2/augmentio/fanout',
   '/api/memory/status',
   '/api/export',
-  '/api/import/chatgpt-context',
+  '/api/gen2/import/chatgpt-archive',
   '/api/dev-bridge/health',
   '/api/dev-bridge/jobs',
 ]);
