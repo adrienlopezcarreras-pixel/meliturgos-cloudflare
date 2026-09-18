@@ -101,3 +101,50 @@ test('project lessons never create XP and current report remains fallback withou
   assert.equal(progress.project_experience.count, 48);
   assert.equal(progress.xp_source, 'current-learning-report');
 });
+
+
+test('LoRA live status reports technical validation instead of false BLOCKED after a proven optimizer step', async () => {
+  const engine = {
+    report: async () => report({
+      corrections_recorded: 52,
+      corrections_validated: 52,
+      corrections_available_for_training: 52,
+    }),
+    memory: { recent: async () => [] },
+  };
+  const db = {
+    prepare() {
+      return { bind: () => ({ first: async () => ({ count: 52 }) }) };
+    },
+  };
+
+  const progress = await getLiveLearningProgress({ engine, db });
+
+  assert.equal(progress.lora_status.state, 'TECHNICALLY_VALIDATED');
+  assert.equal(progress.lora_status.active_adapter_count, 0);
+  assert.equal(progress.lora_status.technical_validation.validated, true);
+  assert.equal(progress.lora_status.technical_validation.global_step, 1);
+  assert.equal(progress.lora_status.technical_validation.loss, 2.204442024230957);
+  assert.match(progress.lora_status.reason, /entraînement final\/benchmark\/activation encore requis/);
+});
+
+test('LoRA remains honestly blocked below the 50-example training threshold', async () => {
+  const engine = {
+    report: async () => report({
+      corrections_recorded: 49,
+      corrections_validated: 49,
+      corrections_available_for_training: 49,
+    }),
+    memory: { recent: async () => [] },
+  };
+  const db = {
+    prepare() {
+      return { bind: () => ({ first: async () => ({ count: 49 }) }) };
+    },
+  };
+
+  const progress = await getLiveLearningProgress({ engine, db });
+
+  assert.equal(progress.lora_status.state, 'BLOCKED');
+  assert.match(progress.lora_status.reason, /49\/50/);
+});

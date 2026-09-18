@@ -439,8 +439,17 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
       : benchStatus+' · '+benchRuns+' run'+(benchRuns>1?'s':'')+' · '+(benchBase==null?pct(benchLatest):pct(benchBase)+' → '+pct(benchLatest))+(benchSha?' · '+benchSha:'')+cadence;
     const adapterCount=Math.max(0,Number(l.active_adapter_count??e.active_adapter_count??0));
     const loraState=String(l.state||(e.neural_weights_changed===true&&adapterCount>0?'ACTIVE':'BLOCKED')).toUpperCase();
-    const lora=loraState==='ACTIVE'?'LoRA actif':'LoRA '+loraState.toLowerCase();
-    const loraDetail=loraState+(l.reason?' · '+String(l.reason):'')+(l.plan_id?' · plan '+String(l.plan_id).slice(0,26):'');
+    const loraLabels={
+      ACTIVE:'LoRA actif',
+      TECHNICALLY_VALIDATED:'LoRA validé techniquement',
+      TRAINING:'LoRA en entraînement',
+      READY:'LoRA prêt',
+      EVALUATED:'LoRA évalué',
+      BLOCKED:'LoRA bloqué'
+    };
+    const lora=loraLabels[loraState]||('LoRA '+loraState.toLowerCase().replaceAll('_',' '));
+    const detailState=loraState==='TECHNICALLY_VALIDATED'?'VALIDÉ TECHNIQUEMENT':loraState;
+    const loraDetail=detailState+(l.reason?' · '+String(l.reason):'')+(l.plan_id?' · plan '+String(l.plan_id).slice(0,26):'');
     const lessons=d.project_experience?.available?(Number(d.project_experience.count||0)+' leçons'):'leçons —';
     const loraLessons=Math.max(0,Number(e.corrections_available_for_training??e.corrections_validated??0));
 

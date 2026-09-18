@@ -1,4 +1,5 @@
 import { buildLearningProgress } from './progress.js';
+import { LORA_TECHNICAL_VALIDATION } from './lora-technical-validation.js';
 
 const PROJECT_EXPERIENCE_SOURCE = 'project_experience_consolidation_v1';
 
@@ -224,6 +225,18 @@ async function loraStatus(memory, report = {}) {
       dataset_digest: plan?.dataset_digest || null,
     };
   }
+  if (!plan && trainingExamples >= 50 && LORA_TECHNICAL_VALIDATION.validated === true) {
+    return {
+      state: 'TECHNICALLY_VALIDATED',
+      reason: 'mécanisme QLoRA validé · entraînement final/benchmark/activation encore requis',
+      active_adapter_count: 0,
+      plan_id: null,
+      base_model: LORA_TECHNICAL_VALIDATION.base_model,
+      dataset_digest: LORA_TECHNICAL_VALIDATION.dataset_digest,
+      technical_validation: LORA_TECHNICAL_VALIDATION,
+    };
+  }
+
   return {
     state: 'BLOCKED',
     reason: blockedLoraReason(plan, trainingExamples),
