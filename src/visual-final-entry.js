@@ -65,9 +65,10 @@ export async function finalizeVisualResponse(response, pathname) {
 
 export default {
   async fetch(request, env, ctx) {
-    const response = await app.fetch(request, env, ctx);
-    if (request.method !== 'GET') return response;
-    return finalizeVisualResponse(response, new URL(request.url).pathname);
+    // Canonical pages now own their visuals directly. Keep the exported
+    // finalizer as a compatibility/audit helper, but do not parse and rebuild
+    // every HTML response in the deployed hot path.
+    return app.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
     return app.scheduled(controller, env, ctx);
