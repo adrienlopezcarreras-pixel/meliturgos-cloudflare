@@ -228,6 +228,50 @@ jobs:
           grep -Eiq '<!doctype html|<html' preview-root.html
           echo "Preview authenticated HTTP smoke passed."
 
+      - name: Smoke all canonical UI surfaces and safe button APIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          AUTH="Authorization: Bearer \${MEL_PREVIEW_PASSWORD}"
+          rm -f preview-ui-surfaces.txt
+
+          check_surface() {
+            path="$1"; marker="$2"
+            body="$(mktemp)"
+            status="$(curl --fail-with-body --show-error --silent --max-time 45 \
+              --header "$AUTH" --output "$body" --write-out '%{http_code}' "$BASE_URL$path")"
+            case "$status" in 2??) ;; *) echo "HTTP_\${status}:$path"; exit 22 ;; esac
+            grep -Fq "$marker" "$body"
+            printf 'OK SURFACE %s marker=%s\n' "$path" "$marker" >> preview-ui-surfaces.txt
+            rm -f "$body"
+          }
+
+          check_json() {
+            path="$1"
+            body="$(mktemp)"
+            status="$(curl --fail-with-body --show-error --silent --max-time 45 \
+              --header "$AUTH" --output "$body" --write-out '%{http_code}' "$BASE_URL$path")"
+            case "$status" in 2??) ;; *) echo "HTTP_\${status}:$path"; cat "$body"; exit 22 ;; esac
+            node -e "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))" "$body"
+            printf 'OK JSON %s\n' "$path" >> preview-ui-surfaces.txt
+            rm -f "$body"
+          }
+
+          check_surface "/" 'id="send"'
+          check_surface "/professor" 'id="chatSend"'
+          check_surface "/veille" 'id="testAll"'
+          check_surface "/normal-runtime.js?v=5" "send.addEventListener('click'"
+
+          check_json "/api/gen2/roadmap"
+          check_json "/api/mel/capability-watch"
+          check_json "/api/learning/progress"
+          check_json "/api/gen2/autonomy/state"
+          check_json "/api/work/health"
+          check_json "/api/memory/status"
+
+          echo "Canonical UI surface smoke passed."
+
       - name: Upload preview HTTP diagnostic
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
