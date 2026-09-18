@@ -18,6 +18,8 @@ async function main() {
   const dir = path.resolve(args.get('--dir') || '');
   const activateRaw = String(args.get('--activate') ?? 'true').trim().toLowerCase();
   const activate = !['false', '0', 'no', 'off'].includes(activateRaw);
+  const allowNotActivatedRaw = String(args.get('--allow-not-activated') ?? 'false').trim().toLowerCase();
+  const allowNotActivated = ['true', '1', 'yes', 'on'].includes(allowNotActivatedRaw);
   const baseUrl = String(args.get('--url') || process.env.MEL_BASE_URL || '').replace(/\/+$/, '');
   const password = String(process.env.MELITURGOS_PASSWORD || '').trim();
   if (!args.get('--dir') || !baseUrl) {
@@ -56,9 +58,14 @@ async function main() {
     gain: data?.decision?.overall_gain ?? data?.decision?.exact_evidence?.measured_gain ?? null,
     decision: data?.decision?.reason || null,
     activated: data.activated === true,
+    next_stage: data?.next_stage || data?.impact?.comparison?.next_stage || null,
+    impact_gate_passed: data?.impact_gate_passed === true,
+    canonical_gate_passed: data?.canonical_gate_passed === true,
+    activation_blocker: data?.activation_blocker || null,
+    impact: data?.impact?.comparison || null,
   };
   process.stdout.write(JSON.stringify(summary, null, 2) + '\n');
-  if (!summary.activated) process.exitCode = 2;
+  if (!summary.activated && !allowNotActivated) process.exitCode = 2;
 }
 
 main().catch((error) => {
