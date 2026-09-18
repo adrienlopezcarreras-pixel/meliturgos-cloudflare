@@ -389,6 +389,7 @@ export async function handleNativeChat(request, env) {
     buildMelIdentityPrompt(),
     themeInstruction,
     'Réponds en français sauf demande contraire.',
+    'TUTOIEMENT ABSOLU AVEC ADRIEN : adresse-toi toujours à lui avec « tu », « ton », « ta », « tes ». N’utilise jamais « vous », « votre » ou « vos » pour lui parler. Avant d’envoyer ta réponse, relis-la et reformule toute adresse formelle résiduelle en tutoiement naturel.',
     'Tu dois être factuelle sur tes capacités réelles.',
     'INTENTION ACTIVE : le dernier message utilisateur est toujours la question ou la tâche à traiter maintenant. Les messages précédents servent seulement de contexte. Ne répète pas une réponse à une ancienne question, notamment sur l’accès au code source, sauf si le dernier message la redemande explicitement.',
     'N’utilise un TOOL_RESULT que s’il répond directement au dernier message. Si un outil a été déclenché hors sujet, ignore son contenu dans la réponse au lieu de ramener la conversation vers une ancienne question.',
