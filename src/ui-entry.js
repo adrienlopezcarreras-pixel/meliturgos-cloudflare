@@ -3,7 +3,7 @@ import { requireAuth } from './core/security.js';
 import { migrate } from './persistence/migrations.js';
 import { createConversationService } from './conversations/conversation-service.js';
 import { buildActivitySnapshot } from './activity/activity-snapshot.js';
-import { getEcosystemCapabilityWatchStatus, runEcosystemCapabilityWatch } from './evaluation/capability-watch-runtime.js';
+import { getEcosystemCapabilityWatchStatus, runEcosystemCapabilityWatch, applyEcosystemProposalDecision } from './evaluation/capability-watch-runtime.js';
 
 function json(value, status = 200) {
   return new Response(JSON.stringify(value), {
@@ -87,6 +87,27 @@ async function capabilityWatchRunResponse(request, env) {
   }
 }
 
+async function capabilityWatchProposalActionResponse(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  let body = {};
+  try { body = await request.clone().json(); } catch {}
+  try {
+    const result = await applyEcosystemProposalDecision(env, {
+      fingerprint: body?.fingerprint,
+      action: body?.action,
+    });
+    return json(result);
+  } catch (error) {
+    return json({
+      ok: false,
+      error: 'CAPABILITY_WATCH_PROPOSAL_ACTION_FAILED',
+      code: String(error?.code || error?.message || 'unknown').slice(0, 180),
+      detail: String(error?.message || error?.code || 'unknown').slice(0, 180),
+    }, Number(error?.status) || 503);
+  }
+}
+
 async function latestConversationResponse(request, env) {
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
@@ -126,6 +147,7 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/mel/activity') return activityResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/capability-watch') return capabilityWatchResponse(request, env);
     if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/run') return capabilityWatchRunResponse(request, env);
+    if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/proposal') return capabilityWatchProposalActionResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/conversations/latest') return latestConversationResponse(request, env);
     const response = await app.fetch(request, env, ctx);
     if (request.method !== 'GET') return response;
