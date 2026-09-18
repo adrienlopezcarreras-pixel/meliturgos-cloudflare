@@ -50,7 +50,7 @@ def prepare_payload():
     SCRIPTS.mkdir(parents=True, exist_ok=True)
     DATA.mkdir(parents=True, exist_ok=True)
 
-    for name in ("train-mel-lora.py", "create-lora-plan.py"):
+    for name in ("train-mel-lora.py", "create-lora-plan.py", "run-local-lora-impact.py"):
         source = payload / name
         if not source.is_file():
             raise SystemExit("KAGGLE_PAYLOAD_SCRIPT_MISSING:" + name)
@@ -198,6 +198,15 @@ def main():
         cmd += ["--parent-adapter-dir", PARENT, "--parent-artifact-digest", parent_digest]
     run(cmd)
 
+    impact_path = OUTPUT / "local-impact-benchmark.json"
+    run([
+        sys.executable, SCRIPTS / "run-local-lora-impact.py",
+        "--base-model-path", base_model,
+        "--adapter-dir", OUTPUT,
+        "--output", impact_path,
+    ])
+    impact = json.loads(impact_path.read_text(encoding="utf-8"))
+
     shutil.copy2(SHARD_META, OUTPUT / "shard-metadata.json")
     dataset_meta = {
         "schema": "mel.kaggle-offline-dataset-evidence.v2",
@@ -213,6 +222,7 @@ def main():
     required = [
         "adapter_model.safetensors", "adapter_config.json", "training-evidence.json",
         "artifact-evidence.json", "lora-plan.json", "dataset-metadata.json", "shard-metadata.json",
+        "local-impact-benchmark.json",
     ]
     for name in required:
         target = OUTPUT / name
@@ -231,6 +241,10 @@ def main():
         "parent_artifact_digest": parent_digest,
         "train_loss": training.get("training_metrics", {}).get("train_loss"),
         "global_step": training.get("training_metrics", {}).get("global_step"),
+        "local_impact": impact.get("candidate", {}).get("metrics", {}),
+        "local_impact_delta": impact.get("delta", {}),
+        "local_uncensored_gate": impact.get("local_uncensored_gate") is True,
+        "local_next_stage": impact.get("next_stage") or "UNCENSORED_CONTINUE",
         "offline_kernel": True,
     }
     RUN_META.write_text(json.dumps(run_meta, indent=2) + "\n", encoding="utf-8")
