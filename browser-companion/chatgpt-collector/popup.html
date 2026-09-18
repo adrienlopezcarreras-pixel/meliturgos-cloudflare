@@ -12,6 +12,14 @@ body{font:14px system-ui,sans-serif;width:360px;padding:14px;background:#0b1220;
   <label for="password">Mot de passe MEL</label>
   <input id="password" type="password" autocomplete="current-password">
   <label><input id="continuous" type="checkbox" checked style="width:auto"> Capturer automatiquement les nouvelles conversations</label>
+  <label><input id="ecoMode" type="checkbox" checked style="width:auto"> Mode PC lent (recommandé)</label>
+  <label for="delayMs">Pause entre conversations</label>
+  <select id="delayMs" style="width:100%;padding:7px 8px;border:1px solid #374151;border-radius:7px;background:#0f172a;color:#fff">
+    <option value="8000">8 s</option>
+    <option value="12000" selected>12 s</option>
+    <option value="20000">20 s</option>
+    <option value="30000">30 s</option>
+  </select>
   <div class="row" style="margin-top:8px">
     <button id="save">Enregistrer</button>
     <button id="test">Tester MEL</button>
@@ -24,6 +32,6 @@ body{font:14px system-ui,sans-serif;width:360px;padding:14px;background:#0b1220;
   <button id="pause">Pause</button>
   <button id="capture">Capturer cette conversation</button>
 </div>
-<p class="muted">Laisse un onglet ChatGPT ouvert et connecté. Le collecteur reprend sans doublons.</p>
+<p class="muted">Laisse un onglet ChatGPT ouvert et connecté. En mode PC lent, il avance doucement et reprend sans doublons.</p>
 <pre id="status">Chargement…</pre>
 <script src="popup.js"></script></body></html>
