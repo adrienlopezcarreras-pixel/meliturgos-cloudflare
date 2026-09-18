@@ -59,7 +59,7 @@ function redirectResponse(location, headers = {}) {
 
 function isInteractivePreviewPage(request, url) {
   if (request.method !== 'GET') return false;
-  if (!['/', '/mvp', '/professor'].includes(url.pathname)) return false;
+  if (!['/', '/mvp', '/professor', '/veille'].includes(url.pathname)) return false;
   const accept = request.headers.get('accept') || '';
   return !accept || /text\/html|application\/xhtml\+xml|\*\/\*/i.test(accept);
 }
