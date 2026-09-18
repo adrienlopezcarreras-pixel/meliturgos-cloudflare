@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { handleVoiceTranscription } from '../src/api/voice-transcribe.js';
+import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 
 const auth='Basic '+Buffer.from('adrien:test').toString('base64');
 
@@ -24,7 +25,7 @@ test('voice fails closed to text when AI is unavailable and mobile UI releases m
   assert.equal(response.status,503);
   assert.equal((await response.json()).fallback,'text');
 
-  const ui=await readFile(new URL('../src/pages/mvp-interface-v3.js',import.meta.url),'utf8');
+  const ui=NORMAL_RUNTIME_SOURCE;
   assert.match(ui,/navigator\.mediaDevices\?\.getUserMedia/);
   assert.match(ui,/new MediaRecorder/);
   assert.match(ui,/\/api\/voice\/transcribe/);
