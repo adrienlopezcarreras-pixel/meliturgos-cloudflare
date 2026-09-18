@@ -16,6 +16,8 @@ function argsMap(argv) {
 async function main() {
   const args = argsMap(process.argv.slice(2));
   const dir = path.resolve(args.get('--dir') || '');
+  const activateRaw = String(args.get('--activate') ?? 'true').trim().toLowerCase();
+  const activate = !['false', '0', 'no', 'off'].includes(activateRaw);
   const baseUrl = String(args.get('--url') || process.env.MEL_BASE_URL || '').replace(/\/+$/, '');
   const password = String(process.env.MELITURGOS_PASSWORD || '').trim();
   if (!args.get('--dir') || !baseUrl) {
@@ -36,7 +38,7 @@ async function main() {
       Authorization: `Bearer ${password}`,
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ plan, artifact, approval, activate: true }),
+    body: JSON.stringify({ plan, artifact, approval, activate }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data?.ok === false) {
@@ -48,6 +50,7 @@ async function main() {
     plan_id: data.plan_id || plan.id,
     finetune_id: artifact.finetune_id,
     approval_id: approval.approval_id || null,
+    activation_requested: activate,
     baseline: data?.baseline?.overall ?? null,
     candidate: data?.candidate?.overall ?? null,
     gain: data?.decision?.overall_gain ?? data?.decision?.exact_evidence?.measured_gain ?? null,
