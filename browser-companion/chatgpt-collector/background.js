@@ -1,5 +1,5 @@
 const api = globalThis.browser;
-const DEFAULT={running:false,paused:true,tabId:null,queue:[],done:{},failed:{},discovered:0,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,updatedAt:null};
+const DEFAULT={running:false,paused:true,tabId:null,queue:[],done:{},failed:{},unavailable:{},discovered:0,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,updatedAt:null};
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 
 function norm(value){
@@ -47,10 +47,15 @@ async function tabMessage(tabId,payload,attempts=8){
 }
 async function pageUrls(tabId){try{const r=await tabMessage(tabId,{type:'mel.collector.discover'},4);return Array.isArray(r?.urls)?r.urls.map(norm).filter(Boolean):[]}catch{return[]}}
 async function mergeDiscovery(tabId){
-  const [a,b]=await Promise.all([historyUrls(),pageUrls(tabId)]),s=await state(),done=s.done||{},queued=new Set(s.queue||[]);
-  const add=[...new Set([...a,...b])].filter(u=>!done[idFromUrl(u)]&&!queued.has(u));
+  const [a,b]=await Promise.all([historyUrls(),pageUrls(tabId)]);
+  const s=await state(),done=s.done||{},failed=s.failed||{},unavailable=s.unavailable||{},queued=new Set(s.queue||[]);
+  const add=[...new Set([...a,...b])].filter(u=>{
+    const id=idFromUrl(u);
+    const attempts=Number(failed[id]?.attempts||0);
+    return id && !done[id] && !unavailable[id] && attempts<3 && !queued.has(u);
+  });
   const queue=[...(s.queue||[]),...add];
-  return save({queue,discovered:new Set([...queue,...Object.values(done).map(x=>x.url).filter(Boolean)]).size});
+  return save({queue,discovered:new Set([...queue,...Object.values(done).map(x=>x.url).filter(Boolean),...Object.values(unavailable).map(x=>x.url).filter(Boolean)]).size});
 }
 
 function waitComplete(tabId,timeout=30000){
@@ -62,12 +67,23 @@ function waitComplete(tabId,timeout=30000){
     api.tabs.onUpdated.addListener(listener);
   });
 }
+async function waitForExpectedConversation(tabId,sourceId,timeout=15000){
+  const started=Date.now();
+  while(Date.now()-started<timeout){
+    try{
+      const tab=await api.tabs.get(tabId);
+      if(idFromUrl(tab?.url)===sourceId)return true;
+    }catch{}
+    await wait(500);
+  }
+  return false;
+}
 async function captureStable(tabId){
   let last;
   for(let i=0;i<12;i++){
     try{last=await tabMessage(tabId,{type:'mel.collector.capture'},3)}catch(e){last={ok:false,code:e?.message||'CAPTURE_FAILED'}}
     if(last?.ok)return last;
-    if(!['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND'].includes(last?.code))break;
+    if(!['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND','NOT_A_CONVERSATION','CONTENT_SCRIPT_UNAVAILABLE'].includes(last?.code))break;
     await wait(1500);
   }
   return last||{ok:false,code:'CAPTURE_FAILED'};
@@ -93,7 +109,10 @@ async function process(tabId){
     await save({queue,currentUrl:url});
     try{
       await api.tabs.update(tabId,{url,active:true});
-      await waitComplete(tabId);await wait(1800);
+      await waitComplete(tabId);
+      const reached=await waitForExpectedConversation(tabId,sourceId,15000);
+      if(!reached)throw Object.assign(new Error('CONVERSATION_REDIRECTED_OR_UNAVAILABLE'),{code:'CONVERSATION_REDIRECTED_OR_UNAVAILABLE'});
+      await wait(1200);
       const cap=await captureStable(tabId);
       if(!cap?.ok||!cap.conversation) throw Object.assign(new Error(cap?.code||'CAPTURE_FAILED'),{code:cap?.code||'CAPTURE_FAILED'});
       const result=await sendConversation(cap.conversation);
@@ -101,13 +120,25 @@ async function process(tabId){
       const done={...(s.done||{})};
       done[sourceId]={url,title:cap.conversation.title,messages:cap.conversation.messages.length,importedAt:Date.now()};
       const failed={...(s.failed||{})};delete failed[sourceId];
-      await save({done,failed,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),lastError:null,currentUrl:null});
+      const unavailable={...(s.unavailable||{})};delete unavailable[sourceId];
+      await save({done,failed,unavailable,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),lastError:null,currentUrl:null});
       await mergeDiscovery(tabId);
     }catch(e){
       s=await state();
       const failed={...(s.failed||{})};
-      failed[sourceId||url]={url,code:e?.code||e?.message||'UNKNOWN_ERROR',failedAt:Date.now()};
-      await save({failed,lastError:failed[sourceId||url].code,currentUrl:null});
+      const key=sourceId||url;
+      const code=e?.code||e?.message||'UNKNOWN_ERROR';
+      const attempts=Number(failed[key]?.attempts||0)+1;
+      failed[key]={url,code,attempts,failedAt:Date.now()};
+      const unavailable={...(s.unavailable||{})};
+      const maxAttempts=code==='CONVERSATION_REDIRECTED_OR_UNAVAILABLE'?2:3;
+      const nextQueue=[...(s.queue||[])];
+      if(attempts<maxAttempts){
+        if(!nextQueue.includes(url))nextQueue.push(url);
+      }else if(code==='CONVERSATION_REDIRECTED_OR_UNAVAILABLE'){
+        unavailable[key]={url,code,attempts,classifiedAt:Date.now()};
+      }
+      await save({failed,unavailable,queue:nextQueue,lastError:code,currentUrl:null});
     }
   }
 }
