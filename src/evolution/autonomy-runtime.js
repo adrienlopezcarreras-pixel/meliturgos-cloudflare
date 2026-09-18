@@ -296,8 +296,8 @@ export async function approveAllWaitingTeachersUnderOwnerMax(repository, { sourc
 // Every heartbeat persists/selects the next executable roadmap job before slow
 // external work only when MEL is genuinely idle. Existing active work must be
 // reconciled first so Teacher replies/completions keep their exact job ordering.
-async function runAutonomyRuntimeTickUnlocked(env, options = {}) {
-  const control = await getAutonomyControl(env?.DB);
+async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = null) {
+  const control = knownControl || await getAutonomyControl(env?.DB);
   if (control.paused) {
     return {
       status: 'PAUSED',
@@ -493,7 +493,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   }
 
   try {
-    return await runAutonomyRuntimeTickUnlocked(env, options);
+    return await runAutonomyRuntimeTickUnlocked(env, options, control);
   } finally {
     await releaseAutonomyRuntimeLease({
       db: env?.DB || null,
