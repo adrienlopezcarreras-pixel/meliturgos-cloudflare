@@ -120,7 +120,7 @@ async function mirrorTeacherImmediately({ env, repo, job, state, fetchImpl = fet
   return { status: 'SKIPPED_UNSUPERVISED_REQUESTER', requested_by: job.requested_by || null };
 }
 
-export function devRuntime(request, env) {
+export function devRuntime(request, env, { repository = null, bridgeRepository = null } = {}) {
   const url = new URL(request.url);
   const path = url.pathname;
   if (!path.startsWith('/api/professor/dev') && !path.startsWith('/api/dev-bridge')) return null;
@@ -130,10 +130,14 @@ export function devRuntime(request, env) {
     return Response.json({ error: 'BRIDGE_AUTH_REQUIRED', code: 'BRIDGE_AUTH_REQUIRED' }, { status: 401 });
   }
 
+  if (!env?.DB && !repository && !bridgeRepository) {
+    return Response.json({ error: 'DEV_RUNTIME_DB_REQUIRED', code: 'DEV_RUNTIME_DB_REQUIRED' }, { status: 503 });
+  }
+
   return (async () => {
     const body = await request.json().catch(() => ({}));
-    const repo = new D1DevJobRepository(env.DB);
-    const bridges = new D1BridgeRepository(env.DB);
+    const repo = repository || new D1DevJobRepository(env.DB);
+    const bridges = bridgeRepository || new D1BridgeRepository(env.DB);
 
     if (path === '/api/professor/dev/status' && request.method === 'GET') {
       return Response.json({
