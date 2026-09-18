@@ -8,7 +8,7 @@ const canonicalButtonHandlers = Object.freeze({
   chatSend: ['#chatSend', 'sendChat'],
   refreshSkills: ['#refreshSkills', 'loadSkills'],
   multiRun: ['#multiRun', '/api/gen2/augmentio/fanout'],
-  workCreate: ['#workCreate', '/api/dev-bridge/jobs'],
+  workCreate: ['#workCreate', '/api/work/jobs'],
   workRefresh: ['#workRefresh', 'loadWork'],
   memoryRefresh: ['#memoryRefresh', 'loadMemory'],
   chatgptImport: ['#chatgptImport', '/api/gen2/import/chatgpt-archive'],
@@ -27,8 +27,8 @@ const canonicalApiPaths = Object.freeze([
   '/api/memory/status',
   '/api/export',
   '/api/gen2/import/chatgpt-archive',
-  '/api/dev-bridge/health',
-  '/api/dev-bridge/jobs',
+  '/api/work/health',
+  '/api/work/jobs',
 ]);
 
 function sourceHasHtmlId(source, id) {
@@ -90,12 +90,12 @@ test('Professor Work routes remain usable with owner auth while privileged bridg
     read('src/professor-live-learning-entry.js'),
     read('src/index.js'),
   ]);
-  assert.ok(entry.includes("'/api/dev-bridge/health'"), 'safe Work health path missing from Professor allowlist');
-  assert.ok(entry.includes("'/api/dev-bridge/jobs'"), 'safe Work jobs path missing from Professor allowlist');
-  assert.ok(entry.includes('!PROFESSOR_SAFE_DEV_BRIDGE_PATHS.has(url.pathname)'), 'bridge token protection must exclude only the safe Professor routes');
-  assert.ok(entry.includes('authorizeDevBridge(request, env)'), 'privileged dev-bridge paths must retain bridge-token authorization');
-  assert.ok(index.includes("mode: 'preflight-only'"), 'safe Professor Work route must remain preflight-only');
-  assert.ok(index.includes('requireAuth(request, env)'), 'safe Professor Work route must retain owner authentication');
+  assert.ok(!entry.includes('PROFESSOR_SAFE_DEV_BRIDGE_PATHS'), 'internal bridge must have no owner-auth bypass allowlist');
+  assert.ok(entry.includes('authorizeDevBridge(request, env)'), 'all internal dev-bridge paths must retain bridge-token authorization');
+  assert.ok(index.includes("'/api/work/health'"), 'owner Work health route must use /api/work namespace');
+  assert.ok(index.includes("'/api/work/jobs'"), 'owner Work jobs route must use /api/work namespace');
+  assert.ok(index.includes("mode: 'preflight-only'"), 'owner Work route must remain preflight-only');
+  assert.ok(index.includes('requireAuth(request, env)'), 'owner Work route must retain owner authentication');
 });
 
 test('manual autonomy control is canonical in the top Professor controls and uses real authenticated endpoints', async () => {
