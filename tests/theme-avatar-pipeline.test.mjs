@@ -22,8 +22,9 @@ test('deployed entrypoint keeps preview auth and strips retired visual layers wi
   assert.doesNotMatch(finalEntry, /NORMAL_CANONICAL_RUNTIME/);
   assert.doesNotMatch(finalEntry, /appendBeforeHead/);
   assert.doesNotMatch(finalEntry, /appendBeforeBody/);
-  assert.match(liveEntry, /import \{ enhanceThemeAvatars \} from '\.\/pages\/theme-avatar-enhancer\.js';/);
+  assert.doesNotMatch(liveEntry, /enhanceThemeAvatars/);
   assert.match(enhancer, /return response/);
+  assert.match(finalEntry, /return app\.fetch\(request, env, ctx\)/);
 });
 
 test('canonical normal V3 is the single theme and avatar owner', () => {
