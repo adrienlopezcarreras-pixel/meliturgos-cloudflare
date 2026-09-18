@@ -1,0 +1,64 @@
+name: canonical-branch-unicity
+
+on:
+  push:
+    branches:
+      - candidate/mel-clean-autonomy
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: canonical-branch-unicity
+  cancel-in-progress: true
+
+jobs:
+  unicity:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout canonical repository history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Fetch all branch refs
+        shell: bash
+        run: git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Reject every non-exempt branch divergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          canonical="refs/remotes/origin/candidate/mel-clean-autonomy"
+          divergent=()
+
+          while IFS= read -r remote_ref; do
+            branch="${remote_ref#origin/}"
+            lower="${branch,,}"
+
+            case "$branch" in
+              HEAD|candidate/mel-clean-autonomy|teacher-bridge/runtime)
+                continue
+                ;;
+            esac
+
+            case "$lower" in
+              *lora*|compat-activateadapter-1|compatfix-1f70|compatfix-1f70b|compatfix-main|mel-compatfix-final|tmpcompatadapter|x1f70compat)
+                # Temporary separate workspace owned by the LoRA/adapter chantier.
+                continue
+                ;;
+            esac
+
+            if ! git merge-base --is-ancestor "refs/remotes/origin/$branch" "$canonical"; then
+              divergent+=("$branch")
+            fi
+          done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin)
+
+          if (( ${#divergent[@]} )); then
+            printf 'DIVERGENT_NON_EXEMPT_BRANCHES:\n'
+            printf ' - %s\n' "${divergent[@]}"
+            exit 1
+          fi
+
+          echo "Canonical unicity verified: every non-exempt branch is an ancestor of candidate/mel-clean-autonomy."
