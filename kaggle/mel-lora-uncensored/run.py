@@ -2,28 +2,30 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import sys
 import tarfile
-import urllib.request
 from pathlib import Path
 
 TARGET_SHA = "__MEL_GIT_SHA__"
 CYCLE = int("__MEL_CYCLE__")
 SHARD_SIZE = int("__MEL_SHARD_SIZE__")
-PARENT_BUNDLE_URL = "__MEL_PARENT_BUNDLE_URL__"
-MEL_LESSONS_B64 = """__MEL_LESSONS_B64__"""
+MEL_TRAIN_SCRIPT_B64 = """__MEL_TRAIN_SCRIPT_B64__"""
+MEL_PLAN_SCRIPT_B64 = """__MEL_PLAN_SCRIPT_B64__"""
+MEL_SHARD_GZ_B64 = """__MEL_SHARD_GZ_B64__"""
+MEL_SHARD_META_B64 = """__MEL_SHARD_META_B64__"""
+MEL_PARENT_BUNDLE_B64 = """__MEL_PARENT_BUNDLE_B64__"""
 
 WORK = Path("/kaggle/working")
-REPO = WORK / "meliturgos-cloudflare"
+SRC = WORK / "mel-src"
+SCRIPTS = SRC / "scripts"
 DATA = WORK / "data"
-FULL = DATA / "mel-uncensored-max.jsonl"
 SHARD = DATA / f"mel-uncensored-cycle-{CYCLE:03d}.jsonl"
-MEL = DATA / "mel-canonical-50.jsonl"
+SHARD_META = DATA / f"mel-uncensored-cycle-{CYCLE:03d}.meta.json"
 OUTPUT = WORK / "mel-lora-output"
 PARENT = WORK / "parent-adapter"
 BUNDLE = WORK / "mel-lora-bundle.tar.gz"
@@ -40,114 +42,119 @@ def sha256_file(path: Path) -> str:
             h.update(chunk)
     return "sha256:" + h.hexdigest()
 
-def export_streaming_dataset(repo_id: str, target: Path):
-    if target.is_file() and target.stat().st_size > 0:
-        print("reuse", target)
+def decode_text(value: str, target: Path):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(base64.b64decode(value.encode("ascii")))
+
+def extract_embedded_payload():
+    SCRIPTS.mkdir(parents=True, exist_ok=True)
+    DATA.mkdir(parents=True, exist_ok=True)
+    decode_text(MEL_TRAIN_SCRIPT_B64, SCRIPTS / "train-mel-lora.py")
+    decode_text(MEL_PLAN_SCRIPT_B64, SCRIPTS / "create-lora-plan.py")
+    compressed = base64.b64decode(MEL_SHARD_GZ_B64.encode("ascii"))
+    SHARD.write_bytes(gzip.decompress(compressed))
+    decode_text(MEL_SHARD_META_B64, SHARD_META)
+
+def find_base_model() -> Path:
+    candidates = [
+        Path("/kaggle/input/mistral-7b-instruct-v02-fp16"),
+        Path("/kaggle/input/mistral-7b-instruct-v0-2"),
+    ]
+    for path in candidates:
+        if (path / "config.json").is_file() and (path / "tokenizer_config.json").is_file():
+            return path
+    for cfg in Path("/kaggle/input").rglob("config.json"):
+        root = cfg.parent
+        if (root / "tokenizer_config.json").is_file() and (
+            (root / "model.safetensors.index.json").is_file()
+            or any(root.glob("model-*.safetensors"))
+        ):
+            return root
+    raise SystemExit("KAGGLE_MISTRAL_BASE_MODEL_NOT_FOUND")
+
+def ensure_dependencies():
+    required = ("torch", "transformers", "peft", "accelerate", "bitsandbytes", "datasets", "safetensors")
+    missing = []
+    for name in required:
+        try:
+            __import__(name)
+        except Exception:
+            missing.append(name)
+    if not missing:
+        print("LoRA dependencies already available in Kaggle image", flush=True)
         return
-    from datasets import load_dataset
-    print("streaming", repo_id)
-    ds = load_dataset(repo_id, split="train", streaming=True)
-    with target.open("w", encoding="utf-8") as out:
-        for i, row in enumerate(ds, 1):
-            out.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
-            if i % 10000 == 0:
-                print(repo_id, i, flush=True)
 
-def copy_public_window(source: Path, target, start: int, count: int) -> int:
-    written = 0
-    with source.open("r", encoding="utf-8") as fh:
-        for index, line in enumerate(fh):
-            if index < start:
-                continue
-            if written >= count:
-                break
-            if line.strip():
-                target.write(line)
-                written += 1
-    return written
+    wheels_root = Path("/kaggle/input/hf-libraries")
+    if not wheels_root.exists():
+        raise SystemExit("KAGGLE_HF_LIBRARIES_INPUT_MISSING:" + ",".join(missing))
 
-def count_lines(path: Path) -> int:
-    with path.open("r", encoding="utf-8") as fh:
-        return sum(1 for line in fh if line.strip())
+    aliases = {
+        "transformers": "transformers-",
+        "peft": "peft-",
+        "accelerate": "accelerate-",
+        "bitsandbytes": "bitsandbytes-",
+        "datasets": "datasets-",
+        "safetensors": "safetensors-",
+    }
+    wheels = []
+    for name in missing:
+        if name == "torch":
+            # Kaggle GPU images must provide a CUDA-matched torch build.
+            raise SystemExit("KAGGLE_TORCH_MISSING")
+        prefix = aliases.get(name)
+        found = sorted(p for p in wheels_root.rglob("*.whl") if p.name.lower().startswith(prefix))
+        if not found:
+            raise SystemExit("KAGGLE_OFFLINE_WHEEL_MISSING:" + name)
+        wheels.append(found[-1])
+    run([sys.executable, "-m", "pip", "install", "--no-index", "--no-deps", *wheels])
 
-def extract_parent(url: str):
-    if not url:
+def extract_parent() -> str | None:
+    if not MEL_PARENT_BUNDLE_B64.strip():
         return None
     archive = WORK / "parent-bundle.tar.gz"
-    print("download parent", url)
-    req = urllib.request.Request(url, headers={"User-Agent": "mel-kaggle-lora/1.0"})
-    with urllib.request.urlopen(req, timeout=180) as response, archive.open("wb") as out:
-        shutil.copyfileobj(response, out)
+    archive.write_bytes(base64.b64decode(MEL_PARENT_BUNDLE_B64.encode("ascii")))
     PARENT.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive, "r:gz") as tar:
         tar.extractall(PARENT)
     artifact = json.loads((PARENT / "artifact-evidence.json").read_text(encoding="utf-8"))
-    return artifact["digest"]
+    digest = str(artifact.get("digest") or "").lower()
+    if not digest.startswith("sha256:"):
+        raise SystemExit("KAGGLE_PARENT_DIGEST_INVALID")
+    return digest
+
+def count_lines(path: Path) -> int:
+    with path.open("r", encoding="utf-8") as fh:
+        return sum(1 for line in fh if line.strip())
 
 def main():
     if TARGET_SHA.startswith("__"):
         raise SystemExit("MEL_GIT_SHA_NOT_INJECTED")
     if SHARD_SIZE < 50:
         raise SystemExit("MEL_SHARD_SIZE_TOO_SMALL")
-    DATA.mkdir(parents=True, exist_ok=True)
 
-    # Preserve Kaggle's working CUDA/PyTorch build. Install only higher-level LoRA deps.
-    run([
-        sys.executable, "-m", "pip", "install", "-q", "-U",
-        "transformers>=4.45", "datasets>=2.20", "peft>=0.13",
-        "accelerate>=0.33", "bitsandbytes>=0.43", "safetensors>=0.4",
-        "huggingface_hub>=0.25",
-    ])
+    extract_embedded_payload()
+    if count_lines(SHARD) != SHARD_SIZE:
+        raise SystemExit(f"MEL_SHARD_COUNT_INVALID:{count_lines(SHARD)}:{SHARD_SIZE}")
 
-    run(["git", "init", str(REPO)])
-    run(["git", "-C", str(REPO), "remote", "add", "origin", "https://github.com/adrienlopezcarreras-pixel/meliturgos-cloudflare.git"])
-    run(["git", "-C", str(REPO), "fetch", "--depth", "1", "origin", TARGET_SHA])
-    run(["git", "-C", str(REPO), "checkout", "--detach", "FETCH_HEAD"])
+    shard_meta = json.loads(SHARD_META.read_text(encoding="utf-8"))
+    if int(shard_meta.get("cycle", -1)) != CYCLE:
+        raise SystemExit("MEL_SHARD_CYCLE_MISMATCH")
+    if str(shard_meta.get("output_sha256") or "") != sha256_file(SHARD):
+        raise SystemExit("MEL_SHARD_DIGEST_MISMATCH")
 
-    MEL.write_bytes(base64.b64decode(MEL_LESSONS_B64.encode("ascii")))
-    mel_count = count_lines(MEL)
-    if mel_count != 50:
-        raise SystemExit(f"MEL_CANONICAL_LESSON_COUNT_INVALID:{mel_count}")
-
-    ultra = DATA / "ultrachat-train.jsonl"
-    opus = DATA / "opus-no-refusal.jsonl"
-    export_streaming_dataset("wangqi777/ultrachat-uncensored", ultra)
-    export_streaming_dataset("anthracite-org/kalo-opus-instruct-22k-no-refusal", opus)
-
-    quarantine = DATA / "mel-uncensored-max.quarantine.jsonl"
-    run([
-        sys.executable, REPO / "scripts/prepare-mel-max-lora.py",
-        "--ultrachat-train", ultra,
-        "--opus", opus,
-        "--mel-lessons", MEL,
-        "--output", FULL,
-        "--quarantine-output", quarantine,
-    ])
-
-    full_meta = json.loads(Path(str(FULL) + ".meta.json").read_text(encoding="utf-8"))
-    total = int(full_meta["examples"])
-    if total < 50:
-        raise SystemExit("MEL_FULL_CORPUS_TOO_SMALL")
-
-    # Reserve 50 examples in every cycle for MEL's canonical lessons.
-    public_count = max(0, SHARD_SIZE - mel_count)
-    public_total = max(1, total - mel_count)
-    start = (CYCLE * public_count) % public_total if public_count else 0
-    with SHARD.open("w", encoding="utf-8") as out:
-        written = copy_public_window(FULL, out, start, public_count)
-        if written < public_count:
-            written += copy_public_window(FULL, out, 0, public_count - written)
-        with MEL.open("r", encoding="utf-8") as mel_in:
-            for line in mel_in:
-                if line.strip():
-                    out.write(line)
-    shard_examples = count_lines(SHARD)
-    if shard_examples != SHARD_SIZE:
-        raise SystemExit(f"MEL_SHARD_COUNT_INVALID:{shard_examples}:{SHARD_SIZE}")
+    ensure_dependencies()
+    base_model = find_base_model()
+    print(json.dumps({
+        "offline": True,
+        "source_sha": TARGET_SHA,
+        "cycle": CYCLE,
+        "base_model_path": str(base_model),
+        "shard_sha256": sha256_file(SHARD),
+    }, indent=2), flush=True)
 
     plan = DATA / f"lora-plan-cycle-{CYCLE:03d}.json"
     run([
-        sys.executable, REPO / "scripts/create-lora-plan.py",
+        sys.executable, SCRIPTS / "create-lora-plan.py",
         "--dataset", SHARD,
         "--output", plan,
         "--id", f"mel-kaggle-uncensored-c{CYCLE:03d}-{TARGET_SHA[:12]}",
@@ -159,13 +166,14 @@ def main():
         "--seed", "42",
     ])
 
-    parent_digest = extract_parent(PARENT_BUNDLE_URL)
+    parent_digest = extract_parent()
     stage = "uncensored-continue" if parent_digest else "uncensored"
     cmd = [
-        sys.executable, REPO / "scripts/train-mel-lora.py",
+        sys.executable, SCRIPTS / "train-mel-lora.py",
         "--dataset", SHARD,
         "--plan", plan,
         "--output", OUTPUT,
+        "--base-model-path", base_model,
         "--stage", stage,
         "--epochs", "1",
         "--max-length", "512",
@@ -180,22 +188,17 @@ def main():
         ]
     run(cmd)
 
-    shutil.copy2(Path(str(FULL) + ".meta.json"), OUTPUT / "dataset-metadata.json")
-    shard_meta = {
-        "schema": "mel.kaggle-lora-cycle.v1",
+    shutil.copy2(SHARD_META, OUTPUT / "shard-metadata.json")
+    dataset_meta = {
+        "schema": "mel.kaggle-offline-dataset-evidence.v1",
         "source_sha": TARGET_SHA,
         "cycle": CYCLE,
-        "stage": stage,
-        "shard_size": SHARD_SIZE,
-        "canonical_mel_lessons": mel_count,
-        "public_examples": public_count,
-        "public_start": start,
-        "full_training_examples": total,
-        "full_quarantined_examples": int(full_meta.get("quarantined_examples") or 0),
-        "shard_sha256": sha256_file(SHARD),
-        "parent_artifact_digest": parent_digest,
+        "examples": SHARD_SIZE,
+        "output_sha256": sha256_file(SHARD),
+        "source_metadata": shard_meta,
+        "offline_kernel": True,
     }
-    (OUTPUT / "shard-metadata.json").write_text(json.dumps(shard_meta, indent=2) + "\n", encoding="utf-8")
+    (OUTPUT / "dataset-metadata.json").write_text(json.dumps(dataset_meta, indent=2) + "\n", encoding="utf-8")
 
     required = [
         "adapter_model.safetensors",
@@ -207,18 +210,23 @@ def main():
         "shard-metadata.json",
     ]
     for name in required:
-        path = OUTPUT / name
-        if not path.is_file() or path.stat().st_size <= 0:
+        target = OUTPUT / name
+        if not target.is_file() or target.stat().st_size <= 0:
             raise SystemExit(f"MEL_OUTPUT_MISSING:{name}")
 
+    artifact = json.loads((OUTPUT / "artifact-evidence.json").read_text(encoding="utf-8"))
+    training = json.loads((OUTPUT / "training-evidence.json").read_text(encoding="utf-8"))
     run_meta = {
         "status": "TRAINED_UNBENCHMARKED",
         "source_sha": TARGET_SHA,
         "cycle": CYCLE,
         "stage": stage,
         "shard_size": SHARD_SIZE,
-        "artifact_digest": json.loads((OUTPUT / "artifact-evidence.json").read_text(encoding="utf-8"))["digest"],
+        "artifact_digest": artifact["digest"],
         "parent_artifact_digest": parent_digest,
+        "train_loss": training.get("training_metrics", {}).get("train_loss"),
+        "global_step": training.get("training_metrics", {}).get("global_step"),
+        "offline_kernel": True,
     }
     RUN_META.write_text(json.dumps(run_meta, indent=2) + "\n", encoding="utf-8")
     shutil.copy2(RUN_META, OUTPUT / "kaggle-run.json")
