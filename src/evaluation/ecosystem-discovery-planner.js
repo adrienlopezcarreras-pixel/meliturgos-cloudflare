@@ -263,7 +263,12 @@ function developmentGoal(item) {
   ].filter(Boolean).join(' ');
 }
 function candidateRank(item) {
-  const action = item?.action === 'UNBLOCK_EXISTING' ? 0 : 1;
+  const actionRank = {
+    UNBLOCK_EXISTING: 0,
+    REUSE_EXISTING: 1,
+    PROPOSE_EXTENSION: 2,
+  };
+  const action = actionRank[item?.action] ?? 3;
   const creative = item?.category === 'creative' ? 0 : 1;
   const citations = -Math.max(0, Number(item?.citations_count) || 0);
   const seen = -Math.max(0, Number(item?.seen_count) || 0);
@@ -273,7 +278,7 @@ function candidateRank(item) {
 export function selectEcosystemDiscoveryCandidate(ledger = {}) {
   const items = (Array.isArray(ledger?.items) ? ledger.items : [])
     .filter(item => item?.evidence_status === 'SOURCED_OBSERVATION')
-    .filter(item => ['UNBLOCK_EXISTING', 'PROPOSE_EXTENSION'].includes(item?.action))
+    .filter(item => ['UNBLOCK_EXISTING', 'REUSE_EXISTING', 'PROPOSE_EXTENSION'].includes(item?.action))
     .filter(item => Array.isArray(item?.sources) && item.sources.length > 0)
     .filter(item => item?.action !== 'PROPOSE_EXTENSION' || item?.proposal?.activation_allowed === false)
     .filter(item => !handoffAlreadyOwnsItem(item) && !handoffOwnsDiscovery(item));
