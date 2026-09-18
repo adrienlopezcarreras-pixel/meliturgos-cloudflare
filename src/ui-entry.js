@@ -3,7 +3,7 @@ import { requireAuth } from './core/security.js';
 import { migrate } from './persistence/migrations.js';
 import { createConversationService } from './conversations/conversation-service.js';
 import { buildActivitySnapshot } from './activity/activity-snapshot.js';
-import { getEcosystemCapabilityWatchStatus } from './evaluation/capability-watch-runtime.js';
+import { getEcosystemCapabilityWatchStatus, runEcosystemCapabilityWatch } from './evaluation/capability-watch-runtime.js';
 
 function json(value, status = 200) {
   return new Response(JSON.stringify(value), {
@@ -60,6 +60,31 @@ async function capabilityWatchResponse(request, env) {
     return json({
       ok: false,
       error: 'CAPABILITY_WATCH_UNAVAILABLE',
+      detail: String(error?.code || error?.message || 'unknown').slice(0, 180),
+    }, 503);
+  }
+}
+
+async function capabilityWatchRunResponse(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  let body = {};
+  try { body = await request.clone().json(); } catch {}
+  const force = body?.force === true;
+  if (force && String(env.MEL_PREVIEW_ISOLATED || '').toLowerCase() !== 'true') {
+    return json({ ok: false, error: 'WATCH_FORCE_PREVIEW_ONLY' }, 403);
+  }
+  try {
+    const build = deployedBuild();
+    const result = await runEcosystemCapabilityWatch(env, {
+      force,
+      sourceSha: build?.sha || null,
+    });
+    return json({ ok: true, result });
+  } catch (error) {
+    return json({
+      ok: false,
+      error: 'CAPABILITY_WATCH_RUN_FAILED',
       detail: String(error?.code || error?.message || 'unknown').slice(0, 180),
     }, 503);
   }
@@ -176,6 +201,7 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/api/mel/activity') return activityResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/capability-watch') return capabilityWatchResponse(request, env);
+    if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/run') return capabilityWatchRunResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/conversations/latest') return latestConversationResponse(request, env);
     const response = await app.fetch(request, env, ctx);
     if (request.method !== 'GET') return response;

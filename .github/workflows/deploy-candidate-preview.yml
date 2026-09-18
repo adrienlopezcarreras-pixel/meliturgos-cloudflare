@@ -228,6 +228,74 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      - name: Run isolated GEN2-42 sourced watch proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          curl --fail-with-body --show-error --silent \
+            --max-time 180 \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            --header "content-type: application/json" \
+            --data '{"force":true}' \
+            "${BASE_URL}/api/mel/capability-watch/run" \
+            --output capability-watch-run.json
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path('capability-watch-run.json').read_text(encoding='utf-8'))
+          if payload.get('ok') is not True:
+              raise SystemExit('WATCH_RUN_FAILED: ' + str(payload.get('error') or payload.get('detail')))
+          result = payload.get('result') or {}
+          discoveries = result.get('discoveries') or {}
+          ledger = discoveries.get('ledger') or {}
+          items = ledger.get('items') if isinstance(ledger.get('items'), list) else []
+          sourced = [
+              item for item in items
+              if item.get('evidence_status') == 'SOURCED_OBSERVATION'
+              and isinstance(item.get('sources'), list)
+              and len(item.get('sources')) > 0
+          ]
+          handoff = discoveries.get('handoff') or {}
+          if result.get('status') != 'RAN':
+              raise SystemExit('WATCH_NOT_RAN: ' + str(result.get('status')))
+          if not sourced:
+              raise SystemExit('WATCH_NO_SOURCED_DISCOVERY')
+          if not handoff.get('job_id'):
+              raise SystemExit('WATCH_NO_COUNCIL_TEACHER_HANDOFF')
+
+          print(json.dumps({
+              'watch_status': result.get('status'),
+              'watch_reason': result.get('reason'),
+              'sourced_discoveries': len(sourced),
+              'handoff_status': handoff.get('status'),
+              'handoff_job_id': handoff.get('job_id'),
+              'teacher_request_id': handoff.get('teacher_request_id'),
+          }, indent=2))
+
+          summary = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with open(summary, 'a', encoding='utf-8') as h:
+                  h.write('### GEN2-42 isolated sourced watch proof\n\n')
+                  h.write(f'- Watch: {result.get("status")} / {result.get("reason")}\n')
+                  h.write(f'- Sourced discoveries: {len(sourced)}\n')
+                  h.write(f'- Handoff: {handoff.get("status")}\n')
+                  h.write(f'- Job: {handoff.get("job_id")}\n')
+                  h.write(f'- Teacher request: {handoff.get("teacher_request_id")}\n')
+          PY
+
+      - name: Upload GEN2-42 preview proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-42-preview-proof-${{ github.sha }}
+          path: capability-watch-run.json
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Refresh zero-cost Benchmark and LoRA readiness
         shell: bash
         run: |

@@ -7,6 +7,7 @@ test('ecosystem watch is wired once into schedule, API and full-mode activity', 
   const ui = await readFile(new URL('../src/ui-entry.js', import.meta.url), 'utf8');
   const panel = await readFile(new URL('../src/pages/full-mode-control-enhancer.js', import.meta.url), 'utf8');
   const watchRuntime = await readFile(new URL('../src/evaluation/capability-watch-runtime.js', import.meta.url), 'utf8');
+  const previewWorkflow = await readFile(new URL('../.github/workflows/deploy-candidate-preview.yml', import.meta.url), 'utf8');
 
   assert.match(index, /runEcosystemCapabilityWatch/);
   assert.match(ui, /\/api\/mel\/capability-watch/);
