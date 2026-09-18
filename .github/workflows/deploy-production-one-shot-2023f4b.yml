@@ -1,0 +1,88 @@
+name: deploy-production-one-shot-2023f4b
+
+on:
+  push:
+    branches:
+      - release/2026-09-18-prod-trigger-2023f4b
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meliturgos-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TARGET_SHA: 2023f4bec191862f80c70cc70f00360fa93f501e
+      DEPLOY_BRANCH: release/2026-09-18-mel-watch-2023f4b
+    steps:
+      - name: Confirm one-shot production authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "release/2026-09-18-prod-trigger-2023f4b"
+          echo "Explicit production deployment requested by repository owner."
+
+      - name: Checkout exact approved candidate branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: candidate/deploy-approved-2023f4b
+          fetch-depth: 0
+
+      - name: Verify approved SHA is still contained in canonical candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${TARGET_SHA}"
+          test "$(git branch --show-current)" = "candidate/deploy-approved-2023f4b"
+          git fetch origin candidate/mel-clean-autonomy --depth=200
+          git merge-base --is-ancestor "${TARGET_SHA}" FETCH_HEAD
+          echo "Approved SHA is still contained in canonical candidate and tests run in candidate context."
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Runtime dependency security gate
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Syntax gate
+        run: npm run check
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Deploy exact approved SHA to production
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy \
+            --define "MEL_DEPLOYED_GIT_SHA:'${TARGET_SHA}'" \
+            --define "MEL_DEPLOYED_GIT_BRANCH:'${DEPLOY_BRANCH}'"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify production HTTP
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROD_STATUS="$(curl --silent --show-error --location \
+            --retry 5 --retry-all-errors --retry-delay 3 --max-time 30 \
+            --output production-root.html \
+            --write-out '%{http_code}' \
+            https://meliturgos.adrien-lopezcarreras.workers.dev)"
+          case "$PROD_STATUS" in
+            2??|3??|401) ;;
+            *) echo "Unexpected production HTTP status: $PROD_STATUS"; exit 22 ;;
+          esac
+          echo "Production HTTP verification passed with status ${PROD_STATUS}."
