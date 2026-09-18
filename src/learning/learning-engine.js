@@ -334,12 +334,12 @@ export class LearningEngine {
     return { plan, corpus: { accepted: bundle.accepted, rejected: bundle.rejected, digest: bundle.digest } };
   }
 
-  async evaluateAdapter({ plan, artifact, baseline, candidate } = {}) {
+  async evaluateAdapter({ plan, artifact, approval, baseline, candidate } = {}) {
     const checkedArtifact = assertAdapterArtifact(artifact);
     let exactEvidence = null;
     let decision;
     try {
-      exactEvidence = assertAdapterActivationEvidence({ plan, artifact: checkedArtifact, baseline, candidate });
+      exactEvidence = assertAdapterActivationEvidence({ plan, artifact: checkedArtifact, approval, baseline, candidate });
       decision = decideAdapterPromotion({ baseline, candidate, minOverallGain: exactEvidence.minimum_gain });
     } catch (error) {
       decision = { promote: false, reason: String(error?.code || error?.message || 'LORA_EVIDENCE_INVALID') };
@@ -348,7 +348,7 @@ export class LearningEngine {
       goal: `Evaluate MEL adapter ${plan?.id || checkedArtifact.id}`,
       kind: 'LORA_ADAPTER_EVAL',
       lesson: decision.promote ? 'Adaptateur candidat accepté par le benchmark et les preuves exactes.' : `Adaptateur rejeté: ${decision.reason}.`,
-      evidence: { plan, artifact: checkedArtifact, baseline, candidate, exact_evidence: exactEvidence, decision },
+      evidence: { plan, artifact: checkedArtifact, approval, baseline, candidate, exact_evidence: exactEvidence, decision },
       outcome: decision.promote ? 'APPROVED' : 'REJECTED',
       score: Number(candidate?.overall || 0),
       tags: ['learning', 'lora', 'evaluation'],
@@ -356,8 +356,8 @@ export class LearningEngine {
     return { ...decision, exact_evidence: exactEvidence };
   }
 
-  async activateAdapter({ plan, artifact, baseline, candidate } = {}) {
-    const exactEvidence = assertAdapterActivationEvidence({ plan, artifact, baseline, candidate });
+  async activateAdapter({ plan, artifact, approval, baseline, candidate } = {}) {
+    const exactEvidence = assertAdapterActivationEvidence({ plan, artifact, approval, baseline, candidate });
     const checkedArtifact = exactEvidence.artifact;
     const decision = decideAdapterPromotion({ baseline, candidate, minOverallGain: exactEvidence.minimum_gain });
     if (!decision.promote) {
@@ -371,6 +371,7 @@ export class LearningEngine {
       runtime_model: checkedArtifact.runtime_model,
       dataset_digest: plan.dataset_digest,
       training_manifest_digest: plan.training_manifest_digest,
+      approval: exactEvidence.approval,
       benchmark: { baseline, candidate, decision, exact_evidence: exactEvidence },
       activated_at: Date.now(),
     };
