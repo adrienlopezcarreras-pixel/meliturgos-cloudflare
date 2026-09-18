@@ -260,20 +260,44 @@ jobs:
               and len(item.get('sources')) > 0
           ]
           handoff = discoveries.get('handoff') or {}
+          teacher_states = {'WAITING_TEACHER', 'TEACHER_APPROVED', 'READY_FOR_REVIEW', 'COMPLETED'}
+          active_teacher_handoffs = []
+          for item in items:
+              candidate_handoff = item.get('handoff') if isinstance(item.get('handoff'), dict) else {}
+              if (
+                  candidate_handoff.get('job_id')
+                  and candidate_handoff.get('teacher_request_id')
+                  and candidate_handoff.get('closed') is not True
+                  and str(candidate_handoff.get('status') or '').upper() in teacher_states
+              ):
+                  active_teacher_handoffs.append({
+                      'fingerprint': item.get('fingerprint'),
+                      **candidate_handoff,
+                  })
+
+          proof_handoff = handoff if (
+              handoff.get('job_id')
+              and handoff.get('teacher_request_id')
+              and str(handoff.get('status') or '').upper() in teacher_states
+          ) else (active_teacher_handoffs[0] if active_teacher_handoffs else {})
+
           if result.get('status') != 'RAN':
               raise SystemExit('WATCH_NOT_RAN: ' + str(result.get('status')))
           if not sourced:
               raise SystemExit('WATCH_NO_SOURCED_DISCOVERY')
-          if not handoff.get('job_id'):
+          if not proof_handoff.get('job_id') or not proof_handoff.get('teacher_request_id'):
               raise SystemExit('WATCH_NO_COUNCIL_TEACHER_HANDOFF')
 
           print(json.dumps({
               'watch_status': result.get('status'),
               'watch_reason': result.get('reason'),
               'sourced_discoveries': len(sourced),
-              'handoff_status': handoff.get('status'),
-              'handoff_job_id': handoff.get('job_id'),
-              'teacher_request_id': handoff.get('teacher_request_id'),
+              'current_handoff_status': handoff.get('status'),
+              'active_teacher_handoffs': len(active_teacher_handoffs),
+              'proof_fingerprint': proof_handoff.get('fingerprint'),
+              'handoff_status': proof_handoff.get('status'),
+              'handoff_job_id': proof_handoff.get('job_id'),
+              'teacher_request_id': proof_handoff.get('teacher_request_id'),
           }, indent=2))
 
           summary = os.environ.get('GITHUB_STEP_SUMMARY')
@@ -282,9 +306,12 @@ jobs:
                   h.write('### GEN2-42 isolated sourced watch proof\n\n')
                   h.write(f'- Watch: {result.get("status")} / {result.get("reason")}\n')
                   h.write(f'- Sourced discoveries: {len(sourced)}\n')
-                  h.write(f'- Handoff: {handoff.get("status")}\n')
-                  h.write(f'- Job: {handoff.get("job_id")}\n')
-                  h.write(f'- Teacher request: {handoff.get("teacher_request_id")}\n')
+                  h.write(f'- Current run handoff: {handoff.get("status")}\n')
+                  h.write(f'- Active Teacher handoffs: {len(active_teacher_handoffs)}\n')
+                  h.write(f'- Proof discovery: {proof_handoff.get("fingerprint")}\n')
+                  h.write(f'- Handoff: {proof_handoff.get("status")}\n')
+                  h.write(f'- Job: {proof_handoff.get("job_id")}\n')
+                  h.write(f'- Teacher request: {proof_handoff.get("teacher_request_id")}\n')
           PY
 
       - name: Upload GEN2-42 preview proof
