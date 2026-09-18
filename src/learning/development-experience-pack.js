@@ -178,7 +178,22 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     validated: true,
     quality: 1,
     created_at: 1789580700000,
+  },  {
+    id: 'bootstrap-detached-head-release-test-context-20260918',
+    source: 'chatgpt-teacher',
+    domain: 'deployment-governance',
+    task: 'Déployer un SHA exact quand des tests d’intégration dépendent explicitement d’un contexte de branche candidate.',
+    input: 'Un workflow de release checkout un SHA détaché pour garantir l’identité exacte du code, mais certains tests légitimes vérifient la branche courante et échouent hors de candidate/*.',
+    before: 'Interpréter ces échecs comme une régression du code, supprimer ou ignorer les tests, ou contourner la validation pour atteindre wrangler deploy.',
+    after: 'Conserver le SHA exact comme autorité; créer un ref candidate/* figé sur ce SHA; vérifier que HEAD égale le SHA approuvé et que ce SHA est toujours ancêtre de la candidate canonique; exécuter la suite complète depuis ce contexte de branche; ne déployer qu’après sécurité, syntaxe et tests verts; confirmer ensuite le HTTP production. Ne jamais désactiver un test pour faciliter une promotion.',
+    rationale: 'Un HEAD détaché change le contexte Git sans changer le code. Quand un test couvre volontairement la discipline candidate, il faut restaurer le contexte attendu tout en conservant l’identité cryptographique du SHA et les garde-fous de promotion.',
+    tests: ['production attempt run 35364339579: full suite stopped before deploy because detached HEAD made branch-sensitive integration tests fail', 'production run 35364515451: security + syntax + full suite + exact SHA deploy + production HTTP verification all succeeded after restoring candidate branch context', 'deployed SHA 2023f4bec191862f80c70cc70f00360fa93f501e'],
+    tags: ['learning', 'xp', 'deployment', 'detached-head', 'candidate-branch', 'exact-sha', 'ci', 'fail-closed', 'production'],
+    validated: true,
+    quality: 1,
+    created_at: 1789746480000,
   },
+
 
 
 
