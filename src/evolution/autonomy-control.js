@@ -72,7 +72,8 @@ export async function setAutonomyControl(db, {
     return { ...next };
   }
 
-  await migrate(db);
+  // getAutonomyControl(db) already ran the idempotent schema migration.
+  // Do not migrate a second time in the same control write.
   await db.prepare(`
     INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json)
     VALUES(?,?,?,?)
