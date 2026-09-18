@@ -1,0 +1,23 @@
+name: cleanup-temp-candidate-2023f4b
+
+on:
+  push:
+    branches:
+      - release/2026-09-18-prod-trigger-2023f4b
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete temporary deployment candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init -q
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin --delete candidate/deploy-approved-2023f4b
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
