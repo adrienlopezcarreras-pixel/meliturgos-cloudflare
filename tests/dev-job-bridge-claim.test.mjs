@@ -19,6 +19,7 @@ async function buildApproved(repository, { prepared = true, correlated = true } 
         status: 'READY',
         teacher_request_id: requestId,
         candidate_branch: 'candidate/mel-clean-autonomy',
+        candidate_sha: 'a'.repeat(40),
       } : null,
     },
   });
