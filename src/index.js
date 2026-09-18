@@ -192,15 +192,15 @@ function busContext(env) {
   };
 }
 
-async function maybeHandleSafeWork(request, env) {
+async function maybeHandleWorkPreflight(request, env) {
   const url = new URL(request.url);
-  if (!url.pathname.startsWith('/api/dev-bridge/')) return null;
-  if (url.pathname !== '/api/dev-bridge/health' && url.pathname !== '/api/dev-bridge/jobs') return null;
+  if (!url.pathname.startsWith('/api/work/')) return null;
+  if (url.pathname !== '/api/work/health' && url.pathname !== '/api/work/jobs') return null;
 
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
 
-  if (request.method === 'GET' && url.pathname === '/api/dev-bridge/health') {
+  if (request.method === 'GET' && url.pathname === '/api/work/health') {
     return Response.json({
       ok: true,
       available: true,
@@ -211,7 +211,7 @@ async function maybeHandleSafeWork(request, env) {
     }, { headers: { 'cache-control': 'no-store' } });
   }
 
-  if (request.method === 'GET' && url.pathname === '/api/dev-bridge/jobs') {
+  if (request.method === 'GET' && url.pathname === '/api/work/jobs') {
     const lastSafeWorkJob = await readLastSafeWorkJob(env.DB);
     return Response.json({
       ok: true,
@@ -221,7 +221,7 @@ async function maybeHandleSafeWork(request, env) {
     }, { headers: { 'cache-control': 'no-store' } });
   }
 
-  if (request.method === 'POST' && url.pathname === '/api/dev-bridge/jobs') {
+  if (request.method === 'POST' && url.pathname === '/api/work/jobs') {
     try {
       const body = await readJsonObject(request);
       const mode = String(body.mode || 'prepare').toLowerCase();
@@ -363,7 +363,7 @@ export default {
       const memoryResponse = await maybeHandleMemoryCompatibility(request, env);
       if (memoryResponse) return memoryResponse;
 
-      const safeWorkResponse = await maybeHandleSafeWork(request, env);
+      const safeWorkResponse = await maybeHandleWorkPreflight(request, env);
       if (safeWorkResponse) return safeWorkResponse;
 
       const autonomyResponse = await maybeHandleAutonomyApi(request, env);
