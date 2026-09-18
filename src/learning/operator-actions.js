@@ -286,6 +286,20 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
       approval_id: checkedApproval.approval_id,
     },
   });
+  const decision = await engine.evaluateAdapter({
+    plan,
+    artifact: checkedArtifact,
+    approval: checkedApproval,
+    baseline,
+    candidate,
+  });
+  const impactGatePassed = impact.uncensored_gate === true;
+  const stageReady = decision.promote === true && impactGatePassed;
+  const nextStage = stageReady ? 'AGENTIC_READY' : 'UNCENSORED_CONTINUE';
+  const activationBlocker = stageReady
+    ? null
+    : (decision.promote === true ? 'LORA_IMPACT_GATE_NOT_PASSED' : String(decision.reason || 'CANONICAL_BENCHMARK_NOT_PASSED'));
+
   await engine.recordBenchmark({
     cases: impactBaseline.cases,
     kind: 'lora-impact-baseline',
@@ -309,25 +323,16 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
       version: impactCandidate.version,
       impact_metrics: impactCandidate.metrics,
       impact_delta: impact.delta,
-      uncensored_gate: impact.uncensored_gate,
-      next_stage: impact.next_stage,
+      uncensored_gate: impactGatePassed,
+      canonical_gate_passed: decision.promote === true,
+      next_stage: nextStage,
+      activation_blocker: activationBlocker,
       artifact_digest: checkedArtifact.digest,
       training_manifest_digest: checkedArtifact.training_manifest_digest,
       dataset_digest: checkedArtifact.dataset_digest,
       approval_id: checkedApproval.approval_id,
     },
   });
-
-  const decision = await engine.evaluateAdapter({
-    plan,
-    artifact: checkedArtifact,
-    approval: checkedApproval,
-    baseline,
-    candidate,
-  });
-  const impactGatePassed = impact.uncensored_gate === true;
-  const stageReady = decision.promote === true && impactGatePassed;
-  const nextStage = stageReady ? 'AGENTIC_READY' : 'UNCENSORED_CONTINUE';
 
   let active = null;
   if (options.activate === true && stageReady) {
@@ -355,7 +360,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
     next_stage: nextStage,
     impact_gate_passed: impactGatePassed,
     canonical_gate_passed: decision.promote === true,
-    activation_blocker: stageReady ? null : (decision.promote === true ? 'LORA_IMPACT_GATE_NOT_PASSED' : String(decision.reason || 'CANONICAL_BENCHMARK_NOT_PASSED')),
+    activation_blocker: activationBlocker,
     active,
     activated: Boolean(active),
     source_sha: sourceSha,
