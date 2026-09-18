@@ -6,6 +6,7 @@ on:
       hf_repo_id:
         description: "Public Hugging Face model repo containing the trained MEL LoRA bundle"
         required: true
+        default: "Meliturgos/mel-lora-smoke-500"
         type: string
       revision:
         description: "Hugging Face revision"
