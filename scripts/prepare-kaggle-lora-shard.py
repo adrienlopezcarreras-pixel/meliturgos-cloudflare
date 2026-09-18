@@ -16,7 +16,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-ULTRA_REPO = "wangqi777/ultrachat-uncensored"
+ULTRA_REPO = "Devilishcode/ultrachat-uncensored"
 OPUS_REPO = "anthracite-org/kalo-opus-instruct-22k-no-refusal"
 
 def sha256_bytes(raw: bytes) -> str:
