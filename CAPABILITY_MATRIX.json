@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-09-18T09:20:00Z",
+  "updated_at": "2026-09-18T12:22:00Z",
   "status_values": [
     "NOT_STARTED",
     "PARTIAL",
@@ -116,8 +116,8 @@
       ]
     },
     "work_agent_mode": {
-      "status": "WORKING",
-      "truth_status": "PARTIEL",
+      "status": "VERIFIED",
+      "truth_status": "EXISTANT_ET_TESTE",
       "evidence": [
         "tests/autonomy-governance.test.mjs",
         "tests/workflow-improvement.test.mjs",
@@ -127,18 +127,27 @@
         "full-candidate-ci run 34415517715 SUCCESS",
         "TEACHER_BRIDGE.md",
         "teacher-bridge/requests.jsonl",
-        "teacher-bridge/replies.jsonl"
+        "teacher-bridge/replies.jsonl",
+        "AUTONOMY_STATE.json: resumable_work_dag VERIFIED_HISTORICAL_RUNTIME",
+        "AUTONOMY_STATE.json: runtime_teacher_request_roundtrip VERIFIED_HISTORICAL_RUNTIME",
+        "AUTONOMY_STATE.json: verified_candidate_completion_record RUNTIME_RECONCILED_HISTORICAL",
+        "AUTONOMY_STATE.json: automatic_next_job_selection VERIFIED_FIRST_TRANSITION_HISTORICAL",
+        "AUTONOMY_STATE.json: mel_work_02_teacher_reconciliation VERIFIED_HISTORICAL_RUNTIME"
       ],
       "verified_subcapabilities": [
         "Development-job state is durable in existing dev_jobs storage without a schema migration.",
         "Resume checkpoints are SHA-256 integrity checked, job-bound and candidate-branch fail-closed.",
         "Advanced stages require candidate SHA; release/completed checkpoints require passing test evidence.",
         "Secret-shaped checkpoint fields are excluded and secret-shaped values are redacted.",
-        "Provider-neutral GitHub Teacher Bridge contract and request/reply queue files are present on the active candidate."
+        "Provider-neutral GitHub Teacher Bridge contract and request/reply queue files are present on the active candidate.",
+        "Persistent resumable Work DAG has historical runtime proof with signed checkpoints, idempotence and bounded artifacts.",
+        "Runtime MEL -> Teacher request -> correlated reply -> TEACHER_APPROVED has been demonstrated.",
+        "A CI-verified candidate completion has been reconciled to COMPLETED and the next roadmap job selected automatically.",
+        "Multi-AI work-package evidence has been recorded for the same autonomy chain."
       ],
       "unknowns": [
-        "Persistent resumable general Work DAG integrated with Augmentio fan-out is not yet verified.",
-        "End-to-end runtime MEL -> GitHub Teacher request -> Teacher reply -> MEL resume has not yet been demonstrated on the active candidate."
+        "Historical runtime proofs remain valid evidence of existence, but the current live D1 job state must be read before claiming what MEL is executing now.",
+        "Production promotion remains separately human-gated and is not implied by work-agent verification."
       ]
     },
     "pc_local_agent": {
