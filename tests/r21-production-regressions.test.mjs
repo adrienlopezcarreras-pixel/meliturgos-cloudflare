@@ -73,11 +73,12 @@ test('portable memory export endpoint exists and never needs legacy worker.js', 
 });
 
 test('Work health is safe preflight-only and does not expose the protected write bridge', async () => {
-  const response = await worker.fetch(new Request('https://mel.test/api/dev-bridge/health', { headers: auth() }), baseEnv(), {});
+  const response = await worker.fetch(new Request('https://mel.test/api/work/health', { headers: auth() }), baseEnv(), {});
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.equal(body.mode, 'preflight-only');
   assert.equal(body.protected_write_bridge, true);
   assert.notEqual(body.code, 'BRIDGE_AUTH_REQUIRED');
+  assert.equal(body.protected_write_bridge, true);
 });
