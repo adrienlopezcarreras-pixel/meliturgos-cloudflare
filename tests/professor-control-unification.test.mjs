@@ -19,6 +19,9 @@ test('Professor exposes one canonical manual cycle control', async () => {
   assert.doesNotMatch(page, /id="autonomyToggle"/);
   assert.doesNotMatch(learning, /id="melLiveTick"/);
   assert.doesNotMatch(ui, /id="melResolvePassive"/);
+  assert.doesNotMatch(learning, /melRecallMvp|Rappeler la dernière conversation/);
+  assert.doesNotMatch(learning, /melLiveNav|Visualisation live|melLiveLog/);
+  assert.doesNotMatch(learning, /setInterval\([^\n]*4000/);
 });
 
 test('IA and Development unification preserves the Work panel runtime', async () => {
