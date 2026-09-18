@@ -3,6 +3,7 @@ import { requireAuth } from './core/security.js';
 import { migrate } from './persistence/migrations.js';
 import { createConversationService } from './conversations/conversation-service.js';
 import { buildActivitySnapshot } from './activity/activity-snapshot.js';
+import { getEcosystemCapabilityWatchStatus } from './evaluation/capability-watch-runtime.js';
 
 function json(value, status = 200) {
   return new Response(JSON.stringify(value), {
@@ -47,6 +48,20 @@ async function activityResponse(request, env) {
     return json({ ok: true, ...buildActivitySnapshot({ jobs, audits, lessons, backups, deployment: deployedBuild(), limit: 100 }) });
   } catch (error) {
     return json({ ok: false, error: 'ACTIVITY_UNAVAILABLE', detail: String(error?.message || 'unknown').slice(0, 180) }, 503);
+  }
+}
+
+async function capabilityWatchResponse(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  try {
+    return json(await getEcosystemCapabilityWatchStatus(env));
+  } catch (error) {
+    return json({
+      ok: false,
+      error: 'CAPABILITY_WATCH_UNAVAILABLE',
+      detail: String(error?.code || error?.message || 'unknown').slice(0, 180),
+    }, 503);
   }
 }
 
@@ -160,6 +175,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/api/mel/activity') return activityResponse(request, env);
+    if (request.method === 'GET' && url.pathname === '/api/mel/capability-watch') return capabilityWatchResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/conversations/latest') return latestConversationResponse(request, env);
     const response = await app.fetch(request, env, ctx);
     if (request.method !== 'GET') return response;
