@@ -117,40 +117,6 @@ async function latestConversationResponse(request, env) {
   }
 }
 
-const NORMAL_PAGE_STYLE = `<style id="mel-owner-visual-fix">
-/* Use the generated Worker-served scenes directly. This removes the dependency
-   on stale WordPress copies for the six generated theme backgrounds. */
-html[data-theme="classic"]{--mel-hd-bg:url('https://verite-interdite.fr/wp-content/uploads/2026/09/mel-bg-classic-hd-scaled.jpg?v=20260915-r1')!important;--mel-hd-pos:center center!important}
-html[data-theme="crusade"]{--mel-hd-bg:url('/assets/backgrounds/mel-bg-crusade.webp?v=20260915-r1')!important;--mel-hd-pos:center center!important}
-html[data-theme="religious"]{--mel-hd-bg:url('/assets/backgrounds/mel-bg-religious.webp?v=20260915-r1')!important;--mel-hd-pos:center center!important}
-html[data-theme="granada"]{--mel-hd-bg:url('/assets/backgrounds/mel-bg-granada.webp?v=20260915-r1')!important;--mel-hd-pos:center center!important}
-html[data-theme="aviation"]{--mel-hd-bg:url('/assets/backgrounds/mel-bg-aviation.webp?v=20260915-r1')!important;--mel-hd-pos:center center!important}
-html[data-theme="paladin"]{--mel-hd-bg:url('/assets/backgrounds/mel-bg-paladin.webp?v=20260915-r1')!important;--mel-hd-pos:center center!important}
-html[data-theme="amazon"]{--mel-hd-bg:url('/assets/backgrounds/mel-bg-amazon.webp?v=20260915-r1')!important;--mel-hd-pos:center center!important}
-html body{background-image:linear-gradient(180deg,rgba(8,6,5,.10),rgba(8,5,3,.22) 48%,rgba(6,3,2,.40)),var(--mel-hd-bg)!important;background-size:cover,cover!important;background-position:center center,var(--mel-hd-pos,center center)!important;background-repeat:no-repeat,no-repeat!important;background-attachment:fixed,fixed!important}
-.avatar{overflow:hidden!important;border-radius:50%!important}
-.avatar img{display:block!important;width:100%!important;height:100%!important;min-width:100%!important;min-height:100%!important;object-fit:cover!important;object-position:center 21%!important;transform:scale(1.14)!important;transform-origin:center 26%!important}
-.mel-owner-previous-row{min-height:22px;margin:2px 2px 4px;display:flex;align-items:center}
-.mel-owner-previous-link{color:var(--accent);font-size:.82rem;font-weight:750;text-decoration:underline;cursor:pointer}
-.mel-owner-previous-link[aria-busy="true"]{opacity:.55;pointer-events:none}
-@media(max-width:700px){html body{background-attachment:scroll,scroll!important}.avatar img{object-position:center 20%!important;transform:scale(1.17)!important}}
-</style>`;
-
-const NORMAL_PAGE_CLEANUP = `<script id="mel-normal-page-cleanup">
-(()=>{
-  const addMessage=(role,text)=>{const messages=document.getElementById('messages');if(!messages)return;messages.querySelector('.empty')?.remove();const node=document.createElement('div');node.className='msg '+(role==='user'?'user':'mel');const who=document.createElement('span');who.className='who';who.textContent=role==='user'?'Adrien':'MEL';const body=document.createElement('div');body.textContent=String(text??'');node.append(who,body);messages.appendChild(node)};
-  const removeObsolete=()=>{
-    document.getElementById('melTitle')?.remove();
-    document.querySelectorAll('.mel-mode-label').forEach(node=>node.remove());
-    document.querySelectorAll('#melRecallMvp,#melRecallLatest,.mel-recall-last,.mel-continue-row').forEach(node=>node.remove());
-    document.querySelectorAll('button,a,[role="link"],span').forEach(node=>{const text=String(node.textContent||'').trim();if(text==='Rappeler la dernière conversation'||text==='Reprendre la dernière conversation'||text==='Continuer depuis la dernière phrase')node.remove()});
-  };
-  async function resumePrevious(link){const status=document.getElementById('status');link?.setAttribute('aria-busy','true');try{const r=await fetch('/api/mel/conversations/latest',{cache:'no-store',credentials:'same-origin'});const data=await r.json();if(!r.ok)throw new Error(data?.error||('HTTP_'+r.status));const latest=data?.conversation,rows=Array.isArray(data?.messages)?data.messages:[];if(!latest?.id)throw new Error('AUCUNE_CONVERSATION');localStorage.setItem('mel.conversation',String(latest.id));const messages=document.getElementById('messages');if(messages)messages.innerHTML='';for(const row of rows.slice(-60)){const role=String(row?.role||'').toLowerCase();if(role==='user'||role==='assistant'||role==='mel')addMessage(role==='user'?'user':'mel',row?.content||row?.text||'')}if(messages)messages.scrollTop=messages.scrollHeight;if(status)status.textContent=rows.length?'Échange précédent repris.':'Conversation précédente reprise.'}catch(e){if(status)status.textContent='Reprise impossible : '+(e?.message||'ERREUR')}finally{link?.setAttribute('aria-busy','false')}}
-  const installPrevious=()=>{const input=document.getElementById('input');if(!input||document.getElementById('melOwnerPreviousMessage'))return;const row=document.createElement('div');row.className='mel-owner-previous-row';const link=document.createElement('span');link.id='melOwnerPreviousMessage';link.className='mel-owner-previous-link';link.tabIndex=0;link.setAttribute('role','link');link.textContent='Message précédent';row.appendChild(link);input.insertAdjacentElement('afterend',row);const run=()=>resumePrevious(link);link.onclick=run;link.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();run()}}};
-  const apply=()=>{removeObsolete();installPrevious()};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',apply,{once:true});else apply();new MutationObserver(apply).observe(document.documentElement,{childList:true,subtree:true});
-})();
-</script>`;
-
 const FULL_MODE_STYLE = `<style id="mel-full-avatar-fix">
 .brand img,.hero img{display:block!important;object-fit:cover!important;object-position:center 20%!important;background:#07111f!important;border-radius:50%!important;overflow:hidden!important}
 .brand img{width:58px!important;height:58px!important;min-width:58px!important;min-height:58px!important;flex:0 0 58px!important}
@@ -174,21 +140,16 @@ const FULL_MODE_CLEANUP = `<script id="mel-full-page-cleanup">
 </script>`;
 
 export async function enhanceOwnerInterface(response, pathname = '/') {
-  if (!['/', '/mvp', '/professor'].includes(pathname)) return response;
+  if (pathname !== '/professor') return response;
   const type = response.headers.get('content-type') || '';
   if (!response.ok || !type.includes('text/html')) return response;
-  let html = await response.text();
 
-  if (pathname === '/professor') {
-    const fullAvatarSrc = 'src="/assets/avatars/mel-full.webp?v=20260915-r2" onerror="this.onerror=null;this.src=\'/assets/avatars/mel-classic.webp?v=20260915-r2\'"';
-    html = html.replaceAll('src="/meliturgos-avatar-fille.png"', fullAvatarSrc);
-    html = html.replaceAll('src="/assets/avatars/mel-full.webp"', fullAvatarSrc);
-    if (!html.includes('mel-full-avatar-fix')) html = html.includes('</head>') ? html.replace('</head>', FULL_MODE_STYLE + '</head>') : FULL_MODE_STYLE + html;
-    if (!html.includes('mel-full-page-cleanup')) html = html.includes('</body>') ? html.replace('</body>', FULL_MODE_CLEANUP + '</body>') : html + FULL_MODE_CLEANUP;
-  } else {
-    if (!html.includes('mel-owner-visual-fix')) html = html.includes('</head>') ? html.replace('</head>', NORMAL_PAGE_STYLE + '</head>') : NORMAL_PAGE_STYLE + html;
-    if (!html.includes('mel-normal-page-cleanup')) html = html.includes('</body>') ? html.replace('</body>', NORMAL_PAGE_CLEANUP + '</body>') : html + NORMAL_PAGE_CLEANUP;
-  }
+  let html = await response.text();
+  const fullAvatarSrc = 'src="/assets/avatars/mel-full.webp?v=20260915-r2" onerror="this.onerror=null;this.src=\'/assets/avatars/mel-classic.webp?v=20260915-r2\'"';
+  html = html.replaceAll('src="/meliturgos-avatar-fille.png"', fullAvatarSrc);
+  html = html.replaceAll('src="/assets/avatars/mel-full.webp"', fullAvatarSrc);
+  if (!html.includes('mel-full-avatar-fix')) html = html.includes('</head>') ? html.replace('</head>', FULL_MODE_STYLE + '</head>') : FULL_MODE_STYLE + html;
+  if (!html.includes('mel-full-page-cleanup')) html = html.includes('</body>') ? html.replace('</body>', FULL_MODE_CLEANUP + '</body>') : html + FULL_MODE_CLEANUP;
 
   const headers = new Headers(response.headers);
   headers.delete('content-length');
