@@ -126,7 +126,7 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
   if (!path.startsWith('/api/professor/dev') && !path.startsWith('/api/dev-bridge')) return null;
 
   const bridge = path.startsWith('/api/dev-bridge');
-  if (bridge && request.headers.get('authorization') !== `Bearer ${env.MEL_DEV_BRIDGE_TOKEN || ''}`) {
+  if (bridge && request.headers.get('authorization') !== `Bearer ${env?.MEL_DEV_BRIDGE_TOKEN || ''}`) {
     return Response.json({ error: 'BRIDGE_AUTH_REQUIRED', code: 'BRIDGE_AUTH_REQUIRED' }, { status: 401 });
   }
 
@@ -136,8 +136,8 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
 
   return (async () => {
     const body = await request.json().catch(() => ({}));
-    const repo = repository || new D1DevJobRepository(env.DB);
-    const bridges = bridgeRepository || new D1BridgeRepository(env.DB);
+    const repo = repository || new D1DevJobRepository(env?.DB);
+    const bridges = bridgeRepository || new D1BridgeRepository(env?.DB);
 
     if (path === '/api/professor/dev/status' && request.method === 'GET') {
       return Response.json({
