@@ -25,3 +25,11 @@ test('GitHub code head requests use the configured token without exposing it in 
   assert.equal(seen[0].authorization, 'Bearer test-token-value');
   assert.equal(JSON.stringify(head).includes('test-token-value'), false);
 });
+
+
+test('autonomy Teacher inspection forwards GitHub token and deployed build SHA to the code reader', async () => {
+  const source = await readFile(new URL('../src/evolution/autonomy-runtime-core.js', import.meta.url), 'utf8');
+  assert.match(source, /token:\s*String\(env\?\.MEL_GITHUB_TOKEN\s*\|\|\s*''\)/);
+  assert.match(source, /pinnedSha/);
+  assert.match(source, /MEL_DEPLOYED_GIT_SHA/);
+});

@@ -111,6 +111,15 @@ async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic)
   return repository.update(jobId, { result_json: result });
 }
 
+function deployedInspectionSha() {
+  try {
+    const value = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '').trim() : '';
+    return /^[0-9a-f]{40}$/i.test(value) ? value.toLowerCase() : '';
+  } catch {
+    return '';
+  }
+}
+
 function codeConfig(env = {}) {
   const repository = String(env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
   const canonicalBranch = String(env.MEL_GITHUB_BRANCH || 'candidate/mel-clean-autonomy').trim();
@@ -146,7 +155,14 @@ function requestedInspectionQueries(job) {
 
 async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
   const { repository, branch } = codeConfig(env);
-  const reader = createGitHubCodeReader({ repository, branch, fetchImpl });
+  const pinnedSha = deployedInspectionSha();
+  const reader = createGitHubCodeReader({
+    repository,
+    branch,
+    token: String(env?.MEL_GITHUB_TOKEN || ''),
+    pinnedSha,
+    fetchImpl,
+  });
   const headBefore = await reader.head();
   if (!/^[0-9a-f]{40}$/i.test(String(headBefore?.sha || ''))) {
     throw Object.assign(new Error('AUTONOMY_CANDIDATE_HEAD_INVALID'), { code: 'AUTONOMY_CANDIDATE_HEAD_INVALID' });
@@ -195,7 +211,13 @@ async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
   if (String(headBefore.sha).toLowerCase() !== String(headAfter.sha).toLowerCase()) {
     throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), { code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
   }
-  return { status: 'COMPLETE', candidate_sha: headAfter.sha, evidence };
+  return {
+    status: 'COMPLETE',
+    candidate_sha: headAfter.sha,
+    candidate_sha_source: headAfter.source || headBefore.source || null,
+    candidate_remote_verified: headAfter.remote_verified === true || headBefore.remote_verified === true,
+    evidence,
+  };
 }
 
 export async function prepareAutonomyTeacherRequest({ env, repository, job, fetchImpl = fetch } = {}) {

@@ -43,14 +43,21 @@ function ensureTextSize(content) {
   return String(content || '');
 }
 
-export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, token = '', fetchImpl = fetch } = {}) {
+export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, token = '', pinnedSha = '', fetchImpl = fetch } = {}) {
   const repo = text(repository, 'repository', 200);
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) throw Object.assign(new Error('INVALID_REPOSITORY'), { code: 'INVALID_REPOSITORY' });
   const ref = text(branch, 'branch', 200);
+  const validSha = value => /^[0-9a-f]{40}$/i.test(String(value || '').trim());
+  const requestedPin = String(pinnedSha || '').trim();
+  if (requestedPin && !validSha(requestedPin)) {
+    throw Object.assign(new Error('CODE_HEAD_PIN_INVALID'), { code: 'CODE_HEAD_PIN_INVALID' });
+  }
+  const pinned = requestedPin ? requestedPin.toLowerCase() : '';
+  const contentRef = pinned || ref;
   const api = path => `https://api.github.com/repos/${repo}/${path}`;
 
   async function readRaw(path) {
-    const response = await fetchImpl(rawUrl(repo, ref, path), { headers: { 'user-agent': 'meliturgos-code-reader' } });
+    const response = await fetchImpl(rawUrl(repo, contentRef, path), { headers: { 'user-agent': 'meliturgos-code-reader' } });
     if (!response.ok) throw githubError(response, 'CODE_READ_FAILED');
     const content = ensureTextSize(await response.text());
     return { path, content, sha: response.headers?.get?.('etag') || '', branch: ref, repository: repo };
@@ -60,7 +67,7 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
     const path = safePath(pathValue);
     let response;
     try {
-      response = await fetchImpl(`${api(`contents/${path}`)}?ref=${encodeURIComponent(ref)}`, { headers: headers(token) });
+      response = await fetchImpl(`${api(`contents/${path}`)}?ref=${encodeURIComponent(contentRef)}`, { headers: headers(token) });
     } catch {
       return readRaw(path);
     }
@@ -77,7 +84,7 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
 
   async function tree() {
     try {
-      const response = await fetchImpl(`${api(`git/trees/${encodeURIComponent(ref)}`)}?recursive=1`, { headers: headers(token) });
+      const response = await fetchImpl(`${api(`git/trees/${encodeURIComponent(contentRef)}`)}?recursive=1`, { headers: headers(token) });
       if (response.ok) {
         const body = await response.json();
         return (Array.isArray(body.tree) ? body.tree : [])
@@ -114,33 +121,63 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
       try { return await fetchImpl(api(path), { headers: headers(token) }); }
       catch { return null; }
     };
-    const validSha = value => /^[0-9a-f]{40}$/i.test(String(value || '').trim());
+    const checked = (sha, source) => {
+      const normalized = String(sha || '').trim().toLowerCase();
+      if (!validSha(normalized)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
+      if (pinned && normalized !== pinned) {
+        const error = new Error('CODE_HEAD_PIN_MISMATCH');
+        error.code = 'CODE_HEAD_PIN_MISMATCH';
+        error.expected_sha = pinned;
+        error.observed_sha = normalized;
+        throw error;
+      }
+      return {
+        sha: pinned || normalized,
+        branch: ref,
+        repository: repo,
+        source,
+        remote_verified: true,
+        pinned: Boolean(pinned),
+      };
+    };
 
-    // Prefer the Git ref endpoint because it handles slash-containing branch
-    // names reliably in the Worker. Keep both commits forms as bounded
-    // compatibility fallbacks for token/proxy environments and existing mocks.
+    // Prefer the canonical branch ref as a freshness check. When a build SHA is
+    // pinned, all source reads use that immutable commit. A reachable remote
+    // branch must still agree with the pin; disagreement fails closed.
     const refResponse = await request('git/ref/heads/' + ref.split('/').map(encodeURIComponent).join('/'));
     if (refResponse?.ok) {
       const body = await refResponse.json();
-      const sha = String(body?.object?.sha || '').trim();
-      if (!validSha(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
-      return { sha, branch: ref, repository: repo };
+      return checked(body?.object?.sha, 'github-ref');
     }
 
     const commitResponse = await request('commits/' + encodeURIComponent(ref));
     if (commitResponse?.ok) {
       const body = await commitResponse.json();
-      const sha = String(body?.sha || '').trim();
-      if (!validSha(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
-      return { sha, branch: ref, repository: repo };
+      return checked(body?.sha, 'github-commit');
     }
 
     const listResponse = await request('commits?sha=' + encodeURIComponent(ref) + '&per_page=1');
-    if (!listResponse?.ok) throw githubError(listResponse || commitResponse || refResponse || { status: 0 }, 'CODE_HEAD_READ_FAILED');
-    const listBody = await listResponse.json();
-    const sha = String(Array.isArray(listBody) ? listBody[0]?.sha : '').trim();
-    if (!validSha(sha)) throw Object.assign(new Error('CODE_HEAD_SHA_INVALID'), { code: 'CODE_HEAD_SHA_INVALID' });
-    return { sha, branch: ref, repository: repo };
+    if (listResponse?.ok) {
+      const listBody = await listResponse.json();
+      return checked(Array.isArray(listBody) ? listBody[0]?.sha : '', 'github-commit-list');
+    }
+
+    // The Worker preview is itself immutable evidence of the exact candidate
+    // commit deployed by CI. If GitHub REST is temporarily unavailable/rate
+    // limited, continue inspecting that exact snapshot instead of inventing a
+    // head. Freshness is rechecked whenever the remote endpoint becomes usable.
+    if (pinned) {
+      return {
+        sha: pinned,
+        branch: ref,
+        repository: repo,
+        source: 'deployed-build-sha',
+        remote_verified: false,
+        pinned: true,
+      };
+    }
+
+    throw githubError(listResponse || commitResponse || refResponse || { status: 0 }, 'CODE_HEAD_READ_FAILED');
   }
 
   async function health() {
@@ -162,7 +199,7 @@ export function createGitHubCodeReader({ repository, branch = DEFAULT_BRANCH, to
       } catch { return 'DEGRADED'; }
     }
   }
-  return { read, search, head, health, repository: repo, branch: ref };
+  return { read, search, head, health, repository: repo, branch: ref, content_ref: contentRef, pinned_sha: pinned || null };
 }
 
 export function registerGitHubCodeCapabilities(bus, options = {}) {
