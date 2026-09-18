@@ -1,8 +1,29 @@
 <!doctype html><html lang="fr"><head><meta charset="utf-8"><style>
-body{font:14px system-ui,sans-serif;width:330px;padding:14px;background:#0b1220;color:#eef2ff}h1{font-size:16px;margin:0 0 10px}.row{display:flex;gap:8px;flex-wrap:wrap}button{border:0;border-radius:9px;padding:8px 10px;cursor:pointer}pre{white-space:pre-wrap;background:#111827;padding:10px;border-radius:9px;max-height:270px;overflow:auto}.muted{color:#9ca3af;font-size:12px}a{color:#93c5fd}
+body{font:14px system-ui,sans-serif;width:360px;padding:14px;background:#0b1220;color:#eef2ff}h1{font-size:16px;margin:0 0 10px}.row{display:flex;gap:8px;flex-wrap:wrap}button{border:0;border-radius:9px;padding:8px 10px;cursor:pointer}pre{white-space:pre-wrap;background:#111827;padding:10px;border-radius:9px;max-height:240px;overflow:auto}.muted{color:#9ca3af;font-size:12px}.cfg{margin:10px 0;padding:10px;background:#111827;border-radius:10px}.cfg label{display:block;margin:8px 0 4px}.cfg input{width:100%;box-sizing:border-box;padding:7px 8px;border:1px solid #374151;border-radius:7px;background:#0f172a;color:#fff}.ok{color:#34d399}.bad{color:#fb7185}
 </style></head><body>
 <h1>MEL · Collecteur ChatGPT</h1>
-<div class="row"><button id="start">Démarrer / reprendre</button><button id="pause">Pause</button><button id="capture">Capturer cette conversation</button></div>
-<p class="muted">Laisse un onglet ChatGPT ouvert et connecté. MEL reprend sans doublons.</p>
-<pre id="status">Chargement…</pre><p><a href="#" id="options">Réglages MEL</a></p>
+
+<div class="cfg">
+  <strong>Connexion MEL</strong>
+  <label for="endpoint">Adresse MEL</label>
+  <input id="endpoint" type="url" value="https://meliturgos.adrien-lopezcarreras.workers.dev">
+  <label for="username">Utilisateur MEL</label>
+  <input id="username" type="text" autocomplete="username">
+  <label for="password">Mot de passe MEL</label>
+  <input id="password" type="password" autocomplete="current-password">
+  <label><input id="continuous" type="checkbox" checked style="width:auto"> Capturer automatiquement les nouvelles conversations</label>
+  <div class="row" style="margin-top:8px">
+    <button id="save">Enregistrer</button>
+    <button id="test">Tester MEL</button>
+  </div>
+  <div id="configStatus" class="muted"></div>
+</div>
+
+<div class="row">
+  <button id="start">Démarrer / reprendre</button>
+  <button id="pause">Pause</button>
+  <button id="capture">Capturer cette conversation</button>
+</div>
+<p class="muted">Laisse un onglet ChatGPT ouvert et connecté. Le collecteur reprend sans doublons.</p>
+<pre id="status">Chargement…</pre>
 <script src="popup.js"></script></body></html>
