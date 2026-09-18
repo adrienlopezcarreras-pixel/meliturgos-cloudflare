@@ -228,6 +228,72 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      - name: Refresh zero-cost Benchmark and LoRA readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+
+          curl --fail --show-error --silent \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            --header "content-type: application/json" \
+            --data '{}' \
+            "${BASE_URL}/api/learning/benchmark/run" \
+            --output benchmark-refresh.json
+
+          curl --fail --show-error --silent \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            --header "content-type: application/json" \
+            --data '{}' \
+            "${BASE_URL}/api/learning/lora/prepare" \
+            --output lora-prepare-refresh.json
+
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          bench = json.loads(Path('benchmark-refresh.json').read_text(encoding='utf-8'))
+          lora = json.loads(Path('lora-prepare-refresh.json').read_text(encoding='utf-8'))
+          if bench.get('ok') is not True:
+              raise SystemExit('BENCHMARK_REFRESH_FAILED: ' + str(bench.get('error') or bench.get('detail')))
+          if lora.get('ok') is not True:
+              raise SystemExit('LORA_PREPARE_REFRESH_FAILED: ' + str(lora.get('error') or lora.get('detail')))
+
+          score = bench.get('benchmark', {}).get('score')
+          cases = bench.get('benchmark', {}).get('case_count')
+          plan = lora.get('plan', {})
+          readiness = plan.get('readiness', {})
+          examples = plan.get('examples')
+
+          summary = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with open(summary, 'a', encoding='utf-8') as h:
+                  h.write('### MEL zero-cost learning refresh\n\n')
+                  h.write(f'- Benchmark score: {score}\n')
+                  h.write(f'- Benchmark cases: {cases}\n')
+                  h.write(f'- LoRA lessons/examples: {examples}/50\n')
+                  h.write(f'- LoRA plan status: {plan.get("status")}\n')
+                  h.write(f'- Ready for training: {readiness.get("ready_for_training")}\n')
+          print(json.dumps({
+              'benchmark_score': score,
+              'benchmark_cases': cases,
+              'lora_examples': examples,
+              'lora_status': plan.get('status'),
+              'ready_for_training': readiness.get('ready_for_training'),
+          }, indent=2))
+          PY
+
+      - name: Upload learning refresh evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preview-learning-refresh-${{ github.sha }}
+          path: |
+            benchmark-refresh.json
+            lora-prepare-refresh.json
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Verify production still responds
         shell: bash
         run: |
