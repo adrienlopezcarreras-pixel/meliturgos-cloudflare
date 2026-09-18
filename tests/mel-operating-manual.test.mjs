@@ -72,12 +72,14 @@ test('Professor chat exposes a compact live capability sheet', async () => {
 });
 
 test('active chat route and model context use native MEL manual and experience path', async () => {
-  const [router, native] = await Promise.all([
+  const [index, router, native] = await Promise.all([
+    readFile(new URL('../src/index.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/router.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/api/native-chat.js', import.meta.url), 'utf8'),
   ]);
-  assert.match(router, /handleNativeChat\(prepared, env\)/);
-  assert.doesNotMatch(router, /legacyHandler\.fetch\(prepared/);
+  assert.match(index, /handleNativeChat\(preparedRequest, withChatAiDefaults\(env\)\)/);
+  assert.doesNotMatch(router, /handleNativeChat\(/);
+  assert.doesNotMatch(router, /legacyHandler\.fetch\(/);
   assert.match(native, /loadOperationalExperience\(env, text\)/);
   assert.match(native, /buildMelOperatingManualPrompt/);
   assert.match(native, /VÉRITÉ ACCÈS CODE/);
