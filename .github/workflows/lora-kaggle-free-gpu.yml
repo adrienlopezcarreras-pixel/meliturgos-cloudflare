@@ -10,6 +10,7 @@ on:
       - "scripts/train-mel-lora.py"
       - "scripts/create-lora-plan.py"
       - "scripts/prepare-kaggle-lora-shard.py"
+      - "scripts/run-local-lora-impact.py"
   workflow_dispatch:
     inputs:
       source_sha:
@@ -160,6 +161,7 @@ jobs:
           mkdir -p artifacts/kaggle-payload
           cp scripts/train-mel-lora.py artifacts/kaggle-payload/train-mel-lora.py
           cp scripts/create-lora-plan.py artifacts/kaggle-payload/create-lora-plan.py
+          cp scripts/run-local-lora-impact.py artifacts/kaggle-payload/run-local-lora-impact.py
           cp /tmp/mel-training-shard.jsonl.gz artifacts/kaggle-payload/mel-training-shard.jsonl.gz
           cp /tmp/mel-training-shard.jsonl.meta.json artifacts/kaggle-payload/mel-training-shard.jsonl.meta.json
           if [[ -s /tmp/mel-parent/mel-lora-bundle.tar.gz ]]; then
@@ -358,8 +360,11 @@ jobs:
             "artifact_digest":run.get("artifact_digest"),
             "train_loss":run.get("train_loss"),
             "global_step":run.get("global_step"),
-            "next_stage":"UNCENSORED_CONTINUE",
-            "activation_blocker":"ZERO_COST_PREVIEW_BENCHMARK_NOT_REQUESTED",
+            "next_stage":run.get("local_next_stage") or "UNCENSORED_CONTINUE",
+            "local_uncensored_gate":run.get("local_uncensored_gate") is True,
+            "local_impact":run.get("local_impact") or {},
+            "local_impact_delta":run.get("local_impact_delta") or {},
+            "activation_blocker":"CANONICAL_PREVIEW_BENCHMARK_NOT_RUN" if run.get("local_uncensored_gate") else "LOCAL_IMPACT_GATE_NOT_PASSED",
             "zero_cost_only":True,
           }
           Path("artifacts/finalize-result.json").write_text(json.dumps(result,indent=2)+"\n")
@@ -429,7 +434,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$NEXT_STAGE" == "AGENTIC_READY" ]]; then
-            echo "UNCENSORED gate reached; preserve parent and stop before AGENTIC."
+            echo "Canonical UNCENSORED gate reached; preserve parent and stop before AGENTIC."
+            exit 0
+          fi
+          if [[ "$NEXT_STAGE" == "LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK" ]]; then
+            echo "Local zero-cost impact gate reached; preserve checkpoint and stop UNCENSORED chaining pending canonical benchmark."
             exit 0
           fi
           if (( NEXT_CYCLE >= MAX_CYCLES )); then
