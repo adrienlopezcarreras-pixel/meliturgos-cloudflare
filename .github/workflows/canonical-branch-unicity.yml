@@ -44,7 +44,7 @@ jobs:
             esac
 
             case "$lower" in
-              *lora*|*compat*|*adapter*)
+              *lora*|compat-activateadapter-1|compatfix-1f70|compatfix-1f70b|compatfix-main|mel-compatfix-final|tmpcompatadapter|x1f70compat)
                 # Temporary separate workspace owned by the LoRA/adapter chantier.
                 continue
                 ;;
