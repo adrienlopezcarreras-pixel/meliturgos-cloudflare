@@ -2,20 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { enhanceOwnerInterface } from '../src/ui-entry.js';
 
-test('owner root interface uses Worker-served theme backgrounds, previous-message link and cleanup', async () => {
-  const input = new Response('<!doctype html><html><head></head><body><div id="melTitle">MEL IA + Développement</div><div class="composer"><button class="mel-recall-last">Rappeler la dernière conversation</button><textarea id="input" placeholder="Écris ici"></textarea><div id="messages"></div><div id="status"></div></div></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } });
-  const output = await enhanceOwnerInterface(input, '/'); const html = await output.text();
-  assert.match(html, /mel-owner-visual-fix/);
-  assert.match(html, /mel-bg-classic-hd-scaled\.jpg/);
-  assert.match(html, /\/assets\/backgrounds\/mel-bg-granada\.webp/);
-  assert.match(html, /\/assets\/backgrounds\/mel-bg-paladin\.webp/);
-  assert.match(html, /mel-normal-page-cleanup/);
-  assert.match(html, /melOwnerPreviousMessage/);
-  assert.match(html, /Message précédent/);
-  assert.match(html, /\/api\/mel\/conversations\/latest/);
-  assert.match(html, /document\.getElementById\('melTitle'\)\?\.remove\(\)/);
-  assert.match(html, /mel-recall-last/);
-  assert.doesNotMatch(html, /html body,html body \*\{color:#000!important/);
+test('owner root interface remains the canonical v3 surface without legacy reinjection', async () => {
+  const source = '<!doctype html><html><head></head><body><main data-visual-owner="mel-normal-v3"><textarea id="promptInput"></textarea><span id="previousMessage">Message précédent</span></main></body></html>';
+  const input = new Response(source, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+  const output = await enhanceOwnerInterface(input, '/');
+  const html = await output.text();
+  assert.equal(html, source);
+  assert.doesNotMatch(html, /mel-owner-visual-fix|mel-normal-page-cleanup|melOwnerPreviousMessage/);
+  assert.match(html, /data-visual-owner="mel-normal-v3"/);
+  assert.match(html, /id="previousMessage"/);
 });
 
 test('full mode receives the Worker-served futuristic MEL portrait and explanatory live status patch', async () => {
