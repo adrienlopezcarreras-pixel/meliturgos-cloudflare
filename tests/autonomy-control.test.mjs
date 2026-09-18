@@ -44,3 +44,15 @@ test('MAX autonomy is independent from emergency pause and survives pause/resume
   assert.equal(normal.status, 'RUNNING');
   resetAutonomyControlForTests(autonomyControlState);
 });
+
+
+test('autonomy control writes fail closed without D1 or explicit memory state', async () => {
+  await assert.rejects(
+    () => setAutonomyControl(null, { paused: true, source: 'test' }),
+    (error) => error?.code === 'AUTONOMY_CONTROL_DB_REQUIRED' && error?.status === 503,
+  );
+  await assert.rejects(
+    () => setOwnerMaxAutonomy(null, { enabled: true, source: 'test' }),
+    (error) => error?.code === 'AUTONOMY_CONTROL_DB_REQUIRED' && error?.status === 503,
+  );
+});
