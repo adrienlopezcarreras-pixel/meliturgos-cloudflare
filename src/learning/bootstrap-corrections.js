@@ -1,6 +1,7 @@
 import { BOOTSTRAP_CORRECTIONS as LEGACY_BOOTSTRAP_CORRECTIONS } from './bootstrap-corrections-legacy.js';
 import { DEVELOPMENT_EXPERIENCE_PACK } from './development-experience-pack.js';
 import { DEVELOPMENT_EXPERIENCE_RECONCILIATION_20260917 } from './development-experience-reconciliation-20260917.js';
+import { LORA_FREE_LESSONS_20260918 } from './lora-free-lessons-20260918.js';
 
 /**
  * Canonical bootstrap corpus consumed by LearningEngine.
@@ -16,4 +17,5 @@ export const BOOTSTRAP_CORRECTIONS = Object.freeze([
   ...LEGACY_BOOTSTRAP_CORRECTIONS,
   ...DEVELOPMENT_EXPERIENCE_PACK,
   ...DEVELOPMENT_EXPERIENCE_RECONCILIATION_20260917,
+  ...LORA_FREE_LESSONS_20260918,
 ]);
