@@ -272,6 +272,39 @@ jobs:
 
           echo "Canonical UI surface smoke passed."
 
+      - name: Deep-audit runtime capabilities on isolated preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          curl --fail-with-body --show-error --silent --max-time 90 \
+            --header "Authorization: Bearer \${MEL_PREVIEW_PASSWORD}" \
+            --header "content-type: application/json" \
+            --data '{"id":"capability.audit","input":{"deep":true}}' \
+            "$BASE_URL/api/gen2/capabilities/execute" \
+            > preview-capability-audit.json
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const payload=JSON.parse(fs.readFileSync('preview-capability-audit.json','utf8'));
+          const report=payload?.result;
+          if(!payload?.ok || !report?.ok) throw new Error('CAPABILITY_AUDIT_FAILED');
+          if(Number(report.total||0)<25) throw new Error('CAPABILITY_REGISTRY_TOO_SMALL:'+report.total);
+          const rows=Array.isArray(report.capabilities)?report.capabilities:[];
+          if(rows.length!==Number(report.total)) throw new Error('CAPABILITY_INVENTORY_MISMATCH');
+          const attempted=rows.filter(x=>x.tested_now===true);
+          const failed=attempted.filter(x=>x.execution?.ok!==true);
+          if(failed.length) throw new Error('SAFE_CAPABILITY_FAILURE:'+failed.map(x=>x.id).join(','));
+          const unsafeAuto=rows.filter(x=>x.risk!=='LOW' && x.tested_now===true);
+          if(unsafeAuto.length) throw new Error('UNSAFE_CAPABILITY_AUTO_EXECUTED:'+unsafeAuto.map(x=>x.id).join(','));
+          console.log(JSON.stringify({
+            total:report.total,
+            counts:report.counts,
+            tested_now:attempted.length,
+            gated:rows.filter(x=>!x.tested_now).length
+          },null,2));
+          NODE
+
       - name: Upload preview HTTP diagnostic
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
