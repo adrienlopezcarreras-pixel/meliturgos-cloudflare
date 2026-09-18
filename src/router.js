@@ -7,6 +7,7 @@ import handleAugmentio from "./api/augmentio-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
+import { NORMAL_RUNTIME_SOURCE } from "./pages/mvp-runtime.js";
 import { devRuntime } from "./dev/runtime-api.js";
 export { inferNativeCodeCapability as inferCodeCapability } from "./api/native-chat.js";
 
@@ -154,6 +155,7 @@ export default {
 
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/sw.js") return new Response(SERVICE_WORKER_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" } });
+    if (request.method === "GET" && url.pathname === "/normal-runtime.js") return new Response(NORMAL_RUNTIME_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-store, no-cache, must-revalidate" } });
     const devResponse = devRuntime(request, env); if (devResponse) return await devResponse;
 
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/mvp")) {
