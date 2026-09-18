@@ -2,7 +2,6 @@
 // deployment/auth/UI wrappers delegate here without owning a second runtime.
 import router from "./router.js";
 import { requireAuth } from "./core/security.js";
-import { setDefaultCapabilityEnvironment } from "./capabilities/default-bus.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
@@ -332,8 +331,6 @@ export default {
       const url = new URL(request.url);
       const avatarResponse = serveMelAvatar(url.pathname);
       if (avatarResponse) return avatarResponse;
-
-      setDefaultCapabilityEnvironment(env);
 
       const voiceResponse = await handleVoiceTranscription(request, env);
       if (voiceResponse) return voiceResponse;
