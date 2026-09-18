@@ -17,36 +17,20 @@ import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-q
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const DEFAULT_BRANCH = 'candidate/mel-clean-autonomy';
 const DEFAULT_TEACHER_BRANCH = 'candidate/mel-clean-autonomy';
-let inheritedRuntimeEnv = Object.freeze({});
-
 /**
- * Compatibility bridge for worker.js, which historically constructed the bus
- * without passing env. Only the bindings/configuration required by capabilities
- * are retained; authentication passwords are deliberately excluded.
+ * Compatibility diagnostic only. Runtime capabilities must receive env
+ * explicitly; no request bindings are retained globally between requests.
  */
 export function setDefaultCapabilityEnvironment(env = {}) {
-  inheritedRuntimeEnv = Object.freeze({
-    AI: env.AI,
-    DB: env.DB,
-    MEDIA_BUCKET: env.MEDIA_BUCKET,
-    MELITURGOS_USER: env.MELITURGOS_USER,
-    MEL_GITHUB_REPOSITORY: env.MEL_GITHUB_REPOSITORY,
-    MEL_GITHUB_BRANCH: env.MEL_GITHUB_BRANCH,
-    MEL_TEACHER_BRANCH: env.MEL_TEACHER_BRANCH,
-    MEL_GITHUB_TOKEN: env.MEL_GITHUB_TOKEN,
-    MEL_GITHUB_FETCH: env.MEL_GITHUB_FETCH,
-    MEL_BROWSER_COMPANION: env.MEL_BROWSER_COMPANION,
-    MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS: env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS,
-  });
   return {
-    ai: Boolean(inheritedRuntimeEnv.AI),
-    db: Boolean(inheritedRuntimeEnv.DB),
-    media_bucket: Boolean(inheritedRuntimeEnv.MEDIA_BUCKET),
-    owner: Boolean(inheritedRuntimeEnv.MELITURGOS_USER),
-    github_repository: inheritedRuntimeEnv.MEL_GITHUB_REPOSITORY || DEFAULT_REPOSITORY,
-    github_branch: inheritedRuntimeEnv.MEL_GITHUB_BRANCH || DEFAULT_BRANCH,
-    teacher_branch: inheritedRuntimeEnv.MEL_TEACHER_BRANCH || DEFAULT_TEACHER_BRANCH,
-    browser_companion: Boolean(inheritedRuntimeEnv.MEL_BROWSER_COMPANION?.fetch),
+    ai: Boolean(env.AI),
+    db: Boolean(env.DB),
+    media_bucket: Boolean(env.MEDIA_BUCKET),
+    owner: Boolean(env.MELITURGOS_USER),
+    github_repository: env.MEL_GITHUB_REPOSITORY || DEFAULT_REPOSITORY,
+    github_branch: env.MEL_GITHUB_BRANCH || DEFAULT_BRANCH,
+    teacher_branch: env.MEL_TEACHER_BRANCH || DEFAULT_TEACHER_BRANCH,
+    browser_companion: Boolean(env.MEL_BROWSER_COMPANION?.fetch),
   };
 }
 
@@ -98,7 +82,7 @@ function zeroCostHealth(runtimeEnv, minimum = 1) {
 
 /** Safe capability bus used by MEL's Gen2 runtime. Only real executable handlers are registered. */
 export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl } = {}) {
-  const runtimeEnv = env === undefined ? inheritedRuntimeEnv : env;
+  const runtimeEnv = env || {};
   const bus = new CapabilityBus({ audit });
 
   bus.discover({
