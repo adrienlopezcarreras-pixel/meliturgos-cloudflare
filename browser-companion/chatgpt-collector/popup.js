@@ -9,6 +9,7 @@ function render(s){$('status').textContent=[
 `Doublons ignorés : ${s.duplicates||0}`,
 `Échecs : ${Object.keys(s.failed||{}).length}`,
 `Inaccessibles : ${Object.keys(s.unavailable||{}).length}`,
+`Mode : PC lent / file progressive`,
 s.currentUrl?`En cours : ${s.currentUrl}`:'',
 s.lastError?`Dernière erreur : ${s.lastError}`:''
 ].filter(Boolean).join('\n')}
@@ -24,6 +25,8 @@ async function loadConfig(){
   $('username').value=c.username||'';
   $('password').value=c.password||'';
   $('continuous').checked=c.continuous!==false;
+  $('ecoMode').checked=c.ecoMode!==false;
+  $('delayMs').value=String(c.delayMs||12000);
 }
 
 async function saveConfig(){
@@ -33,7 +36,9 @@ async function saveConfig(){
     endpoint,
     username:$('username').value.trim(),
     password:$('password').value,
-    continuous:$('continuous').checked
+    continuous:$('continuous').checked,
+    ecoMode:$('ecoMode').checked,
+    delayMs:Number($('delayMs').value)||12000
   }});
   $('configStatus').className='ok';
   $('configStatus').textContent='Réglages enregistrés.';
