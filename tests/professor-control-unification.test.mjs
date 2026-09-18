@@ -47,5 +47,5 @@ test('Professor visible controls are wired to real route implementations', async
   }
   for (const route of ['/api/gen2/autonomy/state','/api/gen2/autonomy/tick','/api/gen2/autonomy/max','/api/gen2/autonomy/pause','/api/gen2/autonomy/resume']) assert.ok(autonomy.includes(route), route);
   for (const route of ['/api/professor/dev/status','/api/professor/dev/jobs']) assert.ok(dev.includes(route), route);
-  for (const route of ['/api/dev-bridge/health','/api/dev-bridge/jobs','/api/memory/status','/api/gen2/import/chatgpt-archive']) assert.ok(index.includes(route), route);
+  for (const route of ['/api/work/health','/api/work/jobs','/api/memory/status','/api/gen2/import/chatgpt-archive']) assert.ok(index.includes(route), route);
 });
