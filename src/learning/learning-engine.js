@@ -53,14 +53,21 @@ export class LearningEngine {
     return row;
   }
 
-  async corrections({ limit = 500, includeBootstrap = true } = {}) {
-    const requested = Math.min(500, Math.max(1, Number(limit) || 500));
-    const rows = await this.memory.recent({ limit: requested, kind: 'TEACHER_CORRECTION' });
+  async corrections({ limit = null, includeBootstrap = true } = {}) {
+    const numericLimit = Number(limit);
+    const requested = Number.isFinite(numericLimit) && numericLimit > 0
+      ? Math.max(1, Math.trunc(numericLimit))
+      : null;
+    const useFullCorpus = requested === null || requested > 500;
+    const rows = useFullCorpus && typeof this.memory.all === 'function'
+      ? await this.memory.all({ kind: 'TEACHER_CORRECTION' })
+      : await this.memory.recent({ limit: requested || 500, kind: 'TEACHER_CORRECTION' });
     const persisted = rows.map(evidenceObject).filter(row => row?.input && row?.before && row?.after && row?.rationale);
-    return dedupeCorrections(includeBootstrap ? [...persisted, ...BOOTSTRAP_CORRECTIONS] : persisted).slice(0, requested);
+    const merged = dedupeCorrections(includeBootstrap ? [...persisted, ...BOOTSTRAP_CORRECTIONS] : persisted);
+    return requested === null ? merged : merged.slice(0, requested);
   }
 
-  async trainingBundle({ minQuality = 0.65, limit = 500 } = {}) {
+  async trainingBundle({ minQuality = 0.65, limit = null } = {}) {
     const corrections = await this.corrections({ limit });
     const corpus = buildTrainingCorpus(corrections, { validatedOnly: true, minQuality });
     const dataset = { sft: corpus.sft, preference: corpus.preference };
@@ -264,7 +271,7 @@ export class LearningEngine {
 
   async report() {
     const [corrections, benchmarks, activeAdapters, trials] = await Promise.all([
-      this.corrections({ limit: 500 }),
+      this.corrections({ limit: null }),
       this.benchmarks({ limit: 200 }),
       this.memory.recent({ limit: 20, kind: 'LORA_ADAPTER_ACTIVE' }),
       this.inferenceTrials({ limit: 500 }),
@@ -313,7 +320,7 @@ export class LearningEngine {
   }
 
   async prepareLora({ base_model, minQuality = 0.65, ...options } = {}) {
-    const bundle = await this.trainingBundle({ minQuality, limit: 500 });
+    const bundle = await this.trainingBundle({ minQuality, limit: null });
     const plan = createLoraTrainingPlan({ ...options, base_model, dataset_digest: bundle.digest, examples: bundle.accepted });
     const ready = plan.readiness.enough_examples === true && plan.readiness.cloudflare_inference_compatible === true;
     const blockedOutcome = plan.readiness.enough_examples ? 'BLOCKED_EXTERNAL' : 'BLOCKED_DATA';
