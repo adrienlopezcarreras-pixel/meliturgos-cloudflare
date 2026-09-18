@@ -1,4 +1,5 @@
 import { requireValue } from '../core/contracts.js';
+import { authorizeDevBridge } from '../core/dev-bridge-auth.js';
 import { DevAgent } from './dev-agent.js';
 import { D1DevJobRepository } from './d1-dev-job-repository.js';
 import { D1BridgeRepository } from './d1-bridge-repository.js';
@@ -126,8 +127,9 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
   if (!path.startsWith('/api/professor/dev') && !path.startsWith('/api/dev-bridge')) return null;
 
   const bridge = path.startsWith('/api/dev-bridge');
-  if (bridge && request.headers.get('authorization') !== `Bearer ${env?.MEL_DEV_BRIDGE_TOKEN || ''}`) {
-    return Response.json({ error: 'BRIDGE_AUTH_REQUIRED', code: 'BRIDGE_AUTH_REQUIRED' }, { status: 401 });
+  if (bridge) {
+    const denied = authorizeDevBridge(request, env || {});
+    if (denied) return denied;
   }
 
   if (!env?.DB && !repository && !bridgeRepository) {
