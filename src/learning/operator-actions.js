@@ -158,7 +158,6 @@ export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
 
   const createEngine = deps.createLearningEngine || createLearningEngine;
   const benchmarkRunner = deps.runLearningBenchmark || runLearningBenchmark;
-  const impactRunner = deps.runLoraImpactBenchmark || runLoraImpactBenchmark;
   const extractText = deps.extractModelText || extractModelText;
   // The operator endpoint never accepts a request-selected model. Model choice
   // stays on the trusted server side and must be explicitly zero-cost in the
@@ -214,6 +213,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
   const checkedApproval = assertAdapterApprovalForArtifact({ plan, artifact: checkedArtifact, approval: options.approval });
   const createEngine = deps.createLearningEngine || createLearningEngine;
   const benchmarkRunner = deps.runLearningBenchmark || runLearningBenchmark;
+  const impactRunner = deps.runLoraImpactBenchmark || runLoraImpactBenchmark;
   const extractText = deps.extractModelText || extractModelText;
   const sourceSha = benchmarkSourceSha(env, options);
   const suiteDigest = benchmarkSuiteFingerprint(CANONICAL_LEARNING_BENCHMARK_SUITE);
