@@ -140,8 +140,27 @@ export function assertAdapterArtifactForPlan({plan,artifact}={}){
   return checked;
 }
 
-export function assertAdapterActivationEvidence({plan,artifact,baseline,candidate}={}){
+export function assertAdapterApprovalForArtifact({plan,artifact,approval}={}){
   const planManifestDigest=String(plan?.training_manifest_digest||'').trim().toLowerCase();
+  const checked=assertAdapterArtifactForPlan({plan,artifact});
+  if(!approval||approval.approved!==true)throw Object.assign(new Error('LORA_ARTIFACT_APPROVAL_REQUIRED'),{code:'LORA_ARTIFACT_APPROVAL_REQUIRED'});
+  const approvalArtifactDigest=benchmarkField(approval,'artifact_digest').toLowerCase();
+  const approvalManifestDigest=benchmarkField(approval,'training_manifest_digest').toLowerCase();
+  const approvalDatasetDigest=benchmarkField(approval,'dataset_digest');
+  const approvalFinetuneId=benchmarkField(approval,'finetune_id');
+  const approvalArtifactId=benchmarkField(approval,'artifact_id');
+  if(!approvalArtifactDigest||!approvalManifestDigest||!approvalDatasetDigest||!approvalFinetuneId||!approvalArtifactId)throw Object.assign(new Error('LORA_ARTIFACT_APPROVAL_PROVENANCE_REQUIRED'),{code:'LORA_ARTIFACT_APPROVAL_PROVENANCE_REQUIRED'});
+  if(approvalArtifactDigest!==checked.digest)throw Object.assign(new Error('LORA_ARTIFACT_APPROVAL_ARTIFACT_MISMATCH'),{code:'LORA_ARTIFACT_APPROVAL_ARTIFACT_MISMATCH'});
+  if(approvalManifestDigest!==planManifestDigest)throw Object.assign(new Error('LORA_ARTIFACT_APPROVAL_MANIFEST_MISMATCH'),{code:'LORA_ARTIFACT_APPROVAL_MANIFEST_MISMATCH'});
+  if(approvalDatasetDigest!==plan.dataset_digest)throw Object.assign(new Error('LORA_ARTIFACT_APPROVAL_DATASET_MISMATCH'),{code:'LORA_ARTIFACT_APPROVAL_DATASET_MISMATCH'});
+  if(approvalFinetuneId!==checked.finetune_id)throw Object.assign(new Error('LORA_ARTIFACT_APPROVAL_FINETUNE_MISMATCH'),{code:'LORA_ARTIFACT_APPROVAL_FINETUNE_MISMATCH'});
+  if(approvalArtifactId!==checked.id)throw Object.assign(new Error('LORA_ARTIFACT_APPROVAL_ID_MISMATCH'),{code:'LORA_ARTIFACT_APPROVAL_ID_MISMATCH'});
+  return {approved:true,approval_id:bounded(approval.approval_id,240)||null,artifact_id:checked.id,artifact_digest:checked.digest,finetune_id:checked.finetune_id,dataset_digest:plan.dataset_digest,training_manifest_digest:planManifestDigest,approved_at:bounded(approval.approved_at,120)||null};
+}
+
+export function assertAdapterActivationEvidence({plan,artifact,approval,baseline,candidate}={}){
+  const planManifestDigest=String(plan?.training_manifest_digest||'').trim().toLowerCase();
+  const checkedApproval=assertAdapterApprovalForArtifact({plan,artifact,approval});
   const checked=assertAdapterArtifactForPlan({plan,artifact});
   const baseOverall=benchmarkOverall(baseline),candidateOverall=benchmarkOverall(candidate); if(!Number.isFinite(baseOverall)||!Number.isFinite(candidateOverall))throw Object.assign(new Error('LORA_BENCHMARK_REQUIRED'),{code:'LORA_BENCHMARK_REQUIRED'});
   if(baseOverall<0||candidateOverall<=0||baseline?.passed===false||candidate?.passed===false)throw Object.assign(new Error('LORA_BENCHMARK_FAILED'),{code:'LORA_BENCHMARK_FAILED'});
@@ -154,7 +173,7 @@ export function assertAdapterActivationEvidence({plan,artifact,baseline,candidat
   if(candidateManifestDigest!==planManifestDigest)throw Object.assign(new Error('LORA_BENCHMARK_MANIFEST_MISMATCH'),{code:'LORA_BENCHMARK_MANIFEST_MISMATCH'});
   if(candidateDatasetDigest!==plan.dataset_digest)throw Object.assign(new Error('LORA_BENCHMARK_DATASET_MISMATCH'),{code:'LORA_BENCHMARK_DATASET_MISMATCH'});
   const gain=candidateOverall-baseOverall,minimumGain=Number.isFinite(Number(plan.min_measured_gain))?Number(plan.min_measured_gain):.02; if(gain<minimumGain)throw Object.assign(new Error('LORA_MEASURED_GAIN_INSUFFICIENT'),{code:'LORA_MEASURED_GAIN_INSUFFICIENT',gain,minimumGain});
-  return {artifact:checked,measured_gain:gain,minimum_gain:minimumGain,suite_digest:baseSuite,dataset_digest:plan.dataset_digest,training_manifest_digest:planManifestDigest,benchmark_artifact_digest:candidateArtifactDigest};
+  return {artifact:checked,approval:checkedApproval,measured_gain:gain,minimum_gain:minimumGain,suite_digest:baseSuite,dataset_digest:plan.dataset_digest,training_manifest_digest:planManifestDigest,benchmark_artifact_digest:candidateArtifactDigest};
 }
 
-export const loraPolicy=Object.freeze({minimum_validated_examples:MIN_LORA_VALIDATED_EXAMPLES,base_weights_frozen:true,preferred_quantization:'none',preferred_rank:8,maximum_cloudflare_rank:32,maximum_cloudflare_adapter_bytes:MAX_CLOUDFLARE_ADAPTER_BYTES,preferred_target_modules:['q_proj','v_proj'],activation_requires_benchmark:true,activation_requires_measured_gain:true,activation_requires_no_major_regression:true,activation_requires_exact_base_model_match:true,activation_requires_runtime_model_match:true,activation_requires_exact_dataset_match:true,activation_requires_exact_training_manifest_match:true,activation_requires_exact_benchmark_artifact_match:true,activation_requires_cloudflare_finetune_id:true,artifact_sha256_required:true});
+export const loraPolicy=Object.freeze({minimum_validated_examples:MIN_LORA_VALIDATED_EXAMPLES,base_weights_frozen:true,preferred_quantization:'none',preferred_rank:8,maximum_cloudflare_rank:32,maximum_cloudflare_adapter_bytes:MAX_CLOUDFLARE_ADAPTER_BYTES,preferred_target_modules:['q_proj','v_proj'],activation_requires_benchmark:true,activation_requires_measured_gain:true,activation_requires_no_major_regression:true,activation_requires_exact_base_model_match:true,activation_requires_runtime_model_match:true,activation_requires_exact_dataset_match:true,activation_requires_exact_training_manifest_match:true,activation_requires_exact_benchmark_artifact_match:true,activation_requires_explicit_artifact_approval:true,activation_requires_cloudflare_finetune_id:true,artifact_sha256_required:true});
