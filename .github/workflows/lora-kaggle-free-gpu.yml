@@ -366,7 +366,7 @@ jobs:
               COMPLETE=1
               break
             fi
-            if printf '%s' "$LOWER" | grep -Eq 'error|failed|failure|cancelled|canceled'; then
+            if printf '%s' "$LOWER" | grep -Eq 'error|failed|failure|cancelled|canceled|cancel_acknowledged|cancel acknowledged'; then
               mkdir -p artifacts/kaggle-error
               kaggle kernels output "$KERNEL_REF" -p artifacts/kaggle-error --force || true
               find artifacts/kaggle-error -type f -maxdepth 4 -print || true
