@@ -12,7 +12,7 @@ const PROFESSOR_SAFE_DEV_BRIDGE_PATHS = new Set([
   '/api/dev-bridge/jobs',
 ]);
 
-const FREE_LORA_HF_REPO = 'Meliturgos/mel-lora-smoke-500';
+const FREE_LORA_HF_REPO = 'Meliturgos/mel-lora-uncensored';
 const FREE_LORA_GITHUB_REPO = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const FREE_LORA_WORKFLOW = 'lora-promote-from-huggingface.yml';
 const FREE_LORA_REQUIRED_FILES = Object.freeze([
@@ -78,6 +78,26 @@ async function freeLoraStatusResponse(request, env) {
   }));
   const bundleReady = fileChecks.every((row) => row.available === true);
 
+  async function fetchOptionalJson(name) {
+    try {
+      const response = await fetch(hfBase + encodeURIComponent(name) + '?download=true', {
+        redirect: 'follow',
+        headers: { 'user-agent': 'meliturgos-free-lora-status/1.0' },
+      });
+      if (!response.ok) return null;
+      const value = await response.json();
+      return value && typeof value === 'object' ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const [trainingEvidence, datasetMetadata, adapterRegistry] = await Promise.all([
+    fetchOptionalJson('training-evidence.json'),
+    fetchOptionalJson('dataset-metadata.json'),
+    fetchOptionalJson('hf-compatible-registry.json'),
+  ]);
+
   let workflow = null;
   try {
     const response = await fetch(
@@ -135,12 +155,31 @@ async function freeLoraStatusResponse(request, env) {
     ok: true,
     mode: 'FREE_COLAB_HF_GITHUB_CLOUDFLARE',
     cost_policy: 'NO_PAID_GPU_TRIGGER',
-    colab_url: 'https://colab.research.google.com/github/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/candidate/mel-clean-autonomy/notebooks/MEL-QLORA-SMOKE-COLAB.ipynb',
+    colab_url: 'https://colab.research.google.com/github/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/candidate/mel-clean-autonomy/notebooks/MEL-QLORA-UNCENSORED-MAX-COLAB.ipynb',
     hf_repo: FREE_LORA_HF_REPO,
     hf_url: `https://huggingface.co/${FREE_LORA_HF_REPO}`,
     bundle: {
       ready: bundleReady,
       files: fileChecks,
+      training: trainingEvidence ? {
+        stage: trainingEvidence.stage || null,
+        examples: trainingEvidence?.dataset?.examples ?? null,
+        source_examples: trainingEvidence?.dataset?.source_examples ?? null,
+        train_loss: trainingEvidence?.training_metrics?.train_loss ?? null,
+        global_step: trainingEvidence?.training_metrics?.global_step ?? null,
+        artifact_digest: trainingEvidence?.artifacts?.adapter_model?.digest || null,
+      } : null,
+      dataset: datasetMetadata ? {
+        examples: datasetMetadata.examples ?? null,
+        quarantined_examples: datasetMetadata.quarantined_examples ?? null,
+        output_sha256: datasetMetadata.output_sha256 || null,
+        source_sha256: datasetMetadata.source_sha256 || null,
+      } : null,
+      adapter_registry: adapterRegistry ? {
+        compatible_count: adapterRegistry.compatible_count ?? 0,
+        rejected_count: adapterRegistry.rejected_count ?? 0,
+        base_model: adapterRegistry.base_model || null,
+      } : null,
     },
     workflow: workflow || { status: 'NEVER_RUN', conclusion: null },
     workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_WORKFLOW}`,
