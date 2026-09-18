@@ -17,5 +17,6 @@ test('scheduled Worker entry delegates each heartbeat to the bounded autonomy ru
 
   assert.match(source, /async\s+scheduled\s*\(/);
   assert.match(source, /runAutonomyRuntimeTick\s*\(\s*env\s*\)/);
+  assert.match(source, /runLoraTrainingHeartbeat\s*\(\s*env\s*\)/);
   assert.match(source, /ctx\?\.waitUntil/);
 });
