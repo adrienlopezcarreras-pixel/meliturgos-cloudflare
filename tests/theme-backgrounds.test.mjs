@@ -52,10 +52,10 @@ test('final normal response uses the clean eight-background pack without a secon
   }
 
   assert.match(html, /data-visual-owner="mel-normal-v3"/);
-  assert.match(html, /id="mel-normal-v3-runtime"/);
+  assert.match(html, /src="\/normal-runtime\.js\?v=5"/);
   assert.doesNotMatch(html, /id="mel-normal-canonical-runtime"/);
   assert.doesNotMatch(html, /id="mel-normal-canonical-visuals"/);
   assert.doesNotMatch(html, /mel-theme-avatar-runtime/);
   assert.doesNotMatch(html, /mel-theme-decor-style/);
-  assert.ok(html.includes('"futuristic":"/assets/avatars/mel-full.webp"'), 'futuristic must reuse the exact full-mode MEL avatar');
+  assert.ok(html.includes('data-mel-theme-choice="futuristic" data-mel-avatar="/assets/avatars/mel-full.webp"'), 'futuristic must reuse the exact full-mode MEL avatar');
 });
