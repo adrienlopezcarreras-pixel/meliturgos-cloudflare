@@ -110,11 +110,24 @@ async function freeLoraStatusResponse(request, env) {
   try {
     const engine = createLearningEngine(env);
     const progress = await getLiveLearningProgress({ engine, db: env.DB });
+    const runs = typeof engine.benchmarks === 'function' ? await engine.benchmarks({ limit: 200 }) : [];
+    const newest = (kind) => (Array.isArray(runs) ? runs.slice().reverse().find((row) => row?.kind === kind) : null);
+    const impactBase = newest('lora-impact-baseline');
+    const impactCandidate = newest('lora-impact-candidate');
     learning = {
       lora_status: progress?.lora_status || null,
       benchmark_status: progress?.benchmark_status || null,
       corrections_available_for_training: progress?.evidence?.corrections_available_for_training ?? null,
       neural_weights_changed: progress?.evidence?.neural_weights_changed === true,
+      impact: {
+        baseline: impactBase?.metadata?.impact_metrics || null,
+        candidate: impactCandidate?.metadata?.impact_metrics || null,
+        delta: impactCandidate?.metadata?.impact_delta || null,
+        uncensored_gate: impactCandidate?.metadata?.uncensored_gate === true,
+        next_stage: impactCandidate?.metadata?.next_stage || 'UNCENSORED_WAITING',
+        adapter_id: impactCandidate?.adapter_id || null,
+        measured_at: impactCandidate?.created_at || null,
+      },
     };
   } catch {}
 
