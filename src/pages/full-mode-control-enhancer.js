@@ -49,7 +49,7 @@ export const FULL_MODE_CONTROL_PATCH = `<style id="mel-full-control-style">
     const proposalItems=discoveryItems.filter(item=>item?.evidence_status==='SOURCED_OBSERVATION'&&['UNBLOCK_EXISTING','REUSE_EXISTING','PROPOSE_EXTENSION'].includes(item?.action)).sort((a,b)=>Number(b?.last_seen_at||0)-Number(a?.last_seen_at||0));
     html+='<div class="mel-full-section-title">Propositions de MEL</div>';
     if(proposalItems.length){
-      for(const item of proposalItems.slice(0,8)){
+      for(const item of proposalItems){
         const decision=String(item?.owner_decision?.status||'').toUpperCase(),sources=Array.isArray(item?.sources)?item.sources.slice(0,4):[],target=item?.best_match?.id||null;
         html+='<div class="mel-proposal-card" data-decision="'+esc(decision||'PENDING')+'"><b>'+esc(item.capability_hint||item.fingerprint||'Amélioration')+'</b><small>'+esc(proposalActionLabel(item.action))+' · '+esc(proposalDecisionLabel(decision))+'</small>'+(target?'<small>Existant : '+esc(target)+'</small>':'')+'<div class="mel-proposal-detail"><b>Bénéfice attendu :</b> '+esc(proposalBenefit(item))+'</div><div class="mel-proposal-detail"><b>Coût :</b> 0 € ajouté visé ; tout coût nouveau reste bloqué sans autorisation.</div><div class="mel-proposal-detail"><b>Risques :</b> dépendance fournisseur, permissions ou régression ; aucun remplacement n’est accepté sans preuve et rollback.</div><div class="mel-proposal-detail"><b>Test prévu :</b> '+esc(proposalTestText(item))+'</div>';
         if(sources.length){html+='<div class="mel-proposal-sources">'+sources.map(source=>'<a href="'+esc(source?.url||'#')+'" target="_blank" rel="noopener noreferrer">'+esc(source?.title||'Source')+'</a>').join('')+'</div>'}
