@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import base64
-import gzip
 import hashlib
 import json
 import shutil
@@ -14,18 +12,14 @@ from pathlib import Path
 TARGET_SHA = "__MEL_GIT_SHA__"
 CYCLE = int("__MEL_CYCLE__")
 SHARD_SIZE = int("__MEL_SHARD_SIZE__")
-MEL_TRAIN_SCRIPT_B64 = """__MEL_TRAIN_SCRIPT_B64__"""
-MEL_PLAN_SCRIPT_B64 = """__MEL_PLAN_SCRIPT_B64__"""
-MEL_SHARD_GZ_B64 = """__MEL_SHARD_GZ_B64__"""
-MEL_SHARD_META_B64 = """__MEL_SHARD_META_B64__"""
-MEL_PARENT_BUNDLE_B64 = """__MEL_PARENT_BUNDLE_B64__"""
 
 WORK = Path("/kaggle/working")
-SRC = WORK / "mel-src"
-SCRIPTS = SRC / "scripts"
+INPUT = Path("/kaggle/input")
+PAYLOAD = INPUT / "mel-lora-cycle-payload"
 DATA = WORK / "data"
 SHARD = DATA / f"mel-uncensored-cycle-{CYCLE:03d}.jsonl"
 SHARD_META = DATA / f"mel-uncensored-cycle-{CYCLE:03d}.meta.json"
+SCRIPTS = WORK / "mel-src" / "scripts"
 OUTPUT = WORK / "mel-lora-output"
 PARENT = WORK / "parent-adapter"
 BUNDLE = WORK / "mel-lora-bundle.tar.gz"
@@ -42,28 +36,55 @@ def sha256_file(path: Path) -> str:
             h.update(chunk)
     return "sha256:" + h.hexdigest()
 
-def decode_text(value: str, target: Path):
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(base64.b64decode(value.encode("ascii")))
+def find_input_dir(slug: str) -> Path:
+    direct = INPUT / slug
+    if direct.exists():
+        return direct
+    candidates = [p for p in INPUT.iterdir() if p.is_dir() and slug in p.name]
+    if candidates:
+        return candidates[0]
+    raise SystemExit("KAGGLE_INPUT_MISSING:" + slug)
 
-def extract_embedded_payload():
+def prepare_payload():
+    payload = find_input_dir("mel-lora-cycle-payload")
     SCRIPTS.mkdir(parents=True, exist_ok=True)
     DATA.mkdir(parents=True, exist_ok=True)
-    decode_text(MEL_TRAIN_SCRIPT_B64, SCRIPTS / "train-mel-lora.py")
-    decode_text(MEL_PLAN_SCRIPT_B64, SCRIPTS / "create-lora-plan.py")
-    compressed = base64.b64decode(MEL_SHARD_GZ_B64.encode("ascii"))
-    SHARD.write_bytes(gzip.decompress(compressed))
-    decode_text(MEL_SHARD_META_B64, SHARD_META)
+
+    for name in ("train-mel-lora.py", "create-lora-plan.py"):
+        source = payload / name
+        if not source.is_file():
+            raise SystemExit("KAGGLE_PAYLOAD_SCRIPT_MISSING:" + name)
+        shutil.copy2(source, SCRIPTS / name)
+
+    shard_gz = payload / "mel-training-shard.jsonl.gz"
+    shard_meta = payload / "mel-training-shard.jsonl.meta.json"
+    payload_meta = payload / "payload.json"
+    if not shard_gz.is_file() or not shard_meta.is_file() or not payload_meta.is_file():
+        raise SystemExit("KAGGLE_PAYLOAD_DATA_MISSING")
+
+    import gzip
+    with gzip.open(shard_gz, "rb") as src, SHARD.open("wb") as dst:
+        shutil.copyfileobj(src, dst)
+    shutil.copy2(shard_meta, SHARD_META)
+
+    meta = json.loads(payload_meta.read_text(encoding="utf-8"))
+    if str(meta.get("source_sha") or "") != TARGET_SHA:
+        raise SystemExit("KAGGLE_PAYLOAD_SOURCE_SHA_MISMATCH")
+    if int(meta.get("cycle", -1)) != CYCLE:
+        raise SystemExit("KAGGLE_PAYLOAD_CYCLE_MISMATCH")
+    if int(meta.get("shard_size", -1)) != SHARD_SIZE:
+        raise SystemExit("KAGGLE_PAYLOAD_SHARD_SIZE_MISMATCH")
+    return payload
 
 def find_base_model() -> Path:
-    candidates = [
-        Path("/kaggle/input/mistral-7b-instruct-v02-fp16"),
-        Path("/kaggle/input/mistral-7b-instruct-v0-2"),
-    ]
-    for path in candidates:
+    for slug in ("mistral-7b-instruct-v02-fp16", "mistral-7b-instruct-v0-2"):
+        try:
+            path = find_input_dir(slug)
+        except SystemExit:
+            continue
         if (path / "config.json").is_file() and (path / "tokenizer_config.json").is_file():
             return path
-    for cfg in Path("/kaggle/input").rglob("config.json"):
+    for cfg in INPUT.rglob("config.json"):
         root = cfg.parent
         if (root / "tokenizer_config.json").is_file() and (
             (root / "model.safetensors.index.json").is_file()
@@ -81,13 +102,10 @@ def ensure_dependencies():
         except Exception:
             missing.append(name)
     if not missing:
-        print("LoRA dependencies already available in Kaggle image", flush=True)
+        print("LoRA dependencies already available", flush=True)
         return
 
-    wheels_root = Path("/kaggle/input/hf-libraries")
-    if not wheels_root.exists():
-        raise SystemExit("KAGGLE_HF_LIBRARIES_INPUT_MISSING:" + ",".join(missing))
-
+    wheels_root = find_input_dir("hf-libraries")
     aliases = {
         "transformers": "transformers-",
         "peft": "peft-",
@@ -99,7 +117,6 @@ def ensure_dependencies():
     wheels = []
     for name in missing:
         if name == "torch":
-            # Kaggle GPU images must provide a CUDA-matched torch build.
             raise SystemExit("KAGGLE_TORCH_MISSING")
         prefix = aliases.get(name)
         found = sorted(p for p in wheels_root.rglob("*.whl") if p.name.lower().startswith(prefix))
@@ -108,11 +125,10 @@ def ensure_dependencies():
         wheels.append(found[-1])
     run([sys.executable, "-m", "pip", "install", "--no-index", "--no-deps", *wheels])
 
-def extract_parent() -> str | None:
-    if not MEL_PARENT_BUNDLE_B64.strip():
+def extract_parent(payload: Path) -> str | None:
+    archive = payload / "parent-bundle.tar.gz"
+    if not archive.is_file():
         return None
-    archive = WORK / "parent-bundle.tar.gz"
-    archive.write_bytes(base64.b64decode(MEL_PARENT_BUNDLE_B64.encode("ascii")))
     PARENT.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive, "r:gz") as tar:
         tar.extractall(PARENT)
@@ -129,13 +145,10 @@ def count_lines(path: Path) -> int:
 def main():
     if TARGET_SHA.startswith("__"):
         raise SystemExit("MEL_GIT_SHA_NOT_INJECTED")
-    if SHARD_SIZE < 50:
-        raise SystemExit("MEL_SHARD_SIZE_TOO_SMALL")
+    payload = prepare_payload()
 
-    extract_embedded_payload()
     if count_lines(SHARD) != SHARD_SIZE:
         raise SystemExit(f"MEL_SHARD_COUNT_INVALID:{count_lines(SHARD)}:{SHARD_SIZE}")
-
     shard_meta = json.loads(SHARD_META.read_text(encoding="utf-8"))
     if int(shard_meta.get("cycle", -1)) != CYCLE:
         raise SystemExit("MEL_SHARD_CYCLE_MISMATCH")
@@ -166,7 +179,7 @@ def main():
         "--seed", "42",
     ])
 
-    parent_digest = extract_parent()
+    parent_digest = extract_parent(payload)
     stage = "uncensored-continue" if parent_digest else "uncensored"
     cmd = [
         sys.executable, SCRIPTS / "train-mel-lora.py",
@@ -182,15 +195,12 @@ def main():
         "--seed", "42",
     ]
     if parent_digest:
-        cmd += [
-            "--parent-adapter-dir", PARENT,
-            "--parent-artifact-digest", parent_digest,
-        ]
+        cmd += ["--parent-adapter-dir", PARENT, "--parent-artifact-digest", parent_digest]
     run(cmd)
 
     shutil.copy2(SHARD_META, OUTPUT / "shard-metadata.json")
     dataset_meta = {
-        "schema": "mel.kaggle-offline-dataset-evidence.v1",
+        "schema": "mel.kaggle-offline-dataset-evidence.v2",
         "source_sha": TARGET_SHA,
         "cycle": CYCLE,
         "examples": SHARD_SIZE,
@@ -201,18 +211,13 @@ def main():
     (OUTPUT / "dataset-metadata.json").write_text(json.dumps(dataset_meta, indent=2) + "\n", encoding="utf-8")
 
     required = [
-        "adapter_model.safetensors",
-        "adapter_config.json",
-        "training-evidence.json",
-        "artifact-evidence.json",
-        "lora-plan.json",
-        "dataset-metadata.json",
-        "shard-metadata.json",
+        "adapter_model.safetensors", "adapter_config.json", "training-evidence.json",
+        "artifact-evidence.json", "lora-plan.json", "dataset-metadata.json", "shard-metadata.json",
     ]
     for name in required:
         target = OUTPUT / name
         if not target.is_file() or target.stat().st_size <= 0:
-            raise SystemExit(f"MEL_OUTPUT_MISSING:{name}")
+            raise SystemExit("MEL_OUTPUT_MISSING:" + name)
 
     artifact = json.loads((OUTPUT / "artifact-evidence.json").read_text(encoding="utf-8"))
     training = json.loads((OUTPUT / "training-evidence.json").read_text(encoding="utf-8"))
