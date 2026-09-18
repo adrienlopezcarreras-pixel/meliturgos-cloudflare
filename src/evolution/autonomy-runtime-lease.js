@@ -2,7 +2,6 @@ const LEASE_KEY = 'runtime-lease:autonomy-heartbeat';
 const DEFAULT_LEASE_MS = 5 * 60 * 1000;
 const MIN_LEASE_MS = 60 * 1000;
 const MAX_LEASE_MS = 10 * 60 * 1000;
-const fallbackLeases = new Map();
 
 function normalizedLeaseMs(value) {
   const parsed = Number(value);
@@ -23,18 +22,19 @@ export async function tryAcquireAutonomyRuntimeLease({
   owner = crypto.randomUUID(),
   leaseMs = DEFAULT_LEASE_MS,
   now = Date.now(),
-  memoryStore = fallbackLeases,
+  memoryStore = null,
 } = {}) {
   const acquiredAt = Number(now);
   const expiresAt = acquiredAt + normalizedLeaseMs(leaseMs);
   const ownerId = String(owner);
 
   if (!db) {
-    const current = memoryStore.get(LEASE_KEY) || null;
+    const store = memoryStore ?? new Map();
+    const current = store.get(LEASE_KEY) || null;
     if (current && Number(current.expires_at || 0) > acquiredAt) {
       return { acquired: false, key: LEASE_KEY, expires_at: Number(current.expires_at || 0) };
     }
-    memoryStore.set(LEASE_KEY, { owner: ownerId, acquired_at: acquiredAt, expires_at: expiresAt });
+    store.set(LEASE_KEY, { owner: ownerId, acquired_at: acquiredAt, expires_at: expiresAt });
     return { acquired: true, key: LEASE_KEY, expires_at: expiresAt, owner: ownerId };
   }
 
@@ -66,12 +66,13 @@ export async function tryAcquireAutonomyRuntimeLease({
 export async function releaseAutonomyRuntimeLease({
   db = null,
   owner,
-  memoryStore = fallbackLeases,
+  memoryStore = null,
 } = {}) {
   const ownerId = String(owner || '');
   if (!ownerId) return false;
 
   if (!db) {
+    if (!memoryStore) return false;
     const current = memoryStore.get(LEASE_KEY) || null;
     if (!current || current.owner !== ownerId) return false;
     memoryStore.delete(LEASE_KEY);
