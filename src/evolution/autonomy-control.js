@@ -2,15 +2,15 @@ import { migrate } from '../persistence/migrations.js';
 
 const CONTROL_ID = 'mel-autonomy-control';
 
-function defaultControl() {
+function defaultControl({ paused = false, source = 'default', reason = null } = {}) {
   return {
-    paused: false,
+    paused: paused === true,
     max_autonomy: false,
     owner_override: false,
-    status: 'RUNNING',
+    status: paused === true ? 'PAUSED' : 'RUNNING',
     updated_at: null,
-    source: 'default',
-    reason: null,
+    source,
+    reason,
   };
 }
 
@@ -35,7 +35,7 @@ export async function getAutonomyControl(db, { memoryState = null } = {}) {
   const row = await db.prepare('SELECT status,last_seen,metadata_json FROM dev_bridge_state WHERE bridge_id=?')
     .bind(CONTROL_ID)
     .first();
-  if (!row) return defaultControl();
+  if (!row) return defaultControl({ paused: true, source: 'default-d1-fail-closed', reason: 'OWNER_ENABLE_REQUIRED' });
 
   const metadata = parseMetadata(row.metadata_json);
   const status = String(row.status || 'RUNNING').toUpperCase();
