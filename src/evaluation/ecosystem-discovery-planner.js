@@ -228,20 +228,40 @@ function handoffAlreadyOwnsItem(item) {
 function developmentGoal(item) {
   const hint = text(item?.capability_hint, 160);
   const target = text(item?.best_match?.id, 160);
+  const roadmap = (Array.isArray(item?.roadmap_matches) ? item.roadmap_matches : [])
+    .slice(0, 5)
+    .map(row => row.id + ' — ' + row.title + ' [' + row.status + '/' + row.priority + ']')
+    .join(' | ');
+  const advisory = text(item?.cross_ai?.best?.text, 2400);
+
+  if (item?.action === 'REUSE_EXISTING' && target) {
+    return [
+      'Optimiser la capacité existante ' + target + ' à partir de la découverte sourcée « ' + hint + ' », sans créer de doublon.',
+      roadmap ? 'Comparer explicitement avec la feuille de route concernée: ' + roadmap + '.' : '',
+      advisory ? 'Avis multi-IA à vérifier: ' + advisory : '',
+      'Chercher si une alternative disponible fait mieux que le choix actuel.',
+      'Comparer qualité, fiabilité, latence, coût, permissions, portabilité, maintenance, provenance et réversibilité.',
+      'Conserver le choix actuel tant qu’un test reproductible ne démontre pas un gain net sans régression.',
+    ].filter(Boolean).join(' ');
+  }
+
   if (item?.action === 'UNBLOCK_EXISTING' && target) {
     return [
-      `Débloquer la capacité existante ${target} sans créer de capacité en doublon.`,
-      `Évaluer la découverte sourcée « ${hint} » et, seulement si elle est adaptée, brancher le provider/connecteur zéro coût autorisé minimal sur le port canonique existant.`,
+      'Débloquer la capacité existante ' + target + ' sans créer de capacité en doublon.',
+      'Évaluer la découverte sourcée « ' + hint + ' » et, seulement si elle est adaptée, brancher le provider ou connecteur minimal sur le port canonique existant.',
+      roadmap ? 'Vérifier l’impact sur la feuille de route: ' + roadmap + '.' : '',
       'Conserver les permissions, le fail-closed, les tests, la provenance et le rollback.',
-    ].join(' ');
+    ].filter(Boolean).join(' ');
   }
-  return [
-    `Évaluer la découverte sourcée « ${hint} ».`,
-    `Uniquement si le CapabilityBus confirme un vrai manque, proposer le plus petit ${item?.suggested_kind === 'plugin' ? 'plugin/connecteur' : 'module'} réutilisant l’existant et sans doublon.`,
-    'Ne rien activer en production avant Council, Teacher et tests.',
-  ].join(' ');
-}
 
+  return [
+    'Évaluer la découverte sourcée « ' + hint + ' ».',
+    roadmap ? 'La confronter aux éléments de feuille de route suivants: ' + roadmap + '.' : '',
+    advisory ? 'Avis multi-IA à vérifier: ' + advisory : '',
+    'Comparer d’abord les options déjà disponibles avant de proposer une nouvelle extension.',
+    'Ne rien activer ni remplacer avant comparaison, revue et tests.',
+  ].filter(Boolean).join(' ');
+}
 function candidateRank(item) {
   const action = item?.action === 'UNBLOCK_EXISTING' ? 0 : 1;
   const creative = item?.category === 'creative' ? 0 : 1;
