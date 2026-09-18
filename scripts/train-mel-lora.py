@@ -134,6 +134,22 @@ def main() -> int:
     ap.add_argument("--gradient-accumulation-steps", type=int, default=8)
     ap.add_argument("--save-steps", type=int, default=250)
     ap.add_argument(
+        "--stage",
+        choices=["uncensored", "uncensored-continue", "agentic"],
+        default="uncensored",
+        help="Training lineage stage. uncensored-continue resumes an existing UNCENSORED adapter without overwriting it.",
+    )
+    ap.add_argument(
+        "--parent-adapter-dir",
+        default="",
+        help="Parent PEFT adapter directory for uncensored-continue or agentic.",
+    )
+    ap.add_argument(
+        "--parent-artifact-digest",
+        default="",
+        help="Exact sha256 digest of the parent adapter_model.safetensors.",
+    )
+    ap.add_argument(
         "--resume-from-checkpoint",
         default="",
         help="Optional Trainer checkpoint path, useful on preemptible/free GPU sessions.",
@@ -155,8 +171,8 @@ def main() -> int:
         raise SystemExit("LORA_GRADIENT_ACCUMULATION_INVALID")
     if args.save_steps < 1:
         raise SystemExit("LORA_SAVE_STEPS_INVALID")
-    if args.stage == "agentic" and (not args.parent_adapter_dir or not args.parent_artifact_digest):
-        raise SystemExit("AGENTIC_PARENT_ADAPTER_REQUIRED")
+    if args.stage in {"agentic", "uncensored-continue"} and (not args.parent_adapter_dir or not args.parent_artifact_digest):
+        raise SystemExit("LORA_PARENT_ADAPTER_REQUIRED")
     if args.stage == "uncensored" and (args.parent_adapter_dir or args.parent_artifact_digest):
         raise SystemExit("UNCENSORED_STAGE_MUST_NOT_HAVE_PARENT")
     if args.base_model != DEFAULT_BASE or args.runtime_model != DEFAULT_RUNTIME:
@@ -250,7 +266,7 @@ def main() -> int:
         bias="none",
         task_type="CAUSAL_LM",
     )
-    if args.stage == "agentic":
+    if args.stage in {"agentic", "uncensored-continue"}:
         parent_dir = Path(args.parent_adapter_dir).resolve()
         parent_cfg = parent_dir / "adapter_config.json"
         parent_weights = parent_dir / "adapter_model.safetensors"
