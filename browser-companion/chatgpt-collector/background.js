@@ -1,6 +1,7 @@
 const api = globalThis.browser;
 const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},failed:{},unavailable:{},deferred:{},discovered:0,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,updatedAt:null};
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
+let processPromise=null;
 
 function norm(value){
   try{
@@ -159,10 +160,15 @@ async function process(tabId){
 
 async function start(){
   const s=await state();
+  if(processPromise){
+    return save({running:true,paused:false,lastError:null});
+  }
   const resolved=await collectorTab(s.tabId);
   const tab=resolved?.tab;
   if(!tab?.id) throw Object.assign(new Error('COLLECTOR_TAB_CREATE_FAILED'),{code:'COLLECTOR_TAB_CREATE_FAILED'});
-  process(tab.id).catch(e=>save({running:false,lastError:e?.code||e?.message||'COLLECTOR_FAILED'}));
+  processPromise=process(tab.id)
+    .catch(e=>save({running:false,lastError:e?.code||e?.message||'COLLECTOR_FAILED'}))
+    .finally(()=>{processPromise=null});
   return save({running:true,paused:false,tabId:tab.id,collectorOwnedTab:true});
 }
 
