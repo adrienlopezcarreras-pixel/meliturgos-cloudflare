@@ -244,6 +244,7 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
       ['Leçons projet','learnProjectExperience'],
       ['Source XP','learnXpSource'],
       ['XP observée','learnObservedXp'],
+      ['Leçons LoRA','learnLoraLessons'],
       ['Gain benchmark','learnBenchmarkGain'],
       ['LoRA','learnLora'],
       ['Adaptateurs actifs','learnLoraAdapters'],
@@ -353,6 +354,7 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
     const lora=loraState==='ACTIVE'?'LoRA actif':'LoRA '+loraState.toLowerCase();
     const loraDetail=loraState+(l.reason?' · '+String(l.reason):'')+(l.plan_id?' · plan '+String(l.plan_id).slice(0,26):'');
     const lessons=d.project_experience?.available?(Number(d.project_experience.count||0)+' leçons'):'leçons —';
+    const loraLessons=Math.max(0,Number(e.corrections_available_for_training??e.corrections_validated??0));
 
     txt('#learnLevel',d.level??'—');
     txt('#learnRank',(d.rank||'')+' · '+p.toFixed(0)+'%');
@@ -364,6 +366,7 @@ const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-r
     txt('#learnProjectExperience',d.project_experience?.available?(Number(d.project_experience.count||0)+' en mémoire active'):'indisponible');
     txt('#learnXpSource',d.xp_source==='verified-journal'?'journal XP vérifié':'rapport d’apprentissage courant');
     txt('#learnObservedXp',xp(d.observed_xp));
+    txt('#learnLoraLessons',loraLessons+'/50'+(loraLessons>=50?' · PRÊT':' · '+Math.max(0,50-loraLessons)+' manquante(s)'));
     txt('#learnBenchmark',benchDetail);
     txt('#learnBenchmarkGain',gain(b.gain??e.benchmark_gain));
     txt('#learnLora',loraDetail);
