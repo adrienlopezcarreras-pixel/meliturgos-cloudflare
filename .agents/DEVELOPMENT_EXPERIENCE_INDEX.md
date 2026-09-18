@@ -43,6 +43,15 @@ Cet index permet à une IA de savoir immédiatement ce que MEL a déjà appris a
 
 Rapport exhaustif : `.agents/XP_RECONCILIATION_20260917.md`.
 
+## Expériences 2026-09-18 — runtime et clôture de passage
+
+- `bootstrap-runtime-path-authority-20260918` — une règle n’est active que si le chemin runtime réellement appelé la lit.
+- `bootstrap-post-pass-reconcile-adapt-20260918` — aucun passage DONE avant nettoyage, unification, réconciliation, adaptation, unicité des branches et checkpoint XP.
+- `bootstrap-code-access-capability-truth-20260918` — distinguer accès structurel au code et preuve de lecture ponctuelle ; ne jamais inventer une incapacité quand le manifeste expose l’accès.
+- `bootstrap-continuous-experience-read-20260918` — relire manuel + expérience pertinente à chaque requête et à chaque passage.
+
+Ces quatre entrées restent marquées `validated:false` jusqu’à exécution verte des tests/CI qui prouvent le câblage runtime exact. Elles sont déjà relues par le contexte actif, mais n’entreront dans le corpus de préférence validé qu’après preuve.
+
 ## Règle de déduplication
 
 Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le corpus. Une différence de vocabulaire ne justifie pas une nouvelle leçon si la préférence comportementale est déjà couverte.
@@ -51,4 +60,4 @@ Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le
 
 Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, Benchmark/LoRA, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, Dev Bridge, observabilité, UI partagée, gouvernance de preuve, readiness zéro-euro runtime et checkpoint XP systématique.
 
-Total bootstrap documenté après réconciliation : **30 leçons validées** (14 historiques + 12 pack courant + 4 réconciliées).
+Total documenté : **34 leçons** — 30 validées + 4 nouvelles expériences 2026-09-18 en attente de preuve CI.
