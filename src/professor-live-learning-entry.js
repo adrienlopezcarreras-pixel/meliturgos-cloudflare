@@ -545,15 +545,26 @@ export default {
     return enhanceProfessorLearning(response, url.pathname);
   },
   async scheduled(controller, env, ctx) {
-    await ensureZeroCostBenchmarkBaseline(env).catch((error) => console.error('[MEL benchmark] baseline bootstrap skipped:', error?.code || error?.message || error));
+    // The one-minute autonomy heartbeat always gets priority. Maintenance is
+    // detached from that critical path and sampled every 15 minutes.
     await app.scheduled(controller, env, ctx);
     const scheduledAt = Number(controller?.scheduledTime);
-    const now = () => new Date(Number.isFinite(scheduledAt) ? scheduledAt : Date.now()).toISOString();
-    const backupWork = runScheduledSystemBackup(env, { now }).catch((error) => {
-      console.error('[MEL backup] scheduled snapshot failed:', error?.code || error?.message || error);
-      return null;
-    });
-    if (ctx?.waitUntil) ctx.waitUntil(backupWork);
-    else await backupWork;
+    const timestamp = Number.isFinite(scheduledAt) ? scheduledAt : Date.now();
+    const maintenanceDue = Math.floor(timestamp / 60000) % 15 === 0;
+    if (!maintenanceDue) return;
+
+    const now = () => new Date(timestamp).toISOString();
+    const maintenance = Promise.allSettled([
+      ensureZeroCostBenchmarkBaseline(env).catch((error) => {
+        console.error('[MEL benchmark] baseline bootstrap skipped:', error?.code || error?.message || error);
+        return null;
+      }),
+      runScheduledSystemBackup(env, { now }).catch((error) => {
+        console.error('[MEL backup] scheduled snapshot failed:', error?.code || error?.message || error);
+        return null;
+      }),
+    ]);
+    if (ctx?.waitUntil) ctx.waitUntil(maintenance);
+    else await maintenance;
   },
 };
