@@ -78,7 +78,7 @@ function label(payload){
 }
 async function run(btn){
   if(btn.disabled)return;
-  var base='▶ Démarrer cycle';
+  var base='▶ Démarrer cycle MEL';
   btn.disabled=true;btn.dataset.state='running';btn.textContent='⏳ Cycle MEL…';btn.title='Exécution d’un heartbeat autonome manuel';
   try{
     var r=await fetch('/api/gen2/autonomy/tick',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(120000)});
@@ -86,7 +86,7 @@ async function run(btn){
     if(!r.ok)throw new Error(d.error||d.code||('HTTP '+r.status));
     var out=label(d);btn.dataset.state=out.state;btn.textContent=out.text;
     var active=Number(d&&d.state&&d.state.counts&&d.state.counts.active||0);
-    btn.title='Dernier cycle exécuté'+(active?' · '+active+' travail'+(active>1?'x':'')+' actif'+(active>1?'s':''):'');
+    btn.title='Dernier cycle exécuté'+(active?' · '+(active===1?'1 travail actif':active+' travaux actifs'):'');
     setTimeout(function(){btn.disabled=false;btn.dataset.state='';btn.textContent=base},1800);
   }catch(e){
     btn.dataset.state='blocked';btn.textContent='⚠ Cycle bloqué';btn.title=String(e&&e.message||e||'Erreur');
@@ -96,7 +96,7 @@ async function run(btn){
 function install(){
   if(document.getElementById('melStartCycleControl'))return true;
   var target=locate();if(!target)return false;
-  var b=document.createElement('button');b.id='melStartCycleControl';b.type='button';b.textContent='▶ Démarrer cycle';b.title='Démarrer immédiatement un cycle MEL';b.addEventListener('click',function(){run(b)});
+  var b=document.createElement('button');b.id='melStartCycleControl';b.type='button';b.textContent='▶ Démarrer cycle MEL';b.title='Démarrer immédiatement un cycle MEL';b.addEventListener('click',function(){run(b)});
   if(target.max){target.max.insertAdjacentElement('afterend',b)}
   else if(target.stop){target.host.insertBefore(b,target.stop)}
   else if(target.activity){target.host.insertBefore(b,target.activity)}
