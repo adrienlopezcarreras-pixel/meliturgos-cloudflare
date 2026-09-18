@@ -501,6 +501,8 @@ jobs:
             artifacts/finalize-result.json
             artifacts/lora-incoming/lora-plan.json
             artifacts/lora-incoming/training-evidence.json
+            artifacts/lora-incoming/training-started.json
+            artifacts/lora-incoming/training-progress.jsonl
             artifacts/lora-incoming/artifact-evidence.json
             artifacts/lora-incoming/approval-evidence.json
             artifacts/lora-incoming/dataset-metadata.json
@@ -558,4 +560,3 @@ jobs:
 
           gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref candidate/mel-clean-autonomy             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$BENCHMARK_PREVIEW"
           echo "Submitted next cycle: $NEXT_CYCLE"
-# cancel-only trigger for run 34 verification
