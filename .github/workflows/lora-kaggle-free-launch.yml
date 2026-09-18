@@ -1,0 +1,113 @@
+name: lora-kaggle-free-launch
+
+on:
+  workflow_dispatch:
+    inputs:
+      accelerator:
+        description: "Kaggle free accelerator"
+        required: true
+        default: "NvidiaTeslaT4"
+        type: choice
+        options:
+          - NvidiaTeslaT4
+          - NvidiaTeslaT4Highmem
+          - NvidiaL4
+      timeout_seconds:
+        description: "Maximum Kaggle kernel runtime"
+        required: true
+        default: "43200"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mel-lora-kaggle-launch
+  cancel-in-progress: false
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      MEL_CANDIDATE_SHA: ${{ github.sha }}
+      MEL_CANDIDATE_BRANCH: candidate/mel-clean-autonomy
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Verify free Kaggle credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${KAGGLE_USERNAME:-}" ] || [ -z "${KAGGLE_KEY:-}" ]; then
+            echo "::error::KAGGLE_CREDENTIALS_REQUIRED"
+            echo "Add repository secrets KAGGLE_USERNAME and KAGGLE_KEY. No paid compute fallback is allowed."
+            exit 78
+          fi
+
+      - name: Install Kaggle CLI
+        run: python -m pip install -U kaggle
+
+      - name: Build Kaggle kernel package
+        shell: bash
+        env:
+          ACCELERATOR: ${{ inputs.accelerator }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/kaggle-kernel
+          cp kaggle/mel_lora_uncensored_max.py artifacts/kaggle-kernel/main.py
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          username=os.environ["KAGGLE_USERNAME"]
+          meta={
+            "id": f"{username}/mel-lora-uncensored-max",
+            "title": "MEL LoRA UNCENSORED MAX",
+            "code_file": "main.py",
+            "language": "python",
+            "kernel_type": "script",
+            "is_private": True,
+            "enable_gpu": True,
+            "enable_internet": True,
+            "machine_shape": os.environ["ACCELERATOR"],
+            "dataset_sources": [],
+            "competition_sources": [],
+            "kernel_sources": [],
+            "model_sources": [],
+          }
+          Path("artifacts/kaggle-kernel/kernel-metadata.json").write_text(
+            json.dumps(meta, indent=2)+"\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Launch free GPU kernel
+        shell: bash
+        env:
+          ACCELERATOR: ${{ inputs.accelerator }}
+          TIMEOUT_SECONDS: ${{ inputs.timeout_seconds }}
+        run: |
+          set -euo pipefail
+          kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator "$ACCELERATOR"             --timeout "$TIMEOUT_SECONDS"
+
+      - name: Record launch evidence
+        shell: bash
+        run: |
+          cat > kaggle-launch.json <<JSON
+          {
+            "status": "KAGGLE_LAUNCHED",
+            "kernel": "${KAGGLE_USERNAME}/mel-lora-uncensored-max",
+            "candidate_sha": "${GITHUB_SHA}",
+            "accelerator": "${{ inputs.accelerator }}"
+          }
+          JSON
+
+      - name: Upload launch evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kaggle-lora-launch-${{ github.run_id }}
+          path: kaggle-launch.json
+          if-no-files-found: error
+          retention-days: 14
