@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { MEL_OPERATING_MANUAL, buildMelOperatingManualPrompt } from '../src/identity/mel-operating-manual.js';
 import { codeAccessTruth, selectRelevantOperationalExperience } from '../src/api/native-chat.js';
+import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../src/learning/runtime-operating-experience.js';
 import { onRequestGet as fullMode } from '../src/pages/full-interface-v2.js';
 
 test('MEL operating manual keeps identity, experience and post-pass invariants explicit', () => {
@@ -47,6 +48,17 @@ test('critical operating experience remains in scope even when the current reque
   assert.ok(ids.includes('bootstrap-code-access-capability-truth-20260918'));
   assert.ok(ids.includes('bootstrap-continuous-experience-read-20260918'));
   assert.ok(ids.includes('bootstrap-post-pass-reconcile-adapt-20260918'));
+});
+
+test('runtime operating experience keeps the four critical rules available without entering the training bundle', () => {
+  const ids = MEL_RUNTIME_OPERATING_EXPERIENCE.map(row => row.id);
+  for (const id of [
+    'bootstrap-runtime-path-authority-20260918',
+    'bootstrap-post-pass-reconcile-adapt-20260918',
+    'bootstrap-code-access-capability-truth-20260918',
+    'bootstrap-continuous-experience-read-20260918',
+  ]) assert.ok(ids.includes(id), `missing runtime operating experience ${id}`);
+  assert.ok(MEL_RUNTIME_OPERATING_EXPERIENCE.every(row => row.validated === true));
 });
 
 test('Professor chat exposes a compact live capability sheet', async () => {
