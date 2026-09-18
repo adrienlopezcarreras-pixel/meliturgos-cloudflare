@@ -122,6 +122,11 @@ export function planEcosystemDiscoveries({ watchResult = {}, catalog = {}, capab
         existing.observed_on.push(target.id);
         existing.sources = [...new Map([...existing.sources, ...evidence.sources].map(source => [source.url, source])).values()].slice(0, 8);
         existing.citations_count = Math.max(existing.citations_count, evidence.citations_count);
+        if (evidence.cross_ai) existing.cross_ai = evidence.cross_ai;
+        existing.roadmap_matches = [...new Map([
+          ...(existing.roadmap_matches || []),
+          ...roadmapMatches(hint, target, evidence),
+        ].map(row => [row.id, row])).values()].slice(0, 5);
         continue;
       }
 
@@ -143,7 +148,12 @@ export function planEcosystemDiscoveries({ watchResult = {}, catalog = {}, capab
         classification: gap.classification,
         confidence: gap.confidence,
         action,
+        optimization_action: action === 'REUSE_EXISTING' ? 'COMPARE_EXISTING_WITH_ALTERNATIVE' : null,
         best_match: gap.best_match,
+        roadmap_matches: roadmapMatches(hint, target, evidence),
+        source_class: evidence.source_class,
+        verification_policy: evidence.verification_policy,
+        cross_ai: evidence.cross_ai,
         proposal: proposal?.manifest ? {
           decision: proposal.decision,
           manifest: proposal.manifest,
