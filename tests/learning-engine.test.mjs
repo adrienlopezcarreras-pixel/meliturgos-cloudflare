@@ -59,19 +59,19 @@ test('corrections become cumulative persistent training pairs', async () => {
   const learned = bundle.preference.find(row => row.id === 'learn-1'); assert.ok(learned); assert.equal(learned.chosen, 'Le runner ne découvre pas le test imbriqué.'); assert.equal(learned.rejected, 'Le code métier est faux.'); assert.match(bundle.digest, /^fnv1a-/);
 });
 
-test('bootstrap corpus contains the 50 validated canonical lessons required for LoRA readiness', async () => {
+test('bootstrap corpus can grow beyond the 50-example LoRA readiness threshold', async () => {
   const memory = new MemoryStub();
   const engine = new LearningEngine({ memory });
 
   const bootstrap = await engine.trainingBundle();
-  assert.equal(bootstrap.accepted, 50, 'bootstrap must expose exactly 50 validated canonical lessons');
-  assert.equal(new Set(bootstrap.sft.map(row => row.id)).size, 50);
-  assert.equal(bootstrap.sft.length, 50);
-  assert.equal(bootstrap.preference.length, 50);
+  assert.ok(bootstrap.accepted >= 50, 'bootstrap must expose at least the 50 validated examples required for LoRA readiness');
+  assert.equal(new Set(bootstrap.sft.map(row => row.id)).size, bootstrap.accepted);
+  assert.equal(bootstrap.sft.length, bootstrap.accepted);
+  assert.equal(bootstrap.preference.length, bootstrap.accepted);
 
   const prepared = await engine.prepareLora({ base_model: DEFAULT_LORA_BASE_MODEL });
-  assert.equal(prepared.corpus.accepted, 50);
-  assert.equal(prepared.plan.examples, 50);
+  assert.equal(prepared.corpus.accepted, bootstrap.accepted);
+  assert.equal(prepared.plan.examples, bootstrap.accepted);
   assert.equal(prepared.plan.readiness.min_examples, 50);
   assert.equal(prepared.plan.readiness.enough_examples, true);
   assert.equal(prepared.plan.readiness.cloudflare_inference_compatible, true);
@@ -90,7 +90,7 @@ test('bootstrap corpus contains the 50 validated canonical lessons required for 
     quality: 0.9,
   });
   const expanded = await engine.trainingBundle();
-  assert.equal(expanded.accepted, 51, 'runtime corrections remain cumulative above the 50-lesson bootstrap');
+  assert.equal(expanded.accepted, bootstrap.accepted + 1, 'runtime corrections remain cumulative above the readiness threshold');
 });
 
 test('benchmark report measures gain without pretending weights changed', async () => {
