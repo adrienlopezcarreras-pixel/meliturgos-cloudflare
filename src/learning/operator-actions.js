@@ -4,6 +4,7 @@ import { extractModelText } from '../models/ModelRouter.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
 import { CANONICAL_LEARNING_BENCHMARK_SUITE, benchmarkSuiteFingerprint } from '../evaluation/benchmarks.js';
 import { assertAdapterApprovalForArtifact, assertAdapterArtifactForPlan } from './lora-plan.js';
+import { compareLoraImpact, runLoraImpactBenchmark } from './lora-impact-benchmark.js';
 
 export const DEFAULT_OPERATOR_BENCHMARK_MODEL = '@cf/zai-org/glm-4.7-flash';
 
@@ -157,6 +158,7 @@ export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
 
   const createEngine = deps.createLearningEngine || createLearningEngine;
   const benchmarkRunner = deps.runLearningBenchmark || runLearningBenchmark;
+  const impactRunner = deps.runLoraImpactBenchmark || runLoraImpactBenchmark;
   const extractText = deps.extractModelText || extractModelText;
   // The operator endpoint never accepts a request-selected model. Model choice
   // stays on the trusted server side and must be explicitly zero-cost in the
@@ -246,6 +248,14 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
   });
   candidate.passed = Array.isArray(candidate.cases) && candidate.cases.length > 0 && candidate.cases.every((row) => !row?.error);
 
+  const impactBaseline = await impactRunner({
+    respond: benchmarkResponder(ai, runtimeModel, extractText),
+  });
+  const impactCandidate = await impactRunner({
+    respond: benchmarkResponder(ai, runtimeModel, extractText, { lora: checkedArtifact.finetune_id }),
+  });
+  const impact = compareLoraImpact(impactBaseline, impactCandidate);
+
   const engine = createEngine(env);
   await engine.recordBenchmark({
     cases: baseline.cases,
@@ -270,6 +280,37 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
       benchmark_id: candidate.benchmark_id,
       measured_score: candidate.overall,
       passed: candidate.passed,
+      artifact_digest: checkedArtifact.digest,
+      training_manifest_digest: checkedArtifact.training_manifest_digest,
+      dataset_digest: checkedArtifact.dataset_digest,
+      approval_id: checkedApproval.approval_id,
+    },
+  });
+  await engine.recordBenchmark({
+    cases: impactBaseline.cases,
+    kind: 'lora-impact-baseline',
+    model_id: runtimeModel,
+    source_sha: sourceSha,
+    metadata: {
+      suite: impactBaseline.suite,
+      version: impactBaseline.version,
+      impact_metrics: impactBaseline.metrics,
+      case_count: impactBaseline.case_count,
+    },
+  });
+  await engine.recordBenchmark({
+    cases: impactCandidate.cases,
+    kind: 'lora-impact-candidate',
+    model_id: runtimeModel,
+    adapter_id: checkedArtifact.finetune_id,
+    source_sha: sourceSha,
+    metadata: {
+      suite: impactCandidate.suite,
+      version: impactCandidate.version,
+      impact_metrics: impactCandidate.metrics,
+      impact_delta: impact.delta,
+      uncensored_gate: impact.uncensored_gate,
+      next_stage: impact.next_stage,
       artifact_digest: checkedArtifact.digest,
       training_manifest_digest: checkedArtifact.training_manifest_digest,
       dataset_digest: checkedArtifact.dataset_digest,
@@ -303,6 +344,12 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
     baseline,
     candidate,
     decision,
+    impact: {
+      baseline: impactBaseline,
+      candidate: impactCandidate,
+      comparison: impact,
+    },
+    next_stage: impact.next_stage,
     active,
     activated: Boolean(active),
     source_sha: sourceSha,
