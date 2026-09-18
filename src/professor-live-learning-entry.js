@@ -156,7 +156,9 @@ async function freeLoraStatusResponse(request, env) {
     mode: 'FREE_COLAB_HF_GITHUB_CLOUDFLARE',
     cost_policy: 'NO_PAID_GPU_TRIGGER',
     colab_url: 'https://colab.research.google.com/github/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/candidate/mel-clean-autonomy/notebooks/MEL-QLORA-UNCENSORED-MAX-COLAB.ipynb',
+    agentic_colab_url: 'https://colab.research.google.com/github/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/candidate/mel-clean-autonomy/notebooks/MEL-QLORA-AGENTIC-MAX-COLAB.ipynb',
     hf_repo: FREE_LORA_HF_REPO,
+    agentic_hf_repo: 'Meliturgos/mel-lora-agentic',
     hf_url: `https://huggingface.co/${FREE_LORA_HF_REPO}`,
     bundle: {
       ready: bundleReady,
