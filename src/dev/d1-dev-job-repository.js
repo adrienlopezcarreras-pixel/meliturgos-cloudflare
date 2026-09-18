@@ -31,6 +31,7 @@ export function isPreparedDevBridgeJob(job) {
   if (!teacher?.request?.request_id || teacher.request.request_id !== teacher.review.request_id) return false;
   if (preparation?.status !== 'READY' || preparation.teacher_request_id !== teacher.request.request_id) return false;
   if (!String(preparation.candidate_branch || '').startsWith('candidate/')) return false;
+  if (!/^[a-f0-9]{40}$/i.test(String(preparation.candidate_sha || ''))) return false;
   if (!Array.isArray(job.files_json) || !job.files_json.length) return false;
   if (!job.files_json.every((file) => file && typeof file.path === 'string' && typeof file.content === 'string')) return false;
   if (!Array.isArray(job.tests_json) || !job.tests_json.length) return false;
