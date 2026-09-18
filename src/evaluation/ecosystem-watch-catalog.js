@@ -27,6 +27,13 @@ const OFFICIAL = Object.freeze({
   huggingFaceMcp: 'https://huggingface.co/docs/hub/agents-mcp',
   mcpBlog: 'https://blog.modelcontextprotocol.io/',
   mcpChangelog: 'https://modelcontextprotocol.io/specification/draft/changelog',
+  kaggleDocs: 'https://www.kaggle.com/docs',
+  kaggleDatasets: 'https://www.kaggle.com/docs/datasets',
+  kaggleModels: 'https://www.kaggle.com/docs/models',
+  kaggleNotebooks: 'https://www.kaggle.com/docs/notebooks',
+  kaggleBenchmarks: 'https://www.kaggle.com/docs/benchmarks',
+  kaggleApi: 'https://www.kaggle.com/docs/api',
+  kaggleMcp: 'https://www.kaggle.com/docs/mcp',
 });
 
 export const ECOSYSTEM_WATCH_TARGETS = Object.freeze([
@@ -50,6 +57,18 @@ export const ECOSYSTEM_WATCH_TARGETS = Object.freeze([
     'latest open source open weight AI models agents tools MCP plugins multimodal official repositories',
     ['open-models','MCP','plugins','agents','multimodal'],
     [OFFICIAL.huggingFaceBlog, OFFICIAL.huggingFaceMcp]),
+  target('watch_kaggle', 'Kaggle', 'ml-ecosystem',
+    'Kaggle official latest useful datasets notebooks models benchmarks competitions MCP agents reusable machine learning workflows public API techniques',
+    ['open-models','MCP','agents','tools','automation'],
+    [
+      OFFICIAL.kaggleDocs,
+      OFFICIAL.kaggleDatasets,
+      OFFICIAL.kaggleModels,
+      OFFICIAL.kaggleNotebooks,
+      OFFICIAL.kaggleBenchmarks,
+      OFFICIAL.kaggleApi,
+      OFFICIAL.kaggleMcp,
+    ]),
   target('watch_plugins_connectors', 'Plugins, connecteurs et automatisations', 'tooling',
     'latest AI plugins connectors MCP servers automation task scheduling browser computer use capabilities',
     ['plugins','connectors','MCP','scheduling','browser','computer-use'],
