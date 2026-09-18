@@ -55,7 +55,7 @@ jobs:
                 # Historical/safety refs are not active development lines.
                 continue
                 ;;
-              candidate/*|ci/*|cleanup/*|experience/*|feat/*|feature/*|fix/*|hotfix/*|learning/*|rescue/*|resume/*|roadmap/*|security/*|sprint/*|staging/*|ui/*|work/*|main|mel-current)
+              candidate/*|ci/*|cleanup/*|experience/*|feat/*|feature/*|fix/*|hotfix/*|learning/*|release/*|rescue/*|resume/*|roadmap/*|security/*|sprint/*|staging/*|ui/*|work/*|main|mel-current)
                 ;;
               *)
                 continue
