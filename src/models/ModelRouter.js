@@ -6,11 +6,13 @@ import { analyzeRefusal } from './refusal-analyzer.js';
 export const TASK_TYPES = Object.freeze(['GENERAL','FAST','REASONING','CODE','VISION','AUDIO','STEERABLE','FALLBACK']);
 
 export function classifyTask(text) {
-  return /function |class |code|\.js\b|python/i.test(text)
-    ? 'coding'
-    : /raisonne|reason|démontr|explain|why|how/i.test(text)
-      ? 'reasoning'
-      : 'conversation';
+  const value = String(text || '');
+  if (/function |class |code|\.js\b|python/i.test(value)) return 'coding';
+
+  const casualFrenchHow = /\bcomment\s+(?:vas|allez|va)\b|\bcomment\s+[cç]a\s+va\b/i.test(value);
+  const reasoning = /raisonne|reason|démontr|explique|explain|pourquoi|why|how/i.test(value)
+    || (/\bcomment\b/i.test(value) && !casualFrenchHow);
+  return reasoning ? 'reasoning' : 'conversation';
 }
 
 export function extractModelText(result) {
