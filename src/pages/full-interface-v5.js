@@ -44,7 +44,7 @@ let tries=0;const timer=setInterval(function(){tries++;if(install()||tries>30)cl
 })();</script>`;
 
 
-const CYCLE_PATCH = \`<style id="mel-cycle-top-control-style">
+const CYCLE_PATCH = `<style id="mel-cycle-top-control-style">
 #melStartCycleControl{min-height:40px;padding:0 14px;border:1px solid rgba(120,169,255,.42);border-radius:11px;background:linear-gradient(135deg,#2f67e8,#2448a9);color:#fff;font-weight:850;box-shadow:0 8px 24px rgba(0,0,0,.24);cursor:pointer;white-space:nowrap}
 #melStartCycleControl:hover{filter:brightness(1.08)}
 #melStartCycleControl:disabled{opacity:.66;cursor:wait}
@@ -105,7 +105,7 @@ function install(){
 }
 var tries=0;function boot(){if(install())return;if(tries++<80)setTimeout(boot,100)}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
-})();</script>\`;
+})();</script>`;
 
 export async function onRequestGet(context){
   const response=await controlRoom(context);
