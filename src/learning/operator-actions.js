@@ -325,9 +325,12 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
     baseline,
     candidate,
   });
+  const impactGatePassed = impact.uncensored_gate === true;
+  const stageReady = decision.promote === true && impactGatePassed;
+  const nextStage = stageReady ? 'AGENTIC_READY' : 'UNCENSORED_CONTINUE';
 
   let active = null;
-  if (options.activate === true && decision.promote === true) {
+  if (options.activate === true && stageReady) {
     active = await engine.activateAdapter({
       plan,
       artifact: checkedArtifact,
@@ -349,7 +352,10 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
       candidate: impactCandidate,
       comparison: impact,
     },
-    next_stage: impact.next_stage,
+    next_stage: nextStage,
+    impact_gate_passed: impactGatePassed,
+    canonical_gate_passed: decision.promote === true,
+    activation_blocker: stageReady ? null : (decision.promote === true ? 'LORA_IMPACT_GATE_NOT_PASSED' : String(decision.reason || 'CANONICAL_BENCHMARK_NOT_PASSED')),
     active,
     activated: Boolean(active),
     source_sha: sourceSha,
