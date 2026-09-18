@@ -13,6 +13,7 @@ export function registerWebResearchCapability(bus, env = {}) {
       properties: {
         query: { type: 'string', minLength: 1, maxLength: 2000 },
         domains: { type: 'array', maxItems: 3, items: { type: 'string', minLength: 1, maxLength: 253 } },
+        seed_urls: { type: 'array', maxItems: 6, items: { type: 'string', minLength: 8, maxLength: 500 } },
         depth: { type: 'integer', minimum: 1, maximum: 3 }
       },
       required: ['query'],
@@ -26,6 +27,11 @@ export function registerWebResearchCapability(bus, env = {}) {
   }, async input => {
     const service = new InternetService(env);
     service.minInterval = Math.max(0, Math.min(5000, Number(env.MEL_WEB_MIN_INTERVAL_MS ?? 1000) || 0));
-    return service.research(input.query, input.domains || null, Math.max(1, Math.min(3, Number(input.depth) || 2)));
+    return service.research(
+      input.query,
+      input.domains || null,
+      Math.max(1, Math.min(3, Number(input.depth) || 2)),
+      input.seed_urls || null,
+    );
   });
 }

@@ -87,11 +87,37 @@ class InternetService {
     return links;
   }
 
-  async research(query, domains = null, maxDepth = 1) {
+  normalizeSeedUrls(seedUrls, limit = 6) {
+    const out = [];
+    const seen = new Set();
+    for (const raw of Array.isArray(seedUrls) ? seedUrls : []) {
+      const validation = validateUrl(String(raw || '').trim());
+      if (!validation.valid) continue;
+      const url = validation.url.href;
+      if (seen.has(url)) continue;
+      seen.add(url);
+      out.push(url);
+      if (out.length >= Math.max(1, Math.min(6, Number(limit) || 6))) break;
+    }
+    return out;
+  }
+
+  async research(query, domains = null, maxDepth = 1, seedUrls = null) {
     await this.ensureRateLimit();
     const querySanitized = String(query || '').trim();
     if (!querySanitized) throw new Error('INVALID_QUERY');
     const depth = Math.max(1, Math.min(3, Number(maxDepth) || 1));
+    const officialSeedUrls = this.normalizeSeedUrls(seedUrls, 6);
+    const officialSources = [];
+    for (const url of officialSeedUrls) {
+      try {
+        const page = await this.fetchPage(url);
+        const source = this.pageSource(page, url, 'OFFICIAL_SEED');
+        if (source) officialSources.push(source);
+      } catch (e) {
+        console.error(`InternetService official seed failed for ${url}:`, e.message);
+      }
+    }
 
     const searchUrls = [];
     if (depth >= 1) searchUrls.push(`https://www.google.com/search?q=${encodeURIComponent(querySanitized)}`);
@@ -103,7 +129,7 @@ class InternetService {
       }
     }
 
-    const searchResults = await Promise.all(searchUrls.slice(0, 3).map(async url => {
+    const searchResults = officialSources.length ? [] : await Promise.all(searchUrls.slice(0, 3).map(async url => {
       try {
         const page = await this.fetchPage(url);
         return this.pageSource(page, url, 'SEARCH_INDEX');
@@ -143,13 +169,15 @@ class InternetService {
       }
     }
 
-    const sources = directSources.length ? directSources : searchIndexes;
+    const sources = officialSources.length ? officialSources : (directSources.length ? directSources : searchIndexes);
     return {
       query: querySanitized,
       sources,
       citations_count: sources.length,
       depth,
       discovery: {
+        official_seed_urls: officialSeedUrls,
+        official_sources_loaded: officialSources.length,
         search_indexes: searchIndexes.map(source => ({
           url: source.url,
           title: source.title,

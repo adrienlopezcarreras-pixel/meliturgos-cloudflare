@@ -35,3 +35,26 @@ test('web research HTTP API execution is locked to CapabilityBus', async () => {
   assert.doesNotMatch(source, /InternetService/);
   assert.match(source, /runtime\.bus\.execute\(['"]web\.research['"]/);
 });
+
+
+test('web.research accepts bounded official seed URLs through CapabilityBus', async () => {
+  const calls = [];
+  const runtime = createGen2Runtime({ env: {
+    MEL_WEB_MIN_INTERVAL_MS: 0,
+    MEL_WEB_FETCH: async url => {
+      calls.push(String(url));
+      return new Response('<html><head><title>Official docs</title><meta name="description" content="Video generation update"></head><body>video generation</body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+    },
+  } });
+  const result = await runtime.bus.execute('web.research', {
+    query: 'official video generation update',
+    depth: 2,
+    seed_urls: ['https://docs.example.com/video'],
+  }, { owner: 'test', permissions: [], requestId: 'seed-web-test' });
+  assert.equal(result.citations_count, 1);
+  assert.equal(result.sources[0].source_kind, 'OFFICIAL_SEED');
+  assert.deepEqual(calls, ['https://docs.example.com/video']);
+});

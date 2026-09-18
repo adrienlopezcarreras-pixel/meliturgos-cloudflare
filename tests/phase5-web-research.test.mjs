@@ -162,3 +162,30 @@ test('rate limiter serializes near-simultaneous requests', async () => {
   await s.ensureRateLimit();
   assert.ok(Date.now() - start >= 30);
 });
+
+
+test('official seed URLs bypass search-engine discovery when at least one direct source loads', async () => {
+  const calls = [];
+  const fetchImpl = async url => {
+    calls.push(String(url));
+    if (String(url) === 'https://docs.example.org/release-notes') {
+      return new Response('<html><head><title>Official release notes</title><meta name="description" content="Image generation and tool calling updates"></head><body>Official image generation documentation.</body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+    }
+    throw new Error('search engines must not be called when official seed succeeds');
+  };
+  const result = await service(fetchImpl).research(
+    'latest official capabilities',
+    null,
+    2,
+    ['https://docs.example.org/release-notes'],
+  );
+  assert.equal(result.sources.length, 1);
+  assert.equal(result.sources[0].source_kind, 'OFFICIAL_SEED');
+  assert.equal(result.sources[0].url, 'https://docs.example.org/release-notes');
+  assert.equal(result.discovery.official_sources_loaded, 1);
+  assert.equal(result.discovery.search_indexes.length, 0);
+  assert.deepEqual(calls, ['https://docs.example.org/release-notes']);
+});
