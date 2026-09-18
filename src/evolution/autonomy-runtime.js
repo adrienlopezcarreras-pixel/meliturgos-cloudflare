@@ -229,12 +229,16 @@ async function runCoreResilient(env, coreOptions, repository) {
   }
 }
 
-export async function mirrorAllWaitingInternalTeachers({ env = {}, repository, fetchImpl = fetch, limit = 50 } = {}) {
+export async function mirrorAllWaitingInternalTeachers({ env = {}, repository, fetchImpl = fetch, limit = 50, excludeRequestIds = [] } = {}) {
   if (!repository || typeof repository.list !== 'function') {
     throw Object.assign(new Error('INTERNAL_TEACHER_REPOSITORY_REQUIRED'), { code: 'INTERNAL_TEACHER_REPOSITORY_REQUIRED' });
   }
+  const excluded = new Set((Array.isArray(excludeRequestIds) ? excludeRequestIds : []).map(value => String(value || '')).filter(Boolean));
   const jobs = await repository.list();
-  const waiting = jobs.filter(internalWaitingTeacher).slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
+  const waiting = jobs
+    .filter(internalWaitingTeacher)
+    .filter(job => !excluded.has(String(job?.result_json?.teacher_bridge?.request?.request_id || '')))
+    .slice(0, Math.max(1, Math.min(100, Number(limit) || 50)));
   const mirrored = [];
   const failed = [];
 
@@ -369,10 +373,16 @@ async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = 
 
   let internalTeacherMirror = null;
   try {
+    const mirroredInCore = first?.teacher_mirror
+      && ['MIRRORED', 'ALREADY_PRESENT'].includes(String(first.teacher_mirror.status || '').toUpperCase())
+      && first.teacher_mirror.request_id
+      ? [first.teacher_mirror.request_id]
+      : [];
     internalTeacherMirror = await mirrorAllWaitingInternalTeachers({
       env,
       repository,
       fetchImpl: options.fetchImpl || fetch,
+      excludeRequestIds: mirroredInCore,
     });
   } catch (error) {
     internalTeacherMirror = {
