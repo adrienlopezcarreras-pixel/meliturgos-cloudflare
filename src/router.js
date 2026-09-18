@@ -8,6 +8,7 @@ import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
+export { inferNativeCodeCapability as inferCodeCapability } from "./api/native-chat.js";
 
 function capabilityContext(env) {
   return {
