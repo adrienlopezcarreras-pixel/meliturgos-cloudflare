@@ -1,0 +1,59 @@
+name: kaggle-stop-inspect
+
+on:
+  push:
+    branches:
+      - candidate/mel-clean-autonomy
+    paths:
+      - ".github/workflows/kaggle-stop-inspect.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-stop:
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 10
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: adrienlopezcarreras/mel-lora-uncensored-notebook-t4
+    steps:
+      - name: Install Kaggle CLI
+        run: python -m pip install -q -U kaggle
+
+      - name: Inspect running kernel and collect available output
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts/before
+          kaggle kernels status "$KERNEL_REF" 2>&1 | tee artifacts/status-before.txt || true
+          kaggle kernels output "$KERNEL_REF" -p artifacts/before --force > artifacts/output-before.txt 2>&1 || true
+          find artifacts/before -maxdepth 4 -type f -printf '%p %s bytes\n' | tee artifacts/files-before.txt || true
+
+      - name: Stop active Kaggle session without starting a new run
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf kernel-stop
+          mkdir -p kernel-stop
+          kaggle kernels pull "$KERNEL_REF" -p kernel-stop -m
+          kaggle kernels push -p kernel-stop --no-run
+          echo "NO_RUN_VERSION_PUSHED" | tee artifacts/stop-result.txt
+
+      - name: Inspect status after stop request
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          sleep 5
+          kaggle kernels status "$KERNEL_REF" 2>&1 | tee artifacts/status-after.txt || true
+
+      - name: Upload stop inspection
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kaggle-stop-inspect-${{ github.run_id }}
+          path: artifacts/**
+          if-no-files-found: warn
+          retention-days: 14
