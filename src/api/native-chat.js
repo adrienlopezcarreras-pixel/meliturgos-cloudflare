@@ -117,6 +117,7 @@ export function selectRelevantOperationalExperience(goal, corrections = [], cont
     'bootstrap-runtime-path-authority-20260918',
     'bootstrap-post-pass-reconcile-adapt-20260918',
     'bootstrap-code-access-capability-truth-20260918',
+    'bootstrap-continuous-experience-read-20260918',
   ]);
   const merged = [];
   for (const row of [...(Array.isArray(contextual) ? contextual : []), ...(Array.isArray(corrections) ? corrections : [])]) {
