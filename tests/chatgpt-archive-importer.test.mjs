@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeChatGPTArchive } from '../src/persistence/chatgpt-archive-importer.js';
+import { getChatGPTImportStatus, normalizeChatGPTArchive } from '../src/persistence/chatgpt-archive-importer.js';
 import worker from '../src/index.js';
 
 const sample = [{
@@ -36,4 +36,26 @@ test('explicit archive endpoint supports safe preview without touching D1', asyn
   assert.equal(body.preview, true);
   assert.equal(body.conversations, 1);
   assert.equal(body.messages, 2);
+});
+
+
+test('ChatGPT import status is fail-closed when persistent DB is unavailable', async () => {
+  const status = await getChatGPTImportStatus({});
+  assert.equal(status.ok, false);
+  assert.equal(status.status, 'UNAVAILABLE');
+  assert.equal(status.db_bound, false);
+  assert.equal(status.messages, 0);
+});
+
+test('authenticated ChatGPT import status endpoint exposes server-side ingestion state', async () => {
+  const auth = 'Basic ' + Buffer.from('adrien:test').toString('base64');
+  const request = new Request('https://mel.test/api/gen2/import/chatgpt-status', {
+    method: 'GET',
+    headers: { authorization: auth }
+  });
+  const response = await worker.fetch(request, { MELITURGOS_USER: 'adrien', MELITURGOS_PASSWORD: 'test' }, {});
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, 'UNAVAILABLE');
+  assert.equal(body.db_bound, false);
 });
