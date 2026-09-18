@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-09-18T12:22:00Z",
+  "updated_at": "2026-09-18T15:36:00Z",
   "status_values": [
     "NOT_STARTED",
     "PARTIAL",
@@ -252,17 +252,20 @@
       "truth_status": "PARTIEL",
       "evidence": [
         "tests/gen2/ecosystem-watch.test.mjs",
-        "tests/ecosystem-watch-wiring.test.mjs"
+        "tests/ecosystem-watch-wiring.test.mjs",
+        "tests/owner-development-queue.test.mjs"
       ],
       "verified_subcapabilities": [
         "One canonical Capability Watch engine supports scored benchmarks and observation targets without a second watch engine.",
         "Persistent D1 state is scheduled through the existing Worker cron path.",
         "The full-mode Activity panel reads the same canonical watch state.",
-        "Catalog covers ChatGPT/OpenAI, Claude/Anthropic, Gemini/Google, Grok/xAI, open ecosystems, plugins/connectors and creative domains."
+        "Catalog covers ChatGPT/OpenAI, Claude/Anthropic, Gemini/Google, Grok/xAI, open ecosystems, plugins/connectors and creative domains.",
+        "Sourced REUSE_EXISTING discoveries are compared with roadmap matches and can enqueue a supervised Council/Teacher optimization job for a healthy existing capability without entering Module Lab as a duplicate module."
       ],
       "unknowns": [
         "External websites may rate-limit or block automated research; degraded observations are recorded truthfully.",
-        "Automatic adoption of a discovered plugin/model still requires the existing Council/Module Lab validation path."
+        "Automatic adoption of a discovered plugin/model still requires the existing Council/Module Lab validation path.",
+        "A real external end-to-end optimization cycle on preview still needs runtime proof before GEN2-42 can be marked DONE_VERIFIED."
       ]
     }
   },
