@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAutonomyControlMemoryState, getAutonomyControl, setAutonomyControl, setOwnerMaxAutonomy, resetAutonomyControlForTests } from '../src/evolution/autonomy-control.js';
 import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
+import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 
 test('autonomy emergency pause persists only in explicitly injected fallback state and blocks a runtime heartbeat', async () => {
   const autonomyControlState = createAutonomyControlMemoryState();
@@ -55,4 +56,22 @@ test('autonomy control writes fail closed without D1 or explicit memory state', 
     () => setOwnerMaxAutonomy(null, { enabled: true, source: 'test' }),
     (error) => error?.code === 'AUTONOMY_CONTROL_DB_REQUIRED' && error?.status === 503,
   );
+});
+
+test('persistent D1 autonomy control is fail-closed PAUSED until the owner explicitly enables it', async () => {
+  const db = sqliteD1();
+  try {
+    const initial = await getAutonomyControl(db);
+    assert.equal(initial.paused, true);
+    assert.equal(initial.status, 'PAUSED');
+    assert.equal(initial.source, 'default-d1-fail-closed');
+    assert.equal(initial.reason, 'OWNER_ENABLE_REQUIRED');
+
+    const resumed = await setAutonomyControl(db, { paused: false, source: 'test-owner-enable', reason: null });
+    assert.equal(resumed.paused, false);
+    assert.equal(resumed.status, 'RUNNING');
+    assert.equal((await getAutonomyControl(db)).status, 'RUNNING');
+  } finally {
+    db.close();
+  }
 });
