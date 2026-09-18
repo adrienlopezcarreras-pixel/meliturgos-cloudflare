@@ -1,8 +1,6 @@
 import { migrate } from '../persistence/migrations.js';
 import { createDevJobCheckpoint, verifyDevJobCheckpoint } from './dev-job-checkpoint.js';
 
-const sharedMemory = new Map();
-
 function buildJob(input = {}) {
   const j = {
     id: input.id || crypto.randomUUID(),
@@ -55,9 +53,9 @@ function bridgeClaimPriority(job) {
 }
 
 export class D1DevJobRepository {
-  constructor(db, { memoryStore = sharedMemory } = {}) {
+  constructor(db, { memoryStore = null } = {}) {
     this.db = db;
-    this.memory = memoryStore;
+    this.memory = memoryStore ?? new Map();
     this.ready = null;
   }
 
