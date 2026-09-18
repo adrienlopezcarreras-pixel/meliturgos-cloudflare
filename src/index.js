@@ -293,19 +293,28 @@ async function maybeHandleChatGPTArchive(request, env) {
   const explicit = url.pathname === '/api/gen2/import/chatgpt-archive';
   const compatibility = url.pathname === '/api/import/chatgpt-context';
   if (!explicit && !compatibility) return null;
-  if (!(request.headers.get('content-type') || '').includes('application/json')) return null;
+
+  if (compatibility) {
+    return new Response(null, {
+      status: 307,
+      headers: { location: '/api/gen2/import/chatgpt-archive', 'cache-control': 'no-store' },
+    });
+  }
+  if (!(request.headers.get('content-type') || '').includes('application/json')) {
+    return Response.json({ ok: false, code: 'JSON_REQUIRED' }, { status: 415 });
+  }
 
   let body;
   try { body = await request.clone().json(); }
-  catch { return explicit ? Response.json({ ok: false, code: 'INVALID_JSON' }, { status: 400 }) : null; }
+  catch { return Response.json({ ok: false, code: 'INVALID_JSON' }, { status: 400 }); }
 
-  const archive = explicit ? (body.archive ?? body.payload ?? body) : body;
-  if (!isArchivePayload(archive)) return compatibility ? null : Response.json({ ok: false, code: 'CHATGPT_EXPORT_FORMAT_UNSUPPORTED' }, { status: 400 });
+  const archive = body.archive ?? body.payload ?? body;
+  if (!isArchivePayload(archive)) return Response.json({ ok: false, code: 'CHATGPT_EXPORT_FORMAT_UNSUPPORTED' }, { status: 400 });
 
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
 
-  const preview = explicit ? body.preview !== false : false;
+  const preview = body.preview !== false;
   try {
     const runtime = createGen2Runtime({ env });
     const capabilityId = preview ? 'chatgpt.archive.preview' : 'chatgpt.archive.import';
