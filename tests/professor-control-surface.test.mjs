@@ -98,13 +98,17 @@ test('Professor Work routes remain usable with owner auth while privileged bridg
   assert.ok(index.includes('requireAuth(request, env)'), 'safe Professor Work route must retain owner authentication');
 });
 
-test('live autonomy controls point to real authenticated autonomy endpoints', async () => {
-  const [ui, autonomy] = await Promise.all([
+test('manual autonomy control is canonical in the top Professor controls and uses real authenticated endpoints', async () => {
+  const [ui, controls, autonomy] = await Promise.all([
     read('src/ui-entry.js'),
+    read('src/pages/full-mode-control-enhancer.js'),
     read('src/evolution/autonomy-api.js'),
   ]);
+  assert.ok(ui.includes('/api/gen2/autonomy/state'), 'live status UI must read autonomy state');
+  assert.ok(controls.includes('/api/gen2/autonomy/tick'), 'top control must execute the autonomy tick');
+  assert.ok(controls.includes('id="melFullCycle"'), 'canonical top cycle button is missing');
+  assert.ok(!ui.includes('/api/gen2/autonomy/tick'), 'live status patch must not expose a second cycle actuator');
   for (const path of ['/api/gen2/autonomy/state', '/api/gen2/autonomy/tick']) {
-    assert.ok(ui.includes(path), `live UI missing autonomy call ${path}`);
     assert.ok(autonomy.includes(path), `autonomy backend missing ${path}`);
   }
   assert.ok(autonomy.includes('requireAuth(request, env)'), 'state-changing autonomy routes must remain authenticated');

@@ -25,7 +25,8 @@ test('full mode receives the Worker-served futuristic MEL portrait and explanato
   assert.match(html, /mel-full-avatar-fix/);
   assert.match(html, /mel-full-page-cleanup/);
   assert.match(html, /Ce que MEL fait maintenant/);
-  assert.match(html, /Réconcilier Teacher \/ Review maintenant/);
+  assert.match(html, /Démarrer cycle MEL/);
+  assert.doesNotMatch(html, /Réconcilier Teacher \/ Review maintenant/);
 });
 
 test('non-owner API responses are left untouched', async () => {
