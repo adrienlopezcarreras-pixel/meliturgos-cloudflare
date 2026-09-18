@@ -88,6 +88,30 @@ async function workflowRuns({ fetchImpl, repository, branch, workflow, token }) 
   return Array.isArray(body?.workflow_runs) ? body.workflow_runs : [];
 }
 
+const CHECKPOINT_TAG_RE = /^mel-lora-kaggle-[0-9a-f]{12}-c(\d+)$/i;
+
+async function latestCheckpointRelease({ fetchImpl, repository, token }) {
+  const url = new URL(`https://api.github.com/repos/${repository}/releases`);
+  url.searchParams.set('per_page', '100');
+  const releases = await githubJson(fetchImpl, url.toString(), token);
+  if (!Array.isArray(releases)) return null;
+  for (const release of releases) {
+    const tag = String(release?.tag_name || '').trim();
+    const match = CHECKPOINT_TAG_RE.exec(tag);
+    if (!match) continue;
+    const body = String(release?.body || '');
+    return {
+      tag,
+      cycle: Number(match[1]),
+      target_commitish: String(release?.target_commitish || '').trim(),
+      local_gate_ready: body.includes('LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK'),
+      body: body.slice(0, 1000),
+      published_at: release?.published_at || release?.created_at || null,
+    };
+  }
+  return null;
+}
+
 async function dispatchWorkflow({ fetchImpl, repository, branch, workflow, token, inputs }) {
   const response = await fetchImpl(
     `https://api.github.com/repos/${repository}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`,
@@ -175,9 +199,34 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
       };
     }
 
+    const checkpoint = await latestCheckpointRelease({ fetchImpl, repository, token });
+    if (checkpoint?.local_gate_ready === true) {
+      return {
+        status: 'LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK',
+        dispatched: false,
+        checkpoint,
+        impact,
+        reason: 'PRESERVE_UNCENSORED_CHECKPOINT',
+      };
+    }
+
     const sha = await candidateHead({ fetchImpl, repository, branch, token });
     const shardSize = String(safeInt(env?.MEL_LORA_KAGGLE_SHARD_SIZE, 750, 50, 3000));
-    const maxCycles = String(safeInt(env?.MEL_LORA_KAGGLE_MAX_CYCLES, 100, 1, 100));
+    const maxCyclesNumber = safeInt(env?.MEL_LORA_KAGGLE_MAX_CYCLES, 1000, 1, 2000);
+    const maxCycles = String(maxCyclesNumber);
+    const nextCycle = checkpoint ? checkpoint.cycle + 1 : 0;
+    const parentReleaseTag = checkpoint?.tag || '';
+
+    if (nextCycle >= maxCyclesNumber) {
+      return {
+        status: 'CYCLE_LIMIT_REACHED',
+        dispatched: false,
+        cycle: nextCycle,
+        max_cycles: maxCyclesNumber,
+        checkpoint,
+        impact,
+      };
+    }
 
     await dispatchWorkflow({
       fetchImpl,
@@ -187,10 +236,11 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
       token,
       inputs: {
         source_sha: sha,
-        cycle: '0',
-        parent_release_tag: '',
+        cycle: String(nextCycle),
+        parent_release_tag: parentReleaseTag,
         shard_size: shardSize,
         max_cycles: maxCycles,
+        benchmark_preview: 'false',
       },
     });
 
@@ -201,10 +251,14 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
       branch,
       workflow,
       source_sha: sha,
+      cycle: nextCycle,
+      parent_release_tag: parentReleaseTag,
+      resumed_from_checkpoint: Boolean(checkpoint),
       shard_size: Number(shardSize),
-      max_cycles: Number(maxCycles),
+      max_cycles: maxCyclesNumber,
       interval_minutes: intervalMinutes,
       dispatched_at: isoNow(options.now),
+      checkpoint,
       impact,
       zero_cost_only: true,
     };
@@ -224,6 +278,6 @@ export const LORA_TRAINING_HEARTBEAT_DEFAULTS = Object.freeze({
   interval_minutes: 15,
   retry_minutes: 60,
   shard_size: 750,
-  max_cycles: 100,
+  max_cycles: 1000,
   zero_cost_only: true,
 });
