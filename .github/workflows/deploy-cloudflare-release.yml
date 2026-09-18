@@ -30,6 +30,12 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
 
+      - name: Syntax gate
+        run: npm run check
+
+      - name: Full test suite
+        run: npm test
+
       - name: Verify release branch
         shell: bash
         run: |
