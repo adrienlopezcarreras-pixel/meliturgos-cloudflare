@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stripInternalCounters } from '../src/router.js';
+import { stripInternalCounters } from '../src/api/chat-sanitization.js';
 
 test('removes interaction_count sentence from normal MEL reply', () => {
   const input = "Je peux maintenant lire mon code. Et pour répondre à ta question sur le nombre d'échanges, interaction_count : 169";
