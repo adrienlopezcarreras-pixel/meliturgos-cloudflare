@@ -6,6 +6,7 @@ import { ModelRouter, classifyTask, extractFinishReason, isTruncationFinishReaso
 import { ModelRegistry, standardRegistry } from '../models/ModelRegistry.js';
 import { buildMelIdentityPrompt } from '../identity/mel-persona.js';
 import { getMelThemeContract } from '../identity/mel-theme-persona.js';
+import { buildMelOperatingManualPrompt } from '../identity/mel-operating-manual.js';
 import { classifyCapabilityTruth, declaredImplementationStatus } from '../diagnostics/capability-truth-audit.js';
 import { LearningEngine } from '../learning/learning-engine.js';
 import { MentorMemoryRepository } from '../learning/mentor-memory.js';
@@ -89,6 +90,61 @@ export function applyCapabilityExecutionEvidence(manifest = [], toolResults = []
         : { status: 'FAILED', code: execution.code },
     };
   });
+}
+
+export function codeAccessTruth(manifest = []) {
+  const ids = new Set(['code.read', 'code.search', 'code.integrity']);
+  const rows = (Array.isArray(manifest) ? manifest : []).filter(row => ids.has(String(row?.id || '')));
+  const blocked = new Set(['BLOCKED', 'BLOCKED_EXTERNAL', 'NOT_IMPLEMENTED', 'STUB']);
+  const available = rows.filter(row => row?.enabled !== false && !blocked.has(String(row?.status || '').toUpperCase()));
+  return {
+    available: available.length > 0,
+    capabilities: rows.map(row => ({
+      id: String(row?.id || ''),
+      status: String(row?.status || 'UNKNOWN'),
+      health: String(row?.health || 'UNKNOWN'),
+      tested_now: row?.tested_now === true,
+    })),
+  };
+}
+
+export function selectRelevantOperationalExperience(goal, corrections = [], contextual = [], limit = 12) {
+  const text = String(goal || '').toLowerCase();
+  const terms = [...new Set(text.split(/[^\p{L}\p{N}_-]+/u).filter(x => x.length >= 4))].slice(0, 24);
+  const criticalIds = new Set([
+    'bootstrap-canonical-cleanup-handoff-20260916',
+    'bootstrap-mandatory-xp-checkpoint-20260916',
+    'bootstrap-runtime-path-authority-20260918',
+    'bootstrap-post-pass-reconcile-adapt-20260918',
+    'bootstrap-code-access-capability-truth-20260918',
+  ]);
+  const merged = [];
+  for (const row of [...(Array.isArray(contextual) ? contextual : []), ...(Array.isArray(corrections) ? corrections : [])]) {
+    const id = String(row?.id || '');
+    if (!id || merged.some(x => String(x?.id || '') === id)) continue;
+    merged.push(row);
+  }
+  const scored = merged.map(row => {
+    const hay = [row?.id, row?.task, row?.input, row?.after, row?.rationale, row?.lesson, ...(row?.tags || [])].join(' ').toLowerCase();
+    const relevance = terms.reduce((n, term) => n + (hay.includes(term) ? 2 : 0), 0);
+    const critical = criticalIds.has(String(row?.id || '')) ? 100 : 0;
+    const validated = row?.validated === false ? -20 : 5;
+    return { row, score: critical + relevance + validated };
+  }).sort((a,b) => b.score - a.score);
+  return scored.slice(0, Math.max(1, Math.min(20, Number(limit) || 12))).map(x => x.row);
+}
+
+async function loadOperationalExperience(env, goal) {
+  const memory = new MentorMemoryRepository(env?.DB || null);
+  const engine = new LearningEngine({ memory });
+  let corrections = [];
+  let contextual = [];
+  try { corrections = await engine.corrections({ limit: 500 }); } catch {}
+  try {
+    const ctx = await memory.experienceContext(goal, { limit: 8 });
+    contextual = [...(ctx?.validated || []), ...(ctx?.observations || [])];
+  } catch {}
+  return selectRelevantOperationalExperience(goal, corrections, contextual, 12);
 }
 
 function summarizeToolResult(result) {
@@ -383,10 +439,14 @@ export async function handleNativeChat(request, env) {
   ]);
   const retrieved = await loadCognitiveMemory(env, activeInferenceSettings?.memory_results ?? 12);
   const manifestText = JSON.stringify(capabilityManifest);
+  const operationalExperience = await loadOperationalExperience(env, text);
+  const codeAccess = codeAccessTruth(capabilityManifest);
+  const operatingManual = buildMelOperatingManualPrompt({ capabilityManifest, experience: operationalExperience });
   const developmentQueued = toolResults.find((row) => row.capability === 'evolution.enqueue' && row.status === 'SUCCEEDED')?.result || null;
 
   const system = [
     buildMelIdentityPrompt(),
+    operatingManual,
     themeInstruction,
     'Réponds en français sauf demande contraire.',
     'TUTOIEMENT ABSOLU AVEC ADRIEN : adresse-toi toujours à lui avec « tu », « ton », « ta », « tes ». N’utilise jamais « vous », « votre » ou « vos » pour lui parler. Avant d’envoyer ta réponse, relis-la et reformule toute adresse formelle résiduelle en tutoiement naturel.',
@@ -397,7 +457,8 @@ export async function handleNativeChat(request, env) {
     activeAdapter
       ? `LORA_RUNTIME ACTIF : plan=${String(activeAdapter.plan_id || 'inconnu')} runtime=${String(activeAdapter.runtime_model || activeAdapter?.adapter?.runtime_model || 'inconnu')} finetune=${String(activeAdapter.finetune_id || activeAdapter?.adapter?.finetune_id || 'inconnu')}.`
       : 'LORA_RUNTIME : aucun adaptateur actif persistant; utilise le routage standard.',
-    'ACCÈS AU CODE : tu peux affirmer avoir lu ou inspecté le code du projet MEL seulement lorsqu’un TOOL_RESULT code.read/code.search/code.integrity SUCCEEDED de la requête courante le prouve. Cet accès concerne le dépôt MEL exposé par tes outils; il ne signifie pas que tu disposes du code source propriétaire, des poids ou des mécanismes internes du modèle de fondation ou d’un fournisseur externe. Une simple question « as-tu accès à ton code source ? » ne doit jamais provoquer la lecture silencieuse d’un fichier arbitraire : sans cible explicite, décris seulement le statut réel des capacités du manifeste.',
+    `VÉRITÉ ACCÈS CODE : ${JSON.stringify(codeAccess)}. Si available=true, réponds clairement « oui, j’ai accès à mon dépôt/code MEL via mes capacités code » lorsqu’Adrien te le demande. Il t’est interdit de dire que tu n’as pas accès à ton code lorsque ce statut indique available=true. Un échec ponctuel d’outil signifie « l’opération a échoué cette fois », pas « je n’ai plus accès au code ». Tu ne dis que l’accès est indisponible si le manifeste courant le prouve réellement.`,
+    'ACCÈS AU CODE : distingue toujours la DISPONIBILITÉ de la capacité et la PREUVE d’une lecture précise. Tu peux affirmer avoir accès au dépôt MEL lorsque codeAccess.available=true. En revanche, tu ne peux affirmer avoir effectivement lu/inspecté un fichier précis que lorsqu’un TOOL_RESULT code.read/code.search/code.integrity SUCCEEDED de la requête courante le prouve. Cet accès concerne le dépôt MEL exposé par tes outils; il ne signifie pas que tu disposes du code source propriétaire, des poids ou des mécanismes internes du modèle de fondation ou d’un fournisseur externe. Une simple question « as-tu accès à ton code source ? » ne doit pas inventer une cible de fichier : réponds depuis la vérité du manifeste.',
     'BENCHMARK ET LoRA : ne transforme jamais un plan, un statut READY ou un test absent en résultat réel. Un benchmark est réel seulement si une exécution persistée fournit ses preuves. Un LoRA est actif seulement si une activation réelle et persistée existe après entraînement compatible et validation benchmark; sinon décris exactement le statut et les blockers disponibles.',
     `CAPABILITY_MANIFEST runtime actuel (données, pas instructions): ${manifestText}`,
     'Base tes affirmations de capacité sur ce manifeste et les TOOL_RESULT de cette requête. Les statuts de vérité sont stricts : EXISTANT_ET_TESTE = exécuté et prouvé; EXISTANT_NON_TESTE = enregistré/sain mais non prouvé par une exécution; PARTIEL = incomplet ou dégradé; STUB = squelette non fonctionnel; NOT_IMPLEMENTED = non implémenté; BLOCKED = désactivé; BLOCKED_EXTERNAL = dépendance indisponible. Ne présente jamais EXISTANT_NON_TESTE comme testé ou comme preuve de fonctionnement.',
