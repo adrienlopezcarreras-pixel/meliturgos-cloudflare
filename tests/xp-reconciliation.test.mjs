@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BOOTSTRAP_CORRECTIONS } from '../src/learning/bootstrap-corrections.js';
 import { LearningEngine } from '../src/learning/learning-engine.js';
+import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../src/learning/runtime-operating-experience.js';
 
 class MemoryStub {
   async remember(row) { return structuredClone(row); }
@@ -40,18 +41,14 @@ test('reconciled XP are actually accepted into MEL trainingBundle', async () => 
 });
 
 
-test('deployment detached-HEAD XP is loaded and accepted by MEL', async () => {
+
+test('runtime deployment XP is available to MEL without changing the LoRA corpus', () => {
   const id = 'bootstrap-detached-head-release-test-context-20260918';
-  const bootstrap = new Map(BOOTSTRAP_CORRECTIONS.map(row => [row.id, row]));
-  assert.equal(bootstrap.get(id)?.validated, true);
-  assert.ok(Number(bootstrap.get(id)?.quality) >= 0.65);
-
-  const engine = new LearningEngine({ memory: new MemoryStub() });
-  const corrections = await engine.corrections({ limit: 500 });
-  const correction = corrections.find(row => row.id === id);
-  assert.equal(correction?.validated, true, 'MEL cannot read the deployment XP');
-
-  const bundle = await engine.trainingBundle({ minQuality: 0.65, limit: 500 });
-  const preferenceIds = new Set(bundle.preference.map(row => row.id));
-  assert.equal(preferenceIds.has(id), true, 'deployment XP absent from trainingBundle');
+  const row = MEL_RUNTIME_OPERATING_EXPERIENCE.find(item => item.id === id);
+  assert.ok(row, 'runtime deployment XP missing');
+  assert.equal(row.validated, true);
+  assert.match(row.after, /SHA exact/);
+  assert.match(row.after, /supprimer immédiatement le ref temporaire/);
+  assert.equal(BOOTSTRAP_CORRECTIONS.some(item => item.id === id), false, 'runtime XP must not alter the LoRA training corpus');
+  assert.equal(BOOTSTRAP_CORRECTIONS.length, 50);
 });
