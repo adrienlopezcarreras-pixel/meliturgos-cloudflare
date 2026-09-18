@@ -38,15 +38,6 @@ export const MEL_RUNTIME_OPERATING_EXPERIENCE = Object.freeze([
     rationale: 'La récupération continue relie l’expérience persistée au comportement courant.',
     validated: true,
     tags: ['experience','retrieval','runtime-context','continuous-learning'],
-  }),  Object.freeze({
-    id: 'bootstrap-detached-head-release-test-context-20260918',
-    domain: 'deployment-governance',
-    task: 'Déployer un SHA exact quand des tests d’intégration dépendent d’un contexte de branche candidate.',
-    before: 'Exécuter la release sur un HEAD détaché, interpréter les tests sensibles à la branche comme une régression, ou les ignorer pour atteindre le déploiement.',
-    after: 'Conserver le SHA exact comme autorité; si les tests exigent une branche candidate, créer un ref candidate/* temporaire figé sur ce SHA, vérifier HEAD + ascendance vers la candidate canonique, exécuter sécurité/syntaxe/suite complète sans ignorer de test, déployer seulement si tout est vert, vérifier le HTTP production, puis supprimer immédiatement le ref temporaire et revalider l’unicité.',
-    rationale: 'Un HEAD détaché change le contexte Git sans changer le code. La bonne réponse est de restaurer le contexte attendu tout en gardant l’identité cryptographique du SHA, puis de nettoyer la branche temporaire.',
-    validated: true,
-    tags: ['deployment','detached-head','candidate-branch','exact-sha','ci','fail-closed','cleanup','production'],
   }),
 
 ]);
