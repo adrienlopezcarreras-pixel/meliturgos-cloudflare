@@ -8,6 +8,7 @@ import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { handleNativeChat } from "./api/native-chat.js";
 import { maybeHandlePublicTeacherBridge } from "./teachers/public-teacher-api.js";
 import { runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
+import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
 import { enhanceThemeAvatars } from "./pages/theme-avatar-enhancer.js";
@@ -365,10 +366,16 @@ export default {
   },
 
   async scheduled(_controller, env, ctx) {
-    const work = runAutonomyRuntimeTick(env).catch((error) => {
-      console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
-      return null;
-    });
+    const work = Promise.allSettled([
+      runAutonomyRuntimeTick(env).catch((error) => {
+        console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
+        return null;
+      }),
+      runEcosystemCapabilityWatch(env).catch((error) => {
+        console.error('[MEL watch] scheduled ecosystem watch failed:', error?.code || error?.message || error);
+        return null;
+      }),
+    ]);
     if (ctx?.waitUntil) ctx.waitUntil(work);
     else await work;
   }
