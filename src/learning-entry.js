@@ -86,24 +86,31 @@ if(learningChip){
 
 const CONTROL_STYLE = `<style id="mel-control-center-style">
 .mel-unified-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}.mel-unified-tabs button.active{background:linear-gradient(135deg,#2563eb,#1d4ed8)}
-.mel-recall-last{margin-top:9px!important;background:rgba(255,255,255,.055)!important}.mel-live-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.mel-live-log{max-height:55vh;overflow:auto}.mel-live-entry{padding:11px 12px;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(255,255,255,.025);margin-bottom:8px}.mel-live-entry strong{display:block}.mel-live-entry small{display:block;color:#94a3b8;margin-top:4px}.mel-live-pulse{display:inline-block;width:9px;height:9px;border-radius:50%;background:#34d399;box-shadow:0 0 0 0 rgba(52,211,153,.45);animation:melLivePulse 1.5s infinite}.mel-live-run-status{display:none;margin-top:10px;padding:10px 12px;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:rgba(2,6,23,.48);font-size:.82rem;line-height:1.45}.mel-live-run-status.show{display:block}.mel-live-run-status.running{border-color:rgba(96,165,250,.42);background:rgba(30,64,175,.13)}.mel-live-run-status.ok{border-color:rgba(52,211,153,.38);background:rgba(6,78,59,.15)}.mel-live-run-status.error{border-color:rgba(251,113,133,.40);background:rgba(127,29,29,.16)}.mel-live-run-result{margin:8px 0 0;max-height:220px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:rgba(2,6,23,.62);border:1px solid rgba(255,255,255,.07);border-radius:9px;padding:8px;color:#dbeafe;font:12px ui-monospace,SFMono-Regular,Menlo,monospace}@keyframes melLivePulse{70%{box-shadow:0 0 0 10px rgba(52,211,153,0)}}@media(max-width:720px){.mel-live-grid{grid-template-columns:1fr}}
 </style>`;
 
 const CONTROL_SCRIPT = `<script id="mel-control-center-runtime">
 (()=>{
- const q=s=>document.querySelector(s),qa=s=>[...document.querySelectorAll(s)];
- const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- async function jf(url,opts){const r=await fetch(url,{cache:'no-store',credentials:'same-origin',...(opts||{})}),t=await r.text();let d;try{d=JSON.parse(t)}catch{throw Error('Réponse serveur invalide')}if(!r.ok)throw Error(d.error||d.code||('HTTP '+r.status));return d}
- async function lastConversation(){const d=await jf('/api/gen2/conversations');const rows=(d.conversations||[]).slice().sort((a,b)=>Number(b.updated_at||0)-Number(a.updated_at||0));if(!rows.length)throw Error('Aucune conversation enregistrée');const c=rows[0],m=await jf('/api/gen2/conversations/messages?conversation_id='+encodeURIComponent(c.id));return {conversation:c,messages:m.messages||[]}}
- function textOf(m){return String(m?.content??m?.text??m?.message??'').trim()}
- async function recallMvp(button){button.disabled=true;const original=button.textContent;try{const d=await lastConversation(),msgs=d.messages.slice(-40);if(!msgs.length)throw Error('Dernière conversation vide');for(const m of msgs){const role=String(m.role||m.author||'mel').toLowerCase().includes('user')?'user':'mel',text=textOf(m);if(!text)continue;q('#empty')?.remove();const row=document.createElement('div');row.className='msg '+(role==='user'?'user':'mel');const who=document.createElement('span');who.className='who';who.textContent=role==='user'?'Adrien':'MEL';const body=document.createElement('div');body.textContent=text;row.append(who,body);q('#messages')?.appendChild(row)}if(q('#messages'))q('#messages').scrollTop=q('#messages').scrollHeight;button.textContent='Conversation rappelée'}catch(e){button.textContent='Rappel impossible · '+e.message}finally{setTimeout(()=>{button.disabled=false;button.textContent=original},2200)}}
- function addMvpRecall(){const composer=q('.composer');if(!composer||!q('#messages')||q('#melRecallMvp'))return;const b=document.createElement('button');b.id='melRecallMvp';b.className='mel-recall-last';b.type='button';b.textContent='Rappeler la dernière conversation';b.onclick=()=>recallMvp(b);composer.appendChild(b)}
- function unify(){const multi=q('[data-panel="multi"]'),work=q('[data-panel="work"]');if(!multi||!work||q('#melUnifiedTabs'))return;const navMulti=q('#nav [data-view="multi"]'),navWork=q('#nav [data-view="work"]');if(navMulti)navMulti.innerHTML='<span class="ico">✦</span>IA & Développement';if(navWork)navWork.style.display='none';const tabs=document.createElement('div');tabs.id='melUnifiedTabs';tabs.className='mel-unified-tabs';tabs.innerHTML='<button class="active" data-mode="meeting">Réunion IA</button><button data-mode="development">Développement</button>';const meeting=document.createElement('div'),dev=document.createElement('div');meeting.dataset.modePanel='meeting';dev.dataset.modePanel='development';dev.style.display='none';while(multi.firstChild)meeting.appendChild(multi.firstChild);work.style.display='block';work.classList.add('active');dev.appendChild(work);multi.append(tabs,meeting,dev);tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>{const development=b.dataset.mode==='development';tabs.querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b));meeting.style.display=development?'none':'block';dev.style.display=development?'block':'none';work.classList.toggle('active',development)})}
- function live(){const nav=q('#nav'),main=q('main.main');if(!nav||!main||q('#melLiveNav'))return;const btn=document.createElement('button');btn.id='melLiveNav';btn.innerHTML='<span class="ico">●</span>Visualisation live';nav.appendChild(btn);const sec=document.createElement('section');sec.className='view';sec.dataset.panel='live';sec.innerHTML='<div class="section-title"><h2>Visualisation live</h2><p>Journal explicable de MEL : états, IA consultées, décisions résumées, tests, erreurs et reprises. Le lancement manuel reste unique dans le bandeau supérieur.</p></div><div class="mel-live-grid"><article class="card"><h2><span class="mel-live-pulse"></span> Exécution</h2><div id="melLiveState" class="muted" style="margin-top:12px">Chargement…</div><div class="actions"><button id="melLiveRefresh">Actualiser</button></div></article><article class="card"><h2>Roadmap active</h2><div id="melLiveRoadmap" class="muted" style="margin-top:12px">Chargement…</div></article><article class="card wide"><h2>Réflexions résumées / activité</h2><div id="melLiveLog" class="mel-live-log" style="margin-top:12px">Chargement…</div></article></div>';main.appendChild(sec);
-   async function refresh(){try{const d=await jf('/api/gen2/autonomy/state'),jobs=d.active_jobs||[],j=jobs[0];q('#melLiveState').innerHTML='<div><strong>Mode :</strong> '+esc(d.mode||'—')+'</div><div><strong>Branche :</strong> '+esc(d.candidate_branch||'—')+'</div><div><strong>Actifs :</strong> '+esc(d.counts?.active??0)+' · Teacher '+esc(d.counts?.waiting_teacher??0)+' attente / '+esc(d.counts?.teacher_approved??0)+' approuvé</div><div><strong>Readiness :</strong> '+esc(d.readiness?.status||'—')+'</div>';q('#melLiveRoadmap').innerHTML=j?'<div><strong>'+esc(j.roadmap_id||j.id)+'</strong></div><div>Statut : '+esc(j.status)+'</div><div>Teacher : '+esc(j.teacher?.status||'—')+(j.teacher?.verdict?' · '+esc(j.teacher.verdict):'')+'</div><div>Completion : '+esc(j.completion?.status||'—')+'</div>':'Aucun job actif.';q('#melLiveLog').innerHTML=jobs.slice(0,14).map(x=>'<div class="mel-live-entry"><strong>'+esc(x.roadmap_id||x.id)+' · '+esc(x.status)+'</strong><small>'+esc(x.requested_by)+' · '+esc(x.teacher?.status||'sans Teacher')+(x.teacher?.verdict?' · '+esc(x.teacher.verdict):'')+(x.completion?.status?' · completion '+esc(x.completion.status):'')+'</small></div>').join('')||'<div class="muted">Aucune activité active.</div>'}catch(e){q('#melLiveState').textContent='Indisponible : '+e.message}}
-   btn.onclick=()=>{qa('.view').forEach(v=>v.classList.toggle('active',v===sec||v.closest?.('[data-mode-panel="development"]')&&false));qa('#nav button').forEach(x=>x.classList.toggle('active',x===btn));q('#viewTitle').textContent='Visualisation live';q('#viewSubtitle').textContent='Ce que MEL fait réellement, en direct.';refresh()};q('#melLiveRefresh').onclick=refresh;setInterval(()=>{if(sec.classList.contains('active'))refresh()},4000)
+ const q=s=>document.querySelector(s);
+ function unify(){
+   const multi=q('[data-panel="multi"]'),work=q('[data-panel="work"]');
+   if(!multi||!work||q('#melUnifiedTabs'))return;
+   const navMulti=q('#nav [data-view="multi"]'),navWork=q('#nav [data-view="work"]');
+   if(navMulti)navMulti.innerHTML='<span class="ico">✦</span>IA & Développement';
+   if(navWork)navWork.style.display='none';
+   const tabs=document.createElement('div'),meeting=document.createElement('div'),dev=document.createElement('div');
+   tabs.id='melUnifiedTabs';tabs.className='mel-unified-tabs';
+   tabs.innerHTML='<button class="active" data-mode="meeting">Réunion IA</button><button data-mode="development">Développement</button>';
+   meeting.dataset.modePanel='meeting';dev.dataset.modePanel='development';dev.style.display='none';
+   while(multi.firstChild)meeting.appendChild(multi.firstChild);
+   work.style.display='block';work.classList.add('active');dev.appendChild(work);multi.append(tabs,meeting,dev);
+   tabs.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+     const development=b.dataset.mode==='development';
+     tabs.querySelectorAll('button').forEach(x=>x.classList.toggle('active',x===b));
+     meeting.style.display=development?'none':'block';dev.style.display=development?'block':'none';
+     work.classList.toggle('active',development);
+   });
  }
- addMvpRecall();unify();live();
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',unify,{once:true});else unify();
 })();
 </script>`;
 
@@ -137,7 +144,7 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/learning/progress') return learningProgressResponse(request, env);
     let response = await app.fetch(request, learnedEnvironment(env), ctx);
     if (request.method === 'GET' && url.pathname === '/professor') response = await injectLearningProgressWidget(response);
-    if (request.method === 'GET' && ['/', '/mvp', '/professor'].includes(url.pathname)) response = await injectControlCenter(response);
+    if (request.method === 'GET' && url.pathname === '/professor') response = await injectControlCenter(response);
     return response;
   },
   async scheduled(controller, env, ctx) { return app.scheduled(controller, learnedEnvironment(env), ctx); },
