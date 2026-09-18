@@ -128,7 +128,7 @@ jobs:
           )"
           test -n "$KAGGLE_OWNER"
           echo "KAGGLE_OWNER=$KAGGLE_OWNER" >> "$GITHUB_ENV"
-          echo "KERNEL_REF=$KAGGLE_OWNER/mel-lora-uncensored-notebook" >> "$GITHUB_ENV"
+          echo "KERNEL_REF=$KAGGLE_OWNER/mel-lora-uncensored-notebook-t4" >> "$GITHUB_ENV"
 
       - name: Record free accelerator quota
         shell: bash
@@ -282,7 +282,7 @@ jobs:
                   "kernelspec":{"display_name":"Python 3","language":"python","name":"python3"},
                   "language_info":{"name":"python","version":"3.12"},
                   "kaggle":{
-                      "accelerator":"nvidiaL4",
+                      "accelerator":"nvidiaTeslaT4",
                       "dataSources":[],
                       "isInternetEnabled":False,
                       "language":"python",
@@ -293,18 +293,18 @@ jobs:
               "nbformat":4,
               "nbformat_minor":5,
           }
-          Path("artifacts/kaggle-kernel/mel-lora-uncensored-notebook.ipynb").write_text(
+          Path("artifacts/kaggle-kernel/mel-lora-uncensored-notebook-t4.ipynb").write_text(
               json.dumps(notebook,ensure_ascii=False,indent=1)+"\n",encoding="utf-8"
           )
 
           meta=json.loads(Path("artifacts/kaggle-kernel/kernel-metadata.json").read_text())
-          meta["id"]=f'{os.environ["KAGGLE_OWNER"]}/mel-lora-uncensored-notebook'
+          meta["id"]=f'{os.environ["KAGGLE_OWNER"]}/mel-lora-uncensored-notebook-t4'
           meta["title"]="MEL LoRA Uncensored Notebook"
-          meta["code_file"]="mel-lora-uncensored-notebook.ipynb"
+          meta["code_file"]="mel-lora-uncensored-notebook-t4.ipynb"
           meta["kernel_type"]="notebook"
           meta["enable_gpu"]=True
           meta["enable_internet"]=False
-          meta["machine_shape"]="NvidiaL4"
+          meta["machine_shape"]="NvidiaTeslaT4"
           meta["dataset_sources"]=[
               "cdeotte/mistral-7b-instruct-v02-fp16",
               "nbroad/hf-libraries",
@@ -317,16 +317,16 @@ jobs:
 
           python -m py_compile artifacts/kaggle-kernel/run.py
           test -s artifacts/kaggle-kernel/run.py
-          test -s artifacts/kaggle-kernel/mel-lora-uncensored-notebook.ipynb
+          test -s artifacts/kaggle-kernel/mel-lora-uncensored-notebook-t4.ipynb
           test "$(wc -c < artifacts/kaggle-kernel/run.py)" -lt 100000
-          python -m json.tool artifacts/kaggle-kernel/mel-lora-uncensored-notebook.ipynb >/dev/null
+          python -m json.tool artifacts/kaggle-kernel/mel-lora-uncensored-notebook-t4.ipynb >/dev/null
           cat artifacts/kaggle-kernel/kernel-metadata.json
 
       - name: Submit free offline Kaggle T4 training
         shell: bash
         run: |
           set -euo pipefail
-          kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator NvidiaL4             -t 600
+          kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator NvidiaTeslaT4             -t 600
           echo "Submitted $KERNEL_REF cycle $CYCLE with internet disabled."
 
       - name: Verify server-side GPU metadata
@@ -342,7 +342,7 @@ jobs:
               META="$(find artifacts/kaggle-server-metadata -name kernel-metadata.json -print -quit)"
               if [[ -n "$META" && -s "$META" ]]; then
                 cat "$META"
-                python -c 'import json,sys; meta=json.load(open(sys.argv[1],encoding="utf-8")); gpu=meta.get("enable_gpu") is True; shape=str(meta.get("machine_shape") or ""); print(json.dumps({"enable_gpu":gpu,"machine_shape":shape})); sys.exit(0 if gpu and shape=="NvidiaL4" else 2)' "$META"
+                python -c 'import json,sys; meta=json.load(open(sys.argv[1],encoding="utf-8")); gpu=meta.get("enable_gpu") is True; shape=str(meta.get("machine_shape") or ""); print(json.dumps({"enable_gpu":gpu,"machine_shape":shape})); sys.exit(0 if gpu and shape=="NvidiaTeslaT4" else 2)' "$META"
                 VERIFIED=1
                 break
               fi
