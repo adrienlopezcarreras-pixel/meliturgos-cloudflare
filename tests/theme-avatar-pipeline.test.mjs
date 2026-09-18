@@ -7,6 +7,7 @@ const previewAuth = await readFile(new URL('../src/preview-auth-entry.js', impor
 const liveEntry = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
 const mvpEntry = await readFile(new URL('../src/pages/mvp-interface.js', import.meta.url), 'utf8');
 const mvp = await readFile(new URL('../src/pages/mvp-interface-v3.js', import.meta.url), 'utf8');
+const mvpRuntime = await readFile(new URL('../src/pages/mvp-runtime.js', import.meta.url), 'utf8');
 const enhancer = await readFile(new URL('../src/pages/theme-avatar-enhancer.js', import.meta.url), 'utf8');
 const wrangler = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
 
@@ -31,7 +32,7 @@ test('canonical normal V3 is the single theme and avatar owner', () => {
   assert.match(mvpEntry, /export \{ onRequestGet \} from '\.\/mvp-interface-v3\.js';/);
   assert.match(mvp, /data-visual-owner="mel-normal-v3"/);
   assert.match(mvp, /id="mel-normal-v3-style"/);
-  assert.match(mvp, /id="mel-normal-v3-runtime"/);
+  assert.match(mvp, /src="\/normal-runtime\.js\?v=5"/);
   assert.match(mvp, /id="melAvatar" class="avatar"/);
   assert.match(mvp, /id="themePanelV3"/);
   assert.doesNotMatch(mvp, /mel-theme-avatar-runtime/);
@@ -40,7 +41,7 @@ test('canonical normal V3 is the single theme and avatar owner', () => {
   for (const id of ['classic','granada','guadix','crusade','aviation','amazon','paladin','futuristic']) {
     assert.match(mvp, new RegExp(`id:'${id}'`));
   }
-  assert.match(mvp, /v==='religious'\)v='guadix'/);
+  assert.match(mvpRuntime, /v==='religious'\)v='guadix'/);
   assert.match(mvp, /overflow:hidden/);
   assert.match(mvp, /object-fit:cover/);
   assert.match(mvp, /transform:none/);
