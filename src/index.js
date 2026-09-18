@@ -16,6 +16,7 @@ import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js"
 import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
 import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-state-store.js";
+import { getChatGPTImportStatus } from "./persistence/chatgpt-archive-importer.js";
 
 function deployedWatchSourceSha() {
   return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') || null : null;
@@ -293,8 +294,20 @@ async function maybeHandleCouncilAndEvolution(request, env) {
 }
 
 async function maybeHandleChatGPTArchive(request, env) {
-  if (request.method !== 'POST') return null;
   const url = new URL(request.url);
+  const statusPath = url.pathname === '/api/gen2/import/chatgpt-status';
+
+  if (request.method === 'GET' && statusPath) {
+    const auth = requireAuth(request, env);
+    if (!auth.ok) return auth.response;
+    try {
+      return Response.json(await getChatGPTImportStatus(env), { headers: { 'cache-control': 'no-store' } });
+    } catch (error) {
+      return apiError(error, 'CHATGPT_IMPORT_STATUS_FAILED');
+    }
+  }
+
+  if (request.method !== 'POST') return null;
   const explicit = url.pathname === '/api/gen2/import/chatgpt-archive';
   const compatibility = url.pathname === '/api/import/chatgpt-context';
   if (!explicit && !compatibility) return null;
