@@ -1,7 +1,7 @@
 export const ECOSYSTEM_WATCH_SCHEMA = 'mel.ecosystem-watch-catalog/v2';
 export const ECOSYSTEM_WATCH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-const target = (id, label, category, query, capabilities = [], sources = []) => Object.freeze({
+const target = (id, label, category, query, capabilities = [], sources = [], options = {}) => Object.freeze({
   id,
   mode: 'observe',
   weight: 1,
@@ -11,7 +11,9 @@ const target = (id, label, category, query, capabilities = [], sources = []) => 
     query,
     capabilities: Object.freeze([...capabilities]),
     sources: Object.freeze([...sources]),
-    purpose: 'veille_multi_ia_plugins_arts',
+    purpose: 'veille_generale_opportunites',
+    source_class: options.source_class || 'official',
+    verification_policy: options.verification_policy || 'SOURCE_AND_TEST_BEFORE_INTEGRATION',
   }),
 });
 
@@ -34,6 +36,12 @@ const OFFICIAL = Object.freeze({
   kaggleBenchmarks: 'https://www.kaggle.com/docs/benchmarks',
   kaggleApi: 'https://www.kaggle.com/docs/api',
   kaggleMcp: 'https://www.kaggle.com/docs/mcp',
+  githubTrending: 'https://github.com/trending',
+  hackerNews: 'https://news.ycombinator.com/',
+  redditMachineLearning: 'https://www.reddit.com/r/MachineLearning/',
+  kaggleDiscussions: 'https://www.kaggle.com/discussions',
+  huggingFaceCommunity: 'https://huggingface.co/',
+  arxivAiRecent: 'https://arxiv.org/list/cs.AI/recent',
 });
 
 export const ECOSYSTEM_WATCH_TARGETS = Object.freeze([
@@ -67,8 +75,20 @@ export const ECOSYSTEM_WATCH_TARGETS = Object.freeze([
       OFFICIAL.kaggleNotebooks,
       OFFICIAL.kaggleBenchmarks,
       OFFICIAL.kaggleApi,
-      OFFICIAL.kaggleMcp,
-    ]),
+    ],
+    { source_class: 'official' }),
+  target('watch_ai_communities', 'Communautés IA / ML', 'community',
+    'latest public AI ML agent tools workflows models plugins MCP connectors practical techniques community discussions GitHub Hacker News Reddit Kaggle Hugging Face arXiv',
+    ['open-models','MCP','plugins','agents','tools','automation','browser','computer-use','multimodal'],
+    [
+      OFFICIAL.githubTrending,
+      OFFICIAL.hackerNews,
+      OFFICIAL.redditMachineLearning,
+      OFFICIAL.kaggleDiscussions,
+      OFFICIAL.huggingFaceCommunity,
+      OFFICIAL.arxivAiRecent,
+    ],
+    { source_class: 'community', verification_policy: 'COMMUNITY_SIGNAL_REQUIRES_CORROBORATION_OR_REPRODUCIBLE_TEST' }),
   target('watch_plugins_connectors', 'Plugins, connecteurs et automatisations', 'tooling',
     'latest AI plugins connectors MCP servers automation task scheduling browser computer use capabilities',
     ['plugins','connectors','MCP','scheduling','browser','computer-use'],
