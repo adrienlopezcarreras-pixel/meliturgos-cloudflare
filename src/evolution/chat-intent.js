@@ -105,7 +105,7 @@ function routeDeterministic(body, route, intent) {
  * zero-added-cost FAST semantic classifier handles natural, elliptical and
  * contextual formulations supplied by the active UI.
  */
-export async function injectEvolutionPreflightCapability(request) {
+export async function injectEvolutionPreflightCapability(request, env = {}) {
   const url = new URL(request.url);
   if (url.pathname !== '/api/chat' || request.method !== 'POST') return request;
   if (!(request.headers.get('content-type') || '').includes('application/json')) return request;
@@ -138,6 +138,8 @@ export async function injectEvolutionPreflightCapability(request) {
       const semantic = await classifySemanticOwnerIntent({
         text,
         context: String(body.intent_context || '').slice(-8000),
+        env,
+        AI: env?.AI,
       });
       if (!semantic || semantic.intent === 'NONE') return request;
       if (semantic.intent === 'DEVELOPMENT_REQUEST') {
