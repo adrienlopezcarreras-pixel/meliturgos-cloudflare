@@ -21,7 +21,7 @@ test('public Teacher feed is read-only and omits goals, full council/inspection 
   });
   await queueRuntimeTeacherRequest(repo, job.id, request);
 
-  const response = await maybeHandlePublicTeacherBridge(new Request('http://x/api/teacher/pending'), {});
+  const response = await maybeHandlePublicTeacherBridge(new Request('http://x/api/teacher/pending'), {}, { repository: repo });
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control').includes('no-store'), true);
   const body = await response.json();
