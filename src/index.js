@@ -13,6 +13,7 @@ import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
 import { enhanceThemeAvatars } from "./pages/theme-avatar-enhancer.js";
 import { enhanceMvpBehavior } from "./pages/mvp-behavior-enhancer.js";
+import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
 
 let lastSafeWorkJob = null;
 
@@ -373,6 +374,15 @@ export default {
       }),
       runEcosystemCapabilityWatch(env).catch((error) => {
         console.error('[MEL watch] scheduled ecosystem watch failed:', error?.code || error?.message || error);
+        return null;
+      }),
+      runLoraTrainingHeartbeat(env).then((result) => {
+        if (result?.status === 'HEARTBEAT_ERROR') {
+          console.error('[MEL LoRA] training heartbeat error:', result.error || result.status);
+        }
+        return result;
+      }).catch((error) => {
+        console.error('[MEL LoRA] scheduled training heartbeat failed:', error?.code || error?.message || error);
         return null;
       }),
     ]);
