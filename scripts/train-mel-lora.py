@@ -352,7 +352,7 @@ def main() -> int:
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         gradient_checkpointing=True,
         optim="paged_adamw_8bit" if cuda else "adamw_torch",
-        logging_steps=1,
+        logging_steps=10,
         save_strategy="steps",
         save_steps=args.save_steps,
         save_total_limit=2,

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# Validation probe retrigger marker: one-step LoRA proof
 from __future__ import annotations
 
 import hashlib
@@ -350,30 +349,23 @@ def main():
         "--base-model-path", base_model,
         "--stage", stage,
         "--epochs", "1",
-        "--max-length", "128",
-        "--max-steps", "1",
-        "--gradient-accumulation-steps", "1",
-        "--save-steps", "1",
+        "--max-length", "512",
+        "--gradient-accumulation-steps", "8",
+        "--save-steps", "1000000",
         "--seed", "42",
     ]
     if parent_digest:
         cmd += ["--parent-adapter-dir", PARENT, "--parent-artifact-digest", parent_digest]
     run(cmd)
 
-    # One-step validation probe: prove optimizer update + loss + persisted PEFT adapter
-    # inside Kaggle's 120s kernel window. The full local-impact benchmark is intentionally
-    # deferred until after this mechanical LoRA validation succeeds.
-    impact = {
-        "candidate": {"metrics": {}},
-        "delta": {},
-        "local_uncensored_gate": False,
-        "next_stage": "UNCENSORED_CONTINUE",
-        "validation_probe": True,
-    }
-    print(json.dumps({
-        "LORA_VALIDATION_PROBE": True,
-        "adapter_saved": (OUTPUT / "adapter_model.safetensors").is_file(),
-    }, indent=2), flush=True)
+    impact_path = OUTPUT / "local-impact-benchmark.json"
+    run([
+        sys.executable, SCRIPTS / "run-local-lora-impact.py",
+        "--base-model-path", base_model,
+        "--adapter-dir", OUTPUT,
+        "--output", impact_path,
+    ])
+    impact = json.loads(impact_path.read_text(encoding="utf-8"))
 
     shutil.copy2(SHARD_META, OUTPUT / "shard-metadata.json")
     dataset_meta = {
@@ -391,6 +383,7 @@ def main():
         "adapter_model.safetensors", "adapter_config.json", "training-evidence.json",
         "training-started.json", "training-progress.jsonl",
         "artifact-evidence.json", "lora-plan.json", "dataset-metadata.json", "shard-metadata.json",
+        "local-impact-benchmark.json",
     ]
     for name in required:
         target = OUTPUT / name
@@ -400,8 +393,7 @@ def main():
     artifact = json.loads((OUTPUT / "artifact-evidence.json").read_text(encoding="utf-8"))
     training = json.loads((OUTPUT / "training-evidence.json").read_text(encoding="utf-8"))
     run_meta = {
-        "status": "TRAINED_UNBENCHMARKED_VALIDATION_PROBE",
-        "validation_probe": True,
+        "status": "TRAINED_UNBENCHMARKED",
         "source_sha": TARGET_SHA,
         "cycle": CYCLE,
         "stage": stage,

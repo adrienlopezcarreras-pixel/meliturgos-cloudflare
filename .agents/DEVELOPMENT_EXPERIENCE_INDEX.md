@@ -50,8 +50,9 @@ Rapport exhaustif : `.agents/XP_RECONCILIATION_20260917.md`.
 - `bootstrap-post-pass-reconcile-adapt-20260918` — aucun passage DONE avant nettoyage, unification, réconciliation, adaptation, unicité des branches et checkpoint XP.
 - `bootstrap-code-access-capability-truth-20260918` — distinguer accès structurel au code et preuve de lecture ponctuelle ; ne jamais inventer une incapacité quand le manifeste expose l’accès.
 - `bootstrap-continuous-experience-read-20260918` — relire manuel + expérience pertinente à chaque requête et à chaque passage.
+- `bootstrap-lora-real-step-proof-20260918` — STEP 1 + loss + adapter persisté valident le mécanisme LoRA, sans confondre cette preuve avec la qualité finale ou l’activation.
 
-Ces quatre entrées sont **validées** par la full candidate CI `35325973201`, le smoke Teacher/runtime `35325973132` et le garde d’unicité `35325973253` sur le SHA `a141ea626e1abb05e60c3d93d1f5c9308897ca70`. Elles sont chargées à chaque requête depuis `src/learning/runtime-operating-experience.js` et restent séparées du corpus d’entraînement.
+Ces cinq entrées sont **validées** par la full candidate CI `35325973201`, le smoke Teacher/runtime `35325973132` et le garde d’unicité `35325973253` sur le SHA `a141ea626e1abb05e60c3d93d1f5c9308897ca70`. Elles sont chargées à chaque requête depuis `src/learning/runtime-operating-experience.js` et restent séparées du corpus d’entraînement.
 
 ## Règle de déduplication
 
@@ -61,6 +62,6 @@ Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le
 
 Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, Benchmark/LoRA, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, Dev Bridge, observabilité, UI partagée, gouvernance de preuve, readiness zéro-euro runtime et checkpoint XP systématique.
 
-Total documenté : **51 leçons du corpus d’entraînement actuel + 4 expériences opérationnelles runtime validées**.
+Total documenté : **52 leçons du corpus d’entraînement actuel + 5 expériences opérationnelles runtime validées**.
 
 Le nombre de leçons canoniques **n’a pas de plafond fonctionnel** : 50 reste uniquement le seuil minimal de readiness LoRA. Toute nouvelle leçon validée et dédupliquée s’ajoute au corpus complet ; les fenêtres de contexte runtime peuvent rester bornées pour la performance sans supprimer ni exclure les leçons stockées.

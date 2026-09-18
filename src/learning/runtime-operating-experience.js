@@ -40,4 +40,14 @@ export const MEL_RUNTIME_OPERATING_EXPERIENCE = Object.freeze([
     tags: ['experience','retrieval','runtime-context','continuous-learning'],
   }),
 
+  Object.freeze({
+    id: 'bootstrap-lora-real-step-proof-20260918',
+    domain: 'lora-training-truth',
+    task: 'Distinguer démarrage du Trainer, entraînement réel et adapter prêt à être activé.',
+    before: 'Traiter TRAINING_STARTED ou TRAIN_BEGIN comme preuve suffisante d’un LoRA fonctionnel.',
+    after: 'Exiger un STEP avec global_step >= 1, une loss numérique et un adapter_model.safetensors persisté pour valider le mécanisme; garder l’adapter non actif tant que l’entraînement complet, le benchmark comparable et la promotion exacte ne sont pas validés.',
+    rationale: 'Le run Kaggle 35370695630 tentative 2 a fourni STEP 1, loss 2.204442024230957, grad_norm 3.596262216567993 et un adapter de 13648432 octets au digest sha256:06ba3f0485e91c6ef1af2f64e9bd744bf1c5f1b298f77cb171cf59d27245b295.',
+    validated: true,
+    tags: ['lora','qlora','training-proof','loss','adapter','truthfulness'],
+  }),
 ]);
