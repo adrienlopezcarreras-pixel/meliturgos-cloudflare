@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { devRuntime } from '../src/dev/runtime-api.js';
+import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 
 const env = { MELITURGOS_USER: 'test', MEL_DEV_BRIDGE_TOKEN: 'bridge-test' };
 const auth = { authorization: 'Bearer bridge-test', 'content-type': 'application/json' };
+const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
 
 test('authorized dev bridge can create exactly one non-idle autonomy job', async () => {
   let response = await devRuntime(new Request('http://x/api/dev-bridge/autonomy/next', {
     method: 'POST', headers: auth, body: '{}',
-  }), env);
+  }), env, { repository });
   assert.equal(response.status, 200);
   const first = await response.json();
   assert.equal(first.ok, true);
@@ -18,7 +20,7 @@ test('authorized dev bridge can create exactly one non-idle autonomy job', async
 
   response = await devRuntime(new Request('http://x/api/dev-bridge/autonomy/next', {
     method: 'POST', headers: auth, body: '{}',
-  }), env);
+  }), env, { repository });
   const second = await response.json();
   assert.equal(second.created, false);
   assert.equal(second.job.id, first.job.id);
@@ -28,7 +30,7 @@ test('authorized dev bridge can create exactly one non-idle autonomy job', async
 test('autonomy status exposes active work and the following safe roadmap target', async () => {
   const response = await devRuntime(new Request('http://x/api/professor/dev/autonomy/status', {
     method: 'GET', headers: { 'content-type': 'application/json' },
-  }), env);
+  }), env, { repository });
   assert.equal(response.status, 200);
   const state = await response.json();
   assert.equal(state.ok, true);
@@ -38,6 +40,6 @@ test('autonomy status exposes active work and the following safe roadmap target'
 });
 
 test('autonomy endpoint remains protected by the bridge token', async () => {
-  const response = await devRuntime(new Request('http://x/api/dev-bridge/autonomy/next', { method: 'POST', body: '{}' }), env);
+  const response = await devRuntime(new Request('http://x/api/dev-bridge/autonomy/next', { method: 'POST', body: '{}' }), env, { repository });
   assert.equal(response.status, 401);
 });
