@@ -1,0 +1,239 @@
+name: gen2-42-live-proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - candidate/mel-clean-autonomy
+    paths:
+      - .github/workflows/gen2-42-live-proof.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gen2-42-live-proof
+  cancel-in-progress: false
+
+jobs:
+  proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Read production capability watch state
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT id, updated_at, state_json FROM capability_watch_state WHERE id IN ('ecosystem-canonical','ecosystem-discoveries-canonical') ORDER BY id" \
+            > watch-state.raw.json
+
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT id,status,requested_by,updated_at,error,json_extract(optional_context,'$.source') AS source,json_extract(optional_context,'$.request_key') AS request_key,json_extract(optional_context,'$.roadmap_id') AS roadmap_id,json_extract(optional_context,'$.discovery_evidence.fingerprint') AS discovery_fingerprint,json_extract(result_json,'$.teacher_bridge.status') AS teacher_status,json_extract(result_json,'$.teacher_bridge.request.request_id') AS teacher_request_id,json_extract(result_json,'$.teacher_bridge.review.verdict') AS teacher_verdict,json_extract(result_json,'$.autonomy_completion.status') AS completion_status,json_extract(result_json,'$.autonomy_completion.candidate_sha') AS completion_candidate_sha,json_extract(result_json,'$.autonomy_completion.ci.run_id') AS completion_ci_run_id FROM dev_jobs WHERE requested_by='mel-autonomy' OR id LIKE 'ecosystem-watch-%' ORDER BY updated_at DESC LIMIT 100" \
+            > dev-jobs.raw.json
+
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT COALESCE(error,'(no error)') AS error, COUNT(*) AS count FROM dev_jobs WHERE status='FAILED' GROUP BY COALESCE(error,'(no error)') ORDER BY count DESC, error ASC LIMIT 30" \
+            > failed-jobs.raw.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Build sanitized GEN2-42 proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from datetime import datetime, timezone
+
+          def load_rows(path):
+              payload = json.loads(Path(path).read_text(encoding='utf-8'))
+              rows = []
+              if isinstance(payload, dict):
+                  payload = [payload]
+              for part in payload if isinstance(payload, list) else []:
+                  if isinstance(part, dict) and isinstance(part.get('results'), list):
+                      rows.extend(x for x in part['results'] if isinstance(x, dict))
+                  elif isinstance(part, dict):
+                      rows.append(part)
+              return rows
+
+          watch_rows = load_rows('watch-state.raw.json')
+          job_rows = load_rows('dev-jobs.raw.json')
+          failure_rows = load_rows('failed-jobs.raw.json')
+
+          watch_by_id = {str(row.get('id')): row for row in watch_rows}
+          watch_state = {}
+          ledger = {}
+          for key, target in [('ecosystem-canonical', 'watch'), ('ecosystem-discoveries-canonical', 'ledger')]:
+              raw = watch_by_id.get(key, {}).get('state_json')
+              parsed = {}
+              if isinstance(raw, str) and raw:
+                  try:
+                      parsed = json.loads(raw)
+                  except Exception:
+                      parsed = {}
+              if target == 'watch':
+                  watch_state = parsed
+              else:
+                  ledger = parsed
+
+          observations = watch_state.get('last_observations') if isinstance(watch_state.get('last_observations'), dict) else {}
+          observed = []
+          for target_id, ev in observations.items():
+              ev = ev if isinstance(ev, dict) else {}
+              observed.append({
+                  'target_id': str(target_id)[:120],
+                  'status': str(ev.get('status') or '')[:80] or None,
+                  'citations_count': int(ev.get('citations_count') or 0),
+                  'source_count': len(ev.get('sources') or []) if isinstance(ev.get('sources'), list) else 0,
+                  'performed_at': ev.get('performed_at'),
+              })
+
+          items = ledger.get('items') if isinstance(ledger.get('items'), list) else []
+          discovery_items = []
+          handoff_job_ids = set()
+          for item in items[:200]:
+              if not isinstance(item, dict):
+                  continue
+              handoff = item.get('handoff') if isinstance(item.get('handoff'), dict) else {}
+              if handoff.get('job_id'):
+                  handoff_job_ids.add(str(handoff['job_id']))
+              discovery_items.append({
+                  'fingerprint': str(item.get('fingerprint') or '')[:180],
+                  'capability_hint': str(item.get('capability_hint') or '')[:180],
+                  'action': str(item.get('action') or '')[:80],
+                  'evidence_status': str(item.get('evidence_status') or '')[:80],
+                  'citations_count': int(item.get('citations_count') or 0),
+                  'source_count': len(item.get('sources') or []) if isinstance(item.get('sources'), list) else 0,
+                  'handoff': {
+                      'job_id': handoff.get('job_id'),
+                      'status': handoff.get('status'),
+                      'teacher_request_id': handoff.get('teacher_request_id'),
+                      'teacher_verdict': handoff.get('teacher_verdict'),
+                      'candidate_sha': handoff.get('candidate_sha'),
+                      'ci_run_id': handoff.get('ci_run_id'),
+                      'completion_verified': handoff.get('completion_verified') is True,
+                      'closed': handoff.get('closed') is True,
+                      'retryable': handoff.get('retryable') is True,
+                      'terminal_reason': handoff.get('terminal_reason'),
+                      'attempts': int(handoff.get('attempts') or 0),
+                  } if handoff else None,
+              })
+
+          jobs = []
+          for row in job_rows:
+              jobs.append({
+                  'id': row.get('id'),
+                  'status': row.get('status'),
+                  'requested_by': row.get('requested_by'),
+                  'updated_at': row.get('updated_at'),
+                  'error': row.get('error'),
+                  'source': row.get('source'),
+                  'request_key': row.get('request_key'),
+                  'roadmap_id': row.get('roadmap_id'),
+                  'discovery_fingerprint': row.get('discovery_fingerprint'),
+                  'teacher_status': row.get('teacher_status'),
+                  'teacher_request_id': row.get('teacher_request_id'),
+                  'teacher_verdict': row.get('teacher_verdict'),
+                  'completion_status': row.get('completion_status'),
+                  'completion_candidate_sha': row.get('completion_candidate_sha'),
+                  'completion_ci_run_id': row.get('completion_ci_run_id'),
+              })
+
+          ecosystem_jobs = [j for j in jobs if j.get('source') == 'ecosystem-watch' or j.get('id') in handoff_job_ids]
+          sourced_items = [x for x in discovery_items if x.get('evidence_status') == 'SOURCED_OBSERVATION' and x.get('source_count', 0) > 0]
+          handoff_items = [x for x in discovery_items if isinstance(x.get('handoff'), dict) and x['handoff'].get('job_id')]
+          completed_items = [x for x in handoff_items if x['handoff'].get('status') == 'COMPLETED' and x['handoff'].get('completion_verified')]
+          active_items = [x for x in handoff_items if not x['handoff'].get('closed')]
+
+          proof_status = 'COMPLETE' if completed_items else ('HANDOFF_PRESENT' if handoff_items else ('DISCOVERIES_PRESENT' if sourced_items else ('WATCH_RAN' if int(watch_state.get('run_count') or 0) > 0 else 'NO_WATCH_PROOF')))
+
+          proof = {
+              'schema': 'mel.gen2-42-live-proof/v1',
+              'generated_at': datetime.now(timezone.utc).isoformat(),
+              'candidate_sha': os.environ.get('GITHUB_SHA'),
+              'proof_status': proof_status,
+              'watch': {
+                  'run_count': int(watch_state.get('run_count') or 0),
+                  'last_run_at': watch_state.get('last_run_at'),
+                  'last_window_id': watch_state.get('last_window_id'),
+                  'last_source_sha': watch_state.get('last_source_sha'),
+                  'observed_targets': observed,
+              },
+              'discoveries': {
+                  'ledger_run_count': int(ledger.get('run_count') or 0),
+                  'item_count': len(discovery_items),
+                  'sourced_count': len(sourced_items),
+                  'handoff_count': len(handoff_items),
+                  'active_handoff_count': len(active_items),
+                  'verified_completion_count': len(completed_items),
+                  'items': discovery_items[:40],
+              },
+              'ecosystem_jobs': ecosystem_jobs[:40],
+              'failed_job_errors': [
+                  {'error': str(x.get('error') or '')[:200], 'count': int(x.get('count') or 0)}
+                  for x in failure_rows[:30]
+              ],
+              'rules': {
+                  'read_only': True,
+                  'no_secret_output': True,
+                  'no_goal_output': True,
+                  'no_production_mutation': True,
+              },
+          }
+
+          Path('gen2-42-live-proof.json').write_text(json.dumps(proof, indent=2, ensure_ascii=False), encoding='utf-8')
+
+          print(json.dumps({
+              'proof_status': proof_status,
+              'watch_run_count': proof['watch']['run_count'],
+              'observed_targets': len(observed),
+              'sourced_discoveries': len(sourced_items),
+              'handoffs': len(handoff_items),
+              'active_handoffs': len(active_items),
+              'verified_completions': len(completed_items),
+              'ecosystem_jobs': len(ecosystem_jobs),
+              'top_failed_errors': proof['failed_job_errors'][:8],
+          }, indent=2, ensure_ascii=False))
+
+          summary = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with open(summary, 'a', encoding='utf-8') as h:
+                  h.write('### GEN2-42 live production proof\n\n')
+                  h.write(f'- Proof status: **{proof_status}**\n')
+                  h.write(f'- Watch runs: {proof["watch"]["run_count"]}\n')
+                  h.write(f'- Observed targets: {len(observed)}\n')
+                  h.write(f'- Sourced discoveries: {len(sourced_items)}\n')
+                  h.write(f'- Discovery handoffs: {len(handoff_items)}\n')
+                  h.write(f'- Active handoffs: {len(active_items)}\n')
+                  h.write(f'- Verified completions: {len(completed_items)}\n')
+                  h.write(f'- Ecosystem-watch jobs found: {len(ecosystem_jobs)}\n')
+                  if failure_rows:
+                      h.write('\n#### Top failed job errors\n')
+                      for row in failure_rows[:10]:
+                          h.write(f'- {row.get("error")}: {row.get("count")}\n')
+          PY
+
+      - name: Upload sanitized proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-42-live-proof-${{ github.sha }}
+          path: gen2-42-live-proof.json
+          if-no-files-found: error
+          retention-days: 14
