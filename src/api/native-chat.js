@@ -11,6 +11,7 @@ import { classifyCapabilityTruth, declaredImplementationStatus } from '../diagno
 import { LearningEngine } from '../learning/learning-engine.js';
 import { MentorMemoryRepository } from '../learning/mentor-memory.js';
 import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
+import { stripInternalCounters } from './chat-sanitization.js';
 
 function extractCodePath(value) {
   return String(value || '').match(/((?:src|tests|\.github)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)|worker\.js|package\.json|wrangler\.jsonc)/i)?.[1] || null;
@@ -491,18 +492,20 @@ export async function handleNativeChat(request, env) {
     runtime,
   });
 
+  const responseText = stripInternalCounters(ai.text);
+
   let archiveSaved = false;
   if (service) {
     try {
       await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now(), provenance: 'native-chat' });
-      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: ai.text, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat' });
+      await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat' });
       archiveSaved = true;
     } catch { archiveSaved = false; }
   }
 
   return Response.json({
     ok: true,
-    text: ai.text,
+    text: responseText,
     model: ai.model,
     provider: ai.provider,
     augmentio_used: ai.augmentio_used === true,
