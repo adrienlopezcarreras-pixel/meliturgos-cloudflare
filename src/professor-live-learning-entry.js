@@ -15,6 +15,7 @@ const PROFESSOR_SAFE_DEV_BRIDGE_PATHS = new Set([
 const FREE_LORA_HF_REPO = 'Meliturgos/mel-lora-uncensored';
 const FREE_LORA_GITHUB_REPO = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const FREE_LORA_WORKFLOW = 'lora-promote-from-huggingface.yml';
+const FREE_LORA_TRAINING_WORKFLOW = 'lora-kaggle-free-gpu.yml';
 const FREE_LORA_REQUIRED_FILES = Object.freeze([
   'adapter_model.safetensors',
   'adapter_config.json',
@@ -98,28 +99,62 @@ async function freeLoraStatusResponse(request, env) {
     fetchOptionalJson('hf-compatible-registry.json'),
   ]);
 
-  let workflow = null;
-  try {
-    const response = await fetch(
-      `https://api.github.com/repos/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_WORKFLOW}/runs?branch=candidate%2Fmel-clean-autonomy&per_page=1`,
-      {
-        headers: {
-          accept: 'application/vnd.github+json',
-          'user-agent': 'meliturgos-free-lora-status/1.0',
-        },
-      },
-    );
-    if (response.ok) {
+  const githubHeaders = {
+    accept: 'application/vnd.github+json',
+    'user-agent': 'meliturgos-free-lora-status/1.0',
+    ...(env?.MEL_GITHUB_TOKEN ? { authorization: `Bearer ${String(env.MEL_GITHUB_TOKEN)}` } : {}),
+  };
+
+  async function latestWorkflowRun(workflowName) {
+    try {
+      const response = await fetch(
+        `https://api.github.com/repos/${FREE_LORA_GITHUB_REPO}/actions/workflows/${workflowName}/runs?branch=candidate%2Fmel-clean-autonomy&per_page=1`,
+        { headers: githubHeaders },
+      );
+      if (!response.ok) return null;
       const data = await response.json();
       const row = Array.isArray(data?.workflow_runs) ? data.workflow_runs[0] : null;
+      if (!row) return null;
+      return {
+        id: row.id,
+        status: row.status || null,
+        conclusion: row.conclusion || null,
+        head_sha: row.head_sha || null,
+        run_number: row.run_number ?? null,
+        created_at: row.created_at || null,
+        updated_at: row.updated_at || null,
+        html_url: row.html_url || null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  const [workflow, trainingWorkflow] = await Promise.all([
+    latestWorkflowRun(FREE_LORA_WORKFLOW),
+    latestWorkflowRun(FREE_LORA_TRAINING_WORKFLOW),
+  ]);
+
+  let checkpoint = null;
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${FREE_LORA_GITHUB_REPO}/releases?per_page=30`,
+      { headers: githubHeaders },
+    );
+    if (response.ok) {
+      const releases = await response.json();
+      const row = Array.isArray(releases)
+        ? releases.find((release) => /^mel-lora-kaggle-[0-9a-f]{12}-c\\d+$/i.test(String(release?.tag_name || '')))
+        : null;
       if (row) {
-        workflow = {
-          id: row.id,
-          status: row.status || null,
-          conclusion: row.conclusion || null,
-          head_sha: row.head_sha || null,
-          created_at: row.created_at || null,
-          updated_at: row.updated_at || null,
+        const match = /-c(\\d+)$/i.exec(String(row.tag_name || ''));
+        const body = String(row.body || '');
+        checkpoint = {
+          tag: row.tag_name,
+          cycle: match ? Number(match[1]) : null,
+          source_sha: /^[0-9a-f]{40}$/i.test(String(row.target_commitish || '')) ? row.target_commitish : null,
+          local_gate_ready: body.includes('LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK'),
+          published_at: row.published_at || row.created_at || null,
           html_url: row.html_url || null,
         };
       }
@@ -153,7 +188,7 @@ async function freeLoraStatusResponse(request, env) {
 
   return json({
     ok: true,
-    mode: 'FREE_COLAB_HF_GITHUB_CLOUDFLARE',
+    mode: 'FREE_KAGGLE_CHECKPOINT_BENCHMARK',
     cost_policy: 'NO_PAID_GPU_TRIGGER',
     colab_url: 'https://colab.research.google.com/github/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/candidate/mel-clean-autonomy/notebooks/MEL-QLORA-UNCENSORED-MAX-COLAB.ipynb',
     agentic_colab_url: 'https://colab.research.google.com/github/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/candidate/mel-clean-autonomy/notebooks/MEL-QLORA-AGENTIC-MAX-COLAB.ipynb',
@@ -185,6 +220,10 @@ async function freeLoraStatusResponse(request, env) {
     },
     workflow: workflow || { status: 'NEVER_RUN', conclusion: null },
     workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_WORKFLOW}`,
+    training_workflow: trainingWorkflow || { status: 'NEVER_RUN', conclusion: null },
+    training_workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_TRAINING_WORKFLOW}`,
+    kaggle_url: 'https://www.kaggle.com/code/adrienlopezcarreras/mel-lora-uncensored-max',
+    checkpoint,
     learning,
   });
 }
