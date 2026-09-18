@@ -2,6 +2,7 @@ const MAX_FILES = 10;
 const MAX_TESTS = 4;
 const MAX_DIFF = 20_000;
 const MAX_TEST_OUTPUT = 20_000;
+const SHA40 = /^[0-9a-f]{40}$/i;
 
 function parseArray(value) {
   if (Array.isArray(value)) return value;
@@ -41,19 +42,58 @@ function bridgePass(job) {
   return String(job?.patch_json?.mode || '').toLowerCase() === 'repair' ? 'repair' : 'implement';
 }
 
-async function prepareCandidate(bridge, id, pass, context, steps) {
+function expectedCandidateBase(job) {
+  const preparation = job?.result_json?.bridge_preparation;
+  const branch = String(preparation?.candidate_branch || '').trim();
+  const sha = String(preparation?.candidate_sha || '').trim().toLowerCase();
+  if (!branch.startsWith('candidate/') || !SHA40.test(sha)) {
+    throw Object.assign(new Error('BRIDGE_PREPARATION_BASE_REQUIRED'), { code: 'BRIDGE_PREPARATION_BASE_REQUIRED' });
+  }
+  return { branch, sha };
+}
+
+function reportValue(value) {
+  return value?.result && typeof value.result === 'object' ? value.result : value;
+}
+
+function assertCandidateBase(report, expected) {
+  const row = reportValue(report) || {};
+  const branch = String(row.base_branch || row.base || '').trim();
+  const sha = String(row.base_sha || '').trim().toLowerCase();
+  if (branch !== expected.branch || sha !== expected.sha) {
+    throw Object.assign(new Error('LOCAL_CANDIDATE_BASE_STALE'), {
+      code: 'LOCAL_CANDIDATE_BASE_STALE',
+      expected_branch: expected.branch,
+      observed_branch: branch || null,
+      expected_sha: expected.sha,
+      observed_sha: sha || null,
+    });
+  }
+  return row;
+}
+
+async function prepareCandidate(bridge, id, pass, context, steps, expected) {
   if (pass === 'repair') {
     try {
       await bridge.bus.execute('code.status', { job_id: id }, context);
-      steps.push({ capability: 'dev.resume_candidate', passed: true });
+      const existingReport = await bridge.bus.execute('dev.report', { job_id: id }, context);
+      assertCandidateBase(existingReport, expected);
+      steps.push({ capability: 'dev.resume_candidate', passed: true, base_branch: expected.branch, base_sha: expected.sha });
       return true;
     } catch {
-      // A missing candidate is expected after a bridge restart. Fall back to a
-      // fresh isolated candidate rather than inventing previous local state.
+      // Missing or stale local state is discarded. A fresh isolated candidate
+      // may only be recreated if the local repository itself matches the exact
+      // approved canonical candidate branch and SHA.
     }
   }
-  await bridge.bus.execute('dev.create_candidate', { job_id: id }, context);
-  steps.push({ capability: 'dev.create_candidate', passed: true });
+  await bridge.bus.execute('dev.create_candidate', {
+    job_id: id,
+    expected_branch: expected.branch,
+    expected_sha: expected.sha,
+  }, context);
+  const createdReport = await bridge.bus.execute('dev.report', { job_id: id }, context);
+  assertCandidateBase(createdReport, expected);
+  steps.push({ capability: 'dev.create_candidate', passed: true, base_branch: expected.branch, base_sha: expected.sha });
   return false;
 }
 
@@ -71,9 +111,10 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
   if (!files.length) return null;
 
   const pass = bridgePass(job);
+  const expected = expectedCandidateBase(job);
   const context = { owner: 'dev-bridge', requestId: id };
   const steps = [];
-  const candidateReused = await prepareCandidate(bridge, id, pass, context, steps);
+  const candidateReused = await prepareCandidate(bridge, id, pass, context, steps, expected);
 
   for (const file of files) {
     let before = null;
@@ -117,6 +158,7 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
 
   const diff = await bridge.bus.execute('code.diff', { job_id: id }, context);
   const report = await bridge.bus.execute('dev.report', { job_id: id }, context);
+  const localReport = assertCandidateBase(report, expected);
   const actualDiff = diffText(diff);
   const failed = tests.filter((test) => !test.passed);
   const diffSummary = actualDiff.trim() ? actualDiff : 'NO_CHANGES';
@@ -139,12 +181,14 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
       stderr: String(test.stderr || '').slice(0, MAX_TEST_OUTPUT),
     })),
     production_touched: false,
+    approved_base: { candidate_branch: expected.branch, candidate_sha: expected.sha },
+    local_candidate_branch: localReport.branch || null,
   };
 
   return {
     job_id: id,
     status: 'READY_FOR_REVIEW',
-    candidate_branch: report?.branch || report?.result?.branch || null,
+    candidate_branch: expected.branch,
     tests_json: tests,
     diff_summary: diffSummary,
     needs_repair: failed.length > 0,
@@ -159,4 +203,4 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
   };
 }
 
-export { parseArray, structuredFiles, requestedTests, resultExitCode, diffText, bridgePass, prepareCandidate };
+export { parseArray, structuredFiles, requestedTests, resultExitCode, diffText, bridgePass, expectedCandidateBase, assertCandidateBase, prepareCandidate };
