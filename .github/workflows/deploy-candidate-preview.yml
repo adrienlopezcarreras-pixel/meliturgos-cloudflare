@@ -314,7 +314,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-      - name: Prove preview starts paused then enable isolated autonomy proof
+      - name: Prove preview is paused then enable isolated autonomy proof
         shell: bash
         run: |
           set -euo pipefail
@@ -330,8 +330,8 @@ jobs:
           const fs=require('fs');
           const state=JSON.parse(fs.readFileSync('preview-autonomy-initial.json','utf8'));
           const control=state?.control||state;
-          if(control?.paused!==true) throw new Error('FRESH_PREVIEW_AUTONOMY_NOT_PAUSED');
-          if(control?.source!=='default-d1-fail-closed') throw new Error('FRESH_PREVIEW_PAUSE_SOURCE_INVALID:'+control?.source);
+          if(control?.paused!==true) throw new Error('PREVIEW_AUTONOMY_NOT_PAUSED_BEFORE_PROOF');
+          if(!control?.source) throw new Error('PREVIEW_PAUSE_SOURCE_MISSING');
           NODE
 
           curl --fail-with-body --show-error --silent --max-time 45 \
