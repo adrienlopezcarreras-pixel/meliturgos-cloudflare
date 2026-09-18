@@ -62,8 +62,8 @@ test('every API path called by canonical Professor is implemented in the active 
     assert.ok(page.includes(path), `canonical UI no longer references expected path ${path}`);
     assert.ok(backend.includes(path), `backend route missing for canonical UI path ${path}`);
   }
-  assert.ok(sourceHasHref(page, '/professor-legacy'), 'legacy compatibility link missing in Professor');
-  assert.ok(router.includes('/professor-legacy'), 'legacy compatibility link has no backend route');
+  assert.ok(!sourceHasHref(page, '/professor-legacy'), 'legacy compatibility route must not appear as a second Professor UI');
+  assert.ok(router.includes('/professor-legacy'), 'legacy bookmark redirect is missing');
 });
 
 test('injected learning controls are wired to authenticated Worker endpoints without duplicate benchmark ids', async () => {
@@ -104,10 +104,11 @@ test('manual autonomy control is canonical in the top Professor controls and use
     read('src/pages/full-mode-control-enhancer.js'),
     read('src/evolution/autonomy-api.js'),
   ]);
-  assert.ok(ui.includes('/api/gen2/autonomy/state'), 'live status UI must read autonomy state');
+  assert.ok(controls.includes('/api/gen2/autonomy/state'), 'canonical activity panel must read autonomy state');
   assert.ok(controls.includes('/api/gen2/autonomy/tick'), 'top control must execute the autonomy tick');
   assert.ok(controls.includes('id="melFullCycle"'), 'canonical top cycle button is missing');
-  assert.ok(!ui.includes('/api/gen2/autonomy/tick'), 'live status patch must not expose a second cycle actuator');
+  assert.ok(!ui.includes('/api/gen2/autonomy/state'), 'API entry layer must not own a second live autonomy reader');
+  assert.ok(!ui.includes('/api/gen2/autonomy/tick'), 'API entry layer must not expose a second cycle actuator');
   for (const path of ['/api/gen2/autonomy/state', '/api/gen2/autonomy/tick']) {
     assert.ok(autonomy.includes(path), `autonomy backend missing ${path}`);
   }
