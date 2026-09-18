@@ -119,19 +119,22 @@ test('full mode exposes the zero-cost LoRA pipeline with real status endpoint an
   const [page, entry, notebook, workflow] = await Promise.all([
     read('src/pages/full-interface-v2.js'),
     read('src/professor-live-learning-entry.js'),
-    read('notebooks/MEL-QLORA-SMOKE-COLAB.ipynb'),
+    read('notebooks/MEL-QLORA-UNCENSORED-MAX-COLAB.ipynb'),
     read('.github/workflows/lora-promote-from-huggingface.yml'),
   ]);
-  for (const id of ['freeLoraRefresh', 'freeLoraColab', 'freeLoraHf', 'freeLoraWorkflow', 'freeRuntimeState']) {
+  for (const id of ['freeLoraRefresh', 'freeLoraColab', 'freeLoraHf', 'freeLoraWorkflow', 'freeRuntimeState', 'freeTrainingExamples', 'freeCheckpointStage', 'freeCompatibleLoras']) {
     assert.ok(sourceHasHtmlId(page, id), `missing free LoRA UI control #${id}`);
   }
   assert.ok(page.includes("data-view=\"lora\""), 'LoRA free panel is missing from full-mode navigation');
   assert.ok(page.includes('/api/learning/lora/free-status'), 'full mode does not read the free LoRA status endpoint');
   assert.ok(entry.includes("'/api/learning/lora/free-status'"), 'free LoRA status route is missing');
   assert.ok(entry.includes("cost_policy: 'NO_PAID_GPU_TRIGGER'"), 'free LoRA status must explicitly forbid paid GPU triggers');
-  assert.ok(entry.includes("Meliturgos/mel-lora-smoke-500"), 'free LoRA status lost the canonical Hugging Face bundle');
+  assert.ok(entry.includes("Meliturgos/mel-lora-uncensored"), 'free LoRA status lost the canonical Hugging Face bundle');
   assert.ok(notebook.includes('scripts/publish-lora-hf.py'), 'Colab notebook no longer publishes the trained bundle');
-  assert.ok(notebook.includes('Meliturgos/mel-lora-smoke-500'), 'Colab notebook no longer targets the canonical free bundle repo');
-  assert.ok(workflow.includes('default: "Meliturgos/mel-lora-smoke-500"'), 'promotion workflow lost its zero-entry default repository');
+  assert.ok(notebook.includes('scripts/prepare-mel-max-lora.py'), 'UNCENSORED MAX notebook no longer builds the maximal verbatim corpus');
+  assert.ok(notebook.includes('--stage'), 'UNCENSORED MAX notebook no longer pins the training stage');
+  assert.ok(notebook.includes('resume-from-checkpoint'), 'UNCENSORED MAX notebook lost resumable training');
+  assert.ok(notebook.includes('Meliturgos/mel-lora-uncensored'), 'Colab notebook no longer targets the canonical free bundle repo');
+  assert.ok(workflow.includes('default: "Meliturgos/mel-lora-uncensored"'), 'promotion workflow lost its zero-entry default repository');
   assert.ok(workflow.includes('activate_preview'), 'promotion workflow must keep preview activation explicit');
 });
