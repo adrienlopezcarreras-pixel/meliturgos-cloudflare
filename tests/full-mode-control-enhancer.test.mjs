@@ -13,9 +13,9 @@ test('full mode receives MAX, STOP, activity and one global clickable recall lin
   assert.match(html, /MAX 100%/);
   assert.match(html, /melFullStop/);
   assert.match(html, /melFullActivity/);
-  assert.match(html, /melFullWatch/);
-  assert.match(html, /\/api\/mel\/capability-watch\/run/);
-  assert.match(html, /force:true/);
+  assert.match(html, /href="\/veille"/);
+  assert.doesNotMatch(html, /melFullWatch/);
+  assert.doesNotMatch(html, /\/api\/mel\/capability-watch\/run/);
   assert.match(html, /Reprendre le dernier échange/);
   assert.match(html, /\/api\/mel\/conversations\/latest/);
   assert.match(html, /role','link/);
@@ -41,23 +41,16 @@ test('MVP enhancer delegates full-mode HTML to the full-mode enhancer', async ()
 });
 
 
-test('full mode activity panel exposes the discovery registry and Council/Teacher handoff truthfully', async () => {
+test('full mode keeps watch UI out of activity panel and chat', async () => {
   const source = new Response(`<!doctype html><html><body>
     <header class="top"><h1>Mode complet</h1></header>
     <section data-panel="chat"><div id="chatlog"></div><div class="composer"><input id="chatInput"><button id="chatSend">Envoyer</button></div></section>
   </body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8' } });
   const html = await (await enhanceFullModeControls(source)).text();
-  assert.match(html, /Registre :/);
-  assert.match(html, /UNBLOCK_EXISTING/);
-  assert.match(html, /WAITING_TEACHER/);
-  assert.match(html, /Handoff veille/);
-  assert.match(html, /Propositions de MEL/);
-  assert.match(html, /\/api\/mel\/capability-watch\/proposal/);
-  assert.match(html, />Tester</);
-  assert.match(html, />Approuver</);
-  assert.match(html, />Refuser</);
-  assert.match(html, />Plus tard</);
-  assert.match(html, /melProposalChatNotice/);
-  assert.match(html, /Council terminé/);
-  assert.match(html, /sans activation production automatique/i);
+  assert.match(html, /href="\/veille"/);
+  assert.doesNotMatch(html, /Veille IA, plugins & arts/);
+  assert.doesNotMatch(html, /Propositions de MEL/);
+  assert.doesNotMatch(html, /\/api\/mel\/capability-watch\/proposal/);
+  assert.doesNotMatch(html, /melProposalChatNotice/);
+  assert.doesNotMatch(html, /Handoff veille/);
 });
