@@ -18,6 +18,6 @@ assert.equal(r.status,200);
 const html=await r.text();
 const ids=[...html.matchAll(/id=["']([^"']+)["']/g)].map(m=>m[1]);
 assert.equal(ids.length,new Set(ids).size);
-assert.match(html,/requestSubmit\(\)/);
+assert.match(html,/queueMessage\(\)/);
 assert.match(html,/e\.isComposing/);
 console.log("root-interface-integrity: canonical entry, IDs uniques, Entrée/Maj+Entrée et zoom validés");
