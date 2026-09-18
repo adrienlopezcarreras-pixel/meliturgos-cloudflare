@@ -293,7 +293,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator NvidiaTeslaT4Highmem             -t 600
+          kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator NvidiaL4             -t 600
           echo "Submitted $KERNEL_REF cycle $CYCLE with internet disabled."
 
       - name: Verify server-side GPU metadata
@@ -309,7 +309,7 @@ jobs:
               META="$(find artifacts/kaggle-server-metadata -name kernel-metadata.json -print -quit)"
               if [[ -n "$META" && -s "$META" ]]; then
                 cat "$META"
-                python -c 'import json,sys; meta=json.load(open(sys.argv[1],encoding="utf-8")); gpu=meta.get("enable_gpu") is True; shape=str(meta.get("machine_shape") or ""); print(json.dumps({"enable_gpu":gpu,"machine_shape":shape})); sys.exit(0 if gpu and shape=="NvidiaTeslaT4Highmem" else 2)' "$META"
+                python -c 'import json,sys; meta=json.load(open(sys.argv[1],encoding="utf-8")); gpu=meta.get("enable_gpu") is True; shape=str(meta.get("machine_shape") or ""); print(json.dumps({"enable_gpu":gpu,"machine_shape":shape})); sys.exit(0 if gpu and shape=="NvidiaL4" else 2)' "$META"
                 VERIFIED=1
                 break
               fi
