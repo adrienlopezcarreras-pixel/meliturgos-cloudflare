@@ -12,6 +12,7 @@ import { LearningEngine } from '../learning/learning-engine.js';
 import { MentorMemoryRepository } from '../learning/mentor-memory.js';
 import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
 import { stripInternalCounters } from './chat-sanitization.js';
+import { retrieveContext } from '../core/orchestrator/conversation-context.js';
 
 function extractCodePath(value) {
   return String(value || '').match(/((?:src|tests|\.github)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)|worker\.js|package\.json|wrangler\.jsonc)/i)?.[1] || null;
@@ -454,7 +455,16 @@ export async function handleNativeChat(request, env) {
     activePromotedInferenceSettings(env),
     activePromotedAdapter(env),
   ]);
-  const retrieved = await loadCognitiveMemory(env, activeInferenceSettings?.memory_results ?? 12);
+  const [cognitiveMemory, archiveRecall] = await Promise.all([
+    loadCognitiveMemory(env, activeInferenceSettings?.memory_results ?? 12),
+    env?.DB
+      ? retrieveContext(env.DB, env.MELITURGOS_USER || 'owner', text).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  const retrieved = {
+    prompt: [cognitiveMemory?.prompt, archiveRecall?.prompt].filter(Boolean).join('\n'),
+    count: Number(cognitiveMemory?.count || 0) + Number(archiveRecall?.rag?.total || 0),
+  };
   const manifestText = JSON.stringify(capabilityManifest);
   const operationalExperience = await loadOperationalExperience(env, text);
   const codeAccess = codeAccessTruth(capabilityManifest);
