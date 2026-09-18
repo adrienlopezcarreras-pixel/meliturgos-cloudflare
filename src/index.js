@@ -413,14 +413,14 @@ export default {
             console.error('[MEL autonomy] hourly maintenance failed:', error?.code || error?.message || error);
             return null;
           }),
+          runEcosystemCapabilityWatch(env, { sourceSha: deployedWatchSourceSha() }).catch((error) => {
+            console.error('[MEL watch] hourly ecosystem watch failed:', error?.code || error?.message || error);
+            return null;
+          }),
         ]
       : [
           runAutonomyRuntimeTick(env).catch((error) => {
             console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
-            return null;
-          }),
-          runEcosystemCapabilityWatch(env, { sourceSha: deployedWatchSourceSha() }).catch((error) => {
-            console.error('[MEL watch] scheduled ecosystem watch failed:', error?.code || error?.message || error);
             return null;
           }),
           runLoraTrainingHeartbeat(env).then((result) => {
