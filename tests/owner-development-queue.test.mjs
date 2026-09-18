@@ -249,3 +249,65 @@ test('ecosystem discovery can enqueue one blocked existing capability for Counci
   assert.equal(replay.job_id, first.job_id);
   assert.equal(f.aiCalls.length, calls, 'fingerprint replay must not repeat Council work');
 });
+
+
+test('exact blocked target wins over generic available matches in a sourced ecosystem handoff', async () => {
+  const f = fixture();
+  const goal = [
+    'Débloquer la capacité existante media.video.generate sans créer de capacité en doublon.',
+    'Évaluer la découverte sourcée « video.generate » et, seulement si elle est adaptée,',
+    'brancher le provider/connecteur zéro coût autorisé minimal sur le port canonique existant.',
+    'Conserver les permissions, le fail-closed, les tests, la provenance et le rollback.',
+  ].join(' ');
+
+  const result = await enqueueSupervisedDevelopmentRequest({
+    env: f.env,
+    goal,
+    requestKey: 'capability:video.generate',
+    repository: f.repository,
+    fetchImpl: f.fetchImpl,
+    capabilities: [
+      {
+        id: 'media.video.generate',
+        name: 'Génération vidéo',
+        category: 'creative-media',
+        description: 'video.generate video generation cinema creation',
+        health: 'UNAVAILABLE',
+        enabled: true,
+      },
+      {
+        id: 'provider.registry',
+        name: 'Provider connector registry',
+        category: 'tooling',
+        description: 'provider connector canonical integration permissions provenance tests',
+        health: 'HEALTHY',
+        enabled: true,
+      },
+    ],
+    requestedBy: 'mel-autonomy',
+    source: 'ecosystem-watch',
+    priority: 'P1',
+    extensionKind: 'plugin',
+    allowBlockedExisting: true,
+    targetCapabilityId: 'media.video.generate',
+    roadmapId: 'GEN2-42',
+    inspectionPaths: ['src/capabilities/creative-media-capabilities.js'],
+    inspectionQueries: ['media.video.generate', 'GEN2-42'],
+    evidence: {
+      fingerprint: 'capability:video.generate',
+      capability_hint: 'video.generate',
+      citations_count: 2,
+      observed_on: ['watch_video_cinema'],
+      sources: [{ title: 'Official video docs', url: 'https://example.com/video' }],
+      source_watch_sha: CANDIDATE_HEAD_SHA,
+    },
+  });
+
+  assert.equal(result.created, true);
+  assert.equal(result.status, 'WAITING_TEACHER');
+  assert.ok(result.job_id);
+  const stored = await f.repository.get(result.job_id);
+  assert.equal(stored.optional_context.extension_proposal.decision, 'UNBLOCK_EXISTING');
+  assert.equal(stored.optional_context.extension_proposal.gap_classification, 'MATCHED_BUT_BLOCKED');
+  assert.equal(stored.optional_context.extension_proposal.matched_capability, 'media.video.generate');
+});

@@ -37,6 +37,16 @@ function expectedProposalDecision(kind) {
   return kind === 'plugin' ? 'PROPOSE_PLUGIN' : 'PROPOSE_MODULE';
 }
 
+function exactBlockedTarget(capabilities, targetCapabilityId) {
+  const target = String(targetCapabilityId || '').trim().toLowerCase();
+  if (!target || !Array.isArray(capabilities)) return null;
+  const row = capabilities.find(item => String(item?.id || '').trim().toLowerCase() === target);
+  if (!row) return null;
+  const health = String(row.health || '').toUpperCase();
+  const blocked = row.enabled === false || health === 'UNAVAILABLE';
+  return blocked ? row : null;
+}
+
 function boundedEvidence(value) {
   if (!value || typeof value !== 'object') return null;
   const sources = Array.isArray(value.sources)
@@ -212,9 +222,14 @@ export async function enqueueSupervisedDevelopmentRequest({
     ? proposalForKind(kind, { goal: objective, capabilities: capabilityInventory })
     : null;
   const expectedDecision = expectedProposalDecision(kind);
-  const unblocksExisting = extensionProposal
+  const exactBlocked = allowBlockedExisting === true
+    ? exactBlockedTarget(capabilityInventory, targetCapabilityId)
+    : null;
+  const unblocksExisting = Boolean(exactBlocked) || (
+    extensionProposal
     && allowBlockedExisting === true
-    && extensionProposal.gap?.classification === 'MATCHED_BUT_BLOCKED';
+    && extensionProposal.gap?.classification === 'MATCHED_BUT_BLOCKED'
+  );
 
   if (extensionProposal && extensionProposal.decision !== expectedDecision && !unblocksExisting) {
     return publicGapDecision(extensionProposal, {
@@ -259,8 +274,8 @@ export async function enqueueSupervisedDevelopmentRequest({
       kind,
       decision: unblocksExisting ? 'UNBLOCK_EXISTING' : extensionProposal.decision,
       proposal_only: true,
-      gap_classification: extensionProposal.gap?.classification || null,
-      matched_capability: extensionProposal.gap?.best_match?.id || null,
+      gap_classification: exactBlocked ? 'MATCHED_BUT_BLOCKED' : (extensionProposal.gap?.classification || null),
+      matched_capability: exactBlocked?.id || extensionProposal.gap?.best_match?.id || null,
       manifest: extensionProposal.manifest,
       acceptance_tests: extensionProposal.acceptance_tests || [],
       activation_allowed: false,
