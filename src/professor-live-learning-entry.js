@@ -112,6 +112,7 @@ async function freeLoraStatusResponse(request, env) {
     const progress = await getLiveLearningProgress({ engine, db: env.DB });
     learning = {
       lora_status: progress?.lora_status || null,
+      benchmark_status: progress?.benchmark_status || null,
       corrections_available_for_training: progress?.evidence?.corrections_available_for_training ?? null,
       neural_weights_changed: progress?.evidence?.neural_weights_changed === true,
     };
