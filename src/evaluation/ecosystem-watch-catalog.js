@@ -19,6 +19,7 @@ const target = (id, label, category, query, capabilities = [], sources = [], opt
 
 const OFFICIAL = Object.freeze({
   openaiReleaseNotes: 'https://help.openai.com/en/articles/6825453-chatgpt-release-notes',
+  openaiApiChangelog: 'https://developers.openai.com/api/docs/changelog',
   openaiImage: 'https://developers.openai.com/api/docs/guides/image-generation',
   openaiAudio: 'https://developers.openai.com/api/docs/guides/audio',
   openaiVideo: 'https://developers.openai.com/api/docs/guides/video-generation',
@@ -48,7 +49,7 @@ export const ECOSYSTEM_WATCH_TARGETS = Object.freeze([
   target('watch_openai_chatgpt', 'ChatGPT / OpenAI', 'ai-platform',
     'OpenAI ChatGPT official latest tools connectors plugins agents computer use multimodal capabilities',
     ['tools','connectors','agents','browser','computer-use','files','image','audio','video','automation'],
-    [OFFICIAL.openaiReleaseNotes]),
+    [OFFICIAL.openaiReleaseNotes, OFFICIAL.openaiApiChangelog]),
   target('watch_anthropic_claude', 'Claude / Anthropic', 'ai-platform',
     'Anthropic Claude official latest tools connectors integrations agents computer use multimodal capabilities',
     ['tools','connectors','agents','computer-use','files','vision'],
