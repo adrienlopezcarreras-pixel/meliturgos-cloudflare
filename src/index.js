@@ -14,6 +14,7 @@ import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
 import { enhanceThemeAvatars } from "./pages/theme-avatar-enhancer.js";
 import { enhanceMvpBehavior } from "./pages/mvp-behavior-enhancer.js";
+import { enhanceFullModeControls } from "./pages/full-mode-control-enhancer.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
 
 let lastSafeWorkJob = null;
@@ -354,7 +355,8 @@ export default {
       const response = await router.fetch(preparedRequest, env, ctx);
       if (response) {
         const themed = await enhanceThemeAvatars(response);
-        return await enhanceMvpBehavior(themed);
+        const behaved = await enhanceMvpBehavior(themed);
+        return await enhanceFullModeControls(behaved);
       }
       throw new Error("Router returned null");
     } catch (error) {
