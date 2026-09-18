@@ -1,0 +1,42 @@
+name: kaggle-v3-logs
+
+on:
+  push:
+    branches:
+      - candidate/mel-clean-autonomy
+    paths:
+      - ".github/workflows/kaggle-v3-logs.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 10
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: adrienlopezcarreras/mel-lora-uncensored-notebook-t4
+    steps:
+      - name: Install Kaggle CLI
+        run: python -m pip install -q -U kaggle
+
+      - name: Fetch version 3 logs
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts
+          kaggle --version > artifacts/kaggle-version.txt 2>&1 || true
+          kaggle kernels --help > artifacts/kernels-help.txt 2>&1 || true
+          kaggle kernels logs "$KERNEL_REF/3" > artifacts/logs-v3-path.txt 2>&1 || true
+          kaggle kernels logs "$KERNEL_REF" --version 3 > artifacts/logs-v3-option.txt 2>&1 || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kaggle-v3-logs-${{ github.run_id }}
+          path: artifacts/**
+          if-no-files-found: warn
+          retention-days: 14
