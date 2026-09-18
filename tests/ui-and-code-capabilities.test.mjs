@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { inferCodeCapability } from '../src/router.js';
 import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface.js';
+import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 
 test('code questions are routed to search automatically', () => {
   assert.deepEqual(inferCodeCapability('Peux-tu accéder à ton code et chercher ModelRouter ?'), {
@@ -34,7 +35,8 @@ test('normal home UI remains available while v1 redirects to canonical Professor
   assert.match(mvp, /data-visual-owner="mel-normal-v3"/);
   assert.match(mvp, /id="melAvatar"/);
   assert.match(mvp, /id="full"/);
-  assert.match(mvp, /location\.href='\/professor'/);
+  assert.match(mvp, /\/normal-runtime\.js\?v=5/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /location\.href='\/professor'/);
   assert.doesNotMatch(mvp, /status:\s*308/);
   assert.match(v1, /status:\s*308/);
   assert.match(v1, /location:\s*["']\/professor["']/);
