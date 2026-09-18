@@ -11,6 +11,10 @@ REQUIRED = (
     "artifact-evidence.json",
     "lora-plan.json",
 )
+OPTIONAL = (
+    "dataset-metadata.json",
+    "hf-compatible-registry.json",
+)
 
 def main():
     parser = argparse.ArgumentParser(description="Publish one trained MEL LoRA artifact bundle to Hugging Face Hub.")
@@ -45,7 +49,8 @@ def main():
     repo_id = args.repo_id.strip() or f"{username}/{safe_plan}"
 
     api.create_repo(repo_id=repo_id, repo_type="model", private=bool(args.private), exist_ok=True)
-    for name in REQUIRED:
+    upload_names = list(REQUIRED) + [name for name in OPTIONAL if (root / name).is_file()]
+    for name in upload_names:
         api.upload_file(
             path_or_fileobj=str(root / name),
             path_in_repo=name,
@@ -62,7 +67,7 @@ def main():
         "artifact_digest": artifact.get("digest"),
         "dataset_digest": artifact.get("dataset_digest"),
         "training_manifest_digest": artifact.get("training_manifest_digest"),
-        "files": list(REQUIRED),
+        "files": upload_names,
     }, indent=2))
 
 if __name__ == "__main__":
