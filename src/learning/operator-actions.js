@@ -3,7 +3,7 @@ import { MEL_LEARNING_BENCHMARK_CASES, runLearningBenchmark, scoreBenchmarkRespo
 import { extractModelText } from '../models/ModelRouter.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
 import { CANONICAL_LEARNING_BENCHMARK_SUITE, benchmarkSuiteFingerprint } from '../evaluation/benchmarks.js';
-import { assertAdapterArtifactForPlan } from './lora-plan.js';
+import { assertAdapterApprovalForArtifact, assertAdapterArtifactForPlan } from './lora-plan.js';
 
 export const DEFAULT_OPERATOR_BENCHMARK_MODEL = '@cf/zai-org/glm-4.7-flash';
 
@@ -209,6 +209,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
 
   const plan = options.plan;
   const checkedArtifact = assertAdapterArtifactForPlan({ plan, artifact: options.artifact });
+  const checkedApproval = assertAdapterApprovalForArtifact({ plan, artifact: checkedArtifact, approval: options.approval });
   const createEngine = deps.createLearningEngine || createLearningEngine;
   const benchmarkRunner = deps.runLearningBenchmark || runLearningBenchmark;
   const extractText = deps.extractModelText || extractModelText;
@@ -239,6 +240,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
       artifact_digest: checkedArtifact.digest,
       training_manifest_digest: checkedArtifact.training_manifest_digest,
       dataset_digest: checkedArtifact.dataset_digest,
+      approval_id: checkedApproval.approval_id,
     },
     respond: benchmarkResponder(ai, runtimeModel, extractText, { lora: checkedArtifact.finetune_id }),
   });
@@ -277,6 +279,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
   const decision = await engine.evaluateAdapter({
     plan,
     artifact: checkedArtifact,
+    approval: checkedApproval,
     baseline,
     candidate,
   });
@@ -286,6 +289,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
     active = await engine.activateAdapter({
       plan,
       artifact: checkedArtifact,
+      approval: checkedApproval,
       baseline,
       candidate,
     });
@@ -294,6 +298,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
   return {
     plan_id: plan?.id || null,
     artifact: checkedArtifact,
+    approval: checkedApproval,
     baseline,
     candidate,
     decision,
