@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 test('runtime has one canonical scheduler topology with maintenance separated from minute autonomy', async () => {
-  const [wrangler,index,visual,preview,professor,ui,learning,lease,lora] = await Promise.all([
+  const [wrangler,index,visual,preview,professor,ui,learning,lease,lora,parallel,roadmapRefresh,fullControls,workLoop] = await Promise.all([
     readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8'),
     readFile(new URL('../src/index.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/visual-final-entry.js', import.meta.url), 'utf8'),
@@ -13,6 +13,10 @@ test('runtime has one canonical scheduler topology with maintenance separated fr
     readFile(new URL('../src/learning-entry.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/evolution/autonomy-runtime-lease.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/learning/lora-training-heartbeat.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/augmentio/parallel-scheduler.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/pages/roadmap-live-refresh-enhancer.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/pages/full-mode-control-enhancer.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/work/autonomous-work-loop.js', import.meta.url), 'utf8'),
   ]);
 
   const cfg = JSON.parse(wrangler);
@@ -46,6 +50,22 @@ test('runtime has one canonical scheduler topology with maintenance separated fr
   assert.match(lora, /LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK/);
   assert.match(lora, /AGENTIC_READY/);
   assert.match(lora, /SKIPPED_PREVIEW/);
+
+  assert.match(parallel, /for \(let attempt = 0; attempt <= this\.retries; attempt \+= 1\)/);
+  assert.match(parallel, /PROVIDER_TIMEOUT/);
+  assert.match(parallel, /SCHEDULER_DEADLOCK/);
+  assert.match(parallel, /clearTimeout\(timer\)/);
+  assert.match(parallel, /circuitBreakerFailures/);
+
+  assert.match(workLoop, /this\.maxCycles = Math\.max\(1, Math\.min\(32,/);
+  assert.match(workLoop, /for \(let cycle = 0; cycle < this\.maxCycles; cycle \+= 1\)/);
+  assert.match(workLoop, /AUTONOMOUS_WORK_LOOP_CYCLE_LIMIT/);
+
+  assert.match(roadmapRefresh, /setInterval\(/);
+  assert.match(roadmapRefresh, /clearInterval\(timer\)/);
+  assert.match(roadmapRefresh, /panel\?\.classList\.contains\('active'\)/);
+  assert.match(fullControls, /activityTimer=setInterval\(loadActivity,15000\)/);
+  assert.match(fullControls, /clearInterval\(activityTimer\)/);
 });
 
 test('active branch unicity no longer exempts LoRA or compat development branches', async () => {
