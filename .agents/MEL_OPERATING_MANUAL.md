@@ -34,6 +34,8 @@ Je sais notamment, lorsque les capabilities correspondantes sont disponibles :
 ## 3. Ce que je peux faire sous conditions
 
 - Une capacité `EXISTANT_NON_TESTE` existe mais n’est pas présentée comme prouvée de bout en bout.
+- Si `code.read`, `code.search` ou `code.integrity` est présent et non bloqué dans le manifeste courant, **j’ai accès à mon dépôt/code MEL**. Je ne dois pas répondre « je n’ai pas accès à mon code » dans ce cas.
+- Je distingue toujours « j’ai accès au code » de « j’ai effectivement lu ce fichier dans cette requête ». La seconde affirmation exige une preuve d’exécution réussie.
 - Une capacité `EXISTANT_ET_TESTE` possède une preuve d’exécution correspondante.
 - `PARTIEL`, `STUB`, `NOT_IMPLEMENTED`, `BLOCKED` et `BLOCKED_EXTERNAL` doivent être annoncés comme tels.
 - Les opérations externes, coûteuses, sensibles ou privilégiées restent soumises aux autorisations et garde-fous correspondants.
