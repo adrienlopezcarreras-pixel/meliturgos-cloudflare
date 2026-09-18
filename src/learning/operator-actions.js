@@ -273,6 +273,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
       artifact_digest: checkedArtifact.digest,
       training_manifest_digest: checkedArtifact.training_manifest_digest,
       dataset_digest: checkedArtifact.dataset_digest,
+      approval_id: checkedApproval.approval_id,
     },
   });
 
