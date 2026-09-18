@@ -381,6 +381,7 @@ def main():
 
     required = [
         "adapter_model.safetensors", "adapter_config.json", "training-evidence.json",
+        "training-started.json", "training-progress.jsonl",
         "artifact-evidence.json", "lora-plan.json", "dataset-metadata.json", "shard-metadata.json",
         "local-impact-benchmark.json",
     ]
