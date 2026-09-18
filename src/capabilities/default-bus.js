@@ -2,6 +2,7 @@ import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
 import { registerWorkCapabilities } from './work-capabilities.js';
 import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
+import { registerCreativeMediaCapabilities } from './creative-media-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
 import { inspectZeroCostProviderReadiness } from '../augmentio/zero-cost-readiness.js';
@@ -259,6 +260,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async input => ({ ok: true, preview: true, ...normalizeChatGPTArchive(input.archive ?? input).summary }));
 
+  registerCreativeMediaCapabilities(bus, { env: runtimeEnv });
   registerBrowserRuntimeCapabilities(bus, { binding: runtimeEnv.MEL_BROWSER_COMPANION });
   registerWorkCapabilities(bus, { db: runtimeEnv.DB });
   return bus;

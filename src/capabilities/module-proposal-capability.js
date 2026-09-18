@@ -24,7 +24,7 @@ function capabilityName(goal) {
   return words || 'Nouvelle capacité MEL';
 }
 
-export function proposeModuleDraft({ goal, capabilities = [], threshold = 2 } = {}) {
+function proposeExtensionDraft({ goal, capabilities = [], threshold = 2, kind = 'module' } = {}) {
   const gap = detectCapabilityGap({ goal, capabilities, threshold });
   const shouldDraft = gap.classification === 'POSSIBLE_GAP';
   if (!shouldDraft) {
@@ -39,9 +39,10 @@ export function proposeModuleDraft({ goal, capabilities = [], threshold = 2 } = 
     };
   }
 
+  const extensionKind = kind === 'plugin' ? 'plugin' : 'module';
   const slug = slugify(goal);
   const capabilityId = `mel.${slug}`.slice(0, 100);
-  const manifest = validateManifest({
+  const manifestInput = {
     id: `mel-${slug}`.slice(0, 100),
     name: capabilityName(goal),
     version: '0.1.0',
@@ -51,18 +52,21 @@ export function proposeModuleDraft({ goal, capabilities = [], threshold = 2 } = 
     permissions: [],
     secrets_required: [],
     dependencies: [],
-    entrypoint: `src/modules/generated/${slug}.js`,
+    entrypoint: `src/${extensionKind === 'plugin' ? 'plugins' : 'modules'}/generated/${slug}.js`,
     risk: riskForGoal(goal),
-  }, 'module');
+  };
+  if (extensionKind === 'plugin') manifestInput.healthcheck = 'generated-provider-health';
+  const manifest = validateManifest(manifestInput, extensionKind);
 
   return {
     ok: true,
     proposal_only: true,
-    decision: 'PROPOSE_MODULE',
+    decision: extensionKind === 'plugin' ? 'PROPOSE_PLUGIN' : 'PROPOSE_MODULE',
+    extension_kind: extensionKind,
     gap,
     manifest,
     acceptance_tests: [
-      `manifest validates as module ${manifest.id}`,
+      `manifest validates as ${extensionKind} ${manifest.id}`,
       `capability ${capabilityId} is discoverable only after candidate registration`,
       'handler rejects invalid input and secrets by default',
       'candidate tests pass before activation',
@@ -72,6 +76,14 @@ export function proposeModuleDraft({ goal, capabilities = [], threshold = 2 } = 
     activation_requirements: ['AI_COUNCIL_BEFORE_CODE', 'SANDBOX_TESTS', 'SECURITY_REVIEW', 'HUMAN_PRODUCTION_APPROVAL'],
     next_action: 'Run evolution.preflight, then Mentor proposal and candidate tests. Do not activate directly from this draft.',
   };
+}
+
+export function proposeModuleDraft(options = {}) {
+  return proposeExtensionDraft({ ...options, kind: 'module' });
+}
+
+export function proposePluginDraft(options = {}) {
+  return proposeExtensionDraft({ ...options, kind: 'plugin' });
 }
 
 /**
@@ -164,5 +176,28 @@ export function registerModuleProposalCapability(bus) {
     health: 'HEALTHY',
     enabled: true,
   }, input => proposeModuleDraft({ goal: input.goal, threshold: input.threshold, capabilities: bus.list() }));
+
+  bus.discover({
+    id: 'evolution.plugin.propose',
+    name: 'Proposition de plugin MEL',
+    category: 'evolution',
+    version: '1.0.0',
+    provider: 'mel',
+    description: 'Turns a verified tooling/connector capability gap into a bounded plugin manifest draft without writing or activating code.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        goal: { type: 'string', minLength: 1, maxLength: 4000 },
+        threshold: { type: 'integer', minimum: 1, maximum: 6 },
+      },
+      required: ['goal'],
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW',
+    permissions: [],
+    health: 'HEALTHY',
+    enabled: true,
+  }, input => proposePluginDraft({ goal: input.goal, threshold: input.threshold, capabilities: bus.list() }));
   return bus;
 }

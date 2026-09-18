@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { proposeModuleDraft, enterModuleLabForGap } from '../src/capabilities/module-proposal-capability.js';
+import { proposeModuleDraft, proposePluginDraft, enterModuleLabForGap } from '../src/capabilities/module-proposal-capability.js';
 import { createGen2Runtime } from '../src/core/orchestrator/gen2-runtime.js';
 import { createModuleLab } from '../src/modules/module-lab.js';
 
@@ -130,4 +130,21 @@ test('Gen2 runtime exposes evolution.module.propose as low risk', () => {
   assert.ok(row);
   assert.equal(row.risk, 'LOW');
   assert.equal(row.enabled, true);
+});
+
+
+test('plugin proposal reuses the same gap detector and creates a non-activating valid plugin manifest', () => {
+  const result = proposePluginDraft({ goal: 'nouveau connecteur culturel externe', capabilities: [] });
+  assert.equal(result.decision, 'PROPOSE_PLUGIN');
+  assert.equal(result.extension_kind, 'plugin');
+  assert.equal(result.activation_allowed, false);
+  assert.match(result.manifest.entrypoint, /^src\/plugins\/generated\//);
+  assert.equal(result.manifest.healthcheck, 'generated-provider-health');
+});
+
+test('Gen2 runtime exposes evolution.plugin.propose without duplicating module proposal', () => {
+  const runtime = createGen2Runtime({ env: {} });
+  const ids = runtime.bus.list().map(row => row.id);
+  assert.equal(ids.filter(id => id === 'evolution.module.propose').length, 1);
+  assert.equal(ids.filter(id => id === 'evolution.plugin.propose').length, 1);
 });
