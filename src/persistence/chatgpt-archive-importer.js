@@ -1,4 +1,5 @@
 import { createConversationService } from '../conversations/conversation-service.js';
+import { createSyncService } from '../conversations/sync-service.js';
 
 const MAX_CONVERSATIONS = 1000;
 const MAX_MESSAGES = 100000;
@@ -136,8 +137,10 @@ export async function importChatGPTArchive(env, payload, { preview = false } = {
   if (!env?.DB) throw Object.assign(new Error('DB_BINDING_REQUIRED'), { code: 'DB_BINDING_REQUIRED', status: 503 });
 
   const service = createConversationService(env);
+  const syncService = createSyncService(env);
   await service.migrate();
   let inserted = 0, duplicates = 0, failed = 0;
+  const memorySync = { scanned: 0, eligible: 0, inserted: 0, alreadyPresent: 0, skippedEmpty: 0, failed_conversations: 0 };
   for (const conversation of normalized.conversations) {
     await service.ensureConversation(conversation.id, env.MELITURGOS_USER || '', conversation.title);
     for (const message of conversation.messages) {
@@ -164,6 +167,20 @@ export async function importChatGPTArchive(env, payload, { preview = false } = {
         failed++;
       }
     }
+
+    try {
+      for (let pass = 0; pass < 20; pass++) {
+        const result = await syncService.syncToMemory({ conversationId: conversation.id, limit: 1000 });
+        memorySync.scanned += Number(result.scanned || 0);
+        memorySync.eligible += Number(result.eligible || 0);
+        memorySync.inserted += Number(result.inserted || 0);
+        memorySync.alreadyPresent += Number(result.alreadyPresent || 0);
+        memorySync.skippedEmpty += Number(result.skippedEmpty || 0);
+        if (Number(result.scanned || 0) < 1000) break;
+      }
+    } catch {
+      memorySync.failed_conversations++;
+    }
   }
   return {
     ok: failed === 0,
@@ -173,6 +190,91 @@ export async function importChatGPTArchive(env, payload, { preview = false } = {
     inserted,
     duplicates,
     failed,
-    provenance: 'chatgpt_export'
+    provenance: 'chatgpt_export',
+    memory_sync: {
+      ...memorySync,
+      ok: memorySync.failed_conversations === 0,
+      stage: 'ARCHIVE_TO_MEMORY_CANDIDATES'
+    }
+  };
+}
+
+async function scalar(db, sql, ...bindings) {
+  try {
+    const row = await db.prepare(sql).bind(...bindings).first();
+    return Number(row?.count || 0);
+  } catch {
+    return 0;
+  }
+}
+
+export async function getChatGPTImportStatus(env) {
+  if (!env?.DB) {
+    return {
+      ok: false,
+      status: 'UNAVAILABLE',
+      db_bound: false,
+      conversations: 0,
+      messages: 0,
+      memory_candidates: 0,
+      unsynced_messages: 0,
+      last_received: null
+    };
+  }
+
+  const service = createConversationService(env);
+  await service.migrate();
+
+  const [conversations, messages, userMessages, assistantMessages, memoryCandidates, pendingCandidates, unsyncedMessages] = await Promise.all([
+    scalar(env.DB, "SELECT COUNT(DISTINCT conversation_id) AS count FROM archive_messages WHERE provenance='chatgpt_export'"),
+    scalar(env.DB, "SELECT COUNT(*) AS count FROM archive_messages WHERE provenance='chatgpt_export'"),
+    scalar(env.DB, "SELECT COUNT(*) AS count FROM archive_messages WHERE provenance='chatgpt_export' AND role='user'"),
+    scalar(env.DB, "SELECT COUNT(*) AS count FROM archive_messages WHERE provenance='chatgpt_export' AND role='assistant'"),
+    scalar(env.DB, "SELECT COUNT(*) AS count FROM memory_candidates WHERE conversation_id LIKE 'chatgpt:%'"),
+    scalar(env.DB, "SELECT COUNT(*) AS count FROM memory_candidates WHERE conversation_id LIKE 'chatgpt:%' AND status='PENDING'"),
+    scalar(env.DB, `SELECT COUNT(*) AS count
+      FROM archive_messages a
+      WHERE a.provenance='chatgpt_export'
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_candidates c
+          WHERE c.conversation_id=a.conversation_id AND c.message_id=a.id
+        )`)
+  ]);
+
+  let lastReceived = null;
+  try {
+    lastReceived = await env.DB.prepare(`
+      SELECT a.conversation_id, c.title, a.role, a.timestamp, a.id
+      FROM archive_messages a
+      LEFT JOIN conversations c ON c.id=a.conversation_id
+      WHERE a.provenance='chatgpt_export'
+      ORDER BY a.timestamp DESC, a.id DESC
+      LIMIT 1
+    `).first();
+  } catch {}
+
+  return {
+    ok: true,
+    status: 'ONLINE',
+    db_bound: true,
+    conversations,
+    messages,
+    roles: { user: userMessages, assistant: assistantMessages, other: Math.max(0, messages - userMessages - assistantMessages) },
+    memory_candidates: memoryCandidates,
+    pending_memory_candidates: pendingCandidates,
+    unsynced_messages: unsyncedMessages,
+    memory_sync_complete: messages > 0 && unsyncedMessages === 0,
+    last_received: lastReceived ? {
+      conversation_id: lastReceived.conversation_id,
+      title: lastReceived.title || null,
+      role: lastReceived.role,
+      timestamp: Number(lastReceived.timestamp || 0),
+      message_id: lastReceived.id
+    } : null,
+    stages: {
+      archive: messages > 0 ? 'RECEIVING' : 'EMPTY',
+      memory_candidate_extraction: unsyncedMessages === 0 && messages > 0 ? 'UP_TO_DATE' : 'IN_PROGRESS',
+      semantic_memory: 'AVAILABLE_FOR_RETRIEVAL_AND_CONSOLIDATION'
+    }
   };
 }
