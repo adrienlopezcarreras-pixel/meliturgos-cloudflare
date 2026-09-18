@@ -8,6 +8,7 @@ function render(s){$('status').textContent=[
 `Messages nouveaux : ${s.importedMessages||0}`,
 `Doublons ignorés : ${s.duplicates||0}`,
 `Échecs : ${Object.keys(s.failed||{}).length}`,
+`Inaccessibles : ${Object.keys(s.unavailable||{}).length}`,
 s.currentUrl?`En cours : ${s.currentUrl}`:'',
 s.lastError?`Dernière erreur : ${s.lastError}`:''
 ].filter(Boolean).join('\n')}
