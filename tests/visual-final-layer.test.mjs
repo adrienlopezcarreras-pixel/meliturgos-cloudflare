@@ -46,7 +46,7 @@ test('normal mode has exactly one canonical visual owner and the clean eight-the
 
   assert.match(body, /data-visual-owner="mel-normal-v3"/);
   assert.equal((body.match(/id="mel-normal-v3-style"/g) || []).length, 1);
-  assert.equal((body.match(/id="mel-normal-v3-runtime"/g) || []).length, 1);
+  assert.equal((body.match(/src="\/normal-runtime\.js\?v=5"/g) || []).length, 1);
   assert.equal((body.match(/id="melAvatarImage"/g) || []).length, 1);
   for (const id of LEGACY_IDS) assert.equal(body.includes('id="' + id + '"'), false, id + ' must be absent');
 
@@ -63,7 +63,7 @@ test('normal mode has exactly one canonical visual owner and the clean eight-the
 
   assert.ok(body.includes('border-radius:50%;overflow:hidden'));
   assert.ok(body.includes('object-fit:cover;object-position:var(--avatar-pos);transform:none;border-radius:50%;clip-path:circle(50%)'));
-  assert.ok(body.includes('"futuristic":"/assets/avatars/mel-full.webp"'));
+  assert.ok(body.includes('data-mel-theme-choice="futuristic" data-mel-avatar="/assets/avatars/mel-full.webp"'));
 
   for (const asset of CLEAN_ASSETS) assert.ok(body.includes(asset), 'clean asset missing: ' + asset);
 });
@@ -73,7 +73,7 @@ test('Professor receives no normal-mode theme system and shares the full avatar 
   const body = await html(await finalizeVisualResponse(source, '/professor'));
 
   assert.equal(body.includes('mel-normal-v3-style'), false);
-  assert.equal(body.includes('mel-normal-v3-runtime'), false);
+  assert.equal(body.includes('/normal-runtime.js'), false);
   assert.equal(body.includes('data-visual-owner="mel-normal-v3"'), false);
   assert.equal(body.includes('Guadix · Virgen de Gracia'), false);
   assert.equal(body.includes('Diablo · Amazone · Acte I'), false);
