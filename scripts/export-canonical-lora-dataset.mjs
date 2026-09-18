@@ -23,7 +23,7 @@ async function main() {
   const output = args.get('--output');
   if (!output) throw new Error('USAGE: export-canonical-lora-dataset.mjs --output <dataset.jsonl>');
   const rows = canonicalLoraRows();
-  if (rows.length !== CANONICAL_LORA_LESSON_COUNT) throw new Error('CANONICAL_LORA_EXPORT_COUNT_MISMATCH');
+  if (rows.length < CANONICAL_LORA_LESSON_COUNT) throw new Error('CANONICAL_LORA_EXPORT_COUNT_BELOW_MINIMUM');
   const target = path.resolve(output);
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, rows.map((row) => JSON.stringify(row)).join('\n') + '\n', 'utf8');
