@@ -14,7 +14,7 @@ test('deployed worker exposes the canonical persistent autonomy heartbeat', asyn
   const wrangler = JSON.parse(await text('wrangler.jsonc'));
 
   assert.equal(wrangler.main, 'src/visual-final-entry.js');
-  assert.deepEqual(wrangler.triggers?.crons, [AUTONOMY_RUNTIME_CRON]);
+  assert.deepEqual(wrangler.triggers?.crons, [AUTONOMY_RUNTIME_CRON, '17 * * * *']);
   assert.deepEqual(wrangler.env?.preview?.triggers?.crons, [], 'preview must not run a second heartbeat');
 
   const delegationChain = [
@@ -37,6 +37,7 @@ test('deployed worker exposes the canonical persistent autonomy heartbeat', asyn
   const canonical = await text('src/index.js');
   assert.match(canonical, /async\s+scheduled\s*\([^)]*\)/, 'canonical entrypoint must expose scheduled()');
   assert.match(canonical, /runAutonomyRuntimeTick\s*\(env\)/, 'scheduled() must execute the autonomy runtime tick');
+  assert.match(canonical, /runAutonomyMaintenance\s*\(env\)/, 'hourly cron must execute separated autonomy maintenance');
 });
 
 test('autonomy status reports the same cadence deployed by Wrangler', async () => {
