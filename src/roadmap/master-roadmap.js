@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-18.3';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-18.4';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -166,7 +166,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P13', 'Évaluation et amélioration continue', [
-    item('GEN2-42', 'Capability Watch + veille multi-IA/plugins/arts', 'IN_PROGRESS', 'Veille 6 h + sources officielles directes + détection factuelle des capacités + registre sourcé/dédupliqué + handoff borné Council/Teacher réconcilié avec dev_jobs; prochaine étape: preuve isolée preview du cycle réel avant activation production automatique', 'P1'),
+    item('GEN2-42', 'Capability Watch + veille multi-IA/plugins/arts', 'IN_PROGRESS', 'Veille 6 h multi-source (officiel, Kaggle, GitHub, forums/communautés) + conseil multi-IA + comparaison automatique à la roadmap et aux capacités existantes; les alternatives REUSE_EXISTING peuvent désormais ouvrir un job supervisé d’optimisation sans créer de module en doublon. Prochaine étape: preuve isolée preview d’un cycle réel complet avant toute activation production automatique', 'P1'),
     item('GEN2-43', 'Model Watch / découverte', 'DONE_VERIFIED', 'Preuves: PR #28; merge ceec81a6edb11d378dcb686c9495c0a01d86baea; 5/5 tests ciblés; autorisation fail-closed, seuils score/latence/coût et isolation des erreurs par modèle', 'P1'),
     item('MEL-EVAL-01', 'Suites de benchmark conversation / code / recherche / mémoire', 'PARTIAL', 'Maintenir une suite de score stable réutilisée par les watches', 'P1'),
     item('MEL-EVAL-03', 'Qualité mesurée avant/après évolution', 'PLANNED', 'Bloquer toute régression significative', 'P0')
