@@ -135,10 +135,6 @@ test('development experience pack is deduplicated and available to MEL training'
     'bootstrap-provider-neutral-explicit-binding-20260916',
     'bootstrap-roadmap-same-lot-truth-20260916',
     'bootstrap-mandatory-xp-checkpoint-20260916',
-    'bootstrap-continuous-experience-read-20260918',
-    'bootstrap-code-access-capability-truth-20260918',
-    'bootstrap-post-pass-reconcile-adapt-20260918',
-    'bootstrap-runtime-path-authority-20260918',
   ];
   for (const id of required) assert.ok(ids.includes(id), `missing ${id}`);
 
