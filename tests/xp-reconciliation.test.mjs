@@ -38,3 +38,20 @@ test('reconciled XP are actually accepted into MEL trainingBundle', async () => 
   for (const id of RECONCILED_IDS) assert.equal(preferenceIds.has(id), true, `XP absent from trainingBundle: ${id}`);
   assert.ok(bundle.accepted >= 30);
 });
+
+
+test('deployment detached-HEAD XP is loaded and accepted by MEL', async () => {
+  const id = 'bootstrap-detached-head-release-test-context-20260918';
+  const bootstrap = new Map(BOOTSTRAP_CORRECTIONS.map(row => [row.id, row]));
+  assert.equal(bootstrap.get(id)?.validated, true);
+  assert.ok(Number(bootstrap.get(id)?.quality) >= 0.65);
+
+  const engine = new LearningEngine({ memory: new MemoryStub() });
+  const corrections = await engine.corrections({ limit: 500 });
+  const correction = corrections.find(row => row.id === id);
+  assert.equal(correction?.validated, true, 'MEL cannot read the deployment XP');
+
+  const bundle = await engine.trainingBundle({ minQuality: 0.65, limit: 500 });
+  const preferenceIds = new Set(bundle.preference.map(row => row.id));
+  assert.equal(preferenceIds.has(id), true, 'deployment XP absent from trainingBundle');
+});
