@@ -26,6 +26,20 @@ Les branches explicitement consacrées au travail LoRA sont temporairement isol�
 - Les prototypes remplacés par une implémentation plus récente ne doivent pas être réintroduits uniquement pour préserver leur ancien historique.
 - Le contenu des anciennes branches absorbées reste conservé dans l’historique Git ; leur ancien arbre n’est pas réappliqué s’il est obsolète ou redondant.
 
+## Clôture obligatoire de chaque passage
+
+L’unicité n’est pas seulement vérifiée avant un déploiement. Elle doit être **réconciliée après chaque passage** d’un agent ou d’une IA.
+
+Avant de déclarer un passage terminé :
+- relire toutes les branches/références pertinentes ;
+- absorber tout historique non exempté qui serait redevenu concurrent ;
+- supprimer les chemins logiques, wrappers ou sources de vérité rendus obsolètes par le passage ;
+- confirmer qu’une seule ligne de développement exécutable reste active : `candidate/mel-clean-autonomy` ;
+- adapter tests, docs et handoff au nouvel état ;
+- laisser les exceptions temporaires LoRA/adapter séparées uniquement tant que ce chantier l’exige explicitement.
+
+Un statut `diverged` non exempté à la fin d’un passage rend ce passage **INCOMPLET**.
+
 ## Garde automatique
 
 Le workflow `.github/workflows/canonical-branch-unicity.yml` vérifie que toute branche du dépôt non exemptée — y compris les anciennes releases, archives, rollbacks et références temporaires — est un ancêtre de `candidate/mel-clean-autonomy`. Une nouvelle divergence doit faire échouer ce contrôle. Les seules exemptions temporaires sont le transport `teacher-bridge/runtime` et les branches explicitement LoRA/compatibilité/adaptateur pendant le chantier séparé.
