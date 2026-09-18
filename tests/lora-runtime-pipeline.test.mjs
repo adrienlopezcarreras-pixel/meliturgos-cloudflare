@@ -108,6 +108,27 @@ test('operator LoRA benchmark calls base first and exact finetune second', async
       approval_id: provenance.approval_id || '',
     };
   };
+  let impactRun = 0;
+  const impactRunner = async ({ respond }) => {
+    await respond('impact prompt');
+    impactRun += 1;
+    const candidate = impactRun === 2;
+    return {
+      suite: 'mel-lora-impact-v1',
+      version: 'v1',
+      case_count: 1,
+      cases: [{ id: 'impact', domain: 'technical_depth', kind: 'legitimate_sensitive', score: candidate ? 0.9 : 0.5, weight: 1, metrics: { technical_depth: candidate ? 0.9 : 0.5, legitimate_answered: true }, error: null }],
+      metrics: {
+        overall: candidate ? 0.9 : 0.5,
+        technical_depth: candidate ? 0.9 : 0.5,
+        sensitive_answer_rate: 1,
+        over_refusal_rate: 0,
+        targeted_boundary: candidate ? 1 : 0.5,
+        agentic_execution: candidate ? 0.9 : 0.5,
+        uncensored_gate: candidate,
+      },
+    };
+  };
   const recorded = [];
   const engine = {
     recordBenchmark: async (row) => { recorded.push(row); return { score: { overall: row.cases[0].score } }; },
@@ -119,20 +140,88 @@ test('operator LoRA benchmark calls base first and exact finetune second', async
   const result = await runOperatorLoraBenchmark({}, { plan, artifact, approval, activate: true }, {
     ai,
     runLearningBenchmark: benchmarkRunner,
+    runLoraImpactBenchmark: impactRunner,
     createLearningEngine: () => engine,
     extractModelText: (value) => value.response,
   });
 
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 4);
   assert.equal(calls[0].model, plan.runtime_model);
   assert.equal(calls[0].input.lora, undefined);
   assert.equal(calls[1].model, plan.runtime_model);
   assert.equal(calls[1].input.lora, artifact.finetune_id);
-  assert.equal(recorded.length, 2);
+  assert.equal(calls[2].input.lora, undefined);
+  assert.equal(calls[3].input.lora, artifact.finetune_id);
+  assert.equal(recorded.length, 4);
+  assert.equal(result.impact_gate_passed, true);
+  assert.equal(result.next_stage, 'AGENTIC_READY');
   assert.equal(result.activated, true);
   assert.equal(result.approval.approval_id, approval.approval_id);
 });
 
+
+
+test('operator LoRA activation is blocked when canonical benchmark passes but impact gate does not', async () => {
+  const plan = exactPlan();
+  const artifact = exactArtifact(plan);
+  const approval = exactApproval(plan, artifact);
+  const ai = { run: async () => ({ response: 'ok' }) };
+  let run = 0;
+  const benchmarkRunner = async ({ provenance = {}, metadata = {} }) => {
+    run += 1;
+    const overall = run === 1 ? 0.5 : 0.7;
+    return {
+      benchmark_id: 'bench-block-' + run,
+      suite_digest: metadata.suite_digest,
+      cases: [{ id: 'case', domain: 'general', score: overall, weight: 1, error: null }],
+      case_count: 1,
+      score: overall,
+      overall,
+      domains: { general: { score: overall, cases: 1 } },
+      provenance,
+      artifact_digest: provenance.artifact_digest || '',
+      training_manifest_digest: provenance.training_manifest_digest || '',
+      dataset_digest: provenance.dataset_digest || '',
+      approval_id: provenance.approval_id || '',
+    };
+  };
+  const impactRunner = async () => ({
+    suite: 'mel-lora-impact-v1',
+    version: 'v1',
+    case_count: 1,
+    cases: [{ id: 'impact', domain: 'technical_depth', kind: 'legitimate_sensitive', score: 0.4, weight: 1, metrics: { technical_depth: 0.4, legitimate_answered: false }, error: null }],
+    metrics: {
+      overall: 0.4,
+      technical_depth: 0.4,
+      sensitive_answer_rate: 0.5,
+      over_refusal_rate: 0.5,
+      targeted_boundary: 1,
+      agentic_execution: 0.4,
+      uncensored_gate: false,
+    },
+  });
+  let activated = 0;
+  const engine = {
+    recordBenchmark: async () => ({ score: { overall: 0.5 } }),
+    evaluateAdapter: async () => ({ promote: true, reason: 'BENCHMARK_IMPROVED' }),
+    activateAdapter: async () => { activated += 1; return { plan_id: plan.id }; },
+  };
+
+  const result = await runOperatorLoraBenchmark({}, { plan, artifact, approval, activate: true }, {
+    ai,
+    runLearningBenchmark: benchmarkRunner,
+    runLoraImpactBenchmark: impactRunner,
+    createLearningEngine: () => engine,
+    extractModelText: (value) => value.response,
+  });
+
+  assert.equal(result.canonical_gate_passed, true);
+  assert.equal(result.impact_gate_passed, false);
+  assert.equal(result.next_stage, 'UNCENSORED_CONTINUE');
+  assert.equal(result.activation_blocker, 'LORA_IMPACT_GATE_NOT_PASSED');
+  assert.equal(result.activated, false);
+  assert.equal(activated, 0);
+});
 
 test('operator LoRA benchmark fails before inference when approval is missing', async () => {
   const plan = exactPlan();
