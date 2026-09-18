@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-18.2';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-18.3';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -89,7 +89,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-EVOL-03', 'Tests, benchmark, critique et correction en boucle', 'DONE_VERIFIED', 'Preuve candidate e0dc435ec6daf4971243709c76f5ed077a72f0cc: CI 35100248725; smoke Teacher/runtime 35100248854; preview 35100248729; maintenir la boucle runner et ses tests de non-régression', 'P0'),
     item('MEL-EVOL-04', 'EVOLUTION_LEDGER immuable et explicable', 'PARTIAL', 'Persister chaque évolution et ses preuves', 'P1'),
     item('MEL-EVOL-05', 'Skill Registry durable', 'PLANNED', 'Compiler les acquis système dans un registre portable', 'P1'),
-    item('MEL-EVOL-06', 'Fine-tuning / LoRA open-weight optionnel', 'PLANNED', 'Séparer apprentissage système et poids du modèle', 'P3'),
+    item('MEL-EVOL-06', 'Fine-tuning / LoRA open-weight continu', 'IN_PROGRESS', 'Heartbeat MEL supervise la chaîne Kaggle GPU gratuite: relance seulement si aucun run actif, checkpoints immuables, benchmark après chaque cycle, UNCENSORED puis AGENTIC sans écraser le parent, aucun fallback payant', 'P0'),
     item('GEN2-18', 'Self Healing contrôlé', 'PLANNED', 'Limiter à détection, rollback approuvé et réparation testée', 'P2'),
     item('GEN2-20', 'Learning Engine', 'PARTIAL', 'Corpus XP développement canonique et protocole d’envoi ajoutés; brancher automatiquement les handoffs validés aux cycles autonomes en conservant provenance et déduplication', 'P1')
   ]),
