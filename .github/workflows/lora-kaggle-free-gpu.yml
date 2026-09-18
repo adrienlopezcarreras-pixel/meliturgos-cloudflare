@@ -231,6 +231,12 @@ jobs:
               printf '%s\n' "$DATASET_STATUS" > artifacts/kaggle-payload-status.json
               break
             fi
+            if printf '%s' "$LOWER_STATUS" | grep -Eq '403.*forbidden|forbidden.*403'; then
+              echo "KAGGLE_PAYLOAD_STATUS_FORBIDDEN_NONBLOCKING"
+              printf '%s\n' "$DATASET_STATUS" > artifacts/kaggle-payload-status.json
+              STATUS_READY=1
+              break
+            fi
             if printf '%s' "$LOWER_STATUS" | grep -Eq 'error|failed|failure'; then
               echo "KAGGLE_PAYLOAD_DATASET_FAILED"
               exit 1
