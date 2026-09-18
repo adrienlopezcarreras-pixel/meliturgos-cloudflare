@@ -111,9 +111,16 @@ test('completion without exact SHA/CI proof cannot auto-continue', async () => {
   assert.equal(result.attempted, false);
 });
 
-test('bridge rejects missing token', async () => {
-  const r = await devRuntime(new Request('http://x/api/dev-bridge/heartbeat', { method: 'POST' }));
+test('bridge fails closed when token configuration is missing', async () => {
+  const r = await devRuntime(new Request('http://x/api/dev-bridge/heartbeat', { method: 'POST' }), {});
+  assert.equal(r.status, 503);
+  assert.equal((await r.json()).code, 'BRIDGE_NOT_CONFIGURED');
+});
+
+test('bridge rejects missing authorization when token is configured', async () => {
+  const r = await devRuntime(new Request('http://x/api/dev-bridge/heartbeat', { method: 'POST' }), env);
   assert.equal(r.status, 401);
+  assert.equal((await r.json()).code, 'BRIDGE_AUTH_REQUIRED');
 });
 
 
