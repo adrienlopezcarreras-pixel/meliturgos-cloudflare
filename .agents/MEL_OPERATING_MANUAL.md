@@ -96,8 +96,8 @@ Un passage n’est **jamais terminé** tant que ces cinq étapes ne sont pas clo
 - Candidate unique : `candidate/mel-clean-autonomy`.
 - Release : pointeur de production, jamais seconde ligne de développement.
 - `teacher-bridge/runtime` : transport de métadonnées, jamais source de code exécutable.
-- Le chantier LoRA/adapter est temporairement exempté uniquement pendant son travail séparé.
-- Toute autre branche doit être un ancêtre de la candidate canonique.
+- Les seules branches autorisées à diverger sont `teacher-bridge/runtime` (transport de métadonnées, pas de code exécutable) et `archive/*` (historique figé).
+- Les branches LoRA/adapter/compatibilité actives ne sont plus exemptées : elles doivent elles aussi être identiques à la candidate ou en être des ancêtres.
 - Le workflow `.github/workflows/canonical-branch-unicity.yml` doit échouer si une divergence non exemptée réapparaît.
 
 ## 6. Expérience permanente
