@@ -27,6 +27,16 @@ const validArtifact = (plan, overrides = {}) => ({
   training_manifest_digest: plan?.training_manifest_digest,
   ...overrides,
 });
+const validApproval = (plan, artifact, overrides = {}) => ({
+  approved: true,
+  approval_id: 'approval-engine-test',
+  artifact_id: artifact.id,
+  artifact_digest: artifact.digest,
+  finetune_id: artifact.finetune_id,
+  dataset_digest: plan.dataset_digest,
+  training_manifest_digest: plan.training_manifest_digest,
+  ...overrides,
+});
 const scores = (plan, artifact, baseline = 0.7, candidate = 0.8) => ({
   baseline: { overall: baseline, domains: { code: baseline }, suite_digest: suite, passed: true },
   candidate: {
@@ -37,6 +47,7 @@ const scores = (plan, artifact, baseline = 0.7, candidate = 0.8) => ({
     artifact_digest: artifact.digest,
     training_manifest_digest: plan.training_manifest_digest,
     dataset_digest: plan.dataset_digest,
+    approval_id: 'approval-engine-test',
   },
 });
 
@@ -148,7 +159,7 @@ test('prepareLora reports runtime incompatibility instead of READY', async () =>
 
 test('adapter cannot become active without a measured benchmark gain', async () => {
   const memory = new MemoryStub(); const engine = new LearningEngine({ memory }); const plan = createLoraTrainingPlan({ dataset_digest:'fnv1a-12345678', examples:80 }); const artifact = validArtifact(plan); const { baseline, candidate } = scores(plan, artifact, 0.8, 0.79);
-  await assert.rejects(() => engine.activateAdapter({ plan, artifact, baseline, candidate }), error => error.code === 'LORA_MEASURED_GAIN_INSUFFICIENT'); assert.equal((await memory.recent({ kind:'LORA_ADAPTER_ACTIVE' })).length,0);
+  await assert.rejects(() => engine.activateAdapter({ plan, artifact, approval: validApproval(plan, artifact), baseline, candidate }), error => error.code === 'LORA_MEASURED_GAIN_INSUFFICIENT'); assert.equal((await memory.recent({ kind:'LORA_ADAPTER_ACTIVE' })).length,0);
 });
 
 test('adapter activation rejects incompatible plan even after benchmark gain', async () => {
