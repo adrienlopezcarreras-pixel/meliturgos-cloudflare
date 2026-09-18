@@ -54,6 +54,7 @@ concurrency:
 
 jobs:
   train-chain:
+    if: ${{ !contains(github.event.head_commit.message, '[cancel-only]') }}
     runs-on: ubuntu-latest
     environment: preview
     timeout-minutes: 240
