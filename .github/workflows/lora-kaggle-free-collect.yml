@@ -23,8 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
-      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
     steps:
       - name: Checkout candidate branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -35,7 +34,7 @@ jobs:
         id: creds
         shell: bash
         run: |
-          if [ -n "${KAGGLE_USERNAME:-}" ] && [ -n "${KAGGLE_KEY:-}" ]; then
+          if [ -n "${KAGGLE_API_TOKEN:-}" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
@@ -52,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          KERNEL="${KAGGLE_USERNAME}/mel-lora-uncensored-max"
+          KERNEL="meliturgos/mel-lora-uncensored-max"
           RAW="$(kaggle kernels status "$KERNEL" 2>&1 || true)"
           printf '%s\n' "$RAW"
           printf '%s\n' "$RAW" > kaggle-status.txt
@@ -68,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/kaggle-output
-          kaggle kernels output "${KAGGLE_USERNAME}/mel-lora-uncensored-max"             -p artifacts/kaggle-output --force
+          kaggle kernels output "meliturgos/mel-lora-uncensored-max"             -p artifacts/kaggle-output --force
           find artifacts/kaggle-output -maxdepth 4 -type f -print
 
       - name: Locate exact evidence bundle
