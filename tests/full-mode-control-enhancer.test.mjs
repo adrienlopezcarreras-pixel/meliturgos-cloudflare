@@ -13,6 +13,9 @@ test('full mode receives MAX, STOP, activity and one global clickable recall lin
   assert.match(html, /MAX 100%/);
   assert.match(html, /melFullStop/);
   assert.match(html, /melFullActivity/);
+  assert.match(html, /melFullWatch/);
+  assert.match(html, /\/api\/mel\/capability-watch\/run/);
+  assert.match(html, /force:true/);
   assert.match(html, /Reprendre le dernier échange/);
   assert.match(html, /\/api\/mel\/conversations\/latest/);
   assert.match(html, /role','link/);
