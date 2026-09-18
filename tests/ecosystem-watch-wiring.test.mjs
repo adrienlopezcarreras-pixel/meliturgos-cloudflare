@@ -13,8 +13,10 @@ test('ecosystem watch is wired once into schedule, API and full-mode activity', 
   assert.match(index, /runEcosystemCapabilityWatch/);
   assert.match(ui, /\/api\/mel\/capability-watch/);
   assert.match(ui, /\/api\/mel\/capability-watch\/run/);
-  assert.match(ui, /WATCH_FORCE_PREVIEW_ONLY/);
+  assert.doesNotMatch(ui, /WATCH_FORCE_PREVIEW_ONLY/);
   assert.match(panel, /Veille IA, plugins & arts/);
+  assert.match(panel, /\/api\/mel\/capability-watch\/run/);
+  assert.match(panel, /force:true/);
   assert.equal((index.match(/runEcosystemCapabilityWatch\(env,/g) || []).length, 1);
   assert.match(watchRuntime, /selectEcosystemDiscoveryCandidate/);
   assert.match(watchRuntime, /enqueueSupervisedDevelopmentRequest/);
