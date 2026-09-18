@@ -1,9 +1,9 @@
 {
-  "id": "__KAGGLE_USERNAME__/mel-lora-uncensored-canonical",
-  "title": "MEL LoRA Uncensored Canonical",
-  "code_file": "run.py",
+  "id": "__KAGGLE_USERNAME__/mel-lora-uncensored-notebook",
+  "title": "MEL LoRA Uncensored Notebook",
+  "code_file": "mel-lora-uncensored-notebook.ipynb",
   "language": "python",
-  "kernel_type": "script",
+  "kernel_type": "notebook",
   "is_private": true,
   "enable_gpu": true,
   "enable_internet": false,

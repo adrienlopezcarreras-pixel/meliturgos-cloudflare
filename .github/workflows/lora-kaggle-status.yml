@@ -42,7 +42,7 @@ jobs:
           PY
           )"
           test -n "$USERNAME"
-          KERNEL="$USERNAME/mel-lora-uncensored-canonical"
+          KERNEL="$USERNAME/mel-lora-uncensored-notebook"
           echo "KAGGLE_USERNAME=$USERNAME" >> "$GITHUB_ENV"
           echo "KERNEL_REF=$KERNEL" >> "$GITHUB_ENV"
           echo "Kernel: $KERNEL"
