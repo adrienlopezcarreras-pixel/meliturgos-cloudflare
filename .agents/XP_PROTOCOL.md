@@ -2,6 +2,18 @@
 
 But : une page ou une IA ne doit plus rechercher dans tout le dépôt comment transmettre une expérience à MEL.
 
+## Pré-checkpoint obligatoire : fermer le passage
+
+Avant le checkpoint XP, l’agent DOIT d’abord vérifier et déclarer :
+- expérience pertinente relue ;
+- nettoyage effectué ;
+- unification effectuée ;
+- réconciliation branches/états effectuée ;
+- adaptation tests/docs/UI/prompts effectuée ;
+- unicité de la branche canonique confirmée.
+
+Si l’un de ces points n’est pas fait, l’opération reste `IN_PROGRESS` et le checkpoint XP ne suffit pas à la rendre terminée.
+
 ## Checkpoint XP obligatoire après chaque opération
 
 À la fin de toute opération de développement, l’agent DOIT exécuter ce checkpoint, même s’il n’a rien de nouveau à enregistrer.
@@ -66,4 +78,4 @@ RÈGLE APPRISE : <after si OUI>
 PREUVES : <tests / runs / SHA si OUI>
 ```
 
-Le statut XP fait partie du contrat de fin d’opération, pas d’une option documentaire.
+Le statut XP fait partie du contrat de fin d’opération, pas d’une option documentaire. Il vient **après** le pré-checkpoint de nettoyage/unification/réconciliation/adaptation et ne le remplace jamais.
