@@ -133,7 +133,6 @@ export class MentorMemoryRepository {
     await this.init();
     if (!this.db) {
       fallback.unshift(record);
-      if (fallback.length > 2000) fallback.length = 2000;
       return structuredClone(record);
     }
 
@@ -355,6 +354,25 @@ export class MentorMemoryRepository {
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const result = await this.db.prepare(`SELECT * FROM mentor_lessons ${where} ORDER BY created_at DESC LIMIT ?`)
       .bind(...args, boundedLimit).all();
+    return (result.results || []).map(row => this._row(row));
+  }
+
+  async all({ kind = null, outcome = null } = {}) {
+    await this.init();
+    if (!this.db) {
+      return fallback
+        .filter(x => !kind || x.kind === kind)
+        .filter(x => !outcome || x.outcome === outcome)
+        .map(x => this._row(x));
+    }
+
+    const clauses = [];
+    const args = [];
+    if (kind) { clauses.push('kind=?'); args.push(String(kind)); }
+    if (outcome) { clauses.push('outcome=?'); args.push(String(outcome)); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const result = await this.db.prepare(`SELECT * FROM mentor_lessons ${where} ORDER BY created_at DESC`)
+      .bind(...args).all();
     return (result.results || []).map(row => this._row(row));
   }
 
