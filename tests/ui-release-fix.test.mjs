@@ -24,15 +24,12 @@ test('production entry preserves preview auth, live-learning and verified releas
   assert.match(live, /\/api\/learning\/progress/);
 });
 
-test('full mode forces the embedded MEL portrait and explains live states', async () => {
+test('full mode keeps one local MEL portrait without a polling DOM runtime', async () => {
   const source = await text('src/ui-release-fix-entry.js');
   assert.match(source, /FULL_AVATAR_DATA_URL\s*=\s*['"]\/assets\/avatars\/mel-full\.webp['"]/);
-  assert.match(source, /forceAvatar/);
   assert.match(source, /\.brand img,\.hero img/);
-  assert.match(source, /mel-live-explanation/);
-  for (const status of ['QUEUED','CLAIMED','WAITING_TEACHER','READY_FOR_REVIEW','COMPLETED','FAILED']) {
-    assert.ok(source.includes(status), `missing live explanation for ${status}`);
-  }
+  assert.doesNotMatch(source, /MutationObserver|setInterval\(apply,2500\)|forceAvatar|melLiveNarrative/);
+  assert.doesNotMatch(source, /verite-interdite\.fr\/wp-content\/uploads/);
 });
 
 test('generated fallback background inventory remains self-contained and 4K-capable', async () => {
