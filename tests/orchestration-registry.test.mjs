@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 
-// Import the Worker in place so its lazy Gen2 imports resolve against the real src tree.
-// The old /tmp copy silently disabled ModelRouter and could only exercise legacy single-call inference.
-const workerUrl=new URL("../worker.js",import.meta.url);
+// Import the canonical core Worker in place so lazy Gen2 imports resolve against the real src tree.
+// The retired root worker.js is intentionally inert and is not an executable source of truth.
+const workerUrl=new URL("../src/index.js",import.meta.url);
 workerUrl.searchParams.set("v",String(Date.now()));
 const {default:worker}=await import(workerUrl.href);
 
