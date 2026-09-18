@@ -359,7 +359,7 @@ export default {
       const archiveResponse = await maybeHandleChatGPTArchive(request, env);
       if (archiveResponse) return archiveResponse;
 
-      const preparedRequest = await injectEvolutionPreflightCapability(request);
+      const preparedRequest = await injectEvolutionPreflightCapability(request, env);
       if (new URL(preparedRequest.url).pathname === '/api/chat') {
         return await handleNativeChat(preparedRequest, withChatAiDefaults(env));
       }
