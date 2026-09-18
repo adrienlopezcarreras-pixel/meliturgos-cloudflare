@@ -137,7 +137,35 @@ python scripts/train-mel-lora.py \
 
 Remplacer `checkpoint-N` par le dernier checkpoint réellement présent.
 
-## 6. Charger l'adaptateur sur Cloudflare
+## 6. Pont gratuit Colab -> Hugging Face -> GitHub -> Cloudflare
+
+Après le run GPU Colab, publier le bundle entraîné sur le compte Hugging Face connecté. Dans Colab :
+
+```python
+!python -m pip install -U huggingface_hub
+from huggingface_hub import notebook_login
+notebook_login()
+```
+
+Puis :
+
+```bash
+python scripts/publish-lora-hf.py \\
+  --dir artifacts/lora-train/smoke-500 \\
+  --repo-id Meliturgos/mel-lora-smoke-500
+```
+
+Le dépôt Hugging Face utilisé par le workflow GitHub doit être public : aucun jeton Hugging Face n'est copié dans GitHub. Le script refuse un bundle incomplet et refuse de republier une preuve déjà associée à un `finetune_id` Cloudflare.
+
+Ensuite, dans GitHub Actions, lancer manuellement le workflow `lora-promote-from-huggingface` sur la branche `candidate/mel-clean-autonomy` avec :
+
+- `hf_repo_id` : par exemple `Meliturgos/mel-lora-smoke-500` ;
+- `revision` : `main` par défaut ;
+- `activate_preview` : laisser `false` pour benchmarker sans activation, ou passer à `true` uniquement pour activer le preview isolé si le gate passe.
+
+Le workflow utilise les secrets Cloudflare déjà configurés dans GitHub. Il ne déploie pas la production. Il vérifie le corpus, le manifeste et l'artefact, crée le fine-tune Cloudflare, produit l'approbation exacte, exécute le benchmark sur le preview et conserve les preuves en artefact GitHub Actions.
+
+## 7. Charger l'adaptateur sur Cloudflare manuellement
 
 Le trainer produit aussi `artifact-evidence.json` et une copie de `lora-plan.json`. Après le run GPU, charger les deux fichiers LoRA sur Workers AI :
 
@@ -152,7 +180,7 @@ node scripts/upload-cloudflare-lora.mjs \
 
 Le script crée le fine-tune Cloudflare, charge exactement `adapter_model.safetensors` et `adapter_config.json`, puis inscrit le `finetune_id` réel dans `artifact-evidence.json`. L'état reste `UPLOADED_UNAPPROVED`.
 
-## 7. Approuver explicitement l'artefact exact
+## 8. Approuver explicitement l'artefact exact
 
 L'approbation est une étape séparée. Elle lie le corpus, le manifeste d'entraînement, l'artefact SHA-256 et le `finetune_id` Cloudflare exacts :
 
@@ -163,7 +191,7 @@ node scripts/approve-lora-artifact.mjs \
 
 Cette commande produit `approval-evidence.json`. Toute régénération de l'artefact, tout nouveau `finetune_id`, ou tout changement du corpus/manifeste rend cette approbation inutilisable.
 
-## 8. Benchmark réel base vs LoRA et activation
+## 9. Benchmark réel base vs LoRA et activation
 
 Une fois la version MEL contenant l'endpoint LoRA déployée :
 
@@ -180,7 +208,7 @@ Cette commande exécute le même benchmark canonique deux fois sur le même runt
 
 Après activation, le chat natif charge `LORA_ADAPTER_ACTIVE`, sélectionne le runtime LoRA en priorité et transmet `lora: finetune_id` à Workers AI. En l'absence d'adaptateur actif, le routage standard reste inchangé.
 
-## 9. Gate après entraînement
+## 10. Gate après entraînement
 
 La présence de poids LoRA ne vaut pas promotion. La séquence reste :
 
