@@ -251,6 +251,62 @@ test('ecosystem discovery can enqueue one blocked existing capability for Counci
 });
 
 
+test('ecosystem discovery can enqueue supervised optimization of a healthy existing capability without creating a duplicate module', async () => {
+  const f = fixture();
+  const input = {
+    env: f.env,
+    goal: 'Optimiser la capacité existante web.research à partir d’une alternative sourcée, comparer à la roadmap et conserver le choix actuel sans gain reproductible.',
+    requestKey: 'capability:web.research',
+    repository: f.repository,
+    fetchImpl: f.fetchImpl,
+    capabilities: [{
+      id: 'web.research',
+      name: 'Recherche web',
+      category: 'web',
+      description: 'research search web internet recherche sources',
+      health: 'HEALTHY',
+      enabled: true,
+    }],
+    requestedBy: 'mel-autonomy',
+    source: 'ecosystem-watch',
+    priority: 'P1',
+    extensionKind: 'plugin',
+    allowExistingOptimization: true,
+    targetCapabilityId: 'web.research',
+    roadmapId: 'GEN2-42',
+    inspectionPaths: ['src/evaluation/ecosystem-discovery-planner.js'],
+    inspectionQueries: ['web.research', 'GEN2-42'],
+    evidence: {
+      fingerprint: 'capability:web.research',
+      capability_hint: 'web.research',
+      citations_count: 3,
+      observed_on: ['watch_plugins_connectors'],
+      sources: [{ title: 'Official docs', url: 'https://example.com/research' }],
+      source_watch_sha: CANDIDATE_HEAD_SHA,
+    },
+  };
+
+  const first = await enqueueSupervisedDevelopmentRequest(input);
+  assert.equal(first.created, true);
+  assert.equal(first.status, 'WAITING_TEACHER');
+  assert.ok(first.teacher.request_id);
+
+  const stored = await f.repository.get(first.job_id);
+  assert.equal(stored.optional_context.optimization_existing, true);
+  assert.equal(stored.optional_context.extension_proposal.decision, 'OPTIMIZE_EXISTING');
+  assert.equal(stored.optional_context.extension_proposal.gap_classification, 'MATCHED_AVAILABLE');
+  assert.equal(stored.optional_context.extension_proposal.matched_capability, 'web.research');
+  assert.equal(stored.optional_context.extension_proposal.manifest, null);
+  assert.equal(stored.optional_context.module_proposal, undefined);
+  assert.equal(stored.plan_json?.module_lab, undefined, 'optimizing an existing capability must not enter Module Lab as a new module');
+
+  const calls = f.aiCalls.length;
+  const replay = await enqueueSupervisedDevelopmentRequest(input);
+  assert.equal(replay.created, false);
+  assert.equal(replay.job_id, first.job_id);
+  assert.equal(f.aiCalls.length, calls, 'optimization fingerprint replay must remain idempotent');
+});
+
 test('exact blocked target wins over generic available matches in a sourced ecosystem handoff', async () => {
   const f = fixture();
   const goal = [
