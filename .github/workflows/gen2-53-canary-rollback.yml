@@ -1,10 +1,6 @@
-name: gen2-53-canary-rollback
+name: gen2-53-canary-rollback-contract
 
 on:
-  push:
-    branches:
-      - roadmap/gen2-53-canary-rollback
-      - release/gen2-53-canary
   workflow_dispatch:
 
 permissions:
@@ -14,140 +10,22 @@ jobs:
   contract:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout exact SHA
+      - name: Checkout canonical source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
           cache: npm
+
       - name: Install exact lockfile
         run: npm ci
-      - name: Validate GEN2-53 release guard
+
+      - name: Validate historical canary/rollback guard
         run: node --test tests/gen2-53-release-guard.test.mjs
 
-  canary-rollback-proof:
-    if: github.ref_name == 'release/gen2-53-canary'
-    needs: contract
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    concurrency:
-      group: meliturgos-cloudflare-production
-      cancel-in-progress: false
-    steps:
-      - name: Checkout exact release SHA
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '22'
-          cache: npm
-      - name: Install exact lockfile
-        run: npm ci
-      - name: Runtime dependency security gate
-        run: npm audit --omit=dev --audit-level=high
-      - name: Syntax gate
-        run: npm run check
-      - name: Full test gate
-        run: npm test
-      - name: Verify release is the exact current canonical candidate
-        shell: bash
+      - name: Production mutation policy
         run: |
-          set -euo pipefail
-          git fetch origin candidate/mel-clean-autonomy --depth=1
-          CANONICAL_SHA="$(git rev-parse FETCH_HEAD)"
-          node scripts/gen2-53-release-guard.mjs assert-identity "$GITHUB_SHA" "$CANONICAL_SHA" "$GITHUB_REF_NAME"
-
-      - name: Capture stable production version
-        id: stable
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx wrangler deployments status --json > "$RUNNER_TEMP/deployment-before.json"
-          STABLE_VERSION="$(node scripts/gen2-53-release-guard.mjs stable-version "$RUNNER_TEMP/deployment-before.json")"
-          echo "stable_version=$STABLE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Stable version captured for rollback proof."
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Upload release candidate without production traffic
-        id: candidate
-        shell: bash
-        run: |
-          set -euo pipefail
-          OUTPUT="$RUNNER_TEMP/wrangler-upload.ndjson"
-          export WRANGLER_OUTPUT_FILE_PATH="$OUTPUT"
-          npx wrangler versions upload \
-            --strict \
-            --tag "gen2-53-${GITHUB_SHA:0:12}" \
-            --message "GEN2-53 canary ${GITHUB_SHA}"
-          CANDIDATE_VERSION="$(node scripts/gen2-53-release-guard.mjs uploaded-version "$OUTPUT")"
-          echo "candidate_version=$CANDIDATE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "Candidate uploaded with zero production traffic."
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Create zero-percent canary deployment
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx wrangler versions deploy \
-            "${{ steps.stable.outputs.stable_version }}@100%" \
-            "${{ steps.candidate.outputs.candidate_version }}@0%" \
-            --message "GEN2-53 zero-percent canary ${GITHUB_SHA}" \
-            -y
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Smoke exact candidate through version override
-        shell: bash
-        run: |
-          set -euo pipefail
-          OVERRIDE="Cloudflare-Workers-Version-Overrides: meliturgos=\"${{ steps.candidate.outputs.candidate_version }}\""
-          STATUS="$(curl --silent --show-error --location \
-            --retry 3 --retry-delay 2 --max-time 30 \
-            --header "$OVERRIDE" \
-            --output "$RUNNER_TEMP/professor.html" \
-            --write-out '%{http_code}' \
-            https://meliturgos.adrien-lopezcarreras.workers.dev/professor)"
-          case "$STATUS" in
-            2??|3??|401) ;;
-            *) echo "Candidate /professor smoke failed with HTTP ${STATUS}"; exit 22 ;;
-          esac
-          test -s "$RUNNER_TEMP/professor.html" || test "$STATUS" = "401"
-
-          base="https://meliturgos.adrien-lopezcarreras.workers.dev/api/teacher"
-          for endpoint in status pending work bridge.txt; do
-            curl --fail-with-body --silent --show-error \
-              --connect-timeout 10 --max-time 30 \
-              --header "$OVERRIDE" \
-              "${base}/${endpoint}" > /dev/null
-          done
-          echo "Exact candidate smoke passed through version override."
-
-      - name: Prove rollback to captured stable version
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx wrangler rollback "${{ steps.stable.outputs.stable_version }}" \
-            --message "GEN2-53 rollback proof ${GITHUB_SHA}"
-          npx wrangler deployments status --json > "$RUNNER_TEMP/deployment-after-rollback.json"
-          ROLLED_BACK="$(node scripts/gen2-53-release-guard.mjs stable-version "$RUNNER_TEMP/deployment-after-rollback.json")"
-          test "$ROLLED_BACK" = "${{ steps.stable.outputs.stable_version }}"
-          echo "Rollback proof passed: production restored to captured stable version."
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Emergency rollback if proof workflow fails after canary creation
-        if: failure() && steps.stable.outputs.stable_version != ''
-        shell: bash
-        run: |
-          npx wrangler rollback "${{ steps.stable.outputs.stable_version }}" \
-            --message "GEN2-53 emergency rollback ${GITHUB_SHA}" || true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          echo "This workflow is validation-only."
+          echo "All production mutations go through deploy-cloudflare-release.yml."
