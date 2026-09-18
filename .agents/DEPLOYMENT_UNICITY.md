@@ -4,7 +4,7 @@
 
 La seule ligne de développement exécutable et candidate déployable est `candidate/mel-clean-autonomy` jusqu’à décision explicite de remplacement.
 
-La branche `release/mel-2026-09-10-r3-3` est uniquement un pointeur de production validé : elle peut être en retard sur la candidate, mais ne doit jamais contenir une ligne concurrente ou divergente.
+Une branche `release/*` n’est qu’un pointeur temporaire vers le SHA exact de la candidate approuvée. Elle ne constitue jamais une seconde ligne de développement et ne doit pas diverger de `candidate/mel-clean-autonomy`.
 
 `teacher-bridge/runtime` est un transport de métadonnées Teacher, jamais une branche de code exécutable.
 
@@ -16,7 +16,7 @@ Les branches explicitement consacrées au travail LoRA sont temporairement isol�
 - Aucun agent ne doit créer une branche concurrente pour une tâche ordinaire quand le travail peut être réalisé sur la candidate canonique.
 - Une branche technique temporaire, lorsqu’elle est indispensable, doit être comparée, intégrée puis rendue ancêtre de la candidate canonique avant la fin du chantier.
 - Un statut Git `diverged` entre la candidate canonique et une branche de développement active non exemptée est une anomalie à corriger, pas un état normal.
-- Un seul chemin de release doit exister.
+- Un seul chemin de mutation production doit exister : `.github/workflows/deploy-cloudflare-release.yml`, déclenché manuellement avec `DEPLOY_APPROVED`, une branche `release/*` et le SHA exact du HEAD canonique.
 - Toute fonctionnalité utile développée sur une autre branche doit être comparée puis intégrée à la candidate canonique.
 - Une branche secondaire ne doit jamais devenir une seconde version concurrente de MEL.
 - Après absorption de son contenu unique, elle est considérée `RETIRED/SUPERSEDED` et ne doit plus servir de source de déploiement.
