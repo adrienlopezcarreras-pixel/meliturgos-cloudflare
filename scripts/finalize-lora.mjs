@@ -23,9 +23,10 @@ async function main() {
   }
   if (!password) throw new Error('MELITURGOS_PASSWORD_REQUIRED');
 
-  const [plan, artifact] = await Promise.all([
+  const [plan, artifact, approval] = await Promise.all([
     readFile(path.join(dir, 'lora-plan.json'), 'utf8').then(JSON.parse),
     readFile(path.join(dir, 'artifact-evidence.json'), 'utf8').then(JSON.parse),
+    readFile(path.join(dir, 'approval-evidence.json'), 'utf8').then(JSON.parse),
   ]);
   if (!artifact.finetune_id) throw new Error('LORA_FINETUNE_ID_REQUIRED_BEFORE_BENCHMARK');
 
@@ -35,7 +36,7 @@ async function main() {
       Authorization: `Bearer ${password}`,
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ plan, artifact, activate: true }),
+    body: JSON.stringify({ plan, artifact, approval, activate: true }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data?.ok === false) {
@@ -46,6 +47,7 @@ async function main() {
     status: data.activated ? 'ACTIVE' : 'BENCHMARKED_NOT_ACTIVATED',
     plan_id: data.plan_id || plan.id,
     finetune_id: artifact.finetune_id,
+    approval_id: approval.approval_id || null,
     baseline: data?.baseline?.overall ?? null,
     candidate: data?.candidate?.overall ?? null,
     gain: data?.decision?.overall_gain ?? data?.decision?.exact_evidence?.measured_gain ?? null,
