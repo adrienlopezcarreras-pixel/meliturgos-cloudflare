@@ -267,12 +267,36 @@ def main() -> int:
     else:
         model = get_peft_model(model, config)
 
+    render_stats = {"native_chat_template": 0, "role_preserving_fallback": 0}
+
+    def render_messages(messages):
+        try:
+            text = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=False,
+            )
+            render_stats["native_chat_template"] += 1
+            return text
+        except Exception:
+            # Some source corpora legitimately contain system/tool roles that
+            # Mistral's native template may reject. Preserve every source
+            # content string and its turn order; only add explicit role
+            # delimiters so no turn is deleted, merged, paraphrased or moved.
+            chunks = []
+            for turn in messages:
+                role = str(turn.get("role") or "unknown")
+                content = turn.get("content")
+                if not isinstance(content, str):
+                    content = json.dumps(content, ensure_ascii=False, separators=(",", ":"))
+                chunks.append(f"[{role.upper()}]\n{content}\n")
+            if tokenizer.eos_token:
+                chunks.append(tokenizer.eos_token)
+            render_stats["role_preserving_fallback"] += 1
+            return "".join(chunks)
+
     def render(row):
-        text = tokenizer.apply_chat_template(
-            row["messages"],
-            tokenize=False,
-            add_generation_prompt=False,
-        )
+        text = render_messages(row["messages"])
         tokenized = tokenizer(
             text,
             truncation=True,
@@ -384,6 +408,13 @@ def main() -> int:
         "training_metrics": {
             "train_loss": getattr(train_result, "training_loss", None),
             "global_step": getattr(train_result, "global_step", None),
+        },
+        "rendering": {
+            "mode": "native-chat-template-with-role-preserving-fallback-v1",
+            "native_chat_template_rows": render_stats["native_chat_template"],
+            "role_preserving_fallback_rows": render_stats["role_preserving_fallback"],
+            "source_content_rewritten": False,
+            "turn_order_changed": False,
         },
         "environment": {
             "python": platform.python_version(),
