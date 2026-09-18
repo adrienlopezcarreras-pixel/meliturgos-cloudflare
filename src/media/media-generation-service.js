@@ -89,7 +89,7 @@ export class MediaGenerationService {
     this.jobs = new Map();
   }
 
-  static kinds = ['image', 'audio', 'voice', 'video', 'document', 'mixed'];
+  static kinds = ['image', 'audio', 'music', 'voice', 'video', 'document', 'mixed'];
 
   registerProvider(provider) {
     if (!provider || typeof provider.canGenerate !== 'function') {
