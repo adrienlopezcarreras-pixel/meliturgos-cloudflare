@@ -198,15 +198,12 @@ jobs:
 
           READY=0
           for attempt in $(seq 1 40); do
-            STATUS="$(kaggle datasets status "$PAYLOAD_REF" 2>&1 || true)"
-            echo "payload[$attempt] $STATUS"
-            if printf '%s' "$STATUS" | grep -Eqi 'ready|complete|success'; then
+            FILES="$(kaggle datasets files "$PAYLOAD_REF" 2>&1 || true)"
+            echo "payload[$attempt] $FILES"
+            if printf '%s' "$FILES" | grep -q "payload.json"; then
+              printf '%s\n' "$FILES" > artifacts/kaggle-payload-files.txt
               READY=1
               break
-            fi
-            if printf '%s' "$STATUS" | grep -Eqi 'error|failed|failure'; then
-              echo "KAGGLE_PAYLOAD_DATASET_FAILED"
-              exit 1
             fi
             sleep 15
           done
@@ -214,7 +211,7 @@ jobs:
             echo "KAGGLE_PAYLOAD_DATASET_NOT_READY"
             exit 1
           fi
-          kaggle datasets files "$PAYLOAD_REF" | tee artifacts/kaggle-payload-files.txt
+          cat artifacts/kaggle-payload-files.txt
           grep -q "payload.json" artifacts/kaggle-payload-files.txt
 
       - name: Build fully offline Kaggle kernel
