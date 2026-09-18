@@ -1,0 +1,152 @@
+name: lora-promote-from-huggingface
+
+on:
+  workflow_dispatch:
+    inputs:
+      hf_repo_id:
+        description: "Public Hugging Face model repo containing the trained MEL LoRA bundle"
+        required: true
+        type: string
+      revision:
+        description: "Hugging Face revision"
+        required: true
+        default: "main"
+        type: string
+      activate_preview:
+        description: "Activate in isolated preview after successful benchmark"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mel-lora-promote-from-hf
+  cancel-in-progress: false
+
+jobs:
+  promote-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Verify candidate-only execution
+        shell: bash
+        run: |
+          test "$GITHUB_REF_NAME" = "candidate/mel-clean-autonomy"
+          python - <<'PY'
+          import os, re
+          repo = os.environ["HF_REPO_ID"]
+          revision = os.environ["HF_REVISION"]
+          if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
+              raise SystemExit("INVALID_HF_REPO_ID")
+          if not re.fullmatch(r"[A-Za-z0-9._/-]+", revision) or ".." in revision:
+              raise SystemExit("INVALID_HF_REVISION")
+          PY
+        env:
+          HF_REPO_ID: ${{ inputs.hf_repo_id }}
+          HF_REVISION: ${{ inputs.revision }}
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Download exact public LoRA bundle
+        shell: bash
+        env:
+          HF_REPO_ID: ${{ inputs.hf_repo_id }}
+          HF_REVISION: ${{ inputs.revision }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/lora-incoming
+          for file in             adapter_model.safetensors             adapter_config.json             training-evidence.json             artifact-evidence.json             lora-plan.json
+          do
+            curl --fail --show-error --silent --location               --retry 3 --retry-delay 2               "https://huggingface.co/${HF_REPO_ID}/resolve/${HF_REVISION}/${file}?download=true"               --output "artifacts/lora-incoming/${file}"
+          done
+
+      - name: Validate exact plan and artifact provenance
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { assertAdapterArtifact } from './src/learning/lora-plan.js';
+
+          const dir = 'artifacts/lora-incoming';
+          const plan = JSON.parse(fs.readFileSync(`${dir}/lora-plan.json`, 'utf8'));
+          const artifact = JSON.parse(fs.readFileSync(`${dir}/artifact-evidence.json`, 'utf8'));
+          const training = JSON.parse(fs.readFileSync(`${dir}/training-evidence.json`, 'utf8'));
+
+          const checked = assertAdapterArtifact(artifact);
+          if (checked.finetune_id) throw new Error('PREEXISTING_FINETUNE_ID_FORBIDDEN');
+          if (String(training.plan_id || '') !== String(plan.id || '')) throw new Error('TRAINING_PLAN_ID_MISMATCH');
+          if (String(artifact.dataset_digest || '') !== String(plan.dataset_digest || '')) throw new Error('LORA_DATASET_MISMATCH');
+          if (String(artifact.training_manifest_digest || '').toLowerCase() !== String(plan.training_manifest_digest || '').toLowerCase()) {
+            throw new Error('LORA_TRAINING_MANIFEST_MISMATCH');
+          }
+          if (String(training.training_manifest_digest || '').toLowerCase() !== String(plan.training_manifest_digest || '').toLowerCase()) {
+            throw new Error('TRAINING_EVIDENCE_MANIFEST_MISMATCH');
+          }
+          console.log(JSON.stringify({
+            status: 'TRAINED_BUNDLE_VERIFIED',
+            plan_id: plan.id,
+            artifact_digest: checked.digest,
+            dataset_digest: artifact.dataset_digest,
+            training_manifest_digest: artifact.training_manifest_digest,
+          }, null, 2));
+          NODE
+
+      - name: Upload exact adapter to Cloudflare fine-tunes
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          node scripts/upload-cloudflare-lora.mjs             --dir artifacts/lora-incoming             --name "mel-hf-${GITHUB_RUN_ID}"
+
+      - name: Approve uploaded artifact before benchmark
+        run: |
+          node scripts/approve-lora-artifact.mjs             --dir artifacts/lora-incoming             --approval-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Derive isolated preview credential
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          PREVIEW_PASSWORD="$(python - <<'PY'
+          import hashlib, hmac, os
+          token = os.environ['CLOUDFLARE_API_TOKEN'].encode('utf-8')
+          print(hmac.new(token, b'meliturgos-preview-auth-v1', hashlib.sha256).hexdigest())
+          PY
+          )"
+          echo "::add-mask::${PREVIEW_PASSWORD}"
+          echo "MEL_PREVIEW_PASSWORD=${PREVIEW_PASSWORD}" >> "$GITHUB_ENV"
+
+      - name: Benchmark exact adapter and optionally activate isolated preview
+        shell: bash
+        env:
+          MELITURGOS_PASSWORD: ${{ env.MEL_PREVIEW_PASSWORD }}
+          MEL_BASE_URL: "https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          ACTIVATE_PREVIEW: ${{ inputs.activate_preview }}
+        run: |
+          node scripts/finalize-lora.mjs             --dir artifacts/lora-incoming             --url "$MEL_BASE_URL"             --activate "$ACTIVATE_PREVIEW"
+
+      - name: Upload non-secret evidence bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: lora-promotion-evidence-${{ github.run_id }}
+          path: |
+            artifacts/lora-incoming/lora-plan.json
+            artifacts/lora-incoming/training-evidence.json
+            artifacts/lora-incoming/artifact-evidence.json
+            artifacts/lora-incoming/approval-evidence.json
+          if-no-files-found: warn
+          retention-days: 14
