@@ -10,6 +10,7 @@ import { onRequestGet as handleFullModeV1 } from "./pages/full-interface.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
+import { handleNativeChat } from "./api/native-chat.js";
 
 let legacy;
 async function loadLegacy(env) {
@@ -280,12 +281,13 @@ export default {
       }
     }
 
-    const legacyHandler = await loadLegacy(env);
     if (url.pathname === "/api/chat") {
       const prepared = await injectAutomaticCapability(request);
-      const response = await legacyHandler.fetch(prepared, env, ctx);
+      const response = await handleNativeChat(prepared, env);
       return sanitizeLegacyChatResponse(response);
     }
+
+    const legacyHandler = await loadLegacy(env);
     const wrapped = withConversationArchive(legacyHandler.fetch.bind(legacyHandler));
     return wrapped(request, env, ctx);
   },
