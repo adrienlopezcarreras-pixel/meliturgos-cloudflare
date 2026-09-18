@@ -25,6 +25,10 @@ test('ecosystem watch is wired once into schedule, API and full-mode activity', 
   assert.match(previewWorkflow, /Rebase GEN2-42 Teacher handoff through canonical tick/);
   assert.match(previewWorkflow, /\/api\/gen2\/autonomy\/tick/);
   assert.match(previewWorkflow, /\/api\/teacher\/pending/);
+  assert.match(previewWorkflow, /gen2-42-teacher-rebase-proof\.mjs/);
+  assert.match(previewWorkflow, /Rebase GEN2-42 Teacher handoff through canonical tick/);
+  assert.match(previewWorkflow, /\/api\/gen2\/autonomy\/tick/);
+  assert.match(previewWorkflow, /\/api\/teacher\/pending/);
   assert.match(previewWorkflow, /NO_CANONICAL_TEACHER_HANDOFF_AFTER_TICK/);
   assert.match(previewWorkflow, /gen2-42-teacher-rebase\.json/);
 });
