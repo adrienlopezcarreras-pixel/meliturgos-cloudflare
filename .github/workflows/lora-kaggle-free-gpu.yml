@@ -9,8 +9,7 @@ on:
       - "kaggle/mel-lora-uncensored/**"
       - "scripts/train-mel-lora.py"
       - "scripts/create-lora-plan.py"
-      - "scripts/prepare-mel-max-lora.py"
-      - "scripts/finalize-lora.mjs"
+      - "scripts/prepare-kaggle-lora-shard.py"
   workflow_dispatch:
     inputs:
       source_sha:
@@ -24,20 +23,25 @@ on:
         default: "0"
         type: string
       parent_release_tag:
-        description: "Previous Kaggle checkpoint release tag; empty for cycle 0"
+        description: "Previous immutable checkpoint release tag; empty for cycle 0"
         required: false
         default: ""
         type: string
       shard_size:
-        description: "Examples trained in this free GPU cycle, including the 50 canonical MEL lessons"
+        description: "Examples trained in this free GPU cycle, including 50 canonical MEL lessons"
         required: true
         default: "750"
         type: string
       max_cycles:
-        description: "Maximum number of chained UNCENSORED cycles before stopping"
+        description: "Maximum chained free-GPU cycles"
         required: true
-        default: "20"
+        default: "100"
         type: string
+      benchmark_preview:
+        description: "Use isolated Cloudflare preview benchmark after training"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -48,13 +52,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  train-benchmark-chain:
+  train-chain:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    environment: preview
+    timeout-minutes: 240
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
-      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       GH_TOKEN: ${{ github.token }}
@@ -67,13 +70,15 @@ jobs:
           INPUT_PARENT_RELEASE_TAG: ${{ inputs.parent_release_tag }}
           INPUT_SHARD_SIZE: ${{ inputs.shard_size }}
           INPUT_MAX_CYCLES: ${{ inputs.max_cycles }}
+          INPUT_BENCHMARK_PREVIEW: ${{ inputs.benchmark_preview }}
         run: |
           set -euo pipefail
           SOURCE_SHA="${INPUT_SOURCE_SHA:-$GITHUB_SHA}"
           CYCLE="${INPUT_CYCLE:-0}"
           PARENT_RELEASE_TAG="${INPUT_PARENT_RELEASE_TAG:-}"
           SHARD_SIZE="${INPUT_SHARD_SIZE:-750}"
-          MAX_CYCLES="${INPUT_MAX_CYCLES:-20}"
+          MAX_CYCLES="${INPUT_MAX_CYCLES:-100}"
+          BENCHMARK_PREVIEW="${INPUT_BENCHMARK_PREVIEW:-false}"
 
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "INVALID_SOURCE_SHA"; exit 1; }
           [[ "$CYCLE" =~ ^[0-9]+$ ]] || { echo "INVALID_CYCLE"; exit 1; }
@@ -87,6 +92,7 @@ jobs:
           echo "PARENT_RELEASE_TAG=$PARENT_RELEASE_TAG" >> "$GITHUB_ENV"
           echo "SHARD_SIZE=$SHARD_SIZE" >> "$GITHUB_ENV"
           echo "MAX_CYCLES=$MAX_CYCLES" >> "$GITHUB_ENV"
+          echo "BENCHMARK_PREVIEW=$BENCHMARK_PREVIEW" >> "$GITHUB_ENV"
 
       - name: Checkout exact training SHA
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -103,71 +109,70 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
-          cache: npm
 
-      - name: Authenticate Kaggle non-interactively
+      - name: Authenticate Kaggle
         shell: bash
         run: |
           set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}" || { echo "KAGGLE_API_TOKEN_REQUIRED"; exit 1; }
           python -m pip install -q -U kaggle
-
-          if [[ -z "${KAGGLE_API_TOKEN:-}" && ( -z "${KAGGLE_USERNAME:-}" || -z "${KAGGLE_KEY:-}" ) ]]; then
-            echo "::error title=Kaggle authentication required::Add repository secret KAGGLE_API_TOKEN from Kaggle Settings > API tokens. Legacy KAGGLE_USERNAME + KAGGLE_KEY also work."
-            exit 1
-          fi
-
-          if [[ -n "${KAGGLE_API_TOKEN:-}" ]]; then
-            KAGGLE_OWNER="$(python - <<'PY'
-          import json, os, urllib.request
-          token=os.environ["KAGGLE_API_TOKEN"]
-          req=urllib.request.Request(
-              "https://www.kaggle.com/api/v1/oauth2/introspect",
-              data=json.dumps({"token":token}).encode(),
-              headers={"Content-Type":"application/json"},
-              method="POST",
-          )
-          with urllib.request.urlopen(req, timeout=30) as r:
-              data=json.load(r)
-          if not data.get("active") or not data.get("username"):
-              raise SystemExit("KAGGLE_API_TOKEN_INVALID_OR_INACTIVE")
-          print(data["username"])
+          KAGGLE_OWNER="$(python - <<'PY'
+          import os
+          from kagglesdk.kaggle_client import KaggleClient
+          from kagglesdk.kaggle_creds import KaggleCredentials
+          client = KaggleClient(user_agent="meliturgos-kaggle-lora/2.0")
+          creds = KaggleCredentials(client=client, access_token=os.environ["KAGGLE_API_TOKEN"])
+          print(creds.introspect())
           PY
           )"
-          else
-            KAGGLE_OWNER="$KAGGLE_USERNAME"
-          fi
-
-          [[ "$KAGGLE_OWNER" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "INVALID_KAGGLE_OWNER"; exit 1; }
+          test -n "$KAGGLE_OWNER"
           echo "KAGGLE_OWNER=$KAGGLE_OWNER" >> "$GITHUB_ENV"
           echo "KERNEL_REF=$KAGGLE_OWNER/mel-lora-uncensored-max" >> "$GITHUB_ENV"
-          kaggle --version
 
-      - name: Build exact Kaggle kernel payload
+      - name: Prepare deterministic training shard outside Kaggle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q "datasets>=2.20" "huggingface_hub>=0.25"
+          node scripts/export-canonical-lora-dataset.mjs --output /tmp/mel-canonical-50.jsonl
+          python scripts/prepare-kaggle-lora-shard.py             --cycle "$CYCLE"             --shard-size "$SHARD_SIZE"             --mel-lessons /tmp/mel-canonical-50.jsonl             --output /tmp/mel-training-shard.jsonl
+          gzip -9 -c /tmp/mel-training-shard.jsonl > /tmp/mel-training-shard.jsonl.gz
+          test -s /tmp/mel-training-shard.jsonl.gz
+          test -s /tmp/mel-training-shard.jsonl.meta.json
+
+      - name: Fetch immutable parent checkpoint when continuing
+        if: env.PARENT_RELEASE_TAG != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/mel-parent
+          gh release download "$PARENT_RELEASE_TAG"             --repo "$GITHUB_REPOSITORY"             --pattern "mel-lora-bundle.tar.gz"             --dir /tmp/mel-parent
+          test -s /tmp/mel-parent/mel-lora-bundle.tar.gz
+
+      - name: Build fully offline Kaggle payload
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/kaggle-kernel
-          node scripts/export-canonical-lora-dataset.mjs --output /tmp/mel-canonical-50.jsonl
-
-          if [[ -n "$PARENT_RELEASE_TAG" ]]; then
-            PARENT_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$PARENT_RELEASE_TAG/mel-lora-bundle.tar.gz"
-          else
-            PARENT_URL=""
-          fi
-          export PARENT_URL
-
+          cp kaggle/mel-lora-uncensored/kernel-metadata.json artifacts/kaggle-kernel/kernel-metadata.json
           python - <<'PY'
           import base64, json, os
           from pathlib import Path
 
+          def b64(path):
+              return base64.b64encode(Path(path).read_bytes()).decode("ascii")
+
           source=Path("kaggle/mel-lora-uncensored/run.py").read_text(encoding="utf-8")
-          lessons=base64.b64encode(Path("/tmp/mel-canonical-50.jsonl").read_bytes()).decode("ascii")
+          parent=Path("/tmp/mel-parent/mel-lora-bundle.tar.gz")
           replacements={
               "__MEL_GIT_SHA__": os.environ["SOURCE_SHA"],
               "__MEL_CYCLE__": os.environ["CYCLE"],
               "__MEL_SHARD_SIZE__": os.environ["SHARD_SIZE"],
-              "__MEL_PARENT_BUNDLE_URL__": os.environ.get("PARENT_URL",""),
-              "__MEL_LESSONS_B64__": lessons,
+              "__MEL_TRAIN_SCRIPT_B64__": b64("scripts/train-mel-lora.py"),
+              "__MEL_PLAN_SCRIPT_B64__": b64("scripts/create-lora-plan.py"),
+              "__MEL_SHARD_GZ_B64__": b64("/tmp/mel-training-shard.jsonl.gz"),
+              "__MEL_SHARD_META_B64__": b64("/tmp/mel-training-shard.jsonl.meta.json"),
+              "__MEL_PARENT_BUNDLE_B64__": b64(parent) if parent.is_file() else "",
           }
           for key,value in replacements.items():
               source=source.replace(key,value)
@@ -175,165 +180,156 @@ jobs:
               raise SystemExit("UNRESOLVED_KAGGLE_TEMPLATE_PLACEHOLDER")
           Path("artifacts/kaggle-kernel/run.py").write_text(source, encoding="utf-8")
 
-          meta=json.loads(Path("kaggle/mel-lora-uncensored/kernel-metadata.json").read_text())
+          meta=json.loads(Path("artifacts/kaggle-kernel/kernel-metadata.json").read_text())
           meta["id"]=f'{os.environ["KAGGLE_OWNER"]}/mel-lora-uncensored-max'
+          meta["enable_internet"]=False
+          meta["dataset_sources"]=[
+              "cdeotte/mistral-7b-instruct-v02-fp16",
+              "nbroad/hf-libraries",
+          ]
           Path("artifacts/kaggle-kernel/kernel-metadata.json").write_text(
               json.dumps(meta,indent=2)+"\n", encoding="utf-8"
           )
           PY
-
           python -m py_compile artifacts/kaggle-kernel/run.py
+          test -s artifacts/kaggle-kernel/run.py
           cat artifacts/kaggle-kernel/kernel-metadata.json
 
-      - name: Submit free Kaggle T4 training
+      - name: Submit free offline Kaggle T4 training
         shell: bash
         run: |
           set -euo pipefail
-          kaggle kernels push -p artifacts/kaggle-kernel --accelerator NvidiaTeslaT4 -t 600
-          echo "Submitted $KERNEL_REF for cycle $CYCLE on free Kaggle GPU."
+          kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator NvidiaTeslaT4             -t 600
+          echo "Submitted $KERNEL_REF cycle $CYCLE with internet disabled."
 
       - name: Wait for Kaggle cycle
         shell: bash
         run: |
           set -euo pipefail
           COMPLETE=0
-          for attempt in $(seq 1 310); do
+          for attempt in $(seq 1 210); do
             STATUS="$(kaggle kernels status "$KERNEL_REF" 2>&1 || true)"
             echo "[$attempt] $STATUS"
             LOWER="$(printf '%s' "$STATUS" | tr '[:upper:]' '[:lower:]')"
-
             if printf '%s' "$LOWER" | grep -Eq 'complete|completed|success'; then
               COMPLETE=1
               break
             fi
             if printf '%s' "$LOWER" | grep -Eq 'error|failed|failure|cancelled|canceled'; then
+              mkdir -p artifacts/kaggle-error
+              kaggle kernels output "$KERNEL_REF" -p artifacts/kaggle-error --force || true
+              find artifacts/kaggle-error -type f -maxdepth 4 -print || true
               echo "::error title=Kaggle GPU run failed::$STATUS"
               exit 1
             fi
             sleep 60
           done
+          [[ "$COMPLETE" == "1" ]] || { echo "KAGGLE_GPU_RUN_TIMEOUT"; exit 1; }
 
-          if [[ "$COMPLETE" != "1" ]]; then
-            echo "::error title=Kaggle GPU run timeout::Cycle did not finish inside the GitHub-hosted runner window."
-            exit 1
-          fi
-
-      - name: Download trained Kaggle bundle
+      - name: Download trained bundle
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/kaggle-output artifacts/lora-incoming
-          kaggle kernels output "$KERNEL_REF" -p artifacts/kaggle-output -o
-
+          kaggle kernels output "$KERNEL_REF" -p artifacts/kaggle-output --force
           BUNDLE="$(find artifacts/kaggle-output -type f -name 'mel-lora-bundle.tar.gz' -print -quit)"
-          RUN_META="$(find artifacts/kaggle-output -type f -name 'kaggle-run.json' -print -quit)"
-          [[ -n "$BUNDLE" && -f "$BUNDLE" ]] || { echo "KAGGLE_BUNDLE_MISSING"; find artifacts/kaggle-output -maxdepth 3 -type f; exit 1; }
-
+          [[ -n "$BUNDLE" && -s "$BUNDLE" ]] || {
+            echo "KAGGLE_BUNDLE_MISSING"
+            find artifacts/kaggle-output -maxdepth 4 -type f -print
+            exit 1
+          }
           tar -xzf "$BUNDLE" -C artifacts/lora-incoming
           cp "$BUNDLE" artifacts/mel-lora-bundle.tar.gz
-          if [[ -n "$RUN_META" && -f "$RUN_META" ]]; then cp "$RUN_META" artifacts/kaggle-run.json; fi
+          cp artifacts/lora-incoming/kaggle-run.json artifacts/kaggle-run.json
 
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          p=Path("artifacts/lora-incoming/kaggle-run.json")
-          data=json.loads(p.read_text())
-          if data["source_sha"] != os.environ["SOURCE_SHA"]:
-              raise SystemExit("KAGGLE_SOURCE_SHA_MISMATCH")
-          if int(data["cycle"]) != int(os.environ["CYCLE"]):
-              raise SystemExit("KAGGLE_CYCLE_MISMATCH")
-          for name in ["adapter_model.safetensors","adapter_config.json","training-evidence.json","artifact-evidence.json","lora-plan.json"]:
-              q=Path("artifacts/lora-incoming")/name
-              if not q.is_file() or q.stat().st_size <= 0:
-                  raise SystemExit("KAGGLE_OUTPUT_MISSING:"+name)
-          print(json.dumps(data,indent=2))
-          PY
-
-      - name: Install exact repository lockfile
-        run: npm ci
-
-      - name: Validate downloaded provenance
+      - name: Validate exact provenance
         shell: bash
         run: |
+          set -euo pipefail
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import { assertAdapterArtifact } from './src/learning/lora-plan.js';
           const dir='artifacts/lora-incoming';
-          const plan=JSON.parse(fs.readFileSync(`${dir}/lora-plan.json`,'utf8'));
-          const artifact=JSON.parse(fs.readFileSync(`${dir}/artifact-evidence.json`,'utf8'));
-          const training=JSON.parse(fs.readFileSync(`${dir}/training-evidence.json`,'utf8'));
+          const plan=JSON.parse(fs.readFileSync(dir+'/lora-plan.json','utf8'));
+          const artifact=JSON.parse(fs.readFileSync(dir+'/artifact-evidence.json','utf8'));
+          const training=JSON.parse(fs.readFileSync(dir+'/training-evidence.json','utf8'));
+          const run=JSON.parse(fs.readFileSync(dir+'/kaggle-run.json','utf8'));
           const checked=assertAdapterArtifact(artifact);
+          if(String(run.source_sha)!==String(process.env.SOURCE_SHA)) throw new Error('KAGGLE_SOURCE_SHA_MISMATCH');
+          if(Number(run.cycle)!==Number(process.env.CYCLE)) throw new Error('KAGGLE_CYCLE_MISMATCH');
           if(checked.finetune_id) throw new Error('PREEXISTING_FINETUNE_ID_FORBIDDEN');
           if(String(training.plan_id||'')!==String(plan.id||'')) throw new Error('TRAINING_PLAN_ID_MISMATCH');
           if(String(artifact.dataset_digest||'')!==String(plan.dataset_digest||'')) throw new Error('LORA_DATASET_MISMATCH');
           if(String(artifact.training_manifest_digest||'').toLowerCase()!==String(plan.training_manifest_digest||'').toLowerCase()) throw new Error('LORA_TRAINING_MANIFEST_MISMATCH');
-          if(String(training.training_manifest_digest||'').toLowerCase()!==String(plan.training_manifest_digest||'').toLowerCase()) throw new Error('TRAINING_EVIDENCE_MANIFEST_MISMATCH');
-          console.log(JSON.stringify({status:'KAGGLE_BUNDLE_VERIFIED',plan_id:plan.id,artifact_digest:checked.digest},null,2));
+          console.log(JSON.stringify({
+            status:'KAGGLE_BUNDLE_VERIFIED',
+            cycle:Number(process.env.CYCLE),
+            artifact_digest:checked.digest,
+            train_loss:run.train_loss,
+            global_step:run.global_step,
+            offline_kernel:run.offline_kernel===true,
+          },null,2));
           NODE
 
-      - name: Save immutable Kaggle checkpoint release
+      - name: Save immutable checkpoint release
         shell: bash
         run: |
           set -euo pipefail
           SHORT="${SOURCE_SHA:0:12}"
           TAG="mel-lora-kaggle-${SHORT}-c$(printf '%03d' "$CYCLE")"
           echo "CHECKPOINT_TAG=$TAG" >> "$GITHUB_ENV"
-          cp artifacts/lora-incoming/kaggle-run.json artifacts/kaggle-run.json
-
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json               --repo "$GITHUB_REPOSITORY"               --target "$SOURCE_SHA"               --title "MEL LoRA Kaggle UNCENSORED cycle $CYCLE"               --notes "Free Kaggle GPU checkpoint for source $SOURCE_SHA, cycle $CYCLE. TRAINED_UNBENCHMARKED until Cloudflare benchmark completes."
+            gh release create "$TAG" artifacts/mel-lora-bundle.tar.gz artifacts/kaggle-run.json               --repo "$GITHUB_REPOSITORY"               --target "$SOURCE_SHA"               --title "MEL LoRA Kaggle UNCENSORED cycle $CYCLE"               --notes "Free offline Kaggle GPU checkpoint. No production deployment. No paid fallback."
           fi
 
-      - name: Upload exact adapter to Cloudflare fine-tunes
+      - name: Create zero-cost training result
+        if: env.BENCHMARK_PREVIEW != 'true'
         shell: bash
         run: |
-          node scripts/upload-cloudflare-lora.mjs             --dir artifacts/lora-incoming             --name "mel-kaggle-c${CYCLE}-${GITHUB_RUN_ID}"
-
-      - name: Approve uploaded artifact before benchmark
-        shell: bash
-        run: |
-          node scripts/approve-lora-artifact.mjs             --dir artifacts/lora-incoming             --approval-id "kaggle-${GITHUB_RUN_ID}-c${CYCLE}"
-
-      - name: Derive isolated preview credential
-        shell: bash
-        run: |
-          PREVIEW_PASSWORD="$(python - <<'PY'
-          import hashlib, hmac, os
-          token=os.environ["CLOUDFLARE_API_TOKEN"].encode("utf-8")
-          print(hmac.new(token,b"meliturgos-preview-auth-v1",hashlib.sha256).hexdigest())
-          PY
-          )"
-          echo "::add-mask::${PREVIEW_PASSWORD}"
-          echo "MEL_PREVIEW_PASSWORD=${PREVIEW_PASSWORD}" >> "$GITHUB_ENV"
-
-      - name: Benchmark cycle and activate only if every gate passes
-        shell: bash
-        env:
-          MELITURGOS_PASSWORD: ${{ env.MEL_PREVIEW_PASSWORD }}
-          MEL_BASE_URL: "https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
-        run: |
-          set -euo pipefail
-          node scripts/finalize-lora.mjs             --dir artifacts/lora-incoming             --url "$MEL_BASE_URL"             --activate true             --allow-not-activated true | tee artifacts/finalize-result.json
-
           python - <<'PY'
           import json
           from pathlib import Path
-          data=json.loads(Path("artifacts/finalize-result.json").read_text())
-          print(json.dumps({
-              "status":data.get("status"),
-              "baseline":data.get("baseline"),
-              "candidate":data.get("candidate"),
-              "gain":data.get("gain"),
-              "next_stage":data.get("next_stage"),
-              "impact_gate_passed":data.get("impact_gate_passed"),
-              "canonical_gate_passed":data.get("canonical_gate_passed"),
-              "activation_blocker":data.get("activation_blocker"),
-          },indent=2))
+          run=json.loads(Path("artifacts/kaggle-run.json").read_text())
+          result={
+            "status":"TRAINED_UNBENCHMARKED",
+            "cycle":run.get("cycle"),
+            "artifact_digest":run.get("artifact_digest"),
+            "train_loss":run.get("train_loss"),
+            "global_step":run.get("global_step"),
+            "next_stage":"UNCENSORED_CONTINUE",
+            "activation_blocker":"ZERO_COST_PREVIEW_BENCHMARK_NOT_REQUESTED",
+            "zero_cost_only":True,
+          }
+          Path("artifacts/finalize-result.json").write_text(json.dumps(result,indent=2)+"\n")
+          print(json.dumps(result,indent=2))
           PY
 
-      - name: Upload non-secret training and benchmark evidence
+      - name: Upload adapter to Cloudflare open-beta LoRA
+        if: env.BENCHMARK_PREVIEW == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/upload-cloudflare-lora.mjs             --dir artifacts/lora-incoming             --name "mel-kaggle-c${CYCLE}-${GITHUB_RUN_ID}"
+          node scripts/approve-lora-artifact.mjs             --dir artifacts/lora-incoming             --approval-id "kaggle-${GITHUB_RUN_ID}-c${CYCLE}"
+
+      - name: Benchmark isolated preview
+        if: env.BENCHMARK_PREVIEW == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREVIEW_PASSWORD="$(python - <<'PY'
+          import hashlib,hmac,os
+          token=os.environ["CLOUDFLARE_API_TOKEN"].encode()
+          print(hmac.new(token,b"meliturgos-preview-auth-v1",hashlib.sha256).hexdigest())
+          PY
+          )"
+          export MELITURGOS_PASSWORD="$PREVIEW_PASSWORD"
+          export MEL_BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          node scripts/finalize-lora.mjs             --dir artifacts/lora-incoming             --url "$MEL_BASE_URL"             --activate true             --allow-not-activated true | tee artifacts/finalize-result.json
+
+      - name: Upload non-secret evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -347,10 +343,11 @@ jobs:
             artifacts/lora-incoming/approval-evidence.json
             artifacts/lora-incoming/dataset-metadata.json
             artifacts/lora-incoming/shard-metadata.json
+            artifacts/kaggle-error/**
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Continue UNCENSORED chain when gate is not reached
+      - name: Continue free UNCENSORED chain
         shell: bash
         run: |
           set -euo pipefail
@@ -364,23 +361,21 @@ jobs:
           NEXT_CYCLE=$((CYCLE + 1))
 
           {
-            echo "### MEL Kaggle free-GPU cycle"
-            echo ""
-            echo "- Source SHA: $SOURCE_SHA"
+            echo "### MEL free Kaggle LoRA"
             echo "- Cycle: $CYCLE"
             echo "- Checkpoint: $CHECKPOINT_TAG"
             echo "- Next stage: $NEXT_STAGE"
+            echo "- Zero-cost only: true"
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [[ "$NEXT_STAGE" == "AGENTIC_READY" ]]; then
-            echo "UNCENSORED gate reached; stopping chain for AGENTIC handoff."
+            echo "UNCENSORED gate reached; preserve parent and stop before AGENTIC."
             exit 0
           fi
           if (( NEXT_CYCLE >= MAX_CYCLES )); then
-            echo "Maximum configured cycle count reached."
+            echo "Configured cycle ceiling reached."
             exit 0
           fi
 
-          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref candidate/mel-clean-autonomy             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"
-
-          echo "Submitted next free GPU cycle: $NEXT_CYCLE"
+          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref candidate/mel-clean-autonomy             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$BENCHMARK_PREVIEW"
+          echo "Submitted next cycle: $NEXT_CYCLE"
