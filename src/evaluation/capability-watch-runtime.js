@@ -6,7 +6,7 @@ import {
   ECOSYSTEM_WATCH_TARGETS,
   getEcosystemWatchCatalog,
 } from './ecosystem-watch-catalog.js';
-import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, markEcosystemDiscoveryHandoff, reconcileEcosystemDiscoveryHandoffs } from './ecosystem-discovery-planner.js';
+import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, buildEcosystemDiscoveryCandidate, markEcosystemDiscoveryOwnerDecision, markEcosystemDiscoveryHandoff, reconcileEcosystemDiscoveryHandoffs } from './ecosystem-discovery-planner.js';
 import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 
@@ -262,6 +262,51 @@ function watchEvaluator(env) {
   };
 }
 
+async function queueDiscoveryCandidate(env, candidate, {
+  developmentEnqueue = enqueueSupervisedDevelopmentRequest,
+  developmentRepository = null,
+  fetchImpl = fetch,
+  sourceSha = null,
+} = {}) {
+  if (!candidate) return null;
+  const runtime = createGen2Runtime({ env });
+  const queued = await developmentEnqueue({
+    env,
+    goal: candidate.goal,
+    requestKey: candidate.fingerprint,
+    repository: developmentRepository,
+    fetchImpl,
+    capabilities: runtime.bus.list(),
+    requestedBy: 'mel-autonomy',
+    source: 'ecosystem-watch',
+    priority: 'P1',
+    extensionKind: candidate.action === 'UNBLOCK_EXISTING' ? 'plugin' : candidate.suggested_kind,
+    allowBlockedExisting: candidate.action === 'UNBLOCK_EXISTING',
+    allowExistingOptimization: candidate.action === 'REUSE_EXISTING',
+    targetCapabilityId: candidate.best_match?.id || '',
+    evidence: {
+      fingerprint: candidate.fingerprint,
+      capability_hint: candidate.capability_hint,
+      citations_count: candidate.citations_count,
+      observed_on: candidate.observed_on,
+      sources: candidate.sources,
+      source_watch_sha: candidate.source_watch_sha || sourceSha,
+    },
+    roadmapId: candidate.roadmap_id,
+    inspectionPaths: candidate.inspection_paths,
+    inspectionQueries: candidate.inspection_queries,
+  });
+  return {
+    fingerprint: candidate.fingerprint,
+    action: candidate.action,
+    status: queued?.status || 'QUEUED',
+    job_id: queued?.job_id || null,
+    teacher_request_id: queued?.teacher?.request_id || null,
+    created: queued?.created === true,
+    closed: queued?.job_id == null && ['REUSE_EXISTING', 'REVIEW_EXISTING'].includes(String(queued?.status || '')),
+  };
+}
+
 export async function runEcosystemCapabilityWatch(
   env,
   {
@@ -316,42 +361,12 @@ export async function runEcosystemCapabilityWatch(
     const candidate = selectEcosystemDiscoveryCandidate(discoveryLedger);
     if (candidate) {
       try {
-        const runtime = createGen2Runtime({ env });
-        const queued = await developmentEnqueue({
-          env,
-          goal: candidate.goal,
-          requestKey: candidate.fingerprint,
-          repository: developmentRepository,
+        handoff = await queueDiscoveryCandidate(env, candidate, {
+          developmentEnqueue,
+          developmentRepository,
           fetchImpl,
-          capabilities: runtime.bus.list(),
-          requestedBy: 'mel-autonomy',
-          source: 'ecosystem-watch',
-          priority: 'P1',
-          extensionKind: candidate.action === 'UNBLOCK_EXISTING' ? 'plugin' : candidate.suggested_kind,
-          allowBlockedExisting: candidate.action === 'UNBLOCK_EXISTING',
-          allowExistingOptimization: candidate.action === 'REUSE_EXISTING',
-          targetCapabilityId: candidate.best_match?.id || '',
-          evidence: {
-            fingerprint: candidate.fingerprint,
-            capability_hint: candidate.capability_hint,
-            citations_count: candidate.citations_count,
-            observed_on: candidate.observed_on,
-            sources: candidate.sources,
-            source_watch_sha: discoveryPlan?.source_watch_sha || sourceSha,
-          },
-          roadmapId: candidate.roadmap_id,
-          inspectionPaths: candidate.inspection_paths,
-          inspectionQueries: candidate.inspection_queries,
+          sourceSha: discoveryPlan?.source_watch_sha || sourceSha,
         });
-        handoff = {
-          fingerprint: candidate.fingerprint,
-          action: candidate.action,
-          status: queued?.status || 'QUEUED',
-          job_id: queued?.job_id || null,
-          teacher_request_id: queued?.teacher?.request_id || null,
-          created: queued?.created === true,
-          closed: queued?.job_id == null && ['REUSE_EXISTING', 'REVIEW_EXISTING'].includes(String(queued?.status || '')),
-        };
       } catch (error) {
         handoff = {
           fingerprint: candidate.fingerprint,
@@ -376,6 +391,100 @@ export async function runEcosystemCapabilityWatch(
       ledger: discoveryLedger,
       handoff,
     },
+  };
+}
+
+export async function applyEcosystemProposalDecision(
+  env,
+  {
+    fingerprint,
+    action,
+    now = Date.now(),
+    developmentEnqueue = enqueueSupervisedDevelopmentRequest,
+    developmentRepository = null,
+    fetchImpl = fetch,
+  } = {},
+) {
+  const target = String(fingerprint || '').trim();
+  const requested = String(action || '').trim().toUpperCase();
+  const statusByAction = {
+    TEST: 'TEST_REQUESTED',
+    APPROVE: 'APPROVED',
+    REJECT: 'REJECTED',
+    DEFER: 'DEFERRED',
+  };
+  const ownerStatus = statusByAction[requested];
+  if (!target || !ownerStatus) {
+    throw Object.assign(new Error('ECOSYSTEM_PROPOSAL_ACTION_INVALID'), { code: 'ECOSYSTEM_PROPOSAL_ACTION_INVALID', status: 400 });
+  }
+
+  const discoveryStore = await ensureStore(env, DISCOVERY_ID);
+  let ledger = await discoveryStore.load();
+  const reconciled = await reconcileDiscoveryJobs(env, ledger, {
+    repository: developmentRepository,
+    now,
+  });
+  if (reconciled.changed) ledger = reconciled.ledger;
+
+  const before = (Array.isArray(ledger?.items) ? ledger.items : []).find(item => item?.fingerprint === target);
+  if (!before) {
+    throw Object.assign(new Error('ECOSYSTEM_PROPOSAL_NOT_FOUND'), { code: 'ECOSYSTEM_PROPOSAL_NOT_FOUND', status: 404 });
+  }
+
+  ledger = markEcosystemDiscoveryOwnerDecision(ledger, target, {
+    status: ownerStatus,
+    action: requested,
+    decided_by: 'owner',
+    decided_at: now,
+    production_activation_allowed: false,
+  }, now);
+
+  let handoff = before.handoff || null;
+  if (requested === 'TEST' || requested === 'APPROVE') {
+    const currentStatus = String(handoff?.status || '').toUpperCase();
+    const active = Boolean(handoff?.job_id)
+      && handoff?.closed !== true
+      && currentStatus !== 'FAILED'
+      && currentStatus !== 'REJECTED';
+    if (!active) {
+      const latest = ledger.items.find(item => item?.fingerprint === target);
+      const candidate = buildEcosystemDiscoveryCandidate(latest);
+      if (!candidate) {
+        throw Object.assign(new Error('ECOSYSTEM_PROPOSAL_NOT_ACTIONABLE'), { code: 'ECOSYSTEM_PROPOSAL_NOT_ACTIONABLE', status: 409 });
+      }
+      try {
+        handoff = await queueDiscoveryCandidate(env, candidate, {
+          developmentEnqueue,
+          developmentRepository,
+          fetchImpl,
+          sourceSha: candidate.source_watch_sha || null,
+        });
+      } catch (error) {
+        handoff = {
+          fingerprint: candidate.fingerprint,
+          action: candidate.action,
+          status: 'FAILED',
+          job_id: null,
+          teacher_request_id: null,
+          created: false,
+          closed: false,
+          code: String(error?.code || error?.message || 'ECOSYSTEM_PROPOSAL_HANDOFF_FAILED').slice(0, 180),
+        };
+      }
+      ledger = markEcosystemDiscoveryHandoff(ledger, target, handoff, now);
+    }
+  }
+
+  await discoveryStore.save(ledger);
+  const item = ledger.items.find(row => row?.fingerprint === target) || null;
+  return {
+    ok: true,
+    fingerprint: target,
+    action: requested,
+    owner_decision: item?.owner_decision || null,
+    handoff: item?.handoff || handoff || null,
+    item,
+    production_activation_allowed: false,
   };
 }
 
