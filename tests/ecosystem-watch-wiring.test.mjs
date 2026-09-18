@@ -22,4 +22,9 @@ test('ecosystem watch is wired once into schedule, API and full-mode activity', 
   assert.match(previewWorkflow, /WATCH_NO_COUNCIL_TEACHER_HANDOFF/);
   assert.match(previewWorkflow, /active_teacher_handoffs/);
   assert.match(previewWorkflow, /teacher_request_id/);
+  assert.match(previewWorkflow, /Rebase GEN2-42 Teacher handoff through canonical tick/);
+  assert.match(previewWorkflow, /\/api\/gen2\/autonomy\/tick/);
+  assert.match(previewWorkflow, /\/api\/teacher\/pending/);
+  assert.match(previewWorkflow, /NO_CANONICAL_TEACHER_HANDOFF_AFTER_TICK/);
+  assert.match(previewWorkflow, /gen2-42-teacher-rebase\.json/);
 });

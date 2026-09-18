@@ -332,6 +332,223 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Rebase GEN2-42 Teacher handoff through canonical tick
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+
+          curl --fail-with-body --show-error --silent \
+            --max-time 180 \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            --header "content-type: application/json" \
+            --data '{}' \
+            "${BASE_URL}/api/gen2/autonomy/tick" \
+            --output gen2-42-autonomy-tick.raw.json
+
+          curl --fail-with-body --show-error --silent \
+            --max-time 60 \
+            "${BASE_URL}/api/teacher/pending" \
+            --output gen2-42-teacher-pending.raw.json
+
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          SHA40 = re.compile(r'^[0-9a-f]{40}        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+
+          curl --fail --show-error --silent \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            --header "content-type: application/json" \
+            --data '{}' \
+            "${BASE_URL}/api/learning/benchmark/run" \
+            --output benchmark-refresh.json
+
+          curl --fail --show-error --silent \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            --header "content-type: application/json" \
+            --data '{}' \
+            "${BASE_URL}/api/learning/lora/prepare" \
+            --output lora-prepare-refresh.json
+
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          bench = json.loads(Path('benchmark-refresh.json').read_text(encoding='utf-8'))
+          lora = json.loads(Path('lora-prepare-refresh.json').read_text(encoding='utf-8'))
+          if bench.get('ok') is not True:
+              raise SystemExit('BENCHMARK_REFRESH_FAILED: ' + str(bench.get('error') or bench.get('detail')))
+          if lora.get('ok') is not True:
+              raise SystemExit('LORA_PREPARE_REFRESH_FAILED: ' + str(lora.get('error') or lora.get('detail')))
+
+          score = bench.get('benchmark', {}).get('score')
+          cases = bench.get('benchmark', {}).get('case_count')
+          plan = lora.get('plan', {})
+          readiness = plan.get('readiness', {})
+          examples = plan.get('examples')
+
+          summary = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with open(summary, 'a', encoding='utf-8') as h:
+                  h.write('### MEL zero-cost learning refresh\n\n')
+                  h.write(f'- Benchmark score: {score}\n')
+                  h.write(f'- Benchmark cases: {cases}\n')
+                  h.write(f'- LoRA lessons/examples: {examples}/50\n')
+                  h.write(f'- LoRA plan status: {plan.get("status")}\n')
+                  h.write(f'- Ready for training: {readiness.get("ready_for_training")}\n')
+          print(json.dumps({
+              'benchmark_score': score,
+              'benchmark_cases': cases,
+              'lora_examples': examples,
+              'lora_status': plan.get('status'),
+              'ready_for_training': readiness.get('ready_for_training'),
+          }, indent=2))
+          PY
+
+      - name: Upload learning refresh evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preview-learning-refresh-${{ github.sha }}
+          path: |
+            benchmark-refresh.json
+            lora-prepare-refresh.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Verify production still responds
+        shell: bash
+        run: |
+          set +e
+          PROD_STATUS=$(curl --silent --show-error --location \
+            --retry 3 --retry-delay 2 --max-time 30 \
+            --output production-root.html \
+            --write-out '%{http_code}' \
+            https://meliturgos.adrien-lopezcarreras.workers.dev)
+          CURL_STATUS=$?
+          test "$CURL_STATUS" -eq 0 || exit "$CURL_STATUS"
+          case "$PROD_STATUS" in
+            2??|3??|401) ;;
+            *) echo "Unexpected production HTTP status: $PROD_STATUS"; exit 22 ;;
+          esac
+          echo "Production HTTP read-only verification passed with status ${PROD_STATUS}."
+, re.I)
+
+          tick = json.loads(Path('gen2-42-autonomy-tick.raw.json').read_text(encoding='utf-8'))
+          pending_payload = json.loads(Path('gen2-42-teacher-pending.raw.json').read_text(encoding='utf-8'))
+
+          tick_value = tick.get('tick') if isinstance(tick, dict) and isinstance(tick.get('tick'), dict) else tick
+          if not isinstance(tick_value, dict):
+              raise SystemExit('AUTONOMY_TICK_INVALID_RESPONSE')
+          if tick_value.get('ok') is False:
+              raise SystemExit('AUTONOMY_TICK_FAILED: ' + str(tick_value.get('error') or tick_value.get('runtime_error') or tick_value.get('status')))
+
+          pending = pending_payload.get('pending') if isinstance(pending_payload, dict) else None
+          if not isinstance(pending, list):
+              raise SystemExit('TEACHER_PENDING_INVALID_RESPONSE')
+
+          canonical = []
+          for row in pending:
+              if not isinstance(row, dict):
+                  continue
+              candidate = row.get('candidate') if isinstance(row.get('candidate'), dict) else {}
+              branch = str(candidate.get('branch') or '')
+              sha = str(row.get('target_sha') or candidate.get('sha') or '')
+              if branch == 'candidate/mel-clean-autonomy' and SHA40.fullmatch(sha):
+                  canonical.append({
+                      'request_id': row.get('request_id'),
+                      'job_id': row.get('job_id'),
+                      'target_sha': sha,
+                      'candidate_branch': branch,
+                      'stage': row.get('stage'),
+                      'roadmap_id': (row.get('provenance') or {}).get('roadmap_id') if isinstance(row.get('provenance'), dict) else None,
+                  })
+
+          if not canonical:
+              raise SystemExit('NO_CANONICAL_TEACHER_HANDOFF_AFTER_TICK')
+
+          sanitized_tick = {
+              'status': tick_value.get('status'),
+              'ok': tick_value.get('ok', True),
+              'job': {
+                  'id': (tick_value.get('job') or {}).get('id') if isinstance(tick_value.get('job'), dict) else None,
+                  'status': (tick_value.get('job') or {}).get('status') if isinstance(tick_value.get('job'), dict) else None,
+                  'roadmap_id': (tick_value.get('job') or {}).get('roadmap_id') if isinstance(tick_value.get('job'), dict) else None,
+              },
+              'teacher': {
+                  'status': (tick_value.get('teacher') or {}).get('status') if isinstance(tick_value.get('teacher'), dict) else None,
+                  'request_id': (tick_value.get('teacher') or {}).get('request_id') if isinstance(tick_value.get('teacher'), dict) else None,
+              },
+              'reconciliation': {
+                  'stale': [
+                      {
+                          'request_id': row.get('request_id'),
+                          'job_id': row.get('job_id'),
+                          'previous_target_sha': row.get('previous_target_sha'),
+                          'current_candidate_sha': row.get('current_candidate_sha'),
+                      }
+                      for row in ((tick_value.get('reconciliation') or {}).get('stale') or [])
+                      if isinstance(row, dict)
+                  ][:20],
+                  'applied': [
+                      {
+                          'request_id': row.get('request_id'),
+                          'job_id': row.get('job_id'),
+                          'status': row.get('status'),
+                          'verdict': row.get('verdict'),
+                          'target_sha': row.get('target_sha'),
+                      }
+                      for row in ((tick_value.get('reconciliation') or {}).get('applied') or [])
+                      if isinstance(row, dict)
+                  ][:20],
+              },
+          }
+          proof = {
+              'schema': 'mel.gen2-42-teacher-rebase/v1',
+              'workflow_sha': os.environ.get('GITHUB_SHA'),
+              'tick': sanitized_tick,
+              'canonical_pending_count': len(canonical),
+              'pending': canonical[:20],
+              'constraints': {
+                  'preview_only': True,
+                  'candidate_only': True,
+                  'production_deploy_allowed': False,
+                  'goal_content_exposed': False,
+                  'council_content_exposed': False,
+              },
+          }
+          Path('gen2-42-teacher-rebase.json').write_text(
+              json.dumps(proof, indent=2, ensure_ascii=False),
+              encoding='utf-8',
+          )
+
+          summary = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with open(summary, 'a', encoding='utf-8') as h:
+                  h.write('### GEN2-42 canonical Teacher rebase\n\n')
+                  h.write(f'- Tick status: {sanitized_tick.get("status")}\n')
+                  h.write(f'- Canonical pending Teacher requests: {len(canonical)}\n')
+                  for row in canonical[:5]:
+                      h.write(f'- {row.get("request_id")} · {row.get("target_sha")} · {row.get("stage")}\n')
+          PY
+
+          rm -f gen2-42-autonomy-tick.raw.json gen2-42-teacher-pending.raw.json
+
+      - name: Upload GEN2-42 Teacher rebase proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-42-teacher-rebase-${{ github.sha }}
+          path: gen2-42-teacher-rebase.json
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Refresh zero-cost Benchmark and LoRA readiness
         shell: bash
         run: |
