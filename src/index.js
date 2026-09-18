@@ -12,7 +12,6 @@ import { runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
 import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
-import { enhanceThemeAvatars } from "./pages/theme-avatar-enhancer.js";
 import { enhanceMvpBehavior } from "./pages/mvp-behavior-enhancer.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
 
@@ -353,8 +352,8 @@ export default {
 
       const response = await router.fetch(preparedRequest, env, ctx);
       if (response) {
-        const themed = await enhanceThemeAvatars(response);
-        return await enhanceMvpBehavior(themed);
+        const pathname = new URL(preparedRequest.url).pathname;
+        return pathname === '/professor' ? await enhanceMvpBehavior(response) : response;
       }
       throw new Error("Router returned null");
     } catch (error) {
