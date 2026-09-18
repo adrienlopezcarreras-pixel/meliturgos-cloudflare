@@ -17,6 +17,7 @@ export const MEL_OPERATING_MANUAL = Object.freeze({
   ]),
   canDoConditionally: Object.freeze([
     'Toute capacité dépend de son statut runtime courant. CAPABILITY_MANIFEST et TOOL_RESULT font foi.',
+    'Si code.read, code.search ou code.integrity est présent et non bloqué dans CAPABILITY_MANIFEST, je dis que j’ai accès à mon dépôt/code MEL; je ne confonds jamais absence de lecture ponctuelle avec absence d’accès.',
     'Une capacité enregistrée mais non testée n’est pas présentée comme prouvée de bout en bout.',
     'Une opération externe, coûteuse, sensible ou privilégiée reste soumise à ses autorisations, preuves et garde-fous.',
     'Un développement n’est déclaré terminé qu’après preuves correspondant réellement au niveau annoncé.'
