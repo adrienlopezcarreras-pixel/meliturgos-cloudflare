@@ -47,6 +47,9 @@ jobs:
           echo "KERNEL_REF=$KERNEL" >> "$GITHUB_ENV"
           echo "Kernel: $KERNEL"
           kaggle kernels status "$KERNEL" | tee kaggle-status.txt
+          echo "=== Kaggle live log ==="
+          kaggle kernels logs "$KERNEL" 2>&1 | tee kaggle-live.log || true
+          tail -n 240 kaggle-live.log || true
 
           STATUS_TEXT="$(cat kaggle-status.txt)"
           mkdir -p kaggle-debug-output
@@ -70,6 +73,7 @@ jobs:
           name: kaggle-lora-status-${{ github.run_id }}
           path: |
             kaggle-status.txt
+            kaggle-live.log
             kaggle-debug-output/**
           if-no-files-found: warn
           retention-days: 7
