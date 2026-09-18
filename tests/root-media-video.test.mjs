@@ -2,14 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { handleFileUpload } from '../src/api/file-upload.js';
+import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 
 test('normal UI offers one generic multi-file drop surface without pretending local video analysis', async()=>{
   const source=await readFile(new URL('../src/pages/mvp-interface-v3.js',import.meta.url),'utf8');
   assert.match(source,/id="fileInput" type="file" multiple/);
   assert.match(source,/Glisse un fichier ici/);
-  assert.match(source,/\/api\/files\/upload/);
+  assert.match(NORMAL_RUNTIME_SOURCE,/\/api\/files\/upload/);
   assert.doesNotMatch(source,/<video[^>]*controls/);
-  assert.doesNotMatch(source,/URL\.createObjectURL/);
+  assert.doesNotMatch(NORMAL_RUNTIME_SOURCE,/URL\.createObjectURL/);
 });
 
 test('binary upload stays private and uses R2 only when the binding exists', async()=>{
