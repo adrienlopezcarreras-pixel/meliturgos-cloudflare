@@ -110,7 +110,13 @@ def find_base_model() -> Path:
     raise SystemExit("KAGGLE_MISTRAL_BASE_MODEL_NOT_FOUND")
 
 def ensure_dependencies():
-    required = ("torch", "transformers", "peft", "accelerate", "bitsandbytes", "datasets", "safetensors")
+    # Never choose wheels by filename ordering: Kaggle's Python ABI can differ
+    # from the ABI used by the newest wheel mirrored in hf-libraries. Keep the
+    # run offline and delegate wheel-tag compatibility selection to pip.
+    required = (
+        "torch", "transformers", "tokenizers", "peft", "accelerate",
+        "bitsandbytes", "datasets", "safetensors"
+    )
     missing = []
     for name in required:
         try:
@@ -124,13 +130,14 @@ def ensure_dependencies():
     wheels_root = find_input_dir("hf-libraries")
     aliases = {
         "transformers": "transformers-",
+        "tokenizers": "tokenizers-",
         "peft": "peft-",
         "accelerate": "accelerate-",
         "bitsandbytes": "bitsandbytes-",
         "datasets": "datasets-",
         "safetensors": "safetensors-",
     }
-    wheels = []
+
     for name in missing:
         if name == "torch":
             raise SystemExit("KAGGLE_TORCH_MISSING")
@@ -138,8 +145,67 @@ def ensure_dependencies():
         found = sorted(p for p in wheels_root.rglob("*.whl") if p.name.lower().startswith(prefix))
         if not found:
             raise SystemExit("KAGGLE_OFFLINE_WHEEL_MISSING:" + name)
-        wheels.append(found[-1])
-    run([sys.executable, "-m", "pip", "install", "--no-index", "--no-deps", *wheels])
+
+        package_dirs = sorted({p.parent for p in found}, key=lambda p: str(p))
+        installed = False
+        failures = []
+        for package_dir in package_dirs:
+            cmd = [
+                sys.executable, "-m", "pip", "install",
+                "--no-index", "--no-deps",
+                "--find-links", str(package_dir),
+                name,
+            ]
+            print("+", " ".join(map(str, cmd)), flush=True)
+            proc = subprocess.run(cmd, text=True, capture_output=True)
+            if proc.stdout:
+                print(proc.stdout, flush=True)
+            if proc.stderr:
+                print(proc.stderr, file=sys.stderr, flush=True)
+            if proc.returncode == 0:
+                installed = True
+                break
+            failures.append(f"{package_dir}:{proc.returncode}")
+        if not installed:
+            raise SystemExit(
+                "KAGGLE_OFFLINE_COMPATIBLE_WHEEL_MISSING:"
+                + name + ":" + ",".join(failures)
+            )
+
+    # datasets can require pyarrow_hotfix in some offline library snapshots.
+    try:
+        __import__("datasets")
+    except Exception:
+        hotfix = sorted(wheels_root.rglob("pyarrow_hotfix-*.whl"))
+        if hotfix:
+            for package_dir in sorted({p.parent for p in hotfix}, key=lambda p: str(p)):
+                proc = subprocess.run([
+                    sys.executable, "-m", "pip", "install",
+                    "--no-index", "--no-deps",
+                    "--find-links", str(package_dir),
+                    "pyarrow_hotfix",
+                ], text=True, capture_output=True)
+                if proc.stdout:
+                    print(proc.stdout, flush=True)
+                if proc.stderr:
+                    print(proc.stderr, file=sys.stderr, flush=True)
+                if proc.returncode == 0:
+                    break
+
+    import_failures = {}
+    for name in required:
+        try:
+            module = __import__(name)
+            if name != "torch":
+                print(f"dependency {name}={getattr(module, '__version__', 'unknown')}", flush=True)
+        except Exception as exc:
+            import_failures[name] = f"{type(exc).__name__}:{exc}"
+    if import_failures:
+        print(json.dumps({"dependency_import_failures": import_failures}, indent=2), flush=True)
+        raise SystemExit(
+            "KAGGLE_OFFLINE_DEPENDENCY_IMPORT_FAILED:"
+            + ",".join(sorted(import_failures))
+        )
 
 def extract_parent(payload: Path) -> str | None:
     archive = payload / "parent-bundle.tar.gz"
