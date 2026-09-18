@@ -5,7 +5,7 @@ The GPU kernel receives only the already-prepared shard, so Kaggle itself does
 not need network access. Public source conversations are streamed from their
 canonical Hugging Face datasets here, normalized without rewriting content or
 turn order, and operational high-risk rows are excluded from the training
-shard. Exactly 50 canonical MEL lessons are appended to every shard.
+shard. All validated canonical MEL lessons are appended to every shard, with a minimum floor of 50.
 """
 from __future__ import annotations
 
@@ -112,10 +112,12 @@ def main() -> int:
                 "source_payload_sha256": exact_digest(row),
                 "verbatim": True,
             })
-    if len(mel_rows) != 50:
-        raise SystemExit(f"MEL_CANONICAL_LESSON_COUNT_INVALID:{len(mel_rows)}")
+    if len(mel_rows) < 50:
+        raise SystemExit(f"MEL_CANONICAL_LESSON_COUNT_BELOW_MINIMUM:{len(mel_rows)}:50")
+    if args.shard_size < len(mel_rows):
+        raise SystemExit(f"LORA_SHARD_TOO_SMALL_FOR_CANONICAL_LESSONS:{args.shard_size}:{len(mel_rows)}")
 
-    public_needed = args.shard_size - 50
+    public_needed = args.shard_size - len(mel_rows)
     ultra_target = (public_needed + 1) // 2
     opus_target = public_needed - ultra_target
 
@@ -163,7 +165,7 @@ def main() -> int:
         "created_at": datetime.now(timezone.utc).isoformat(),
         "cycle": args.cycle,
         "shard_size": args.shard_size,
-        "canonical_mel_lessons": 50,
+        "canonical_mel_lessons": len(mel_rows),
         "public_examples": public_needed,
         "sources": {
             "ultrachat_train": {"repo": ULTRA_REPO, "start": ultra_start, **ultra_stats},
