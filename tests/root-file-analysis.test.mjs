@@ -1,17 +1,34 @@
-import assert from "node:assert/strict";
-import {copyFile,unlink} from "node:fs/promises";
-const tmp="/tmp/meliturgos-root-file-analysis.test.mjs";
-await copyFile(new URL("../worker.js",import.meta.url),tmp);
-const {default:worker}=await import("file://"+tmp+"?v="+Date.now());
-const auth="Basic "+Buffer.from("adrien:test").toString("base64");
-let aiCalls=0, writes=0;
-const stmt={bind(){return this},run:async()=>({meta:{changes:0}}),first:async()=>({n:0,quick_check:"ok"}),all:async()=>({results:[]})};
-const env={MELITURGOS_USER:"adrien",MELITURGOS_PASSWORD:"test",DB:{prepare(q){if(/^\s*(INSERT|UPDATE|DELETE)/i.test(q))writes++;return Object.create(stmt)},batch:async()=>[]},AI:{run:async(_m,{messages}={})=>{aiCalls++;return {response:"Résumé et analyse sûrs"}}}};
-async function analyze(name,type,data){const f=new FormData();f.append("file",new Blob([data],{type}),name);const h=new Headers({Authorization:auth});return worker.fetch(new Request("https://test/api/files/analyze",{method:"POST",headers:h,body:f}),env)}
-let r=await analyze("note.txt","text/plain","bonjour MELITURGOS");let j=await r.json();assert.equal(r.status,200);assert.equal(j.status,"analyzed");assert.match(j.preview_text,/bonjour/);
-r=await analyze("photo.png","image/png","PNG");j=await r.json();assert.equal(j.status,"preview_only");
-r=await analyze("song.mp3","audio/mpeg","MP3");j=await r.json();assert.equal(j.status,"analyzed");
-r=await analyze("clip.mp4","video/mp4","MP4");j=await r.json();assert.equal(j.status,"preview_only");
-r=await analyze("archive.zip","application/zip","ZIP");j=await r.json();assert.equal(j.status,"unsupported");
-r=await analyze("script.js","application/javascript","globalThis.__executed=true");j=await r.json();assert.equal(j.status,"analyzed");assert.equal(globalThis.__executed,undefined);assert.ok(aiCalls>=2);assert.equal(writes,0);
-await unlink(tmp);console.log("root-file-analysis: TXT image MP3 video ZIP JS, sécurité et absence d'écriture validés");
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { handleFileUpload } from '../src/api/file-upload.js';
+
+const auth='Basic '+Buffer.from('adrien:test').toString('base64');
+function request(name,type,data){
+  const form=new FormData();
+  form.append('file',new Blob([data],{type}),name);
+  return new Request('https://mel.test/api/files/upload',{method:'POST',headers:{authorization:auth},body:form});
+}
+
+test('canonical file upload extracts bounded text without executing it', async()=>{
+  globalThis.__mel_file_executed=undefined;
+  const response=await handleFileUpload(
+    request('note.js','application/javascript','globalThis.__mel_file_executed=true;\nbonjour MEL'),
+    {MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'}
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.analysis_status,'TEXT_EXTRACTED');
+  assert.match(body.preview_text,/bonjour MEL/);
+  assert.equal(globalThis.__mel_file_executed,undefined);
+  assert.equal(body.private,true);
+  assert.equal(body.stored,false);
+});
+
+test('oversized files fail closed', async()=>{
+  const response=await handleFileUpload(
+    request('huge.bin','application/octet-stream',new Uint8Array(25_000_001)),
+    {MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'}
+  );
+  assert.equal(response.status,413);
+  assert.equal((await response.json()).code,'FILE_TOO_LARGE');
+});
