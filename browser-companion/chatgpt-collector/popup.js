@@ -9,6 +9,7 @@ function render(s){$('status').textContent=[
 `Doublons ignorés : ${s.duplicates||0}`,
 `Échecs : ${Object.keys(s.failed||{}).length}`,
 `Inaccessibles : ${Object.keys(s.unavailable||{}).length}`,
+`À retenter plus tard : ${Object.keys(s.deferred||{}).length}`,
 `Mode : PC lent / file progressive`,
 s.currentUrl?`En cours : ${s.currentUrl}`:'',
 s.lastError?`Dernière erreur : ${s.lastError}`:''
