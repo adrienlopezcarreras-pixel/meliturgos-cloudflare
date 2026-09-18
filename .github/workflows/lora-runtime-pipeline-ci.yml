@@ -103,5 +103,5 @@ jobs:
       - name: Full regression suite
         shell: bash
         run: |
-          git checkout -B lora-ci-head "$GITHUB_SHA"
+          git checkout -B candidate/lora-ci-head "$GITHUB_SHA"
           npm test
