@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Validation probe retrigger marker: one-step LoRA proof
 from __future__ import annotations
 
 import hashlib
