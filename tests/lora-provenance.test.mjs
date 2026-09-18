@@ -33,7 +33,22 @@ function makeArtifact(plan, overrides = {}) {
   };
 }
 
+function makeApproval(plan, artifact, overrides = {}) {
+  return {
+    approved: true,
+    approval_id: 'approval-provenance-test',
+    artifact_id: artifact.id,
+    artifact_digest: artifact.digest,
+    finetune_id: artifact.finetune_id,
+    dataset_digest: plan.dataset_digest,
+    training_manifest_digest: plan.training_manifest_digest,
+    approved_at: '2026-09-18T08:00:00.000Z',
+    ...overrides,
+  };
+}
+
 function makeEvidence(plan, artifact, overrides = {}) {
+  const approval = makeApproval(plan, artifact);
   const baseline = { overall: 0.5, suite_digest: SUITE_DIGEST };
   const candidate = {
     overall: 0.6,
@@ -41,9 +56,10 @@ function makeEvidence(plan, artifact, overrides = {}) {
     artifact_digest: artifact.digest,
     training_manifest_digest: plan.training_manifest_digest,
     dataset_digest: plan.dataset_digest,
+    approval_id: approval.approval_id,
     ...overrides,
   };
-  return { plan, artifact, baseline, candidate };
+  return { plan, artifact, approval, baseline, candidate };
 }
 
 function hasCode(code) {
@@ -78,7 +94,39 @@ test('LoRA activation accepts only exact dataset, manifest, artifact and benchma
   assert.equal(result.dataset_digest, plan.dataset_digest);
   assert.equal(result.training_manifest_digest, plan.training_manifest_digest);
   assert.equal(result.benchmark_artifact_digest, artifact.digest);
+  assert.equal(result.benchmark_approval_id, 'approval-provenance-test');
   assert.notEqual(plan.training_manifest_digest, plan.dataset_digest);
+});
+
+test('LoRA activation fails closed without explicit artifact approval', () => {
+  const plan = makePlan();
+  const artifact = makeArtifact(plan);
+  const evidence = makeEvidence(plan, artifact);
+  delete evidence.approval;
+  assert.throws(
+    () => assertAdapterActivationEvidence(evidence),
+    hasCode('LORA_ARTIFACT_APPROVAL_REQUIRED'),
+  );
+});
+
+test('LoRA activation rejects approval for a regenerated artifact', () => {
+  const plan = makePlan();
+  const artifact = makeArtifact(plan);
+  const evidence = makeEvidence(plan, artifact);
+  evidence.approval.artifact_digest = digest('b');
+  assert.throws(
+    () => assertAdapterActivationEvidence(evidence),
+    hasCode('LORA_ARTIFACT_APPROVAL_ARTIFACT_MISMATCH'),
+  );
+});
+
+test('LoRA activation rejects a benchmark from another approval', () => {
+  const plan = makePlan();
+  const artifact = makeArtifact(plan);
+  assert.throws(
+    () => assertAdapterActivationEvidence(makeEvidence(plan, artifact, { approval_id: 'approval-stale' })),
+    hasCode('LORA_BENCHMARK_APPROVAL_MISMATCH'),
+  );
 });
 
 test('LoRA activation rejects a benchmark produced for another artifact', () => {
@@ -152,11 +200,13 @@ test('learning benchmark emits exact LoRA provenance supplied for the evaluated 
       artifact_digest: artifact.digest,
       training_manifest_digest: plan.training_manifest_digest,
       dataset_digest: plan.dataset_digest,
+      approval_id: 'approval-provenance-test',
     },
   });
   assert.equal(result.overall, 1);
   assert.equal(result.artifact_digest, artifact.digest);
   assert.equal(result.training_manifest_digest, plan.training_manifest_digest);
   assert.equal(result.dataset_digest, plan.dataset_digest);
+  assert.equal(result.approval_id, 'approval-provenance-test');
   assert.equal(result.suite_digest, SUITE_DIGEST);
 });
