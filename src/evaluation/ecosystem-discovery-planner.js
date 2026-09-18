@@ -237,11 +237,17 @@ export function markEcosystemDiscoveryHandoff(ledger = {}, fingerprint, handoff 
     items: (Array.isArray(ledger?.items) ? ledger.items : []).map(item => {
       if (item?.fingerprint !== target) return item;
       const before = item.handoff && typeof item.handoff === 'object' ? item.handoff : {};
+      const status = String(handoff?.status || before?.status || '').toUpperCase();
+      const resolved = ['WAITING_TEACHER', 'TEACHER_APPROVED', 'READY_FOR_REVIEW', 'COMPLETED', 'REUSE_EXISTING', 'REVIEW_EXISTING'].includes(status);
+      const hasCode = Object.prototype.hasOwnProperty.call(handoff || {}, 'code');
       return {
         ...item,
         handoff: {
           ...before,
           ...handoff,
+          code: hasCode ? handoff.code : (resolved ? null : (before.code || null)),
+          retryable: resolved ? false : (handoff?.retryable ?? before?.retryable ?? false),
+          terminal_reason: resolved ? null : (handoff?.terminal_reason ?? before?.terminal_reason ?? null),
           attempts: Math.max(0, Number(before.attempts) || 0) + 1,
           updated_at: now,
         },
@@ -295,6 +301,7 @@ function jobHandoffSnapshot(job, before = {}, now = Date.now()) {
     completion_verified: completion?.status === 'VERIFIED',
     closed,
     retryable,
+    code: status === 'FAILED' ? String(job?.error || before?.code || '').slice(0, 180) || null : null,
     terminal_reason: teacherReject ? 'TEACHER_REJECT' : (status === 'COMPLETED' ? 'VERIFIED_COMPLETION' : null),
     job_updated_at: Number(job?.updated_at || 0) || null,
     reconciled_at: now,
@@ -323,6 +330,7 @@ export function reconcileEcosystemDiscoveryHandoffs(ledger = {}, jobs = [], now 
       completion_verified: item.handoff?.completion_verified === true,
       closed: item.handoff?.closed === true,
       retryable: item.handoff?.retryable === true,
+      code: item.handoff?.code || null,
       terminal_reason: item.handoff?.terminal_reason || null,
       job_updated_at: Number(item.handoff?.job_updated_at || 0) || null,
     });
@@ -335,6 +343,7 @@ export function reconcileEcosystemDiscoveryHandoffs(ledger = {}, jobs = [], now 
       completion_verified: next.completion_verified,
       closed: next.closed,
       retryable: next.retryable,
+      code: next.code || null,
       terminal_reason: next.terminal_reason,
       job_updated_at: next.job_updated_at,
     });

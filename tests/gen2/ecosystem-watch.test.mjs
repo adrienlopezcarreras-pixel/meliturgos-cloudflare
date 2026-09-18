@@ -317,3 +317,79 @@ test('ecosystem catalog provides direct HTTPS official sources for every target'
     && target.metadata.sources.every(url => /^https:\/\//.test(url))
   ));
 });
+
+
+test('successful handoff clears stale failure diagnostics instead of exposing contradictory state', () => {
+  const ledger = {
+    items: [{
+      fingerprint: 'capability:image.generate',
+      capability_hint: 'image.generate',
+      action: 'UNBLOCK_EXISTING',
+      evidence_status: 'SOURCED_OBSERVATION',
+      sources: [{ title: 'Official', url: 'https://example.com/image' }],
+      handoff: {
+        status: 'FAILED',
+        job_id: 'ecosystem-watch-1',
+        code: 'CODE_HEAD_READ_FAILED',
+        retryable: true,
+        terminal_reason: 'OLD_FAILURE',
+        attempts: 2,
+      },
+    }],
+  };
+
+  const marked = markEcosystemDiscoveryHandoff(ledger, 'capability:image.generate', {
+    status: 'WAITING_TEACHER',
+    job_id: 'ecosystem-watch-1',
+    teacher_request_id: 'req-live',
+    created: false,
+    closed: false,
+  }, 500);
+
+  const handoff = marked.items[0].handoff;
+  assert.equal(handoff.status, 'WAITING_TEACHER');
+  assert.equal(handoff.code, null);
+  assert.equal(handoff.retryable, false);
+  assert.equal(handoff.terminal_reason, null);
+  assert.equal(handoff.teacher_request_id, 'req-live');
+  assert.equal(handoff.attempts, 3);
+});
+
+test('job reconciliation clears stale error code after a retry reaches Teacher', () => {
+  const ledger = {
+    items: [{
+      fingerprint: 'capability:image.generate',
+      handoff: {
+        status: 'FAILED',
+        job_id: 'ecosystem-watch-1',
+        code: 'CODE_HEAD_READ_FAILED',
+        retryable: true,
+        attempts: 3,
+      },
+    }],
+  };
+  const reconciled = reconcileEcosystemDiscoveryHandoffs(ledger, [{
+    id: 'ecosystem-watch-1',
+    status: 'WAITING_TEACHER',
+    error: null,
+    updated_at: 800,
+    result_json: {
+      teacher_bridge: {
+        status: 'WAITING_TEACHER',
+        request: {
+          request_id: 'req-live',
+          provenance: { candidate_sha: 'c'.repeat(40) },
+        },
+      },
+    },
+  }], 900);
+
+  assert.equal(reconciled.changed, true);
+  const handoff = reconciled.ledger.items[0].handoff;
+  assert.equal(handoff.status, 'WAITING_TEACHER');
+  assert.equal(handoff.code, null);
+  assert.equal(handoff.retryable, false);
+  assert.equal(handoff.teacher_request_id, 'req-live');
+  assert.equal(handoff.candidate_sha, 'c'.repeat(40));
+  assert.equal(handoff.attempts, 3);
+});
