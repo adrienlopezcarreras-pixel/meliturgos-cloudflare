@@ -34,8 +34,18 @@ export const FULL_MODE_CONTROL_PATCH = `<style id="mel-full-control-style">
     html+='<div class="mel-full-section-title">Travaux en cours</div>';
     if(jobs.length){for(const job of jobs.slice(0,10)){html+='<div class="mel-full-job"><b>'+esc(job.roadmap_id||job.id||'travail')+' · '+esc(job.status||'')+'</b><small>'+esc(explainStatus(job.status))+'</small>'+(job.teacher?.status?'<small>Teacher : '+esc(job.teacher.status)+(job.teacher?.verdict?' · '+esc(job.teacher.verdict):'')+'</small>':'')+(job.completion?.status?'<small>Completion : '+esc(job.completion.status)+'</small>':'')+'</div>'}}else html+='<div class="mel-full-empty">Aucun travail autonome actif.</div>';
     html+='<div class="mel-full-section-title">Veille IA, plugins & arts</div>';
-    const ws=watch?.state||{},targets=watch?.catalog?.targets||[];
-    html+='<div class="mel-full-activity-status"><b>Veille permanente : '+(ws.last_run_at?'ACTIVE':'PRÊTE')+'</b><br>Cycle : '+esc(Math.round(Number(watch?.catalog?.interval_ms||0)/3600000)||6)+' h · passages '+esc(ws.run_count||0)+(ws.last_run_at?'<br>Dernier passage : '+esc(stamp(ws.last_run_at)):'')+'<br>Cibles : '+esc(targets.length)+' · IA / plugins / arts visuels / audio-musique / vidéo / culture</div>';
+    const ws=watch?.state||{},targets=watch?.catalog?.targets||[],discovery=watch?.discoveries||{},discoveryItems=Array.isArray(discovery?.items)?discovery.items:[];
+    const sourced=discoveryItems.filter(item=>item?.evidence_status==='SOURCED_OBSERVATION').length;
+    const toUnblock=discoveryItems.filter(item=>item?.action==='UNBLOCK_EXISTING').length;
+    const proposals=discoveryItems.filter(item=>item?.action==='PROPOSE_EXTENSION').length;
+    const handoffs=discoveryItems.filter(item=>item?.handoff).sort((a,b)=>Number(b?.handoff?.updated_at||0)-Number(a?.handoff?.updated_at||0));
+    html+='<div class="mel-full-activity-status"><b>Veille permanente : '+(ws.last_run_at?'ACTIVE':'PRÊTE')+'</b><br>Cycle : '+esc(Math.round(Number(watch?.catalog?.interval_ms||0)/3600000)||6)+' h · passages '+esc(ws.run_count||0)+(ws.last_run_at?'<br>Dernier passage : '+esc(stamp(ws.last_run_at)):'')+'<br>Cibles : '+esc(targets.length)+' · IA / plugins / arts visuels / audio-musique / vidéo / culture<br>Registre : '+esc(sourced)+' découverte(s) sourcée(s) · '+esc(toUnblock)+' à débloquer · '+esc(proposals)+' extension(s) à évaluer</div>';
+    if(handoffs.length){
+      const latest=handoffs[0],h=latest.handoff||{},label=latest.action==='UNBLOCK_EXISTING'?'Déblocage existant':'Extension à évaluer';
+      html+='<div class="mel-full-job"><b>Handoff veille · '+esc(label)+'</b><small>'+esc(latest.capability_hint||latest.fingerprint||'découverte')+' · '+esc(h.status||'EN_ATTENTE')+'</small>'+(latest.best_match?.id?'<small>Capacité : '+esc(latest.best_match.id)+'</small>':'')+(h.job_id?'<small>Job : '+esc(h.job_id)+'</small>':'')+(h.teacher_request_id?'<small>Teacher : '+esc(h.teacher_request_id)+'</small>':'')+'<div>'+esc(h.status==='WAITING_TEACHER'?'Council terminé ; Teacher en attente avant toute implémentation candidate.':h.status==='FAILED'?('Handoff en échec : '+(h.code||'diagnostic indisponible')):'Découverte suivie par le pipeline supervisé, sans activation production automatique.')+'</div></div>';
+    }else if(discoveryItems.length){
+      html+='<div class="mel-full-empty">Découvertes enregistrées ; aucun handoff Council/Teacher actif pour le moment.</div>';
+    }
     const observed=Object.entries(ws.last_observations||{}).slice(0,8);
     if(observed.length){for(const [id,ev] of observed){html+='<div class="mel-full-event" data-category="learning"><b>'+esc(targets.find(t=>t.id===id)?.metadata?.label||id)+'</b><small>'+esc(ev?.status||'OBSERVÉ')+' · '+esc(ev?.citations_count||0)+' source(s)</small><div>'+esc(ev?.summary||'Observation enregistrée.')+'</div></div>'}}
     html+='<div class="mel-full-section-title">Journal réel</div>';

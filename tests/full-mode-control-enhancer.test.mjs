@@ -36,3 +36,18 @@ test('MVP enhancer delegates full-mode HTML to the full-mode enhancer', async ()
   assert.match(html, /melFullMax/);
   assert.doesNotMatch(html, /mel-mvp-behavior-runtime/);
 });
+
+
+test('full mode activity panel exposes the discovery registry and Council/Teacher handoff truthfully', async () => {
+  const source = new Response(`<!doctype html><html><body>
+    <header class="top"><h1>Mode complet</h1></header>
+    <section data-panel="chat"><div id="chatlog"></div><div class="composer"><input id="chatInput"><button id="chatSend">Envoyer</button></div></section>
+  </body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+  const html = await (await enhanceFullModeControls(source)).text();
+  assert.match(html, /Registre :/);
+  assert.match(html, /UNBLOCK_EXISTING/);
+  assert.match(html, /WAITING_TEACHER/);
+  assert.match(html, /Handoff veille/);
+  assert.match(html, /Council terminé/);
+  assert.match(html, /aucune activation production automatique/i);
+});
