@@ -31,15 +31,15 @@ jobs:
           kaggle kernels output "$KERNEL_REF" -p artifacts/before --force > artifacts/output-before.txt 2>&1 || true
           find artifacts/before -maxdepth 4 -type f -printf '%p %s bytes\n' | tee artifacts/files-before.txt || true
 
-      - name: Stop active Kaggle session without starting a new run
+      - name: Stop active Kaggle session with one-second replacement
         shell: bash
         run: |
           set -euo pipefail
           rm -rf kernel-stop
           mkdir -p kernel-stop
           kaggle kernels pull "$KERNEL_REF" -p kernel-stop -m
-          kaggle kernels push -p kernel-stop --no-run
-          echo "NO_RUN_VERSION_PUSHED" | tee artifacts/stop-result.txt
+          kaggle kernels push -p kernel-stop -t 1
+          echo "ONE_SECOND_STOP_VERSION_PUSHED" | tee artifacts/stop-result.txt
 
       - name: Inspect status after stop request
         if: always()
