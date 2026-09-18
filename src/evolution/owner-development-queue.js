@@ -1,6 +1,6 @@
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { prepareAutonomyTeacherRequest } from './autonomy-runtime.js';
-import { proposeModuleDraft, enterModuleLabForGap } from '../capabilities/module-proposal-capability.js';
+import { proposeModuleDraft, proposePluginDraft, enterModuleLabForGap } from '../capabilities/module-proposal-capability.js';
 import { createModuleLab } from '../modules/module-lab.js';
 
 function boundedGoal(value) {
@@ -26,15 +26,58 @@ function snapshotCapabilities(capabilities) {
   })).filter((row) => row.id);
 }
 
-function publicGapDecision(proposal) {
+const SUPERVISED_REQUESTERS = new Set(['owner-chat', 'mel-autonomy']);
+const EXTENSION_KINDS = new Set(['module', 'plugin']);
+
+function proposalForKind(kind, options) {
+  return kind === 'plugin' ? proposePluginDraft(options) : proposeModuleDraft(options);
+}
+
+function expectedProposalDecision(kind) {
+  return kind === 'plugin' ? 'PROPOSE_PLUGIN' : 'PROPOSE_MODULE';
+}
+
+function boundedEvidence(value) {
+  if (!value || typeof value !== 'object') return null;
+  const sources = Array.isArray(value.sources)
+    ? value.sources.slice(0, 8).map(source => ({
+        title: String(source?.title || '').slice(0, 240),
+        url: String(source?.url || '').slice(0, 500),
+      }))
+    : [];
+  return {
+    fingerprint: cleanKey(value.fingerprint, 180) || null,
+    capability_hint: String(value.capability_hint || '').slice(0, 240) || null,
+    citations_count: Math.max(0, Number(value.citations_count) || 0),
+    observed_on: Array.isArray(value.observed_on) ? value.observed_on.slice(0, 12).map(item => cleanKey(item, 120)).filter(Boolean) : [],
+    sources,
+    source_watch_sha: String(value.source_watch_sha || '').slice(0, 80) || null,
+  };
+}
+
+function safeInspectionPaths(paths) {
+  return (Array.isArray(paths) ? paths : [])
+    .map(path => String(path || '').trim())
+    .filter(path => path && path.length <= 240 && !path.startsWith('/') && !path.split('/').includes('..') && /^[a-zA-Z0-9_./-]+$/.test(path))
+    .slice(0, 12);
+}
+
+function safeInspectionQueries(queries) {
+  return (Array.isArray(queries) ? queries : [])
+    .map(query => String(query || '').trim().slice(0, 240))
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function publicGapDecision(proposal, { requestedBy = 'owner-chat', source = 'owner-chat', priority = 'P0', extensionKind = 'module' } = {}) {
   return {
     ok: true,
     created: false,
     job_id: null,
     status: proposal.decision,
-    requested_by: 'owner-chat',
-    source: 'owner-chat',
-    priority: 'P0',
+    requested_by: requestedBy,
+    source,
+    priority,
     teacher: null,
     candidate_only: true,
     zero_added_cost: true,
@@ -43,11 +86,17 @@ function publicGapDecision(proposal) {
       confidence: proposal.gap?.confidence ?? null,
       matched_capability: proposal.gap?.best_match?.id || null,
     },
-    module_proposal: {
+    extension_proposal: {
+      kind: extensionKind,
       decision: proposal.decision,
       proposal_only: true,
       activation_allowed: false,
     },
+    module_proposal: extensionKind === 'module' ? {
+      decision: proposal.decision,
+      proposal_only: true,
+      activation_allowed: false,
+    } : null,
   };
 }
 
@@ -128,7 +177,7 @@ function publicJob(job, { created = false, teacher = null } = {}) {
  * the non-mutating Module Lab `need` stage. It never generates or deploys
  * production code here.
  */
-export async function enqueueOwnerDevelopmentRequest({
+export async function enqueueSupervisedDevelopmentRequest({
   env,
   goal,
   conversationId = '',
@@ -136,15 +185,44 @@ export async function enqueueOwnerDevelopmentRequest({
   repository = null,
   fetchImpl = fetch,
   capabilities,
+  requestedBy = 'owner-chat',
+  source = 'owner-chat',
+  priority = 'P0',
+  extensionKind = 'module',
+  allowBlockedExisting = false,
+  targetCapabilityId = '',
+  evidence = null,
+  roadmapId = '',
+  inspectionPaths = [],
+  inspectionQueries = [],
 } = {}) {
   const objective = boundedGoal(goal);
-  const capabilityInventory = snapshotCapabilities(capabilities);
-  const moduleProposal = capabilityInventory
-    ? proposeModuleDraft({ goal: objective, capabilities: capabilityInventory })
-    : null;
+  const requester = String(requestedBy || '').trim();
+  const origin = cleanKey(source, 100) || requester;
+  const kind = String(extensionKind || 'module').trim().toLowerCase();
+  if (!SUPERVISED_REQUESTERS.has(requester)) {
+    throw Object.assign(new Error('SUPERVISED_REQUESTER_INVALID'), { code: 'SUPERVISED_REQUESTER_INVALID', status: 400 });
+  }
+  if (!EXTENSION_KINDS.has(kind)) {
+    throw Object.assign(new Error('EXTENSION_KIND_INVALID'), { code: 'EXTENSION_KIND_INVALID', status: 400 });
+  }
 
-  if (moduleProposal && moduleProposal.decision !== 'PROPOSE_MODULE') {
-    return publicGapDecision(moduleProposal);
+  const capabilityInventory = snapshotCapabilities(capabilities);
+  const extensionProposal = capabilityInventory
+    ? proposalForKind(kind, { goal: objective, capabilities: capabilityInventory })
+    : null;
+  const expectedDecision = expectedProposalDecision(kind);
+  const unblocksExisting = extensionProposal
+    && allowBlockedExisting === true
+    && extensionProposal.gap?.classification === 'MATCHED_BUT_BLOCKED';
+
+  if (extensionProposal && extensionProposal.decision !== expectedDecision && !unblocksExisting) {
+    return publicGapDecision(extensionProposal, {
+      requestedBy: requester,
+      source: origin,
+      priority,
+      extensionKind: kind,
+    });
   }
 
   const repo = repository || new D1DevJobRepository(env?.DB);
@@ -152,32 +230,51 @@ export async function enqueueOwnerDevelopmentRequest({
     throw Object.assign(new Error('DB_BINDING_MISSING'), { code: 'DB_BINDING_MISSING', status: 503 });
   }
 
-  const idempotencySeed = `${cleanKey(conversationId, 200)}\n${cleanKey(requestKey, 200)}\n${objective.toLowerCase()}`;
+  const ownerCompat = requester === 'owner-chat' && origin === 'owner-chat';
+  const idempotencySeed = ownerCompat
+    ? `${cleanKey(conversationId, 200)}\n${cleanKey(requestKey, 200)}\n${objective.toLowerCase()}`
+    : `${origin}\n${cleanKey(requestKey, 200)}\n${objective.toLowerCase()}`;
   const digest = await sha256(idempotencySeed);
-  const id = `owner-chat-${digest.slice(0, 32)}`;
+  const idPrefix = ownerCompat ? 'owner-chat' : (cleanKey(origin, 48) || 'mel-autonomy');
+  const id = `${idPrefix}-${digest.slice(0, 32)}`;
   const idempotencyContext = {
-    source: 'owner-chat',
-    priority: 'P0',
+    source: origin,
+    priority: String(priority || 'P1').slice(0, 8),
     conversation_id: cleanKey(conversationId, 200) || null,
     request_key: cleanKey(requestKey, 200) || null,
     candidate_branch_only: true,
     zero_added_cost: true,
     rule: 'AI_COUNCIL_BEFORE_CODE',
+    extension_kind: kind,
+    roadmap_id: cleanKey(roadmapId, 120) || null,
+    target_capability_id: String(targetCapabilityId || '').slice(0, 160) || extensionProposal?.gap?.best_match?.id || null,
+    discovery_evidence: boundedEvidence(evidence),
+    inspection_paths: safeInspectionPaths(inspectionPaths),
+    inspection_queries: safeInspectionQueries(inspectionQueries),
   };
-  if (moduleProposal?.decision === 'PROPOSE_MODULE') {
+
+  if (extensionProposal) {
     idempotencyContext.capability_inventory = capabilityInventory;
-    idempotencyContext.module_proposal = {
-      decision: moduleProposal.decision,
+    idempotencyContext.extension_proposal = {
+      kind,
+      decision: unblocksExisting ? 'UNBLOCK_EXISTING' : extensionProposal.decision,
       proposal_only: true,
-      gap_classification: moduleProposal.gap?.classification || null,
-      manifest: moduleProposal.manifest,
-      acceptance_tests: moduleProposal.acceptance_tests,
+      gap_classification: extensionProposal.gap?.classification || null,
+      matched_capability: extensionProposal.gap?.best_match?.id || null,
+      manifest: extensionProposal.manifest,
+      acceptance_tests: extensionProposal.acceptance_tests || [],
       activation_allowed: false,
     };
+    if (kind === 'module' && extensionProposal.decision === 'PROPOSE_MODULE') {
+      idempotencyContext.module_proposal = idempotencyContext.extension_proposal;
+    }
+    if (kind === 'plugin') {
+      idempotencyContext.plugin_proposal = idempotencyContext.extension_proposal;
+    }
   }
   const input = {
     id,
-    requested_by: 'owner-chat',
+    requested_by: requester,
     goal: objective,
     optional_context: idempotencyContext,
   };
@@ -195,4 +292,14 @@ export async function enqueueOwnerDevelopmentRequest({
   job = await persistModuleLabNeed(repo, job);
 
   return publicJob(job, { created: createdResult.created, teacher });
+}
+
+export async function enqueueOwnerDevelopmentRequest(options = {}) {
+  return enqueueSupervisedDevelopmentRequest({
+    ...options,
+    requestedBy: 'owner-chat',
+    source: 'owner-chat',
+    priority: 'P0',
+    extensionKind: 'module',
+  });
 }

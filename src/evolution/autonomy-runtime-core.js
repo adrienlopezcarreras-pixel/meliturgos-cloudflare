@@ -128,6 +128,22 @@ function codeConfig(env = {}) {
   return { repository, branch: canonicalBranch };
 }
 
+function requestedInspectionPaths(job) {
+  return (Array.isArray(job?.optional_context?.inspection_paths) ? job.optional_context.inspection_paths : [])
+    .map(path => String(path || '').trim())
+    .filter(path => path && path.length <= 240 && !path.startsWith('/') && !path.split('/').includes('..') && /^[a-zA-Z0-9_./-]+$/.test(path))
+    .slice(0, 12);
+}
+
+function requestedInspectionQueries(job) {
+  const values = [
+    job?.optional_context?.roadmap_id,
+    job?.optional_context?.target_capability_id,
+    ...(Array.isArray(job?.optional_context?.inspection_queries) ? job.optional_context.inspection_queries : []),
+  ];
+  return [...new Set(values.map(value => String(value || '').trim().slice(0, 240)).filter(Boolean))].slice(0, 10);
+}
+
 async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
   const { repository, branch } = codeConfig(env);
   const reader = createGitHubCodeReader({ repository, branch, fetchImpl });
@@ -136,23 +152,23 @@ async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
     throw Object.assign(new Error('AUTONOMY_CANDIDATE_HEAD_INVALID'), { code: 'AUTONOMY_CANDIDATE_HEAD_INVALID' });
   }
   const evidence = [];
-  const roadmapId = String(job?.optional_context?.roadmap_id || '').trim();
-  if (roadmapId) {
+  for (const query of requestedInspectionQueries(job)) {
     try {
-      const search = await reader.search({ query: roadmapId });
+      const search = await reader.search({ query });
       evidence.push({
         kind: 'CODE_SEARCH',
-        query: roadmapId,
+        query,
         branch,
         repository,
         matches: search.matches.slice(0, 8),
       });
     } catch (error) {
-      evidence.push({ kind: 'CODE_SEARCH_FAILED', query: roadmapId, code: error?.code || error?.message || 'UNKNOWN' });
+      evidence.push({ kind: 'CODE_SEARCH_FAILED', query, code: error?.code || error?.message || 'UNKNOWN' });
     }
   }
 
-  for (const path of INSPECTION_FILES) {
+  const inspectionFiles = [...new Set([...INSPECTION_FILES, ...requestedInspectionPaths(job)])];
+  for (const path of inspectionFiles) {
     try {
       const file = await reader.read(path);
       evidence.push({

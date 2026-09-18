@@ -6,7 +6,8 @@ import {
   ECOSYSTEM_WATCH_TARGETS,
   getEcosystemWatchCatalog,
 } from './ecosystem-watch-catalog.js';
-import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger } from './ecosystem-discovery-planner.js';
+import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, markEcosystemDiscoveryHandoff } from './ecosystem-discovery-planner.js';
+import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
 
 const WATCH_ID = 'ecosystem-canonical';
 const DISCOVERY_ID = 'ecosystem-discoveries-canonical';
@@ -96,7 +97,12 @@ function watchEvaluator(env) {
 
 export async function runEcosystemCapabilityWatch(
   env,
-  { now = Date.now(), sourceSha = null } = {},
+  {
+    now = Date.now(),
+    sourceSha = null,
+    developmentEnqueue = enqueueSupervisedDevelopmentRequest,
+    fetchImpl = fetch,
+  } = {},
 ) {
   const store = await ensureStore(env, WATCH_ID);
   const result = await runPersistedCapabilityWatch({
@@ -126,11 +132,70 @@ export async function runEcosystemCapabilityWatch(
     discoveryLedger = mergeEcosystemDiscoveryLedger(discoveryLedger, discoveryPlan, now);
     await discoveryStore.save(discoveryLedger);
   }
+
+  let handoff = null;
+  if (result.status === 'RAN' && discoveryLedger?.items?.length) {
+    const candidate = selectEcosystemDiscoveryCandidate(discoveryLedger);
+    if (candidate) {
+      try {
+        const runtime = createGen2Runtime({ env });
+        const queued = await developmentEnqueue({
+          env,
+          goal: candidate.goal,
+          requestKey: candidate.fingerprint,
+          repository: null,
+          fetchImpl,
+          capabilities: runtime.bus.list(),
+          requestedBy: 'mel-autonomy',
+          source: 'ecosystem-watch',
+          priority: 'P1',
+          extensionKind: candidate.action === 'UNBLOCK_EXISTING' ? 'plugin' : candidate.suggested_kind,
+          allowBlockedExisting: candidate.action === 'UNBLOCK_EXISTING',
+          targetCapabilityId: candidate.best_match?.id || '',
+          evidence: {
+            fingerprint: candidate.fingerprint,
+            capability_hint: candidate.capability_hint,
+            citations_count: candidate.citations_count,
+            observed_on: candidate.observed_on,
+            sources: candidate.sources,
+            source_watch_sha: discoveryPlan?.source_watch_sha || sourceSha,
+          },
+          roadmapId: candidate.roadmap_id,
+          inspectionPaths: candidate.inspection_paths,
+          inspectionQueries: candidate.inspection_queries,
+        });
+        handoff = {
+          fingerprint: candidate.fingerprint,
+          action: candidate.action,
+          status: queued?.status || 'QUEUED',
+          job_id: queued?.job_id || null,
+          teacher_request_id: queued?.teacher?.request_id || null,
+          created: queued?.created === true,
+          closed: queued?.job_id == null && ['REUSE_EXISTING', 'REVIEW_EXISTING'].includes(String(queued?.status || '')),
+        };
+      } catch (error) {
+        handoff = {
+          fingerprint: candidate.fingerprint,
+          action: candidate.action,
+          status: 'FAILED',
+          job_id: null,
+          teacher_request_id: null,
+          created: false,
+          closed: false,
+          code: String(error?.code || error?.message || 'ECOSYSTEM_DISCOVERY_HANDOFF_FAILED').slice(0, 180),
+        };
+      }
+      discoveryLedger = markEcosystemDiscoveryHandoff(discoveryLedger, candidate.fingerprint, handoff, now);
+      await discoveryStore.save(discoveryLedger);
+    }
+  }
+
   return {
     ...result,
     discoveries: {
       plan: discoveryPlan,
       ledger: discoveryLedger,
+      handoff,
     },
   };
 }

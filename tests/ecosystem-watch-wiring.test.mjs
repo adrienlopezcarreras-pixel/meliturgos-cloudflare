@@ -6,9 +6,13 @@ test('ecosystem watch is wired once into schedule, API and full-mode activity', 
   const index = await readFile(new URL('../src/index.js', import.meta.url), 'utf8');
   const ui = await readFile(new URL('../src/ui-entry.js', import.meta.url), 'utf8');
   const panel = await readFile(new URL('../src/pages/full-mode-control-enhancer.js', import.meta.url), 'utf8');
+  const watchRuntime = await readFile(new URL('../src/evaluation/capability-watch-runtime.js', import.meta.url), 'utf8');
 
   assert.match(index, /runEcosystemCapabilityWatch/);
   assert.match(ui, /\/api\/mel\/capability-watch/);
   assert.match(panel, /Veille IA, plugins & arts/);
   assert.equal((index.match(/runEcosystemCapabilityWatch\(env\)/g) || []).length, 1);
+  assert.match(watchRuntime, /selectEcosystemDiscoveryCandidate/);
+  assert.match(watchRuntime, /enqueueSupervisedDevelopmentRequest/);
+  assert.match(watchRuntime, /source:\s*'ecosystem-watch'/);
 });

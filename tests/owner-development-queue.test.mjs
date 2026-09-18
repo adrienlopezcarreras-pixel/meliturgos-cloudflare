@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
-import { enqueueOwnerDevelopmentRequest } from '../src/evolution/owner-development-queue.js';
+import { enqueueOwnerDevelopmentRequest, enqueueSupervisedDevelopmentRequest } from '../src/evolution/owner-development-queue.js';
 
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
@@ -188,4 +188,64 @@ test('owner queue refuses a non-candidate Teacher branch fail-closed', async () 
     }),
     (error) => error?.code === 'AUTONOMY_BRANCH_NOT_CANDIDATE' || error?.code === 'AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE',
   );
+});
+
+
+test('ecosystem discovery can enqueue one blocked existing capability for Council/Teacher without creating a duplicate capability', async () => {
+  const f = fixture();
+  const input = {
+    env: f.env,
+    goal: 'Débloquer la capacité existante media.music.generate sans créer de doublon.',
+    requestKey: 'capability:music.generate',
+    repository: f.repository,
+    fetchImpl: f.fetchImpl,
+    capabilities: [{
+      id: 'media.music.generate',
+      name: 'Création musicale',
+      category: 'creative-media',
+      description: 'music.generate music generation composition soundtrack',
+      health: 'UNAVAILABLE',
+      enabled: true,
+    }],
+    requestedBy: 'mel-autonomy',
+    source: 'ecosystem-watch',
+    priority: 'P1',
+    extensionKind: 'plugin',
+    allowBlockedExisting: true,
+    targetCapabilityId: 'media.music.generate',
+    roadmapId: 'GEN2-42',
+    inspectionPaths: ['src/capabilities/creative-media-capabilities.js'],
+    inspectionQueries: ['media.music.generate', 'GEN2-42'],
+    evidence: {
+      fingerprint: 'capability:music.generate',
+      capability_hint: 'music.generate',
+      citations_count: 2,
+      observed_on: ['watch_audio_music'],
+      sources: [{ title: 'Official docs', url: 'https://example.com/music' }],
+      source_watch_sha: CANDIDATE_HEAD_SHA,
+    },
+  };
+
+  const first = await enqueueSupervisedDevelopmentRequest(input);
+  assert.equal(first.created, true);
+  assert.equal(first.requested_by, 'mel-autonomy');
+  assert.equal(first.source, 'ecosystem-watch');
+  assert.equal(first.priority, 'P1');
+  assert.equal(first.status, 'WAITING_TEACHER');
+  assert.ok(first.teacher.request_id);
+
+  const stored = await f.repository.get(first.job_id);
+  assert.equal(stored.optional_context.extension_proposal.decision, 'UNBLOCK_EXISTING');
+  assert.equal(stored.optional_context.extension_proposal.matched_capability, 'media.music.generate');
+  assert.equal(stored.optional_context.extension_kind, 'plugin');
+  assert.equal(stored.optional_context.discovery_evidence.fingerprint, 'capability:music.generate');
+  assert.equal(stored.optional_context.roadmap_id, 'GEN2-42');
+  assert.ok(stored.optional_context.inspection_paths.includes('src/capabilities/creative-media-capabilities.js'));
+  assert.equal(stored.plan_json?.module_lab, undefined, 'unblocking an existing capability must not create a duplicate Module Lab module');
+
+  const calls = f.aiCalls.length;
+  const replay = await enqueueSupervisedDevelopmentRequest(input);
+  assert.equal(replay.created, false);
+  assert.equal(replay.job_id, first.job_id);
+  assert.equal(f.aiCalls.length, calls, 'fingerprint replay must not repeat Council work');
 });

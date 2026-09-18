@@ -144,3 +144,101 @@ export function mergeEcosystemDiscoveryLedger(previous = {}, plan = {}, now = Da
       .slice(0, 200),
   };
 }
+
+
+const CLOSED_HANDOFF_STATUSES = new Set(['COMPLETED', 'REJECTED']);
+const RETRYABLE_HANDOFF_STATUSES = new Set(['FAILED']);
+
+function handoffAlreadyOwnsItem(item) {
+  const handoff = item?.handoff;
+  if (!handoff) return false;
+  if (handoff.closed === true || CLOSED_HANDOFF_STATUSES.has(String(handoff.status || '').toUpperCase())) return true;
+  if (handoff.job_id && !RETRYABLE_HANDOFF_STATUSES.has(String(handoff.status || '').toUpperCase())) return true;
+  return false;
+}
+
+function developmentGoal(item) {
+  const hint = text(item?.capability_hint, 160);
+  const target = text(item?.best_match?.id, 160);
+  if (item?.action === 'UNBLOCK_EXISTING' && target) {
+    return [
+      `Débloquer la capacité existante ${target} sans créer de capacité en doublon.`,
+      `Évaluer la découverte sourcée « ${hint} » et, seulement si elle est adaptée, brancher le provider/connecteur zéro coût autorisé minimal sur le port canonique existant.`,
+      'Conserver les permissions, le fail-closed, les tests, la provenance et le rollback.',
+    ].join(' ');
+  }
+  return [
+    `Évaluer la découverte sourcée « ${hint} ».`,
+    `Uniquement si le CapabilityBus confirme un vrai manque, proposer le plus petit ${item?.suggested_kind === 'plugin' ? 'plugin/connecteur' : 'module'} réutilisant l’existant et sans doublon.`,
+    'Ne rien activer en production avant Council, Teacher et tests.',
+  ].join(' ');
+}
+
+function candidateRank(item) {
+  const action = item?.action === 'UNBLOCK_EXISTING' ? 0 : 1;
+  const creative = item?.category === 'creative' ? 0 : 1;
+  const citations = -Math.max(0, Number(item?.citations_count) || 0);
+  const seen = -Math.max(0, Number(item?.seen_count) || 0);
+  return [action, creative, citations, seen, String(item?.fingerprint || '')];
+}
+
+export function selectEcosystemDiscoveryCandidate(ledger = {}) {
+  const items = (Array.isArray(ledger?.items) ? ledger.items : [])
+    .filter(item => item?.evidence_status === 'SOURCED_OBSERVATION')
+    .filter(item => ['UNBLOCK_EXISTING', 'PROPOSE_EXTENSION'].includes(item?.action))
+    .filter(item => Array.isArray(item?.sources) && item.sources.length > 0)
+    .filter(item => item?.action !== 'PROPOSE_EXTENSION' || item?.proposal?.activation_allowed === false)
+    .filter(item => !handoffAlreadyOwnsItem(item));
+
+  items.sort((a, b) => {
+    const ra = candidateRank(a);
+    const rb = candidateRank(b);
+    for (let i = 0; i < ra.length; i += 1) {
+      if (ra[i] < rb[i]) return -1;
+      if (ra[i] > rb[i]) return 1;
+    }
+    return 0;
+  });
+
+  const item = items[0];
+  if (!item) return null;
+  return {
+    ...item,
+    goal: developmentGoal(item),
+    roadmap_id: 'GEN2-42',
+    inspection_paths: [
+      'src/evaluation/ecosystem-watch-catalog.js',
+      'src/evaluation/ecosystem-discovery-planner.js',
+      'src/evaluation/capability-watch-runtime.js',
+      'src/capabilities/creative-media-capabilities.js',
+      'src/capabilities/module-proposal-capability.js',
+      'src/evolution/owner-development-queue.js',
+    ],
+    inspection_queries: [
+      item.capability_hint,
+      item.best_match?.id || '',
+      'GEN2-42',
+    ].filter(Boolean),
+  };
+}
+
+export function markEcosystemDiscoveryHandoff(ledger = {}, fingerprint, handoff = {}, now = Date.now()) {
+  const target = String(fingerprint || '');
+  return {
+    ...ledger,
+    updated_at: now,
+    items: (Array.isArray(ledger?.items) ? ledger.items : []).map(item => {
+      if (item?.fingerprint !== target) return item;
+      const before = item.handoff && typeof item.handoff === 'object' ? item.handoff : {};
+      return {
+        ...item,
+        handoff: {
+          ...before,
+          ...handoff,
+          attempts: Math.max(0, Number(before.attempts) || 0) + 1,
+          updated_at: now,
+        },
+      };
+    }),
+  };
+}

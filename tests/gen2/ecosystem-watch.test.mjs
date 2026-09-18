@@ -6,7 +6,7 @@ import {
   getEcosystemWatchCatalog,
 } from '../../src/evaluation/ecosystem-watch-catalog.js';
 import { runCapabilityWatch } from '../../src/evaluation/capability-watch.js';
-import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger } from '../../src/evaluation/ecosystem-discovery-planner.js';
+import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, markEcosystemDiscoveryHandoff } from '../../src/evaluation/ecosystem-discovery-planner.js';
 import { createGen2Runtime } from '../../src/core/orchestrator/gen2-runtime.js';
 
 test('ecosystem watch catalog is unique and covers AI, tooling and creative arts', () => {
@@ -110,4 +110,50 @@ test('ecosystem discovery planner proposes tooling as plugin and ledger deduplic
   assert.equal(ledger2.items[0].seen_count, 2);
   assert.equal(ledger2.items[0].first_seen_at, 100);
   assert.equal(ledger2.items[0].last_seen_at, 200);
+});
+
+
+test('handoff selector prioritizes unblocking an existing sourced creative capability and only returns one item', () => {
+  const ledger = {
+    items: [
+      {
+        fingerprint: 'capability:art-history',
+        capability_hint: 'art-history',
+        category: 'creative',
+        action: 'PROPOSE_EXTENSION',
+        evidence_status: 'SOURCED_OBSERVATION',
+        citations_count: 3,
+        seen_count: 2,
+        sources: [{ title: 'A', url: 'https://example.com/a' }],
+        proposal: { activation_allowed: false },
+        suggested_kind: 'module',
+      },
+      {
+        fingerprint: 'capability:music.generate',
+        capability_hint: 'music.generate',
+        category: 'creative',
+        action: 'UNBLOCK_EXISTING',
+        evidence_status: 'SOURCED_OBSERVATION',
+        citations_count: 1,
+        seen_count: 1,
+        sources: [{ title: 'B', url: 'https://example.com/b' }],
+        best_match: { id: 'media.music.generate' },
+        suggested_kind: 'module',
+      },
+    ],
+  };
+  const selected = selectEcosystemDiscoveryCandidate(ledger);
+  assert.equal(selected.fingerprint, 'capability:music.generate');
+  assert.equal(selected.action, 'UNBLOCK_EXISTING');
+  assert.match(selected.goal, /sans créer de capacité en doublon/i);
+  assert.equal(selected.roadmap_id, 'GEN2-42');
+
+  const marked = markEcosystemDiscoveryHandoff(ledger, selected.fingerprint, {
+    status: 'WAITING_TEACHER',
+    job_id: 'ecosystem-watch-123',
+    created: true,
+  }, 1234);
+  assert.equal(marked.items.find(item => item.fingerprint === selected.fingerprint).handoff.job_id, 'ecosystem-watch-123');
+  const next = selectEcosystemDiscoveryCandidate(marked);
+  assert.equal(next.fingerprint, 'capability:art-history');
 });
