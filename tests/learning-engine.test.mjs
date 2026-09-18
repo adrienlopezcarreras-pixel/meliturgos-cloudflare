@@ -9,6 +9,7 @@ class MemoryStub {
   constructor() { this.rows = []; }
   async remember(row) { this.rows.unshift(structuredClone(row)); return structuredClone(row); }
   async recent({ limit = 12, kind = null, outcome = null } = {}) { return this.rows.filter(x => !kind || x.kind === kind).filter(x => !outcome || x.outcome === outcome).slice(0, limit).map(x => structuredClone(x)); }
+  async all({ kind = null, outcome = null } = {}) { return this.rows.filter(x => !kind || x.kind === kind).filter(x => !outcome || x.outcome === outcome).map(x => structuredClone(x)); }
 }
 
 const digest = 'sha256:' + 'a'.repeat(64);
@@ -91,6 +92,31 @@ test('bootstrap corpus can grow beyond the 50-example LoRA readiness threshold',
   });
   const expanded = await engine.trainingBundle();
   assert.equal(expanded.accepted, bootstrap.accepted + 1, 'runtime corrections remain cumulative above the readiness threshold');
+});
+
+test('learned correction corpus is not capped at 500 lessons', async () => {
+  const memory = new MemoryStub();
+  const engine = new LearningEngine({ memory });
+  for (let i = 0; i < 650; i += 1) {
+    await engine.recordCorrection({
+      id: `bulk-${i}`,
+      domain: 'continuous-learning',
+      input: `input ${i}`,
+      before: `before ${i}`,
+      after: `after ${i}`,
+      rationale: `rationale ${i}`,
+      validated: true,
+      quality: 0.9,
+    });
+  }
+  const allCorrections = await engine.corrections({ includeBootstrap: false });
+  assert.equal(allCorrections.length, 650);
+  const bundle = await engine.trainingBundle({ minQuality: 0.65 });
+  assert.ok(bundle.accepted >= 650, 'training bundle must include every validated lesson, not stop at 500');
+  const prepared = await engine.prepareLora({ base_model: DEFAULT_LORA_BASE_MODEL });
+  assert.equal(prepared.plan.examples, bundle.accepted);
+  assert.ok(prepared.plan.examples >= 650);
+  assert.equal(prepared.plan.readiness.min_examples, 50, 'LoRA threshold remains a minimum, not a maximum');
 });
 
 test('benchmark report measures gain without pretending weights changed', async () => {
