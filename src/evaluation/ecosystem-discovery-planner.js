@@ -281,6 +281,7 @@ export function selectEcosystemDiscoveryCandidate(ledger = {}) {
     .filter(item => ['UNBLOCK_EXISTING', 'REUSE_EXISTING', 'PROPOSE_EXTENSION'].includes(item?.action))
     .filter(item => Array.isArray(item?.sources) && item.sources.length > 0)
     .filter(item => item?.action !== 'PROPOSE_EXTENSION' || item?.proposal?.activation_allowed === false)
+    .filter(item => !['REJECTED', 'DEFERRED'].includes(String(item?.owner_decision?.status || '').toUpperCase()))
     .filter(item => !handoffAlreadyOwnsItem(item) && !handoffOwnsDiscovery(item));
 
   items.sort((a, b) => {
@@ -294,7 +295,13 @@ export function selectEcosystemDiscoveryCandidate(ledger = {}) {
   });
 
   const item = items[0];
-  if (!item) return null;
+  return item ? buildEcosystemDiscoveryCandidate(item) : null;
+}
+
+export function buildEcosystemDiscoveryCandidate(item = {}) {
+  if (!item?.fingerprint || item?.evidence_status !== 'SOURCED_OBSERVATION') return null;
+  if (!['UNBLOCK_EXISTING', 'REUSE_EXISTING', 'PROPOSE_EXTENSION'].includes(item?.action)) return null;
+  if (!Array.isArray(item?.sources) || item.sources.length === 0) return null;
   return {
     ...item,
     goal: developmentGoal(item),
@@ -313,6 +320,33 @@ export function selectEcosystemDiscoveryCandidate(ledger = {}) {
       'GEN2-42',
     ].filter(Boolean),
   };
+}
+
+export function markEcosystemDiscoveryOwnerDecision(ledger = {}, fingerprint, decision = {}, now = Date.now()) {
+  const target = String(fingerprint || '');
+  const status = String(decision?.status || '').toUpperCase();
+  if (!['TEST_REQUESTED', 'APPROVED', 'REJECTED', 'DEFERRED'].includes(status)) {
+    throw Object.assign(new Error('ECOSYSTEM_OWNER_DECISION_INVALID'), { code: 'ECOSYSTEM_OWNER_DECISION_INVALID', status: 400 });
+  }
+  let found = false;
+  const items = (Array.isArray(ledger?.items) ? ledger.items : []).map(item => {
+    if (item?.fingerprint !== target) return item;
+    found = true;
+    const before = item.owner_decision && typeof item.owner_decision === 'object' ? item.owner_decision : {};
+    return {
+      ...item,
+      owner_decision: {
+        ...before,
+        ...decision,
+        status,
+        updated_at: now,
+      },
+    };
+  });
+  if (!found) {
+    throw Object.assign(new Error('ECOSYSTEM_PROPOSAL_NOT_FOUND'), { code: 'ECOSYSTEM_PROPOSAL_NOT_FOUND', status: 404 });
+  }
+  return { ...ledger, updated_at: now, items };
 }
 
 export function markEcosystemDiscoveryHandoff(ledger = {}, fingerprint, handoff = {}, now = Date.now()) {
