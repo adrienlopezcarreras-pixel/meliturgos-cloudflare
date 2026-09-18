@@ -50,7 +50,7 @@ Rapport exhaustif : `.agents/XP_RECONCILIATION_20260917.md`.
 - `bootstrap-code-access-capability-truth-20260918` — distinguer accès structurel au code et preuve de lecture ponctuelle ; ne jamais inventer une incapacité quand le manifeste expose l’accès.
 - `bootstrap-continuous-experience-read-20260918` — relire manuel + expérience pertinente à chaque requête et à chaque passage.
 
-Ces quatre entrées sont **validées** par la full candidate CI `35325973201`, le smoke Teacher/runtime `35325973132` et le garde d’unicité `35325973253` sur le SHA `a141ea626e1abb05e60c3d93d1f5c9308897ca70`. Elles font désormais partie du corpus de préférence de MEL.
+Ces quatre entrées sont **validées** par la full candidate CI `35325973201`, le smoke Teacher/runtime `35325973132` et le garde d’unicité `35325973253` sur le SHA `a141ea626e1abb05e60c3d93d1f5c9308897ca70`. Elles sont chargées à chaque requête depuis `src/learning/runtime-operating-experience.js` et restent séparées du corpus d’entraînement.
 
 ## Règle de déduplication
 
@@ -60,4 +60,4 @@ Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le
 
 Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, Benchmark/LoRA, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, Dev Bridge, observabilité, UI partagée, gouvernance de preuve, readiness zéro-euro runtime et checkpoint XP systématique.
 
-Total documenté : **34 leçons validées**.
+Total documenté : **50 leçons du corpus d’entraînement actuel + 4 expériences opérationnelles runtime validées**.
