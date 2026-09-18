@@ -55,6 +55,15 @@ test('canonical Professor exposes the complete control-center views instead of t
   assert.doesNotMatch(html, /conversationSelect|newConversation|interaction_count/i);
 });
 
+
+test('canonical Professor keeps user work API separate from the internal Dev Bridge namespace', async () => {
+  const html = await canonicalProfessorHtml();
+  assert.match(html, /\/api\/work\/health/);
+  assert.match(html, /\/api\/work\/jobs/);
+  assert.doesNotMatch(html, /\/api\/dev-bridge\/health/);
+  assert.doesNotMatch(html, /\/api\/dev-bridge\/jobs/);
+});
+
 test('archive survives request consumption and stores text, device, model and attachments', async () => {
   const DB = sqliteD1();
   try {
