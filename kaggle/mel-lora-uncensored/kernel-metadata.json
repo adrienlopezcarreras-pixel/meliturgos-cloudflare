@@ -6,9 +6,12 @@
   "kernel_type": "script",
   "is_private": true,
   "enable_gpu": true,
-  "enable_internet": true,
+  "enable_internet": false,
   "machine_shape": "NvidiaTeslaT4",
-  "dataset_sources": [],
+  "dataset_sources": [
+    "cdeotte/mistral-7b-instruct-v02-fp16",
+    "nbroad/hf-libraries"
+  ],
   "competition_sources": [],
   "kernel_sources": [],
   "model_sources": []
