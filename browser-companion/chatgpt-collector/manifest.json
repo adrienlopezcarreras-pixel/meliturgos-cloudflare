@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "MEL ChatGPT Collector",
+  "version": "0.1.0",
+  "description": "Collecte progressivement les conversations ChatGPT visibles dans Firefox et les archive dans MEL.",
+  "permissions": ["storage", "tabs", "history"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://meliturgos.adrien-lopezcarreras.workers.dev/*",
+    "https://meliturgos-preview.adrien-lopezcarreras.workers.dev/*",
+    "https://professeur.verite-interdite.fr/*"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "MEL ChatGPT Collector",
+    "default_popup": "popup.html"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [{
+    "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "mel-chatgpt-collector@meliturgos.local",
+      "strict_min_version": "128.0"
+    }
+  }
+}
