@@ -128,7 +128,20 @@ jobs:
           )"
           test -n "$KAGGLE_OWNER"
           echo "KAGGLE_OWNER=$KAGGLE_OWNER" >> "$GITHUB_ENV"
-          echo "KERNEL_REF=$KAGGLE_OWNER/mel-lora-uncensored-max" >> "$GITHUB_ENV"
+          echo "KERNEL_REF=$KAGGLE_OWNER/mel-lora-uncensored-canonical" >> "$GITHUB_ENV"
+
+      - name: Record free accelerator quota
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          if kaggle quota --format json > artifacts/kaggle-quota.json 2> artifacts/kaggle-quota.err; then
+            cat artifacts/kaggle-quota.json
+          else
+            echo "KAGGLE_QUOTA_JSON_UNAVAILABLE"
+            cat artifacts/kaggle-quota.err || true
+            kaggle quota 2>&1 | tee artifacts/kaggle-quota.txt || true
+          fi
 
       - name: Prepare deterministic training shard outside Kaggle
         shell: bash
@@ -237,7 +250,7 @@ jobs:
           Path("artifacts/kaggle-kernel/run.py").write_text(source,encoding="utf-8")
 
           meta=json.loads(Path("artifacts/kaggle-kernel/kernel-metadata.json").read_text())
-          meta["id"]=f'{os.environ["KAGGLE_OWNER"]}/mel-lora-uncensored-max'
+          meta["id"]=f'{os.environ["KAGGLE_OWNER"]}/mel-lora-uncensored-canonical'
           meta["enable_internet"]=False
           meta["dataset_sources"]=[
               "cdeotte/mistral-7b-instruct-v02-fp16",
@@ -260,6 +273,37 @@ jobs:
           set -euo pipefail
           kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator NvidiaTeslaT4             -t 600
           echo "Submitted $KERNEL_REF cycle $CYCLE with internet disabled."
+
+      - name: Verify server-side GPU metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf artifacts/kaggle-server-metadata
+          VERIFIED=0
+          for attempt in $(seq 1 6); do
+            rm -rf artifacts/kaggle-server-metadata
+            mkdir -p artifacts/kaggle-server-metadata
+            if kaggle kernels pull "$KERNEL_REF" -p artifacts/kaggle-server-metadata -m >/tmp/kaggle-pull.log 2>&1; then
+              META="$(find artifacts/kaggle-server-metadata -name kernel-metadata.json -print -quit)"
+              if [[ -n "$META" && -s "$META" ]]; then
+                cat "$META"
+                python - "$META" <<'PY'
+import json,sys
+meta=json.load(open(sys.argv[1],encoding="utf-8"))
+if meta.get("enable_gpu") is not True:
+    raise SystemExit("KAGGLE_SERVER_GPU_DISABLED")
+if str(meta.get("machine_shape") or "") != "NvidiaTeslaT4":
+    raise SystemExit("KAGGLE_SERVER_MACHINE_SHAPE_MISMATCH:"+str(meta.get("machine_shape")))
+print("KAGGLE_SERVER_GPU_METADATA_OK")
+PY
+                VERIFIED=1
+                break
+              fi
+            fi
+            cat /tmp/kaggle-pull.log || true
+            sleep 10
+          done
+          [[ "$VERIFIED" == "1" ]] || { echo "KAGGLE_SERVER_METADATA_UNVERIFIED"; exit 1; }
 
       - name: Wait for Kaggle cycle
         shell: bash
@@ -406,6 +450,10 @@ jobs:
             artifacts/lora-incoming/dataset-metadata.json
             artifacts/lora-incoming/shard-metadata.json
             artifacts/kaggle-error/**
+            artifacts/kaggle-quota.json
+            artifacts/kaggle-quota.txt
+            artifacts/kaggle-quota.err
+            artifacts/kaggle-server-metadata/**/kernel-metadata.json
           if-no-files-found: warn
           retention-days: 14
 

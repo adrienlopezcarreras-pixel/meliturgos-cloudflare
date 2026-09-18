@@ -222,7 +222,7 @@ async function freeLoraStatusResponse(request, env) {
     workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_WORKFLOW}`,
     training_workflow: trainingWorkflow || { status: 'NEVER_RUN', conclusion: null },
     training_workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_TRAINING_WORKFLOW}`,
-    kaggle_url: 'https://www.kaggle.com/code/adrienlopezcarreras/mel-lora-uncensored-max',
+    kaggle_url: 'https://www.kaggle.com/code/adrienlopezcarreras/mel-lora-uncensored-canonical',
     checkpoint,
     learning,
   });

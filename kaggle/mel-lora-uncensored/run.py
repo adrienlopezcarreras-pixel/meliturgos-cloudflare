@@ -109,6 +109,36 @@ def find_base_model() -> Path:
             return root
     raise SystemExit("KAGGLE_MISTRAL_BASE_MODEL_NOT_FOUND")
 
+def require_kaggle_gpu():
+    import os
+    try:
+        import torch
+    except Exception as exc:
+        raise SystemExit("KAGGLE_TORCH_IMPORT_FAILED:" + f"{type(exc).__name__}:{exc}")
+
+    smi = shutil.which("nvidia-smi")
+    smi_text = ""
+    if smi:
+        proc = subprocess.run(
+            [smi, "--query-gpu=name,memory.total", "--format=csv,noheader"],
+            text=True, capture_output=True
+        )
+        smi_text = (proc.stdout or proc.stderr or "").strip()
+    diag = {
+        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+        "nvidia_smi": smi_text or None,
+        "torch_version": getattr(torch, "__version__", "unknown"),
+        "torch_cuda_version": getattr(torch.version, "cuda", None),
+        "cuda_available": bool(torch.cuda.is_available()),
+        "cuda_device_count": int(torch.cuda.device_count()),
+        "cuda_devices": [
+            torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())
+        ] if torch.cuda.is_available() else [],
+    }
+    print(json.dumps({"kaggle_gpu_preflight": diag}, indent=2), flush=True)
+    if not torch.cuda.is_available():
+        raise SystemExit("KAGGLE_GPU_NOT_ASSIGNED")
+
 def ensure_dependencies():
     # Never choose wheels by filename ordering: Kaggle's Python ABI can differ
     # from the ABI used by the newest wheel mirrored in hf-libraries. Keep the
@@ -250,6 +280,7 @@ def main():
     if str(shard_meta.get("output_sha256") or "") != sha256_file(SHARD):
         raise SystemExit("MEL_SHARD_DIGEST_MISMATCH")
 
+    require_kaggle_gpu()
     ensure_dependencies()
     base_model = find_base_model()
     print(json.dumps({
