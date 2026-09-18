@@ -39,19 +39,16 @@ test('dev bridge accepts only the exact configured bearer token', () => {
   assert.equal(response, null);
 });
 
-test('deployed entrypoint keeps the bridge gate before delegation while exempting only safe Professor preflight routes', async () => {
+test('deployed entrypoint gates every internal Dev Bridge route before delegation', async () => {
   const source = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
-  const safeSet = source.indexOf('PROFESSOR_SAFE_DEV_BRIDGE_PATHS');
   const gate = source.indexOf("url.pathname.startsWith('/api/dev-bridge/')");
-  const safeExemption = source.indexOf('!PROFESSOR_SAFE_DEV_BRIDGE_PATHS.has(url.pathname)', gate);
   const auth = source.indexOf('authorizeDevBridge(request, env)', gate);
   const delegate = source.indexOf('await app.fetch(request, env, ctx)');
 
-  assert.ok(safeSet >= 0, 'deployed entrypoint must define the narrow safe Professor dev-bridge allowlist');
-  assert.ok(source.includes("'/api/dev-bridge/health'"), 'safe allowlist must include only the read-only health surface');
-  assert.ok(source.includes("'/api/dev-bridge/jobs'"), 'safe allowlist must include the owner-authenticated preflight jobs surface');
+  assert.equal(source.includes('PROFESSOR_SAFE_DEV_BRIDGE_PATHS'), false, 'internal bridge must have no owner-UI auth bypass list');
+  assert.equal(source.includes("'/api/dev-bridge/health'"), false, 'user Work health moved to /api/work/health');
+  assert.equal(source.includes("'/api/dev-bridge/jobs'"), false, 'user Work jobs moved to /api/work/jobs');
   assert.ok(gate >= 0, 'deployed entrypoint must recognize all dev bridge routes');
-  assert.ok(safeExemption > gate, 'only the explicit safe Professor routes may bypass dedicated bridge auth');
-  assert.ok(auth > safeExemption, 'all remaining dev bridge routes must invoke the dedicated bridge auth');
+  assert.ok(auth > gate, 'every dev bridge route must invoke the dedicated bridge auth');
   assert.ok(delegate > auth, 'bridge auth must run before application delegation');
 });
