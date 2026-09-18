@@ -71,16 +71,13 @@ async function capabilityWatchRunResponse(request, env) {
   let body = {};
   try { body = await request.clone().json(); } catch {}
   const force = body?.force === true;
-  if (force && String(env.MEL_PREVIEW_ISOLATED || '').toLowerCase() !== 'true') {
-    return json({ ok: false, error: 'WATCH_FORCE_PREVIEW_ONLY' }, 403);
-  }
   try {
     const build = deployedBuild();
     const result = await runEcosystemCapabilityWatch(env, {
       force,
       sourceSha: build?.sha || null,
     });
-    return json({ ok: true, result });
+    return json({ ok: true, manual: true, forced: force, result });
   } catch (error) {
     return json({
       ok: false,
