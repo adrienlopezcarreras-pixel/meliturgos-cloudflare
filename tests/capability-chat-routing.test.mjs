@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { injectEvolutionPreflightCapability, inferCapabilityInspectionIntent } from '../src/evolution/chat-intent.js';
 import { classifySemanticOwnerIntent } from '../src/evolution/semantic-intent.js';
-import { setDefaultCapabilityEnvironment } from '../src/capabilities/default-bus.js';
 
 test('deterministic capability inspection understands natural French formulations', () => {
   const shallow = [
@@ -43,14 +42,15 @@ test('normal chat injects capability.audit instead of generic text-only self-des
 });
 
 test('semantic router can classify an elliptical capability-status follow-up', async () => {
-  setDefaultCapabilityEnvironment({
+  const env = {
     AI: {
       async run() {
         return { response: JSON.stringify({ intent: 'CAPABILITY_STATUS', resolved_goal: '', confidence: 0.98 }) };
       },
     },
-  });
+  };
   const result = await classifySemanticOwnerIntent({
+    env,
     text: 'et lesquelles marchent vraiment ?',
     context: 'USER: Parle-moi de tes modules et de tes capacités MEL.\nMEL: Je vais distinguer ce qui existe de ce qui est prévu.',
   });
