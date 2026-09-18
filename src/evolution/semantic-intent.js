@@ -38,7 +38,7 @@ export function shouldSemanticIntentCheck(text, context = '') {
   return currentSelfSystem || actionSecondPerson || currentResearch || ((devHistory || researchHistory) && (followUp || value.length <= 260));
 }
 
-export async function classifySemanticOwnerIntent({ text, context = '' } = {}) {
+export async function classifySemanticOwnerIntent({ text, context = '', env = {}, AI } = {}) {
   const current = String(text || '').trim();
   if (!current || !shouldSemanticIntentCheck(current, context)) return null;
 
@@ -63,7 +63,8 @@ export async function classifySemanticOwnerIntent({ text, context = '' } = {}) {
   ].join('\n');
 
   try {
-    const bus = createDefaultCapabilityBus();
+    const runtimeEnv = AI ? { ...env, AI } : env;
+    const bus = createDefaultCapabilityBus({ env: runtimeEnv });
     const result = await bus.execute('augmentio.fanout', {
       capability: 'FAST',
       input: instruction,
