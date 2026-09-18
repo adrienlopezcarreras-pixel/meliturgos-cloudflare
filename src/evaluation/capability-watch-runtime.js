@@ -329,6 +329,7 @@ export async function runEcosystemCapabilityWatch(
           priority: 'P1',
           extensionKind: candidate.action === 'UNBLOCK_EXISTING' ? 'plugin' : candidate.suggested_kind,
           allowBlockedExisting: candidate.action === 'UNBLOCK_EXISTING',
+          allowExistingOptimization: candidate.action === 'REUSE_EXISTING',
           targetCapabilityId: candidate.best_match?.id || '',
           evidence: {
             fingerprint: candidate.fingerprint,
