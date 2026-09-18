@@ -87,6 +87,31 @@ async function capabilityWatchRunResponse(request, env) {
   }
 }
 
+async function capabilityWatchTestAllResponse(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  try {
+    const build = deployedBuild();
+    const result = await runEcosystemCapabilityWatch(env, {
+      force: true,
+      allowHandoff: false,
+      sourceSha: build?.sha || null,
+    });
+    return json({
+      ok: true,
+      test_only: true,
+      production_activation_allowed: false,
+      result,
+    });
+  } catch (error) {
+    return json({
+      ok: false,
+      error: 'CAPABILITY_WATCH_TEST_ALL_FAILED',
+      detail: String(error?.code || error?.message || 'unknown').slice(0, 180),
+    }, 503);
+  }
+}
+
 async function capabilityWatchProposalActionResponse(request, env) {
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
@@ -147,6 +172,7 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/mel/activity') return activityResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/capability-watch') return capabilityWatchResponse(request, env);
     if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/run') return capabilityWatchRunResponse(request, env);
+    if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/test-all') return capabilityWatchTestAllResponse(request, env);
     if (request.method === 'POST' && url.pathname === '/api/mel/capability-watch/proposal') return capabilityWatchProposalActionResponse(request, env);
     if (request.method === 'GET' && url.pathname === '/api/mel/conversations/latest') return latestConversationResponse(request, env);
     const response = await app.fetch(request, env, ctx);
