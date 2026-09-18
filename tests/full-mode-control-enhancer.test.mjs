@@ -49,5 +49,5 @@ test('full mode activity panel exposes the discovery registry and Council/Teache
   assert.match(html, /WAITING_TEACHER/);
   assert.match(html, /Handoff veille/);
   assert.match(html, /Council terminé/);
-  assert.match(html, /aucune activation production automatique/i);
+  assert.match(html, /sans activation production automatique/i);
 });
