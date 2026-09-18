@@ -39,6 +39,19 @@ function activationArtifact(plan, overrides = {}) {
   });
 }
 
+function approval(plan, checkedArtifact, overrides = {}) {
+  return {
+    approved: true,
+    approval_id: 'approval-guard',
+    artifact_id: checkedArtifact.id,
+    artifact_digest: checkedArtifact.digest,
+    finetune_id: checkedArtifact.finetune_id,
+    dataset_digest: plan.dataset_digest,
+    training_manifest_digest: plan.training_manifest_digest,
+    ...overrides,
+  };
+}
+
 function benchmarkCandidate(plan, overrides = {}) {
   return {
     overall: 0.74,
@@ -46,6 +59,7 @@ function benchmarkCandidate(plan, overrides = {}) {
     artifact_digest: DIGEST,
     training_manifest_digest: plan.training_manifest_digest,
     dataset_digest: plan.dataset_digest,
+    approval_id: 'approval-guard',
     ...overrides,
   };
 }
@@ -78,9 +92,11 @@ test('activation evidence requires same benchmark suite and measured gain', () =
   const plan = readyPlan({ min_measured_gain: 0.02 });
   const baseline = { overall: 0.70, suite_digest: 'suite-1' };
   const candidate = benchmarkCandidate(plan);
+  const checkedArtifact = activationArtifact(plan);
   const checked = assertAdapterActivationEvidence({
     plan,
-    artifact: activationArtifact(plan),
+    artifact: checkedArtifact,
+    approval: approval(plan, checkedArtifact),
     baseline,
     candidate,
   });
@@ -90,6 +106,7 @@ test('activation evidence requires same benchmark suite and measured gain', () =
     () => assertAdapterActivationEvidence({
       plan,
       artifact: activationArtifact(plan),
+      approval: approval(plan, activationArtifact(plan)),
       baseline,
       candidate: benchmarkCandidate(plan, { suite_digest: 'suite-2' }),
     }),
@@ -100,6 +117,7 @@ test('activation evidence requires same benchmark suite and measured gain', () =
     () => assertAdapterActivationEvidence({
       plan,
       artifact: activationArtifact(plan),
+      approval: approval(plan, activationArtifact(plan)),
       baseline,
       candidate: benchmarkCandidate(plan, { overall: 0.71 }),
     }),
@@ -116,6 +134,7 @@ test('activation evidence fails closed on exact base-model mismatch', () => {
         base_model: 'google/gemma-7b-it',
         runtime_model: '@cf/google/gemma-7b-it-lora',
       }),
+      approval: approval(plan, activationArtifact(plan)),
       baseline: { overall: 0.60, suite_digest: 'suite-1' },
       candidate: benchmarkCandidate(plan, { overall: 0.70 }),
     }),
