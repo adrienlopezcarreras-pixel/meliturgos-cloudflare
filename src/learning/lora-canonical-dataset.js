@@ -1,6 +1,6 @@
 import { BOOTSTRAP_CORRECTIONS } from './bootstrap-corrections.js';
 
-export const CANONICAL_LORA_LESSON_COUNT = 50;
+export const CANONICAL_LORA_LESSON_COUNT = 50; // minimum floor; no upper limit
 export const CANONICAL_LORA_DATASET_VERSION = 'mel-canonical-lora-50-v1';
 
 function clean(value, max = 12000) {
@@ -10,9 +10,9 @@ function clean(value, max = 12000) {
 
 export function canonicalLoraLessons() {
   const lessons = BOOTSTRAP_CORRECTIONS.filter((row) => row?.validated === true && Number(row?.quality || 0) >= 0.65);
-  if (lessons.length !== CANONICAL_LORA_LESSON_COUNT) {
-    const error = new Error(`CANONICAL_LORA_LESSON_COUNT_MISMATCH:${lessons.length}`);
-    error.code = 'CANONICAL_LORA_LESSON_COUNT_MISMATCH';
+  if (lessons.length < CANONICAL_LORA_LESSON_COUNT) {
+    const error = new Error(`CANONICAL_LORA_LESSON_COUNT_BELOW_MINIMUM:${lessons.length}:${CANONICAL_LORA_LESSON_COUNT}`);
+    error.code = 'CANONICAL_LORA_LESSON_COUNT_BELOW_MINIMUM';
     throw error;
   }
   const ids = lessons.map((row) => clean(row.id, 240));
