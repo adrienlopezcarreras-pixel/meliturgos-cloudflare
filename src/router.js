@@ -9,18 +9,6 @@ import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
 
-export function stripInternalCounters(value) {
-  if (typeof value !== "string" || !value) return value;
-  const cleaned = value
-    .replace(/[^.!?\n]*\binteraction_count\b\s*[:=]?\s*\d+[^.!?\n]*[.!?]?/gi, " ")
-    .replace(/\binteraction_count\b\s*[:=]?\s*\d+/gi, " ")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/\s+([,.;!?])/g, "$1")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  return cleaned;
-}
-
 function capabilityContext(env) {
   return {
     owner: env.MELITURGOS_USER || "owner",
