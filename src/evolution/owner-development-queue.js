@@ -47,6 +47,16 @@ function exactBlockedTarget(capabilities, targetCapabilityId) {
   return blocked ? row : null;
 }
 
+function exactAvailableTarget(capabilities, targetCapabilityId) {
+  const target = String(targetCapabilityId || '').trim().toLowerCase();
+  if (!target || !Array.isArray(capabilities)) return null;
+  const row = capabilities.find(item => String(item?.id || '').trim().toLowerCase() === target);
+  if (!row) return null;
+  const health = String(row.health || '').toUpperCase();
+  const blocked = row.enabled === false || health === 'UNAVAILABLE';
+  return blocked ? null : row;
+}
+
 function boundedEvidence(value) {
   if (!value || typeof value !== 'object') return null;
   const sources = Array.isArray(value.sources)
@@ -200,6 +210,7 @@ export async function enqueueSupervisedDevelopmentRequest({
   priority = 'P0',
   extensionKind = 'module',
   allowBlockedExisting = false,
+  allowExistingOptimization = false,
   targetCapabilityId = '',
   evidence = null,
   roadmapId = '',
@@ -225,13 +236,17 @@ export async function enqueueSupervisedDevelopmentRequest({
   const exactBlocked = allowBlockedExisting === true
     ? exactBlockedTarget(capabilityInventory, targetCapabilityId)
     : null;
+  const exactAvailable = allowExistingOptimization === true
+    ? exactAvailableTarget(capabilityInventory, targetCapabilityId)
+    : null;
   const unblocksExisting = Boolean(exactBlocked) || (
     extensionProposal
     && allowBlockedExisting === true
     && extensionProposal.gap?.classification === 'MATCHED_BUT_BLOCKED'
   );
+  const optimizesExisting = Boolean(exactAvailable);
 
-  if (extensionProposal && extensionProposal.decision !== expectedDecision && !unblocksExisting) {
+  if (extensionProposal && extensionProposal.decision !== expectedDecision && !unblocksExisting && !optimizesExisting) {
     return publicGapDecision(extensionProposal, {
       requestedBy: requester,
       source: origin,
@@ -261,6 +276,7 @@ export async function enqueueSupervisedDevelopmentRequest({
     zero_added_cost: true,
     rule: 'AI_COUNCIL_BEFORE_CODE',
     extension_kind: kind,
+    optimization_existing: optimizesExisting,
     roadmap_id: cleanKey(roadmapId, 120) || null,
     target_capability_id: String(targetCapabilityId || '').slice(0, 160) || extensionProposal?.gap?.best_match?.id || null,
     discovery_evidence: boundedEvidence(evidence),
@@ -272,15 +288,15 @@ export async function enqueueSupervisedDevelopmentRequest({
     idempotencyContext.capability_inventory = capabilityInventory;
     idempotencyContext.extension_proposal = {
       kind,
-      decision: unblocksExisting ? 'UNBLOCK_EXISTING' : extensionProposal.decision,
+      decision: optimizesExisting ? 'OPTIMIZE_EXISTING' : (unblocksExisting ? 'UNBLOCK_EXISTING' : extensionProposal.decision),
       proposal_only: true,
-      gap_classification: exactBlocked ? 'MATCHED_BUT_BLOCKED' : (extensionProposal.gap?.classification || null),
-      matched_capability: exactBlocked?.id || extensionProposal.gap?.best_match?.id || null,
-      manifest: extensionProposal.manifest,
-      acceptance_tests: extensionProposal.acceptance_tests || [],
+      gap_classification: optimizesExisting ? 'MATCHED_AVAILABLE' : (exactBlocked ? 'MATCHED_BUT_BLOCKED' : (extensionProposal.gap?.classification || null)),
+      matched_capability: exactAvailable?.id || exactBlocked?.id || extensionProposal.gap?.best_match?.id || null,
+      manifest: optimizesExisting ? null : extensionProposal.manifest,
+      acceptance_tests: optimizesExisting ? [] : (extensionProposal.acceptance_tests || []),
       activation_allowed: false,
     };
-    if (kind === 'module' && extensionProposal.decision === 'PROPOSE_MODULE') {
+    if (kind === 'module' && extensionProposal.decision === 'PROPOSE_MODULE' && !optimizesExisting) {
       idempotencyContext.module_proposal = idempotencyContext.extension_proposal;
     }
     if (kind === 'plugin') {
