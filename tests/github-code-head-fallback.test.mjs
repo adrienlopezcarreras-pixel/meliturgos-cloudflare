@@ -22,11 +22,13 @@ test('head falls back to bounded commits list for slash branch names', async () 
     fetchImpl
   });
 
-  assert.deepEqual(await reader.head(), {
-    sha: SHA,
-    branch: 'candidate/augmentio-core',
-    repository: 'adrienlopezcarreras-pixel/meliturgos-cloudflare'
-  });
+  const head = await reader.head();
+  assert.equal(head.sha, SHA);
+  assert.equal(head.branch, 'candidate/augmentio-core');
+  assert.equal(head.repository, 'adrienlopezcarreras-pixel/meliturgos-cloudflare');
+  assert.equal(head.source, 'github-commit-list');
+  assert.equal(head.remote_verified, true);
+  assert.equal(head.pinned, false);
   assert.equal(seen.length, 3);
 });
 
