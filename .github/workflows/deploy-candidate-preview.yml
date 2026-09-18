@@ -294,8 +294,11 @@ jobs:
               raise SystemExit('WATCH_NOT_RAN: ' + str(result.get('status')))
           if not sourced:
               raise SystemExit('WATCH_NO_SOURCED_DISCOVERY')
-          if not proof_handoff.get('job_id') or not proof_handoff.get('teacher_request_id'):
-              raise SystemExit('WATCH_NO_COUNCIL_TEACHER_HANDOFF')
+          # A forced watch may legitimately encounter only an existing QUEUED
+          # discovery whose previous Teacher request must be rebased to the
+          # current candidate SHA. The next workflow step runs the canonical
+          # autonomy tick and is the authoritative Teacher-handoff proof.
+          # Do not fail here before that rebase step has had a chance to run.
 
           print(json.dumps({
               'watch_status': result.get('status'),
