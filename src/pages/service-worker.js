@@ -1,5 +1,5 @@
 export const SERVICE_WORKER_SOURCE = `
-const CACHE='meliturgos-gen2-v4';
+const CACHE='meliturgos-gen2-v5';
 const FALLBACK='/';
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.add(FALLBACK)).catch(()=>{}).then(()=>self.skipWaiting()));
