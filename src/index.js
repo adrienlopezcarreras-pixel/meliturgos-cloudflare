@@ -7,7 +7,7 @@ import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
 import { handleNativeChat } from "./api/native-chat.js";
 import { maybeHandlePublicTeacherBridge } from "./teachers/public-teacher-api.js";
-import { runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
+import { runAutonomyMaintenance, runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
 import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
@@ -390,26 +390,38 @@ export default {
     }
   },
 
-  async scheduled(_controller, env, ctx) {
-    const work = Promise.allSettled([
-      runAutonomyRuntimeTick(env).catch((error) => {
-        console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
-        return null;
-      }),
-      runEcosystemCapabilityWatch(env, { sourceSha: deployedWatchSourceSha() }).catch((error) => {
-        console.error('[MEL watch] scheduled ecosystem watch failed:', error?.code || error?.message || error);
-        return null;
-      }),
-      runLoraTrainingHeartbeat(env).then((result) => {
-        if (result?.status === 'HEARTBEAT_ERROR') {
-          console.error('[MEL LoRA] training heartbeat error:', result.error || result.status);
-        }
-        return result;
-      }).catch((error) => {
-        console.error('[MEL LoRA] scheduled training heartbeat failed:', error?.code || error?.message || error);
-        return null;
-      }),
-    ]);
+  async scheduled(controller, env, ctx) {
+    const cron = String(controller?.cron || '');
+    const maintenanceCron = cron === '17 * * * *';
+
+    const tasks = maintenanceCron
+      ? [
+          runAutonomyMaintenance(env).catch((error) => {
+            console.error('[MEL autonomy] hourly maintenance failed:', error?.code || error?.message || error);
+            return null;
+          }),
+        ]
+      : [
+          runAutonomyRuntimeTick(env).catch((error) => {
+            console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runEcosystemCapabilityWatch(env, { sourceSha: deployedWatchSourceSha() }).catch((error) => {
+            console.error('[MEL watch] scheduled ecosystem watch failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runLoraTrainingHeartbeat(env).then((result) => {
+            if (result?.status === 'HEARTBEAT_ERROR') {
+              console.error('[MEL LoRA] training heartbeat error:', result.error || result.status);
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL LoRA] scheduled training heartbeat failed:', error?.code || error?.message || error);
+            return null;
+          }),
+        ];
+
+    const work = Promise.allSettled(tasks);
     if (ctx?.waitUntil) ctx.waitUntil(work);
     else await work;
   }
