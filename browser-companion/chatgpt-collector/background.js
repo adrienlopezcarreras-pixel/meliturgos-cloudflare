@@ -13,7 +13,7 @@ function norm(value){
 function idFromUrl(value){const u=norm(value);return u?decodeURIComponent(new URL(u).pathname.match(/(?:^|\/)c\/([^/?#]+)/i)?.[1]||''):''}
 async function state(){const x=await api.storage.local.get('melCollectorState');return {...DEFAULT,...(x.melCollectorState||{})}}
 async function save(p){const n={...(await state()),...p,updatedAt:Date.now()};await api.storage.local.set({melCollectorState:n});return n}
-async function config(){const x=await api.storage.local.get('melCollectorConfig'),c=x.melCollectorConfig||{};return{endpoint:String(c.endpoint||'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/,''),username:String(c.username||''),password:String(c.password||''),continuous:c.continuous!==false}}
+async function config(){const x=await api.storage.local.get('melCollectorConfig'),c=x.melCollectorConfig||{};return{endpoint:String(c.endpoint||'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/,''),username:String(c.username||''),password:String(c.password||''),continuous:c.continuous!==false,ecoMode:c.ecoMode!==false,delayMs:Math.max(3000,Math.min(60000,Number(c.delayMs)||12000))}}
 function auth(u,p){return 'Basic '+btoa(unescape(encodeURIComponent(`${u}:${p}`)))}
 
 async function sendConversation(conversation){
@@ -95,7 +95,8 @@ async function collectorTab(preferred){
 
 async function process(tabId){
   await save({running:true,paused:false,tabId,lastError:null});
-  await mergeDiscovery(tabId);
+  let initial=await state();
+  if(!(initial.queue||[]).length) await mergeDiscovery(tabId);
   while(true){
     let s=await state();
     if(!s.running||s.paused)return;
@@ -108,7 +109,7 @@ async function process(tabId){
     if(!sourceId||s.done?.[sourceId]){await save({queue});continue}
     await save({queue,currentUrl:url});
     try{
-      await api.tabs.update(tabId,{url,active:true});
+      await api.tabs.update(tabId,{url});
       await waitComplete(tabId);
       const reached=await waitForExpectedConversation(tabId,sourceId,15000);
       if(!reached)throw Object.assign(new Error('CONVERSATION_REDIRECTED_OR_UNAVAILABLE'),{code:'CONVERSATION_REDIRECTED_OR_UNAVAILABLE'});
@@ -122,7 +123,6 @@ async function process(tabId){
       const failed={...(s.failed||{})};delete failed[sourceId];
       const unavailable={...(s.unavailable||{})};delete unavailable[sourceId];
       await save({done,failed,unavailable,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),lastError:null,currentUrl:null});
-      await mergeDiscovery(tabId);
     }catch(e){
       s=await state();
       const failed={...(s.failed||{})};
@@ -140,6 +140,9 @@ async function process(tabId){
       }
       await save({failed,unavailable,queue:nextQueue,lastError:code,currentUrl:null});
     }
+    const cfg=await config();
+    if(cfg.ecoMode) await wait(cfg.delayMs);
+    else await wait(1500);
   }
 }
 
