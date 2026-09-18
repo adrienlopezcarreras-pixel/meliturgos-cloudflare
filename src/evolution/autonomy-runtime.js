@@ -451,11 +451,12 @@ export async function runAutonomyMaintenance(env, options = {}) {
   }
 
   const owner = String(options.runtimeLeaseOwner || `maintenance-${crypto.randomUUID()}`);
+  const runtimeLeaseStore = options.runtimeLeaseStore ?? (!env?.DB ? new Map() : null);
   const lease = await tryAcquireAutonomyRuntimeLease({
     db: env?.DB || null,
     owner,
     leaseMs: options.runtimeLeaseMs ?? env?.MEL_AUTONOMY_LEASE_MS,
-    memoryStore: options.runtimeLeaseStore,
+    memoryStore: runtimeLeaseStore,
   });
 
   if (!lease.acquired) {
@@ -506,7 +507,7 @@ export async function runAutonomyMaintenance(env, options = {}) {
     await releaseAutonomyRuntimeLease({
       db: env?.DB || null,
       owner,
-      memoryStore: options.runtimeLeaseStore,
+      memoryStore: runtimeLeaseStore,
     }).catch(() => false);
   }
 }
@@ -526,11 +527,12 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
   validateCandidateBranches(env);
 
   const owner = String(options.runtimeLeaseOwner || crypto.randomUUID());
+  const runtimeLeaseStore = options.runtimeLeaseStore ?? (!env?.DB ? new Map() : null);
   const lease = await tryAcquireAutonomyRuntimeLease({
     db: env?.DB || null,
     owner,
     leaseMs: options.runtimeLeaseMs ?? env?.MEL_AUTONOMY_LEASE_MS,
-    memoryStore: options.runtimeLeaseStore,
+    memoryStore: runtimeLeaseStore,
   });
 
   if (!lease.acquired) {
@@ -552,7 +554,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
     await releaseAutonomyRuntimeLease({
       db: env?.DB || null,
       owner,
-      memoryStore: options.runtimeLeaseStore,
+      memoryStore: runtimeLeaseStore,
     }).catch(() => false);
   }
 }
