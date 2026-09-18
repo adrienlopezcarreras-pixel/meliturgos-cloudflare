@@ -435,7 +435,14 @@ jobs:
             exit 0
           fi
           if [[ "$NEXT_STAGE" == "LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK" ]]; then
-            echo "Local zero-cost impact gate reached; preserve checkpoint and stop UNCENSORED chaining pending canonical benchmark."
+            echo "Local zero-cost impact gate reached; preserve checkpoint and dispatch exact canonical benchmark collector."
+            gh workflow run lora-kaggle-free-collect.yml \
+              --repo "$GITHUB_REPOSITORY" \
+              --ref candidate/mel-clean-autonomy \
+              -f activate_preview=false \
+              -f wait_for_completion=false \
+              -f max_wait_minutes=1
+            echo "Submitted canonical benchmark collector for the preserved Kaggle checkpoint."
             exit 0
           fi
           if (( NEXT_CYCLE >= MAX_CYCLES )); then
