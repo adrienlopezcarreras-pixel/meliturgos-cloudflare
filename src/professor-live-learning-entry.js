@@ -4,7 +4,6 @@ import { authorizeDevBridge } from './core/dev-bridge-auth.js';
 import { createLearningEngine } from './learning/learning-engine.js';
 import { getLiveLearningProgress } from './learning/live-progress.js';
 import { ensureZeroCostBenchmarkBaseline, prepareOperatorLora, runOperatorBenchmark, runOperatorLoraBenchmark } from './learning/operator-actions.js';
-import { enhanceThemeAvatars } from './pages/theme-avatar-enhancer.js';
 import { runScheduledSystemBackup } from './backup/system-backup-runtime.js';
 
 const PROFESSOR_SAFE_DEV_BRIDGE_PATHS = new Set([
@@ -299,18 +298,7 @@ async function operatorLoraPrepareResponse(request, env) {
  * visual owner of normal mode without rewriting lower runtime behavior.
  */
 export async function stripLegacyNormalVisualLayers(response) {
-  if (!(response instanceof Response)) return response;
-  const type = response.headers.get('content-type') || '';
-  if (!response.ok || !type.includes('text/html')) return response;
-  const html = await response.text();
-  const body = html
-    .replace(/<style id="mel-owner-visual-fix">[\s\S]*?<\/style>/g, '')
-    .replace(/<style id="mel-new-hd-scenes">[\s\S]*?<\/style>/g, '')
-    .replace(/<script id="mel-normal-release-runtime">[\s\S]*?<\/script>/g, '');
-  const headers = new Headers(response.headers);
-  headers.delete('content-length');
-  headers.set('cache-control', 'no-store, no-cache, must-revalidate');
-  return new Response(body, { status: response.status, statusText: response.statusText, headers });
+  return response;
 }
 
 const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-runtime">
@@ -536,12 +524,8 @@ export default {
     if (request.method === 'POST' && url.pathname === '/api/learning/lora/benchmark') {
       return operatorLoraBenchmarkResponse(request, env);
     }
-    let response = await app.fetch(request, env, ctx);
+    const response = await app.fetch(request, env, ctx);
     if (request.method !== 'GET') return response;
-    if (url.pathname === '/' || url.pathname === '/mvp') {
-      response = await stripLegacyNormalVisualLayers(response);
-      response = await enhanceThemeAvatars(response);
-    }
     return enhanceProfessorLearning(response, url.pathname);
   },
   async scheduled(controller, env, ctx) {
