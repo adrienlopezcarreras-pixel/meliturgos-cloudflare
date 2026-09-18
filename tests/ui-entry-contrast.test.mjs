@@ -13,15 +13,12 @@ test('owner root interface remains the canonical v3 surface without legacy reinj
   assert.match(html, /id="previousMessage"/);
 });
 
-test('full mode receives the Worker-served futuristic MEL portrait and explanatory live status patch', async () => {
-  const input = new Response('<!doctype html><html><head></head><body><img src="/meliturgos-avatar-fille.png"><div id="melLiveLog"><div class="mel-live-entry">WAITING_TEACHER</div></div></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } });
-  const output = await enhanceOwnerInterface(input, '/professor'); const html = await output.text();
-  assert.match(html, /\/assets\/avatars\/mel-full\.webp/);
-  assert.match(html, /mel-full-avatar-fix/);
-  assert.match(html, /mel-full-page-cleanup/);
-  assert.match(html, /Ce que MEL fait maintenant/);
-  assert.match(html, /Démarrer cycle MEL/);
-  assert.doesNotMatch(html, /Réconcilier Teacher \/ Review maintenant/);
+test('full mode is not reinjected by the API entry layer', async () => {
+  const source = '<!doctype html><html><head></head><body><main id="professor-canonical">Mode complet</main></body></html>';
+  const input = new Response(source, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+  const output = await enhanceOwnerInterface(input, '/professor');
+  assert.equal(await output.text(), source);
+  assert.doesNotMatch(source, /mel-full-page-cleanup|mel-full-avatar-fix|melLiveOwnerExplain/);
 });
 
 test('non-owner API responses are left untouched', async () => {
