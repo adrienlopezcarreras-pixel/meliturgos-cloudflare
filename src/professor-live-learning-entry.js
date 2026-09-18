@@ -6,11 +6,6 @@ import { getLiveLearningProgress } from './learning/live-progress.js';
 import { ensureZeroCostBenchmarkBaseline, prepareOperatorLora, runOperatorBenchmark, runOperatorLoraBenchmark } from './learning/operator-actions.js';
 import { runScheduledSystemBackup } from './backup/system-backup-runtime.js';
 
-const PROFESSOR_SAFE_DEV_BRIDGE_PATHS = new Set([
-  '/api/dev-bridge/health',
-  '/api/dev-bridge/jobs',
-]);
-
 const FREE_LORA_HF_REPO = 'Meliturgos/mel-lora-uncensored';
 const FREE_LORA_GITHUB_REPO = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const FREE_LORA_WORKFLOW = 'lora-promote-from-huggingface.yml';
@@ -516,7 +511,7 @@ async function enhanceProfessorLearning(response, pathname) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname.startsWith('/api/dev-bridge/') && !PROFESSOR_SAFE_DEV_BRIDGE_PATHS.has(url.pathname)) {
+    if (url.pathname.startsWith('/api/dev-bridge/')) {
       const denied = authorizeDevBridge(request, env);
       if (denied) return denied;
     }
@@ -540,22 +535,19 @@ export default {
     return enhanceProfessorLearning(response, url.pathname);
   },
   async scheduled(controller, env, ctx) {
-    // The one-minute autonomy heartbeat always gets priority. Maintenance is
-    // detached from that critical path and sampled every 15 minutes.
     await app.scheduled(controller, env, ctx);
+    if (String(controller?.cron || '') !== '17 * * * *') return;
+
     const scheduledAt = Number(controller?.scheduledTime);
     const timestamp = Number.isFinite(scheduledAt) ? scheduledAt : Date.now();
-    const maintenanceDue = Math.floor(timestamp / 60000) % 15 === 0;
-    if (!maintenanceDue) return;
-
     const now = () => new Date(timestamp).toISOString();
     const maintenance = Promise.allSettled([
       ensureZeroCostBenchmarkBaseline(env).catch((error) => {
-        console.error('[MEL benchmark] baseline bootstrap skipped:', error?.code || error?.message || error);
+        console.error('[MEL benchmark] hourly baseline bootstrap skipped:', error?.code || error?.message || error);
         return null;
       }),
       runScheduledSystemBackup(env, { now }).catch((error) => {
-        console.error('[MEL backup] scheduled snapshot failed:', error?.code || error?.message || error);
+        console.error('[MEL backup] hourly maintenance snapshot skipped:', error?.code || error?.message || error);
         return null;
       }),
     ]);
