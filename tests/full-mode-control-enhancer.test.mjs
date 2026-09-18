@@ -51,6 +51,13 @@ test('full mode activity panel exposes the discovery registry and Council/Teache
   assert.match(html, /UNBLOCK_EXISTING/);
   assert.match(html, /WAITING_TEACHER/);
   assert.match(html, /Handoff veille/);
+  assert.match(html, /Propositions de MEL/);
+  assert.match(html, /\/api\/mel\/capability-watch\/proposal/);
+  assert.match(html, />Tester</);
+  assert.match(html, />Approuver</);
+  assert.match(html, />Refuser</);
+  assert.match(html, />Plus tard</);
+  assert.match(html, /melProposalChatNotice/);
   assert.match(html, /Council terminé/);
   assert.match(html, /sans activation production automatique/i);
 });
