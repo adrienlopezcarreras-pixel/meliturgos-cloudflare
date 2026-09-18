@@ -21,6 +21,20 @@ function recentText(recent = []) {
   return (Array.isArray(recent) ? recent : []).slice(-8).map(row => String(row?.content || '')).join('\n');
 }
 
+function extractNativeSearchQuery(value) {
+  const source = String(value || '').trim();
+  const quoted = source.match(/[`'"]([^`'"]{2,120})[`'"]/);
+  if (quoted) return quoted[1];
+
+  const afterVerb = source.match(/(?:cherche|chercher|recherche|trouve|trouver|localise|localiser|search|find)\s+(?:dans\s+)?(?:ton|le|du|les)?\s*(?:code|sources?|repo|d[ée]p[ôo]t|github)?\s*[:,-]?\s*(.{2,160})/i);
+  const tail = afterVerb?.[1]?.replace(/[?.!]+$/g, '').trim() || source;
+  const symbols = tail.match(/\b[A-Za-z_$][A-Za-z0-9_$.-]{2,}\b/g) || [];
+  const ignored = /^(?:cherche|chercher|recherche|trouve|trouver|localise|localiser|search|find|dans|ton|elle|faire|avec|cela|comment|pourquoi|code|source|sources|fichier|fonction|classe|module|github|repo|repository|depot|dépôt|defined|where|used|utilise|utilisee|définie|definie|est|où)$/i;
+  const filtered = symbols.filter(symbol => !ignored.test(symbol));
+  const codeLike = filtered.filter(symbol => /[A-Z_$]/.test(symbol.slice(1)) || /[_.$-]/.test(symbol)).at(-1);
+  return String(codeLike || filtered.at(-1) || tail || 'MELITURGOS').slice(0, 300);
+}
+
 export function inferNativeCodeCapability(text, recent = []) {
   const value = String(text || '').trim();
   if (!value) return null;
@@ -30,6 +44,7 @@ export function inferNativeCodeCapability(text, recent = []) {
   const talksCodeNow = /\b(code|source|repo|repository|d[ée]p[ôo]t|github|fichier|fonction|classe|module|branche|branch)\b/i.test(value);
   const talksCodeRecently = /\b(code|source|repo|repository|d[ée]p[ôo]t|github|fichier|fonction|classe|module|branche|branch)\b/i.test(history);
   const asksRead = /\b(lis|lire|ouvre|ouvrir|affiche|montre|read|open|contenu)\b/i.test(value);
+  const asksSearch = /\b(cherche|chercher|recherche|trouve|trouver|localise|localiser|search|find)\b/i.test(value);
   const asksAccess = /\b(acc[eè]s|acc[eè]der|capable\s+d['’]acc[eè]der|voir|inspecte|inspecter|analyse|analyser)\b/i.test(value);
   const asksIntegrity = /\b(int[ée]grit[ée]|integrity|v[ée]rifie(?:r)?|contr[ôo]le(?:r)?|coh[ée]rence|code\s+sain|code\s+propre|sources?\s+propres?)\b/i.test(value)
     && /\b(code|source|repo|repository|d[ée]p[ôo]t|github|fichier|branche|branch)\b/i.test(contextual);
@@ -38,13 +53,12 @@ export function inferNativeCodeCapability(text, recent = []) {
   const path = pathNow || (followUpAccess ? extractCodePath(history) : null);
   if (asksIntegrity) return { id: 'code.integrity', input: {} };
   if (path && (asksRead || asksAccess || followUpAccess)) return { id: 'code.read', input: { path } };
+  if (asksSearch) return { id: 'code.search', input: { query: extractNativeSearchQuery(value) } };
   // Never invent a source target. Access/read questions without an explicit or
   // resolvable repository path are answered from capability truth, not by
   // silently reading a default file such as src/router.js.
   if (asksAccess || asksRead || followUpAccess) return null;
-  const quoted = value.match(/[`'\"]([^`'\"]{2,120})[`'\"]/);
-  const query = quoted?.[1] || value.split(/\s+/).filter(Boolean).slice(-4).join(' ').slice(0,300) || 'MELITURGOS';
-  return { id: 'code.search', input: { query } };
+  return { id: 'code.search', input: { query: extractNativeSearchQuery(value) } };
 }
 
 export async function buildRuntimeCapabilityManifest(runtime) {
