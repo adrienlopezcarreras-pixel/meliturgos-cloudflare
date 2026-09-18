@@ -24,6 +24,9 @@ test('ecosystem watch catalog is unique and covers AI, tooling and creative arts
     'watch_video_cinema',
   ]) assert.ok(ids.includes(id), id);
   assert.ok(catalog.targets.every(row => row.mode === 'observe' && row.metadata.query));
+  const openai = catalog.targets.find(row => row.id === 'watch_openai_chatgpt');
+  assert.ok(openai.metadata.sources.length >= 2);
+  assert.ok(openai.metadata.sources.some(url => /developers\\.openai\\.com\\/api\\/docs\\/changelog/.test(url)));
 });
 
 test('canonical capability watch persists observations without inventing scores', async () => {
