@@ -8,7 +8,7 @@ Une branche `release/*` n’est qu’un pointeur temporaire vers le SHA exact de
 
 `teacher-bridge/runtime` est un transport de métadonnées Teacher, jamais une branche de code exécutable.
 
-Les branches explicitement consacrées au travail LoRA sont temporairement isolées pendant le chantier LoRA en cours. Elles ne doivent pas être absorbées ou déplacées par les autres chantiers. À la fin du chantier LoRA, elles devront à leur tour être intégrées puis retirées des lignes actives.
+Les branches LoRA/adapter/compatibilité actives sont désormais soumises à la même règle que tout autre développement : aucune divergence active n’est autorisée. Les anciens HEAD utiles peuvent être conservés uniquement sous `archive/*`, qui est historique et non déployable.
 
 ## Règles obligatoires pour MEL, Teacher Bridge et les agents de développement
 
@@ -36,13 +36,13 @@ Avant de déclarer un passage terminé :
 - supprimer les chemins logiques, wrappers ou sources de vérité rendus obsolètes par le passage ;
 - confirmer qu’une seule ligne de développement exécutable reste active : `candidate/mel-clean-autonomy` ;
 - adapter tests, docs et handoff au nouvel état ;
-- laisser les exceptions temporaires LoRA/adapter séparées uniquement tant que ce chantier l’exige explicitement.
+- confirmer que les branches LoRA/adapter/compatibilité actives sont elles aussi convergentes ; conserver un ancien HEAD seulement sous `archive/*` si son historique doit rester consultable.
 
 Un statut `diverged` non exempté à la fin d’un passage rend ce passage **INCOMPLET**.
 
 ## Garde automatique
 
-Le workflow `.github/workflows/canonical-branch-unicity.yml` vérifie que toute branche du dépôt non exemptée — y compris les anciennes releases, archives, rollbacks et références temporaires — est un ancêtre de `candidate/mel-clean-autonomy`. Une nouvelle divergence doit faire échouer ce contrôle. Les seules exemptions temporaires sont le transport `teacher-bridge/runtime` et les branches explicitement LoRA/compatibilité/adaptateur pendant le chantier séparé.
+Le workflow `.github/workflows/canonical-branch-unicity.yml` vérifie que toute branche de code active est un ancêtre de `candidate/mel-clean-autonomy`. Une nouvelle divergence doit faire échouer ce contrôle. Les seules exemptions sont `teacher-bridge/runtime`, qui transporte des métadonnées et jamais du code exécutable, et `archive/*`, qui conserve uniquement des HEAD historiques non déployables.
 
 ## But
 
