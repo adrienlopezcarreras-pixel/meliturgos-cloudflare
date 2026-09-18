@@ -42,7 +42,7 @@ test('generated fallback background inventory remains self-contained and 4K-capa
 
 test('service worker is network-first and never caches API reads', async () => {
   const source = await text('src/pages/service-worker.js');
-  assert.match(source, /meliturgos-gen2-v4/);
+  assert.match(source, /meliturgos-gen2-v5/);
   assert.match(source, /networkFirst/);
   assert.match(source, /pathname\.startsWith\('\/api\/'\)/);
   assert.match(source, /skipWaiting/);
