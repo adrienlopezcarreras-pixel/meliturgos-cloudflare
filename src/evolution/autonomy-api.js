@@ -75,7 +75,8 @@ export async function getAutonomyState(env, { repository = null } = {}) {
     zero_added_cost: true,
     runtime_schedule: AUTONOMY_RUNTIME_CRON,
     repository: env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare',
-    candidate_branch: env.MEL_TEACHER_BRANCH || CANONICAL_CANDIDATE_BRANCH,
+    candidate_branch: env.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
+    teacher_branch: env.MEL_TEACHER_BRANCH || env.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
     deployed_code_branch: env.MEL_GITHUB_BRANCH || null,
     control,
     readiness: {
