@@ -57,13 +57,13 @@ function safeRoadmapItem(item) {
   };
 }
 
-export async function getAutonomyState(env, { repository = null } = {}) {
+export async function getAutonomyState(env, { repository = null, autonomyControlState = null } = {}) {
   const repo = repository || new D1DevJobRepository(env.DB);
   const supervisor = new AutonomySupervisor({ repository: repo });
   const [state, readiness, control] = await Promise.all([
     supervisor.state(),
     getAutonomyReadiness({ repository: repo }),
-    getAutonomyControl(env.DB),
+    getAutonomyControl(env.DB, { memoryState: autonomyControlState }),
   ]);
   const autonomyJobs = state.jobs.filter(isSupervisedAutonomyJob);
   const active = autonomyJobs.filter(job => !TERMINAL.has(String(job.status || '').toUpperCase()));
@@ -102,7 +102,7 @@ export async function getAutonomyState(env, { repository = null } = {}) {
   };
 }
 
-export async function maybeHandleAutonomyApi(request, env, { repository = null, fetchImpl = fetch } = {}) {
+export async function maybeHandleAutonomyApi(request, env, { repository = null, fetchImpl = fetch, autonomyControlState = null } = {}) {
   const url = new URL(request.url);
   const isPublicControl = url.pathname === '/api/gen2/autonomy/control';
   const isState = url.pathname === '/api/gen2/autonomy/state' || url.pathname === '/api/gen2/autonomy/status';
@@ -114,7 +114,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
 
   if (isPublicControl) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
-    const control = await getAutonomyControl(env.DB);
+    const control = await getAutonomyControl(env.DB, { memoryState: autonomyControlState });
     return Response.json({
       ok: true,
       paused: control.paused === true,
@@ -130,7 +130,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
 
   if (isState) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
-    return Response.json(await getAutonomyState(env, { repository }), { headers: { 'cache-control': 'no-store' } });
+    return Response.json(await getAutonomyState(env, { repository, autonomyControlState }), { headers: { 'cache-control': 'no-store' } });
   }
 
   if (request.method !== 'POST') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'POST' } });
@@ -142,8 +142,9 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       paused: isPause,
       source: 'owner-ui',
       reason: isPause ? (body?.reason || 'owner-emergency-stop') : null,
+      memoryState: autonomyControlState,
     });
-    const state = await getAutonomyState(env, { repository: repo });
+    const state = await getAutonomyState(env, { repository: repo, autonomyControlState });
     return Response.json({ ok: true, control, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
@@ -154,6 +155,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       enabled,
       source: 'owner-ui',
       reason: enabled ? 'owner-max-autonomy' : null,
+      memoryState: autonomyControlState,
     });
     // MAX must not merely set a flag and then leave owner jobs parked until the
     // next cron. Run one bounded autonomy heartbeat immediately. The runtime
@@ -161,13 +163,13 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     // lock, while OWNER MAX can advance valid WAITING_TEACHER work internally.
     let tick = null;
     if (enabled) {
-      tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl });
+      tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState });
     }
-    const state = await getAutonomyState(env, { repository: repo });
+    const state = await getAutonomyState(env, { repository: repo, autonomyControlState });
     return Response.json({ ok: true, control, tick, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
-  const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl });
+  const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState });
   const state = await getAutonomyState(env, { repository: repo });
   return Response.json({ ok: true, tick, state }, { headers: { 'cache-control': 'no-store' } });
 }
