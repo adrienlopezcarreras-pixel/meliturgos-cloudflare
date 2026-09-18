@@ -209,21 +209,43 @@ jobs:
             kaggle datasets create -p artifacts/kaggle-payload
           fi
 
+          STATUS_READY=0
+          for attempt in $(seq 1 60); do
+            DATASET_STATUS="$(kaggle datasets status "$PAYLOAD_REF" --format json 2>&1 || true)"
+            echo "dataset-status[$attempt] $DATASET_STATUS"
+            LOWER_STATUS="$(printf '%s' "$DATASET_STATUS" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$LOWER_STATUS" | grep -Eq 'ready|complete|completed|success|active'; then
+              STATUS_READY=1
+              printf '%s\n' "$DATASET_STATUS" > artifacts/kaggle-payload-status.json
+              break
+            fi
+            if printf '%s' "$LOWER_STATUS" | grep -Eq 'error|failed|failure'; then
+              echo "KAGGLE_PAYLOAD_DATASET_FAILED"
+              exit 1
+            fi
+            sleep 10
+          done
+          if [[ "$STATUS_READY" != "1" ]]; then
+            echo "KAGGLE_PAYLOAD_DATASET_STATUS_TIMEOUT"
+            exit 1
+          fi
+
           READY=0
-          for attempt in $(seq 1 40); do
+          for attempt in $(seq 1 30); do
             FILES="$(kaggle datasets files "$PAYLOAD_REF" 2>&1 || true)"
-            echo "payload[$attempt] $FILES"
+            echo "payload-files[$attempt] $FILES"
             if printf '%s' "$FILES" | grep -q "payload.json"; then
               printf '%s\n' "$FILES" > artifacts/kaggle-payload-files.txt
               READY=1
               break
             fi
-            sleep 15
+            sleep 10
           done
           if [[ "$READY" != "1" ]]; then
-            echo "KAGGLE_PAYLOAD_DATASET_NOT_READY"
+            echo "KAGGLE_PAYLOAD_DATASET_FILES_NOT_READY"
             exit 1
           fi
+          cat artifacts/kaggle-payload-status.json
           cat artifacts/kaggle-payload-files.txt
           grep -q "payload.json" artifacts/kaggle-payload-files.txt
 
@@ -445,6 +467,8 @@ jobs:
             artifacts/kaggle-quota.json
             artifacts/kaggle-quota.txt
             artifacts/kaggle-quota.err
+            artifacts/kaggle-payload-status.json
+            artifacts/kaggle-payload-files.txt
             artifacts/kaggle-server-metadata/**/kernel-metadata.json
           if-no-files-found: warn
           retention-days: 14
