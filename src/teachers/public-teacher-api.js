@@ -240,15 +240,15 @@ function bridgeSnapshot(pending, jobs) {
  * reliably preserve application/json response bodies; it grants no mutation
  * capability and contains no additional fields beyond the safe public views.
  */
-export async function maybeHandlePublicTeacherBridge(request, env) {
+export async function maybeHandlePublicTeacherBridge(request, env, { repository = null } = {}) {
   if (request.method !== 'GET') return null;
   const url = new URL(request.url);
   if (!PUBLIC_PATHS.has(url.pathname)) return null;
 
-  const repository = new D1DevJobRepository(env.DB);
+  const repo = repository || new D1DevJobRepository(env?.DB);
   const [pendingRows, jobs] = await Promise.all([
-    listPendingRuntimeTeacherRequests(repository, { limit: 20 }),
-    repository.list(),
+    listPendingRuntimeTeacherRequests(repo, { limit: 20 }),
+    repo.list(),
   ]);
   const pending = minimizePending(pendingRows);
   const autonomy = summarizeAutonomyJobs(jobs);
