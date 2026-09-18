@@ -1,5 +1,6 @@
 import { detectCapabilityGap } from '../evolution/capability-gap-detector.js';
 import { proposeModuleDraft, proposePluginDraft } from '../capabilities/module-proposal-capability.js';
+import { flattenRoadmap } from '../roadmap/master-roadmap.js';
 
 export const ECOSYSTEM_DISCOVERY_SCHEMA = 'mel.ecosystem-discovery-plan/v1';
 export const ECOSYSTEM_DISCOVERY_LEDGER_SCHEMA = 'mel.ecosystem-discovery-ledger/v1';
@@ -10,6 +11,53 @@ function text(value, max = 800) {
 
 function keyOf(value) {
   return text(value, 160).toLowerCase().replace(/[^a-z0-9_.:-]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function wordSet(value) {
+  return new Set(
+    text(value, 12000)
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .split(/\s+/)
+      .filter(token => token.length >= 4)
+  );
+}
+
+function roadmapMatches(hint, target = {}, evidence = {}) {
+  const query = wordSet([
+    hint,
+    target?.metadata?.label || '',
+    target?.metadata?.category || '',
+    evidence?.summary || '',
+    evidence?.cross_ai?.best?.text || '',
+  ].join(' '));
+  const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 };
+
+  return flattenRoadmap()
+    .map(row => {
+      const haystack = wordSet([row.id, row.title, row.next, row.phase].join(' '));
+      let score = 0;
+      for (const token of query) if (haystack.has(token)) score += 1;
+      return { row, score };
+    })
+    .filter(match => match.score > 0)
+    .sort((a, b) =>
+      b.score - a.score
+      || (priorityRank[a.row.priority] ?? 9) - (priorityRank[b.row.priority] ?? 9)
+      || String(a.row.id).localeCompare(String(b.row.id))
+    )
+    .slice(0, 5)
+    .map(({ row, score }) => ({
+      id: row.id,
+      title: row.title,
+      status: row.status,
+      priority: row.priority,
+      next: row.next,
+      phase: row.phase,
+      relevance_score: score,
+    }));
 }
 
 function proposalKind(hint, target) {
