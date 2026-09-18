@@ -31,6 +31,8 @@ jobs:
           set -euo pipefail
           test "${GITHUB_REF_NAME}" = "candidate/mel-clean-autonomy"
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          git switch -C candidate/mel-clean-autonomy "${GITHUB_SHA}"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           echo "One-shot production approval: ${GITHUB_SHA}"
 
       - name: Setup Node
