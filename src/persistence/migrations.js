@@ -137,6 +137,13 @@ export const MIGRATIONS = [
     await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mentor_lessons_outcome ON mentor_lessons(outcome)`).run();
     await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mentor_lessons_job ON mentor_lessons(job_id)`).run();
   }},
+  { version: 7, name: 'capability_ecosystem_watch', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS capability_watch_state (
+      id TEXT PRIMARY KEY,
+      state_json TEXT NOT NULL DEFAULT '{}',
+      updated_at INTEGER NOT NULL
+    )`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
