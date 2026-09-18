@@ -49,21 +49,19 @@ jobs:
           kaggle kernels status "$KERNEL" | tee kaggle-status.txt
 
           STATUS_TEXT="$(cat kaggle-status.txt)"
-          if printf '%s' "$STATUS_TEXT" | grep -Eqi 'ERROR|FAILED|FAILURE'; then
-            mkdir -p kaggle-debug-output
-            kaggle kernels output "$KERNEL" -p kaggle-debug-output --force || true
-            echo "=== Kaggle output files ==="
-            find kaggle-debug-output -maxdepth 4 -type f -print || true
-            echo "=== Text diagnostics ==="
-            while IFS= read -r file; do
-              case "$file" in
-                *.txt|*.log|*.json|*.out|*.err)
-                  echo "--- $file ---"
-                  tail -n 200 "$file" || true
-                  ;;
-              esac
-            done < <(find kaggle-debug-output -maxdepth 4 -type f -print 2>/dev/null || true)
-          fi
+          mkdir -p kaggle-debug-output
+          kaggle kernels output "$KERNEL" -p kaggle-debug-output --force || true
+          echo "=== Kaggle output files ==="
+          find kaggle-debug-output -maxdepth 4 -type f -print || true
+          echo "=== Text diagnostics ==="
+          while IFS= read -r file; do
+            case "$file" in
+              *.txt|*.log|*.json|*.out|*.err)
+                echo "--- $file ---"
+                tail -n 200 "$file" || true
+                ;;
+            esac
+          done < <(find kaggle-debug-output -maxdepth 4 -type f -print 2>/dev/null || true)
 
       - name: Upload status evidence
         if: always()
