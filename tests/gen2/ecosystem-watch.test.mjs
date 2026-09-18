@@ -6,7 +6,7 @@ import {
   getEcosystemWatchCatalog,
 } from '../../src/evaluation/ecosystem-watch-catalog.js';
 import { runCapabilityWatch } from '../../src/evaluation/capability-watch.js';
-import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, markEcosystemDiscoveryHandoff, reconcileEcosystemDiscoveryHandoffs } from '../../src/evaluation/ecosystem-discovery-planner.js';
+import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, markEcosystemDiscoveryOwnerDecision, markEcosystemDiscoveryHandoff, reconcileEcosystemDiscoveryHandoffs } from '../../src/evaluation/ecosystem-discovery-planner.js';
 import { createGen2Runtime } from '../../src/core/orchestrator/gen2-runtime.js';
 
 test('ecosystem watch catalog is unique and covers AI, tooling and creative arts', () => {
@@ -439,4 +439,34 @@ test('job reconciliation clears stale error code after a retry reaches Teacher',
   assert.equal(handoff.teacher_request_id, 'req-live');
   assert.equal(handoff.candidate_sha, 'c'.repeat(40));
   assert.equal(handoff.attempts, 3);
+});
+
+
+test('owner decisions persist and rejected or deferred proposals are skipped by automatic selection', () => {
+  const base = {
+    items: [{
+      fingerprint: 'capability:new-owner-choice',
+      capability_hint: 'new-owner-choice',
+      category: 'tooling',
+      action: 'PROPOSE_EXTENSION',
+      evidence_status: 'SOURCED_OBSERVATION',
+      citations_count: 2,
+      sources: [{ title: 'Docs', url: 'https://example.com/docs' }],
+      proposal: { activation_allowed: false },
+      suggested_kind: 'plugin',
+    }],
+  };
+  const rejected = markEcosystemDiscoveryOwnerDecision(base, 'capability:new-owner-choice', {
+    status: 'REJECTED',
+    decided_by: 'owner',
+  }, 100);
+  assert.equal(rejected.items[0].owner_decision.status, 'REJECTED');
+  assert.equal(selectEcosystemDiscoveryCandidate(rejected), null);
+
+  const deferred = markEcosystemDiscoveryOwnerDecision(base, 'capability:new-owner-choice', {
+    status: 'DEFERRED',
+    decided_by: 'owner',
+  }, 200);
+  assert.equal(deferred.items[0].owner_decision.status, 'DEFERRED');
+  assert.equal(selectEcosystemDiscoveryCandidate(deferred), null);
 });
