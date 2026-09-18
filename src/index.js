@@ -1,4 +1,4 @@
-// Canonical core Worker handler. worker.js is a logic-free compatibility alias;
+// Canonical core Worker handler. The retired root worker.js stays inert;
 // deployment/auth/UI wrappers delegate here without owning a second runtime.
 import router from "./router.js";
 import { requireAuth } from "./core/security.js";
