@@ -224,6 +224,7 @@ def main() -> int:
             BitsAndBytesConfig,
             DataCollatorForLanguageModeling,
             Trainer,
+            TrainerCallback,
             TrainingArguments,
             set_seed,
         )
@@ -359,7 +360,92 @@ def main() -> int:
         remove_unused_columns=False,
     )
     collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-    trainer = Trainer(model=model, args=training_args, train_dataset=ds, data_collator=collator)
+
+    training_started_path = output_dir / "training-started.json"
+    training_progress_path = output_dir / "training-progress.jsonl"
+
+    def emit_training_progress(event: str, **payload) -> None:
+        record = {
+            "schema": "mel.lora-training-progress.v1",
+            "event": event,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **payload,
+        }
+        with training_progress_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+            fh.flush()
+        print("MEL_TRAINING_PROGRESS " + json.dumps(record, ensure_ascii=False, sort_keys=True), flush=True)
+
+    class MelTrainingProgressCallback(TrainerCallback):
+        def on_train_begin(self, args_, state, control, **kwargs):
+            emit_training_progress(
+                "TRAIN_BEGIN",
+                global_step=int(state.global_step or 0),
+                epoch=float(state.epoch or 0.0),
+                max_steps=int(state.max_steps or 0),
+            )
+            return control
+
+        def on_step_end(self, args_, state, control, **kwargs):
+            emit_training_progress(
+                "STEP",
+                global_step=int(state.global_step or 0),
+                epoch=float(state.epoch or 0.0),
+                max_steps=int(state.max_steps or 0),
+            )
+            return control
+
+        def on_log(self, args_, state, control, logs=None, **kwargs):
+            logs = dict(logs or {})
+            emit_training_progress(
+                "LOG",
+                global_step=int(state.global_step or 0),
+                epoch=float(state.epoch or 0.0),
+                loss=logs.get("loss"),
+                learning_rate=logs.get("learning_rate"),
+                grad_norm=logs.get("grad_norm"),
+            )
+            return control
+
+        def on_train_end(self, args_, state, control, **kwargs):
+            emit_training_progress(
+                "TRAIN_END",
+                global_step=int(state.global_step or 0),
+                epoch=float(state.epoch or 0.0),
+                max_steps=int(state.max_steps or 0),
+            )
+            return control
+
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=ds,
+        data_collator=collator,
+        callbacks=[MelTrainingProgressCallback()],
+    )
+
+    training_started = {
+        "schema": "mel.lora-training-started.v1",
+        "status": "TRAINING_STARTED",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "stage": args.stage,
+        "plan_id": plan["id"],
+        "dataset_digest": dataset_digest,
+        "examples": len(rows),
+        "epochs": args.epochs,
+        "max_length": args.max_length,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "training_mode": training_mode,
+        "cuda_available": cuda,
+        "gpu": torch.cuda.get_device_name(0) if cuda else None,
+    }
+    training_started_path.write_text(
+        json.dumps(training_started, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    emit_training_progress("TRAINING_STARTED", **training_started)
+    print("TRAINING_STARTED " + json.dumps(training_started, ensure_ascii=False, sort_keys=True), flush=True)
+
     train_result = trainer.train(
         resume_from_checkpoint=args.resume_from_checkpoint or None
     )
@@ -433,6 +519,16 @@ def main() -> int:
                 "file": adapter_config.name,
                 "digest": sha256_file(adapter_config),
                 "size_bytes": adapter_config.stat().st_size,
+            },
+            "training_started": {
+                "file": training_started_path.name,
+                "digest": sha256_file(training_started_path),
+                "size_bytes": training_started_path.stat().st_size,
+            },
+            "training_progress": {
+                "file": training_progress_path.name,
+                "digest": sha256_file(training_progress_path),
+                "size_bytes": training_progress_path.stat().st_size,
             },
         },
         "training_metrics": {
