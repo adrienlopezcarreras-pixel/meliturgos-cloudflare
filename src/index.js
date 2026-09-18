@@ -17,6 +17,10 @@ import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js"
 
 let lastSafeWorkJob = null;
 
+function deployedWatchSourceSha() {
+  return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') || null : null;
+}
+
 function isArchivePayload(value) {
   if (Array.isArray(value)) return value.some(x => x && (x.mapping || x.messages || x.conversation_id || x.id));
   if (!value || typeof value !== 'object') return false;
@@ -372,7 +376,7 @@ export default {
         console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
         return null;
       }),
-      runEcosystemCapabilityWatch(env).catch((error) => {
+      runEcosystemCapabilityWatch(env, { sourceSha: deployedWatchSourceSha() }).catch((error) => {
         console.error('[MEL watch] scheduled ecosystem watch failed:', error?.code || error?.message || error);
         return null;
       }),

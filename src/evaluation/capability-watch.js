@@ -41,6 +41,9 @@ function compactEvidence(value) {
     summary: boundedText(value.summary, 1800),
     citations_count: Math.max(0, Math.trunc(finiteNumber(value.citations_count, sources.length))),
     sources,
+    detected_capabilities: Array.isArray(value.detected_capabilities)
+      ? [...new Set(value.detected_capabilities.map(item => boundedText(item, 160)).filter(Boolean))].slice(0, 30)
+      : [],
     performed_at: boundedText(value.performed_at || value.retrieved_at || '', 80) || null,
     status: boundedText(value.status || '', 80) || null,
   };
@@ -165,19 +168,21 @@ export async function runCapabilityWatch({
   regressionThreshold = DEFAULT_CAPABILITY_WATCH_REGRESSION_THRESHOLD,
   source_sha = null,
   metadata = {},
+  force = false,
 } = {}) {
   const plan = planCapabilityWatch({ now, intervalMs, state });
   const measuredAt = Math.max(0, Math.trunc(finiteNumber(now, Date.now())));
 
-  if (!plan.due) {
+  if (!plan.due && force !== true) {
     return {
       status: 'NOT_DUE', reason: plan.reason, measured_at: measuredAt,
       next_due_at: plan.next_window_at, state: plan.previous, results: [], regressions: [], overall: null,
     };
   }
+  const runReason = force === true ? 'FORCED' : plan.reason;
   if (typeof evaluator !== 'function') {
     return {
-      status: 'BLOCKED_EVALUATOR_UNAVAILABLE', reason: plan.reason, measured_at: measuredAt,
+      status: 'BLOCKED_EVALUATOR_UNAVAILABLE', reason: runReason, measured_at: measuredAt,
       next_due_at: plan.window_started_at, state: plan.previous, results: [], regressions: [], overall: null,
     };
   }
@@ -250,7 +255,7 @@ export async function runCapabilityWatch({
   };
 
   return {
-    status: 'RAN', reason: plan.reason, measured_at: measuredAt, next_due_at: plan.next_window_at,
+    status: 'RAN', reason: runReason, measured_at: measuredAt, next_due_at: plan.next_window_at,
     source_sha: nextState.last_source_sha, interval_ms: plan.interval_ms,
     regression_threshold: threshold, overall: scoreRun(results), results, regressions, state: nextState,
   };

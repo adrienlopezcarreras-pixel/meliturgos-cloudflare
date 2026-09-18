@@ -1,7 +1,7 @@
-export const ECOSYSTEM_WATCH_SCHEMA = 'mel.ecosystem-watch-catalog/v1';
+export const ECOSYSTEM_WATCH_SCHEMA = 'mel.ecosystem-watch-catalog/v2';
 export const ECOSYSTEM_WATCH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-const target = (id, label, category, query, capabilities = []) => Object.freeze({
+const target = (id, label, category, query, capabilities = [], sources = []) => Object.freeze({
   id,
   mode: 'observe',
   weight: 1,
@@ -10,41 +10,66 @@ const target = (id, label, category, query, capabilities = []) => Object.freeze(
     category,
     query,
     capabilities: Object.freeze([...capabilities]),
+    sources: Object.freeze([...sources]),
     purpose: 'veille_multi_ia_plugins_arts',
   }),
+});
+
+const OFFICIAL = Object.freeze({
+  openaiReleaseNotes: 'https://help.openai.com/en/articles/6825453-chatgpt-release-notes',
+  openaiImage: 'https://developers.openai.com/api/docs/guides/image-generation',
+  openaiAudio: 'https://developers.openai.com/api/docs/guides/audio',
+  openaiVideo: 'https://developers.openai.com/api/docs/guides/video-generation',
+  anthropicReleaseNotes: 'https://platform.claude.com/docs/en/release-notes/overview',
+  googleGeminiChangelog: 'https://ai.google.dev/gemini-api/docs/changelog',
+  xaiReleaseNotes: 'https://docs.x.ai/developers/release-notes',
+  huggingFaceBlog: 'https://huggingface.co/blog',
+  huggingFaceMcp: 'https://huggingface.co/docs/hub/agents-mcp',
+  mcpBlog: 'https://blog.modelcontextprotocol.io/',
+  mcpChangelog: 'https://modelcontextprotocol.io/specification/draft/changelog',
 });
 
 export const ECOSYSTEM_WATCH_TARGETS = Object.freeze([
   target('watch_openai_chatgpt', 'ChatGPT / OpenAI', 'ai-platform',
     'OpenAI ChatGPT official latest tools connectors plugins agents computer use multimodal capabilities',
-    ['tools','connectors','agents','browser','computer-use','files','image','audio','video','automation']),
+    ['tools','connectors','agents','browser','computer-use','files','image','audio','video','automation'],
+    [OFFICIAL.openaiReleaseNotes]),
   target('watch_anthropic_claude', 'Claude / Anthropic', 'ai-platform',
     'Anthropic Claude official latest tools connectors integrations agents computer use multimodal capabilities',
-    ['tools','connectors','agents','computer-use','files','vision']),
+    ['tools','connectors','agents','computer-use','files','vision'],
+    [OFFICIAL.anthropicReleaseNotes]),
   target('watch_google_gemini', 'Gemini / Google', 'ai-platform',
     'Google Gemini official latest tools extensions connectors agents multimodal audio video capabilities',
-    ['tools','connectors','agents','vision','audio','video']),
+    ['tools','connectors','agents','vision','audio','video'],
+    [OFFICIAL.googleGeminiChangelog]),
   target('watch_xai_grok', 'Grok / xAI', 'ai-platform',
     'xAI Grok official latest tools integrations agents multimodal image audio capabilities',
-    ['tools','integrations','agents','vision','audio']),
+    ['tools','integrations','agents','vision','audio'],
+    [OFFICIAL.xaiReleaseNotes]),
   target('watch_open_ecosystem', 'Écosystème modèles ouverts', 'open-ecosystem',
     'latest open source open weight AI models agents tools MCP plugins multimodal official repositories',
-    ['open-models','MCP','plugins','agents','multimodal']),
+    ['open-models','MCP','plugins','agents','multimodal'],
+    [OFFICIAL.huggingFaceBlog, OFFICIAL.huggingFaceMcp]),
   target('watch_plugins_connectors', 'Plugins, connecteurs et automatisations', 'tooling',
     'latest AI plugins connectors MCP servers automation task scheduling browser computer use capabilities',
-    ['plugins','connectors','MCP','scheduling','browser','computer-use']),
+    ['plugins','connectors','MCP','scheduling','browser','computer-use'],
+    [OFFICIAL.mcpBlog, OFFICIAL.mcpChangelog]),
   target('watch_visual_art', 'Arts visuels', 'creative',
     'latest AI visual understanding image analysis image generation design illustration art tools models',
-    ['image.analyze','image.generate','design','illustration','art-history']),
+    ['image.analyze','image.generate','design','illustration','art-history'],
+    [OFFICIAL.openaiImage]),
   target('watch_audio_music', 'Audio et musique', 'creative',
     'latest AI audio understanding music analysis music generation composition sound design voice tools models',
-    ['audio.analyze','audio.generate','music.analyze','music.generate','voice','sound-design']),
+    ['audio.analyze','audio.generate','music.analyze','music.generate','voice','sound-design'],
+    [OFFICIAL.openaiAudio, OFFICIAL.huggingFaceBlog]),
   target('watch_video_cinema', 'Vidéo et cinéma', 'creative',
     'latest AI video understanding video generation editing animation cinema audiovisual tools models',
-    ['video.analyze','video.generate','video.edit','animation','cinema']),
+    ['video.analyze','video.generate','video.edit','animation','cinema'],
+    [OFFICIAL.openaiVideo, OFFICIAL.googleGeminiChangelog]),
   target('watch_culture_creation', 'Culture et création', 'creative',
     'latest AI literature storytelling comics games theatre architecture photography creative tools models',
-    ['literature','storytelling','comics','games','theatre','architecture','photography']),
+    ['literature','storytelling','comics','games','theatre','architecture','photography'],
+    [OFFICIAL.huggingFaceBlog]),
 ]);
 
 export function getEcosystemWatchCatalog() {
@@ -53,7 +78,11 @@ export function getEcosystemWatchCatalog() {
     interval_ms: ECOSYSTEM_WATCH_INTERVAL_MS,
     targets: ECOSYSTEM_WATCH_TARGETS.map(row => ({
       ...row,
-      metadata: { ...row.metadata, capabilities: [...row.metadata.capabilities] },
+      metadata: {
+        ...row.metadata,
+        capabilities: [...row.metadata.capabilities],
+        sources: [...row.metadata.sources],
+      },
     })),
   };
 }

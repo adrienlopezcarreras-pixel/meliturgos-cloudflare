@@ -33,6 +33,9 @@ function evidenceFor(result = {}) {
     summary: text(evidence.summary, 1400),
     citations_count: citations,
     sources,
+    detected_capabilities: Array.isArray(evidence.detected_capabilities)
+      ? [...new Set(evidence.detected_capabilities.map(item => text(item, 160)).filter(Boolean))].slice(0, 30)
+      : [],
     performed_at: text(evidence.performed_at, 100) || null,
   };
 }
@@ -56,7 +59,9 @@ export function planEcosystemDiscoveries({ watchResult = {}, catalog = {}, capab
     if (!evidence.sourced) continue;
     sourcedObservations += 1;
 
-    for (const rawHint of Array.isArray(target?.metadata?.capabilities) ? target.metadata.capabilities : []) {
+    const declaredCapabilities = new Set(Array.isArray(target?.metadata?.capabilities) ? target.metadata.capabilities.map(String) : []);
+    const detectedCapabilities = evidence.detected_capabilities.filter(capability => declaredCapabilities.has(capability));
+    for (const rawHint of detectedCapabilities) {
       const hint = text(rawHint, 160);
       const normalized = keyOf(hint);
       if (!normalized) continue;

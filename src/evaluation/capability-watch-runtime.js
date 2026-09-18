@@ -13,6 +13,74 @@ import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 const WATCH_ID = 'ecosystem-canonical';
 const DISCOVERY_ID = 'ecosystem-discoveries-canonical';
 
+const CAPABILITY_SIGNALS = Object.freeze({
+  tools: ['tool calling', 'tool use', 'tool-use'],
+  connectors: ['connector', 'connected app', 'integration'],
+  agents: ['agentic', 'agents sdk', 'agent sdk', 'agent mode'],
+  browser: ['browser automation', 'browser tool', 'web browsing'],
+  'computer-use': ['computer use', 'computer-use', 'computer tool'],
+  files: ['file upload', 'files api', 'file search'],
+  image: ['image generation', 'image input', 'images api'],
+  audio: ['audio input', 'audio output', 'audio generation'],
+  video: ['video generation', 'video input', 'video output'],
+  automation: ['automation', 'scheduled task', 'scheduled tasks'],
+  vision: ['vision', 'image understanding', 'visual understanding'],
+  integrations: ['integration', 'connector'],
+  'open-models': ['open source', 'open-source', 'open weight', 'open-weight'],
+  MCP: ['model context protocol', ' mcp '],
+  plugins: ['plugin', 'plugins'],
+  multimodal: ['multimodal', 'multi-modal'],
+  scheduling: ['scheduling', 'scheduled task', 'scheduled tasks'],
+  'image.analyze': ['image analysis', 'image understanding', 'visual understanding'],
+  'image.generate': ['image generation', 'generate images', 'text to image', 'text-to-image'],
+  design: ['design tool', 'graphic design', 'design generation'],
+  illustration: ['illustration', 'illustrations'],
+  'art-history': ['art history', 'art historical'],
+  'audio.analyze': ['audio understanding', 'audio analysis', 'speech recognition', 'transcription'],
+  'audio.generate': ['audio generation', 'text to speech', 'text-to-speech', 'speech generation'],
+  'music.analyze': ['music analysis', 'music understanding'],
+  'music.generate': ['music generation', 'generate music', 'music composition'],
+  voice: ['voice mode', 'voice generation', 'speech generation', 'text to speech'],
+  'sound-design': ['sound design', 'sound generation'],
+  'video.analyze': ['video understanding', 'video analysis'],
+  'video.generate': ['video generation', 'generate video', 'text to video', 'text-to-video', 'sora', 'veo'],
+  'video.edit': ['video editing', 'video edit'],
+  animation: ['animation generation', 'animated video'],
+  cinema: ['filmmaking', 'cinema', 'film generation'],
+  literature: ['literature', 'creative writing'],
+  storytelling: ['storytelling', 'story generation'],
+  comics: ['comic generation', 'comics'],
+  games: ['game development', 'game generation', 'gaming'],
+  theatre: ['theatre', 'theater'],
+  architecture: ['architecture design', 'architectural'],
+  photography: ['photography', 'photo generation'],
+});
+
+function sourceCorpus(research = {}) {
+  return (Array.isArray(research?.sources) ? research.sources : [])
+    .map(source => [
+      source?.title || '',
+      source?.snippet || '',
+      String(source?.content || '')
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' '),
+    ].join(' '))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .slice(0, 120000);
+}
+
+function detectCapabilitiesFromSources(target = {}, research = {}) {
+  const corpus = ` ${sourceCorpus(research)} `;
+  const allowed = Array.isArray(target?.metadata?.capabilities) ? target.metadata.capabilities : [];
+  return allowed.filter(capability => {
+    const aliases = CAPABILITY_SIGNALS[capability] || [];
+    return aliases.some(alias => corpus.includes(String(alias).toLowerCase()));
+  }).slice(0, 30);
+}
+
 function busContext(env) {
   return {
     owner: env.MELITURGOS_USER || 'owner',
@@ -83,21 +151,31 @@ function watchEvaluator(env) {
       const runtime = createGen2Runtime({ env });
       const research = await runtime.bus.execute(
         'web.research',
-        { query, depth: 2 },
+        {
+          query,
+          depth: 2,
+          seed_urls: Array.isArray(target?.metadata?.sources) ? target.metadata.sources : [],
+        },
         busContext(env),
       );
+      const sources = Array.isArray(research?.sources)
+        ? research.sources.slice(0, 5).map(source => ({
+            title: source?.title || '',
+            url: source?.url || '',
+          }))
+        : [];
+      const citations = Math.max(0, Number(research?.citations_count) || sources.length);
+      const detectedCapabilities = sources.length > 0
+        ? detectCapabilitiesFromSources(target, research)
+        : [];
       return {
         latency_ms: Date.now() - started,
         evidence: {
-          status: 'OBSERVED',
+          status: citations > 0 && sources.length > 0 ? 'OBSERVED' : 'DEGRADED_NO_SOURCES',
           summary: research?.summary || '',
-          citations_count: research?.citations_count || 0,
-          sources: Array.isArray(research?.sources)
-            ? research.sources.slice(0, 5).map(source => ({
-                title: source?.title || '',
-                url: source?.url || '',
-              }))
-            : [],
+          citations_count: citations,
+          sources,
+          detected_capabilities: detectedCapabilities,
           performed_at: research?.provenance?.query_performed_at || new Date().toISOString(),
         },
       };
@@ -124,6 +202,7 @@ export async function runEcosystemCapabilityWatch(
     developmentEnqueue = enqueueSupervisedDevelopmentRequest,
     developmentRepository = null,
     fetchImpl = fetch,
+    force = false,
   } = {},
 ) {
   const store = await ensureStore(env, WATCH_ID);
@@ -139,6 +218,7 @@ export async function runEcosystemCapabilityWatch(
       zero_euro: true,
       discovery_only: true,
     },
+    force,
   });
 
   const discoveryStore = await ensureStore(env, DISCOVERY_ID);

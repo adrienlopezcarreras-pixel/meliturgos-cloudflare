@@ -166,7 +166,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P13', 'Évaluation et amélioration continue', [
-    item('GEN2-42', 'Capability Watch + veille multi-IA/plugins/arts', 'IN_PROGRESS', 'Veille 6 h + registre sourcé/dédupliqué + handoff borné vers Council/Teacher; statut du handoff réconcilié avec dev_jobs jusqu’à completion vérifiée ou rejet, sans doublon; prochaine étape: fermer un cycle réel complet jusqu’aux tests candidate sans activation production automatique', 'P1'),
+    item('GEN2-42', 'Capability Watch + veille multi-IA/plugins/arts', 'IN_PROGRESS', 'Veille 6 h + sources officielles directes + détection factuelle des capacités + registre sourcé/dédupliqué + handoff borné Council/Teacher réconcilié avec dev_jobs; prochaine étape: preuve isolée preview du cycle réel avant activation production automatique', 'P1'),
     item('GEN2-43', 'Model Watch / découverte', 'DONE_VERIFIED', 'Preuves: PR #28; merge ceec81a6edb11d378dcb686c9495c0a01d86baea; 5/5 tests ciblés; autorisation fail-closed, seuils score/latence/coût et isolation des erreurs par modèle', 'P1'),
     item('MEL-EVAL-01', 'Suites de benchmark conversation / code / recherche / mémoire', 'PARTIAL', 'Maintenir une suite de score stable réutilisée par les watches', 'P1'),
     item('MEL-EVAL-03', 'Qualité mesurée avant/après évolution', 'PLANNED', 'Bloquer toute régression significative', 'P0')

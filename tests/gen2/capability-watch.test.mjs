@@ -132,3 +132,29 @@ test('GEN2-42 normalizes corrupt state and calculates stable windows', () => {
   assert.equal(window.window_started_at, 12 * HOUR);
   assert.equal(window.next_window_at, 18 * HOUR);
 });
+
+
+test('forced preview-style run reuses the canonical watch inside the same window', async () => {
+  const now = Date.UTC(2026, 8, 18, 12, 0, 0);
+  const first = await runCapabilityWatch({
+    now,
+    intervalMs: 6 * HOUR,
+    evaluator: async () => ({ score: 1 }),
+  });
+  let calls = 0;
+  const forced = await runCapabilityWatch({
+    now: now + 1000,
+    intervalMs: 6 * HOUR,
+    state: first.state,
+    force: true,
+    evaluator: async () => {
+      calls += 1;
+      return { score: 1 };
+    },
+  });
+  assert.equal(forced.status, 'RAN');
+  assert.equal(forced.reason, 'FORCED');
+  assert.equal(forced.state.last_window_id, first.state.last_window_id);
+  assert.equal(forced.state.run_count, 2);
+  assert.equal(calls, DEFAULT_CAPABILITY_WATCH_TARGETS.length);
+});

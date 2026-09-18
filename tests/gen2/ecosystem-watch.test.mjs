@@ -65,6 +65,7 @@ test('sourced creative watch observations reuse canonical media capabilities bef
           summary: 'Official visual tools observed.',
           citations_count: 1,
           sources: [{ title: 'Official', url: 'https://example.com/visual' }],
+          detected_capabilities: ['image.generate', 'art-history'],
         },
       }],
     },
@@ -95,6 +96,7 @@ test('ecosystem discovery planner proposes tooling as plugin and ledger deduplic
         status: 'OBSERVED',
         citations_count: 2,
         sources: [{ title: 'Docs', url: 'https://example.com/docs' }],
+        detected_capabilities: ['new-connector'],
       },
     }],
   };
@@ -278,4 +280,40 @@ test('Teacher rejection closes the discovery while a non-Teacher failure remains
   assert.equal(retryable.ledger.items[0].handoff.closed, false);
   assert.equal(retryable.ledger.items[0].handoff.retryable, true);
   assert.equal(selectEcosystemDiscoveryCandidate(retryable.ledger)?.fingerprint, 'capability:new-tool');
+});
+
+
+test('sourced observations without a detected capability do not invent discovery items', () => {
+  const plan = planEcosystemDiscoveries({
+    catalog: {
+      targets: [{
+        id: 'creative-watch',
+        metadata: { label: 'Creative', category: 'creative', capabilities: ['image.generate', 'art-history'] },
+      }],
+    },
+    capabilities: [],
+    watchResult: {
+      status: 'RAN',
+      results: [{
+        id: 'creative-watch',
+        evidence: {
+          status: 'OBSERVED',
+          citations_count: 1,
+          sources: [{ title: 'Official', url: 'https://example.com' }],
+          detected_capabilities: [],
+        },
+      }],
+    },
+  });
+  assert.equal(plan.sourced_observations, 1);
+  assert.deepEqual(plan.items, []);
+});
+
+test('ecosystem catalog provides direct HTTPS official sources for every target', () => {
+  const catalog = getEcosystemWatchCatalog();
+  assert.ok(catalog.targets.every(target =>
+    Array.isArray(target.metadata.sources)
+    && target.metadata.sources.length >= 1
+    && target.metadata.sources.every(url => /^https:\/\//.test(url))
+  ));
 });
