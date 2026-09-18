@@ -126,6 +126,7 @@ def main() -> int:
     ap.add_argument("--learning-rate", type=float, default=2e-4)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--max-length", type=int, default=DEFAULT_MAX_LENGTH)
+    ap.add_argument("--max-steps", type=int, default=-1, help="Maximum optimizer steps; -1 uses epoch-based training.")
     ap.add_argument(
         "--max-samples",
         type=int,
@@ -168,6 +169,8 @@ def main() -> int:
         raise SystemExit("LORA_MAX_LENGTH_INVALID: max-length must be >= 128")
     if args.max_samples < 0:
         raise SystemExit("LORA_MAX_SAMPLES_INVALID: max-samples must be >= 0")
+    if args.max_steps == 0 or args.max_steps < -1:
+        raise SystemExit("LORA_MAX_STEPS_INVALID: use -1 or a positive integer")
     if args.gradient_accumulation_steps < 1:
         raise SystemExit("LORA_GRADIENT_ACCUMULATION_INVALID")
     if args.save_steps < 1:
@@ -343,12 +346,13 @@ def main() -> int:
     training_args = TrainingArguments(
         output_dir=str(output_dir),
         num_train_epochs=args.epochs,
+        max_steps=args.max_steps,
         learning_rate=args.learning_rate,
         per_device_train_batch_size=1,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         gradient_checkpointing=True,
         optim="paged_adamw_8bit" if cuda else "adamw_torch",
-        logging_steps=10,
+        logging_steps=1,
         save_strategy="steps",
         save_steps=args.save_steps,
         save_total_limit=2,
@@ -435,6 +439,7 @@ def main() -> int:
         "epochs": args.epochs,
         "max_length": args.max_length,
         "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "max_steps": args.max_steps,
         "training_mode": training_mode,
         "cuda_available": cuda,
         "gpu": torch.cuda.get_device_name(0) if cuda else None,
@@ -506,6 +511,7 @@ def main() -> int:
             "seed": args.seed,
             "max_length": args.max_length,
             "gradient_accumulation_steps": args.gradient_accumulation_steps,
+            "max_steps": args.max_steps,
             "target_modules": TARGET_MODULES,
             "optimizer": "paged_adamw_8bit" if cuda else "adamw_torch",
         },
