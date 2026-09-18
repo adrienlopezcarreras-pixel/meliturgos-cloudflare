@@ -53,6 +53,7 @@ function normalizeProvenance(provenance = {}) {
     artifact_digest: String(provenance?.artifact_digest || '').trim().toLowerCase(),
     training_manifest_digest: String(provenance?.training_manifest_digest || '').trim().toLowerCase(),
     dataset_digest: String(provenance?.dataset_digest || '').trim(),
+    approval_id: String(provenance?.approval_id || '').trim(),
   };
 }
 
@@ -134,6 +135,7 @@ export async function runLearningBenchmark({ respond, cases = DEFAULT_CASES, met
     artifact_digest: boundProvenance.artifact_digest,
     training_manifest_digest: boundProvenance.training_manifest_digest,
     dataset_digest: boundProvenance.dataset_digest,
+    approval_id: boundProvenance.approval_id,
     completed_at: completedAt,
   };
 }
