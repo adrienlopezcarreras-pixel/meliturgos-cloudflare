@@ -489,7 +489,7 @@ jobs:
             "${BASE_URL}/api/learning/benchmark/run" \
             --output benchmark-refresh.json
 
-          curl --fail --show-error --silent \
+          curl --fail --show-error --silent --max-time 120 \
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --header "content-type: application/json" \
             --data '{}' \
