@@ -116,13 +116,14 @@ test('manual autonomy control is canonical in the top Professor controls and use
 });
 
 test('full mode exposes the zero-cost LoRA pipeline with real status endpoint and external handoff links', async () => {
-  const [page, entry, notebook, workflow] = await Promise.all([
+  const [page, entry, notebook, agenticNotebook, workflow] = await Promise.all([
     read('src/pages/full-interface-v2.js'),
     read('src/professor-live-learning-entry.js'),
     read('notebooks/MEL-QLORA-UNCENSORED-MAX-COLAB.ipynb'),
+    read('notebooks/MEL-QLORA-AGENTIC-MAX-COLAB.ipynb'),
     read('.github/workflows/lora-promote-from-huggingface.yml'),
   ]);
-  for (const id of ['freeLoraRefresh', 'freeLoraColab', 'freeLoraHf', 'freeLoraWorkflow', 'freeRuntimeState', 'freeTrainingExamples', 'freeCheckpointStage', 'freeCompatibleLoras']) {
+  for (const id of ['freeLoraRefresh', 'freeLoraColab', 'freeLoraHf', 'freeLoraWorkflow', 'freeRuntimeState', 'freeTrainingExamples', 'freeCheckpointStage', 'freeCompatibleLoras', 'freeAgenticState', 'freeAgenticColab']) {
     assert.ok(sourceHasHtmlId(page, id), `missing free LoRA UI control #${id}`);
   }
   assert.ok(page.includes("data-view=\"lora\""), 'LoRA free panel is missing from full-mode navigation');
@@ -137,4 +138,10 @@ test('full mode exposes the zero-cost LoRA pipeline with real status endpoint an
   assert.ok(notebook.includes('Meliturgos/mel-lora-uncensored'), 'Colab notebook no longer targets the canonical free bundle repo');
   assert.ok(workflow.includes('default: "Meliturgos/mel-lora-uncensored"'), 'promotion workflow lost its zero-entry default repository');
   assert.ok(workflow.includes('activate_preview'), 'promotion workflow must keep preview activation explicit');
+  assert.ok(entry.includes('MEL-QLORA-AGENTIC-MAX-COLAB.ipynb'), 'free LoRA status must expose the gated AGENTIC notebook');
+  assert.ok(page.includes("impact.next_stage||''")==false || page.includes("AGENTIC_READY"), 'full mode must gate AGENTIC on measured impact');
+  assert.ok(agenticNotebook.includes("AGENTIC_READY = False"), 'AGENTIC notebook must fail closed before the gate is approved');
+  assert.ok(agenticNotebook.includes("--parent-adapter-dir"), 'AGENTIC notebook must continue from the UNCENSORED parent');
+  assert.ok(agenticNotebook.includes("--parent-artifact-digest"), 'AGENTIC notebook must bind the exact UNCENSORED parent digest');
+  assert.ok(agenticNotebook.includes("Meliturgos/mel-lora-agentic"), 'AGENTIC notebook must publish to a separate repository');
 });
