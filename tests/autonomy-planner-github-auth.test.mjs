@@ -33,3 +33,16 @@ test('autonomy Teacher inspection forwards GitHub token and deployed build SHA t
   assert.match(source, /pinnedSha/);
   assert.match(source, /MEL_DEPLOYED_GIT_SHA/);
 });
+
+
+test('runtime candidate inspection forwards the existing MEL GitHub token to its code reader', async () => {
+  const source = await readFile(new URL('../src/evolution/autonomy-runtime-core.js', import.meta.url), 'utf8');
+  assert.match(source, /createGitHubCodeReader\(\{[\s\S]{0,300}token:\s*String\(env\?\.MEL_GITHUB_TOKEN\s*\|\|\s*''\)/);
+});
+
+test('preview workflow installs the ephemeral read-only GitHub token as a Worker secret', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-candidate-preview.yml', import.meta.url), 'utf8');
+  assert.match(source, /Configure preview GitHub read token/);
+  assert.match(source, /wrangler secret put MEL_GITHUB_TOKEN --env preview/);
+  assert.match(source, /GITHUB_TOKEN:\s*\$\{\{ github\.token \}\}/);
+});
