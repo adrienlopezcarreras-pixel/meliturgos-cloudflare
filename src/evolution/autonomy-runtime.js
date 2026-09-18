@@ -301,7 +301,7 @@ export async function approveAllWaitingTeachersUnderOwnerMax(repository, { sourc
 // external work only when MEL is genuinely idle. Existing active work must be
 // reconciled first so Teacher replies/completions keep their exact job ordering.
 async function runAutonomyRuntimeTickUnlocked(env, options = {}, knownControl = null) {
-  const control = knownControl || await getAutonomyControl(env?.DB);
+  const control = knownControl || await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
   if (control.paused) {
     return {
       status: 'PAUSED',
@@ -513,7 +513,7 @@ export async function runAutonomyMaintenance(env, options = {}) {
 }
 
 export async function runAutonomyRuntimeTick(env, options = {}) {
-  const control = await getAutonomyControl(env?.DB);
+  const control = await getAutonomyControl(env?.DB, { memoryState: options.autonomyControlState || null });
   if (control.paused) {
     return {
       status: 'PAUSED',
