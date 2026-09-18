@@ -43,10 +43,74 @@ document.getElementById('melCanonicalStatusBtn').addEventListener('click',status
 let tries=0;const timer=setInterval(function(){tries++;if(install()||tries>30)clearInterval(timer)},100);if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(install,30)});else setTimeout(install,30);
 })();</script>`;
 
+
+const CYCLE_PATCH = \`<style id="mel-cycle-top-control-style">
+#melStartCycleControl{min-height:40px;padding:0 14px;border:1px solid rgba(120,169,255,.42);border-radius:11px;background:linear-gradient(135deg,#2f67e8,#2448a9);color:#fff;font-weight:850;box-shadow:0 8px 24px rgba(0,0,0,.24);cursor:pointer;white-space:nowrap}
+#melStartCycleControl:hover{filter:brightness(1.08)}
+#melStartCycleControl:disabled{opacity:.66;cursor:wait}
+#melStartCycleControl[data-state="done"]{background:linear-gradient(135deg,#157a5b,#0f5f47)}
+#melStartCycleControl[data-state="blocked"]{background:linear-gradient(135deg,#9a3412,#7c2d12)}
+.mel-cycle-top-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+@media(max-width:720px){#melStartCycleControl{min-height:38px;padding:0 10px;font-size:.76rem}}
+</style>
+<script id="mel-cycle-top-control-runtime">(function(){
+function txt(el){return String(el&&el.textContent||'').trim()}
+function locate(){
+  var buttons=Array.from(document.querySelectorAll('button'));
+  var max=buttons.find(function(b){return /^MAX\\s*100\\s*%?$/i.test(txt(b))||/^MAX\\s*100%$/i.test(txt(b))});
+  var stop=buttons.find(function(b){return /^STOP$/i.test(txt(b))});
+  var activity=buttons.find(function(b){return /^Activit[ée]$/i.test(txt(b))});
+  var anchor=max||stop||activity;
+  if(anchor&&anchor.parentElement)return {host:anchor.parentElement,max:max,stop:stop,activity:activity};
+  var top=document.querySelector('.top');
+  if(!top)return null;
+  var host=top.querySelector('.mel-cycle-top-actions');
+  if(!host){host=document.createElement('div');host.className='mel-cycle-top-actions';top.appendChild(host)}
+  return {host:host,max:null,stop:null,activity:null};
+}
+function label(payload){
+  var tick=payload&&payload.tick||{};
+  var state=payload&&payload.state||{};
+  var status=String(tick.status||tick.job&&tick.job.status||state.readiness&&state.readiness.status||'').toUpperCase();
+  if(tick.paused===true||status==='PAUSED')return {text:'⏸ En pause',state:'blocked'};
+  if(status==='SKIPPED_LEASE_BUSY')return {text:'⏳ Déjà en cours',state:'running'};
+  return {text:'✓ Cycle lancé',state:'done'};
+}
+async function run(btn){
+  if(btn.disabled)return;
+  var base='▶ Démarrer cycle';
+  btn.disabled=true;btn.dataset.state='running';btn.textContent='⏳ Cycle MEL…';btn.title='Exécution d’un heartbeat autonome manuel';
+  try{
+    var r=await fetch('/api/gen2/autonomy/tick',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(120000)});
+    var d=await r.json().catch(function(){return {}});
+    if(!r.ok)throw new Error(d.error||d.code||('HTTP '+r.status));
+    var out=label(d);btn.dataset.state=out.state;btn.textContent=out.text;
+    var active=Number(d&&d.state&&d.state.counts&&d.state.counts.active||0);
+    btn.title='Dernier cycle exécuté'+(active?' · '+active+' travail'+(active>1?'x':'')+' actif'+(active>1?'s':''):'');
+    setTimeout(function(){btn.disabled=false;btn.dataset.state='';btn.textContent=base},1800);
+  }catch(e){
+    btn.dataset.state='blocked';btn.textContent='⚠ Cycle bloqué';btn.title=String(e&&e.message||e||'Erreur');
+    setTimeout(function(){btn.disabled=false;btn.dataset.state='';btn.textContent=base},2400);
+  }
+}
+function install(){
+  if(document.getElementById('melStartCycleControl'))return true;
+  var target=locate();if(!target)return false;
+  var b=document.createElement('button');b.id='melStartCycleControl';b.type='button';b.textContent='▶ Démarrer cycle';b.title='Démarrer immédiatement un cycle MEL';b.addEventListener('click',function(){run(b)});
+  if(target.max){target.max.insertAdjacentElement('afterend',b)}
+  else if(target.stop){target.host.insertBefore(b,target.stop)}
+  else if(target.activity){target.host.insertBefore(b,target.activity)}
+  else{target.host.appendChild(b)}
+  return true;
+}
+var tries=0;function boot(){if(install())return;if(tries++<80)setTimeout(boot,100)}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();</script>\`;
+
 export async function onRequestGet(context){
   const response=await controlRoom(context);
   let body=await response.text();
-  body=body.includes('</body>')?body.replace('</body>',PATCH+'</body>'):body+PATCH;
+  body=body.includes('</body>')?body.replace('</body>',PATCH+CYCLE_PATCH+'</body>'):body+PATCH+CYCLE_PATCH;
   const headers=new Headers(response.headers);
   headers.delete('content-length');
   headers.set('cache-control','no-store, max-age=0');
