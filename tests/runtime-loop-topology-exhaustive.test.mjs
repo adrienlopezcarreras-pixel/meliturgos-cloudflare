@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 
 test('runtime has one canonical scheduler topology with maintenance separated from minute autonomy', async () => {
   const [wrangler,index,visual,preview,professor,ui,learning,lease,lora,parallel,roadmapRefresh,fullControls,workLoop,collector] = await Promise.all([
@@ -89,4 +89,27 @@ test('production deployment remains a single explicit exact-SHA release path', a
   assert.match(release, /MEL_DEPLOYED_GIT_SHA/);
   assert.match(canary, /All production mutations go through deploy-cloudflare-release\.yml/);
   assert.doesNotMatch(canary, /wrangler deploy/);
+});
+
+test('no hidden workflow can deploy production outside the exact-SHA release workflow', async () => {
+  const dir = new URL('../.github/workflows/', import.meta.url);
+  const names = (await readdir(dir)).filter(name => /\.ya?ml$/i.test(name));
+  const deployers = [];
+
+  for (const name of names) {
+    const source = await readFile(new URL(name, dir), 'utf8');
+    if (!/wrangler\s+deploy/.test(source)) continue;
+    deployers.push({ name, source });
+  }
+
+  assert.ok(deployers.length >= 1, 'expected at least the canonical release deploy workflow');
+  const production = deployers.filter(({ source }) =>
+    !/wrangler\s+deploy[^\n]*(?:--env\s+preview|--config\s+wrangler\.[^\s]*preview[^\s]*)/i.test(source)
+  );
+  assert.deepEqual(production.map(row => row.name), ['deploy-cloudflare-release.yml']);
+
+  for (const row of deployers) {
+    if (row.name === 'deploy-cloudflare-release.yml') continue;
+    assert.match(row.source, /wrangler\s+deploy[^\n]*(?:--env\s+preview|--config\s+wrangler\.[^\s]*preview[^\s]*)/i, row.name + ' must be preview-only');
+  }
 });
