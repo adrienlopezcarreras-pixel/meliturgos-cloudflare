@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isEvolutionDevelopmentIntent, inferWebResearchIntent, injectEvolutionPreflightCapability } from '../src/evolution/chat-intent.js';
 import { shouldSemanticIntentCheck, classifySemanticOwnerIntent } from '../src/evolution/semantic-intent.js';
-import { setDefaultCapabilityEnvironment } from '../src/capabilities/default-bus.js';
 
 test('interface modification commands are recognized as real development intent', () => {
   const positives = [
@@ -95,7 +94,7 @@ test('semantic gate recognizes freshness and contextual web follow-ups', () => {
 
 test('semantic classifier uses FAST model and resolves a vague follow-up into a self-contained development goal', async () => {
   const calls = [];
-  setDefaultCapabilityEnvironment({
+  const env = {
     AI: {
       async run(model, input) {
         calls.push({ model, input });
@@ -107,8 +106,9 @@ test('semantic classifier uses FAST model and resolves a vague follow-up into a 
         }) };
       }
     }
-  });
+  };
   const result = await classifySemanticOwnerIntent({
+    env,
     text: 'plus doré',
     context: 'USER: Modifie le thème médiéval de l’interface de MEL.\nMEL: Le cadre peut être enrichi.',
   });
@@ -119,7 +119,7 @@ test('semantic classifier uses FAST model and resolves a vague follow-up into a 
 });
 
 test('semantic classifier can resolve a contextual freshness request into web research', async () => {
-  setDefaultCapabilityEnvironment({
+  const env = {
     AI: {
       async run() {
         return { response: JSON.stringify({
@@ -130,8 +130,9 @@ test('semantic classifier can resolve a contextual freshness request into web re
         }) };
       }
     }
-  });
+  };
   const result = await classifySemanticOwnerIntent({
+    env,
     text: 'et maintenant ?',
     context: 'USER: Cherche sur le web les dernières informations publiques sur Cloudflare Workers.',
   });
@@ -140,7 +141,7 @@ test('semantic classifier can resolve a contextual freshness request into web re
 });
 
 test('chat injector semantically routes a contextual formulation instead of answering as generic chat', async () => {
-  setDefaultCapabilityEnvironment({
+  const env = {
     AI: {
       async run() {
         return { response: JSON.stringify({
@@ -151,7 +152,7 @@ test('chat injector semantically routes a contextual formulation instead of answ
         }) };
       }
     }
-  });
+  };
   const request = new Request('https://mel.example/api/chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -162,7 +163,7 @@ test('chat injector semantically routes a contextual formulation instead of answ
       client_message_id: 'msg-2',
     }),
   });
-  const prepared = await injectEvolutionPreflightCapability(request);
+  const prepared = await injectEvolutionPreflightCapability(request, env);
   const body = await prepared.json();
   assert.equal(body.capability?.id, 'evolution.enqueue');
   assert.equal(body.intent_routing?.mode, 'semantic');
@@ -170,7 +171,7 @@ test('chat injector semantically routes a contextual formulation instead of answ
 });
 
 test('all requested contextual owner formulations reach the durable development queue through semantic routing', async () => {
-  setDefaultCapabilityEnvironment({
+  const env = {
     AI: {
       async run() {
         return { response: JSON.stringify({
@@ -181,7 +182,7 @@ test('all requested contextual owner formulations reach the durable development 
         }) };
       }
     }
-  });
+  };
 
   const context = 'USER: Nous travaillons sur le code et l’interface de MEL dans une branche candidate. Le thème et le composant sont déjà identifiés.\nMEL: Je peux appliquer la prochaine modification demandée.';
   const formulations = [
@@ -207,7 +208,7 @@ test('all requested contextual owner formulations reach the durable development 
         client_message_id: `natural-${index}`,
       }),
     });
-    const body = await (await injectEvolutionPreflightCapability(request)).json();
+    const body = await (await injectEvolutionPreflightCapability(request, env)).json();
     assert.equal(body.capability?.id, 'evolution.enqueue', text);
     assert.equal(body.intent_routing?.mode, 'semantic', text);
     assert.equal(body.intent_routing?.intent, 'DEVELOPMENT_REQUEST', text);
@@ -218,7 +219,7 @@ test('all requested contextual owner formulations reach the durable development 
 });
 
 test('chat injector semantically routes a contextual web follow-up', async () => {
-  setDefaultCapabilityEnvironment({
+  const env = {
     AI: {
       async run() {
         return { response: JSON.stringify({
@@ -229,7 +230,7 @@ test('chat injector semantically routes a contextual web follow-up', async () =>
         }) };
       }
     }
-  });
+  };
   const request = new Request('https://mel.example/api/chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -239,10 +240,19 @@ test('chat injector semantically routes a contextual web follow-up', async () =>
       conversation_id: 'conv-web-2',
     }),
   });
-  const prepared = await injectEvolutionPreflightCapability(request);
+  const prepared = await injectEvolutionPreflightCapability(request, env);
   const body = await prepared.json();
   assert.equal(body.capability?.id, 'web.research');
   assert.equal(body.intent_routing?.mode, 'semantic');
   assert.equal(body.intent_routing?.intent, 'WEB_RESEARCH');
   assert.match(body.capability?.input?.query || '', /Cloudflare Workers/i);
+});
+
+
+test('semantic classifier has no hidden global AI fallback', async () => {
+  const result = await classifySemanticOwnerIntent({
+    text: 'plus doré',
+    context: 'USER: Modifie le thème de MEL et rends-le plus doré.',
+  });
+  assert.equal(result, null);
 });
