@@ -81,6 +81,9 @@ function evidenceFor(result = {}) {
     summary: text(evidence.summary, 1400),
     citations_count: citations,
     sources,
+    source_class: text(evidence.source_class, 40) || 'official',
+    verification_policy: text(evidence.verification_policy, 160) || 'SOURCE_AND_TEST_BEFORE_INTEGRATION',
+    cross_ai: evidence.cross_ai && typeof evidence.cross_ai === 'object' ? evidence.cross_ai : null,
     detected_capabilities: Array.isArray(evidence.detected_capabilities)
       ? [...new Set(evidence.detected_capabilities.map(item => text(item, 160)).filter(Boolean))].slice(0, 30)
       : [],
