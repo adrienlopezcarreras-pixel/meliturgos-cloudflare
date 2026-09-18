@@ -482,7 +482,7 @@ jobs:
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
 
-          curl --fail --show-error --silent \
+          curl --fail --show-error --silent --max-time 180 \
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --header "content-type: application/json" \
             --data '{}' \
