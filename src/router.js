@@ -6,6 +6,7 @@ import handleResearch from "./api/research-api.js";
 import handleAugmentio from "./api/augmentio-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
+import { onRequestGet as handleWatchInterface } from "./pages/watch-interface.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { NORMAL_RUNTIME_SOURCE } from "./pages/mvp-runtime.js";
 import { devRuntime } from "./dev/runtime-api.js";
@@ -164,6 +165,10 @@ export default {
 
     if (request.method === "GET" && url.pathname === "/professor") {
       return handleFullModeV2({ env, request, params: {} }).catch(e => html(`Error loading full mode: ${e.message}`, 500));
+    }
+
+    if (request.method === "GET" && url.pathname === "/veille") {
+      return handleWatchInterface({ env, request, params: {} }).catch(e => html(`Error loading watch mode: ${e.message}`, 500));
     }
 
     if (request.method === "GET" && (url.pathname === "/professor-v1" || url.pathname === "/professor-legacy")) {
