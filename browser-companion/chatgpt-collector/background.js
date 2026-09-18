@@ -1,5 +1,5 @@
 const api = globalThis.browser;
-const DEFAULT={running:false,paused:true,tabId:null,queue:[],done:{},failed:{},unavailable:{},discovered:0,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,updatedAt:null};
+const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},failed:{},unavailable:{},deferred:{},discovered:0,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,updatedAt:null};
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 
 function norm(value){
@@ -78,19 +78,25 @@ async function waitForExpectedConversation(tabId,sourceId,timeout=15000){
   }
   return false;
 }
-async function captureStable(tabId){
+async function captureStable(tabId,maxAttempts=5){
   let last;
-  for(let i=0;i<12;i++){
+  for(let i=0;i<maxAttempts;i++){
     try{last=await tabMessage(tabId,{type:'mel.collector.capture'},3)}catch(e){last={ok:false,code:e?.message||'CAPTURE_FAILED'}}
     if(last?.ok)return last;
     if(!['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND','NOT_A_CONVERSATION','CONTENT_SCRIPT_UNAVAILABLE'].includes(last?.code))break;
-    await wait(1500);
+    await wait(1200);
   }
   return last||{ok:false,code:'CAPTURE_FAILED'};
 }
 async function collectorTab(preferred){
-  if(preferred!=null){try{const t=await api.tabs.get(preferred);if(t?.id!=null)return t}catch{}}
-  return (await api.tabs.query({})).find(t=>/^https:\/\/(chatgpt\.com|chat\.openai\.com)\//i.test(t.url||''))||null;
+  if(preferred!=null){
+    try{
+      const t=await api.tabs.get(preferred);
+      if(t?.id!=null && t.active!==true && /^https:\/\/(chatgpt\.com|chat\.openai\.com)\//i.test(t.url||'')) return {tab:t,owned:true};
+    }catch{}
+  }
+  const created=await api.tabs.create({url:'https://chatgpt.com/',active:false});
+  return {tab:created,owned:true};
 }
 
 async function process(tabId){
@@ -114,7 +120,8 @@ async function process(tabId){
       const reached=await waitForExpectedConversation(tabId,sourceId,15000);
       if(!reached)throw Object.assign(new Error('CONVERSATION_REDIRECTED_OR_UNAVAILABLE'),{code:'CONVERSATION_REDIRECTED_OR_UNAVAILABLE'});
       await wait(1200);
-      const cap=await captureStable(tabId);
+      const cfg=await config();
+      const cap=await captureStable(tabId,cfg.ecoMode?4:8);
       if(!cap?.ok||!cap.conversation) throw Object.assign(new Error(cap?.code||'CAPTURE_FAILED'),{code:cap?.code||'CAPTURE_FAILED'});
       const result=await sendConversation(cap.conversation);
       s=await state();
@@ -131,14 +138,18 @@ async function process(tabId){
       const attempts=Number(failed[key]?.attempts||0)+1;
       failed[key]={url,code,attempts,failedAt:Date.now()};
       const unavailable={...(s.unavailable||{})};
-      const maxAttempts=code==='CONVERSATION_REDIRECTED_OR_UNAVAILABLE'?2:3;
+      const deferred={...(s.deferred||{})};
+      const transient=['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND','NOT_A_CONVERSATION','CONTENT_SCRIPT_UNAVAILABLE'].includes(code);
+      const maxAttempts=code==='CONVERSATION_REDIRECTED_OR_UNAVAILABLE'?2:(transient?2:3);
       const nextQueue=[...(s.queue||[])];
       if(attempts<maxAttempts){
         if(!nextQueue.includes(url))nextQueue.push(url);
       }else if(code==='CONVERSATION_REDIRECTED_OR_UNAVAILABLE'){
         unavailable[key]={url,code,attempts,classifiedAt:Date.now()};
+      }else if(transient){
+        deferred[key]={url,code,attempts,deferredAt:Date.now()};
       }
-      await save({failed,unavailable,queue:nextQueue,lastError:code,currentUrl:null});
+      await save({failed,unavailable,deferred,queue:nextQueue,lastError:code,currentUrl:null});
     }
     const cfg=await config();
     if(cfg.ecoMode) await wait(cfg.delayMs);
@@ -147,10 +158,12 @@ async function process(tabId){
 }
 
 async function start(){
-  const s=await state(),tab=await collectorTab(s.tabId);
-  if(!tab?.id) throw Object.assign(new Error('OPEN_CHATGPT_TAB_REQUIRED'),{code:'OPEN_CHATGPT_TAB_REQUIRED'});
+  const s=await state();
+  const resolved=await collectorTab(s.tabId);
+  const tab=resolved?.tab;
+  if(!tab?.id) throw Object.assign(new Error('COLLECTOR_TAB_CREATE_FAILED'),{code:'COLLECTOR_TAB_CREATE_FAILED'});
   process(tab.id).catch(e=>save({running:false,lastError:e?.code||e?.message||'COLLECTOR_FAILED'}));
-  return save({running:true,paused:false,tabId:tab.id});
+  return save({running:true,paused:false,tabId:tab.id,collectorOwnedTab:true});
 }
 
 api.runtime.onMessage.addListener(async msg=>{
