@@ -12,6 +12,17 @@ const PROFESSOR_SAFE_DEV_BRIDGE_PATHS = new Set([
   '/api/dev-bridge/jobs',
 ]);
 
+const FREE_LORA_HF_REPO = 'Meliturgos/mel-lora-smoke-500';
+const FREE_LORA_GITHUB_REPO = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
+const FREE_LORA_WORKFLOW = 'lora-promote-from-huggingface.yml';
+const FREE_LORA_REQUIRED_FILES = Object.freeze([
+  'adapter_model.safetensors',
+  'adapter_config.json',
+  'training-evidence.json',
+  'artifact-evidence.json',
+  'lora-plan.json',
+]);
+
 function json(value, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
@@ -45,6 +56,82 @@ async function liveLearningProgressResponse(request, env) {
       detail: String(error?.message || 'unknown').slice(0, 180),
     }, 503);
   }
+}
+
+
+async function freeLoraStatusResponse(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+
+  const hfBase = `https://huggingface.co/${FREE_LORA_HF_REPO}/resolve/main/`;
+  const fileChecks = await Promise.all(FREE_LORA_REQUIRED_FILES.map(async (name) => {
+    try {
+      const response = await fetch(hfBase + encodeURIComponent(name) + '?download=true', {
+        method: 'HEAD',
+        redirect: 'follow',
+        headers: { 'user-agent': 'meliturgos-free-lora-status/1.0' },
+      });
+      return { name, available: response.ok, status: response.status };
+    } catch {
+      return { name, available: false, status: 0 };
+    }
+  }));
+  const bundleReady = fileChecks.every((row) => row.available === true);
+
+  let workflow = null;
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_WORKFLOW}/runs?branch=candidate%2Fmel-clean-autonomy&per_page=1`,
+      {
+        headers: {
+          accept: 'application/vnd.github+json',
+          'user-agent': 'meliturgos-free-lora-status/1.0',
+        },
+      },
+    );
+    if (response.ok) {
+      const data = await response.json();
+      const row = Array.isArray(data?.workflow_runs) ? data.workflow_runs[0] : null;
+      if (row) {
+        workflow = {
+          id: row.id,
+          status: row.status || null,
+          conclusion: row.conclusion || null,
+          head_sha: row.head_sha || null,
+          created_at: row.created_at || null,
+          updated_at: row.updated_at || null,
+          html_url: row.html_url || null,
+        };
+      }
+    }
+  } catch {}
+
+  let learning = null;
+  try {
+    const engine = createLearningEngine(env);
+    const progress = await getLiveLearningProgress({ engine, db: env.DB });
+    learning = {
+      lora_status: progress?.lora_status || null,
+      corrections_available_for_training: progress?.evidence?.corrections_available_for_training ?? null,
+      neural_weights_changed: progress?.evidence?.neural_weights_changed === true,
+    };
+  } catch {}
+
+  return json({
+    ok: true,
+    mode: 'FREE_COLAB_HF_GITHUB_CLOUDFLARE',
+    cost_policy: 'NO_PAID_GPU_TRIGGER',
+    colab_url: 'https://colab.research.google.com/github/adrienlopezcarreras-pixel/meliturgos-cloudflare/blob/candidate/mel-clean-autonomy/notebooks/MEL-QLORA-SMOKE-COLAB.ipynb',
+    hf_repo: FREE_LORA_HF_REPO,
+    hf_url: `https://huggingface.co/${FREE_LORA_HF_REPO}`,
+    bundle: {
+      ready: bundleReady,
+      files: fileChecks,
+    },
+    workflow: workflow || { status: 'NEVER_RUN', conclusion: null },
+    workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_WORKFLOW}`,
+    learning,
+  });
 }
 
 async function operatorBenchmarkResponse(request, env) {
@@ -339,6 +426,9 @@ export default {
     }
     if (request.method === 'GET' && url.pathname === '/api/learning/progress') {
       return liveLearningProgressResponse(request, env);
+    }
+    if (request.method === 'GET' && url.pathname === '/api/learning/lora/free-status') {
+      return freeLoraStatusResponse(request, env);
     }
     if (request.method === 'POST' && url.pathname === '/api/learning/benchmark/run') {
       return operatorBenchmarkResponse(request, env);
