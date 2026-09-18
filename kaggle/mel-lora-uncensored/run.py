@@ -45,26 +45,42 @@ def find_input_dir(slug: str) -> Path:
         return candidates[0]
     raise SystemExit("KAGGLE_INPUT_MISSING:" + slug)
 
+def _payload_file(payload: Path, *names: str) -> Path | None:
+    for name in names:
+        direct = payload / name
+        if direct.is_file():
+            return direct
+        matches = sorted(payload.rglob(name))
+        if matches:
+            return matches[0]
+    return None
+
 def prepare_payload():
     payload = find_input_dir("mel-lora-cycle-payload")
     SCRIPTS.mkdir(parents=True, exist_ok=True)
     DATA.mkdir(parents=True, exist_ok=True)
 
     for name in ("train-mel-lora.py", "create-lora-plan.py", "run-local-lora-impact.py"):
-        source = payload / name
-        if not source.is_file():
+        source = _payload_file(payload, name)
+        if source is None:
             raise SystemExit("KAGGLE_PAYLOAD_SCRIPT_MISSING:" + name)
         shutil.copy2(source, SCRIPTS / name)
 
-    shard_gz = payload / "mel-training-shard.jsonl.gz"
-    shard_meta = payload / "mel-training-shard.jsonl.meta.json"
-    payload_meta = payload / "payload.json"
-    if not shard_gz.is_file() or not shard_meta.is_file() or not payload_meta.is_file():
+    shard_gz = _payload_file(payload, "mel-training-shard.jsonl.gz")
+    shard_plain = _payload_file(payload, "mel-training-shard.jsonl")
+    shard_meta = _payload_file(payload, "mel-training-shard.jsonl.meta.json")
+    payload_meta = _payload_file(payload, "payload.json")
+    if (shard_gz is None and shard_plain is None) or shard_meta is None or payload_meta is None:
+        available = sorted(str(p.relative_to(payload)) for p in payload.rglob("*") if p.is_file())
+        print(json.dumps({"payload_root": str(payload), "available_files": available}, indent=2), flush=True)
         raise SystemExit("KAGGLE_PAYLOAD_DATA_MISSING")
 
-    import gzip
-    with gzip.open(shard_gz, "rb") as src, SHARD.open("wb") as dst:
-        shutil.copyfileobj(src, dst)
+    if shard_gz is not None:
+        import gzip
+        with gzip.open(shard_gz, "rb") as src, SHARD.open("wb") as dst:
+            shutil.copyfileobj(src, dst)
+    else:
+        shutil.copy2(shard_plain, SHARD)
     shutil.copy2(shard_meta, SHARD_META)
 
     meta = json.loads(payload_meta.read_text(encoding="utf-8"))
