@@ -1,4 +1,4 @@
-import { standardRegistry } from './ModelRegistry.js';
+import { ModelRegistry, standardRegistry } from './ModelRegistry.js';
 import { categorize, retryable } from './fallback.js';
 import { DomainError } from '../core/contracts.js';
 import { analyzeRefusal } from './refusal-analyzer.js';
@@ -63,8 +63,8 @@ function completionMetadata(result) {
 }
 
 export class ModelRouter {
-  constructor({registry=standardRegistry, invoke, finalFallback, timeoutMs=120000, maxCalls=2, augmentio=null}={}) {
-    this.registry=registry;
+  constructor({registry=null, invoke, finalFallback, timeoutMs=120000, maxCalls=2, augmentio=null}={}) {
+    this.registry=registry || new ModelRegistry(standardRegistry.list());
     this.invoke=invoke;
     this.finalFallback=finalFallback;
     this.timeoutMs=timeoutMs;
