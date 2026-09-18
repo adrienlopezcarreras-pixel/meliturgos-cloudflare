@@ -560,3 +560,4 @@ jobs:
 
           gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref candidate/mel-clean-autonomy             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$BENCHMARK_PREVIEW"
           echo "Submitted next cycle: $NEXT_CYCLE"
+# five-minute probe relaunch after canonical lesson floor fix
