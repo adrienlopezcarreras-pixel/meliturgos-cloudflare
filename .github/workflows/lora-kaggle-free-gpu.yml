@@ -50,7 +50,7 @@ permissions:
 
 concurrency:
   group: mel-lora-kaggle-free-gpu
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   train-chain:
