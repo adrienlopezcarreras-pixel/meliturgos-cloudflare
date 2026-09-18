@@ -101,13 +101,11 @@
     if (msg?.type==='mel.collector.discover') return discover().then(urls => ({ok:true,urls,current:convUrl()}));
   });
 
-  let timer;
-  new MutationObserver(() => {
-    clearTimeout(timer);
-    timer=setTimeout(() => {
-      if (!convId() || isGenerating()) return;
-      const result=capture();
-      if (result.ok) api.runtime.sendMessage({type:'mel.collector.auto-capture',conversation:result.conversation}).catch(()=>{});
-    },7000);
-  }).observe(document.documentElement,{childList:true,subtree:true,characterData:true});
+  // Low-power passive capture: avoid a full-document MutationObserver on large
+  // ChatGPT threads. A periodic check is far cheaper on modest PCs.
+  setInterval(() => {
+    if (document.visibilityState !== 'visible' || !convId() || isGenerating()) return;
+    const result=capture();
+    if (result.ok) api.runtime.sendMessage({type:'mel.collector.auto-capture',conversation:result.conversation}).catch(()=>{});
+  },30000);
 })();
