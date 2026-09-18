@@ -1,24 +1,34 @@
-import assert from "node:assert/strict";
-import {copyFile,unlink} from "node:fs/promises";
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { handleFileUpload } from '../src/api/file-upload.js';
 
-const testWorker="/tmp/meliturgos-root-media-video.test.mjs";
-await copyFile(new URL("../worker.js",import.meta.url),testWorker);
-const {default:worker}=await import("file://"+testWorker+"?v="+Date.now());
-const auth="Basic "+Buffer.from("adrien:test").toString("base64");
-let puts=0,sql=[];
-const statement={bind(){return this},run:async()=>({meta:{changes:0,last_row_id:0}}),first:async()=>({n:0,quick_check:"ok"}),all:async()=>({results:[]})};
-const env={MELITURGOS_USER:"adrien",MELITURGOS_PASSWORD:"test",OWNER_NAME:"Adrien",DB:{prepare(query){sql.push(String(query));return Object.create(statement)},batch:async()=>[]},MEDIA_BUCKET:{put:async()=>{puts++}},AI:{run:async()=>({response:"ok"})}};
-async function request(path,options={}){const headers=new Headers(options.headers||{});headers.set("Authorization",auth);return worker.fetch(new Request("https://meliturgos.test"+path,{...options,headers}),env)}
+test('normal UI offers one generic multi-file drop surface without pretending local video analysis', async()=>{
+  const source=await readFile(new URL('../src/pages/mvp-interface-v3.js',import.meta.url),'utf8');
+  assert.match(source,/id="fileInput" type="file" multiple/);
+  assert.match(source,/Glisse un fichier ici/);
+  assert.match(source,/\/api\/files\/upload/);
+  assert.doesNotMatch(source,/<video[^>]*controls/);
+  assert.doesNotMatch(source,/URL\.createObjectURL/);
+});
 
-{
- const response=await request("/");assert.equal(response.status,200);const html=await response.text();
- assert.match(html,/type="file"[^>]*accept="\*\/\*"/);assert.match(html,/Déposez ici|déposer/i);assert.match(html,/mel-avatar/);assert.match(html,/<video[^>]*controls/);assert.match(html,/URL\.createObjectURL/);assert.match(html,/textContent/);assert.doesNotMatch(html,/href="https?:\/\//);
-}
-{
- const form=new FormData();form.append("file",new Blob(["unknown"],{type:"application/octet-stream"}),"archive.xyz");const response=await request("/api/media/root-upload",{method:"POST",body:form});const body=await response.json();assert.equal(response.status,503);assert.equal(body.code,"MEDIA_DISABLED");assert.equal(puts,0);
-}
-{
- const response=await request("/api/avatar/video",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:"test"})});assert.equal(response.status,503);assert.equal((await response.json()).code,"AVATAR_PROVIDER_NOT_CONFIGURED");
-}
-await unlink(testWorker);
-console.log("root-media-video: interface, dépôt inconnu, aperçu local et fallback avatar validés");
+test('binary upload stays private and uses R2 only when the binding exists', async()=>{
+  let puts=0;
+  const form=new FormData();
+  form.append('file',new Blob(['binary'],{type:'application/octet-stream'}),'archive.xyz');
+  const request=new Request('https://mel.test/api/files/upload',{
+    method:'POST',
+    headers:{authorization:'Basic '+Buffer.from('adrien:test').toString('base64')},
+    body:form
+  });
+  const response=await handleFileUpload(request,{
+    MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test',
+    MEDIA_BUCKET:{async put(){puts++;}}
+  });
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.private,true);
+  assert.equal(body.stored,true);
+  assert.equal(body.url,null);
+  assert.equal(puts,1);
+});
