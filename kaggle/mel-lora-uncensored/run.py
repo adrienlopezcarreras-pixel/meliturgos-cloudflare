@@ -40,9 +40,43 @@ def find_input_dir(slug: str) -> Path:
     direct = INPUT / slug
     if direct.exists():
         return direct
-    candidates = [p for p in INPUT.iterdir() if p.is_dir() and slug in p.name]
+
+    # Kaggle may mount private/versioned sources below an owner or version
+    # directory rather than directly under /kaggle/input/<slug>. Resolve
+    # recursively, preferring an exact directory-name match.
+    exact = []
+    fuzzy = []
+    if INPUT.exists():
+        for p in INPUT.rglob("*"):
+            if not p.is_dir():
+                continue
+            name = p.name.lower()
+            target = slug.lower()
+            if name == target:
+                exact.append(p)
+            elif target in name:
+                fuzzy.append(p)
+    candidates = sorted(exact, key=lambda p: (len(p.parts), str(p)))
+    if not candidates:
+        candidates = sorted(fuzzy, key=lambda p: (len(p.parts), str(p)))
     if candidates:
+        print(json.dumps({
+            "resolved_kaggle_input": slug,
+            "path": str(candidates[0]),
+        }), flush=True)
         return candidates[0]
+
+    visible = []
+    if INPUT.exists():
+        for p in sorted(INPUT.rglob("*")):
+            if p.is_dir():
+                visible.append(str(p.relative_to(INPUT)))
+            if len(visible) >= 120:
+                break
+    print(json.dumps({
+        "missing_kaggle_input": slug,
+        "visible_input_dirs": visible,
+    }, indent=2), flush=True)
     raise SystemExit("KAGGLE_INPUT_MISSING:" + slug)
 
 def _payload_file(payload: Path, *names: str) -> Path | None:
