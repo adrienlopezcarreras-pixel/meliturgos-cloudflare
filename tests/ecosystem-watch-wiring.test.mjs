@@ -8,6 +8,7 @@ test('ecosystem watch is wired once into schedule, API and full-mode activity', 
   const panel = await readFile(new URL('../src/pages/full-mode-control-enhancer.js', import.meta.url), 'utf8');
   const watchRuntime = await readFile(new URL('../src/evaluation/capability-watch-runtime.js', import.meta.url), 'utf8');
   const previewWorkflow = await readFile(new URL('../.github/workflows/deploy-candidate-preview.yml', import.meta.url), 'utf8');
+  const teacherRebaseProof = await readFile(new URL('../.github/scripts/gen2-42-teacher-rebase-proof.mjs', import.meta.url), 'utf8');
 
   assert.match(index, /runEcosystemCapabilityWatch/);
   assert.match(ui, /\/api\/mel\/capability-watch/);
@@ -26,9 +27,9 @@ test('ecosystem watch is wired once into schedule, API and full-mode activity', 
   assert.match(previewWorkflow, /\/api\/gen2\/autonomy\/tick/);
   assert.match(previewWorkflow, /\/api\/teacher\/pending/);
   assert.match(previewWorkflow, /gen2-42-teacher-rebase-proof\.mjs/);
-  assert.match(previewWorkflow, /Rebase GEN2-42 Teacher handoff through canonical tick/);
-  assert.match(previewWorkflow, /\/api\/gen2\/autonomy\/tick/);
-  assert.match(previewWorkflow, /\/api\/teacher\/pending/);
-  assert.match(previewWorkflow, /NO_CANONICAL_TEACHER_HANDOFF_AFTER_TICK/);
   assert.match(previewWorkflow, /gen2-42-teacher-rebase\.json/);
+  assert.match(teacherRebaseProof, /NO_CANONICAL_TEACHER_HANDOFF_AFTER_TICK/);
+  assert.match(teacherRebaseProof, /candidate\/mel-clean-autonomy/);
+  assert.match(teacherRebaseProof, /goal_content_exposed:\s*false/);
+  assert.match(teacherRebaseProof, /production_deploy_allowed:\s*false/);
 });
