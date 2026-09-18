@@ -97,6 +97,17 @@ jobs:
           test -s preview-root.html
           grep -Eiq '<!doctype html|<html' preview-root.html
 
+          runtime_status=$(curl --silent --show-error --location \
+            --max-time 30 \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            --output normal-runtime.js \
+            --write-out '%{http_code}' \
+            'https://meliturgos-preview.adrien-lopezcarreras.workers.dev/normal-runtime.js?v=5')
+          echo "Normal runtime HTTP status: ${runtime_status}"
+          case "$runtime_status" in 2??|3??) ;; *) exit 22 ;; esac
+          test -s normal-runtime.js
+          grep -Fq "function setTheme" normal-runtime.js
+
       - name: Prepare faithful browser renders for every theme
         shell: bash
         run: |
@@ -104,17 +115,31 @@ jobs:
           from pathlib import Path
           themes = ['classic','granada','guadix','crusade','aviation','amazon','paladin','futuristic']
           source = Path('preview-root.html').read_text(encoding='utf-8', errors='replace')
+          runtime = Path('normal-runtime.js').read_text(encoding='utf-8', errors='replace')
           base = '<base href="https://meliturgos-preview.adrien-lopezcarreras.workers.dev/">'
           if '<head>' in source:
               source = source.replace('<head>', '<head>' + base, 1)
           else:
               source = base + source
+
+          runtime_tag = '<script src="/normal-runtime.js?v=5" defer></script>'
+          if runtime_tag not in source:
+              raise SystemExit('Canonical external normal runtime tag not found in preview HTML')
+
           marker = "try{setTheme(localStorage.getItem('mel.theme.v4')||localStorage.getItem('mel.theme.v3')||localStorage.getItem('mel.theme.v2')||localStorage.getItem('mel.theme')||'classic')}catch{setTheme('classic')}"
+          if marker not in runtime:
+              raise SystemExit('Theme bootstrap marker not found in external normal runtime')
+
           for theme in themes:
-              themed = source.replace(marker, f"try{{setTheme('{theme}')}}catch{{setTheme('{theme}')}}")
-              if themed == source:
-                  raise SystemExit('Theme bootstrap marker not found in preview HTML')
-              Path(f'preview-{theme}.html').write_text(themed, encoding='utf-8')
+              themed_runtime = runtime.replace(marker, f"try{{setTheme('{theme}')}}catch{{setTheme('{theme}')}}", 1)
+              runtime_path = Path(f'normal-runtime-{theme}.js').resolve()
+              runtime_path.write_text(themed_runtime, encoding='utf-8')
+              themed_html = source.replace(
+                  runtime_tag,
+                  f'<script src="{runtime_path.as_uri()}" defer></script>',
+                  1,
+              )
+              Path(f'preview-{theme}.html').write_text(themed_html, encoding='utf-8')
           PY
 
       - name: Capture all mobile theme screenshots
