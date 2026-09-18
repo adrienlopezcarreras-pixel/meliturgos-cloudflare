@@ -1,7 +1,4 @@
 import { port } from '../core/contracts.js';
-export const methods = ["transcribe", "synthesize"];
-/** TODO implement only the corresponding OpenHands ticket.
- * Port input is domain data; context={owner,permissions,requestId,signal} is trusted.
- * No storage/network side effects until a server adapter is explicitly injected.
- */
+export const methods = ["transcribe", "synthesize", "analyze", "generate"];
+/** Canonical audio/music port. Analysis and generation remain fail-closed until a real authorized provider is injected. */
 export const createAudio = adapters => port('media/audio',methods,adapters);
