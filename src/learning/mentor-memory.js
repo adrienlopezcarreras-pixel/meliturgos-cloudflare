@@ -371,8 +371,9 @@ export class MentorMemoryRepository {
     if (kind) { clauses.push('kind=?'); args.push(String(kind)); }
     if (outcome) { clauses.push('outcome=?'); args.push(String(outcome)); }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const result = await this.db.prepare(`SELECT * FROM mentor_lessons ${where} ORDER BY created_at DESC`)
-      .bind(...args).all();
+    let statement = this.db.prepare(`SELECT * FROM mentor_lessons ${where} ORDER BY created_at DESC`);
+    if (args.length) statement = statement.bind(...args);
+    const result = await statement.all();
     return (result.results || []).map(row => this._row(row));
   }
 
