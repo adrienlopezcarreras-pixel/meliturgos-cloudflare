@@ -150,9 +150,20 @@ node scripts/upload-cloudflare-lora.mjs \
   --name mel-sharegpt-full
 ```
 
-Le script crée le fine-tune Cloudflare, charge exactement `adapter_model.safetensors` et `adapter_config.json`, puis inscrit le `finetune_id` réel dans `artifact-evidence.json`.
+Le script crée le fine-tune Cloudflare, charge exactement `adapter_model.safetensors` et `adapter_config.json`, puis inscrit le `finetune_id` réel dans `artifact-evidence.json`. L'état reste `UPLOADED_UNAPPROVED`.
 
-## 7. Benchmark réel base vs LoRA et activation
+## 7. Approuver explicitement l'artefact exact
+
+L'approbation est une étape séparée. Elle lie le corpus, le manifeste d'entraînement, l'artefact SHA-256 et le `finetune_id` Cloudflare exacts :
+
+```bash
+node scripts/approve-lora-artifact.mjs \
+  --dir artifacts/lora-train/sharegpt-full
+```
+
+Cette commande produit `approval-evidence.json`. Toute régénération de l'artefact, tout nouveau `finetune_id`, ou tout changement du corpus/manifeste rend cette approbation inutilisable.
+
+## 8. Benchmark réel base vs LoRA et activation
 
 Une fois la version MEL contenant l'endpoint LoRA déployée :
 
@@ -169,7 +180,7 @@ Cette commande exécute le même benchmark canonique deux fois sur le même runt
 
 Après activation, le chat natif charge `LORA_ADAPTER_ACTIVE`, sélectionne le runtime LoRA en priorité et transmet `lora: finetune_id` à Workers AI. En l'absence d'adaptateur actif, le routage standard reste inchangé.
 
-## 8. Gate après entraînement
+## 9. Gate après entraînement
 
 La présence de poids LoRA ne vaut pas promotion. La séquence reste :
 
@@ -177,7 +188,11 @@ La présence de poids LoRA ne vaut pas promotion. La séquence reste :
 DATASET_PREPARED_UNTRAINED
   -> QLoRA GPU réel
 TRAINED_UNBENCHMARKED
-  -> benchmark Professor base vs adaptateur
+  -> upload Cloudflare de l'artefact exact
+UPLOADED_UNAPPROVED
+  -> approbation explicite de cet artefact
+ARTIFACT_APPROVED_UNBENCHMARKED
+  -> benchmark Professor base vs cet adaptateur exact
   -> contrôle compatibilité Cloudflare
   -> promotion uniquement si les gates passent
 ```
