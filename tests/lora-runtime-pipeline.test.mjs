@@ -40,6 +40,18 @@ function exactArtifact(plan) {
   };
 }
 
+function exactApproval(plan, artifact) {
+  return {
+    approved: true,
+    approval_id: 'approval-runtime-test',
+    artifact_id: artifact.id,
+    artifact_digest: artifact.digest,
+    finetune_id: artifact.finetune_id,
+    dataset_digest: plan.dataset_digest,
+    training_manifest_digest: plan.training_manifest_digest,
+  };
+}
+
 test('LoRA artifact must carry exact plan provenance and Cloudflare finetune id', () => {
   const plan = exactPlan();
   const artifact = exactArtifact(plan);
@@ -93,6 +105,7 @@ test('operator LoRA benchmark calls base first and exact finetune second', async
       artifact_digest: provenance.artifact_digest || '',
       training_manifest_digest: provenance.training_manifest_digest || '',
       dataset_digest: provenance.dataset_digest || '',
+      approval_id: provenance.approval_id || '',
     };
   };
   const recorded = [];
@@ -102,7 +115,8 @@ test('operator LoRA benchmark calls base first and exact finetune second', async
     activateAdapter: async () => ({ plan_id: plan.id, finetune_id: artifact.finetune_id }),
   };
 
-  const result = await runOperatorLoraBenchmark({}, { plan, artifact, activate: true }, {
+  const approval = exactApproval(plan, artifact);
+  const result = await runOperatorLoraBenchmark({}, { plan, artifact, approval, activate: true }, {
     ai,
     runLearningBenchmark: benchmarkRunner,
     createLearningEngine: () => engine,
@@ -116,6 +130,22 @@ test('operator LoRA benchmark calls base first and exact finetune second', async
   assert.equal(calls[1].input.lora, artifact.finetune_id);
   assert.equal(recorded.length, 2);
   assert.equal(result.activated, true);
+  assert.equal(result.approval.approval_id, approval.approval_id);
+});
+
+
+test('operator LoRA benchmark fails before inference when approval is missing', async () => {
+  const plan = exactPlan();
+  const artifact = exactArtifact(plan);
+  let calls = 0;
+  await assert.rejects(
+    () => runOperatorLoraBenchmark({}, { plan, artifact, activate: true }, {
+      ai: { run: async () => { calls += 1; return { response: 'ok' }; } },
+      extractModelText: (value) => value.response,
+    }),
+    (error) => error?.code === 'LORA_ARTIFACT_APPROVAL_REQUIRED',
+  );
+  assert.equal(calls, 0);
 });
 
 test('native model router prioritizes and applies the active LoRA adapter', async () => {
