@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { onRequestGet } from '../src/pages/mvp-interface-v3.js';
+import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 
 test('canonical normal UI exposes one responsive MEL surface with no legacy root runtime', async () => {
   const response = await onRequestGet({});
@@ -9,7 +10,7 @@ test('canonical normal UI exposes one responsive MEL surface with no legacy root
 
   assert.match(html, /data-visual-owner="mel-normal-v3"/);
   assert.equal((html.match(/id="mel-normal-v3-style"/g) || []).length, 1);
-  assert.equal((html.match(/id="mel-normal-v3-runtime"/g) || []).length, 1);
+  assert.equal((html.match(/src="\/normal-runtime\.js\?v=5"/g) || []).length, 1);
 
   for (const id of ['melAvatar','melAvatarImage','promptInput','previousMessage','drop','fileInput','send','full']) {
     assert.match(html, new RegExp(`id=["']${id}["']`), id);
@@ -17,8 +18,8 @@ test('canonical normal UI exposes one responsive MEL surface with no legacy root
 
   assert.match(html, /viewport-fit=cover/);
   assert.match(html, /@media\(max-width:700px\)/);
-  assert.match(html, /location\.href='\/professor'/);
-  assert.match(html, /e\.key==='Enter'&&!e\.shiftKey&&!e\.isComposing/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /location\.href='\/professor'/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /e\.key==='Enter'&&!e\.shiftKey&&!e\.isComposing/);
   assert.doesNotMatch(html, /interaction_count/i);
   assert.doesNotMatch(html, /ROOT_PAGE_V5_CLASSIC|ROOT_PAGE_PATCHED_V3|MEL_AVATAR_B64/);
 });
