@@ -28,7 +28,7 @@ Les branches explicitement consacrées au travail LoRA sont temporairement isol�
 
 ## Garde automatique
 
-Le workflow `.github/workflows/canonical-branch-unicity.yml` vérifie que toutes les lignes de développement actives non exemptées sont des ancêtres de `candidate/mel-clean-autonomy`. Une nouvelle divergence doit faire échouer ce contrôle.
+Le workflow `.github/workflows/canonical-branch-unicity.yml` vérifie que toute branche du dépôt non exemptée — y compris les anciennes releases, archives, rollbacks et références temporaires — est un ancêtre de `candidate/mel-clean-autonomy`. Une nouvelle divergence doit faire échouer ce contrôle. Les seules exemptions temporaires sont le transport `teacher-bridge/runtime` et les branches explicitement LoRA/compatibilité/adaptateur pendant le chantier séparé.
 
 ## But
 
