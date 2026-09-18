@@ -8,6 +8,16 @@ on:
         required: true
         default: false
         type: boolean
+      wait_for_completion:
+        description: "Wait for the currently running Kaggle kernel before collecting"
+        required: true
+        default: true
+        type: boolean
+      max_wait_minutes:
+        description: "Maximum wait for Kaggle completion"
+        required: true
+        default: "180"
+        type: string
   schedule:
     - cron: "2,17,32,47 * * * *"
 
@@ -22,7 +32,7 @@ jobs:
   collect:
     runs-on: ubuntu-latest
     environment: preview
-    timeout-minutes: 25
+    timeout-minutes: 240
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
     steps:
@@ -68,16 +78,38 @@ jobs:
         if: steps.creds.outputs.ready == 'true'
         id: status
         shell: bash
+        env:
+          WAIT_FOR_COMPLETION: ${{ github.event_name == 'workflow_dispatch' && inputs.wait_for_completion || false }}
+          MAX_WAIT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.max_wait_minutes || '1' }}
         run: |
           set -euo pipefail
           KERNEL="${KAGGLE_USERNAME}/mel-lora-uncensored-max"
-          RAW="$(kaggle kernels status "$KERNEL" 2>&1 || true)"
-          printf '%s\n' "$RAW"
-          printf '%s\n' "$RAW" > kaggle-status.txt
-          if printf '%s' "$RAW" | grep -Eqi 'complete|completed'; then
-            echo "complete=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "complete=false" >> "$GITHUB_OUTPUT"
+          [[ "$MAX_WAIT_MINUTES" =~ ^[0-9]+$ ]] || { echo "INVALID_MAX_WAIT_MINUTES"; exit 1; }
+          (( MAX_WAIT_MINUTES >= 1 && MAX_WAIT_MINUTES <= 220 )) || { echo "MAX_WAIT_MINUTES_OUT_OF_RANGE"; exit 1; }
+          COMPLETE=false
+          ATTEMPTS=$MAX_WAIT_MINUTES
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            RAW="$(kaggle kernels status "$KERNEL" 2>&1 || true)"
+            printf '[%s] %s\n' "$attempt" "$RAW"
+            printf '%s\n' "$RAW" > kaggle-status.txt
+            LOWER="$(printf '%s' "$RAW" | tr '[:upper:]' '[:lower:]')"
+            if printf '%s' "$LOWER" | grep -Eq 'complete|completed|success'; then
+              COMPLETE=true
+              break
+            fi
+            if printf '%s' "$LOWER" | grep -Eq 'error|failed|failure|cancelled|canceled'; then
+              echo "KAGGLE_RUN_FAILED"
+              exit 1
+            fi
+            if [[ "$WAIT_FOR_COMPLETION" != "true" ]]; then
+              break
+            fi
+            sleep 60
+          done
+          echo "complete=$COMPLETE" >> "$GITHUB_OUTPUT"
+          if [[ "$WAIT_FOR_COMPLETION" == "true" && "$COMPLETE" != "true" ]]; then
+            echo "KAGGLE_WAIT_TIMEOUT"
+            exit 1
           fi
 
       - name: Download completed training output
@@ -166,7 +198,7 @@ jobs:
           ACTIVATE_PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.activate_preview || false }}
           BUNDLE_DIR: ${{ steps.locate.outputs.dir }}
         run: |
-          node scripts/finalize-lora.mjs             --dir "$BUNDLE_DIR"             --url "$MEL_BASE_URL"             --activate "$ACTIVATE_PREVIEW"
+          node scripts/finalize-lora.mjs             --dir "$BUNDLE_DIR"             --url "$MEL_BASE_URL"             --activate "$ACTIVATE_PREVIEW"             --allow-not-activated true | tee artifacts/finalize-result.json
 
       - name: Upload Kaggle training evidence
         if: always()
@@ -180,5 +212,6 @@ jobs:
             artifacts/kaggle-output/**/lora-plan.json
             artifacts/kaggle-output/**/dataset-metadata.json
             artifacts/kaggle-output/**/kaggle-run.json
+            artifacts/finalize-result.json
           if-no-files-found: warn
           retention-days: 14
