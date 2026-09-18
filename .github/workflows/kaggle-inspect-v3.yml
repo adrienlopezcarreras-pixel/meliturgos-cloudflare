@@ -1,0 +1,50 @@
+name: kaggle-inspect-v3
+
+on:
+  push:
+    branches:
+      - candidate/mel-clean-autonomy
+    paths:
+      - ".github/workflows/kaggle-inspect-v3.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: preview
+    timeout-minutes: 10
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL_REF: adrienlopezcarreras/mel-lora-uncensored-notebook-t4
+    steps:
+      - name: Install Kaggle CLI
+        run: python -m pip install -q -U kaggle
+
+      - name: Check current status and quota
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts
+          kaggle kernels status "$KERNEL_REF" 2>&1 | tee artifacts/current-status.txt || true
+          kaggle quota --format json > artifacts/quota-after.json 2> artifacts/quota-after.err || true
+
+      - name: Pull training version 3
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts/v3-source artifacts/v3-output
+          kaggle kernels pull "$KERNEL_REF/3" -p artifacts/v3-source -m > artifacts/v3-pull.txt 2>&1 || true
+          kaggle kernels output "$KERNEL_REF/3" -p artifacts/v3-output --force > artifacts/v3-output-command.txt 2>&1 || true
+          find artifacts/v3-source -maxdepth 4 -type f -printf '%p %s bytes\n' > artifacts/v3-source-files.txt || true
+          find artifacts/v3-output -maxdepth 4 -type f -printf '%p %s bytes\n' > artifacts/v3-output-files.txt || true
+
+      - name: Upload inspection
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kaggle-inspect-v3-${{ github.run_id }}
+          path: artifacts/**
+          if-no-files-found: warn
+          retention-days: 14
