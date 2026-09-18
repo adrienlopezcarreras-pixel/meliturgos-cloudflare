@@ -18,10 +18,15 @@ test('root AGENTS entrypoint exposes canonical multi-page and mandatory XP proto
   const index = await readFile(new URL('../.agents/DEVELOPMENT_EXPERIENCE_INDEX.md', import.meta.url), 'utf8');
 
   assert.match(root, /candidate\/mel-clean-autonomy/);
+  assert.match(root, /MEL_OPERATING_MANUAL\.md/);
   assert.match(root, /MULTI_PAGE_RESUME\.md/);
   assert.match(root, /XP_PROTOCOL\.md/);
   assert.match(root, /OBLIGATOIRE après chaque opération/i);
   assert.match(root, /XP MEL : OUI\/NON/);
+  assert.match(root, /NETTOYER/i);
+  assert.match(root, /UNIFIER/i);
+  assert.match(root, /RÉCONCILIER/i);
+  assert.match(root, /ADAPTER/i);
   assert.match(resume, /celui qui finit réellement/i);
   assert.match(resume, /ne force jamais/i);
   assert.match(resume, /CHECKPOINT XP OBLIGATOIRE/i);
@@ -34,6 +39,8 @@ test('multi-AI protocol produces a collision-safe resume prompt and enforces XP 
   assert.equal(MULTI_AI_PROTOCOL.canonicalCandidate, 'candidate/mel-clean-autonomy');
   assert.equal(MULTI_AI_PROTOCOL.canonicalRelease, 'release/mel-2026-09-10-r3-3');
   assert.ok(MULTI_AI_PROTOCOL.writeRules.includes('never force-update the canonical candidate'));
+  assert.ok(MULTI_AI_PROTOCOL.postPassRules.includes('read relevant MEL experience before closing the pass'));
+  assert.ok(MULTI_AI_PROTOCOL.completionRules.includes('never mark a pass DONE before post-pass clean/unify/reconcile/adapt is complete'));
   assert.ok(MULTI_AI_PROTOCOL.completionRules.includes('run the XP checkpoint after every development operation'));
   assert.ok(MULTI_AI_PROTOCOL.completionRules.includes('finish every operation with XP MEL: OUI or XP MEL: NON'));
 
@@ -54,6 +61,7 @@ test('multi-AI protocol produces a collision-safe resume prompt and enforces XP 
     proofs: ['full CI: success'],
     xpStatus: 'OUI',
     xpIds: ['bootstrap-example'],
+    postPass: { experienceRead:true, cleaned:true, unified:true, reconciled:true, adapted:true, branchUnicity:true },
   });
   assert.equal(validateMultiAiHandoff(handoffYes).ok, true);
 
@@ -62,8 +70,20 @@ test('multi-AI protocol produces a collision-safe resume prompt and enforces XP 
     status: 'DONE_VERIFIED',
     sourceSha: 'fedcba9876543210',
     xpStatus: 'NON',
+    postPass: { experienceRead:true, cleaned:true, unified:true, reconciled:true, adapted:true, branchUnicity:true },
   });
   assert.equal(validateMultiAiHandoff(handoffNo).ok, true);
+
+  const incompletePostPass = createMultiAiHandoff({
+    item: 'GEN2-INCOMPLETE',
+    status: 'DONE_VERIFIED',
+    sourceSha: 'bbbbbbbbbbbbbbbb',
+    xpStatus: 'NON',
+    postPass: { experienceRead:true, cleaned:false, unified:true, reconciled:true, adapted:true, branchUnicity:true },
+  });
+  const incompleteChecked = validateMultiAiHandoff(incompletePostPass);
+  assert.equal(incompleteChecked.ok, false);
+  assert.ok(incompleteChecked.issues.includes('post_pass:cleaned-required'));
 
   const missingXpId = createMultiAiHandoff({
     item: 'GEN2-ZZ',
@@ -115,6 +135,10 @@ test('development experience pack is deduplicated and available to MEL training'
     'bootstrap-provider-neutral-explicit-binding-20260916',
     'bootstrap-roadmap-same-lot-truth-20260916',
     'bootstrap-mandatory-xp-checkpoint-20260916',
+    'bootstrap-continuous-experience-read-20260918',
+    'bootstrap-code-access-capability-truth-20260918',
+    'bootstrap-post-pass-reconcile-adapt-20260918',
+    'bootstrap-runtime-path-authority-20260918',
   ];
   for (const id of required) assert.ok(ids.includes(id), `missing ${id}`);
 

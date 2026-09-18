@@ -7,12 +7,14 @@ export const MULTI_AI_PROTOCOL = Object.freeze({
   productionProfessor: 'https://meliturgos.adrien-lopezcarreras.workers.dev/professor',
   requiredDocs: Object.freeze([
     'AGENTS.md',
+    '.agents/MEL_OPERATING_MANUAL.md',
     '.agents/DEPLOYMENT_UNICITY.md',
     '.agents/MULTI_PAGE_RESUME.md',
     '.agents/XP_PROTOCOL.md',
     '.agents/DEVELOPMENT_EXPERIENCE_INDEX.md',
   ]),
   startupChecks: Object.freeze([
+    'read MEL operating manual and relevant experience',
     'fetch current candidate HEAD',
     'fetch current release HEAD',
     'inspect recent commits, active branches, PRs and relevant workflow runs',
@@ -40,7 +42,16 @@ export const MULTI_AI_PROTOCOL = Object.freeze({
     'verify the deployment workflow succeeded',
     'close the proof chain with a live post-deploy smoke and preserve run/job identifiers',
   ]),
+  postPassRules: Object.freeze([
+    'read relevant MEL experience before closing the pass',
+    'clean obsolete duplicates wrappers dead paths and stale tests created or exposed by the pass',
+    'unify each responsibility around one source of truth one command and one active runtime path',
+    'reconcile branches roadmap runtime state tests and proofs',
+    'adapt tests documentation UI prompts rules and experience to the retained behavior',
+    'confirm every non-exempt development branch is an ancestor of the canonical candidate before DONE',
+  ]),
   completionRules: Object.freeze([
+    'never mark a pass DONE before post-pass clean/unify/reconcile/adapt is complete',
     'run the XP checkpoint after every development operation',
     'finish every operation with XP MEL: OUI or XP MEL: NON',
     'XP MEL: OUI requires at least one persisted deduplicated XP id and proofs',
@@ -56,10 +67,11 @@ export function buildMultiPageResumePrompt({ scope = 'continuer la roadmap MEL' 
     `Candidate canonique: ${MULTI_AI_PROTOCOL.canonicalCandidate}.`,
     `Release canonique: ${MULTI_AI_PROTOCOL.canonicalRelease}.`,
     `Roadmap source: ${MULTI_AI_PROTOCOL.roadmap}.`,
-    'Avant toute écriture: relis candidate + release, inspecte commits/branches/PR/runs, puis choisis un lot atomique encore libre.',
+    'Avant toute écriture: relis le manuel MEL + expérience pertinente, candidate + release, commits/branches/PR/runs, puis choisis un lot atomique encore libre.',
     'Attention aux collisions: aucune force-update de la candidate, aucun doublon, aucune perte des changements plus récents; si le HEAD bouge, reconstruis uniquement ton lot sur le nouveau HEAD.',
     'Travaille en harmonie: le premier agent qui termine avec tous les garde-fous verts a priorité au déploiement; les autres reconnaissent la promotion existante au lieu de republier.',
     'Avant promotion: targeted tests + full candidate CI + Teacher/runtime smoke + preview doivent être verts sur le SHA exact applicable.',
+    'Avant tout statut DONE: relis l’expérience, nettoie, unifie, réconcilie branches/roadmap/tests/preuves, adapte UI/docs/prompts/tests et confirme l’unicité de candidate/mel-clean-autonomy.',
     'À la fin de toute opération, exécute obligatoirement le checkpoint XP de .agents/XP_PROTOCOL.md: termine par XP MEL : OUI avec ID(s)+preuves si une nouvelle leçon réutilisable non dupliquée est enregistrée, sinon par XP MEL : NON. Ne termine jamais sans statut XP.',
   ].join('\n');
 }
@@ -75,6 +87,7 @@ export function createMultiAiHandoff({
   next = '',
   xpStatus = 'NON',
   xpIds = [],
+  postPass = {},
 } = {}) {
   return Object.freeze({
     actor: String(actor || 'agent'),
@@ -87,6 +100,14 @@ export function createMultiAiHandoff({
     next: String(next || ''),
     xp_status: String(xpStatus || '').toUpperCase(),
     xp_ids: [...xpIds],
+    post_pass: Object.freeze({
+      experience_read: postPass.experienceRead === true,
+      cleaned: postPass.cleaned === true,
+      unified: postPass.unified === true,
+      reconciled: postPass.reconciled === true,
+      adapted: postPass.adapted === true,
+      branch_unicity: postPass.branchUnicity === true,
+    }),
     generated_at: Date.now(),
   });
 }
@@ -103,5 +124,15 @@ export function validateMultiAiHandoff(handoff = {}) {
   if (!['OUI', 'NON'].includes(handoff.xp_status)) issues.push('xp_status:required');
   if (handoff.xp_status === 'OUI' && (!Array.isArray(handoff.xp_ids) || handoff.xp_ids.length === 0)) issues.push('xp_status:oui-requires-id');
   if (handoff.xp_status === 'NON' && Array.isArray(handoff.xp_ids) && handoff.xp_ids.length > 0) issues.push('xp_status:non-forbids-id');
+  const terminal = /^(DONE|DONE_VERIFIED|COMPLETED|RELEASED|DEPLOYED|HANDOFF_COMPLETE)$/i.test(String(handoff.status || ''));
+  if (terminal) {
+    const post = handoff.post_pass || {};
+    if (post.experience_read !== true) issues.push('post_pass:experience-read-required');
+    if (post.cleaned !== true) issues.push('post_pass:cleaned-required');
+    if (post.unified !== true) issues.push('post_pass:unified-required');
+    if (post.reconciled !== true) issues.push('post_pass:reconciled-required');
+    if (post.adapted !== true) issues.push('post_pass:adapted-required');
+    if (post.branch_unicity !== true) issues.push('post_pass:branch-unicity-required');
+  }
   return { ok: issues.length === 0, issues };
 }
