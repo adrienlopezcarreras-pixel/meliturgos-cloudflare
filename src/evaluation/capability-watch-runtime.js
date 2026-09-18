@@ -6,8 +6,9 @@ import {
   ECOSYSTEM_WATCH_TARGETS,
   getEcosystemWatchCatalog,
 } from './ecosystem-watch-catalog.js';
-import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, markEcosystemDiscoveryHandoff } from './ecosystem-discovery-planner.js';
+import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, markEcosystemDiscoveryHandoff, reconcileEcosystemDiscoveryHandoffs } from './ecosystem-discovery-planner.js';
 import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
+import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 
 const WATCH_ID = 'ecosystem-canonical';
 const DISCOVERY_ID = 'ecosystem-discoveries-canonical';
@@ -40,6 +41,26 @@ async function ensureStore(env, id = WATCH_ID) {
       ).bind(id, JSON.stringify(state), Date.now()).run();
     },
   };
+}
+
+async function reconcileDiscoveryJobs(env, ledger, { repository = null, now = Date.now() } = {}) {
+  const jobIds = [...new Set(
+    (Array.isArray(ledger?.items) ? ledger.items : [])
+      .map(item => String(item?.handoff?.job_id || ''))
+      .filter(Boolean)
+  )];
+  if (!jobIds.length) return { changed: false, ledger };
+  const repo = repository || new D1DevJobRepository(env?.DB);
+  const jobs = [];
+  for (const id of jobIds.slice(0, 50)) {
+    try {
+      const job = await repo.get(id);
+      if (job) jobs.push(job);
+    } catch {
+      // Keep the last known handoff state if D1 is temporarily unavailable.
+    }
+  }
+  return reconcileEcosystemDiscoveryHandoffs(ledger, jobs, now);
 }
 
 function watchEvaluator(env) {
@@ -101,6 +122,7 @@ export async function runEcosystemCapabilityWatch(
     now = Date.now(),
     sourceSha = null,
     developmentEnqueue = enqueueSupervisedDevelopmentRequest,
+    developmentRepository = null,
     fetchImpl = fetch,
   } = {},
 ) {
@@ -121,6 +143,14 @@ export async function runEcosystemCapabilityWatch(
 
   const discoveryStore = await ensureStore(env, DISCOVERY_ID);
   let discoveryLedger = await discoveryStore.load();
+  const reconciled = await reconcileDiscoveryJobs(env, discoveryLedger, {
+    repository: developmentRepository,
+    now,
+  });
+  if (reconciled.changed) {
+    discoveryLedger = reconciled.ledger;
+    await discoveryStore.save(discoveryLedger);
+  }
   let discoveryPlan = null;
   if (result.status === 'RAN') {
     const runtime = createGen2Runtime({ env });
@@ -143,7 +173,7 @@ export async function runEcosystemCapabilityWatch(
           env,
           goal: candidate.goal,
           requestKey: candidate.fingerprint,
-          repository: null,
+          repository: developmentRepository,
           fetchImpl,
           capabilities: runtime.bus.list(),
           requestedBy: 'mel-autonomy',
@@ -204,7 +234,12 @@ export async function getEcosystemCapabilityWatchStatus(env) {
   const store = await ensureStore(env, WATCH_ID);
   const discoveryStore = await ensureStore(env, DISCOVERY_ID);
   const state = normalizeCapabilityWatchState(await store.load());
-  const discoveries = await discoveryStore.load();
+  let discoveries = await discoveryStore.load();
+  const reconciled = await reconcileDiscoveryJobs(env, discoveries, { now: Date.now() });
+  if (reconciled.changed) {
+    discoveries = reconciled.ledger;
+    await discoveryStore.save(discoveries);
+  }
   return {
     ok: true,
     catalog: getEcosystemWatchCatalog(),

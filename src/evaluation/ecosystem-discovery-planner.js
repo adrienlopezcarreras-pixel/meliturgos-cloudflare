@@ -128,7 +128,9 @@ export function mergeEcosystemDiscoveryLedger(previous = {}, plan = {}, now = Da
   for (const item of Array.isArray(plan?.items) ? plan.items : []) {
     const before = existing.get(item.fingerprint);
     existing.set(item.fingerprint, {
+      ...(before || {}),
       ...item,
+      handoff: before?.handoff || item?.handoff || null,
       first_seen_at: before?.first_seen_at || now,
       last_seen_at: now,
       seen_count: Math.max(0, Number(before?.seen_count) || 0) + 1,
@@ -188,7 +190,7 @@ export function selectEcosystemDiscoveryCandidate(ledger = {}) {
     .filter(item => ['UNBLOCK_EXISTING', 'PROPOSE_EXTENSION'].includes(item?.action))
     .filter(item => Array.isArray(item?.sources) && item.sources.length > 0)
     .filter(item => item?.action !== 'PROPOSE_EXTENSION' || item?.proposal?.activation_allowed === false)
-    .filter(item => !handoffAlreadyOwnsItem(item));
+    .filter(item => !handoffAlreadyOwnsItem(item) && !handoffOwnsDiscovery(item));
 
   items.sort((a, b) => {
     const ra = candidateRank(a);
@@ -241,4 +243,110 @@ export function markEcosystemDiscoveryHandoff(ledger = {}, fingerprint, handoff 
       };
     }),
   };
+}
+
+
+const TERMINAL_JOB_STATUSES = new Set(['COMPLETED']);
+const ACTIVE_JOB_STATUSES = new Set([
+  'QUEUED',
+  'CLAIMED',
+  'COUNCIL_COMPLETE',
+  'WAITING_TEACHER',
+  'TEACHER_APPROVED',
+  'READY_FOR_REVIEW',
+]);
+
+function jobHandoffSnapshot(job, before = {}, now = Date.now()) {
+  const status = String(job?.status || '').toUpperCase() || 'UNKNOWN';
+  const teacher = job?.result_json?.teacher_bridge || {};
+  const lastTeacher = job?.result_json?.last_teacher_review || {};
+  const completion = job?.result_json?.autonomy_completion || {};
+  const teacherReject = status === 'FAILED'
+    && (String(job?.error || '').toUpperCase() === 'TEACHER_REJECT'
+      || String(job?.result_json?.autonomy_block_reason || '').toUpperCase() === 'TEACHER_REJECT');
+  const closed = TERMINAL_JOB_STATUSES.has(status) || teacherReject;
+  const retryable = status === 'FAILED' && !teacherReject;
+  return {
+    ...before,
+    status,
+    job_id: String(job?.id || before?.job_id || '') || null,
+    teacher_request_id: String(
+      teacher?.request?.request_id
+      || teacher?.review?.request_id
+      || completion?.request_id
+      || lastTeacher?.request_id
+      || before?.teacher_request_id
+      || ''
+    ) || null,
+    teacher_verdict: String(teacher?.review?.verdict || lastTeacher?.verdict || before?.teacher_verdict || '') || null,
+    candidate_sha: String(
+      completion?.candidate_sha
+      || teacher?.request?.provenance?.candidate_sha
+      || teacher?.request?.candidate?.sha
+      || before?.candidate_sha
+      || ''
+    ) || null,
+    ci_run_id: Number(completion?.ci?.run_id || before?.ci_run_id || 0) || null,
+    completion_verified: completion?.status === 'VERIFIED',
+    closed,
+    retryable,
+    terminal_reason: teacherReject ? 'TEACHER_REJECT' : (status === 'COMPLETED' ? 'VERIFIED_COMPLETION' : null),
+    job_updated_at: Number(job?.updated_at || 0) || null,
+    reconciled_at: now,
+  };
+}
+
+export function reconcileEcosystemDiscoveryHandoffs(ledger = {}, jobs = [], now = Date.now()) {
+  const byId = new Map(
+    (Array.isArray(jobs) ? jobs : [])
+      .filter(job => job?.id)
+      .map(job => [String(job.id), job])
+  );
+  let changed = false;
+  const items = (Array.isArray(ledger?.items) ? ledger.items : []).map(item => {
+    const jobId = String(item?.handoff?.job_id || '');
+    if (!jobId) return item;
+    const job = byId.get(jobId);
+    if (!job) return item;
+    const next = jobHandoffSnapshot(job, item.handoff, now);
+    const beforeComparable = JSON.stringify({
+      status: item.handoff?.status || null,
+      teacher_request_id: item.handoff?.teacher_request_id || null,
+      teacher_verdict: item.handoff?.teacher_verdict || null,
+      candidate_sha: item.handoff?.candidate_sha || null,
+      ci_run_id: item.handoff?.ci_run_id || null,
+      completion_verified: item.handoff?.completion_verified === true,
+      closed: item.handoff?.closed === true,
+      retryable: item.handoff?.retryable === true,
+      terminal_reason: item.handoff?.terminal_reason || null,
+      job_updated_at: Number(item.handoff?.job_updated_at || 0) || null,
+    });
+    const nextComparable = JSON.stringify({
+      status: next.status,
+      teacher_request_id: next.teacher_request_id,
+      teacher_verdict: next.teacher_verdict,
+      candidate_sha: next.candidate_sha,
+      ci_run_id: next.ci_run_id,
+      completion_verified: next.completion_verified,
+      closed: next.closed,
+      retryable: next.retryable,
+      terminal_reason: next.terminal_reason,
+      job_updated_at: next.job_updated_at,
+    });
+    if (beforeComparable === nextComparable) return item;
+    changed = true;
+    return { ...item, handoff: next };
+  });
+  return {
+    changed,
+    ledger: changed ? { ...ledger, updated_at: now, items } : ledger,
+  };
+}
+
+export function handoffOwnsDiscovery(item) {
+  const status = String(item?.handoff?.status || '').toUpperCase();
+  if (!item?.handoff?.job_id) return false;
+  if (item.handoff.closed === true) return true;
+  if (status === 'FAILED' && item.handoff.retryable === true) return false;
+  return ACTIVE_JOB_STATUSES.has(status) || status !== 'FAILED';
 }

@@ -6,7 +6,7 @@ import {
   getEcosystemWatchCatalog,
 } from '../../src/evaluation/ecosystem-watch-catalog.js';
 import { runCapabilityWatch } from '../../src/evaluation/capability-watch.js';
-import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, markEcosystemDiscoveryHandoff } from '../../src/evaluation/ecosystem-discovery-planner.js';
+import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, markEcosystemDiscoveryHandoff, reconcileEcosystemDiscoveryHandoffs } from '../../src/evaluation/ecosystem-discovery-planner.js';
 import { createGen2Runtime } from '../../src/core/orchestrator/gen2-runtime.js';
 
 test('ecosystem watch catalog is unique and covers AI, tooling and creative arts', () => {
@@ -156,4 +156,126 @@ test('handoff selector prioritizes unblocking an existing sourced creative capab
   assert.equal(marked.items.find(item => item.fingerprint === selected.fingerprint).handoff.job_id, 'ecosystem-watch-123');
   const next = selectEcosystemDiscoveryCandidate(marked);
   assert.equal(next.fingerprint, 'capability:art-history');
+});
+
+
+test('recurring watch merge preserves an existing handoff instead of duplicating work', () => {
+  const previous = {
+    run_count: 1,
+    items: [{
+      fingerprint: 'capability:music.generate',
+      capability_hint: 'music.generate',
+      action: 'UNBLOCK_EXISTING',
+      handoff: { job_id: 'ecosystem-watch-1', status: 'WAITING_TEACHER', attempts: 1 },
+      first_seen_at: 100,
+      seen_count: 1,
+    }],
+  };
+  const plan = {
+    generated_at: '2026-09-18T10:00:00Z',
+    items: [{
+      fingerprint: 'capability:music.generate',
+      capability_hint: 'music.generate',
+      action: 'UNBLOCK_EXISTING',
+      evidence_status: 'SOURCED_OBSERVATION',
+      sources: [{ title: 'Official', url: 'https://example.com/music' }],
+    }],
+  };
+  const merged = mergeEcosystemDiscoveryLedger(previous, plan, 200);
+  assert.equal(merged.items.length, 1);
+  assert.equal(merged.items[0].handoff.job_id, 'ecosystem-watch-1');
+  assert.equal(merged.items[0].handoff.attempts, 1);
+  assert.equal(selectEcosystemDiscoveryCandidate(merged), null);
+});
+
+test('handoff reconciliation follows the canonical dev job through Teacher and verified completion without incrementing attempts', () => {
+  const ledger = {
+    items: [{
+      fingerprint: 'capability:music.generate',
+      capability_hint: 'music.generate',
+      action: 'UNBLOCK_EXISTING',
+      evidence_status: 'SOURCED_OBSERVATION',
+      sources: [{ title: 'Official', url: 'https://example.com/music' }],
+      handoff: {
+        job_id: 'ecosystem-watch-1',
+        status: 'WAITING_TEACHER',
+        attempts: 1,
+        teacher_request_id: 'req-1',
+      },
+    }],
+  };
+  const approved = reconcileEcosystemDiscoveryHandoffs(ledger, [{
+    id: 'ecosystem-watch-1',
+    status: 'TEACHER_APPROVED',
+    updated_at: 150,
+    result_json: {
+      teacher_bridge: {
+        status: 'ANSWERED',
+        request: { request_id: 'req-1', provenance: { candidate_sha: 'a'.repeat(40) } },
+        review: { request_id: 'req-1', verdict: 'APPROVE_PLAN' },
+      },
+    },
+  }], 200);
+  assert.equal(approved.changed, true);
+  assert.equal(approved.ledger.items[0].handoff.status, 'TEACHER_APPROVED');
+  assert.equal(approved.ledger.items[0].handoff.teacher_verdict, 'APPROVE_PLAN');
+  assert.equal(approved.ledger.items[0].handoff.attempts, 1);
+  assert.equal(approved.ledger.items[0].handoff.closed, false);
+
+  const completed = reconcileEcosystemDiscoveryHandoffs(approved.ledger, [{
+    id: 'ecosystem-watch-1',
+    status: 'COMPLETED',
+    updated_at: 250,
+    result_json: {
+      autonomy_completion: {
+        status: 'VERIFIED',
+        request_id: 'req-1',
+        candidate_sha: 'b'.repeat(40),
+        ci: { run_id: 12345 },
+      },
+    },
+  }], 300);
+  const handoff = completed.ledger.items[0].handoff;
+  assert.equal(handoff.status, 'COMPLETED');
+  assert.equal(handoff.closed, true);
+  assert.equal(handoff.completion_verified, true);
+  assert.equal(handoff.candidate_sha, 'b'.repeat(40));
+  assert.equal(handoff.ci_run_id, 12345);
+  assert.equal(handoff.attempts, 1);
+  assert.equal(selectEcosystemDiscoveryCandidate(completed.ledger), null);
+});
+
+test('Teacher rejection closes the discovery while a non-Teacher failure remains retryable', () => {
+  const base = {
+    items: [{
+      fingerprint: 'capability:new-tool',
+      capability_hint: 'new-tool',
+      action: 'PROPOSE_EXTENSION',
+      evidence_status: 'SOURCED_OBSERVATION',
+      sources: [{ title: 'Docs', url: 'https://example.com/tool' }],
+      proposal: { activation_allowed: false },
+      handoff: { job_id: 'job-1', status: 'WAITING_TEACHER', attempts: 1 },
+    }],
+  };
+  const rejected = reconcileEcosystemDiscoveryHandoffs(base, [{
+    id: 'job-1',
+    status: 'FAILED',
+    error: 'TEACHER_REJECT',
+    updated_at: 10,
+    result_json: { autonomy_block_reason: 'TEACHER_REJECT' },
+  }], 20);
+  assert.equal(rejected.ledger.items[0].handoff.closed, true);
+  assert.equal(rejected.ledger.items[0].handoff.retryable, false);
+  assert.equal(selectEcosystemDiscoveryCandidate(rejected.ledger), null);
+
+  const retryable = reconcileEcosystemDiscoveryHandoffs(base, [{
+    id: 'job-1',
+    status: 'FAILED',
+    error: 'TRANSIENT_PROVIDER_FAILURE',
+    updated_at: 11,
+    result_json: {},
+  }], 21);
+  assert.equal(retryable.ledger.items[0].handoff.closed, false);
+  assert.equal(retryable.ledger.items[0].handoff.retryable, true);
+  assert.equal(selectEcosystemDiscoveryCandidate(retryable.ledger)?.fingerprint, 'capability:new-tool');
 });
