@@ -59,9 +59,10 @@ if (usesVerifiedUiChain) {
   assert.match(learningEntry, /import\s+app\s+from\s+["']\.\/index\.js["']/, 'Learning wrapper below ui-entry must delegate to src/index.js');
 }
 
-assert.match(wrangler, /"crons"\s*:\s*\[\s*"[^"]+"\s*\]/, 'At least one autonomy cron must remain configured');
+assert.match(wrangler, /"\* \* \* \* \*"/, 'One-minute autonomy cron must remain configured');
+assert.match(wrangler, /"17 \* \* \* \*"/, 'Hourly maintenance cron must remain configured');
 
-assert.match(index, /import\s+\{\s*runAutonomyRuntimeTick\s*\}\s+from\s+["']\.\/evolution\/autonomy-runtime\.js["']/, 'Entrypoint must import the autonomy runtime tick');
+assert.match(index, /import\s+\{[^}]*runAutonomyMaintenance[^}]*runAutonomyRuntimeTick[^}]*\}\s+from\s+["']\.\/evolution\/autonomy-runtime\.js["']/, 'Entrypoint must import the autonomy runtime tick and separated maintenance');
 assert.match(index, /async\s+scheduled\s*\([^)]*\)\s*\{[\s\S]*runAutonomyRuntimeTick\(env\)/, 'scheduled() must execute the autonomy runtime tick');
 assert.match(index, /maybeHandlePublicTeacherBridge\(request,\s*env\)/, 'fetch() must expose the public Teacher Bridge handler');
 
