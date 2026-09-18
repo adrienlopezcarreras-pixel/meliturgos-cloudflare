@@ -149,36 +149,93 @@ jobs:
           gh release download "$PARENT_RELEASE_TAG"             --repo "$GITHUB_REPOSITORY"             --pattern "mel-lora-bundle.tar.gz"             --dir /tmp/mel-parent
           test -s /tmp/mel-parent/mel-lora-bundle.tar.gz
 
-      - name: Build fully offline Kaggle payload
+      - name: Publish private offline cycle payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          PAYLOAD_REF="$KAGGLE_OWNER/mel-lora-cycle-payload"
+          echo "PAYLOAD_REF=$PAYLOAD_REF" >> "$GITHUB_ENV"
+
+          rm -rf artifacts/kaggle-payload
+          mkdir -p artifacts/kaggle-payload
+          cp scripts/train-mel-lora.py artifacts/kaggle-payload/train-mel-lora.py
+          cp scripts/create-lora-plan.py artifacts/kaggle-payload/create-lora-plan.py
+          cp /tmp/mel-training-shard.jsonl.gz artifacts/kaggle-payload/mel-training-shard.jsonl.gz
+          cp /tmp/mel-training-shard.jsonl.meta.json artifacts/kaggle-payload/mel-training-shard.jsonl.meta.json
+          if [[ -s /tmp/mel-parent/mel-lora-bundle.tar.gz ]]; then
+            cp /tmp/mel-parent/mel-lora-bundle.tar.gz artifacts/kaggle-payload/parent-bundle.tar.gz
+          fi
+
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path("artifacts/kaggle-payload")
+          payload={
+              "schema":"mel.kaggle-cycle-payload.v1",
+              "source_sha":os.environ["SOURCE_SHA"],
+              "cycle":int(os.environ["CYCLE"]),
+              "shard_size":int(os.environ["SHARD_SIZE"]),
+              "parent_release_tag":os.environ.get("PARENT_RELEASE_TAG") or None,
+              "private":True,
+          }
+          (root/"payload.json").write_text(json.dumps(payload,indent=2)+"\n",encoding="utf-8")
+          metadata={
+              "title":"MEL LoRA Cycle Payload",
+              "id":f'{os.environ["KAGGLE_OWNER"]}/mel-lora-cycle-payload',
+              "licenses":[{"name":"other"}],
+              "description":"Private transient MEL LoRA training payload. Exact source provenance is retained inside payload.json and shard metadata.",
+          }
+          (root/"dataset-metadata.json").write_text(json.dumps(metadata,indent=2)+"\n",encoding="utf-8")
+          PY
+
+          if kaggle datasets files "$PAYLOAD_REF" >/dev/null 2>&1; then
+            kaggle datasets version               -p artifacts/kaggle-payload               -m "MEL LoRA cycle $CYCLE source $SOURCE_SHA"
+          else
+            kaggle datasets create -p artifacts/kaggle-payload
+          fi
+
+          READY=0
+          for attempt in $(seq 1 40); do
+            STATUS="$(kaggle datasets status "$PAYLOAD_REF" 2>&1 || true)"
+            echo "payload[$attempt] $STATUS"
+            if printf '%s' "$STATUS" | grep -Eqi 'ready|complete|success'; then
+              READY=1
+              break
+            fi
+            if printf '%s' "$STATUS" | grep -Eqi 'error|failed|failure'; then
+              echo "KAGGLE_PAYLOAD_DATASET_FAILED"
+              exit 1
+            fi
+            sleep 15
+          done
+          if [[ "$READY" != "1" ]]; then
+            echo "KAGGLE_PAYLOAD_DATASET_NOT_READY"
+            exit 1
+          fi
+          kaggle datasets files "$PAYLOAD_REF" | tee artifacts/kaggle-payload-files.txt
+          grep -q "payload.json" artifacts/kaggle-payload-files.txt
+
+      - name: Build fully offline Kaggle kernel
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/kaggle-kernel
           cp kaggle/mel-lora-uncensored/kernel-metadata.json artifacts/kaggle-kernel/kernel-metadata.json
+
           python - <<'PY'
-          import base64, json, os
+          import json, os
           from pathlib import Path
-
-          def b64(path):
-              return base64.b64encode(Path(path).read_bytes()).decode("ascii")
-
           source=Path("kaggle/mel-lora-uncensored/run.py").read_text(encoding="utf-8")
-          parent=Path("/tmp/mel-parent/mel-lora-bundle.tar.gz")
           replacements={
-              "__MEL_GIT_SHA__": os.environ["SOURCE_SHA"],
-              "__MEL_CYCLE__": os.environ["CYCLE"],
-              "__MEL_SHARD_SIZE__": os.environ["SHARD_SIZE"],
-              "__MEL_TRAIN_SCRIPT_B64__": b64("scripts/train-mel-lora.py"),
-              "__MEL_PLAN_SCRIPT_B64__": b64("scripts/create-lora-plan.py"),
-              "__MEL_SHARD_GZ_B64__": b64("/tmp/mel-training-shard.jsonl.gz"),
-              "__MEL_SHARD_META_B64__": b64("/tmp/mel-training-shard.jsonl.meta.json"),
-              "__MEL_PARENT_BUNDLE_B64__": b64(parent) if parent.is_file() else "",
+              "__MEL_GIT_SHA__":os.environ["SOURCE_SHA"],
+              "__MEL_CYCLE__":os.environ["CYCLE"],
+              "__MEL_SHARD_SIZE__":os.environ["SHARD_SIZE"],
           }
           for key,value in replacements.items():
               source=source.replace(key,value)
           if "__MEL_" in source:
               raise SystemExit("UNRESOLVED_KAGGLE_TEMPLATE_PLACEHOLDER")
-          Path("artifacts/kaggle-kernel/run.py").write_text(source, encoding="utf-8")
+          Path("artifacts/kaggle-kernel/run.py").write_text(source,encoding="utf-8")
 
           meta=json.loads(Path("artifacts/kaggle-kernel/kernel-metadata.json").read_text())
           meta["id"]=f'{os.environ["KAGGLE_OWNER"]}/mel-lora-uncensored-max'
@@ -186,13 +243,16 @@ jobs:
           meta["dataset_sources"]=[
               "cdeotte/mistral-7b-instruct-v02-fp16",
               "nbroad/hf-libraries",
+              os.environ["PAYLOAD_REF"],
           ]
           Path("artifacts/kaggle-kernel/kernel-metadata.json").write_text(
-              json.dumps(meta,indent=2)+"\n", encoding="utf-8"
+              json.dumps(meta,indent=2)+"\n",encoding="utf-8"
           )
           PY
+
           python -m py_compile artifacts/kaggle-kernel/run.py
           test -s artifacts/kaggle-kernel/run.py
+          test "$(wc -c < artifacts/kaggle-kernel/run.py)" -lt 100000
           cat artifacts/kaggle-kernel/kernel-metadata.json
 
       - name: Submit free offline Kaggle T4 training
