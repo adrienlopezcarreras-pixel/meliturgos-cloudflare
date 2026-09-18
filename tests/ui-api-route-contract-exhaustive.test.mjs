@@ -17,6 +17,8 @@ const SERVER_FILES = [
   '../src/ui-entry.js',
   '../src/professor-live-learning-entry.js',
   '../src/evolution/autonomy-api.js',
+  '../src/api/voice-transcribe.js',
+  '../src/api/file-upload.js',
 ];
 
 test('every fixed API endpoint referenced by canonical UI exists in deployed server routing', async () => {
