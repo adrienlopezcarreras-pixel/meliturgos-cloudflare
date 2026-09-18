@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runStructuredBridgeJob, structuredFiles, requestedTests, bridgePass } from '../src/dev/bridge-job-runner.js';
 
+const APPROVED_BRANCH = 'candidate/mel-clean-autonomy';
+const APPROVED_SHA = 'a'.repeat(40);
+
 function fakeBridge({ testExitCodes = [0, 0], diff = 'diff --git a/src/a.js b/src/a.js\n-0\n+1\n', existingCandidate = false } = {}) {
   const calls = [];
   let testIndex = 0;
@@ -22,7 +25,7 @@ function fakeBridge({ testExitCodes = [0, 0], diff = 'diff --git a/src/a.js b/sr
           return { command: input.command, exit_code: code, stdout: code === 0 ? 'ok' : '', stderr: code === 0 ? '' : 'failure' };
         }
         if (id === 'code.diff') return { result: { exit_code: 0, stdout: diff, stderr: '' } };
-        if (id === 'dev.report') return { branch: `mel-dev/${input.job_id}`, status: 'CANDIDATE' };
+        if (id === 'dev.report') return { branch: `mel-dev/${input.job_id}`, status: 'CANDIDATE', base_branch: APPROVED_BRANCH, base_sha: APPROVED_SHA };
         throw new Error(`unexpected ${id}`);
       },
     },
@@ -39,6 +42,13 @@ const job = {
     { name: 'smoke', command: 'test:smoke' },
     { name: 'integration', command: 'test:integration' },
   ],
+  result_json: {
+    bridge_preparation: {
+      status: 'READY',
+      candidate_branch: APPROVED_BRANCH,
+      candidate_sha: APPROVED_SHA,
+    },
+  },
 };
 
 test('structured package applies every bounded file, runs requested tests and reports the actual diff', async () => {
@@ -54,6 +64,28 @@ test('structured package applies every bounded file, runs requested tests and re
   assert.ok(result.tests_json.every(row => row.passed));
   assert.equal(bridge.calls.filter(call => call.id === 'dev.apply_change').length, 2);
   assert.equal(bridge.calls.filter(call => call.id === 'dev.test').length, 2);
+});
+
+test('structured package proves the exact approved canonical base before editing', async () => {
+  const bridge = fakeBridge();
+  const result = await runStructuredBridgeJob({ bridge, job });
+  const create = bridge.calls.find(call => call.id === 'dev.create_candidate');
+  assert.equal(create?.input?.expected_branch, APPROVED_BRANCH);
+  assert.equal(create?.input?.expected_sha, APPROVED_SHA);
+  assert.equal(result.candidate_branch, APPROVED_BRANCH);
+  assert.equal(result.result_json.approved_base.candidate_branch, APPROVED_BRANCH);
+  assert.equal(result.result_json.approved_base.candidate_sha, APPROVED_SHA);
+  assert.match(result.result_json.local_candidate_branch, /^mel-dev\//);
+});
+
+test('structured package without an approved branch and SHA fails closed before creating a candidate', async () => {
+  const bridge = fakeBridge();
+  const unbound = { ...job, result_json: {} };
+  await assert.rejects(
+    () => runStructuredBridgeJob({ bridge, job: unbound }),
+    error => error?.code === 'BRIDGE_PREPARATION_BASE_REQUIRED',
+  );
+  assert.equal(bridge.calls.length, 0);
 });
 
 test('failed test remains observable and marks package for repair', async () => {
