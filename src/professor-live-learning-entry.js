@@ -77,6 +77,7 @@ async function operatorLoraBenchmarkResponse(request, env) {
     const result = await runOperatorLoraBenchmark(env, {
       plan: body.plan,
       artifact: body.artifact,
+      approval: body.approval,
       activate: body.activate === true,
     });
     return json({ ok: true, ...result });
