@@ -133,12 +133,14 @@ test('readiness never reports a malformed deployment SHA as a known commit', asy
   assert.equal(report.self_code.commit_format_valid, false);
 });
 
-test('production deploy injects exact GitHub branch and SHA as compile-time metadata', async () => {
+test('production deploy requires explicit approval and exact canonical release identity', async () => {
   const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /DEPLOY_APPROVED/);
+  assert.match(workflow, /EXPECTED_SHA/);
+  assert.match(workflow, /RELEASE_BRANCH/);
+  assert.match(workflow, /candidate\/mel-clean-autonomy/);
   assert.match(workflow, /MEL_DEPLOYED_GIT_SHA/);
-  assert.match(workflow, /GITHUB_SHA/);
   assert.match(workflow, /MEL_DEPLOYED_GIT_BRANCH/);
-  assert.match(workflow, /GITHUB_REF_NAME/);
   assert.match(workflow, /--define/);
 });
 
