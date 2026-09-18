@@ -1,5 +1,4 @@
 import app from './professor-live-learning-entry.js';
-import { applyMelThemeBackgrounds } from './pages/mel-theme-backgrounds.js';
 import {
   basicAuthorizationFromCredentials,
   createPreviewSessionToken,
@@ -136,7 +135,7 @@ export default {
     if (!isPreviewEnvironment(env)) {
       const authenticatedRequest = request;
       const response = await app.fetch(authenticatedRequest, env, ctx);
-      return applyMelThemeBackgrounds(response);
+      return response;
     }
 
     const url = new URL(request.url);
@@ -160,7 +159,7 @@ export default {
     }
 
     const response = await app.fetch(authenticatedRequest, env, ctx);
-    return applyMelThemeBackgrounds(response);
+    return response;
   },
   async scheduled(controller, env, ctx) {
     return app.scheduled(controller, env, ctx);
