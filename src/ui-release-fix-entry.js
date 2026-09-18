@@ -12,49 +12,6 @@ function withHead(html, fragment) {
   return html.includes('</head>') ? html.replace('</head>', `${fragment}</head>`) : fragment + html;
 }
 
-const CACHE_REFRESH = `<script id="mel-release-cache-refresh">
-(()=>{
-  try{
-    if('serviceWorker' in navigator){
-      navigator.serviceWorker.getRegistration().then(reg=>{if(reg){reg.update().catch(()=>{});reg.waiting?.postMessage('SKIP_WAITING')}}).catch(()=>{});
-    }
-    if('caches' in window)caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k)))).catch(()=>{});
-  }catch{}
-})();
-</script>`;
-
-const NORMAL_HD_STYLE = `<style id="mel-new-hd-scenes">
-html[data-theme="classic"]{--mel-hd-bg:url("${HD_BACKGROUNDS.classic}")!important}
-html[data-theme="crusade"]{--mel-hd-bg:url("${HD_BACKGROUNDS.crusade}")!important}
-html[data-theme="religious"]{--mel-hd-bg:url("${HD_BACKGROUNDS.religious}")!important}
-html[data-theme="granada"]{--mel-hd-bg:url("${HD_BACKGROUNDS.granada}")!important}
-html[data-theme="aviation"]{--mel-hd-bg:url("${HD_BACKGROUNDS.aviation}")!important}
-html[data-theme="paladin"]{--mel-hd-bg:url("${HD_BACKGROUNDS.paladin}")!important}
-html[data-theme="amazon"]{--mel-hd-bg:url("${HD_BACKGROUNDS.amazon}")!important}
-html[data-mel-bg-tone="dark"]{--mel-overlay:linear-gradient(180deg,rgba(2,6,16,.02),rgba(2,6,16,.05) 48%,rgba(2,6,16,.10));--text:#fff;--ink:#fff;--muted:#dbe4f0;--soft:#eef4fb;--panel:rgba(10,18,32,.92);--panel2:rgba(5,11,22,.96);--composer:rgba(2,6,23,.72);--border:rgba(255,255,255,.24);--button:#26364d;--button-text:#fff;--user:rgba(37,99,235,.34);--mel:rgba(8,16,30,.82)}
-html[data-mel-bg-tone="light"]{color-scheme:light;--mel-overlay:linear-gradient(180deg,rgba(255,255,255,.015),rgba(255,255,255,.035) 48%,rgba(255,255,255,.07));--text:#0b1324;--ink:#0b1324;--muted:#243247;--soft:#182235;--panel:rgba(255,255,255,.94);--panel2:rgba(248,250,252,.97);--composer:rgba(255,255,255,.88);--border:rgba(15,23,42,.27);--button:#e2e8f0;--button-text:#0f172a;--user:rgba(37,99,235,.20);--mel:rgba(255,255,255,.90)}
-html,body{width:100%!important;max-width:100%!important;overflow-x:hidden!important}
-html body{background-image:var(--mel-overlay),var(--mel-hd-bg)!important;background-size:cover,cover!important;background-position:center,var(--mel-hd-pos,center)!important;background-repeat:no-repeat!important;background-attachment:fixed!important;color:var(--text)!important}
-.window{background:linear-gradient(180deg,var(--panel),var(--panel2))!important;color:var(--ink)!important;backdrop-filter:blur(7px);box-shadow:0 18px 48px rgba(0,0,0,.22)!important;border-color:var(--border)!important}
-.app,.window,.composer,#messages,textarea{max-width:100%!important}
-.theme-panel,.theme-choice,textarea,#voiceStatus,#status,.empty,.composer-meta,.drop{color:inherit!important}
-.avatar{position:relative!important;overflow:hidden!important;border-radius:50%!important;background:transparent!important;isolation:isolate!important}
-.avatar img{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;min-width:0!important;min-height:0!important;max-width:100%!important;max-height:100%!important;display:block!important;object-fit:contain!important;object-position:center center!important;transform:none!important;transform-origin:center!important;background:transparent!important}
-.avatar img~img{display:none!important}
-@media(max-width:700px){html body{background-attachment:scroll!important}.app,.window{width:100%!important}.composer{overflow:hidden!important}.avatar img{object-position:center center!important;transform:none!important}}
-</style>`;
-
-const NORMAL_SCRIPT = `<script id="mel-normal-release-runtime">
-(()=>{
- const tones=${JSON.stringify(HD_BACKGROUND_TONES)};
- const applyTone=()=>{const html=document.documentElement;const theme=String(html.dataset.theme||'classic');html.dataset.melBgTone=tones[theme]||'dark'};
- const normalizeAvatar=()=>{const avatar=document.querySelector('.avatar');if(!avatar)return;const imgs=[...avatar.querySelectorAll('img')];imgs.forEach((img,index)=>{if(index>0){img.remove();return}img.style.objectFit='contain';img.style.objectPosition='center center';img.style.transform='none';img.style.background='transparent'})};
- const apply=()=>{applyTone();normalizeAvatar()};
- if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',apply,{once:true});else apply();
- new MutationObserver(apply).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['data-theme']});
-})();
-</script>`;
-
 const FULL_STYLE = `<style id="mel-full-release-fix">
 html,body{width:100%!important;max-width:100%!important;overflow-x:hidden!important}
 html body{background-image:linear-gradient(180deg,rgba(2,7,18,.24),rgba(2,8,18,.48)),url("${HD_BACKGROUNDS.control}")!important;background-size:cover,cover!important;background-position:center,center!important;background-repeat:no-repeat!important;background-attachment:fixed!important}
@@ -97,18 +54,16 @@ const FULL_SCRIPT = `<script id="mel-full-release-runtime">
 </script>`;
 
 async function enhance(response, pathname) {
+  if (pathname !== '/professor') return response;
   const type = response.headers.get('content-type') || '';
   if (!response.ok || !type.includes('text/html')) return response;
+
   let html = await response.text();
-  if (pathname === '/professor') {
-    html = html.replaceAll('src="/meliturgos-avatar-fille.png"', `src="${FULL_CYBER_AVATAR_URL}"`);
-    html = html.replaceAll('src="/assets/avatars/mel-full.webp"', `src="${FULL_CYBER_AVATAR_URL}"`);
-    html = withHead(html, FULL_STYLE);
-    html = withBody(html, FULL_SCRIPT + CACHE_REFRESH);
-  } else if (pathname === '/' || pathname === '/mvp') {
-    html = withHead(html, NORMAL_HD_STYLE);
-    html = withBody(html, NORMAL_SCRIPT + CACHE_REFRESH);
-  }
+  html = html.replaceAll('src="/meliturgos-avatar-fille.png"', `src="${FULL_CYBER_AVATAR_URL}"`);
+  html = html.replaceAll('src="/assets/avatars/mel-full.webp"', `src="${FULL_CYBER_AVATAR_URL}"`);
+  html = withHead(html, FULL_STYLE);
+  html = withBody(html, FULL_SCRIPT);
+
   const headers = new Headers(response.headers);
   headers.delete('content-length');
   headers.set('cache-control','no-store, no-cache, must-revalidate');
