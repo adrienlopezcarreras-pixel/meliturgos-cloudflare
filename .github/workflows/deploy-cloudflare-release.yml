@@ -76,7 +76,11 @@ jobs:
         run: npm run check
 
       - name: Full test suite
-        run: npm test
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B candidate/release-ci-head "$EXPECTED_SHA"
+          npm test
 
       - name: Deploy exact approved SHA to production
         shell: bash
