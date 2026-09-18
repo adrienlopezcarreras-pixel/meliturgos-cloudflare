@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('ecosystem watch is wired once into schedule, API and full-mode activity', async () => {
+test('ecosystem watch is wired once into schedule, API and its dedicated page', async () => {
   const index = await readFile(new URL('../src/index.js', import.meta.url), 'utf8');
   const ui = await readFile(new URL('../src/ui-entry.js', import.meta.url), 'utf8');
   const panel = await readFile(new URL('../src/pages/full-mode-control-enhancer.js', import.meta.url), 'utf8');
+  const watchPage = await readFile(new URL('../src/pages/watch-interface.js', import.meta.url), 'utf8');
   const watchRuntime = await readFile(new URL('../src/evaluation/capability-watch-runtime.js', import.meta.url), 'utf8');
   const previewWorkflow = await readFile(new URL('../.github/workflows/deploy-candidate-preview.yml', import.meta.url), 'utf8');
   const teacherRebaseProof = await readFile(new URL('../.github/scripts/gen2-42-teacher-rebase-proof.mjs', import.meta.url), 'utf8');
@@ -16,9 +17,13 @@ test('ecosystem watch is wired once into schedule, API and full-mode activity', 
   assert.match(ui, /\/api\/mel\/capability-watch\/proposal/);
   assert.match(ui, /applyEcosystemProposalDecision/);
   assert.doesNotMatch(ui, /WATCH_FORCE_PREVIEW_ONLY/);
-  assert.match(panel, /Veille IA, plugins & arts/);
-  assert.match(panel, /\/api\/mel\/capability-watch\/run/);
-  assert.match(panel, /force:true/);
+  assert.match(panel, /href="\/veille"/);
+  assert.doesNotMatch(panel, /\/api\/mel\/capability-watch\/run/);
+  assert.doesNotMatch(panel, /melProposalChatNotice/);
+  assert.match(watchPage, /Tester toutes les options de la veille/);
+  assert.match(watchPage, /\/api\/mel\/capability-watch\/test-all/);
+  assert.match(watchPage, /\/api\/mel\/capability-watch\/run/);
+  assert.match(watchPage, /\/api\/mel\/capability-watch\/proposal/);
   assert.equal((index.match(/runEcosystemCapabilityWatch\(env,/g) || []).length, 1);
   assert.match(watchRuntime, /selectEcosystemDiscoveryCandidate/);
   assert.match(watchRuntime, /enqueueSupervisedDevelopmentRequest/);
