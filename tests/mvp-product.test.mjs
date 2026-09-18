@@ -5,6 +5,7 @@ import { onRequestGet as professorPage } from '../src/pages/full-interface-v2.js
 import { withConversationArchive } from '../src/conversations/intercept.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import worker from '../src/index.js';
+import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 
 async function canonicalProfessorHtml() {
   const response = await professorPage({});
@@ -13,7 +14,7 @@ async function canonicalProfessorHtml() {
   return response.text();
 }
 
-test('normal MEL surface remains available and links to the canonical Professor UI', async () => {
+test('normal MEL surface remains available and loads the external canonical controls runtime', async () => {
   const response = await normalMvp({});
   const html = await response.text();
   assert.equal(response.status, 200);
@@ -22,7 +23,14 @@ test('normal MEL surface remains available and links to the canonical Professor 
   assert.match(html, /<title>MEL<\/title>/);
   assert.match(html, /id="melAvatar"/);
   assert.match(html, /id="full"/);
-  assert.match(html, /location\.href='\/professor'/);
+  assert.match(html, /<script src="\/normal-runtime\.js\?v=5" defer><\/script>/);
+  assert.doesNotMatch(html, /id="mel-normal-v3-runtime"/);
+  assert.match(html, /data-mel-theme-choice="classic"/);
+  assert.match(html, /data-mel-avatar="\/assets\/avatars\/mel-classic\.webp"/);
+  assert.doesNotThrow(() => new Function(NORMAL_RUNTIME_SOURCE));
+  assert.match(NORMAL_RUNTIME_SOURCE, /full\.addEventListener\('click'/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /themeTrigger\.addEventListener\('click'/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /send\.addEventListener\('click'/);
 });
 
 test('canonical Professor keeps chat in the same control surface and sends through /api/chat', async () => {
