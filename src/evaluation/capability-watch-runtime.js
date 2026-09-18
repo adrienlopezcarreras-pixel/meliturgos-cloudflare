@@ -316,6 +316,7 @@ export async function runEcosystemCapabilityWatch(
     developmentRepository = null,
     fetchImpl = fetch,
     force = false,
+    allowHandoff = true,
   } = {},
 ) {
   const store = await ensureStore(env, WATCH_ID);
@@ -357,7 +358,7 @@ export async function runEcosystemCapabilityWatch(
   }
 
   let handoff = null;
-  if (result.status === 'RAN' && discoveryLedger?.items?.length) {
+  if (allowHandoff && result.status === 'RAN' && discoveryLedger?.items?.length) {
     const candidate = selectEcosystemDiscoveryCandidate(discoveryLedger);
     if (candidate) {
       try {
