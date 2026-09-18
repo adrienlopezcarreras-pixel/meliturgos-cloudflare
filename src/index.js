@@ -15,8 +15,7 @@ import { enhanceMvpBehavior } from "./pages/mvp-behavior-enhancer.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
 import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
-
-let lastSafeWorkJob = null;
+import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-state-store.js";
 
 function deployedWatchSourceSha() {
   return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') || null : null;
@@ -212,7 +211,13 @@ async function maybeHandleSafeWork(request, env) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/dev-bridge/jobs') {
-    return Response.json({ ok: true, jobs: lastSafeWorkJob ? [lastSafeWorkJob] : [], last_job: lastSafeWorkJob }, { headers: { 'cache-control': 'no-store' } });
+    const lastSafeWorkJob = await readLastSafeWorkJob(env.DB);
+    return Response.json({
+      ok: true,
+      jobs: lastSafeWorkJob ? [lastSafeWorkJob] : [],
+      last_job: lastSafeWorkJob,
+      persisted: Boolean(env.DB),
+    }, { headers: { 'cache-control': 'no-store' } });
   }
 
   if (request.method === 'POST' && url.pathname === '/api/dev-bridge/jobs') {
@@ -228,7 +233,7 @@ async function maybeHandleSafeWork(request, env) {
         context: { ...(body.context && typeof body.context === 'object' ? body.context : {}), origin: 'work-ui', rule: 'AI_COUNCIL_BEFORE_CODE' },
         minResponses: Math.max(2, Math.min(12, Number(body.minResponses) || 2))
       }, busContext(env));
-      lastSafeWorkJob = {
+      const lastSafeWorkJob = {
         id: crypto.randomUUID(),
         mode: 'preflight-only',
         status: 'PREPARED',
@@ -236,7 +241,8 @@ async function maybeHandleSafeWork(request, env) {
         created_at: new Date().toISOString(),
         preflight
       };
-      return Response.json({ ok: true, ...lastSafeWorkJob }, { headers: { 'cache-control': 'no-store' } });
+      const persisted = await writeLastSafeWorkJob(env.DB, lastSafeWorkJob);
+      return Response.json({ ok: true, ...lastSafeWorkJob, persisted }, { headers: { 'cache-control': 'no-store' } });
     } catch (error) {
       return apiError(error, 'WORK_PREFLIGHT_FAILED');
     }
