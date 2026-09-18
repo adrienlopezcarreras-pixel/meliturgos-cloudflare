@@ -26,7 +26,7 @@ jobs:
         shell: bash
         run: git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
 
-      - name: Reject active non-LoRA branch divergence
+      - name: Reject every non-exempt branch divergence
         shell: bash
         run: |
           set -euo pipefail
@@ -45,19 +45,7 @@ jobs:
 
             case "$lower" in
               *lora*|*compat*|*adapter*)
-                # Temporary LoRA / adapter workspace exception.
-                continue
-                ;;
-            esac
-
-            case "$branch" in
-              archive/*|backup*|rollback/*|safety*|tmp*)
-                # Historical/safety refs are not active development lines.
-                continue
-                ;;
-              candidate/*|ci/*|cleanup/*|experience/*|feat/*|feature/*|fix/*|hotfix/*|learning/*|release/*|rescue/*|resume/*|roadmap/*|security/*|sprint/*|staging/*|ui/*|work/*|main|mel-current)
-                ;;
-              *)
+                # Temporary separate workspace owned by the LoRA/adapter chantier.
                 continue
                 ;;
             esac
@@ -68,9 +56,9 @@ jobs:
           done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin)
 
           if (( ${#divergent[@]} )); then
-            printf 'DIVERGENT_ACTIVE_BRANCHES:\n'
+            printf 'DIVERGENT_NON_EXEMPT_BRANCHES:\n'
             printf ' - %s\n' "${divergent[@]}"
             exit 1
           fi
 
-          echo "Canonical branch unicity verified: no active non-LoRA development branch diverges."
+          echo "Canonical unicity verified: every non-exempt branch is an ancestor of candidate/mel-clean-autonomy."
