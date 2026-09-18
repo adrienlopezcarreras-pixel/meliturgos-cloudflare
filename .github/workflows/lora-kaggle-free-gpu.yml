@@ -97,8 +97,10 @@ jobs:
           (( SHARD_SIZE >= 50 && SHARD_SIZE <= 3000 )) || { echo "SHARD_SIZE_OUT_OF_RANGE"; exit 1; }
           (( MAX_CYCLES >= 1 && MAX_CYCLES <= 100 )) || { echo "MAX_CYCLES_OUT_OF_RANGE"; exit 1; }
 
+          PAYLOAD_SLUG="mel-lora-cycle-payload-${SOURCE_SHA:0:12}-c$(printf '%03d' "$CYCLE")"
           echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
           echo "CYCLE=$CYCLE" >> "$GITHUB_ENV"
+          echo "PAYLOAD_SLUG=$PAYLOAD_SLUG" >> "$GITHUB_ENV"
           echo "PARENT_RELEASE_TAG=$PARENT_RELEASE_TAG" >> "$GITHUB_ENV"
           echo "SHARD_SIZE=$SHARD_SIZE" >> "$GITHUB_ENV"
           echo "MAX_CYCLES=$MAX_CYCLES" >> "$GITHUB_ENV"
@@ -176,8 +178,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PAYLOAD_REF="$KAGGLE_OWNER/mel-lora-cycle-payload"
+          PAYLOAD_REF="$KAGGLE_OWNER/$PAYLOAD_SLUG"
           echo "PAYLOAD_REF=$PAYLOAD_REF" >> "$GITHUB_ENV"
+          echo "Using immutable cycle payload: $PAYLOAD_REF"
 
           rm -rf artifacts/kaggle-payload
           mkdir -p artifacts/kaggle-payload
@@ -204,8 +207,8 @@ jobs:
           }
           (root/"payload.json").write_text(json.dumps(payload,indent=2)+"\n",encoding="utf-8")
           metadata={
-              "title":"MEL LoRA Cycle Payload",
-              "id":f'{os.environ["KAGGLE_OWNER"]}/mel-lora-cycle-payload',
+              "title":f'MEL LoRA Cycle Payload {os.environ["SOURCE_SHA"][:12]} c{int(os.environ["CYCLE"]):03d}',
+              "id":f'{os.environ["KAGGLE_OWNER"]}/{os.environ["PAYLOAD_SLUG"]}',
               "licenses":[{"name":"other"}],
               "description":"Private transient MEL LoRA training payload. Exact source provenance is retained inside payload.json and shard metadata.",
           }
