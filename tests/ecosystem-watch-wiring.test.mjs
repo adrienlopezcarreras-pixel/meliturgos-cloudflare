@@ -20,7 +20,7 @@ test('ecosystem watch is wired once into schedule, API and full-mode activity', 
   assert.match(watchRuntime, /enqueueSupervisedDevelopmentRequest/);
   assert.match(watchRuntime, /source:\s*'ecosystem-watch'/);
   assert.match(previewWorkflow, /Run isolated GEN2-42 sourced watch proof/);
-  assert.match(previewWorkflow, /WATCH_NO_COUNCIL_TEACHER_HANDOFF/);
+  assert.doesNotMatch(previewWorkflow, /WATCH_NO_COUNCIL_TEACHER_HANDOFF/, 'watch proof must not require Teacher before the canonical rebase tick');
   assert.match(previewWorkflow, /active_teacher_handoffs/);
   assert.match(previewWorkflow, /teacher_request_id/);
   assert.match(previewWorkflow, /Rebase GEN2-42 Teacher handoff through canonical tick/);
