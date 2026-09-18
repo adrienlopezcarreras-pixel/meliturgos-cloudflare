@@ -1,22 +1,14 @@
 import { conversationRoutes } from "./api/routes/conversations.js";
 import { requireAuth } from "./core/security.js";
 import { json, html } from "./core/http.js";
-import { withConversationArchive } from "./conversations/intercept.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
 import handleAugmentio from "./api/augmentio-api.js";
 import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
-import { onRequestGet as handleFullModeV1 } from "./pages/full-interface.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
 import { handleNativeChat } from "./api/native-chat.js";
-
-let legacy;
-async function loadLegacy(env) {
-  if (!legacy) legacy = await import("../worker.js").then((m) => m.default);
-  return legacy;
-}
 
 export function stripInternalCounters(value) {
   if (typeof value !== "string" || !value) return value;
@@ -259,14 +251,11 @@ export default {
       return handleFullModeV2({ env, request, params: {} }).catch(e => html(`Error loading full mode: ${e.message}`, 500));
     }
 
-    if (request.method === "GET" && url.pathname === "/professor-v1") {
-      return handleFullModeV1({ env, request, params: {} }).catch(e => html(`Error loading full mode v1: ${e.message}`, 500));
-    }
-
-    if (request.method === "GET" && url.pathname === "/professor-legacy") {
-      const legacyHandler = await loadLegacy(env);
-      const legacyRequest = new Request(new URL('/professor', request.url), request);
-      return legacyHandler?.fetch ? legacyHandler.fetch(legacyRequest, env, ctx) : html("<h1>Professor page not available</h1>", 503);
+    if (request.method === "GET" && (url.pathname === "/professor-v1" || url.pathname === "/professor-legacy")) {
+      return new Response(null, {
+        status: 308,
+        headers: { location: "/professor", "cache-control": "no-store" }
+      });
     }
 
     const conversationResponse = await conversationRoutes(request, env);
@@ -287,8 +276,9 @@ export default {
       return sanitizeLegacyChatResponse(response);
     }
 
-    const legacyHandler = await loadLegacy(env);
-    const wrapped = withConversationArchive(legacyHandler.fetch.bind(legacyHandler));
-    return wrapped(request, env, ctx);
+    if (url.pathname.startsWith("/api/")) {
+      return json({ error: "Not found", code: "NOT_FOUND" }, 404);
+    }
+    return html("<h1>Page introuvable</h1>", 404);
   },
 };
