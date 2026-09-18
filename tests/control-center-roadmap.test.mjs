@@ -43,8 +43,8 @@ test('canonical control center exposes one Work, roadmap, diagnostics, multi-AI 
   assert.match(page, /\.augmentio & Council/);
   assert.match(page, /\/api\/gen2\/roadmap/);
   assert.match(page, /\/api\/gen2\/code\/self-check/);
-  assert.match(page, /\/professor-legacy/);
+  assert.doesNotMatch(page, /Ouvrir l’ancien Professeur|href="\/professor-legacy"/);
   assert.match(router, /handleFullModeV2/);
   assert.match(router, /url\.pathname === "\/professor"/);
-  assert.match(router, /\/professor-legacy/);
+  assert.match(router, /\/professor-legacy/); // compatibility redirect only
 });
