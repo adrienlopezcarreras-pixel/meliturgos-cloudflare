@@ -1,12 +1,6 @@
-name: lora-kaggle-free-launch
+name: lora-kaggle-free-launch-legacy
 
 on:
-  push:
-    branches:
-      - candidate/mel-clean-autonomy
-    paths:
-      - "kaggle/**"
-      - ".github/workflows/lora-kaggle-free-launch.yml"
   workflow_dispatch:
     inputs:
       accelerator:
@@ -93,7 +87,7 @@ jobs:
           from pathlib import Path
           username=os.environ["KAGGLE_USERNAME"]
           meta={
-            "id": f"{username}/mel-lora-uncensored-max",
+            "id": f"{username}/mel-lora-uncensored-legacy",
             "title": "MEL LoRA UNCENSORED MAX",
             "code_file": "main.py",
             "language": "python",
@@ -129,7 +123,7 @@ jobs:
           cat > kaggle-launch.json <<JSON
           {
             "status": "KAGGLE_LAUNCHED",
-            "kernel": "meliturgos/mel-lora-uncensored-max",
+            "kernel": "meliturgos/mel-lora-uncensored-legacy",
             "candidate_sha": "${GITHUB_SHA}",
             "accelerator": "${{ inputs.accelerator }}"
           }
