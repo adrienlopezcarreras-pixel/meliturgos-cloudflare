@@ -4,11 +4,12 @@ Ce fichier est le point d’entrée canonique pour toute page ChatGPT, agent de 
 
 ## À lire avant toute modification
 
-1. `.agents/DEPLOYMENT_UNICITY.md`
-2. `.agents/MULTI_PAGE_RESUME.md`
-3. `.agents/XP_PROTOCOL.md`
-4. `.agents/DEVELOPMENT_EXPERIENCE_INDEX.md`
-5. `src/roadmap/master-roadmap.js`
+1. `.agents/MEL_OPERATING_MANUAL.md`
+2. `.agents/DEPLOYMENT_UNICITY.md`
+3. `.agents/MULTI_PAGE_RESUME.md`
+4. `.agents/XP_PROTOCOL.md`
+5. `.agents/DEVELOPMENT_EXPERIENCE_INDEX.md`
+6. `src/roadmap/master-roadmap.js`
 
 ## Sources de vérité
 
@@ -20,12 +21,26 @@ Ce fichier est le point d’entrée canonique pour toute page ChatGPT, agent de 
 - Agrégateur LearningEngine : `src/learning/bootstrap-corrections.js`
 - Protocole multi-IA exécutable : `src/coordination/multi-ai-protocol.js`
 - Helper XP : `src/learning/agent-xp-protocol.js`
+- Manuel MEL : `.agents/MEL_OPERATING_MANUAL.md` + `src/identity/mel-operating-manual.js`
 
 ## Règle de reprise
 
 Avant d’écrire, relire le HEAD candidate, le HEAD release, les derniers commits, branches/PR et runs pertinents. Choisir un lot atomique encore libre. Relire le HEAD candidate juste avant toute écriture. Ne jamais forcer la candidate. Si elle a avancé, reconstruire uniquement son lot au-dessus du nouveau HEAD et préserver le travail concurrent.
 
 Le premier agent qui a réellement fini avec les garde-fous applicables verts a priorité à la promotion. Si un autre agent a déjà intégré ou promu le même arbre, ne pas créer de doublon.
+
+## Règle de clôture — OBLIGATION ABSOLUE après chaque passage
+
+Aucun passage de développement ne peut être déclaré `DONE`, `DONE_VERIFIED`, livré ou handoffé comme terminé avant d’avoir exécuté ces étapes, dans cet ordre :
+
+1. **Relire l’expérience** pertinente et le manuel opératoire MEL.
+2. **Nettoyer** : supprimer doublons, wrappers, chemins morts, anciens boutons/handlers, implémentations remplacées et attentes de tests obsolètes.
+3. **Unifier** : conserver une seule source de vérité, une seule commande par action, un seul chemin runtime actif et une seule branche de développement canonique.
+4. **Réconcilier** : comparer branches, état runtime, roadmap, tests et preuves ; intégrer ce qui est encore utile et rendre toute branche non exemptée ancêtre de la candidate canonique.
+5. **Adapter** : mettre à jour tests, documentation, UI, prompts, règles et expérience pour décrire le comportement réellement conservé.
+6. **Checkpoint XP** : dédupliquer et persister toute nouvelle règle réutilisable, ou déclarer explicitement `XP MEL : NON`.
+
+Le handoff machine est invalide si un statut terminal est annoncé sans ces preuves. Cette règle s’applique après **chaque passage**, même si la modification paraît petite.
 
 ## Règle XP — OBLIGATOIRE après chaque opération
 
