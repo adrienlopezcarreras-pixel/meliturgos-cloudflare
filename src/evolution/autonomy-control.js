@@ -14,16 +14,23 @@ function defaultControl() {
   };
 }
 
-let memoryControl = defaultControl();
-
 function parseMetadata(value) {
   if (!value) return {};
   if (typeof value === 'object') return value;
   try { return JSON.parse(value); } catch { return {}; }
 }
 
-export async function getAutonomyControl(db) {
-  if (!db) return { ...memoryControl };
+export function createAutonomyControlMemoryState() {
+  return { control: null };
+}
+
+function readMemoryControl(memoryState) {
+  const value = memoryState?.control;
+  return value && typeof value === 'object' ? { ...value } : defaultControl();
+}
+
+export async function getAutonomyControl(db, { memoryState = null } = {}) {
+  if (!db) return readMemoryControl(memoryState);
   await migrate(db);
   const row = await db.prepare('SELECT status,last_seen,metadata_json FROM dev_bridge_state WHERE bridge_id=?')
     .bind(CONTROL_ID)
@@ -51,8 +58,16 @@ export async function setAutonomyControl(db, {
   owner_override,
   source = 'owner-ui',
   reason,
+  memoryState = null,
 } = {}) {
-  const current = await getAutonomyControl(db);
+  if (!db && !memoryState) {
+    throw Object.assign(new Error('AUTONOMY_CONTROL_DB_REQUIRED'), {
+      code: 'AUTONOMY_CONTROL_DB_REQUIRED',
+      status: 503,
+    });
+  }
+
+  const current = await getAutonomyControl(db, { memoryState });
   const nextPaused = typeof paused === 'boolean' ? paused : current.paused === true;
   const requestedMax = typeof max_autonomy === 'boolean'
     ? max_autonomy
@@ -68,12 +83,10 @@ export async function setAutonomyControl(db, {
   };
 
   if (!db) {
-    memoryControl = next;
+    memoryState.control = { ...next };
     return { ...next };
   }
 
-  // getAutonomyControl(db) already ran the idempotent schema migration.
-  // Do not migrate a second time in the same control write.
   await db.prepare(`
     INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json)
     VALUES(?,?,?,?)
@@ -85,14 +98,20 @@ export async function setAutonomyControl(db, {
   return next;
 }
 
-export async function setOwnerMaxAutonomy(db, { enabled = true, source = 'owner-ui', reason = null } = {}) {
+export async function setOwnerMaxAutonomy(db, {
+  enabled = true,
+  source = 'owner-ui',
+  reason = null,
+  memoryState = null,
+} = {}) {
   return setAutonomyControl(db, {
     max_autonomy: enabled === true,
     source,
     reason: reason ?? (enabled ? 'owner-max-autonomy' : null),
+    memoryState,
   });
 }
 
-export function resetAutonomyControlForTests() {
-  memoryControl = defaultControl();
+export function resetAutonomyControlForTests(memoryState) {
+  if (memoryState && typeof memoryState === 'object') memoryState.control = null;
 }
