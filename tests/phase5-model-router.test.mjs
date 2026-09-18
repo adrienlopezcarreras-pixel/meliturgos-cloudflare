@@ -162,6 +162,28 @@ try {
   process.exit(1);
 }
 
+console.log('Test 9: Task classification (French reasoning)\\n');
+try {
+  for (const reasoningQuestion of [
+    'Pourquoi le ciel est-il bleu ?',
+    'Comment fonctionne ce routeur sémantique ?',
+    'Explique pourquoi cette stratégie est meilleure',
+  ]) {
+    const taskType = classifyTask(reasoningQuestion);
+    if (taskType !== TASK_TYPES.REASONING) {
+      throw new Error(`Expected reasoning for "${reasoningQuestion}", got ${taskType}`);
+    }
+  }
+  const casualQuestion = classifyTask('Comment vas-tu aujourd’hui ?');
+  if (casualQuestion !== TASK_TYPES.CONVERSATION) {
+    throw new Error(`Expected conversation for casual French greeting, got ${casualQuestion}`);
+  }
+  console.log('  ✅ French pourquoi/comment correctly classified\\n');
+} catch (error) {
+  console.log('❌ Test 9 failed:', error.message, '\\n');
+  process.exit(1);
+}
+
 console.log('\n' + '='.repeat(60));
 console.log('✅ PHASE 5: ALL TESTS PASSED');
 console.log('='.repeat(60) + '\n');
