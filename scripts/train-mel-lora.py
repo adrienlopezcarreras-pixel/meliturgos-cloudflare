@@ -155,6 +155,10 @@ def main() -> int:
         raise SystemExit("LORA_GRADIENT_ACCUMULATION_INVALID")
     if args.save_steps < 1:
         raise SystemExit("LORA_SAVE_STEPS_INVALID")
+    if args.stage == "agentic" and (not args.parent_adapter_dir or not args.parent_artifact_digest):
+        raise SystemExit("AGENTIC_PARENT_ADAPTER_REQUIRED")
+    if args.stage == "uncensored" and (args.parent_adapter_dir or args.parent_artifact_digest):
+        raise SystemExit("UNCENSORED_STAGE_MUST_NOT_HAVE_PARENT")
     if args.base_model != DEFAULT_BASE or args.runtime_model != DEFAULT_RUNTIME:
         raise SystemExit(
             "LORA_MODEL_PAIR_NOT_APPROVED: this trainer is pinned to the currently "
@@ -185,7 +189,7 @@ def main() -> int:
         import peft
         import transformers
         from datasets import Dataset
-        from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+        from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
         from transformers import (
             AutoModelForCausalLM,
             AutoTokenizer,
@@ -246,7 +250,22 @@ def main() -> int:
         bias="none",
         task_type="CAUSAL_LM",
     )
-    model = get_peft_model(model, config)
+    if args.stage == "agentic":
+        parent_dir = Path(args.parent_adapter_dir).resolve()
+        parent_cfg = parent_dir / "adapter_config.json"
+        parent_weights = parent_dir / "adapter_model.safetensors"
+        if not parent_cfg.is_file() or not parent_weights.is_file():
+            raise SystemExit("AGENTIC_PARENT_ARTIFACT_MISSING")
+        if sha256_file(parent_weights) != args.parent_artifact_digest.lower():
+            raise SystemExit("AGENTIC_PARENT_ARTIFACT_DIGEST_MISMATCH")
+        parent_data = json.loads(parent_cfg.read_text(encoding="utf-8"))
+        if str(parent_data.get("base_model_name_or_path") or "") != args.base_model:
+            raise SystemExit("AGENTIC_PARENT_BASE_MODEL_MISMATCH")
+        if int(parent_data.get("r") or 0) != args.rank:
+            raise SystemExit("AGENTIC_PARENT_RANK_MISMATCH")
+        model = PeftModel.from_pretrained(model, str(parent_dir), is_trainable=True)
+    else:
+        model = get_peft_model(model, config)
 
     def render(row):
         text = tokenizer.apply_chat_template(
@@ -309,8 +328,15 @@ def main() -> int:
     evidence = {
         "schema": "mel.lora-training-evidence.v3",
         "status": "TRAINED_UNBENCHMARKED",
+        "stage": args.stage,
+        "parent_artifact_digest": args.parent_artifact_digest.lower() or None,
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "plan_id": plan["id"],
+        "lineage": {
+            "stage": args.stage,
+            "parent_adapter_dir": Path(args.parent_adapter_dir).name if args.parent_adapter_dir else None,
+            "parent_artifact_digest": args.parent_artifact_digest.lower() or None,
+        },
         "training_manifest_digest": plan["training_manifest_digest"],
         "dataset_digest": plan["dataset_digest"],
         "base_model": args.base_model,
@@ -394,6 +420,8 @@ def main() -> int:
         "dataset_digest": plan["dataset_digest"],
         "training_manifest_digest": plan["training_manifest_digest"],
         "plan_id": plan["id"],
+        "stage": args.stage,
+        "parent_artifact_digest": args.parent_artifact_digest.lower() or None,
     }
     (output_dir / "artifact-evidence.json").write_text(
         json.dumps(artifact_evidence, ensure_ascii=False, indent=2) + "\n",
