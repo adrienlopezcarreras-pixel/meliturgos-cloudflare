@@ -299,7 +299,7 @@ jobs:
 
           meta=json.loads(Path("artifacts/kaggle-kernel/kernel-metadata.json").read_text())
           meta["id"]=f'{os.environ["KAGGLE_OWNER"]}/mel-lora-uncensored-notebook-t4'
-          meta["title"]="MEL LoRA Uncensored Notebook"
+          meta["title"]="MEL LoRA Uncensored Notebook T4"
           meta["code_file"]="mel-lora-uncensored-notebook-t4.ipynb"
           meta["kernel_type"]="notebook"
           meta["enable_gpu"]=True
