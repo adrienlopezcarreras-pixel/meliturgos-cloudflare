@@ -1,0 +1,11 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>MEL Collector · Réglages</title><style>
+body{font:16px system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 20px;background:#0b1220;color:#eef2ff}label{display:block;margin:18px 0 6px}input[type=text],input[type=password],input[type=url]{width:100%;box-sizing:border-box;padding:10px;border-radius:8px;border:1px solid #374151;background:#111827;color:white}button{margin-top:20px;padding:10px 15px;border:0;border-radius:8px}.hint{color:#9ca3af;font-size:13px}
+</style></head><body><h1>MEL ChatGPT Collector</h1>
+<p>Les identifiants MEL restent dans le stockage local de Firefox et servent uniquement à envoyer les conversations vers ton instance MEL.</p>
+<label>Adresse MEL</label><input id="endpoint" type="url" value="https://meliturgos.adrien-lopezcarreras.workers.dev">
+<label>Utilisateur MEL</label><input id="username" type="text" autocomplete="username">
+<label>Mot de passe MEL</label><input id="password" type="password" autocomplete="current-password">
+<label><input id="continuous" type="checkbox" checked> Capturer automatiquement les nouvelles conversations stables pendant que j’utilise ChatGPT</label>
+<p class="hint">Le collecteur ne lit pas ton mot de passe ChatGPT et n’utilise aucune API privée de ChatGPT.</p>
+<button id="save">Enregistrer</button><strong id="status"></strong>
+<script src="options.js"></script></body></html>
