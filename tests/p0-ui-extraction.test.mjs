@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { onRequestGet as normalMvp } from '../src/pages/mvp-interface.js';
 import { onRequestGet as professorPage } from '../src/pages/full-interface-v2.js';
+import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 
 test('normal public MEL entry remains self-contained and links to canonical /professor', async () => {
   const response = await normalMvp({});
@@ -13,7 +14,8 @@ test('normal public MEL entry remains self-contained and links to canonical /pro
   assert.match(html, /<title>MEL<\/title>/);
   assert.match(html, /id="melAvatar"/);
   assert.match(html, /id="full"/);
-  assert.match(html, /location\.href='\/professor'/);
+  assert.match(html, /\/normal-runtime\.js\?v=5/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /location\.href='\/professor'/);
 });
 
 test('canonical Professor interface is self-contained HTML with chat and complete control views', async () => {
