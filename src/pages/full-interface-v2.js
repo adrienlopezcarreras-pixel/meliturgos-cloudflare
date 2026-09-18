@@ -73,8 +73,8 @@ async function loadAutonomy(){
     catch{qs('#autonomyNote').textContent='État autonomie indisponible : '+e.message;return null}
   }
 }
-async function loadWork(){try{const r=await fetch('/api/dev-bridge/health');const d=await r.json().catch(()=>({}));qs('#bridgeState').textContent=r.ok?'Disponible':'Indisponible';qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#bridgeState').textContent='Indisponible';qs('#workOut').textContent=e.message}}
-qs('#workRefresh').onclick=loadWork;qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!goal)return;qs('#workCreate').disabled=true;try{const d=await jfetch('/api/dev-bridge/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({goal,mode:'prepare'})});qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#workOut').textContent='Erreur : '+e.message}finally{qs('#workCreate').disabled=false}};
+async function loadWork(){try{const r=await fetch('/api/work/health');const d=await r.json().catch(()=>({}));qs('#bridgeState').textContent=r.ok?'Disponible':'Indisponible';qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#bridgeState').textContent='Indisponible';qs('#workOut').textContent=e.message}}
+qs('#workRefresh').onclick=loadWork;qs('#workCreate').onclick=async()=>{const goal=qs('#workGoal').value.trim();if(!goal)return;qs('#workCreate').disabled=true;try{const d=await jfetch('/api/work/jobs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({goal,mode:'prepare'})});qs('#workOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#workOut').textContent='Erreur : '+e.message}finally{qs('#workCreate').disabled=false}};
 function setLoraTag(id,text,kind){const el=qs(id);if(!el)return;el.textContent=text;el.className='tag '+kind}
 async function loadFreeLoraStatus(){
   const btn=qs('#freeLoraRefresh');if(btn)btn.disabled=true;
