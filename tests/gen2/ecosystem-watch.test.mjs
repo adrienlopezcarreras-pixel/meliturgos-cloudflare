@@ -161,6 +161,50 @@ test('handoff selector prioritizes unblocking an existing sourced creative capab
 });
 
 
+test('selector sends a sourced REUSE_EXISTING optimization into the supervised handoff path', () => {
+  const ledger = {
+    items: [
+      {
+        fingerprint: 'capability:web.research',
+        capability_hint: 'web.research',
+        category: 'tooling',
+        action: 'REUSE_EXISTING',
+        evidence_status: 'SOURCED_OBSERVATION',
+        citations_count: 4,
+        seen_count: 3,
+        sources: [{ title: 'Official research docs', url: 'https://example.com/research' }],
+        best_match: { id: 'web.research' },
+        roadmap_matches: [{
+          id: 'GEN2-37',
+          title: 'Web / recherche',
+          status: 'PARTIAL',
+          priority: 'P1',
+        }],
+        suggested_kind: 'plugin',
+      },
+      {
+        fingerprint: 'capability:new-tool',
+        capability_hint: 'new-tool',
+        category: 'tooling',
+        action: 'PROPOSE_EXTENSION',
+        evidence_status: 'SOURCED_OBSERVATION',
+        citations_count: 10,
+        seen_count: 10,
+        sources: [{ title: 'Community', url: 'https://example.com/tool' }],
+        proposal: { activation_allowed: false },
+        suggested_kind: 'plugin',
+      },
+    ],
+  };
+
+  const selected = selectEcosystemDiscoveryCandidate(ledger);
+  assert.equal(selected.fingerprint, 'capability:web.research');
+  assert.equal(selected.action, 'REUSE_EXISTING');
+  assert.match(selected.goal, /Optimiser la capacité existante web\.research/i);
+  assert.match(selected.goal, /GEN2-37/);
+  assert.equal(selected.roadmap_id, 'GEN2-42');
+});
+
 test('recurring watch merge preserves an existing handoff instead of duplicating work', () => {
   const previous = {
     run_count: 1,
