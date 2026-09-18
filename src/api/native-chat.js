@@ -9,6 +9,7 @@ import { buildMelOperatingManualPrompt } from '../identity/mel-operating-manual.
 import { classifyCapabilityTruth, declaredImplementationStatus } from '../diagnostics/capability-truth-audit.js';
 import { LearningEngine } from '../learning/learning-engine.js';
 import { MentorMemoryRepository } from '../learning/mentor-memory.js';
+import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
 
 function extractCodePath(value) {
   return String(value || '').match(/((?:src|tests|\.github)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)|worker\.js|package\.json|wrangler\.jsonc)/i)?.[1] || null;
@@ -144,7 +145,7 @@ async function loadOperationalExperience(env, goal) {
     const ctx = await memory.experienceContext(goal, { limit: 8 });
     contextual = [...(ctx?.validated || []), ...(ctx?.observations || [])];
   } catch {}
-  return selectRelevantOperationalExperience(goal, corrections, contextual, 12);
+  return selectRelevantOperationalExperience(goal, [...MEL_RUNTIME_OPERATING_EXPERIENCE, ...corrections], contextual, 12);
 }
 
 function summarizeToolResult(result) {
