@@ -127,7 +127,15 @@ def ensure_dependencies():
         print("LoRA dependencies already available", flush=True)
         return
 
-    wheels_root = find_input_dir("hf-libraries")
+    roots = []
+    for slug in ("mel-lora-runtime-wheels", "hf-libraries"):
+        try:
+            roots.append(find_input_dir(slug))
+        except SystemExit:
+            continue
+    if not roots:
+        raise SystemExit("KAGGLE_OFFLINE_WHEELHOUSE_MISSING")
+
     aliases = {
         "transformers": "transformers-",
         "tokenizers": "tokenizers-",
@@ -142,7 +150,12 @@ def ensure_dependencies():
         if name == "torch":
             raise SystemExit("KAGGLE_TORCH_MISSING")
         prefix = aliases.get(name)
-        found = sorted(p for p in wheels_root.rglob("*.whl") if p.name.lower().startswith(prefix))
+        found = sorted(
+            p
+            for root in roots
+            for p in root.rglob("*.whl")
+            if p.name.lower().startswith(prefix)
+        )
         if not found:
             raise SystemExit("KAGGLE_OFFLINE_WHEEL_MISSING:" + name)
 
@@ -176,7 +189,7 @@ def ensure_dependencies():
     try:
         __import__("datasets")
     except Exception:
-        hotfix = sorted(wheels_root.rglob("pyarrow_hotfix-*.whl"))
+        hotfix = sorted(p for root in roots for p in root.rglob("pyarrow_hotfix-*.whl"))
         if hotfix:
             for package_dir in sorted({p.parent for p in hotfix}, key=lambda p: str(p)):
                 proc = subprocess.run([
