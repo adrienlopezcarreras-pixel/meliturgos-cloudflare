@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-09-18T15:36:00Z",
+  "updated_at": "2026-09-18T17:58:00Z",
   "status_values": [
     "NOT_STARTED",
     "PARTIAL",
@@ -253,12 +253,13 @@
       "evidence": [
         "tests/gen2/ecosystem-watch.test.mjs",
         "tests/ecosystem-watch-wiring.test.mjs",
-        "tests/owner-development-queue.test.mjs"
+        "tests/owner-development-queue.test.mjs",
+        "tests/watch-interface-dedicated.test.mjs"
       ],
       "verified_subcapabilities": [
         "One canonical Capability Watch engine supports scored benchmarks and observation targets without a second watch engine.",
         "Persistent D1 state is scheduled through the existing Worker cron path.",
-        "The full-mode Activity panel reads the same canonical watch state.",
+        "The dedicated /veille interface reads the same canonical watch state; watch controls and proposals are intentionally kept out of chat and the general Activity panel.",
         "Catalog covers ChatGPT/OpenAI, Claude/Anthropic, Gemini/Google, Grok/xAI, open ecosystems, plugins/connectors and creative domains.",
         "Sourced REUSE_EXISTING discoveries are compared with roadmap matches and can enqueue a supervised Council/Teacher optimization job for a healthy existing capability without entering Module Lab as a duplicate module."
       ],
