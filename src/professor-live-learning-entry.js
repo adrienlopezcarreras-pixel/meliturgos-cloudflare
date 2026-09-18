@@ -298,7 +298,18 @@ async function operatorLoraPrepareResponse(request, env) {
  * visual owner of normal mode without rewriting lower runtime behavior.
  */
 export async function stripLegacyNormalVisualLayers(response) {
-  return response;
+  if (!(response instanceof Response)) return response;
+  const type = response.headers.get('content-type') || '';
+  if (!response.ok || !type.includes('text/html')) return response;
+  const html = await response.text();
+  const body = html
+    .replace(/<style id="mel-owner-visual-fix">[\s\S]*?<\/style>/g, '')
+    .replace(/<style id="mel-new-hd-scenes">[\s\S]*?<\/style>/g, '')
+    .replace(/<script id="mel-normal-release-runtime">[\s\S]*?<\/script>/g, '');
+  const headers = new Headers(response.headers);
+  headers.delete('content-length');
+  headers.set('cache-control', 'no-store, no-cache, must-revalidate');
+  return new Response(body, { status: response.status, statusText: response.statusText, headers });
 }
 
 const PROFESSOR_LIVE_LEARNING_PATCH = `<script id="mel-professor-live-learning-runtime">
