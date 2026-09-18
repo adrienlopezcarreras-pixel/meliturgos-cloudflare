@@ -168,6 +168,71 @@ function watchEvaluator(env) {
       const detectedCapabilities = sources.length > 0
         ? detectCapabilitiesFromSources(target, research)
         : [];
+
+      let crossAi = {
+        status: sources.length ? 'UNAVAILABLE' : 'SKIPPED_NO_SOURCES',
+        providers_attempted: [],
+        candidates: [],
+        best: null,
+      };
+      if (sources.length > 0) {
+        try {
+          const prompt = [
+            'Tu participes à la veille générale de MELITURGOS.',
+            'À partir des éléments web sourcés ci-dessous, identifie les nouveautés, outils, modèles, plugins, connecteurs, agents, workflows ou techniques réellement utiles à MEL.',
+            'Distingue fait sourcé, signal communautaire et hypothèse. Une rumeur ne doit jamais devenir un fait.',
+            'Compare avec une logique de réutilisation: améliorer ou remplacer un choix existant est préférable à créer un doublon si une alternative est objectivement meilleure.',
+            'Critères: adéquation à la roadmap, qualité, fiabilité, simplicité, permissions, portabilité, coût ajouté nul ou explicitement autorisé, maintenance, provenance/licence, réversibilité et test reproductible.',
+            'Ne demande aucune activation automatique. Toute amélioration doit être vérifiée par test avant intégration.',
+            `CIBLE: ${String(target?.metadata?.label || target?.id || '')}`,
+            `CLASSE_SOURCE: ${String(target?.metadata?.source_class || 'official')}`,
+            `REQUETE: ${query}`,
+            `RESUME_WEB: ${String(research?.summary || '').slice(0, 5000)}`,
+            `SOURCES: ${JSON.stringify(sources)}`,
+            'Réponds avec: NOUVEAUTES, ALTERNATIVES_A_EXISTANT, IMPACT_ROADMAP, TESTS_A_FAIRE, RISQUES, VERDICT_PROVISOIRE.',
+          ].join('\n');
+          const advisory = await runtime.bus.execute(
+            'augmentio.fanout',
+            {
+              capability: 'GENERAL',
+              input: prompt,
+              context: {
+                purpose: 'ecosystem-watch-cross-ai',
+                target_id: String(target?.id || ''),
+                source_class: String(target?.metadata?.source_class || 'official'),
+              },
+              maxCandidates: 4,
+            },
+            busContext(env),
+          );
+          crossAi = {
+            status: 'COMPLETE',
+            providers_attempted: Array.isArray(advisory?.providersAttempted) ? advisory.providersAttempted : [],
+            candidates: Array.isArray(advisory?.candidates)
+              ? advisory.candidates.slice(0, 4).map(row => ({
+                  provider: row?.provider || null,
+                  model: row?.model || null,
+                  text: String(row?.text || '').slice(0, 5000),
+                  confidence: Number(row?.confidence || 0),
+                }))
+              : [],
+            best: advisory?.best ? {
+              provider: advisory.best.provider || null,
+              model: advisory.best.model || null,
+              text: String(advisory.best.text || '').slice(0, 6000),
+            } : null,
+          };
+        } catch (error) {
+          crossAi = {
+            status: 'DEGRADED',
+            error: String(error?.code || error?.message || 'CROSS_AI_WATCH_UNAVAILABLE').slice(0, 180),
+            providers_attempted: [],
+            candidates: [],
+            best: null,
+          };
+        }
+      }
+
       return {
         latency_ms: Date.now() - started,
         evidence: {
@@ -175,7 +240,10 @@ function watchEvaluator(env) {
           summary: research?.summary || '',
           citations_count: citations,
           sources,
+          source_class: String(target?.metadata?.source_class || 'official'),
+          verification_policy: String(target?.metadata?.verification_policy || 'SOURCE_AND_TEST_BEFORE_INTEGRATION'),
           detected_capabilities: detectedCapabilities,
+          cross_ai: crossAi,
           performed_at: research?.provenance?.query_performed_at || new Date().toISOString(),
         },
       };
@@ -214,7 +282,7 @@ export async function runEcosystemCapabilityWatch(
     evaluator: watchEvaluator(env),
     source_sha: sourceSha,
     metadata: {
-      watch: 'multi-ai-plugins-arts',
+      watch: 'general-opportunities-roadmap-optimization',
       zero_euro: true,
       discovery_only: true,
     },
