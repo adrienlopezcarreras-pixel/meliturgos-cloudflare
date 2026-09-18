@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { runLoraTrainingHeartbeat } from '../src/learning/lora-training-heartbeat.js';
 
 const SHA = '1234567890abcdef1234567890abcdef12345678';
+const NEW_SHA = 'abcdef1234567890abcdef1234567890abcdef12';
 const baseEnv = {
   MEL_GITHUB_TOKEN: 'token-for-test',
   MEL_GITHUB_REPOSITORY: 'owner/repo',
@@ -33,7 +34,7 @@ test('LoRA heartbeat does not duplicate an active Kaggle training chain', async 
   assert.equal(calls, 1);
 });
 
-test('LoRA heartbeat dispatches cycle zero when the free training chain is idle', async () => {
+test('LoRA heartbeat dispatches cycle zero only when no checkpoint exists', async () => {
   const seen = [];
   const result = await runLoraTrainingHeartbeat(baseEnv, {
     force: true,
@@ -44,6 +45,9 @@ test('LoRA heartbeat dispatches cycle zero when the free training chain is idle'
       seen.push({ href, method: options.method || 'GET', body: options.body || '' });
       if (href.includes('/actions/workflows/') && href.includes('/runs')) {
         return Response.json({ workflow_runs: [] });
+      }
+      if (href.includes('/releases')) {
+        return Response.json([]);
       }
       if (href.includes('/git/ref/heads/')) {
         return Response.json({ object: { sha: SHA } });
@@ -58,19 +62,105 @@ test('LoRA heartbeat dispatches cycle zero when the free training chain is idle'
   assert.equal(result.status, 'TRAINING_CHAIN_DISPATCHED');
   assert.equal(result.dispatched, true);
   assert.equal(result.source_sha, SHA);
+  assert.equal(result.cycle, 0);
+  assert.equal(result.parent_release_tag, '');
+  assert.equal(result.resumed_from_checkpoint, false);
   assert.equal(result.shard_size, 750);
-  assert.equal(result.max_cycles, 100);
+  assert.equal(result.max_cycles, 1000);
+
   const dispatch = seen.find((row) => row.href.endsWith('/dispatches'));
   assert.ok(dispatch);
   const payload = JSON.parse(dispatch.body);
-  assert.equal(payload.ref, 'candidate/mel-clean-autonomy');
   assert.deepEqual(payload.inputs, {
     source_sha: SHA,
     cycle: '0',
     parent_release_tag: '',
     shard_size: '750',
-    max_cycles: '100',
+    max_cycles: '1000',
+    benchmark_preview: 'false',
   });
+});
+
+test('LoRA heartbeat resumes from latest immutable checkpoint with current candidate code', async () => {
+  const tag = 'mel-lora-kaggle-1234567890ab-c007';
+  let dispatchPayload = null;
+  const result = await runLoraTrainingHeartbeat(baseEnv, {
+    force: true,
+    engine: engineWith([]),
+    fetchImpl: async (url, options = {}) => {
+      const href = String(url);
+      if (href.includes('/actions/workflows/') && href.includes('/runs')) {
+        return Response.json({ workflow_runs: [] });
+      }
+      if (href.includes('/releases')) {
+        return Response.json([
+          {
+            tag_name: tag,
+            target_commitish: SHA,
+            body: 'Local next stage: UNCENSORED_CONTINUE',
+            published_at: '2026-09-18T09:00:00Z',
+          },
+        ]);
+      }
+      if (href.includes('/git/ref/heads/')) {
+        return Response.json({ object: { sha: NEW_SHA } });
+      }
+      if (href.endsWith('/dispatches')) {
+        dispatchPayload = JSON.parse(options.body);
+        return new Response(null, { status: 204 });
+      }
+      return new Response('unexpected', { status: 500 });
+    },
+  });
+
+  assert.equal(result.status, 'TRAINING_CHAIN_DISPATCHED');
+  assert.equal(result.cycle, 8);
+  assert.equal(result.parent_release_tag, tag);
+  assert.equal(result.resumed_from_checkpoint, true);
+  assert.equal(result.source_sha, NEW_SHA);
+  assert.equal(dispatchPayload.inputs.source_sha, NEW_SHA);
+  assert.equal(dispatchPayload.inputs.cycle, '8');
+  assert.equal(dispatchPayload.inputs.parent_release_tag, tag);
+});
+
+test('LoRA heartbeat preserves checkpoint and stops when local gate awaits canonical benchmark', async () => {
+  let dispatched = false;
+  let headRead = false;
+  const tag = 'mel-lora-kaggle-1234567890ab-c012';
+  const result = await runLoraTrainingHeartbeat(baseEnv, {
+    force: true,
+    engine: engineWith([]),
+    fetchImpl: async (url, options = {}) => {
+      const href = String(url);
+      if (href.includes('/actions/workflows/') && href.includes('/runs')) {
+        return Response.json({ workflow_runs: [] });
+      }
+      if (href.includes('/releases')) {
+        return Response.json([
+          {
+            tag_name: tag,
+            target_commitish: SHA,
+            body: 'Local next stage: LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK',
+          },
+        ]);
+      }
+      if (href.includes('/git/ref/heads/')) {
+        headRead = true;
+        return Response.json({ object: { sha: NEW_SHA } });
+      }
+      if (href.endsWith('/dispatches')) {
+        dispatched = true;
+        return new Response(null, { status: 204 });
+      }
+      return new Response('unexpected', { status: 500 });
+    },
+  });
+
+  assert.equal(result.status, 'LOCAL_GATE_READY_FOR_CANONICAL_BENCHMARK');
+  assert.equal(result.dispatched, false);
+  assert.equal(result.checkpoint.tag, tag);
+  assert.equal(headRead, false);
+  assert.equal(dispatched, false);
 });
 
 test('LoRA heartbeat stops UNCENSORED relaunches once AGENTIC_READY is measured', async () => {
