@@ -1,7 +1,4 @@
 import app from './index.js';
-import { requireAuth } from './core/security.js';
-import { createLearningEngine } from './learning/learning-engine.js';
-import { buildLearningProgress } from './learning/progress.js';
 import { applyLearnedRuntimeProfile, loadLearnedRuntimeProfile } from './learning/runtime-profile.js';
 
 function learnedEnvironment(env) {
@@ -23,22 +20,6 @@ function learnedEnvironment(env) {
 }
 
 export function withLearnedRuntime(env) { return learnedEnvironment(env); }
-
-async function learningProgressResponse(request, env) {
-  const auth = requireAuth(request, env);
-  if (!auth.ok) return auth.response;
-  try {
-    const report = await createLearningEngine(env).report();
-    return new Response(JSON.stringify({ ok: true, generated_at: Date.now(), ...buildLearningProgress(report) }), {
-      headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({ ok: false, error: 'LEARNING_PROGRESS_UNAVAILABLE', detail: String(error?.message || 'unknown').slice(0, 160) }), {
-      status: 503,
-      headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
-    });
-  }
-}
 
 const METER = '<div id="learningMeter" style="min-width:320px;max-width:440px"><span id="learningChip" role="button" tabindex="0" aria-expanded="false" title="Cliquer pour afficher les détails" style="display:flex;cursor:pointer;user-select:none;padding:13px 16px;border:1px solid rgba(125,211,252,.30);border-radius:999px;background:linear-gradient(120deg,rgba(34,211,238,.18),rgba(59,130,246,.14),rgba(167,139,250,.18));box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 10px 30px rgba(37,99,235,.17);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);transition:transform .18s ease,box-shadow .18s ease"><span style="display:flex;flex-direction:column;min-width:0;flex:1"><span style="display:flex;align-items:baseline;gap:10px;white-space:nowrap"><strong style="font-size:1.28rem;line-height:1.1">Niv. <span id="learnLevel">—</span></strong><span id="learnRank" style="font-size:.94rem;color:#bae6fd;font-weight:600">mesure…</span><span id="learnXp" style="margin-left:auto;font-size:1.02rem;font-weight:800;color:#e0f2fe">— XP</span><span id="learnArrow" style="font-size:1rem;color:#c4b5fd">⌄</span></span><span style="display:block;height:8px;margin-top:8px;border-radius:999px;background:rgba(255,255,255,.09);overflow:hidden"><span id="learnBar" style="display:block;height:100%;width:0%;border-radius:999px;background:linear-gradient(90deg,#22d3ee,#60a5fa 55%,#a78bfa);box-shadow:0 0 14px rgba(34,211,238,.55);transition:width .35s ease"></span></span><span id="learnMeta" style="margin-top:6px;font-size:.84rem;line-height:1.2;color:#dbeafe;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">apprentissage réel · roadmap exclue</span></span></span><div id="learningDetails" style="display:none;margin-top:10px;padding:15px 17px;border:1px solid rgba(125,211,252,.18);border-radius:18px;background:linear-gradient(145deg,rgba(7,18,34,.88),rgba(27,30,54,.78));box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 16px 38px rgba(0,0,0,.20);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);font-size:.98rem;line-height:1.35"><div style="display:grid;grid-template-columns:1fr auto;gap:10px 16px"><span style="color:#b6c2d2">XP avant niveau suivant</span><strong id="learnNext">—</strong><span style="color:#b6c2d2">Corrections</span><strong id="learnCorrections">—</strong><span style="color:#b6c2d2">Prêtes entraînement</span><strong id="learnTraining">—</strong><span style="color:#b6c2d2">Benchmark</span><strong id="learnBenchmark">—</strong><span style="color:#b6c2d2">Essais réglages</span><strong id="learnTrials">—</strong><span style="color:#b6c2d2">Erreurs répétées</span><strong id="learnErrors">—</strong><span style="color:#b6c2d2">LoRA / poids</span><strong id="learnWeights">—</strong></div><div style="margin-top:12px;color:#7dd3fc;font-size:.84rem;line-height:1.3">Mesure d’apprentissage uniquement — la feuille de route ne donne aucun XP.</div></div></div>';
 
@@ -141,7 +122,6 @@ async function injectControlCenter(response) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (request.method === 'GET' && url.pathname === '/api/learning/progress') return learningProgressResponse(request, env);
     let response = await app.fetch(request, learnedEnvironment(env), ctx);
     if (request.method === 'GET' && url.pathname === '/professor') response = await injectLearningProgressWidget(response);
     if (request.method === 'GET' && url.pathname === '/professor') response = await injectControlCenter(response);
