@@ -335,7 +335,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator NvidiaTeslaT4             -t 10800
+          kaggle kernels push             -p artifacts/kaggle-kernel             --accelerator NvidiaTeslaT4             -t 300
           echo "Submitted $KERNEL_REF cycle $CYCLE with internet disabled."
 
       - name: Verify server-side GPU metadata
