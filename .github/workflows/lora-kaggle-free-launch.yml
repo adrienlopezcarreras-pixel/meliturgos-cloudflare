@@ -36,8 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
-      KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
       MEL_CANDIDATE_SHA: ${{ github.sha }}
       MEL_CANDIDATE_BRANCH: candidate/mel-clean-autonomy
     steps:
@@ -48,7 +47,7 @@ jobs:
         id: creds
         shell: bash
         run: |
-          if [ -n "${KAGGLE_USERNAME:-}" ] && [ -n "${KAGGLE_KEY:-}" ]; then
+          if [ -n "${KAGGLE_API_TOKEN:-}" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
             echo "KAGGLE_CREDENTIALS_READY"
           else
@@ -73,7 +72,7 @@ jobs:
           python - <<'PY'
           import json, os
           from pathlib import Path
-          username=os.environ["KAGGLE_USERNAME"]
+          username=os.environ.get("KAGGLE_USERNAME","meliturgos")
           meta={
             "id": f"{username}/mel-lora-uncensored-max",
             "title": "MEL LoRA UNCENSORED MAX",
@@ -111,7 +110,7 @@ jobs:
           cat > kaggle-launch.json <<JSON
           {
             "status": "KAGGLE_LAUNCHED",
-            "kernel": "${KAGGLE_USERNAME}/mel-lora-uncensored-max",
+            "kernel": "meliturgos/mel-lora-uncensored-max",
             "candidate_sha": "${GITHUB_SHA}",
             "accelerator": "${{ inputs.accelerator }}"
           }
