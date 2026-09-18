@@ -14,6 +14,8 @@ import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
 import { enhanceMvpBehavior } from "./pages/mvp-behavior-enhancer.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
+import { handleVoiceTranscription } from "./api/voice-transcribe.js";
+import { handleFileUpload } from "./api/file-upload.js";
 
 let lastSafeWorkJob = null;
 
@@ -323,6 +325,12 @@ export default {
       if (avatarResponse) return avatarResponse;
 
       setDefaultCapabilityEnvironment(env);
+
+      const voiceResponse = await handleVoiceTranscription(request, env);
+      if (voiceResponse) return voiceResponse;
+
+      const fileResponse = await handleFileUpload(request, env);
+      if (fileResponse) return fileResponse;
 
       const publicTeacherResponse = await maybeHandlePublicTeacherBridge(request, env);
       if (publicTeacherResponse) return publicTeacherResponse;
