@@ -287,15 +287,7 @@ jobs:
               META="$(find artifacts/kaggle-server-metadata -name kernel-metadata.json -print -quit)"
               if [[ -n "$META" && -s "$META" ]]; then
                 cat "$META"
-                python - "$META" <<'PY'
-import json,sys
-meta=json.load(open(sys.argv[1],encoding="utf-8"))
-if meta.get("enable_gpu") is not True:
-    raise SystemExit("KAGGLE_SERVER_GPU_DISABLED")
-if str(meta.get("machine_shape") or "") != "NvidiaTeslaT4":
-    raise SystemExit("KAGGLE_SERVER_MACHINE_SHAPE_MISMATCH:"+str(meta.get("machine_shape")))
-print("KAGGLE_SERVER_GPU_METADATA_OK")
-PY
+                python -c 'import json,sys; meta=json.load(open(sys.argv[1],encoding="utf-8")); gpu=meta.get("enable_gpu") is True; shape=str(meta.get("machine_shape") or ""); print(json.dumps({"enable_gpu":gpu,"machine_shape":shape})); sys.exit(0 if gpu and shape=="NvidiaTeslaT4" else 2)' "$META"
                 VERIFIED=1
                 break
               fi
