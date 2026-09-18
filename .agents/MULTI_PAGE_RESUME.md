@@ -14,6 +14,7 @@ Roadmap source : src/roadmap/master-roadmap.js
 Production Professor : https://meliturgos.adrien-lopezcarreras.workers.dev/professor
 
 Avant toute écriture :
+- relis `.agents/MEL_OPERATING_MANUAL.md` et l’expérience pertinente ;
 - relis le HEAD actuel de la candidate et de la release ;
 - inspecte les derniers commits, branches, PR et workflows/runs pertinents ;
 - relis la roadmap source ;
@@ -43,6 +44,14 @@ Déploiement :
 - si une autre page a déjà promu le même arbre, ne republie rien ;
 - vérifie le workflow de déploiement puis un smoke live post-déploiement ;
 - conserve les IDs de runs/jobs comme preuve.
+
+Fin de chaque passage — NETTOYAGE / UNIFICATION / RÉCONCILIATION / ADAPTATION OBLIGATOIRES :
+- relis l’expérience pertinente ;
+- nettoie tout doublon, wrapper, chemin mort ou comportement remplacé que ton passage rend obsolète ;
+- unifie chaque responsabilité autour d’une seule source de vérité et d’un seul chemin runtime ;
+- réconcilie branches, roadmap, tests et preuves ; aucune branche non exemptée ne doit rester divergente ;
+- adapte tests, documentation, UI, prompts et règles au comportement réellement conservé ;
+- si ces points ne sont pas fermés, garde le statut IN_PROGRESS.
 
 Fin de toute opération — CHECKPOINT XP OBLIGATOIRE :
 - laisse un handoff avec item, statut, SHA exact, fichiers, preuves/tests, blockers et prochaine action ;
