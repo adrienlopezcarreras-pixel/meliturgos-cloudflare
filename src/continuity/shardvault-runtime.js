@@ -211,24 +211,28 @@ async function upload(env,e,objectId,payload){
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
   if(e.adapter==='dpaste_b64'){
-    const endpoint=fixedApiUrl(u),body=new URLSearchParams({content:b64u(payload),expiry_days:'365',title:objectId});
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:body.toString()},15000);
+    const endpoint=fixedApiUrl(u),form=new FormData();
+    form.append('content',b64u(payload));
+    form.append('expiry_days','365');
+    form.append('title',objectId);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:form},15000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     const page=responseRemoteUrl(await r.text(),r.headers,endpoint);
     return {remoteUrl:page.endsWith('.txt')?page:page.replace(/\/$/,'')+'.txt'};
   }
   if(e.adapter==='pastemyst_b64'){
     const endpoint=fixedApiUrl(u);
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({title:objectId,expiresIn:'1y',pasties:[{language:'plaintext',title:'shard',code:b64u(payload)}]})},15000);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify({title:objectId,expiresIn:'1y',isPrivate:false,isPublic:false,pasties:[{language:'Plain Text',title:'shard.txt',code:b64u(payload)}]})},15000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     const data=await r.json().catch(()=>null),id=String(data?._id||data?.id||'').trim();
     if(!id)throw new Error(`WRITE_${e.id}_REMOTE_ID_MISSING`);
-    return {remoteUrl:'https://paste.myst.rs/paste/'+encodeURIComponent(id)};
+    return {remoteUrl:'https://paste.myst.rs/api/v2/paste/'+encodeURIComponent(id)};
   }
   if(e.adapter==='onec3_b64'){
     const endpoint=fixedApiUrl(u),form=new FormData();
-    form.append('content',b64u(payload));form.append('expires','31536000');
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'accept':'application/json'},body:form},15000);
+    form.append('file',new Blob([b64u(payload)],{type:'text/plain'}),objectId+'.txt');
+    form.append('expires','31536000');
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:form},15000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
@@ -246,12 +250,13 @@ async function upload(env,e,objectId,payload){
   }
   if(e.adapter==='paste_c_net'){
     const endpoint=fixedApiUrl(u);
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/octet-stream','accept':'application/json, */*','user-agent':'MEL-ShardVault/1.0'},body:payload},15000);
+    const r=await fetchTimed(endpoint,{method:'PUT',headers:{'content-type':'application/octet-stream','accept':'application/json, */*','x-uuid':'1','user-agent':'curl/8.0 MEL-ShardVault/1.0'},body:payload},15000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
-  if(e.adapter==='fileditch_raw'){
-    const r=await fetchTimed(u,{method:'POST',headers:{'content-type':'application/octet-stream','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:payload},15000);
+  if(e.adapter==='fileditch_b64'){
+    const encoded=b64u(payload);
+    const r=await fetchTimed(u,{method:'PUT',headers:{'content-type':'text/plain; charset=utf-8','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:encoded},15000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,u)};
   }
@@ -302,9 +307,9 @@ async function download(env,e,objectId,descriptor=null){
     if(!code)throw new Error(`READ_${e.id}_CONTENT_MISSING`);
     return unb64u(code);
   }
-  if(['pastebin_ai_b64','dpaste_b64','onec3_b64','msk_paste_b64','pastebox_b64'].includes(e.adapter)){
+  if(['pastebin_ai_b64','dpaste_b64','onec3_b64','msk_paste_b64','pastebox_b64','fileditch_b64'].includes(e.adapter)){
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
-    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'text/plain,application/json'}},15000);
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'text/plain,application/json','user-agent':'MEL-ShardVault/1.0'}},15000);
     if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
     const text=String(await r.text()).trim();
     if(!text)throw new Error(`READ_${e.id}_CONTENT_MISSING`);
@@ -314,9 +319,15 @@ async function download(env,e,objectId,descriptor=null){
     }
     return unb64u(encoded);
   }
-  if(['catbox','temp_sh','paste_c_net','fileditch_raw'].includes(e.adapter)){
+  if(['catbox','temp_sh'].includes(e.adapter)){
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
     const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET'},15000);
+    if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
+    return new Uint8Array(await r.arrayBuffer());
+  }
+  if(e.adapter==='paste_c_net'){
+    if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'application/octet-stream, */*','user-agent':'curl/8.0 MEL-ShardVault/1.0'}},15000);
     if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
     return new Uint8Array(await r.arrayBuffer());
   }
