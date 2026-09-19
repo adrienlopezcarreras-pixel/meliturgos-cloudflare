@@ -445,9 +445,12 @@ export async function runNativeInference({ env, messages, text, parallel = false
   }, { source: 'native-chat', inference_settings: inferenceSettings || null });
 }
 
-export async function handleNativeChat(request, env) {
-  const auth = requireAuth(request, env);
-  if (!auth.ok) return auth.response;
+export async function handleNativeChat(request, env, options = {}) {
+  const trustedInternal = options?.authorized === true;
+  if (!trustedInternal) {
+    const auth = requireAuth(request, env);
+    if (!auth.ok) return auth.response;
+  }
   if (request.method !== 'POST') return Response.json({ error: 'METHOD_NOT_ALLOWED', code: 'METHOD_NOT_ALLOWED' }, { status: 405 });
   if (!(request.headers.get('content-type') || '').includes('application/json')) return Response.json({ error: 'JSON_REQUIRED', code: 'JSON_REQUIRED' }, { status: 415 });
 
