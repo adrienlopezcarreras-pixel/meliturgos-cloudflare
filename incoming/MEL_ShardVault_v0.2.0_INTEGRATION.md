@@ -41,4 +41,16 @@ npm test
 8. Une fois les garde-fous validés, proposer le branchement minimal sur la boucle de continuité existante de MEL, sans modifier les autres boucles autonomes.
 
 ## État
-**REÇU / TESTÉ / NON ACTIVÉ** — prêt pour intégration contrôlée.
+**REÇU / TESTÉ / ACTIVÉ DANS LE CODE**.
+
+Intégration runtime :
+- `src/continuity/shardvault-runtime.js`
+- appelé depuis le `scheduled()` canonique toutes les 15 minutes ;
+- snapshot externe au plus toutes les 24 h par défaut ;
+- Reed-Solomon 4/7 ;
+- chiffrement AES-GCM + HKDF ;
+- manifeste HMAC ;
+- aucune clé de récupération stockée dans Git ;
+- si les secrets/URL Cloudflare ne sont pas présents, le cycle reste actif et retourne `CONFIG_MISSING` sans perturber l'autonomie ni le backup R2.
+
+Test local d'exécution : **OK** — 7 fragments écrits, manifeste signé publié.
