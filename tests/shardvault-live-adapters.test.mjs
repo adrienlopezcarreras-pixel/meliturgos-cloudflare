@@ -82,3 +82,12 @@ test('seven validated external targets replace internal fallbacks for active sna
   assert.match(runtime,/endpoints:selectEndpoints\(external,c\.n,maxOp,maxProv\)/);
   assert.match(runtime,/storageMode:'EXTERNAL_DISTRIBUTED'/);
 });
+
+
+test('critical code bundle is the external code payload and search snapshots stay lightweight', () => {
+  assert.match(runtime,/criticalKey:'shardvault\/code-critical\//);
+  assert.match(runtime,/CRITICAL_ARCHIVE_MISSING/);
+  assert.match(runtime,/archiveSha256/);
+  assert.match(runtime,/syncShardVaultCodeExternally/);
+  assert.match(runtime,/skipExternalCode:true/);
+});
