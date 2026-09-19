@@ -38,6 +38,12 @@
     "MEL_GITHUB_REPOSITORY": "adrienlopezcarreras-pixel/meliturgos-cloudflare",
     "MEL_GITHUB_BRANCH": "candidate/augmentio-core",
     "MEL_TEACHER_BRANCH": "candidate/augmentio-core",
-    "MEL_MENTOR_ENABLED": "false"
+    "MEL_MENTOR_ENABLED": "false",
+    "MEL_SHARDVAULT_ENABLED": "true",
+    "MEL_VAULT_ID": "mel-primary",
+    "MEL_DATA_SHARDS": "4",
+    "MEL_TOTAL_SHARDS": "7",
+    "MEL_SHARDVAULT_INTERVAL_HOURS": "24",
+    "MEL_SHARDVAULT_EXPORT_LIMIT": "10000"
   }
 }
