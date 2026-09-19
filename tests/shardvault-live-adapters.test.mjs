@@ -44,3 +44,21 @@ test('snapshot runtime can write and read every repaired adapter selected by dis
   assert.match(runtime,/telegraph_b64/);
   assert.match(runtime,/TELEGRAPH_CONTENT_MISSING/);
 });
+
+
+test('chunkable providers are accepted for large shard sizes and runtime splits/reassembles fragments', () => {
+  assert.match(autonomous,/requiredObjectBytes=Math\.max\(256,Math\.min\(Math\.max\(256,requiredBytes\),32\*1024\)\)/);
+  assert.match(runtime,/async function uploadFragment\(/);
+  assert.match(runtime,/async function downloadFragment\(/);
+  assert.match(runtime,/parts:locator\.parts\|\|null/);
+  assert.match(runtime,/SHARD_PART_LENGTH_INVALID/);
+});
+
+test('code archive is copied to external ShardVault targets after seven live targets are available', () => {
+  assert.match(runtime,/async function ensureExternalCodeArchive\(/);
+  assert.match(runtime,/MEL-ShardVault-Code/);
+  assert.match(runtime,/shardvault\/code-manifests\//);
+  assert.match(runtime,/external:\{status:'COPIED'/);
+  assert.match(runtime,/if\(result\.target_reached\)/);
+  assert.match(runtime,/runShardVaultCycle\(env,\{force:true\}\)/);
+});
