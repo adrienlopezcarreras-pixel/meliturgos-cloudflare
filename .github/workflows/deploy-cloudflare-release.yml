@@ -70,7 +70,7 @@ jobs:
         run: npm ci
 
       - name: Runtime dependency security gate
-        run: npm audit --omit=dev --audit-level=high
+        run: node scripts/runtime-security-gate.mjs
 
       - name: Syntax gate
         run: npm run check
