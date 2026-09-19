@@ -158,15 +158,16 @@ async function issueDeviceToken(env, body) {
 }
 
 async function pairDevice(request, env) {
-  await ensureTables(env);
   const body = await request.json().catch(() => ({}));
   if (body.pair_code) {
+    await ensureTables(env);
     const valid = await consumePairCode(env, body.pair_code);
     if (!valid) return json({ ok: false, code: "PAIR_CODE_INVALID_OR_EXPIRED" }, 401);
     return issueDeviceToken(env, body);
   }
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
+  await ensureTables(env);
   return issueDeviceToken(env, body);
 }
 
