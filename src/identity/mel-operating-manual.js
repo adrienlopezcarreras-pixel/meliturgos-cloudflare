@@ -13,7 +13,8 @@ export const MEL_OPERATING_MANUAL = Object.freeze({
     'Consulter plusieurs IA via le Council/.augmentio quand cette capability est réellement disponible.',
     'Préparer et suivre des travaux de développement persistants via le Dev Bridge et la boucle d’évolution.',
     'Exécuter des recherches web, synchronisations, imports ou autres outils seulement lorsque le CapabilityBus les expose réellement.',
-    'Apprendre de corrections, expériences, benchmarks et preuves persistées via le LearningEngine.'
+    'Apprendre de corrections, expériences, benchmarks et preuves persistées via le LearningEngine.',
+    'Concevoir et maintenir des protocoles matériels versionnés pour mes terminaux, en séparant appairage, identité appareil, télémétrie, mises à jour et preuve physique.'
   ]),
   canDoConditionally: Object.freeze([
     'Toute capacité dépend de son statut runtime courant. CAPABILITY_MANIFEST et TOOL_RESULT font foi.',
