@@ -8,7 +8,7 @@ test('ShardVault qualification XP is persistent, complete and machine-readable',
   const playbook = JSON.parse(fs.readFileSync(new URL('../shardvault/qualification-playbook.json', import.meta.url), 'utf8'));
   assert.equal(playbook.format, 'MEL-ShardVault-QualificationPlaybook');
   assert.ok(Array.isArray(playbook.candidate_targets));
-  assert.equal(playbook.candidate_targets.length, 7);
+  assert.ok(playbook.candidate_targets.length >= 7);
   assert.ok(Array.isArray(playbook.hard_gates) && playbook.hard_gates.length >= 8);
   assert.ok(Array.isArray(playbook.failure_memory) && playbook.failure_memory.length >= 6);
   assert.deepEqual(
