@@ -1,5 +1,5 @@
 name: Godot private five-game test
-# screenshot capture run 11
+# moviewriter capture run 12
 
 on:
   push:
@@ -161,28 +161,28 @@ jobs:
       - name: Capture real rendered screenshots
         run: |
           set -euo pipefail
-          mkdir -p /tmp/godot-screenshots
+          mkdir -p /tmp/godot-screenshots /tmp/godot-movie
           projects=(TARNEN DIVISION_AZUL CHEVALIER_IMMORTEL ORPHELINS_DU_CODE_3D CIVITAS)
 
           for name in "${projects[@]}"; do
             proj="$GAMES_ROOT/$name"
-            shot="/tmp/godot-screenshots/$name.png"
-            echo "===== CAPTURE $name ====="
+            echo "===== MOVIE CAPTURE $name ====="
+            rm -f /tmp/godot-movie/${name}*.png /tmp/godot-movie/${name}.wav
 
-            xvfb-run -a -s "-screen 0 1280x720x24" bash -lc "
-              set +e
-              '$GODOT' --path '$proj' --resolution 1280x720 --position 0,0 >/tmp/${name}-visual.log 2>&1 &
-              pid=\$!
-              sleep 5
-              import -window root '$shot'
-              rc=\$?
-              kill \$pid >/dev/null 2>&1 || true
-              wait \$pid >/dev/null 2>&1 || true
-              exit \$rc
-            "
+            xvfb-run -a -s "-screen 0 1280x720x24" \
+              "$GODOT" --path "$proj" \
+              --write-movie "/tmp/godot-movie/${name}.png" \
+              --fixed-fps 30 --quit-after 3 --resolution 1280x720 \
+              > "/tmp/${name}-movie.log" 2>&1
 
-            test -s "$shot"
-            identify "$shot"
+            frame="$(find /tmp/godot-movie -maxdepth 1 -type f -name "${name}*.png" | sort | tail -n 1)"
+            if [ -z "$frame" ] || [ ! -s "$frame" ]; then
+              echo "NO_MOVIE_FRAME:$name"
+              cat "/tmp/${name}-movie.log" || true
+              exit 97
+            fi
+            cp "$frame" "/tmp/godot-screenshots/$name.png"
+            identify "/tmp/godot-screenshots/$name.png"
           done
 
       - name: Upload real Godot screenshots
