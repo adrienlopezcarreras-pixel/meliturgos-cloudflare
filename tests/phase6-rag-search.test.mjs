@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RAGService } from '../src/search/rag-service.js';
+import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 
 const db = {
   prepare(sql) {
@@ -55,4 +56,27 @@ test('cosine helper handles identical, orthogonal, opposite and zero vectors', (
   assert.equal(RAGService.cosineSimilarity([1, 0], [0, 1]), 0);
   assert.equal(RAGService.cosineSimilarity([1, 1], [-1, -1]), -1);
   assert.equal(RAGService.cosineSimilarity([0, 0], [0, 0]), 0);
+});
+
+test('large ChatGPT archives keep old matching messages retrievable beyond the former 1000-row recency window', async () => {
+  const db = sqliteD1();
+  try {
+    await db.prepare("CREATE TABLE conversations (id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL)").run();
+    await db.prepare("CREATE TABLE archive_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, content TEXT NOT NULL, timestamp INTEGER NOT NULL)").run();
+    await db.prepare("CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT NOT NULL, created_at INTEGER NOT NULL, valid_until INTEGER, provenance TEXT)").run();
+    await db.prepare("INSERT INTO conversations VALUES (?,?,?,?)").bind('chatgpt:old','adrien','Ancienne conversation',1).run();
+    await db.prepare("INSERT INTO archive_messages VALUES (?,?,?,?)").bind('old-match','chatgpt:old','Le mot repère ultraviolethistorique doit rester retrouvable',1).run();
+
+    for (let i = 0; i < 1100; i++) {
+      const cid = 'recent-' + i;
+      await db.prepare("INSERT INTO conversations VALUES (?,?,?,?)").bind(cid,'adrien','Conversation récente '+i,10000+i).run();
+      await db.prepare("INSERT INTO archive_messages VALUES (?,?,?,?)").bind('recent-msg-'+i,cid,'contenu récent sans le repère recherché',10000+i).run();
+    }
+
+    const result = await RAGService.search(db, 'adrien', 'ultraviolethistorique', { sources:['archive_messages'], limit:8 });
+    assert.equal(result.total, 1);
+    assert.equal(result.results[0].id, 'old-match');
+  } finally {
+    db.close();
+  }
 });
