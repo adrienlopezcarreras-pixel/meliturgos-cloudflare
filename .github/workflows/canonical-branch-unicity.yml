@@ -102,7 +102,7 @@ jobs:
               godot-private-test-*)
                 branch_ref="refs/remotes/origin/$branch"
                 base="$(git merge-base "$branch_ref" "$canonical")"
-                unexpected="$(git diff --name-only "$base" "$branch_ref" | grep -Ev '^([.]github/workflows/godot-private-test[.]yml|ci-godot-test/)' || true)"
+                unexpected="$(git diff --name-only "$base" "$branch_ref" | grep -Ev '^(\.github/workflows/godot-private-test\.yml|ci-godot-test/)' || true)"
                 if [[ -n "$unexpected" ]]; then
                   echo "GODOT_LAB_SCOPE_VIOLATION:$branch"
                   printf '%s\n' "$unexpected"
