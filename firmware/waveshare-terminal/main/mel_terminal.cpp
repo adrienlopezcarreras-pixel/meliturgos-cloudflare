@@ -189,6 +189,7 @@ static bool pair_terminal() {
     cJSON_AddStringToObject(root, "name", "MEL Waveshare");
     cJSON_AddStringToObject(root, "model", MODEL);
     cJSON_AddStringToObject(root, "firmware", MEL_FW_VERSION);
+    cJSON_AddStringToObject(root, "protocol_version", MEL_PROTOCOL_VERSION);
     cJSON_AddStringToObject(root, "pair_code", g_cfg.pair_code);
     std::string body = json_string(root);
     cJSON_Delete(root);
@@ -211,7 +212,9 @@ static bool pair_terminal() {
 
     cJSON *json = cJSON_Parse(response.c_str());
     cJSON *token = json ? cJSON_GetObjectItemCaseSensitive(json, "token") : nullptr;
-    bool ok = cJSON_IsString(token) && token->valuestring && strlen(token->valuestring) < sizeof(g_cfg.token);
+    cJSON *protocol = json ? cJSON_GetObjectItemCaseSensitive(json, "protocol_version") : nullptr;
+    bool protocol_ok = cJSON_IsString(protocol) && protocol->valuestring && !strcmp(protocol->valuestring, MEL_PROTOCOL_VERSION);
+    bool ok = protocol_ok && cJSON_IsString(token) && token->valuestring && strlen(token->valuestring) < sizeof(g_cfg.token);
     if (ok) {
         strlcpy(g_cfg.token, token->valuestring, sizeof(g_cfg.token));
         save_string("token", g_cfg.token);
@@ -699,6 +702,7 @@ static void heartbeat_task(void *) {
             int rssi = esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0;
             cJSON *root = cJSON_CreateObject();
             cJSON_AddStringToObject(root, "firmware", MEL_FW_VERSION);
+            cJSON_AddStringToObject(root, "protocol_version", MEL_PROTOCOL_VERSION);
             cJSON_AddNumberToObject(root, "wifi_rssi", rssi);
             cJSON_AddNumberToObject(root, "free_heap", esp_get_free_heap_size());
             cJSON_AddStringToObject(root, "ip", g_ip);
@@ -834,9 +838,10 @@ static void network_task(void *arg) {
     char ready[420];
     snprintf(
         ready, sizeof(ready),
-        "Bonjour. MEL est connectée.\n\nIP : %s\nFirmware : %s\nCaméra : %s\nMicro/audio : %s\nCarte SD : %s\n\nAppuie sur Parler pour commencer.",
+        "Bonjour. MEL est connectée.\n\nIP : %s\nFirmware : %s\nProtocole : %s\nCaméra : %s\nMicro/audio : %s\nCarte SD : %s\n\nAppuie sur Parler pour commencer.",
         g_ip,
         MEL_FW_VERSION,
+        MEL_PROTOCOL_VERSION,
         g_camera_ok ? "OK" : "ERREUR",
         g_audio_ok ? "OK" : "ERREUR",
         g_sd_ok ? "OK" : "non vérifiée"
