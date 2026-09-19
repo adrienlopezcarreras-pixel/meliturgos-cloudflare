@@ -9,7 +9,12 @@ test('memory UI exposes ShardVault target discovery directly', async () => {
   assert.match(html, /id="shardVaultSnapshot"/);
   assert.match(html, /Sauvegarder maintenant/);
   assert.match(html, /\/api\/gen2\/shardvault\/snapshot/);
-  assert.match(html, /id="shardVaultSearch"/);
-  assert.match(html, /\/api\/gen2\/shardvault\/search/);
   assert.match(html, /href="\/shardvault"/);
+});
+
+test('full mode leaves Internet discovery to the dedicated ShardVault page', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  assert.doesNotMatch(html, /id="shardVaultSearch"/);
+  assert.match(html, /Explorer les sauvegardes et Internet/);
 });

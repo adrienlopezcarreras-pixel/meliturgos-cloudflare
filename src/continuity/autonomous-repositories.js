@@ -1,5 +1,9 @@
 const te = new TextEncoder();
 const DAY = 24 * 60 * 60 * 1000;
+const DEFAULT_DISCOVERY_INDEX = 'https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/discovery-index.json';
+const MAX_PUBLIC_FEEDS = 30;
+const MAX_GITHUB_REPOS = 20;
+const MAX_CATALOG_LEADS = 80;
 
 function bytes(v){ if(v instanceof Uint8Array)return new Uint8Array(v); if(v instanceof ArrayBuffer)return new Uint8Array(v); if(ArrayBuffer.isView(v))return new Uint8Array(v.buffer.slice(v.byteOffset,v.byteOffset+v.byteLength)); throw new TypeError('BYTES_REQUIRED'); }
 function utf8(v){ return te.encode(String(v)); }
@@ -57,6 +61,139 @@ function eligible(c,{requiredBytes=0,policyMaxAgeDays=180}={}){
   return {ok:reasons.length===0,reasons};
 }
 
+
+function githubHeaders(env){
+  const h={'accept':'application/vnd.github+json','x-github-api-version':'2022-11-28','user-agent':'MEL-ShardVault-discovery'};
+  const token=String(env?.GITHUB_TOKEN||env?.MEL_GITHUB_TOKEN||'').trim();
+  if(token)h.authorization='Bearer '+token;
+  return h;
+}
+function markdownLink(value){
+  const s=String(value||'').trim(),m=/\[([^\]]+)\]\((https:\/\/[^)]+)\)/.exec(s);
+  if(m)return {name:m[1].trim(),url:m[2].trim()};
+  return {name:s.replace(/^\*+|\*+$/g,'').trim(),url:null};
+}
+function parseCatalogLeads(text,source){
+  const out=[],seen=new Set();
+  for(const rawLine of String(text||'').split(/\r?\n/)){
+    const line=rawLine.trim();
+    if(!line||!/(?:\bAPI\b|automation|anonymous upload)/i.test(line))continue;
+    if(!/(?:Account:\s*No|anonymous|no signup|guest)/i.test(line))continue;
+    const body=line.replace(/^[-*]\s+/,'');
+    const split=body.indexOf(' - ');
+    const head=split>=0?body.slice(0,split):body;
+    const info=markdownLink(head);
+    const name=info.name.slice(0,160);
+    if(!name||seen.has(name.toLowerCase()))continue;
+    seen.add(name.toLowerCase());
+    out.push({name,url:info.url,source,summary:(split>=0?body.slice(split+3):body).slice(0,500),status:'LEAD_ONLY'});
+    if(out.length>=MAX_CATALOG_LEADS)break;
+  }
+  return out;
+}
+function publicFeedPayload(payload){
+  return payload&&payload.format==='MEL-ShardVault-CandidateFeed'&&Array.isArray(payload.candidates);
+}
+async function loadPublicFeed(url,accepted,rejected,queue,seen){
+  const clean=publicHttps(url,'PUBLIC_DISCOVERY_FEED').toString();
+  if(seen.has(clean)||seen.size>=MAX_PUBLIC_FEEDS)return false;
+  seen.add(clean);
+  try{
+    const r=await fetchTimed(clean,{method:'GET',headers:{'accept':'application/json'}},8000);
+    if(!r.ok)throw new Error('PUBLIC_FEED_HTTP_'+r.status);
+    const payload=await r.json();
+    if(!publicFeedPayload(payload))throw new Error('PUBLIC_FEED_FORMAT_INVALID');
+    for(const raw of payload.candidates||[]){
+      try{accepted.push(normalize(raw,clean));}catch(error){rejected.push({source:clean,id:raw?.id||null,reason:String(error?.message||error)});}
+    }
+    for(const next of payload.feeds||[]){
+      try{const u=publicHttps(typeof next==='string'?next:next?.url,'PUBLIC_DISCOVERY_CHILD').toString();if(!seen.has(u))queue.push(u);}catch{}
+    }
+    return true;
+  }catch(error){
+    rejected.push({source:clean,reason:String(error?.message||error)});
+    return false;
+  }
+}
+async function discoverInternetSources(env,accepted,rejected){
+  const sources=[],leads=[],queue=[],seen=new Set();
+  const indexUrl=String(env?.MEL_SHARDVAULT_DISCOVERY_INDEX||DEFAULT_DISCOVERY_INDEX);
+  try{
+    const clean=publicHttps(indexUrl,'DISCOVERY_INDEX').toString();
+    const r=await fetchTimed(clean,{method:'GET',headers:{'accept':'application/json'}},8000);
+    if(!r.ok)throw new Error('DISCOVERY_INDEX_HTTP_'+r.status);
+    const index=await r.json();
+    if(index?.format!=='MEL-ShardVault-DiscoveryIndex')throw new Error('DISCOVERY_INDEX_FORMAT_INVALID');
+    sources.push({id:'bootstrap-index',url:clean,status:'LOADED',kind:'bootstrap'});
+    for(const feed of index.native_feeds||[]){try{queue.push(publicHttps(typeof feed==='string'?feed:feed?.url,'BOOTSTRAP_FEED').toString());}catch{}}
+    for(const catalog of index.catalogs||[]){
+      const url=typeof catalog==='string'?catalog:catalog?.url;
+      if(!url)continue;
+      try{
+        const cu=publicHttps(url,'DISCOVERY_CATALOG').toString();
+        const cr=await fetchTimed(cu,{method:'GET',headers:{'accept':'text/plain,application/json'}},10000);
+        if(!cr.ok)throw new Error('CATALOG_HTTP_'+cr.status);
+        const text=await cr.text();
+        const found=parseCatalogLeads(text,cu);
+        leads.push(...found.slice(0,Math.max(0,MAX_CATALOG_LEADS-leads.length)));
+        sources.push({id:String(catalog?.id||'catalog'),url:cu,status:'LOADED',kind:'catalog',leads:found.length});
+      }catch(error){sources.push({id:String(catalog?.id||'catalog'),url:String(url),status:'ERROR',kind:'catalog',error:String(error?.message||error)});}
+    }
+  }catch(error){sources.push({id:'bootstrap-index',url:indexUrl,status:'ERROR',kind:'bootstrap',error:String(error?.message||error)});}
+
+  const query='mel-shardvault in:name,description,readme';
+  try{
+    const api='https://api.github.com/search/repositories?q='+encodeURIComponent(query)+'&sort=updated&order=desc&per_page='+MAX_GITHUB_REPOS;
+    const r=await fetchTimed(api,{method:'GET',headers:githubHeaders(env)},8000);
+    if(!r.ok)throw new Error('GITHUB_DISCOVERY_HTTP_'+r.status);
+    const body=await r.json(),items=Array.isArray(body?.items)?body.items:[];
+    sources.push({id:'github-repository-search',url:'https://github.com/search?q='+encodeURIComponent('mel-shardvault')+'&type=repositories',status:'LOADED',kind:'search',results:items.length});
+    const paths=['shardvault/feed.json','.well-known/mel-shardvault.json','shardvault-feed.json'];
+    for(const item of items){
+      const full=String(item?.full_name||''),defaultBranch=String(item?.default_branch||'main');
+      if(!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(full))continue;
+      for(const path of paths){
+        const raw='https://raw.githubusercontent.com/'+full+'/'+encodeURIComponent(defaultBranch)+'/'+path;
+        try{
+          const rr=await fetchTimed(raw,{method:'GET',headers:{'accept':'application/json','user-agent':'MEL-ShardVault-discovery'}},5000);
+          if(!rr.ok)continue;
+          const payload=await rr.json();
+          if(!publicFeedPayload(payload))continue;
+          queue.push(raw);
+          break;
+        }catch{}
+      }
+    }
+  }catch(error){sources.push({id:'github-repository-search',url:'https://github.com/search?q=mel-shardvault&type=repositories',status:'ERROR',kind:'search',error:String(error?.message||error)});}
+
+  let loadedFeeds=0;
+  while(queue.length&&seen.size<MAX_PUBLIC_FEEDS){
+    const next=queue.shift();
+    if(await loadPublicFeed(next,accepted,rejected,queue,seen))loadedFeeds++;
+  }
+  sources.push({id:'native-feed-crawl',status:'LOADED',kind:'recursive-feeds',feeds_checked:seen.size,feeds_loaded:loadedFeeds});
+  return {sources,leads:leads.slice(0,MAX_CATALOG_LEADS)};
+}
+function validatePublicPolicy(c,payload,{requiredBytes=0,policyMaxAgeDays=180}={}){
+  if(!payload||payload.format!=='MEL-ShardVault-Policy')throw new Error('POLICY_FORMAT_INVALID');
+  const storage=publicHttps(c.urlTemplate,'POLICY_STORAGE',{template:true});
+  const policyUrl=publicHttps(c.policyUrl,'POLICY_URL');
+  if(policyUrl.hostname.toLowerCase()!==storage.hostname.toLowerCase())throw new Error('POLICY_HOST_MISMATCH');
+  if(String(payload.urlTemplate||'')!==String(c.urlTemplate))throw new Error('POLICY_TEMPLATE_MISMATCH');
+  if(String(payload.method||c.method).toUpperCase()!==c.method)throw new Error('POLICY_METHOD_MISMATCH');
+  if(payload.anonymousWriteAllowed!==true)throw new Error('POLICY_ANONYMOUS_WRITE_DENIED');
+  if(payload.publicReadAllowed!==true)throw new Error('POLICY_PUBLIC_READ_DENIED');
+  if(payload.automationAllowed!==true)throw new Error('POLICY_AUTOMATION_DENIED');
+  if(payload.freeUseAllowed!==true)throw new Error('POLICY_FREE_USE_DENIED');
+  if(payload.writeProbeAllowed!==true)throw new Error('POLICY_WRITE_PROBE_DENIED');
+  const max=Math.max(0,Number(payload.maxObjectBytes||0));
+  if(max<Math.max(256,requiredBytes))throw new Error('POLICY_CAPACITY_TOO_SMALL');
+  const reviewed=Date.parse(payload.reviewedAt||'');
+  if(!Number.isFinite(reviewed)||Date.now()-reviewed>policyMaxAgeDays*DAY)throw new Error('POLICY_REVIEW_STALE');
+  if(payload.expiresAt&&Date.parse(payload.expiresAt)<=Date.now())throw new Error('POLICY_EXPIRED');
+  return {maxBytes:max,expectedRetentionDays:Math.max(0,Number(payload.expectedRetentionDays||c.expectedRetentionDays||0)||0)};
+}
+
 async function verifyFeed(master,vaultId,payload){
   if(!payload||payload.format!=='MEL-ShardVault-CandidateFeed'||payload.vaultId!==vaultId||!payload.feedMac||!Array.isArray(payload.candidates))return false;
   const {feedMac,...unsigned}=payload;
@@ -78,16 +215,20 @@ async function loadCandidates(env,master,vaultId){
       for(const raw of payload.candidates){try{accepted.push(normalize(raw,clean));}catch(error){rejected.push({source:clean,id:raw?.id||null,reason:String(error?.message||error)});}}
     }catch(error){rejected.push({source:String(url||'unknown'),reason:String(error?.message||error)});}
   }
+  const internet=String(env?.MEL_SHARDVAULT_INTERNET_DISCOVERY||'true')==='true'
+    ? await discoverInternetSources(env,accepted,rejected)
+    : {sources:[],leads:[]};
   const byId=new Map();for(const c of accepted)byId.set(c.id,c);
-  return {candidates:[...byId.values()],rejected};
+  return {candidates:[...byId.values()],rejected,sources:internet.sources,leads:internet.leads};
 }
-
-async function probe(c, requiredBytes){
+async function probe(c, requiredBytes, policyMaxAgeDays=180){
   const policyStart=Date.now();
-  const policy=await fetchTimed(c.policyUrl,{method:'GET'},8000);
+  const policy=await fetchTimed(c.policyUrl,{method:'GET',headers:{'accept':'application/json'}},8000);
   if(!policy.ok)throw new Error(`POLICY_HTTP_${policy.status}`);
+  const policyBody=await policy.json().catch(()=>null);
+  const authority=validatePublicPolicy(c,policyBody,{requiredBytes,policyMaxAgeDays});
   const policyLatency=Date.now()-policyStart;
-  const payload=new Uint8Array(Math.min(c.maxBytes,Math.max(256,Math.min(requiredBytes||256,1024))));crypto.getRandomValues(payload);
+  const payload=new Uint8Array(Math.min(authority.maxBytes,Math.max(256,Math.min(requiredBytes||256,1024))));crypto.getRandomValues(payload);
   const objectId=`mel-probe-${rid(12)}`;
   const url=publicHttps(c.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),'AUTONOMOUS_TARGET').toString();
   const writeStart=Date.now();
@@ -101,9 +242,9 @@ async function probe(c, requiredBytes){
   let diff=0;for(let i=0;i<got.length;i++)diff|=got[i]^payload[i];if(diff)throw new Error('PROBE_CONTENT_MISMATCH');
   const latency=writeLatency+readLatency;
   const latencyScore=latency<=500?20:latency<=1500?15:latency<=4000?10:5;
-  const retentionScore=Math.min(20,Math.round((Math.min(c.expectedRetentionDays,30)/30)*20));
+  const retentionScore=Math.min(20,Math.round((Math.min(authority.expectedRetentionDays,30)/30)*20));
   const score=60+latencyScore+retentionScore;
-  return {...c,score,confidence:50,probe:{ok:true,objectId,policyLatencyMs:policyLatency,writeLatencyMs:writeLatency,readLatencyMs:readLatency,checkedAt:new Date().toISOString()}};
+  return {...c,maxBytes:authority.maxBytes,expectedRetentionDays:authority.expectedRetentionDays,score,confidence:80,probe:{ok:true,objectId,policyLatencyMs:policyLatency,writeLatencyMs:writeLatency,readLatencyMs:readLatency,checkedAt:new Date().toISOString()}};
 }
 
 function choose(candidates,count,maxPerOperator,maxPerProvider){
@@ -126,15 +267,17 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
   const eligibleRows=[],rejected=[...loaded.rejected];
   for(const c of loaded.candidates){const e=eligible(c,{requiredBytes,policyMaxAgeDays});if(e.ok)eligibleRows.push(c);else rejected.push({source:c.source,id:c.id,reason:e.reasons.join(',')});}
   const probed=[];
-  for(const c of eligibleRows.slice(0,probeLimit)){try{probed.push(await probe(c,requiredBytes));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
+  for(const c of eligibleRows.slice(0,probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
   const selected=choose(probed,selectionCount,maxPerOperator,maxPerProvider);
   return {
     selected: selected.map(c=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:c.score,confidence:c.confidence,autonomous:true,authMode:'none'})),
     rejected,
     discovered:loaded.candidates.length,
     probed:probed.length,
+    internet_sources:loaded.sources||[],
+    leads:loaded.leads||[],
     diversity:{selected:selected.length,uniqueOperators:new Set(selected.map(c=>c.operatorDomain)).size,uniqueProviders:new Set(selected.map(c=>c.providerId)).size,uniqueJurisdictions:new Set(selected.map(c=>c.jurisdiction).filter(x=>x!=='UNKNOWN')).size},
   };
 }
 
-export const __autonomousTest = Object.freeze({ normalize, eligible, choose });
+export const __autonomousTest = Object.freeze({ normalize, eligible, choose, parseCatalogLeads, validatePublicPolicy });

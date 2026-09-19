@@ -237,6 +237,8 @@ export async function getShardVaultStatus(env){
       autonomous_enabled:String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')==='true',
       autonomous_feeds:parseJson(env?.MEL_AUTONOMOUS_FEEDS_JSON,[]).length,
       autonomous_catalog_entries:parseJson(env?.MEL_AUTONOMOUS_REPOSITORIES_JSON,[]).length,
+      internet_discovery_enabled:String(env?.MEL_SHARDVAULT_INTERNET_DISCOVERY||'true')==='true',
+      discovery_index:String(env?.MEL_SHARDVAULT_DISCOVERY_INDEX||'https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/discovery-index.json'),
       checked_at:new Date().toISOString()
     };
   }catch(error){return {ok:false,enabled:true,status:'ERROR',error:String(error?.message||error)};}
@@ -258,6 +260,8 @@ export async function searchAutonomousShardVaultRepositories(env){
       probed:report.probed||0,
       selected:(report.selected||[]).map(publicEndpointView),
       rejected:report.rejected||[],
+      internet_sources:report.internet_sources||[],
+      leads:report.leads||[],
       diversity:report.diversity||null
     };
   }catch(error){return {ok:false,status:'SEARCH_FAILED',error:String(error?.message||error),searched_at:new Date().toISOString()};}

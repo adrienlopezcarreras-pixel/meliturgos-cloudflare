@@ -54,14 +54,14 @@ pre{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;background
 <div class="toolbar">
 <button id="refresh">Actualiser</button>
 <button id="snapshot">Sauvegarder maintenant</button>
-<button id="search">Rechercher des dépôts autonomes</button>
+<button id="search">Explorer Internet pour de nouvelles cibles</button>
 <a href="/" style="align-self:center">← Retour à MEL</a>
 </div>
 <div id="summary" class="grid"></div>
 <div class="section card"><h2>Dernier snapshot</h2><div id="snapshot">Chargement…</div></div>
 <div class="section card"><h2>Dépôts sélectionnés</h2><div id="endpoints">Chargement…</div></div>
 <div class="section card"><h2>Copies du code de MEL</h2><div id="codeBackup">Chargement…</div></div>
-<div class="section card"><h2>Recherche autonome</h2><div id="searchStatus" class="muted">Aucune recherche manuelle lancée dans cette page.</div><div id="results"></div></div>
+<div class="section card"><h2>Exploration Internet</h2><div id="searchStatus" class="muted">Source de départ : catalogue public + recherche GitHub de catalogues ShardVault. Aucun hébergeur n’est écrit tant que sa politique ne l’autorise pas explicitement.</div><div id="results"></div></div>
 <div class="section card"><h2>Détails techniques</h2><pre id="raw">Chargement…</pre></div>
 </main>
 <script>
@@ -110,15 +110,17 @@ async function search(){
   const r=await fetch('/api/gen2/shardvault/search',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
   const d=await r.json();
   $('searchStatus').className=d.ok?'ok':'bad';
-  $('searchStatus').textContent=d.ok?'Recherche terminée : '+fmt(d.discovered)+' découverts, '+fmt(d.probed)+' testés, '+fmt((d.selected||[]).length)+' retenus.':'Recherche échouée : '+(d.error||d.status||'erreur');
+  $('searchStatus').textContent=d.ok?'Exploration terminée : '+fmt((d.internet_sources||[]).length)+' sources Internet, '+fmt((d.leads||[]).length)+' pistes, '+fmt(d.discovered)+' cibles ShardVault, '+fmt(d.probed)+' testées, '+fmt((d.selected||[]).length)+' retenues.':'Recherche échouée : '+(d.error||d.status||'erreur');
   if(d.ok){
-   const sel=(d.selected||[]).map(endpointRow).join('')||'<div class="muted">Aucun dépôt retenu.</div>';
+   const sources=(d.internet_sources||[]).map(x=>'<div class="row"><span>'+safe(x.id||x.kind||'source')+'</span><span class="muted">'+safe(x.status||'—')+(x.leads!=null?' · '+fmt(x.leads)+' pistes':'')+'</span></div>').join('');
+   const leads=(d.leads||[]).slice(0,40).map(x=>'<div class="row"><span>'+safe(x.name||'piste')+'</span><span class="muted">'+safe(x.summary||x.url||'à vérifier')+'</span></div>').join('');
+   const sel=(d.selected||[]).map(endpointRow).join('')||'<div class="muted">Aucune nouvelle cible n’a encore satisfait toutes les vérifications d’autorisation et de durabilité.</div>';
    const rej=(d.rejected||[]).slice(0,25).map(x=>'<div class="row"><span>'+safe(x.id||x.source||'candidat')+'</span><span class="muted">'+safe(x.reason||'rejeté')+'</span></div>').join('');
-   $('results').innerHTML='<h3>Retenus</h3>'+sel+'<h3>Rejetés</h3>'+(rej||'<div class="muted">Aucun rejet.</div>');
+   $('results').innerHTML='<h3>Sources Internet parcourues</h3>'+(sources||'<div class="muted">Aucune source chargée.</div>')+'<h3>Pistes trouvées</h3>'+(leads||'<div class="muted">Aucune piste générique.</div>')+'<h3>Cibles compatibles retenues</h3>'+sel+'<h3>Rejets techniques</h3>'+(rej||'<div class="muted">Aucun rejet.</div>');
   }
   await load();
  }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Erreur : '+e.message}
- finally{b.disabled=false;b.textContent='Rechercher des dépôts autonomes'}
+ finally{b.disabled=false;b.textContent='Explorer Internet pour de nouvelles cibles'}
 }
 $('refresh').onclick=load;$('snapshot').onclick=snapshot;$('search').onclick=search;load();setInterval(load,30000);
 </script></body></html>`,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});

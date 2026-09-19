@@ -1,0 +1,9 @@
+{
+  "format": "MEL-ShardVault-CandidateFeed",
+  "version": 2,
+  "public": true,
+  "updated_at": "2026-09-19T13:30:00Z",
+  "candidates": [],
+  "feeds": [],
+  "note": "Bootstrap public feed. Internet discovery may find additional feeds. No write occurs until a same-host MEL-ShardVault-Policy explicitly permits automated anonymous probes."
+}

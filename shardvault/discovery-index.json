@@ -1,0 +1,17 @@
+{
+  "format": "MEL-ShardVault-DiscoveryIndex",
+  "version": 1,
+  "updated_at": "2026-09-19T13:30:00Z",
+  "catalogs": [
+    {
+      "id": "awesome-file-hosts",
+      "kind": "file-host-directory",
+      "url": "https://raw.githubusercontent.com/FahadBinHussain/awesome-file-hosts/main/README.md",
+      "note": "Public source-backed directory. Leads only: MEL verifies authorization before any write."
+    }
+  ],
+  "native_feeds": [
+    "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/feed.json"
+  ],
+  "github_repository_search": true
+}

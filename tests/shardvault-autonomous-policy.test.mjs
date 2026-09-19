@@ -42,3 +42,28 @@ const selected = __autonomousTest.choose([
 ],3,2,2);
 assert.deepEqual(selected.map(x=>x.id),['a1','b1','c1']);
 console.log('Autonomous repository policy tests: OK');
+
+
+const catalog = [
+  '* [ExampleHost](https://example.test) - Anonymous upload service. (Free: Free forever | Account: No | API | CLI)',
+  '* AccountOnly - Requires login. (Account: Yes | API)'
+].join('\n');
+const leads = __autonomousTest.parseCatalogLeads(catalog,'https://catalog.test');
+assert.equal(leads.length,1);
+assert.equal(leads[0].name,'ExampleHost');
+
+const policy = {
+  format:'MEL-ShardVault-Policy',
+  urlTemplate:base.urlTemplate,
+  method:'PUT',
+  anonymousWriteAllowed:true,
+  publicReadAllowed:true,
+  automationAllowed:true,
+  freeUseAllowed:true,
+  writeProbeAllowed:true,
+  maxObjectBytes:1024*1024,
+  reviewedAt:new Date().toISOString(),
+  expectedRetentionDays:30,
+};
+assert.equal(__autonomousTest.validatePublicPolicy(good,policy,{requiredBytes:4096}).maxBytes,1024*1024);
+assert.throws(()=>__autonomousTest.validatePublicPolicy(good,{...policy,automationAllowed:false},{requiredBytes:4096}),/POLICY_AUTOMATION_DENIED/);
