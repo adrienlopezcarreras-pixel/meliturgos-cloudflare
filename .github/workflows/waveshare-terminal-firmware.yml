@@ -43,7 +43,7 @@ jobs:
           esp_idf_version: v5.3.2
           target: esp32s3
           path: build/waveshare-mel
-          command: bash -lc 'idf.py build && esptool.py --chip esp32s3 merge_bin -o mel-terminal.bin @build/flash_args'
+          command: idf.py build && idf.py merge-bin -o mel-terminal.bin
 
       - name: Build firmware manifest
         shell: bash
