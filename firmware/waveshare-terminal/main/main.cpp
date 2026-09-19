@@ -8,6 +8,7 @@
 #include "esp_io_expander_tca9554.h"
 #include "esp_lvgl_port.h"
 #include "lvgl.h"
+#include "esp_camera.h"
 
 #include "esp_axp2101_port.h"
 #include "esp_camera_port.h"
@@ -120,11 +121,16 @@ extern "C" void app_main(void) {
 
     esp_pcf85063_port_init(i2c_bus_handle);
 
-    bool sd_ok = true;
     esp_sdcard_port_init();
+    bool sd_ok = esp_sdcard_port_get_size() > 0;
 
-    bool camera_ok = true;
     esp_camera_port_init(I2C_PORT_NUM);
+    bool camera_ok = false;
+    camera_fb_t *probe = esp_camera_fb_get();
+    if (probe) {
+        camera_ok = true;
+        esp_camera_fb_return(probe);
+    }
 
     esp_3inch5_brightness_port_init();
     esp_3inch5_brightness_port_set(75);
