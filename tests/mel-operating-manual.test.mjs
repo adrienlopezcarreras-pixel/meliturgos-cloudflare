@@ -11,6 +11,7 @@ test('MEL operating manual keeps identity, experience and post-pass invariants e
   assert.ok(MEL_OPERATING_MANUAL.mustAlways.some(x => /Relire mon expérience utile avant chaque réponse/i.test(x)));
   assert.ok(MEL_OPERATING_MANUAL.mustAlways.some(x => /nettoyer, unifier, réconcilier et adapter/i.test(x)));
   assert.ok(MEL_OPERATING_MANUAL.mustAlways.some(x => /candidate\/mel-clean-autonomy/i.test(x)));
+  assert.ok(MEL_OPERATING_MANUAL.knowsHowTo.some(x => /protocoles matériels versionnés/i.test(x)));
 
   const prompt = buildMelOperatingManualPrompt({
     capabilityManifest: [{ id:'code.read', status:'EXISTANT_NON_TESTE', health:'HEALTHY', tested_now:false }],
@@ -53,6 +54,7 @@ test('critical operating experience remains in scope even when the current reque
 test('runtime operating experience keeps the four critical rules available without entering the training bundle', () => {
   const ids = MEL_RUNTIME_OPERATING_EXPERIENCE.map(row => row.id);
   for (const id of [
+    'bootstrap-hardware-device-protocol-20260919',
     'bootstrap-runtime-path-authority-20260918',
     'bootstrap-post-pass-reconcile-adapt-20260918',
     'bootstrap-code-access-capability-truth-20260918',
