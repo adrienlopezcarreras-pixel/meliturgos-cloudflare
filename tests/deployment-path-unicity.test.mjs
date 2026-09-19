@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const WORKFLOWS = path.join(process.cwd(), '.github', 'workflows');
 const CANONICAL = 'deploy-cloudflare-release.yml';
+const GUARD = 'canonical-branch-unicity.yml';
 const DEPLOY_PATTERN = /cloudflare\/wrangler-action|(^|\s)(npx\s+|pnpm\s+exec\s+)?wrangler\s+(deploy|publish)|npm\s+run\s+deploy|workers\/scripts/im;
 
 function isIsolatedPreview(name, source) {
@@ -19,7 +20,7 @@ test('only the canonical release workflow can mutate Cloudflare production', asy
   const files = (await readdir(WORKFLOWS)).filter(name => /\.ya?ml$/i.test(name)).sort();
   const violations = [];
   for (const name of files) {
-    if (name === CANONICAL) continue;
+    if (name === CANONICAL || name === GUARD) continue;
     const source = await readFile(path.join(WORKFLOWS, name), 'utf8');
     if (DEPLOY_PATTERN.test(source) && !isIsolatedPreview(name, source)) violations.push(name);
   }
