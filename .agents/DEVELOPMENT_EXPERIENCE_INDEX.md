@@ -60,6 +60,10 @@ Ces cinq entrées sont **validées** par la full candidate CI `35325973201`, le 
 
 Cette leçon est matérialisée dans `src/learning/runtime-operating-experience.js`, le protocole dans `docs/mel-terminal-protocol-v1.md`, et la méthode réutilisable dans `.agents/skills/mel-hardware-protocol/SKILL.md`.
 
+## Expériences 2026-09-19 — ShardVault et vérité d’état
+
+- `shardvault-proven-active-source-of-truth-20260919` — distinguer QUALIFIÉ/STAGED/ACTIF, ne compter ACTIF qu’après preuve runtime persistée et relue, et dériver toute l’UI de la même source backend.
+
 ## Règle de déduplication
 
 Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le corpus. Une différence de vocabulaire ne justifie pas une nouvelle leçon si la préférence comportementale est déjà couverte.
@@ -68,6 +72,6 @@ Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le
 
 Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, Benchmark/LoRA, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, Dev Bridge, observabilité, UI partagée, gouvernance de preuve, readiness zéro-euro runtime, checkpoint XP systématique et ingénierie de protocoles matériels versionnés.
 
-Total documenté : **52 leçons du corpus d’entraînement actuel + 5 expériences opérationnelles runtime validées**.
+Total documenté : **53 leçons du corpus d’entraînement actuel + 5 expériences opérationnelles runtime validées**.
 
 Le nombre de leçons canoniques **n’a pas de plafond fonctionnel** : 50 reste uniquement le seuil minimal de readiness LoRA. Toute nouvelle leçon validée et dédupliquée s’ajoute au corpus complet ; les fenêtres de contexte runtime peuvent rester bornées pour la performance sans supprimer ni exclure les leçons stockées.
