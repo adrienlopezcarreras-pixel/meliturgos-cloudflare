@@ -170,6 +170,15 @@ async function upload(env,e,objectId,payload){
     return null;
   }
   const u=publicUrl(e.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),`WRITE_${e.id}`);
+  if(e.adapter==='catbox'){
+    const form=new FormData();
+    form.append('reqtype','fileupload');
+    form.append('fileToUpload',new Blob([payload],{type:'application/octet-stream'}),objectId+'.bin');
+    const r=await fetchTimed(u,{method:'POST',body:form},15000);
+    if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
+    const remote=String(await r.text()).trim();
+    return {remoteUrl:publicUrl(remote,`WRITE_${e.id}_REMOTE`)};
+  }
   if(e.adapter==='temp_sh'){
     const form=new FormData();
     form.append('file',new Blob([payload],{type:'application/octet-stream'}),objectId+'.bin');
@@ -216,7 +225,7 @@ async function download(env,e,objectId,descriptor=null){
     if(Number(row.byte_length)!==payload.length)throw new Error(`READ_${e.id}_LENGTH_MISMATCH`);
     return payload;
   }
-  if(e.adapter==='temp_sh'){
+  if(e.adapter==='catbox'||e.adapter==='temp_sh'){
     const remote=descriptor?.remoteUrl;
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
     const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET'},15000);
@@ -327,6 +336,14 @@ async function writePreferredEndpoint(env,endpointId){
   await env.MEDIA_BUCKET.put(PREFERRED_ENDPOINT_KEY,JSON.stringify(value),{httpMetadata:{contentType:'application/json'}});
   return value;
 }
+async function clearPreferredEndpoint(env){
+  if(env?.MEDIA_BUCKET?.delete){try{await env.MEDIA_BUCKET.delete(PREFERRED_ENDPOINT_KEY);return true;}catch{}}
+  return false;
+}
+function endpointMeetsDurability(env,e){
+  const min=Math.max(1,Number(env?.MEL_AUTONOMOUS_MIN_RETENTION_DAYS)||90);
+  return Number(e?.expectedRetentionDays||0)>=min;
+}
 async function readDiscoveryStatus(env){
   if(!env?.MEDIA_BUCKET?.get)return null;
   try{
@@ -374,13 +391,22 @@ export async function getShardVaultStatus(env){
         health={healthy_shards:healthy,total_shards:last.totalShards,data_shards:last.dataShards,missing:got.missing,recoverable:healthy>=last.dataShards,errors:got.errors};
       }catch(error){health={recoverable:false,error:String(error?.message||error)};}
     }
+    const discovery=await readDiscoveryStatus(env);
+    let preferred=await readPreferredEndpoint(env);
+    let activeExternal=preferred?(discovery?.selected||[]).find(x=>x.id===preferred.endpoint_id):null;
+    if(activeExternal&&!endpointMeetsDurability(env,activeExternal)){await clearPreferredEndpoint(env);preferred=null;activeExternal=null;}
+    const usedCounts={};
+    for(const shard of last?.shards||[])usedCounts[shard.endpointId]=(usedCounts[shard.endpointId]||0)+1;
+    const selectedViews=c.endpoints.map(publicEndpointView);
+    if(activeExternal&&!selectedViews.some(x=>x.id===activeExternal.id))selectedViews.push({...activeExternal,preferred:true,active:true});
     return {
       ok:true,enabled:true,status:last?'ONLINE':'NO_SNAPSHOT',
       scheme:{data_shards:c.k,total_shards:c.n,tolerated_losses:c.n-c.k},
-      latest:last?{snapshot_id:last.snapshotId,revision:last.revision||1,created_at:last.createdAt,updated_at:last.updatedAt,shard_size:last.shardSize,source:last.source||null,diversity:last.diversity||null}:null,
+      latest:last?{snapshot_id:last.snapshotId,revision:last.revision||1,created_at:last.createdAt,updated_at:last.updatedAt,shard_size:last.shardSize,source:last.source||null,diversity:last.diversity||null,used_endpoints:usedCounts}:null,
       health,
       configured_endpoints:c.allEndpoints.map(publicEndpointView),
-      selected_endpoints:c.endpoints.map(publicEndpointView),
+      selected_endpoints:selectedViews.map(x=>({...x,used_fragments:Number(usedCounts[x.id]||0),active:x.active===true||Number(usedCounts[x.id]||0)>0})),
+      active_external_endpoint:activeExternal?{...activeExternal,preferred:true,used_fragments:Number(usedCounts[activeExternal.id]||0),active:true}:null,
       storage_mode:c.storageMode,
       degraded:c.degraded,
       recovery_key_source:c.keySource,
@@ -390,8 +416,8 @@ export async function getShardVaultStatus(env){
       autonomous_catalog_entries:parseJson(env?.MEL_AUTONOMOUS_REPOSITORIES_JSON,[]).length,
       internet_discovery_enabled:String(env?.MEL_SHARDVAULT_INTERNET_DISCOVERY||'true')==='true',
       discovery_index:String(env?.MEL_SHARDVAULT_DISCOVERY_INDEX||'https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/discovery-index.json'),
-      last_discovery:await readDiscoveryStatus(env),
-      preferred_endpoint:await readPreferredEndpoint(env),
+      last_discovery:discovery,
+      preferred_endpoint:preferred,
       checked_at:new Date().toISOString()
     };
   }catch(error){return {ok:false,enabled:true,status:'ERROR',error:String(error?.message||error)};}
@@ -404,8 +430,28 @@ export async function setPreferredShardVaultEndpoint(env,endpointId){
   const selected=Array.isArray(last?.selected)?last.selected:[];
   const endpoint=selected.find(x=>String(x?.id||'')===id);
   if(!endpoint)return {ok:false,status:'ENDPOINT_NOT_VALIDATED',endpoint_id:id};
+  if(!endpointMeetsDurability(env,endpoint))return {ok:false,status:'RETENTION_TOO_SHORT',endpoint_id:id,expected_retention_days:Number(endpoint.expectedRetentionDays)||0};
   const saved=await writePreferredEndpoint(env,id);
   return {ok:true,status:'PREFERRED',preferred_endpoint:saved,endpoint};
+}
+
+export async function activateValidatedShardVaultEndpoint(env,endpointId){
+  const id=String(endpointId||'').trim();
+  if(!id)return {ok:false,status:'ENDPOINT_ID_REQUIRED'};
+  const discovery=await readDiscoveryStatus(env);
+  const endpoint=(Array.isArray(discovery?.selected)?discovery.selected:[]).find(x=>String(x?.id||'')===id);
+  if(!endpoint)return {ok:false,status:'ENDPOINT_NOT_VALIDATED',endpoint_id:id};
+  if(!endpointMeetsDurability(env,endpoint))return {ok:false,status:'RETENTION_TOO_SHORT',endpoint_id:id,expected_retention_days:Number(endpoint.expectedRetentionDays)||0};
+  await writePreferredEndpoint(env,id);
+  const cycle=await runShardVaultCycle(env,{force:true});
+  if(!cycle?.ok){await clearPreferredEndpoint(env);return {ok:false,status:'ACTIVATION_SNAPSHOT_FAILED',endpoint_id:id,cycle};}
+  let c;
+  try{c=await config(env);}catch{}
+  if(!c?.ok){await clearPreferredEndpoint(env);return {ok:false,status:'ACTIVATION_STATUS_FAILED',endpoint_id:id};}
+  const rows=await inventoryRows(env,c),latest=latestSnapshot(rows);
+  const used=(latest?.shards||[]).filter(x=>x.endpointId===id).length;
+  if(!used){await clearPreferredEndpoint(env);return {ok:false,status:'ACTIVATION_NOT_USED',endpoint_id:id,cycle};}
+  return {ok:true,status:'ACTIVATED',endpoint_id:id,used_fragments:used,snapshot_id:latest.snapshotId,cycle};
 }
 
 export async function searchAutonomousShardVaultRepositories(env){

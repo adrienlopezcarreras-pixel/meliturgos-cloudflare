@@ -42,6 +42,26 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
     evidenceUrls:['https://filebin.net/api.yaml','https://filebin.net/terms']
   },
   {
+    id:'catbox-public',
+    adapter:'catbox',
+    urlTemplate:'https://catbox.moe/user/api.php?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:2097152,
+    operatorDomain:'catbox.moe',
+    providerId:'catbox',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:730,
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
+    evidenceUrls:['https://catbox.moe/tools.php','https://catbox.moe/faq.php']
+  },
+  {
     id:'temp-sh-public',
     adapter:'temp_sh',
     urlTemplate:'https://temp.sh/upload?mel_object={objectId}',
@@ -132,7 +152,7 @@ function normalize(raw, source){
   };
 }
 
-function eligible(c,{requiredBytes=0,policyMaxAgeDays=180}={}){
+function eligible(c,{requiredBytes=0,policyMaxAgeDays=180,minRetentionDays=90}={}){
   const reasons=[];
   if(c.authMode!=='none')reasons.push('AUTH_REQUIRED');
   if(!c.anonymousWriteDeclared)reasons.push('ANONYMOUS_WRITE_NOT_DECLARED');
@@ -148,6 +168,7 @@ function eligible(c,{requiredBytes=0,policyMaxAgeDays=180}={}){
     else if(Date.now()-Date.parse(c.policyReviewedAt)>policyMaxAgeDays*DAY)reasons.push('POLICY_EVIDENCE_STALE');
   }
   if(c.maxBytes<Math.max(256,requiredBytes))reasons.push('CAPACITY_TOO_SMALL');
+  if(c.expectedRetentionDays<minRetentionDays)reasons.push('RETENTION_TOO_SHORT_'+c.expectedRetentionDays+'D_MIN_'+minRetentionDays+'D');
   return {ok:reasons.length===0,reasons};
 }
 
@@ -413,6 +434,15 @@ async function fetchOnceManual(url,options={},ms=10000){
   finally{clearTimeout(timer);}
 }
 async function candidateWrite(c,url,payload,objectId){
+  if(c.adapter==='catbox'){
+    const form=new FormData();
+    form.append('reqtype','fileupload');
+    form.append('fileToUpload',new Blob([payload],{type:'application/octet-stream'}),objectId+'.bin');
+    const r=await fetchTimed(url,{method:'POST',body:form},15000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const remote=String(await r.text()).trim();
+    return {response:r,readUrl:publicHttps(remote,'CATBOX_READ').toString()};
+  }
   if(c.adapter==='temp_sh'){
     const form=new FormData();
     form.append('file',new Blob([payload],{type:'application/octet-stream'}),objectId+'.bin');
@@ -496,8 +526,9 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
   const probeLimit=Math.max(selectionCount,Math.min(50,Number(env?.MEL_AUTONOMOUS_PROBE_LIMIT)||14));
   const maxPerOperator=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_OPERATOR)||2);
   const maxPerProvider=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_PROVIDER)||2);
+  const minRetentionDays=Math.max(1,Number(env?.MEL_AUTONOMOUS_MIN_RETENTION_DAYS)||90);
   const eligibleRows=[],rejected=[...loaded.rejected];
-  for(const c of loaded.candidates){const e=eligible(c,{requiredBytes,policyMaxAgeDays});if(e.ok)eligibleRows.push(c);else rejected.push({source:c.source,id:c.id,reason:e.reasons.join(',')});}
+  for(const c of loaded.candidates){const e=eligible(c,{requiredBytes,policyMaxAgeDays,minRetentionDays});if(e.ok)eligibleRows.push(c);else rejected.push({source:c.source,id:c.id,reason:e.reasons.join(',')});}
   const probed=[];
   for(const c of eligibleRows.slice(0,probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
   const selected=choose(probed,selectionCount,maxPerOperator,maxPerProvider);

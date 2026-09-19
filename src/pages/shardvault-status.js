@@ -1,5 +1,5 @@
 // deployment trigger: ShardVault dashboard
-import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint } from '../continuity/shardvault-runtime.js';
+import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint } from '../continuity/shardvault-runtime.js';
 
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
@@ -69,20 +69,20 @@ const $=id=>document.getElementById(id),qsa=s=>[...document.querySelectorAll(s)]
 const fmt=n=>Number.isFinite(Number(n))?Number(n).toLocaleString('fr-FR'):'—';
 function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function card(label,value,state=''){return '<div class="card"><small>'+safe(label)+'</small><div class="big '+state+'">'+safe(value)+'</div></div>'}
-function endpointRow(e,selectable=false,preferredId=null){const where=e.backend==='r2'?(safe(e.bucket||'R2')+' · '+safe(e.key_prefix||'')):e.backend==='d1'?('D1 · '+safe(e.key_prefix||'shardvault_objects')):(safe(e.operatorDomain||'—')+' · '+safe(e.providerId||'—')+' · '+safe(e.jurisdiction||'—'));const isPreferred=String(preferredId||'')===String(e.id||'')||e.preferred===true;const action=selectable?('<button class="preferBtn" data-endpoint="'+safe(e.id)+'" '+(isPreferred?'disabled':'')+'>'+(isPreferred?'Préférée':'Préférer')+'</button>'):'';return '<div class="row"><div><b>'+safe(e.id)+'</b><div class="muted">'+where+'</div></div><div><span class="tag">'+safe(e.backend||'http')+'</span><span class="tag">'+(e.autonomous?'autonome':'configuré')+'</span><span class="tag">score '+fmt(e.score)+'</span>'+action+'</div></div>'}
+function endpointRow(e,selectable=false,preferredId=null){const where=e.backend==='r2'?(safe(e.bucket||'R2')+' · '+safe(e.key_prefix||'')):e.backend==='d1'?('D1 · '+safe(e.key_prefix||'shardvault_objects')):(safe(e.operatorDomain||'—')+' · '+safe(e.providerId||'—')+' · '+safe(e.jurisdiction||'—')+(e.expectedRetentionDays?' · rétention '+fmt(e.expectedRetentionDays)+' j':''));const active=e.active===true;const used=Number(e.used_fragments||0);const badges=(active?'<span class="tag ok">ACTIF</span>':'')+(used?'<span class="tag ok">UTILISÉ '+fmt(used)+' fragment'+(used>1?'s':'')+'</span>':'');const action=selectable?('<button class="preferBtn" data-endpoint="'+safe(e.id)+'" '+(active?'disabled':'')+'>'+(active?'ACTIVÉ':'Utiliser ce dépôt')+'</button>'):'';return '<div class="row"><div><b>'+safe(e.id)+'</b><div class="muted">'+where+'</div></div><div>'+badges+'<span class="tag">'+safe(e.backend||'http')+'</span><span class="tag">'+(e.autonomous?'autonome':'configuré')+'</span><span class="tag">score '+fmt(e.score)+'</span>'+action+'</div></div>'}
 function bindPreferenceButtons(){
- qsa('.preferBtn').forEach(btn=>btn.onclick=()=>preferEndpoint(btn.dataset.endpoint,btn));
+ qsa('.preferBtn').forEach(btn=>btn.onclick=()=>activateEndpoint(btn.dataset.endpoint,btn));
 }
-async function preferEndpoint(endpointId,btn){
+async function activateEndpoint(endpointId,btn){
  if(!endpointId)return;
- const old=btn.textContent;btn.disabled=true;btn.textContent='Sélection…';
+ const old=btn.textContent;btn.disabled=true;btn.textContent='Activation…';
  try{
-  const r=await fetch('/api/gen2/shardvault/preference',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({endpoint_id:endpointId})});
+  const r=await fetch('/api/gen2/shardvault/activate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({endpoint_id:endpointId})});
   const d=await r.json();
   if(!r.ok||d.ok===false)throw new Error(d.status||d.error||('HTTP '+r.status));
-  $('searchStatus').className='ok';$('searchStatus').textContent='Cible préférée : '+endpointId+'. MEL la privilégiera tant qu’elle reste valide.';
+  $('searchStatus').className='ok';$('searchStatus').textContent='Dépôt ACTIVÉ : '+endpointId+' · '+fmt(d.used_fragments)+' fragment(s) écrit(s) dans '+safe(d.snapshot_id||'le nouveau snapshot')+'.';
   await load();
- }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Sélection impossible : '+e.message;btn.disabled=false;btn.textContent=old}
+ }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Activation impossible : '+e.message;btn.disabled=false;btn.textContent=old}
 }
 function renderDiscovery(d,prefix='Exploration',preferredId=null){
  if(!d)return;
@@ -90,7 +90,7 @@ function renderDiscovery(d,prefix='Exploration',preferredId=null){
  $('searchStatus').textContent=d.ok?prefix+' · génération '+fmt(d.generation||1)+' : '+fmt(d.new_leads??(d.leads||[]).length)+' nouvelles pistes ('+fmt(d.known_leads||0)+' connues), '+fmt(d.discovered)+' cibles vérifiables, '+fmt(d.probed)+' testées, '+fmt((d.selected||[]).length)+' retenues · '+(d.external_found?'CIBLE EXTERNE TROUVÉE':'recherche continue active')+(d.searched_at?' · '+safe(d.searched_at):''):(prefix+' échouée : '+safe(d.error||d.status||'erreur'));
  const sources=(d.internet_sources||[]).map(x=>'<div class="row"><span>'+safe(x.id||x.kind||'source')+'</span><span class="muted">'+safe(x.status||'—')+(x.leads!=null?' · '+fmt(x.leads)+' pistes':'')+(x.error?' · '+safe(x.error):'')+'</span></div>').join('');
  const leads=(d.leads||[]).slice(0,40).map(x=>'<div class="row"><span>'+safe(x.name||'piste')+'</span><span class="muted">'+safe(x.summary||x.url||'à vérifier')+'</span></div>').join('');
- const sel=(d.selected||[]).map(e=>endpointRow(e,true,preferredId)).join('')||'<div class="muted">Aucune nouvelle cible n’a encore satisfait toutes les vérifications d’autorisation et de durabilité.</div>';
+ const sel=(d.selected||[]).map(e=>endpointRow({...e,active:String(e.id||'')===String(preferredId||'')},true,preferredId)).join('')||'<div class="muted">Aucune nouvelle cible durable n’a encore satisfait tous les contrôles.</div>';
  const rej=(d.rejected||[]).slice(0,25).map(x=>'<div class="row"><span>'+safe(x.id||x.source||'candidat')+'</span><span class="muted">'+safe(x.reason||'rejeté')+'</span></div>').join('');
  $('results').innerHTML='<h3>Sources Internet parcourues</h3>'+(sources||'<div class="muted">Aucune source chargée.</div>')+'<h3>Nouvelles pistes trouvées</h3>'+(leads||'<div class="muted">Aucune piste générique.</div>')+'<h3>Cibles compatibles retenues</h3>'+sel+'<h3>Rejets techniques</h3>'+(rej||'<div class="muted">Aucun rejet.</div>');
  bindPreferenceButtons();
@@ -110,7 +110,7 @@ async function load(){
   ].join('');
   const l=d.latest;
   $('snapshotInfo').innerHTML=l?'<div class="row"><span>ID</span><b>'+safe(l.snapshot_id)+'</b></div><div class="row"><span>Révision</span><b>'+fmt(l.revision)+'</b></div><div class="row"><span>Créé</span><b>'+safe(l.created_at||'—')+'</b></div><div class="row"><span>Taille fragment</span><b>'+fmt(l.shard_size)+' octets</b></div>':'Aucun snapshot valide trouvé.';
-  $('endpoints').innerHTML=(d.selected_endpoints||[]).length?(d.selected_endpoints||[]).map(endpointRow).join(''):'Aucun dépôt actuellement sélectionné.';
+  $('endpoints').innerHTML=(d.selected_endpoints||[]).length?(d.selected_endpoints||[]).map(e=>endpointRow(e,false,d.preferred_endpoint?.endpoint_id||null)).join(''):'Aucun dépôt actuellement sélectionné.';
   const code=d.code_survival||{};
   $('codeBackup').innerHTML='<div class="row"><span>GitHub</span><b>'+safe(code.repository||'non identifié')+(code.sha?' · '+safe(String(code.sha).slice(0,12)):'')+'</b></div><div class="row"><span>Cloudflare R2</span><b class="'+(code.ok?'ok':'warn')+'">'+safe(code.status||'—')+'</b></div>'+(code.key?'<div class="row"><span>Objet R2</span><span class="muted">'+safe(code.bucket||'')+' / '+safe(code.key)+'</span></div>':'');
   if(d.last_discovery)renderDiscovery(d.last_discovery,'Dernière exploration automatique',d.preferred_endpoint?.endpoint_id||null);
@@ -160,6 +160,11 @@ export async function handleShardVaultStatus(request,env){
     const body=await request.json().catch(()=>({}));
     const result=await setPreferredShardVaultEndpoint(env,body?.endpoint_id);
     return Response.json(result,{status:result.ok?200:400,headers:{'cache-control':'no-store'}});
+  }
+  if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/activate'){
+    const body=await request.json().catch(()=>({}));
+    const result=await activateValidatedShardVaultEndpoint(env,body?.endpoint_id);
+    return Response.json(result,{status:result.ok?200:409,headers:{'cache-control':'no-store'}});
   }
   return null;
 }
