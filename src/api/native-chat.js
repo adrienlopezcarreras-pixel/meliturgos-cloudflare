@@ -67,7 +67,7 @@ export function inferNativeComputerCapability(text) {
   const value=String(text||'').trim();
   if(!value)return null;
   const computer=/\b(?:pc|ordinateur|bureau|écran|ecran|windows)\b/i.test(value);
-  const status=/\b(?:état|etat|statut|connecté|connecte|en ligne|hors ligne|disponible)\b/i.test(value);
+  const status=/(?:état|etat|statut|connecté|connecte|en ligne|hors ligne|disponible)/i.test(value);
   if(computer&&status)return {id:'computer.status',input:{}};
 
   if(computer&&/\b(?:capture|screenshot|photo|montre|affiche|regarde)\b/i.test(value)&&/\b(?:écran|ecran|bureau|pc|ordinateur)\b/i.test(value)){
@@ -82,7 +82,7 @@ export function inferNativeComputerCapability(text) {
   }
 
   if(computer){
-    const typed=value.match(/\b(?:écris|ecris|tape|saisis|inscris)\s+(.+?)(?:\s+(?:sur|dans)\s+(?:le\s+)?(?:pc|ordinateur|bureau|windows|fenêtre|fenetre))?[.!?]*$/i);
+    const typed=value.match(/(?:^|\s)(?:écris|ecris|tape|saisis|inscris)\s+(.+?)(?:\s+(?:sur|dans)\s+(?:le\s+)?(?:pc|ordinateur|bureau|windows|fenêtre|fenetre))?[.!?]*$/i);
     if(typed&&typed[1]?.trim())return {id:'computer.quick',input:{kind:'type_text',text:typed[1].trim().slice(0,4096),approve_sensitive:true}};
 
     const key=value.match(/\b(?:appuie|presse)\s+(?:sur\s+)?(?:la\s+touche\s+)?(entrée|entree|enter|tab|tabulation|ctrl\+l|alt\+tab)\b/i);
