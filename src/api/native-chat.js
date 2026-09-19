@@ -84,7 +84,7 @@ export function inferNativeComputerCapability(text) {
   if(computer){
     const typed=value.match(/(?:^|\s)(?:écris|ecris|tape|saisis|inscris)\s+(.+?)[.!?]*$/i);
     if(typed&&typed[1]?.trim()){
-      const targetSuffix=/\s+(?:sur|dans)\s+(?:le\s+|la\s+|l['’])?(?:pc|ordinateur|bureau|windows|fenêtre|fenetre)\s*$/i;
+      const targetSuffix=/\s+(?:sur|dans)\s+(?:(?:le|la|mon|ma|mes)\s+|l['’])?(?:pc|ordinateur|bureau|windows|fenêtre|fenetre)\s*$/i;
       const requestedText=typed[1].trim().replace(targetSuffix,'').trim();
       if(requestedText)return {id:'computer.quick',input:{kind:'type_text',text:requestedText.slice(0,4096),approve_sensitive:true}};
     }
