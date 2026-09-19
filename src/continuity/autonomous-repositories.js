@@ -5,6 +5,14 @@ const MAX_PUBLIC_FEEDS = 30;
 const MAX_GITHUB_REPOS = 20;
 const MAX_GITHUB_CATALOG_REPOS = 12;
 const MAX_CATALOG_LEADS = 120;
+const DISCOVERY_HISTORY_KEY='shardvault/discovery/history.json';
+const DISCOVERY_LATEST_KEY='shardvault/discovery/latest.json';
+const QUERY_SETS = Object.freeze([
+  ['anonymous file hosting api in:name,description,readme','temporary file upload api in:name,description,readme','free file hosting api in:name,description,readme'],
+  ['guest upload rest api in:name,description,readme','no signup file upload api in:name,description,readme','free object storage api in:name,description,readme'],
+  ['temporary object storage api in:name,description,readme','anonymous upload service api in:name,description,readme','file sharing api guest in:name,description,readme'],
+  ['free storage upload endpoint in:name,description,readme','public file upload rest api in:name,description,readme','ephemeral file storage api in:name,description,readme']
+]);
 const EMBEDDED_SEED_LEADS = Object.freeze([
   {name:'/TMP/FILES',url:'https://tmpfiles.org',summary:'Hébergement temporaire anonyme avec API signalée. Piste à vérifier avant tout usage.'},
   {name:'Gofile',url:'https://gofile.io',summary:'Hébergement de fichiers avec API et usage invité signalés. Piste à vérifier avant tout usage.'},
@@ -76,6 +84,27 @@ function eligible(c,{requiredBytes=0,policyMaxAgeDays=180}={}){
 }
 
 
+function leadKey(x){return (String(x?.name||'').trim().toLowerCase()+'|'+String(x?.url||'').trim().toLowerCase()).slice(0,500);}
+async function readDiscoveryHistory(env){
+  if(!env?.MEDIA_BUCKET?.get)return {generation:0,seen_leads:[],source_failures:{}};
+  try{
+    const body=await env.MEDIA_BUCKET.get(DISCOVERY_HISTORY_KEY);
+    if(body){
+      const parsed=JSON.parse(await body.text());
+      if(parsed&&typeof parsed==='object')return {generation:Number(parsed.generation)||0,seen_leads:Array.isArray(parsed.seen_leads)?parsed.seen_leads:[],source_failures:parsed.source_failures&&typeof parsed.source_failures==='object'?parsed.source_failures:{}};
+    }
+    const latest=await env.MEDIA_BUCKET.get(DISCOVERY_LATEST_KEY);
+    if(latest){
+      const parsed=JSON.parse(await latest.text()),seen=(parsed?.leads||[]).map(leadKey).filter(Boolean);
+      return {generation:parsed?.searched_at?1:0,seen_leads:[...new Set(seen)],source_failures:{}};
+    }
+  }catch{}
+  return {generation:0,seen_leads:[],source_failures:{}};
+}
+async function writeDiscoveryHistory(env,history){
+  if(!env?.MEDIA_BUCKET?.put)return;
+  try{await env.MEDIA_BUCKET.put(DISCOVERY_HISTORY_KEY,JSON.stringify(history),{httpMetadata:{contentType:'application/json'}});}catch{}
+}
 function githubHeaders(env){
   const h={'accept':'application/vnd.github+json','x-github-api-version':'2022-11-28','user-agent':'MEL-ShardVault-discovery'};
   const token=String(env?.GITHUB_TOKEN||env?.MEL_GITHUB_TOKEN||'').trim();
@@ -130,8 +159,9 @@ async function loadPublicFeed(url,accepted,rejected,queue,seen){
   }
 }
 async function discoverInternetSources(env,accepted,rejected){
-  const sources=[],leads=EMBEDDED_SEED_LEADS.map(x=>({...x,source:'embedded-bootstrap',status:'SEED_LEAD'})),queue=[],seen=new Set();
-  let catalogs=[...EMBEDDED_CATALOGS];
+  const history=await readDiscoveryHistory(env),generation=history.generation+1,previousSeen=new Set(history.seen_leads||[]);
+  const sources=[],allLeads=EMBEDDED_SEED_LEADS.map(x=>({...x,source:'embedded-bootstrap',status:'SEED_LEAD'})),queue=[],seen=new Set();
+  let leads=allLeads,catalogs=generation===1||generation%6===0?[...EMBEDDED_CATALOGS]:[];
   const indexUrl=String(env?.MEL_SHARDVAULT_DISCOVERY_INDEX||DEFAULT_DISCOVERY_INDEX);
   try{
     const clean=publicHttps(indexUrl,'DISCOVERY_INDEX').toString();
@@ -145,7 +175,7 @@ async function discoverInternetSources(env,accepted,rejected){
       const name=String(seed?.name||'').trim();
       const url=String(seed?.url||'').trim();
       if(!name)continue;
-      leads.push({name,url:url||null,source:clean,summary:String(seed?.summary||'Source trouvée lors de la première exploration manuelle.').slice(0,500),status:'SEED_LEAD'});
+      allLeads.push({name,url:url||null,source:clean,summary:String(seed?.summary||'Source trouvée lors de la première exploration manuelle.').slice(0,500),status:'SEED_LEAD'});
     }
     for(const feed of index.native_feeds||[]){try{queue.push(publicHttps(typeof feed==='string'?feed:feed?.url,'BOOTSTRAP_FEED').toString());}catch{}}
     for(const catalog of catalogs){
@@ -157,7 +187,7 @@ async function discoverInternetSources(env,accepted,rejected){
         if(!cr.ok)throw new Error('CATALOG_HTTP_'+cr.status);
         const text=await cr.text();
         const found=parseCatalogLeads(text,cu);
-        leads.push(...found.slice(0,Math.max(0,MAX_CATALOG_LEADS-leads.length)));
+        allLeads.push(...found.slice(0,Math.max(0,MAX_CATALOG_LEADS-allLeads.length)));
         sources.push({id:String(catalog?.id||'catalog'),url:cu,status:'LOADED',kind:'catalog',leads:found.length});
       }catch(error){sources.push({id:String(catalog?.id||'catalog'),url:String(url),status:'ERROR',kind:'catalog',error:String(error?.message||error)});}
     }
@@ -172,7 +202,7 @@ async function discoverInternetSources(env,accepted,rejected){
         if(!cr.ok)throw new Error('CATALOG_HTTP_'+cr.status);
         const text=await cr.text();
         const found=parseCatalogLeads(text,cu);
-        leads.push(...found.slice(0,Math.max(0,MAX_CATALOG_LEADS-leads.length)));
+        allLeads.push(...found.slice(0,Math.max(0,MAX_CATALOG_LEADS-allLeads.length)));
         sources.push({id:String(catalog?.id||'catalog'),url:cu,status:'LOADED',kind:'catalog',leads:found.length});
       }catch(catalogError){
         sources.push({id:String(catalog?.id||'catalog'),url:String(url),status:'ERROR',kind:'catalog',error:String(catalogError?.message||catalogError)});
@@ -205,11 +235,7 @@ async function discoverInternetSources(env,accepted,rejected){
     }
   }catch(error){sources.push({id:'github-shardvault-search',url:'https://github.com/search?q=mel-shardvault&type=repositories',status:'ERROR',kind:'search',error:String(error?.message||error)});}
 
-  const catalogQueries=[
-    'anonymous file hosting api in:name,description,readme',
-    'temporary file upload api in:name,description,readme',
-    'free file hosting api in:name,description,readme'
-  ];
+  const catalogQueries=QUERY_SETS[(generation-1)%QUERY_SETS.length];
   const catalogRepos=new Map();
   for(const query of catalogQueries){
     try{
@@ -235,7 +261,7 @@ async function discoverInternetSources(env,accepted,rejected){
       if(!rr.ok)throw new Error('GITHUB_README_HTTP_'+rr.status);
       const text=await rr.text();
       const found=parseCatalogLeads(text,raw);
-      leads.push(...found.slice(0,Math.max(0,MAX_CATALOG_LEADS-leads.length)));
+      allLeads.push(...found.slice(0,Math.max(0,MAX_CATALOG_LEADS-allLeads.length)));
       sources.push({id:repo.full,url:repo.html_url||raw,status:'LOADED',kind:'github-catalog',leads:found.length});
     }catch(error){
       sources.push({id:repo.full,url:repo.html_url||raw,status:'ERROR',kind:'github-catalog',error:String(error?.message||error)});
@@ -247,7 +273,12 @@ async function discoverInternetSources(env,accepted,rejected){
     if(await loadPublicFeed(next,accepted,rejected,queue,seen))loadedFeeds++;
   }
   sources.push({id:'native-feed-crawl',status:'LOADED',kind:'recursive-feeds',feeds_checked:seen.size,feeds_loaded:loadedFeeds});
-  return {sources,leads:leads.slice(0,MAX_CATALOG_LEADS)};
+  const unique=new Map();
+  for(const lead of allLeads){const key=leadKey(lead);if(key&&!unique.has(key))unique.set(key,lead);}
+  const newLeads=[...unique.entries()].filter(([key])=>!previousSeen.has(key)).map(([,lead])=>lead).slice(0,MAX_CATALOG_LEADS);
+  const mergedSeen=[...new Set([...(history.seen_leads||[]),...unique.keys()])].slice(-2000);
+  await writeDiscoveryHistory(env,{generation,seen_leads:mergedSeen,source_failures:history.source_failures||{},updated_at:new Date().toISOString()});
+  return {sources,leads:newLeads,generation,known_leads:mergedSeen.length,new_leads:newLeads.length,query_set:catalogQueries};
 }
 function validatePublicPolicy(c,payload,{requiredBytes=0,policyMaxAgeDays=180}={}){
   if(!payload||payload.format!=='MEL-ShardVault-Policy')throw new Error('POLICY_FORMAT_INVALID');
@@ -351,6 +382,10 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
     probed:probed.length,
     internet_sources:loaded.sources||[],
     leads:loaded.leads||[],
+    generation:loaded.generation||1,
+    known_leads:loaded.known_leads||0,
+    new_leads:loaded.new_leads||0,
+    query_set:loaded.query_set||[],
     diversity:{selected:selected.length,uniqueOperators:new Set(selected.map(c=>c.operatorDomain)).size,uniqueProviders:new Set(selected.map(c=>c.providerId)).size,uniqueJurisdictions:new Set(selected.map(c=>c.jurisdiction).filter(x=>x!=='UNKNOWN')).size},
   };
 }

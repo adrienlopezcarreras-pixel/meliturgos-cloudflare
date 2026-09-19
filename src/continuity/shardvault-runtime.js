@@ -72,6 +72,22 @@ function r2FallbackEndpoint(){
     authMode:'binding'
   };
 }
+function d1FallbackEndpoint(){
+  return {
+    id:'cloudflare-d1-secondary',
+    backend:'d1',
+    keyPrefix:'shardvault_objects',
+    method:'PUT',
+    maxBytes:1024*1024,
+    operatorDomain:'cloudflare.com',
+    providerId:'cloudflare-d1',
+    jurisdiction:'UNKNOWN',
+    score:45,
+    confidence:100,
+    autonomous:false,
+    authMode:'binding'
+  };
+}
 async function config(env){
   const k=Math.max(2,Number(env.MEL_DATA_SHARDS)||4),n=Math.max(3,Number(env.MEL_TOTAL_SHARDS)||7);
   if(n<=k)return {ok:false,missing:['MEL_TOTAL_SHARDS(>MEL_DATA_SHARDS)']};
@@ -84,12 +100,15 @@ async function config(env){
     all=raw.map(normalizeEndpoint);
     publicUrl(env.MEL_INVENTORY_APPEND_URL,'INVENTORY_APPEND');
     publicUrl(env.MEL_INVENTORY_LIST_URL,'INVENTORY_LIST');
-  }else if(env?.MEDIA_BUCKET?.put&&env?.MEDIA_BUCKET?.get&&env?.MEDIA_BUCKET?.list){
-    all=[r2FallbackEndpoint()];
-    storageMode='R2_FALLBACK';
-    degraded=true;
   }else{
-    return {ok:false,missing:['MEL_PUBLIC_ENDPOINTS_JSON or MEDIA_BUCKET','MEL_INVENTORY_APPEND_URL','MEL_INVENTORY_LIST_URL']};
+    if(env?.MEDIA_BUCKET?.put&&env?.MEDIA_BUCKET?.get&&env?.MEDIA_BUCKET?.list)all.push(r2FallbackEndpoint());
+    if(env?.DB?.prepare)all.push(d1FallbackEndpoint());
+    if(all.length){
+      storageMode='CLOUDFLARE_FALLBACK';
+      degraded=true;
+    }else{
+      return {ok:false,missing:['MEL_PUBLIC_ENDPOINTS_JSON or MEDIA_BUCKET/DB','MEL_INVENTORY_APPEND_URL','MEL_INVENTORY_LIST_URL']};
+    }
   }
   const selected=selectEndpoints(all,Math.min(n,all.length),Math.max(1,Number(env.MEL_WATCH_MAX_PER_OPERATOR)||2),Math.max(1,Number(env.MEL_WATCH_MAX_PER_PROVIDER)||2));
   return {ok:true,master:masterInfo.master,keySource:masterInfo.keySource,allEndpoints:all,endpoints:selected,vaultId:String(env.MEL_VAULT_ID||'mel-primary'),k,n,intervalMs:Math.max(HOUR,Number(env.MEL_SHARDVAULT_INTERVAL_HOURS||24)*HOUR),storageMode,degraded};
@@ -99,7 +118,7 @@ async function manifestMac(c,m){const key=await hkdf(c.master,utf8(c.vaultId),ut
 async function validManifest(c,m){if(!m||m.vaultId!==c.vaultId||m.format!=='MEL-ShardVault'||!m.manifestMac)return false;try{return (await manifestMac(c,m))===m.manifestMac;}catch{return false;}}
 function r2ManifestPrefix(c){return 'shardvault/manifests/'+encodeURIComponent(c.vaultId)+'/';}
 async function inventoryRows(env,c){
-  if(c.storageMode==='R2_FALLBACK'){
+  if(c.storageMode==='CLOUDFLARE_FALLBACK'){
     const out=[];let cursor=undefined,seen=0;
     do{
       const listed=await env.MEDIA_BUCKET.list({prefix:r2ManifestPrefix(c),cursor,limit:1000});
@@ -120,12 +139,18 @@ async function inventoryRows(env,c){
   return out;
 }
 function latestSnapshot(rows){const by=new Map();for(const m of rows){const p=by.get(m.snapshotId);if(!p||(m.revision||0)>(p.revision||0))by.set(m.snapshotId,m);}return [...by.values()].sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')))[0]||null;}
-function endpointById(c,id,d=null){const found=c.allEndpoints.find(e=>e.id===id);if(found)return found;const x=d?.endpoint;if(x?.backend==='r2')return {id,...x};if(!x?.urlTemplate)return null;try{return normalizeEndpoint({id,...x},0);}catch{return null;}}
+function endpointById(c,id,d=null){const found=c.allEndpoints.find(e=>e.id===id);if(found)return found;const x=d?.endpoint;if(x?.backend==='r2'||x?.backend==='d1')return {id,...x};if(!x?.urlTemplate)return null;try{return normalizeEndpoint({id,...x},0);}catch{return null;}}
 async function upload(env,e,objectId,payload){
   if(payload.length>e.maxBytes)throw new Error(`ENDPOINT_${e.id}_MAX_BYTES`);
   if(e.backend==='r2'){
     if(!env?.MEDIA_BUCKET?.put)throw new Error('R2_BINDING_UNAVAILABLE');
     await env.MEDIA_BUCKET.put(String(e.keyPrefix||'shardvault/objects/')+objectId,payload,{httpMetadata:{contentType:'application/octet-stream'}});
+    return;
+  }
+  if(e.backend==='d1'){
+    if(!env?.DB?.prepare)throw new Error('D1_BINDING_UNAVAILABLE');
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS shardvault_objects (object_id TEXT PRIMARY KEY, payload_b64 TEXT NOT NULL, byte_length INTEGER NOT NULL, created_at TEXT NOT NULL)').run();
+    await env.DB.prepare('INSERT OR REPLACE INTO shardvault_objects (object_id,payload_b64,byte_length,created_at) VALUES (?,?,?,?)').bind(objectId,b64u(payload),payload.length,new Date().toISOString()).run();
     return;
   }
   const u=publicUrl(e.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),`WRITE_${e.id}`),r=await fetchTimed(u,{method:e.method,headers:{'content-type':'application/octet-stream'},body:payload});
@@ -138,12 +163,21 @@ async function download(env,e,objectId){
     if(!body)throw new Error(`READ_${e.id}_404`);
     return new Uint8Array(await body.arrayBuffer());
   }
+  if(e.backend==='d1'){
+    if(!env?.DB?.prepare)throw new Error('D1_BINDING_UNAVAILABLE');
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS shardvault_objects (object_id TEXT PRIMARY KEY, payload_b64 TEXT NOT NULL, byte_length INTEGER NOT NULL, created_at TEXT NOT NULL)').run();
+    const row=await env.DB.prepare('SELECT payload_b64,byte_length FROM shardvault_objects WHERE object_id=? LIMIT 1').bind(objectId).first();
+    if(!row?.payload_b64)throw new Error(`READ_${e.id}_404`);
+    const payload=unb64u(row.payload_b64);
+    if(Number(row.byte_length)!==payload.length)throw new Error(`READ_${e.id}_LENGTH_MISMATCH`);
+    return payload;
+  }
   const u=publicUrl(e.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),`READ_${e.id}`),r=await fetchTimed(u,{method:'GET'});
   if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
   return new Uint8Array(await r.arrayBuffer());
 }
 async function appendManifest(env,c,m){
-  if(c.storageMode==='R2_FALLBACK'){
+  if(c.storageMode==='CLOUDFLARE_FALLBACK'){
     const key=r2ManifestPrefix(c)+m.snapshotId+'-r'+String(m.revision||1).padStart(4,'0')+'.json';
     await env.MEDIA_BUCKET.put(key,JSON.stringify(m),{httpMetadata:{contentType:'application/json'}});
     return;
@@ -263,6 +297,10 @@ async function writeDiscoveryStatus(env,result){
     rejected:Array.isArray(result?.rejected)?result.rejected.slice(0,60):[],
     internet_sources:Array.isArray(result?.internet_sources)?result.internet_sources.slice(0,80):[],
     leads:Array.isArray(result?.leads)?result.leads.slice(0,120):[],
+    generation:Number(result?.generation)||1,
+    known_leads:Number(result?.known_leads)||0,
+    new_leads:Number(result?.new_leads)||0,
+    query_set:Array.isArray(result?.query_set)?result.query_set.slice(0,10):[],
     diversity:result?.diversity||null,
     error:result?.error||null
   };
@@ -342,6 +380,10 @@ export async function searchAutonomousShardVaultRepositories(env){
       rejected:report.rejected||[],
       internet_sources:report.internet_sources||[],
       leads:report.leads||[],
+      generation:report.generation||1,
+      known_leads:report.known_leads||0,
+      new_leads:report.new_leads||0,
+      query_set:report.query_set||[],
       diversity:report.diversity||null
     };
     await writeDiscoveryStatus(env,result);

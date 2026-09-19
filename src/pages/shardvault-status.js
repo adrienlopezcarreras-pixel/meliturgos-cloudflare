@@ -69,7 +69,7 @@ const $=id=>document.getElementById(id),qsa=s=>[...document.querySelectorAll(s)]
 const fmt=n=>Number.isFinite(Number(n))?Number(n).toLocaleString('fr-FR'):'—';
 function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function card(label,value,state=''){return '<div class="card"><small>'+safe(label)+'</small><div class="big '+state+'">'+safe(value)+'</div></div>'}
-function endpointRow(e,selectable=false,preferredId=null){const where=e.backend==='r2'?(safe(e.bucket||'R2')+' · '+safe(e.key_prefix||'')):(safe(e.operatorDomain||'—')+' · '+safe(e.providerId||'—')+' · '+safe(e.jurisdiction||'—'));const isPreferred=String(preferredId||'')===String(e.id||'')||e.preferred===true;const action=selectable?('<button class="preferBtn" data-endpoint="'+safe(e.id)+'" '+(isPreferred?'disabled':'')+'>'+(isPreferred?'Préférée':'Préférer')+'</button>'):'';return '<div class="row"><div><b>'+safe(e.id)+'</b><div class="muted">'+where+'</div></div><div><span class="tag">'+safe(e.backend||'http')+'</span><span class="tag">'+(e.autonomous?'autonome':'configuré')+'</span><span class="tag">score '+fmt(e.score)+'</span>'+action+'</div></div>'}
+function endpointRow(e,selectable=false,preferredId=null){const where=e.backend==='r2'?(safe(e.bucket||'R2')+' · '+safe(e.key_prefix||'')):e.backend==='d1'?('D1 · '+safe(e.key_prefix||'shardvault_objects')):(safe(e.operatorDomain||'—')+' · '+safe(e.providerId||'—')+' · '+safe(e.jurisdiction||'—'));const isPreferred=String(preferredId||'')===String(e.id||'')||e.preferred===true;const action=selectable?('<button class="preferBtn" data-endpoint="'+safe(e.id)+'" '+(isPreferred?'disabled':'')+'>'+(isPreferred?'Préférée':'Préférer')+'</button>'):'';return '<div class="row"><div><b>'+safe(e.id)+'</b><div class="muted">'+where+'</div></div><div><span class="tag">'+safe(e.backend||'http')+'</span><span class="tag">'+(e.autonomous?'autonome':'configuré')+'</span><span class="tag">score '+fmt(e.score)+'</span>'+action+'</div></div>'}
 function bindPreferenceButtons(){
  qsa('.preferBtn').forEach(btn=>btn.onclick=()=>preferEndpoint(btn.dataset.endpoint,btn));
 }
@@ -87,12 +87,12 @@ async function preferEndpoint(endpointId,btn){
 function renderDiscovery(d,prefix='Exploration',preferredId=null){
  if(!d)return;
  $('searchStatus').className=d.ok?'ok':'bad';
- $('searchStatus').textContent=d.ok?prefix+' : '+fmt((d.internet_sources||[]).length)+' sources Internet, '+fmt((d.leads||[]).length)+' pistes, '+fmt(d.discovered)+' cibles ShardVault, '+fmt(d.probed)+' testées, '+fmt((d.selected||[]).length)+' retenues'+(d.searched_at?' · '+safe(d.searched_at):''):(prefix+' échouée : '+safe(d.error||d.status||'erreur'));
- const sources=(d.internet_sources||[]).map(x=>'<div class="row"><span>'+safe(x.id||x.kind||'source')+'</span><span class="muted">'+safe(x.status||'—')+(x.leads!=null?' · '+fmt(x.leads)+' pistes':'')+'</span></div>').join('');
+ $('searchStatus').textContent=d.ok?prefix+' · génération '+fmt(d.generation||1)+' : '+fmt(d.new_leads??(d.leads||[]).length)+' nouvelles pistes ('+fmt(d.known_leads||0)+' connues), '+fmt(d.discovered)+' cibles vérifiables, '+fmt(d.probed)+' testées, '+fmt((d.selected||[]).length)+' retenues'+(d.searched_at?' · '+safe(d.searched_at):''):(prefix+' échouée : '+safe(d.error||d.status||'erreur'));
+ const sources=(d.internet_sources||[]).map(x=>'<div class="row"><span>'+safe(x.id||x.kind||'source')+'</span><span class="muted">'+safe(x.status||'—')+(x.leads!=null?' · '+fmt(x.leads)+' pistes':'')+(x.error?' · '+safe(x.error):'')+'</span></div>').join('');
  const leads=(d.leads||[]).slice(0,40).map(x=>'<div class="row"><span>'+safe(x.name||'piste')+'</span><span class="muted">'+safe(x.summary||x.url||'à vérifier')+'</span></div>').join('');
  const sel=(d.selected||[]).map(e=>endpointRow(e,true,preferredId)).join('')||'<div class="muted">Aucune nouvelle cible n’a encore satisfait toutes les vérifications d’autorisation et de durabilité.</div>';
  const rej=(d.rejected||[]).slice(0,25).map(x=>'<div class="row"><span>'+safe(x.id||x.source||'candidat')+'</span><span class="muted">'+safe(x.reason||'rejeté')+'</span></div>').join('');
- $('results').innerHTML='<h3>Sources Internet parcourues</h3>'+(sources||'<div class="muted">Aucune source chargée.</div>')+'<h3>Pistes trouvées</h3>'+(leads||'<div class="muted">Aucune piste générique.</div>')+'<h3>Cibles compatibles retenues</h3>'+sel+'<h3>Rejets techniques</h3>'+(rej||'<div class="muted">Aucun rejet.</div>');
+ $('results').innerHTML='<h3>Sources Internet parcourues</h3>'+(sources||'<div class="muted">Aucune source chargée.</div>')+'<h3>Nouvelles pistes trouvées</h3>'+(leads||'<div class="muted">Aucune piste générique.</div>')+'<h3>Cibles compatibles retenues</h3>'+sel+'<h3>Rejets techniques</h3>'+(rej||'<div class="muted">Aucun rejet.</div>');
  bindPreferenceButtons();
 }
 async function load(){
