@@ -207,6 +207,34 @@ export const __shardvaultTest = Object.freeze({ encode, decode, selectEndpoints,
 
 
 function publicEndpointView(e){return {id:e.id,backend:e.backend||'http',bucket:e.bucketName||null,key_prefix:e.keyPrefix||null,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:Number(e.score)||0,confidence:Number(e.confidence)||0,autonomous:e.autonomous===true,authMode:e.authMode||null,maxBytes:Number(e.maxBytes)||0};}
+const DISCOVERY_STATUS_KEY='shardvault/discovery/latest.json';
+async function readDiscoveryStatus(env){
+  if(!env?.MEDIA_BUCKET?.get)return null;
+  try{
+    const body=await env.MEDIA_BUCKET.get(DISCOVERY_STATUS_KEY);
+    if(!body)return null;
+    const parsed=JSON.parse(await body.text());
+    return parsed&&typeof parsed==='object'?parsed:null;
+  }catch{return null}
+}
+async function writeDiscoveryStatus(env,result){
+  if(!env?.MEDIA_BUCKET?.put)return;
+  const safeResult={
+    ok:result?.ok===true,
+    status:result?.status||null,
+    searched_at:result?.searched_at||new Date().toISOString(),
+    required_bytes:Number(result?.required_bytes)||0,
+    discovered:Number(result?.discovered)||0,
+    probed:Number(result?.probed)||0,
+    selected:Array.isArray(result?.selected)?result.selected.slice(0,25):[],
+    rejected:Array.isArray(result?.rejected)?result.rejected.slice(0,60):[],
+    internet_sources:Array.isArray(result?.internet_sources)?result.internet_sources.slice(0,80):[],
+    leads:Array.isArray(result?.leads)?result.leads.slice(0,120):[],
+    diversity:result?.diversity||null,
+    error:result?.error||null
+  };
+  await env.MEDIA_BUCKET.put(DISCOVERY_STATUS_KEY,JSON.stringify(safeResult),{httpMetadata:{contentType:'application/json'}});
+}
 
 export async function getShardVaultStatus(env){
   if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:true,enabled:false,status:'DISABLED'};
@@ -239,6 +267,7 @@ export async function getShardVaultStatus(env){
       autonomous_catalog_entries:parseJson(env?.MEL_AUTONOMOUS_REPOSITORIES_JSON,[]).length,
       internet_discovery_enabled:String(env?.MEL_SHARDVAULT_INTERNET_DISCOVERY||'true')==='true',
       discovery_index:String(env?.MEL_SHARDVAULT_DISCOVERY_INDEX||'https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/discovery-index.json'),
+      last_discovery:await readDiscoveryStatus(env),
       checked_at:new Date().toISOString()
     };
   }catch(error){return {ok:false,enabled:true,status:'ERROR',error:String(error?.message||error)};}
@@ -246,13 +275,19 @@ export async function getShardVaultStatus(env){
 
 export async function searchAutonomousShardVaultRepositories(env){
   let c;
-  try{c=await config(env);}catch(error){return {ok:false,error:String(error?.message||error),status:'CONFIG_INVALID'};}
-  if(!c.ok)return {ok:false,status:'CONFIG_MISSING',missing:c.missing};
+  try{c=await config(env);}catch(error){
+    const result={ok:false,error:String(error?.message||error),status:'CONFIG_INVALID',searched_at:new Date().toISOString()};
+    await writeDiscoveryStatus(env,result);return result;
+  }
+  if(!c.ok){
+    const result={ok:false,status:'CONFIG_MISSING',missing:c.missing,searched_at:new Date().toISOString()};
+    await writeDiscoveryStatus(env,result);return result;
+  }
   try{
     let requiredBytes=256;
     try{const rows=await inventoryRows(env,c),last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
     const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
-    return {
+    const result={
       ok:true,
       searched_at:new Date().toISOString(),
       required_bytes:requiredBytes,
@@ -264,5 +299,11 @@ export async function searchAutonomousShardVaultRepositories(env){
       leads:report.leads||[],
       diversity:report.diversity||null
     };
-  }catch(error){return {ok:false,status:'SEARCH_FAILED',error:String(error?.message||error),searched_at:new Date().toISOString()};}
+    await writeDiscoveryStatus(env,result);
+    return result;
+  }catch(error){
+    const result={ok:false,status:'SEARCH_FAILED',error:String(error?.message||error),searched_at:new Date().toISOString()};
+    await writeDiscoveryStatus(env,result);
+    return result;
+  }
 }

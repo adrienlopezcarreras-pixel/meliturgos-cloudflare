@@ -19,7 +19,7 @@ import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-stat
 import { getChatGPTImportStatus } from "./persistence/chatgpt-archive-importer.js";
 import { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-api.js";
 import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
-import { runShardVaultCycle } from "./continuity/shardvault-runtime.js";
+import { runShardVaultCycle, searchAutonomousShardVaultRepositories } from "./continuity/shardvault-runtime.js";
 
 function deployedWatchSourceSha() {
   return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') || null : null;
@@ -431,6 +431,13 @@ export default {
             return result;
           }).catch((error) => {
             console.error('[MEL ShardVault] scheduled continuity cycle failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          searchAutonomousShardVaultRepositories(env).then((result) => {
+            if (result?.ok === false) console.error('[MEL ShardVault] hourly Internet discovery reported:', result.status || result.error || 'NOT_OK');
+            return result;
+          }).catch((error) => {
+            console.error('[MEL ShardVault] hourly Internet discovery failed:', error?.code || error?.message || error);
             return null;
           }),
         ]

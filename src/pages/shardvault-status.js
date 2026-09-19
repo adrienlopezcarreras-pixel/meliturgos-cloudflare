@@ -70,6 +70,16 @@ const fmt=n=>Number.isFinite(Number(n))?Number(n).toLocaleString('fr-FR'):'—';
 function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function card(label,value,state=''){return '<div class="card"><small>'+safe(label)+'</small><div class="big '+state+'">'+safe(value)+'</div></div>'}
 function endpointRow(e){const where=e.backend==='r2'?(safe(e.bucket||'R2')+' · '+safe(e.key_prefix||'')):(safe(e.operatorDomain||'—')+' · '+safe(e.providerId||'—')+' · '+safe(e.jurisdiction||'—'));return '<div class="row"><div><b>'+safe(e.id)+'</b><div class="muted">'+where+'</div></div><div><span class="tag">'+safe(e.backend||'http')+'</span><span class="tag">'+(e.autonomous?'autonome':'configuré')+'</span><span class="tag">score '+fmt(e.score)+'</span></div></div>'}
+function renderDiscovery(d,prefix='Exploration'){
+ if(!d)return;
+ $('searchStatus').className=d.ok?'ok':'bad';
+ $('searchStatus').textContent=d.ok?prefix+' : '+fmt((d.internet_sources||[]).length)+' sources Internet, '+fmt((d.leads||[]).length)+' pistes, '+fmt(d.discovered)+' cibles ShardVault, '+fmt(d.probed)+' testées, '+fmt((d.selected||[]).length)+' retenues'+(d.searched_at?' · '+safe(d.searched_at):''):(prefix+' échouée : '+safe(d.error||d.status||'erreur'));
+ const sources=(d.internet_sources||[]).map(x=>'<div class="row"><span>'+safe(x.id||x.kind||'source')+'</span><span class="muted">'+safe(x.status||'—')+(x.leads!=null?' · '+fmt(x.leads)+' pistes':'')+'</span></div>').join('');
+ const leads=(d.leads||[]).slice(0,40).map(x=>'<div class="row"><span>'+safe(x.name||'piste')+'</span><span class="muted">'+safe(x.summary||x.url||'à vérifier')+'</span></div>').join('');
+ const sel=(d.selected||[]).map(endpointRow).join('')||'<div class="muted">Aucune nouvelle cible n’a encore satisfait toutes les vérifications d’autorisation et de durabilité.</div>';
+ const rej=(d.rejected||[]).slice(0,25).map(x=>'<div class="row"><span>'+safe(x.id||x.source||'candidat')+'</span><span class="muted">'+safe(x.reason||'rejeté')+'</span></div>').join('');
+ $('results').innerHTML='<h3>Sources Internet parcourues</h3>'+(sources||'<div class="muted">Aucune source chargée.</div>')+'<h3>Pistes trouvées</h3>'+(leads||'<div class="muted">Aucune piste générique.</div>')+'<h3>Cibles compatibles retenues</h3>'+sel+'<h3>Rejets techniques</h3>'+(rej||'<div class="muted">Aucun rejet.</div>');
+}
 async function load(){
  $('refresh').disabled=true;
  try{
@@ -88,6 +98,7 @@ async function load(){
   $('endpoints').innerHTML=(d.selected_endpoints||[]).length?(d.selected_endpoints||[]).map(endpointRow).join(''):'Aucun dépôt actuellement sélectionné.';
   const code=d.code_survival||{};
   $('codeBackup').innerHTML='<div class="row"><span>GitHub</span><b>'+safe(code.repository||'non identifié')+(code.sha?' · '+safe(String(code.sha).slice(0,12)):'')+'</b></div><div class="row"><span>Cloudflare R2</span><b class="'+(code.ok?'ok':'warn')+'">'+safe(code.status||'—')+'</b></div>'+(code.key?'<div class="row"><span>Objet R2</span><span class="muted">'+safe(code.bucket||'')+' / '+safe(code.key)+'</span></div>':'');
+  if(d.last_discovery)renderDiscovery(d.last_discovery,'Dernière exploration automatique');
   $('raw').textContent=JSON.stringify(d,null,2);
  }catch(e){$('summary').innerHTML=card('Erreur',e.message,'bad');$('raw').textContent=String(e)}
  finally{$('refresh').disabled=false}
@@ -109,15 +120,7 @@ async function search(){
  try{
   const r=await fetch('/api/gen2/shardvault/search',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
   const d=await r.json();
-  $('searchStatus').className=d.ok?'ok':'bad';
-  $('searchStatus').textContent=d.ok?'Exploration terminée : '+fmt((d.internet_sources||[]).length)+' sources Internet, '+fmt((d.leads||[]).length)+' pistes, '+fmt(d.discovered)+' cibles ShardVault, '+fmt(d.probed)+' testées, '+fmt((d.selected||[]).length)+' retenues.':'Recherche échouée : '+(d.error||d.status||'erreur');
-  if(d.ok){
-   const sources=(d.internet_sources||[]).map(x=>'<div class="row"><span>'+safe(x.id||x.kind||'source')+'</span><span class="muted">'+safe(x.status||'—')+(x.leads!=null?' · '+fmt(x.leads)+' pistes':'')+'</span></div>').join('');
-   const leads=(d.leads||[]).slice(0,40).map(x=>'<div class="row"><span>'+safe(x.name||'piste')+'</span><span class="muted">'+safe(x.summary||x.url||'à vérifier')+'</span></div>').join('');
-   const sel=(d.selected||[]).map(endpointRow).join('')||'<div class="muted">Aucune nouvelle cible n’a encore satisfait toutes les vérifications d’autorisation et de durabilité.</div>';
-   const rej=(d.rejected||[]).slice(0,25).map(x=>'<div class="row"><span>'+safe(x.id||x.source||'candidat')+'</span><span class="muted">'+safe(x.reason||'rejeté')+'</span></div>').join('');
-   $('results').innerHTML='<h3>Sources Internet parcourues</h3>'+(sources||'<div class="muted">Aucune source chargée.</div>')+'<h3>Pistes trouvées</h3>'+(leads||'<div class="muted">Aucune piste générique.</div>')+'<h3>Cibles compatibles retenues</h3>'+sel+'<h3>Rejets techniques</h3>'+(rej||'<div class="muted">Aucun rejet.</div>');
-  }
+  renderDiscovery(d,'Exploration manuelle');
   await load();
  }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Erreur : '+e.message}
  finally{b.disabled=false;b.textContent='Explorer Internet pour de nouvelles cibles'}
