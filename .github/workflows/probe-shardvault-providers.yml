@@ -84,3 +84,51 @@ jobs:
           content="$(base64 -w0 probe.txt)"
           url="$(printf '%s' "$content" | curl -fsS --max-time 25 --data-binary @- https://paste.rs/ 2>err | tr -d '\r\n')"
           if printf '%s' "$url" | grep -q '^https://'; then curl -fsSL --max-time 25 "$url" -o encoded && base64 -d encoded > out 2>/dev/null && cmp -s probe.txt out && echo "RESULT pasters PASS $url" || echo "RESULT pasters FAIL_READ"; else echo "RESULT pasters FAIL_UPLOAD $(tr '\n' ' ' < err)"; fi
+
+      - name: Probe paste.gg anonymous non-expiring
+        shell: bash
+        run: |
+          set +e
+          content="$(base64 -w0 probe.txt)"
+          body="$(jq -n --arg c "$content" '{visibility:"unlisted",files:[{name:"mel-shard.txt",content:{format:"text",value:$c}}]}' | curl -fsS --max-time 25 -H 'Content-Type: application/json' --data-binary @- https://api.paste.gg/v1/pastes 2>err)"
+          id="$(printf '%s' "$body" | jq -r '.result.id // empty' 2>/dev/null)"
+          if [ -n "$id" ]; then
+            get="$(curl -fsS --max-time 25 "https://api.paste.gg/v1/pastes/$id?full=true" 2>err2)"
+            printf '%s' "$get" | jq -r '.result.files[0].content.value // empty' > encoded
+            base64 -d encoded > out 2>/dev/null
+            cmp -s probe.txt out && echo "RESULT pastegg PASS https://paste.gg/p/$id" || echo "RESULT pastegg FAIL_READ body=$get"
+          else
+            echo "RESULT pastegg FAIL_UPLOAD body=$body err=$(tr '\n' ' ' < err)"
+          fi
+
+      - name: Probe MSK Paste 1y
+        shell: bash
+        run: |
+          set +e
+          content="$(base64 -w0 probe.txt)"
+          body="$(jq -n --arg c "$content" '{content:$c,language:"plaintext",expiresIn:"1y"}' | curl -fsS --max-time 25 -H 'Content-Type: application/json' --data-binary @- https://paste.msk-scripts.de/api/pastes 2>err)"
+          id="$(printf '%s' "$body" | jq -r '.pasteId // empty' 2>/dev/null)"
+          if [ -n "$id" ]; then
+            get="$(curl -fsS --max-time 25 "https://paste.msk-scripts.de/api/pastes/$id" 2>err2)"
+            printf '%s' "$get" | jq -r '.content // empty' > encoded
+            base64 -d encoded > out 2>/dev/null
+            cmp -s probe.txt out && echo "RESULT mskpaste PASS https://paste.msk-scripts.de/$id" || echo "RESULT mskpaste FAIL_READ body=$get"
+          else
+            echo "RESULT mskpaste FAIL_UPLOAD body=$body err=$(tr '\n' ' ' < err)"
+          fi
+
+      - name: Probe dpaste.com 365d
+        shell: bash
+        run: |
+          set +e
+          content="$(base64 -w0 probe.txt)"
+          url="$(curl -fsS --max-time 25 -A 'MEL-ShardVault/1.0' -X POST --data-urlencode "content=$content" -d "expiry_days=365" https://dpaste.com/api/v2/ 2>err | tr -d '\r\n')"
+          raw="${url%/}.txt"
+          if printf '%s' "$url" | grep -q '^https://'; then
+            curl -fsSL --max-time 25 -A 'MEL-ShardVault/1.0' "$raw" -o encoded
+            base64 -d encoded > out 2>/dev/null
+            cmp -s probe.txt out && echo "RESULT dpastecom PASS $url" || echo "RESULT dpastecom FAIL_READ url=$url"
+          else
+            echo "RESULT dpastecom FAIL_UPLOAD $(tr '\n' ' ' < err)"
+          fi
+
