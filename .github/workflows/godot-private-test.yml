@@ -46,8 +46,7 @@ jobs:
           PUBKEY_B64="$(base64 -w0 /tmp/public.pem)"
 
           mkdir -p ci-godot-test
-          printf '%s
-' "$PUBKEY_B64" > "ci-godot-test/pubkey-$GITHUB_RUN_ID.txt"
+          printf '%s\\n' "$PUBKEY_B64" > "ci-godot-test/pubkey-$GITHUB_RUN_ID.txt"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "ci-godot-test/pubkey-$GITHUB_RUN_ID.txt"
