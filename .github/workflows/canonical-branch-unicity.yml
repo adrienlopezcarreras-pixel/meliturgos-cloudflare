@@ -27,10 +27,11 @@ jobs:
         run: |
           set -euo pipefail
           canonical=".github/workflows/deploy-cloudflare-release.yml"
+          guard=".github/workflows/canonical-branch-unicity.yml"
           violations=()
 
           while IFS= read -r file; do
-            [[ "$file" = "$canonical" ]] && continue
+            [[ "$file" = "$canonical" || "$file" = "$guard" ]] && continue
 
             if ! grep -Eiq 'cloudflare/wrangler-action|(^|[[:space:]])(npx[[:space:]]+|pnpm[[:space:]]+exec[[:space:]]+)?wrangler[[:space:]]+(deploy|publish)|npm[[:space:]]+run[[:space:]]+deploy|workers/scripts' "$file"; then
               continue
