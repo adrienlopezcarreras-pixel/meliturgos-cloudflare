@@ -476,6 +476,58 @@ jobs:
           path: gen2-42-teacher-rebase.json
           if-no-files-found: warn
           retention-days: 7
+      - name: Live ShardVault external target probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          curl --fail-with-body --show-error --silent --max-time 180 \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            --header "content-type: application/json" \
+            --data '{}' \
+            "${BASE_URL}/api/gen2/shardvault/search" \
+            --output shardvault-live-probe.json
+
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          data=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
+          discovered=int(data.get('discovered') or 0)
+          probed=int(data.get('probed') or 0)
+          selected=len(data.get('selected') or [])
+          if data.get('ok') is not True:
+              raise SystemExit('SHARDVAULT_SEARCH_FAILED: '+str(data.get('error') or data.get('status')))
+          if discovered < 7:
+              raise SystemExit(f'SHARDVAULT_DISCOVERY_TOO_SMALL: {discovered}')
+          if probed < 1:
+              raise SystemExit(f'SHARDVAULT_NO_LIVE_PROBE: discovered={discovered} probed={probed}')
+          summary=os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with open(summary,'a',encoding='utf-8') as h:
+                  h.write('### ShardVault live external probe\n\n')
+                  h.write(f'- Candidates discovered: {discovered}\n')
+                  h.write(f'- Live round-trips passed: {probed}\n')
+                  h.write(f'- Selected targets: {selected}\n')
+                  h.write(f'- Goal reached: {data.get("target_reached")}\n')
+          print(json.dumps({
+              'discovered': discovered,
+              'probed': probed,
+              'selected': selected,
+              'target_count': data.get('target_count'),
+              'target_reached': data.get('target_reached'),
+              'rejected': data.get('rejected', [])[:12],
+          }, indent=2))
+          PY
+
+      - name: Upload ShardVault live probe evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: shardvault-live-probe-${{ github.sha }}
+          path: shardvault-live-probe.json
+          if-no-files-found: warn
+          retention-days: 3
+
       - name: Refresh zero-cost Benchmark and LoRA readiness
         shell: bash
         run: |
@@ -541,58 +593,6 @@ jobs:
             lora-prepare-refresh.json
           if-no-files-found: warn
           retention-days: 7
-
-      - name: Live ShardVault external target probe
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
-          curl --fail-with-body --show-error --silent --max-time 180 \
-            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
-            --header "content-type: application/json" \
-            --data '{}' \
-            "${BASE_URL}/api/gen2/shardvault/search" \
-            --output shardvault-live-probe.json
-
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          data=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
-          discovered=int(data.get('discovered') or 0)
-          probed=int(data.get('probed') or 0)
-          selected=len(data.get('selected') or [])
-          if data.get('ok') is not True:
-              raise SystemExit('SHARDVAULT_SEARCH_FAILED: '+str(data.get('error') or data.get('status')))
-          if discovered < 7:
-              raise SystemExit(f'SHARDVAULT_DISCOVERY_TOO_SMALL: {discovered}')
-          if probed < 1:
-              raise SystemExit(f'SHARDVAULT_NO_LIVE_PROBE: discovered={discovered} probed={probed}')
-          summary=os.environ.get('GITHUB_STEP_SUMMARY')
-          if summary:
-              with open(summary,'a',encoding='utf-8') as h:
-                  h.write('### ShardVault live external probe\n\n')
-                  h.write(f'- Candidates discovered: {discovered}\n')
-                  h.write(f'- Live round-trips passed: {probed}\n')
-                  h.write(f'- Selected targets: {selected}\n')
-                  h.write(f'- Goal reached: {data.get("target_reached")}\n')
-          print(json.dumps({
-              'discovered': discovered,
-              'probed': probed,
-              'selected': selected,
-              'target_count': data.get('target_count'),
-              'target_reached': data.get('target_reached'),
-              'rejected': data.get('rejected', [])[:12],
-          }, indent=2))
-          PY
-
-      - name: Upload ShardVault live probe evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: shardvault-live-probe-${{ github.sha }}
-          path: shardvault-live-probe.json
-          if-no-files-found: warn
-          retention-days: 3
 
       - name: Pause isolated preview after autonomy proof
         if: always()
