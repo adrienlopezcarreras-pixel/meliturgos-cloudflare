@@ -108,3 +108,39 @@ test('server status distinguishes partial Collector receipts from a later comple
     DB.close();
   }
 });
+
+test('a smaller later DOM snapshot cannot falsely downgrade expected Collector completeness', async () => {
+  const DB = sqliteD1();
+  try {
+    const env = { DB, MELITURGOS_USER: 'adrien' };
+    await importChatGPTArchive(env, [{
+      id: 'collector-no-downgrade',
+      title: 'Conversation incomplète',
+      collector: { source: 'firefox_dom', version: '0.5.1', partial: true, totalMessages: 6 },
+      messages: [
+        { id: 'm5', role: 'user', content: 'cinquième', timestamp: 5 },
+        { id: 'm6', role: 'assistant', content: 'sixième', timestamp: 6 },
+      ],
+    }], { preview: false });
+
+    await importChatGPTArchive(env, [{
+      id: 'collector-no-downgrade',
+      title: 'Conversation incomplète',
+      collector: { source: 'firefox_dom', version: '0.5.1', partial: false, totalMessages: 4 },
+      messages: [
+        { id: 'm1', role: 'user', content: 'premier', timestamp: 1 },
+        { id: 'm2', role: 'assistant', content: 'deuxième', timestamp: 2 },
+        { id: 'm3', role: 'user', content: 'troisième', timestamp: 3 },
+        { id: 'm4', role: 'assistant', content: 'quatrième', timestamp: 4 },
+      ],
+    }], { preview: false });
+
+    const status = await getChatGPTImportStatus(env);
+    assert.equal(status.expected_messages, 6);
+    assert.equal(status.complete_conversations, 0);
+    assert.equal(status.partial_conversations, 1);
+    assert.equal(status.full_archive_confirmed, false);
+  } finally {
+    DB.close();
+  }
+});
