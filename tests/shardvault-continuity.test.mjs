@@ -43,4 +43,24 @@ const noSilentEviction = __shardvaultTest.extendActiveEndpoints(activeSeven,[
 ],7,2,2);
 assert.deepEqual(noSilentEviction.map(x=>x.id),['a','b','c','d','e','f','g']);
 
+
+const provenConfig = {
+  n:7,
+  allEndpoints:[
+    {id:'p1',operatorDomain:'p1.test',providerId:'p1',expectedRetentionDays:365},
+    {id:'p2',operatorDomain:'p2.test',providerId:'p2',expectedRetentionDays:365},
+    {id:'p3',operatorDomain:'p3.test',providerId:'p3',expectedRetentionDays:365},
+    {id:'internal',backend:'r2',operatorDomain:'cloudflare.com',providerId:'r2',expectedRetentionDays:365},
+  ]
+};
+const proven = __shardvaultTest.externalEndpointsFromSnapshot({},provenConfig,{
+  shards:[
+    {endpointId:'p1'},
+    {endpointId:'p2'},
+    {endpointId:'internal'},
+    {endpointId:'p3'},
+  ]
+});
+assert.deepEqual(proven.map(x=>x.id),['p1','p2','p3']);
+
 console.log('ShardVault continuity tests: OK');
