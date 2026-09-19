@@ -20,6 +20,7 @@ const SERVER_FILES = [
   '../src/api/voice-transcribe.js',
   '../src/api/file-upload.js',
   '../src/pages/shardvault-status.js',
+  '../src/devices/computer-companion-api.js',
 ];
 
 test('every fixed API endpoint referenced by canonical UI exists in deployed server routing', async () => {
