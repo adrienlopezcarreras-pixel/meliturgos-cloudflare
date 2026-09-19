@@ -63,7 +63,18 @@ function normalizeEndpoint(e,i){ if(!e?.id||!String(e.urlTemplate||'').includes(
 function selectEndpoints(endpoints,count,maxPerOperator=2,maxPerProvider=2){const ranked=[...endpoints].sort((a,b)=>b.score-a.score||b.confidence-a.confidence||a.id.localeCompare(b.id)),selected=[],ids=new Set(),op=new Map(),prov=new Map();const can=(e,uo=false,up=false)=>!ids.has(e.id)&&(op.get(e.operatorDomain)||0)<maxPerOperator&&(prov.get(e.providerId)||0)<maxPerProvider&&(!uo||(op.get(e.operatorDomain)||0)===0)&&(!up||(prov.get(e.providerId)||0)===0);const add=e=>{selected.push(e);ids.add(e.id);op.set(e.operatorDomain,(op.get(e.operatorDomain)||0)+1);prov.set(e.providerId,(prov.get(e.providerId)||0)+1);};for(const e of ranked){if(can(e,true,true))add(e);if(selected.length>=count)return selected;}for(const e of ranked){if(can(e,true,false))add(e);if(selected.length>=count)return selected;}for(const e of ranked){if(can(e,false,false))add(e);if(selected.length>=count)break;}return selected;}
 function diversity(endpoints){return {selected:endpoints.length,uniqueOperators:new Set(endpoints.map(e=>e.operatorDomain)).size,uniqueProviders:new Set(endpoints.map(e=>e.providerId)).size,uniqueJurisdictions:new Set(endpoints.map(e=>e.jurisdiction).filter(x=>x&&x!=='UNKNOWN')).size,fallbackUsed:new Set(endpoints.map(e=>e.operatorDomain)).size<endpoints.length};}
 function endpointSnapshot(e){return {backend:e.backend||'http',urlTemplate:e.urlTemplate||null,keyPrefix:e.keyPrefix||null,bucketName:e.bucketName||null,method:e.method||'PUT',maxBytes:e.maxBytes,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:e.score,confidence:e.confidence,autonomous:e.autonomous===true,authMode:e.authMode||null,adapter:e.adapter||null,evidenceMode:e.evidenceMode||null,evidenceVerification:e.evidenceVerification||null,verifiedAt:e.verifiedAt||null,probeLatencyMs:Number(e.probeLatencyMs)||0,expectedRetentionDays:Number(e.expectedRetentionDays)||0,retentionModel:e.retentionModel||'fixed',baseRetentionDays:Number(e.baseRetentionDays)||Number(e.expectedRetentionDays)||0,refreshEveryDays:Number(e.refreshEveryDays)||0,fullReadRenewsRetention:e.fullReadRenewsRetention===true};}
-function mergeAutonomous(c,report,env){if(!report?.selected?.length)return c;const by=new Map(c.allEndpoints.map(e=>[e.id,e]));for(const e of report.selected)by.set(e.id,e);const all=[...by.values()],maxOp=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_OPERATOR)||2),maxProv=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_PROVIDER)||2);return {...c,allEndpoints:all,endpoints:selectEndpoints(all,Math.min(c.n,all.length),maxOp,maxProv)};}
+function mergeAutonomous(c,report,env){
+  if(!report?.selected?.length)return c;
+  const by=new Map(c.allEndpoints.map(e=>[e.id,e]));
+  for(const e of report.selected)by.set(e.id,e);
+  const all=[...by.values()],maxOp=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_OPERATOR)||2),maxProv=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_PROVIDER)||2);
+  const external=report.selected.filter(e=>!e.backend);
+  if(external.length>=c.n){
+    return {...c,allEndpoints:all,endpoints:selectEndpoints(external,c.n,maxOp,maxProv),storageMode:'EXTERNAL_DISTRIBUTED',degraded:false};
+  }
+  const externalFirst=[...external,...all.filter(e=>e.backend)];
+  return {...c,allEndpoints:all,endpoints:selectEndpoints(externalFirst,Math.min(c.n,externalFirst.length),maxOp,maxProv)};
+}
 async function enrichAutonomous(env,c,requiredBytes){
   if(String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')!=='true')return {config:c,report:null};
   try{
@@ -266,6 +277,15 @@ async function upload(env,e,objectId,payload){
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
+  if(e.adapter==='pastehtml_b64'){
+    const endpoint=fixedApiUrl(u);
+    const body='<pre data-mel-shard="1">'+b64u(payload)+'</pre>';
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'text/html','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body},15000);
+    if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
+    const data=await r.json().catch(()=>null),raw=String(data?.raw_url||'').trim();
+    if(!raw)throw new Error(`WRITE_${e.id}_REMOTE_URL_MISSING`);
+    return {remoteUrl:publicUrl(raw,`WRITE_${e.id}_REMOTE`).toString()};
+  }
   if(e.adapter==='pastegg_b64'){
     const endpoint=fixedApiUrl(u);
     const body={name:objectId,visibility:'unlisted',files:[{name:'shard.bin',content:{format:'base64',content:b64(payload)}}]};
@@ -393,6 +413,16 @@ async function download(env,e,objectId,descriptor=null){
     if(e.adapter==='pastebox_b64'){
       try{const data=JSON.parse(text);encoded=String(data?.content??data?.data?.content??data?.paste?.content??text).trim();}catch{}
     }
+    return unb64u(encoded);
+  }
+  if(e.adapter==='pastehtml_b64'){
+    if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'text/plain','user-agent':'MEL-ShardVault/1.0'}},15000);
+    if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
+    const text=String(await r.text()).trim();
+    const m=/^<pre data-mel-shard="1">([A-Za-z0-9_-]+)<\/pre>$/.exec(text);
+    const encoded=String(m?.[1]||'').trim();
+    if(!encoded)throw new Error(`READ_${e.id}_PASTEHTML_CONTENT_MISSING`);
     return unb64u(encoded);
   }
   if(e.adapter==='pastegg_b64'){
