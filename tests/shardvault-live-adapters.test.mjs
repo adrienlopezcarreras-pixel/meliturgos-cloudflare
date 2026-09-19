@@ -26,11 +26,13 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/https:\/\/waifuvault\.moe\/rest/);
   assert.match(autonomous,/adapter:'telegraph_b64'/);
   assert.match(autonomous,/api\.telegra\.ph\/createPage/);
+  assert.match(autonomous,/adapter:'pastehtml_b64'/);
+  assert.match(autonomous,/pastehtml\.dev\/api\/pastes/);
   assert.match(autonomous,/c\.authMode==='none'\|\|c\.authMode==='ephemeral_account_token'/);
 });
 
 test('snapshot runtime can write and read every repaired adapter selected by discovery', () => {
-  for (const adapter of ['dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64']) {
+  for (const adapter of ['dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64','pastehtml_b64']) {
     assert.ok(runtime.includes(`e.adapter==='${adapter}'`) || runtime.includes(`'${adapter}'`), adapter);
   }
   assert.match(runtime,/paste\.myst\.rs\/api\/v2\/paste\//);
@@ -43,6 +45,8 @@ test('snapshot runtime can write and read every repaired adapter selected by dis
   assert.match(runtime,/WAIFUVAULT_CONTENT_MISSING/);
   assert.match(runtime,/telegraph_b64/);
   assert.match(runtime,/TELEGRAPH_CONTENT_MISSING/);
+  assert.match(runtime,/pastehtml_b64/);
+  assert.match(runtime,/PASTEHTML_CONTENT_MISSING/);
 });
 
 
@@ -70,4 +74,11 @@ test('rate-limited providers respect Retry-After before quarantine', () => {
   assert.match(autonomous,/fetchRateAware\(endpoint/);
   assert.match(runtime,/async function fetchRateAware\(/);
   assert.match(runtime,/retry-after/);
+});
+
+
+test('seven validated external targets replace internal fallbacks for active snapshots', () => {
+  assert.match(runtime,/if\(external\.length>=c\.n\)/);
+  assert.match(runtime,/endpoints:selectEndpoints\(external,c\.n,maxOp,maxProv\)/);
+  assert.match(runtime,/storageMode:'EXTERNAL_DISTRIBUTED'/);
 });
