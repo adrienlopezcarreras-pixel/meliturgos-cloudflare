@@ -1,0 +1,32 @@
+name: production-hardware-probe
+
+on:
+  push:
+    branches:
+      - candidate/mel-clean-autonomy
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe MEL terminal production route without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          body="$(mktemp)"
+          code="$(curl --silent --show-error --location --max-time 20             --output "$body" --write-out '%{http_code}'             "$base/api/device/v1/firmware-info" || true)"
+          echo "HTTP=$code"
+          head -c 1000 "$body" || true
+          echo
+          if [ "$code" = "401" ] && grep -Eq 'AUTH_REQUIRED|auth|required|unauthorized' "$body"; then
+            echo "MEL terminal production route is deployed and protected."
+            exit 0
+          fi
+          echo "MEL terminal production route is not yet proven live."
+          exit 1
