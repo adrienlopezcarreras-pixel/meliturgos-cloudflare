@@ -1,5 +1,5 @@
 name: Godot private five-game test
-# moviewriter capture run 12
+# artifact-key moviewriter run 13
 
 on:
   push:
@@ -36,29 +36,32 @@ jobs:
           echo "GODOT=$GODOT" >> "$GITHUB_ENV"
           "$GODOT" --version
 
-      - name: Publish one-run key and receive encrypted private manifest
+      - name: Generate one-run encryption key
+        run: |
+          set -euo pipefail
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/private.pem >/dev/null 2>&1
+          openssl pkey -in /tmp/private.pem -pubout -out /tmp/public.pem >/dev/null 2>&1
+          chmod 600 /tmp/private.pem
+          echo "GODOT_TEST_RUN_ID=$GITHUB_RUN_ID"
+
+      - name: Upload ephemeral public key
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-ephemeral-public-key-${{ github.run_id }}
+          path: /tmp/public.pem
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Receive encrypted private manifest and download sources
         env:
           BRANCH: godot-private-test-20260919
           REPO: adrienlopezcarreras-pixel/meliturgos-cloudflare
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /tmp/private.pem >/dev/null 2>&1
-          openssl pkey -in /tmp/private.pem -pubout -out /tmp/public.pem >/dev/null 2>&1
-          PUBKEY_B64="$(base64 -w0 /tmp/public.pem)"
-
-          mkdir -p ci-godot-test
-          printf '%s\\n' "$PUBKEY_B64" > "ci-godot-test/pubkey-$GITHUB_RUN_ID.txt"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "ci-godot-test/pubkey-$GITHUB_RUN_ID.txt"
-          git commit -m "ci: publish ephemeral Godot manifest key $GITHUB_RUN_ID [skip ci]"
-          git push origin "HEAD:$BRANCH"
-
-          echo "GODOT_TEST_RUN_ID=$GITHUB_RUN_ID"
           PAYLOAD_API="https://api.github.com/repos/$REPO/contents/ci-godot-test/manifest-$GITHUB_RUN_ID.txt?ref=$BRANCH"
           found=0
-          for i in $(seq 1 100); do
+          for i in $(seq 1 160); do
             if curl -fsSL \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github.raw+json" \
@@ -77,8 +80,13 @@ jobs:
 
           sed -n 's/^KEY_B64=//p' /tmp/payload.txt | base64 -d > /tmp/key.enc
           sed -n 's/^CIPHER_B64=//p' /tmp/payload.txt | base64 -d > /tmp/manifest.enc
-          openssl pkeyutl -decrypt -inkey /tmp/private.pem             -pkeyopt rsa_padding_mode:oaep             -in /tmp/key.enc -out /tmp/pass.bin
-          openssl enc -d -aes-256-cbc -pbkdf2             -in /tmp/manifest.enc -out /tmp/manifest.env             -pass file:/tmp/pass.bin
+          openssl pkeyutl -decrypt -inkey /tmp/private.pem \
+            -pkeyopt rsa_padding_mode:oaep \
+            -in /tmp/key.enc -out /tmp/pass.bin
+          openssl enc -d -aes-256-cbc -pbkdf2 \
+            -in /tmp/manifest.enc -out /tmp/manifest.env \
+            -pass file:/tmp/pass.bin
+
           chmod 600 /tmp/manifest.env
           while IFS='=' read -r key value; do
             if [ -n "$key" ]; then
