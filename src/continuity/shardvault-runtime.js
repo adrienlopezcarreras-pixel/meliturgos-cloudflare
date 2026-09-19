@@ -791,18 +791,27 @@ async function rememberValidatedExternalEndpoints(env,candidates=[]){
   await env.MEDIA_BUCKET.put(VALIDATED_ENDPOINTS_KEY,JSON.stringify({version:1,updated_at:new Date().toISOString(),endpoints:rows.map(e=>({id:e.id,...endpointSnapshot(e)}))}),{httpMetadata:{contentType:'application/json'}});
   return rows;
 }
-async function rememberActiveExternalEndpoints(env,c,last,candidates=[]){
-  let active=await readActiveExternalEndpoints(env);
-  const fromSnapshot=[];
+function externalEndpointsFromSnapshot(env,c,last){
+  const out=[];
   for(const shard of last?.shards||[]){
-    if(fromSnapshot.some(e=>e.id===shard.endpointId))continue;
+    if(out.some(e=>e.id===shard.endpointId))continue;
     const e=endpointById(c,shard.endpointId,shard);
-    if(e&&!e.backend&&endpointMeetsDurability(env,e))fromSnapshot.push(e);
+    if(e&&!e.backend&&endpointMeetsDurability(env,e))out.push(e);
   }
-  const incoming=[...fromSnapshot,...(candidates||[]).filter(e=>!e?.backend&&endpointMeetsDurability(env,e))];
+  return out.slice(0,Math.min(7,c?.n||7));
+}
+async function reconcileActiveExternalEndpoints(env,c,last){
+  const actual=externalEndpointsFromSnapshot(env,c,last);
+  const stored=await readActiveExternalEndpoints(env);
+  if(actual.length!==stored.length||actual.some((e,i)=>e.id!==stored[i]?.id))await writeActiveExternalEndpoints(env,actual);
+  return actual;
+}
+async function stageActiveExternalEndpoints(env,c,last,candidates=[]){
+  const actual=await reconcileActiveExternalEndpoints(env,c,last);
+  const incoming=(candidates||[]).filter(e=>!e?.backend&&endpointMeetsDurability(env,e));
   const maxOp=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_OPERATOR)||2),maxProv=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_PROVIDER)||2);
-  const next=extendActiveEndpoints(active,incoming,Math.min(7,c?.n||7),maxOp,maxProv);
-  if(next.length!==active.length||next.some((e,i)=>e.id!==active[i]?.id))await writeActiveExternalEndpoints(env,next);
+  const next=extendActiveEndpoints(actual,incoming,Math.min(7,c?.n||7),maxOp,maxProv);
+  if(next.length!==actual.length||next.some((e,i)=>e.id!==actual[i]?.id))await writeActiveExternalEndpoints(env,next);
   return next;
 }
 async function readDiscoveryStatus(env){
@@ -858,10 +867,13 @@ export async function getShardVaultStatus(env){
     }
     const discovery=await readDiscoveryStatus(env);
     let preferred=await readPreferredEndpoint(env);
-    let activeExternal=preferred?(discovery?.selected||[]).find(x=>x.id===preferred.endpoint_id):null;
-    if(preferred&&(!activeExternal||!endpointMeetsDurability(env,activeExternal))){await clearPreferredEndpoint(env);preferred=null;activeExternal=null;}
     const usedCounts={};
     for(const shard of last?.shards||[])usedCounts[shard.endpointId]=(usedCounts[shard.endpointId]||0)+1;
+    const actualExternal=await reconcileActiveExternalEndpoints(env,c,last);
+    const actualIds=new Set(actualExternal.map(e=>e.id));
+    let activeExternal=preferred?(discovery?.selected||[]).find(x=>x.id===preferred.endpoint_id):null;
+    if(preferred&&(!activeExternal||!endpointMeetsDurability(env,activeExternal))){await clearPreferredEndpoint(env);preferred=null;activeExternal=null;}
+    if(activeExternal&&!actualIds.has(activeExternal.id))activeExternal=null;
     const selectedViews=[];
     if(last?.shards?.length){
       for(const shard of last.shards){
@@ -872,7 +884,6 @@ export async function getShardVaultStatus(env){
     }else{
       selectedViews.push(...c.endpoints.map(publicEndpointView));
     }
-    if(activeExternal&&!selectedViews.some(x=>x.id===activeExternal.id))selectedViews.push({...activeExternal,preferred:true,active:true});
     return {
       ok:true,enabled:true,status:last?'ONLINE':'NO_SNAPSHOT',
       scheme:{data_shards:c.k,total_shards:c.n,tolerated_losses:c.n-c.k},
@@ -892,7 +903,7 @@ export async function getShardVaultStatus(env){
       discovery_index:String(env?.MEL_SHARDVAULT_DISCOVERY_INDEX||'https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/discovery-index.json'),
       last_discovery:discovery,
       preferred_endpoint:preferred,
-      active_external_registry:(await readActiveExternalEndpoints(env)).map(publicEndpointView),
+      active_external_registry:actualExternal.map(publicEndpointView),
       checked_at:new Date().toISOString()
     };
   }catch(error){return {ok:false,enabled:true,status:'ERROR',error:String(error?.message||error)};}
@@ -921,16 +932,24 @@ export async function activateValidatedShardVaultEndpoint(env,endpointId){
   try{c=await config(env);}catch{}
   if(!c?.ok)return {ok:false,status:'ACTIVATION_STATUS_FAILED',endpoint_id:id};
   const rows=await inventoryRows(env,c),latestBefore=latestSnapshot(rows);
-  const before=await rememberActiveExternalEndpoints(env,c,latestBefore,[]);
+  const before=await reconcileActiveExternalEndpoints(env,c,latestBefore);
   if(!before.some(e=>e.id===id)&&before.length>=Math.min(7,c.n))return {ok:false,status:'ACTIVE_EXTERNAL_REGISTRY_FULL',endpoint_id:id,active_endpoint_ids:before.map(e=>e.id),target_count:Math.min(7,c.n)};
-  const active=await rememberActiveExternalEndpoints(env,c,latestBefore,[endpoint]);
+  const staged=await stageActiveExternalEndpoints(env,c,latestBefore,[endpoint]);
   await writePreferredEndpoint(env,id);
   const cycle=await runShardVaultCycle(env,{force:true});
-  if(!cycle?.ok)return {ok:false,status:'ACTIVATION_SNAPSHOT_FAILED',endpoint_id:id,cycle,active_endpoint_ids:active.map(e=>e.id)};
+  if(!cycle?.ok){
+    await writeActiveExternalEndpoints(env,before);
+    return {ok:false,status:'ACTIVATION_SNAPSHOT_FAILED',endpoint_id:id,cycle,active_endpoint_ids:before.map(e=>e.id)};
+  }
   const rowsAfter=await inventoryRows(env,c),latest=latestSnapshot(rowsAfter);
+  const actual=await reconcileActiveExternalEndpoints(env,c,latest);
   const used=(latest?.shards||[]).filter(x=>x.endpointId===id).length;
-  if(!used)return {ok:false,status:'ACTIVATION_NOT_USED',endpoint_id:id,cycle,active_endpoint_ids:active.map(e=>e.id)};
-  return {ok:true,status:'ACTIVATED',endpoint_id:id,used_fragments:used,snapshot_id:latest.snapshotId,active_external_count:active.length,active_endpoint_ids:active.map(e=>e.id),cycle};
+  if(!used)return {ok:false,status:'ACTIVATION_NOT_USED',endpoint_id:id,cycle,active_endpoint_ids:actual.map(e=>e.id)};
+  let code_sync=null;
+  if(actual.length>=Math.min(7,c.n)){
+    try{code_sync=await syncShardVaultCodeExternally(env);}catch(error){code_sync={ok:false,status:'COPY_FAILED',error:String(error?.message||error)};}
+  }
+  return {ok:true,status:'ACTIVATED',endpoint_id:id,used_fragments:used,snapshot_id:latest.snapshotId,active_external_count:actual.length,active_endpoint_ids:actual.map(e=>e.id),staged_endpoint_ids:staged.map(e=>e.id),code_sync,cycle};
 }
 
 export async function searchAutonomousShardVaultRepositories(env){
@@ -946,10 +965,9 @@ export async function searchAutonomousShardVaultRepositories(env){
   try{
     let requiredBytes=256,last=null;
     try{const rows=await inventoryRows(env,c);last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
-    const activeBefore=await rememberActiveExternalEndpoints(env,c,last,[]);
+    const active=await reconcileActiveExternalEndpoints(env,c,last);
     const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
     await rememberValidatedExternalEndpoints(env,report.selected||[]);
-    const active=await rememberActiveExternalEndpoints(env,c,last,report.selected||[]);
     const activeIds=new Set(active.map(e=>e.id));
     let preferred=await readPreferredEndpoint(env);
     const selectedViews=[
@@ -985,16 +1003,6 @@ export async function searchAutonomousShardVaultRepositories(env){
       search_mode:'MAINTAIN_7_EXTERNAL'
     };
     await writeDiscoveryStatus(env,result);
-    if(active.length>activeBefore.length||result.target_reached){
-      try{result.activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true});}
-      catch(error){result.activation_cycle={ok:false,error:String(error?.message||error)};}
-    }
-    if(result.target_reached){
-      if(result.activation_cycle?.ok){
-        try{result.code_sync=await syncShardVaultCodeExternally(env);}
-        catch(error){result.code_sync={ok:false,status:'COPY_FAILED',error:String(error?.message||error)};}
-      }
-    }
     return result;
   }catch(error){
     const result={ok:false,status:'SEARCH_FAILED',error:String(error?.message||error),searched_at:new Date().toISOString()};
