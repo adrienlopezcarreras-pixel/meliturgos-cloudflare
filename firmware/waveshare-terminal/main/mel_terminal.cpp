@@ -309,7 +309,7 @@ static void restart_task(void *) {
 }
 
 static esp_err_t setup_save(httpd_req_t *req) {
-    const int total = std::min(req->content_len, 1024);
+    const int total = (int)std::min<size_t>((size_t)req->content_len, (size_t)1024);
     std::string body((size_t)total, '\0');
     int read = 0;
     while (read < total) {
@@ -427,13 +427,13 @@ static void wav_header(uint8_t *h, uint32_t data_size) {
     const uint32_t byte_rate = VOICE_RATE * 2;
     const uint32_t riff_size = 36 + data_size;
     memcpy(h, "RIFF", 4); memcpy(h + 8, "WAVEfmt ", 8);
-    h[4]=riff_size; h[5]=riff_size>>8; h[6]=riff_size>>16; h[7]=riff_size>>24;
+    h[4]=(uint8_t)riff_size; h[5]=(uint8_t)(riff_size>>8); h[6]=(uint8_t)(riff_size>>16); h[7]=(uint8_t)(riff_size>>24);
     h[16]=16; h[17]=h[18]=h[19]=0;
     h[20]=1; h[21]=0; h[22]=1; h[23]=0;
-    h[24]=VOICE_RATE; h[25]=VOICE_RATE>>8; h[26]=VOICE_RATE>>16; h[27]=VOICE_RATE>>24;
-    h[28]=byte_rate; h[29]=byte_rate>>8; h[30]=byte_rate>>16; h[31]=byte_rate>>24;
+    h[24]=(uint8_t)VOICE_RATE; h[25]=(uint8_t)(VOICE_RATE>>8); h[26]=(uint8_t)(VOICE_RATE>>16); h[27]=(uint8_t)(VOICE_RATE>>24);
+    h[28]=(uint8_t)byte_rate; h[29]=(uint8_t)(byte_rate>>8); h[30]=(uint8_t)(byte_rate>>16); h[31]=(uint8_t)(byte_rate>>24);
     h[32]=2; h[33]=0; h[34]=16; h[35]=0; memcpy(h+36,"data",4);
-    h[40]=data_size; h[41]=data_size>>8; h[42]=data_size>>16; h[43]=data_size>>24;
+    h[40]=(uint8_t)data_size; h[41]=(uint8_t)(data_size>>8); h[42]=(uint8_t)(data_size>>16); h[43]=(uint8_t)(data_size>>24);
 }
 
 static std::string record_and_transcribe() {
@@ -746,7 +746,7 @@ static lv_obj_t *make_button(lv_obj_t *parent, const char *text, Action action) 
     return btn;
 }
 
-void mel_terminal_ui_init(lv_display_t *) {
+void mel_terminal_ui_init(lv_disp_t *) {
     lv_obj_t *screen = lv_scr_act();
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x07111F), 0);
     lv_obj_set_style_text_color(screen, lv_color_hex(0xF8FAFC), 0);
