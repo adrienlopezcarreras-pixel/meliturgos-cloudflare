@@ -1,9 +1,13 @@
 {
   "manifest_version": 3,
   "name": "MEL ChatGPT Collector",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Collecte progressivement les conversations ChatGPT visibles dans Firefox et les archive dans MEL.",
-  "permissions": ["storage", "tabs", "history"],
+  "permissions": [
+    "storage",
+    "tabs",
+    "history"
+  ],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
@@ -12,7 +16,9 @@
     "https://professeur.verite-interdite.fr/*"
   ],
   "background": {
-    "scripts": ["background.js"],
+    "scripts": [
+      "background.js"
+    ],
     "service_worker": "background.js"
   },
   "action": {
@@ -23,11 +29,18 @@
     "page": "options.html",
     "open_in_tab": true
   },
-  "content_scripts": [{
-    "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
-    "js": ["content.js"],
-    "run_at": "document_idle"
-  }],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
   "browser_specific_settings": {
     "gecko": {
       "id": "mel-chatgpt-collector@meliturgos.local",
