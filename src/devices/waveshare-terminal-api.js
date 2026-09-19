@@ -290,6 +290,33 @@ async function serveDownload(request, env, url) {
   return new Response(object.body, { status: 200, headers });
 }
 
+async function ownerFirmwareInfo(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  return json({ ok: true, ...(await loadManifest(env, new URL(request.url).origin)) });
+}
+
+async function ownerFirmware(request, env) {
+  const auth = requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  const manifest = await loadManifest(env, new URL(request.url).origin);
+  const key = String(manifest?.firmware?.key || "");
+  if (manifest?.firmware?.available !== true || !validDownloadKey(key)) {
+    return json({ ok: false, code: "FIRMWARE_NOT_PUBLISHED" }, 404);
+  }
+  if (!env?.MEDIA_BUCKET) return json({ ok: false, code: "MEDIA_BUCKET_UNAVAILABLE" }, 503);
+  const object = await env.MEDIA_BUCKET.get(key);
+  if (!object) return json({ ok: false, code: "FIRMWARE_NOT_FOUND" }, 404);
+  const headers = new Headers({
+    "content-type": "application/octet-stream",
+    "content-length": String(object.size),
+    "content-disposition": 'attachment; filename="mel-terminal.bin"',
+    "cache-control": "no-store",
+    "x-mel-sha256": String(manifest?.firmware?.sha256 || object.customMetadata?.sha256 || "")
+  });
+  return new Response(object.body, { status: 200, headers });
+}
+
 async function serveSetupScript(request, env) {
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
@@ -323,11 +350,11 @@ async function deviceChat(request, env, auth) {
 }
 
 async function deviceVoice(request, env, auth) {
+  const bytes = await request.arrayBuffer();
   const internal = new Request(new URL("/api/voice/transcribe", request.url), {
     method: "POST",
     headers: { "content-type": request.headers.get("content-type") || "application/octet-stream" },
-    body: request.body,
-    duplex: "half"
+    body: bytes
   });
   const response = await handleVoiceTranscription(internal, env, { authorized: true, source: "waveshare-terminal", device_id: auth.deviceId });
   return response || json({ ok: false, code: "TRANSCRIPTION_UNAVAILABLE" }, 503);
@@ -340,6 +367,8 @@ export async function maybeHandleWaveshareTerminalApi(request, env) {
   if (url.pathname === WAVESHARE_TERMINAL_API + "/pair-code" && request.method === "POST") return createPairCode(request, env);
   if (url.pathname === WAVESHARE_TERMINAL_API + "/pair" && request.method === "POST") return pairDevice(request, env);
   if (url.pathname === WAVESHARE_TERMINAL_API + "/status" && request.method === "GET") return ownerStatus(request, env);
+  if (url.pathname === WAVESHARE_TERMINAL_API + "/firmware-info" && request.method === "GET") return ownerFirmwareInfo(request, env);
+  if (url.pathname === WAVESHARE_TERMINAL_API + "/firmware" && request.method === "GET") return ownerFirmware(request, env);
   if (url.pathname === WAVESHARE_TERMINAL_API + "/setup-script" && request.method === "GET") return serveSetupScript(request, env);
 
   const auth = await authorizeDevice(request, env);
