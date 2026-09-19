@@ -108,10 +108,10 @@ extern "C" void app_main(void) {
     i2c_bus_init();
     io_expander_init();
 
-    ESP_ERROR_CHECK(esp_3inch5_display_port_init(&io_handle, &panel_handle, LCD_BUFFER_SIZE));
-    ESP_ERROR_CHECK(esp_3inch5_touch_port_init(
+    esp_3inch5_display_port_init(&io_handle, &panel_handle, LCD_BUFFER_SIZE);
+    esp_3inch5_touch_port_init(
         &touch_handle, i2c_bus_handle, MEL_LCD_H_RES, MEL_LCD_V_RES, DISPLAY_ROTATION
-    ));
+    );
 
     bool audio_ok = esp_axp2101_port_init(i2c_bus_handle) == ESP_OK;
     vTaskDelay(pdMS_TO_TICKS(100));
