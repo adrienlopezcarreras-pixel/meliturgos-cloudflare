@@ -33,6 +33,20 @@ async function fetchTimed(url,options={},ms=12000){
     throw new Error('REDIRECT_LIMIT');
   }finally{clearTimeout(t);}
 }
+async function fetchRateAware(url,options={},ms=12000,attempts=3){
+  let last=null;
+  for(let attempt=0;attempt<attempts;attempt++){
+    last=await fetchTimed(url,options,ms);
+    if(last.status!==429)return last;
+    if(attempt===attempts-1)return last;
+    const raw=String(last.headers.get('retry-after')||'').trim();
+    let delay=1500*(attempt+1);
+    if(/^\d+$/.test(raw))delay=Math.max(delay,Number(raw)*1000);
+    else if(raw){const at=Date.parse(raw);if(Number.isFinite(at))delay=Math.max(delay,at-Date.now());}
+    await new Promise(resolve=>setTimeout(resolve,Math.max(500,Math.min(20000,delay))));
+  }
+  return last;
+}
 async function hkdf(master,salt,info,len=32){ const k=await crypto.subtle.importKey('raw',bytes(master),'HKDF',false,['deriveBits']);return new Uint8Array(await crypto.subtle.deriveBits({name:'HKDF',hash:'SHA-256',salt:bytes(salt),info:bytes(info)},k,len*8)); }
 async function hmac(key,payload){ const k=await crypto.subtle.importKey('raw',bytes(key),{name:'HMAC',hash:'SHA-256'},false,['sign']);return new Uint8Array(await crypto.subtle.sign('HMAC',k,bytes(payload))); }
 async function encrypt(master,snapshotId,plain,iv){ const raw=await hkdf(master,utf8(snapshotId),utf8('MEL-ShardVault/v1/aes-gcm'));const k=await crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['encrypt']);return new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:utf8(snapshotId)},k,plain)); }
@@ -242,7 +256,7 @@ async function upload(env,e,objectId,payload){
   }
   if(e.adapter==='msk_paste_b64'){
     const endpoint=fixedApiUrl(u);
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({content:b64u(payload),title:objectId,language:'plaintext',expiresIn:'1y',burnAfterRead:false})},15000);
+    const r=await fetchRateAware(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({content:b64u(payload),title:objectId,language:'plaintext',expiresIn:'1y',burnAfterRead:false})},15000,3);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
