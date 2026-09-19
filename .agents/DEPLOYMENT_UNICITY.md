@@ -6,7 +6,7 @@ La seule ligne de développement exécutable et candidate déployable est `candi
 
 Une branche `release/*` n’est qu’un pointeur temporaire vers le SHA exact de la candidate approuvée. Elle ne constitue jamais une seconde ligne de développement et ne doit pas diverger de `candidate/mel-clean-autonomy`.
 
-`teacher-bridge/runtime` est un transport de métadonnées Teacher, jamais une branche de code exécutable.
+`teacher-bridge/runtime` est un transport de métadonnées Teacher, jamais une branche de code exécutable. Le laboratoire `godot-private-test-*` est une exception non-MEL conditionnelle : sa divergence n’est admise que si son diff reste limité à `.github/workflows/godot-private-test.yml` et `ci-godot-test/*`.
 
 Les branches LoRA/adapter/compatibilité actives sont désormais soumises à la même règle que tout autre développement : aucune divergence active n’est autorisée. Les anciens HEAD utiles peuvent être conservés uniquement sous `archive/*`, qui est historique et non déployable.
 
@@ -42,7 +42,7 @@ Un statut `diverged` non exempté à la fin d’un passage rend ce passage **INC
 
 ## Garde automatique
 
-Le workflow `.github/workflows/canonical-branch-unicity.yml` vérifie que toute branche de code active est un ancêtre de `candidate/mel-clean-autonomy`. Une nouvelle divergence doit faire échouer ce contrôle. Les seules exemptions sont `teacher-bridge/runtime`, qui transporte des métadonnées et jamais du code exécutable, et `archive/*`, qui conserve uniquement des HEAD historiques non déployables.
+Le workflow `.github/workflows/canonical-branch-unicity.yml` vérifie que toute branche de code MEL active est un ancêtre de `candidate/mel-clean-autonomy`. Une nouvelle divergence doit faire échouer ce contrôle. `teacher-bridge/runtime` transporte uniquement des métadonnées, `archive/*` conserve des HEAD historiques non déployables, et `godot-private-test-*` n’est accepté que comme laboratoire non-MEL sous allowlist stricte de chemins ; s’il touche un fichier hors de son namespace Godot, le contrôle doit échouer.
 
 ## But
 
