@@ -269,6 +269,48 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
     evidenceUrls:['https://github.com/randishdeviant/markdown-paste/blob/main/README.md','https://github.com/randishdeviant/markdown-paste/blob/main/src/lib/constants.ts']
   },
   {
+    id:'udrop-dev-public',
+    adapter:'udrop_dev_b64',
+    urlTemplate:'https://udrop.dev?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:350000,
+    operatorDomain:'udrop.dev',
+    providerId:'udrop-dev',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:365,
+    retentionModel:'declared_never',
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_agent_api',
+    evidenceReviewedAt:'2026-09-19T18:10:00.000Z',
+    evidenceUrls:['https://udrop.dev/']
+  },
+  {
+    id:'waifuvault-public',
+    adapter:'waifuvault_b64',
+    urlTemplate:'https://waifuvault.moe/rest?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:10485760,
+    operatorDomain:'waifuvault.moe',
+    providerId:'waifuvault',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:365,
+    retentionModel:'size_formula',
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T18:10:00.000Z',
+    evidenceUrls:['https://waifuvault.moe/','https://waifuvault.moe/api-docs/']
+  },
+  {
     id:'fileditch-public',
     adapter:'fileditch_b64',
     urlTemplate:'https://new.fileditch.com/upload.php?filename={objectId}.txt',
@@ -789,6 +831,22 @@ async function candidateWrite(c,url,payload,objectId){
     if(!id)throw new Error('WRITE_REMOTE_ID_MISSING');
     return {readUrl:publicHttps('https://markdownpasteit.vercel.app/api/paste/'+encodeURIComponent(id),'MARKDOWNPASTE_READ').toString()};
   }
+  if(c.adapter==='udrop_dev_b64'){
+    const endpoint=fixedApiUrl(url);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'text/plain; charset=utf-8','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:b64u(payload)},15000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const data=await r.json().catch(()=>null),base=String(data?.url||'').trim();
+    if(!base)throw new Error('WRITE_REMOTE_URL_MISSING');
+    return {readUrl:publicHttps(base.replace(/\/$/,'')+'/raw','UDROP_READ').toString()};
+  }
+  if(c.adapter==='waifuvault_b64'){
+    const endpoint=fixedApiUrl(url),form=new FormData();
+    form.append('file',new Blob([b64u(payload)],{type:'text/plain'}),objectId+'.txt');
+    const r=await fetchTimed(endpoint,{method:'PUT',headers:{'accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:form},20000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const raw=await r.text();
+    return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
+  }
   if(c.adapter==='paste_c_net'){
     const endpoint=fixedApiUrl(url);
     const r=await fetchTimed(endpoint,{method:'PUT',headers:{'content-type':'application/octet-stream','accept':'application/json, */*','x-uuid':'1','user-agent':'curl/8.0 MEL-ShardVault/1.0'},body:payload},15000);
@@ -855,6 +913,20 @@ async function candidateReadBytes(c,url){
     if(!r.ok)throw new Error('READ_HTTP_'+r.status);
     const data=await r.json().catch(()=>null),encoded=String(data?.content||'').trim();
     if(!encoded)throw new Error('MARKDOWNPASTE_CONTENT_MISSING');
+    return unb64u(encoded);
+  }
+  if(c.adapter==='udrop_dev_b64'){
+    const r=await fetchTimed(url,{method:'GET',headers:{'accept':'text/plain','user-agent':'MEL-ShardVault/1.0'}},15000);
+    if(!r.ok)throw new Error('READ_HTTP_'+r.status);
+    const encoded=String(await r.text()).trim();
+    if(!encoded)throw new Error('UDROP_CONTENT_MISSING');
+    return unb64u(encoded);
+  }
+  if(c.adapter==='waifuvault_b64'){
+    const r=await fetchTimed(url,{method:'GET',headers:{'accept':'text/plain,application/octet-stream','user-agent':'MEL-ShardVault/1.0'}},20000);
+    if(!r.ok)throw new Error('READ_HTTP_'+r.status);
+    const encoded=String(await r.text()).trim();
+    if(!encoded)throw new Error('WAIFUVAULT_CONTENT_MISSING');
     return unb64u(encoded);
   }
   if(c.adapter==='paste_c_net'){
