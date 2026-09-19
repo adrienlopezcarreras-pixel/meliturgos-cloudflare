@@ -22,6 +22,33 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Reject parallel production deployment paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          canonical=".github/workflows/deploy-cloudflare-release.yml"
+          violations=()
+
+          while IFS= read -r file; do
+            [[ "$file" = "$canonical" ]] && continue
+            if grep -Eiq 'cloudflare/wrangler-action|(^|[[:space:]])(npx[[:space:]]+)?wrangler[[:space:]]+deploy|CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID' "$file"; then
+              violations+=("$file")
+            fi
+          done < <(find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort)
+
+          if (( ${#violations[@]} )); then
+            echo "PARALLEL_PRODUCTION_DEPLOYMENT_PATHS:"
+            printf ' - %s\n' "${violations[@]}"
+            exit 1
+          fi
+
+          grep -Fq 'workflow_dispatch:' "$canonical"
+          grep -Fq 'DEPLOY_APPROVED' "$canonical"
+          grep -Fq 'expected_sha' "$canonical"
+          grep -Fq 'release/*' "$canonical"
+          grep -Fq 'MEL_DEPLOYED_GIT_SHA' "$canonical"
+          echo "Production deployment unicity verified: only the canonical human-approved release workflow can deploy Cloudflare."
+
       - name: Fetch all branch refs
         shell: bash
         run: git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
@@ -35,7 +62,6 @@ jobs:
 
           while IFS= read -r remote_ref; do
             branch="${remote_ref#origin/}"
-            lower="${branch,,}"
 
             case "$branch" in
               HEAD|candidate/mel-clean-autonomy|teacher-bridge/runtime|archive/*)
