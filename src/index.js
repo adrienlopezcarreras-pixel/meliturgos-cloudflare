@@ -15,6 +15,7 @@ import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
 import { enhanceThemeAvatars } from "./pages/theme-avatar-enhancer.js";
 import { enhanceMvpBehavior } from "./pages/mvp-behavior-enhancer.js";
+import { runShardVaultCycle } from "./continuity/shardvault-runtime.js";
 
 let lastSafeWorkJob = null;
 
@@ -369,11 +370,21 @@ export default {
       console.error('[MEL backup] scheduled backup failed:', error?.code || error?.message || error);
       return null;
     });
+    const shardVaultWork = runShardVaultCycle(env).then((result) => {
+      if (result?.enabled && !result?.ok) {
+        console.warn('[MEL ShardVault] cycle incomplete:', result.reason || result.error || 'UNKNOWN');
+      }
+      return result;
+    }).catch((error) => {
+      console.error('[MEL ShardVault] scheduled cycle failed:', error?.code || error?.message || error);
+      return null;
+    });
     if (ctx?.waitUntil) {
       ctx.waitUntil(autonomyWork);
       ctx.waitUntil(backupWork);
+      ctx.waitUntil(shardVaultWork);
     } else {
-      await Promise.all([autonomyWork, backupWork]);
+      await Promise.all([autonomyWork, backupWork, shardVaultWork]);
     }
   }
 };
