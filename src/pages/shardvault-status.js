@@ -106,12 +106,19 @@ async function load(){
    card('Fragments sains',h.healthy_shards!=null?fmt(h.healthy_shards)+' / '+fmt(h.total_shards):'—',h.recoverable===false?'bad':'ok'),
    card('Seuil de récupération',s.data_shards!=null?fmt(s.data_shards)+' / '+fmt(s.total_shards):'—',''),
    card('Pertes tolérées',s.tolerated_losses!=null?fmt(s.tolerated_losses):'—','warn'),
-   card('Dépôts actifs',(d.selected_endpoints||[]).length,''),
+   card('Dépôts externes actifs',(d.selected_endpoints||[]).filter(e=>e.backend==='http'&&e.active===true).length+' / 7',(d.selected_endpoints||[]).filter(e=>e.backend==='http'&&e.active===true).length>=7?'ok':'warn'),
    card('Mode autonome',d.autonomous_enabled?'ACTIF':'INACTIF',d.autonomous_enabled?'ok':'warn')
   ].join('');
   const l=d.latest;
   $('snapshotInfo').innerHTML=l?'<div class="row"><span>ID</span><b>'+safe(l.snapshot_id)+'</b></div><div class="row"><span>Révision</span><b>'+fmt(l.revision)+'</b></div><div class="row"><span>Créé</span><b>'+safe(l.created_at||'—')+'</b></div><div class="row"><span>Taille fragment</span><b>'+fmt(l.shard_size)+' octets</b></div>':'Aucun snapshot valide trouvé.';
-  $('endpoints').innerHTML=(d.selected_endpoints||[]).length?(d.selected_endpoints||[]).map(e=>endpointRow(e,false,d.preferred_endpoint?.endpoint_id||null)).join(''):'Aucun dépôt actuellement sélectionné.';
+  const allSelected=d.selected_endpoints||[];
+  const externalSelected=allSelected.filter(e=>e.backend==='http');
+  const internalSelected=allSelected.filter(e=>e.backend!=='http');
+  $('endpoints').innerHTML=
+   '<h3>Dépôts externes actifs · '+fmt(externalSelected.filter(e=>e.active===true).length)+' / 7</h3>'+
+   (externalSelected.length?externalSelected.map(e=>endpointRow(e,false,d.preferred_endpoint?.endpoint_id||null)).join(''):'<div class="muted">Aucun dépôt externe actif.</div>')+
+   '<h3>Fallbacks internes · hors quota 7/7</h3>'+
+   (internalSelected.length?internalSelected.map(e=>endpointRow(e,false,d.preferred_endpoint?.endpoint_id||null)).join(''):'<div class="muted">Aucun fallback interne utilisé par le dernier snapshot.</div>');
   const code=d.code_survival||{},ext=code.external||{};
   const extEndpoints=Array.isArray(ext.endpoints)?ext.endpoints:[];
   $('codeBackup').innerHTML=
