@@ -40,6 +40,26 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
     evidenceMode:'documented_api',
     evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
     evidenceUrls:['https://filebin.net/api.yaml','https://filebin.net/terms']
+  },
+  {
+    id:'temp-sh-public',
+    adapter:'temp_sh',
+    urlTemplate:'https://temp.sh/upload?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:1048576,
+    operatorDomain:'temp.sh',
+    providerId:'temp-sh',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:3,
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
+    evidenceUrls:['https://temp.sh/']
   }
 ]);
 const EMBEDDED_CATALOGS = Object.freeze([
@@ -392,6 +412,19 @@ async function fetchOnceManual(url,options={},ms=10000){
   try{return await fetch(url,{...options,redirect:'manual',signal:controller.signal});}
   finally{clearTimeout(timer);}
 }
+async function candidateWrite(c,url,payload,objectId){
+  if(c.adapter==='temp_sh'){
+    const form=new FormData();
+    form.append('file',new Blob([payload],{type:'application/octet-stream'}),objectId+'.bin');
+    const r=await fetchTimed(url,{method:'POST',body:form},12000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const remote=String(await r.text()).trim();
+    return {response:r,readUrl:publicHttps(remote,'TEMP_SH_READ').toString()};
+  }
+  const r=await fetchTimed(url,{method:c.method,headers:{'content-type':'application/octet-stream','x-mel-shardvault-probe':'1'},body:payload},10000);
+  if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+  return {response:r,readUrl:url};
+}
 async function candidateRead(c,url){
   if(c.adapter!=='filebin')return fetchTimed(url,{method:'GET'},10000);
   let r=await fetchOnceManual(url,{method:'GET',headers:{'accept':'application/octet-stream'}},10000);
@@ -432,11 +465,10 @@ async function probe(c, requiredBytes, policyMaxAgeDays=180){
   const objectId=`mel-probe-${rid(12)}`;
   const url=publicHttps(c.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),'AUTONOMOUS_TARGET').toString();
   const writeStart=Date.now();
-  const w=await fetchTimed(url,{method:c.method,headers:{'content-type':'application/octet-stream','x-mel-shardvault-probe':'1'},body:payload},10000);
-  if(!w.ok)throw new Error(`WRITE_HTTP_${w.status}`);
+  const write=await candidateWrite(c,url,payload,objectId);
   const writeLatency=Date.now()-writeStart;
   const readStart=Date.now();
-  const r=await candidateRead(c,url);if(!r.ok)throw new Error(`READ_HTTP_${r.status}`);
+  const r=await candidateRead(c,write.readUrl);if(!r.ok)throw new Error(`READ_HTTP_${r.status}`);
   const got=new Uint8Array(await r.arrayBuffer());const readLatency=Date.now()-readStart;
   if(got.length!==payload.length)throw new Error('PROBE_LENGTH_MISMATCH');
   let diff=0;for(let i=0;i<got.length;i++)diff|=got[i]^payload[i];if(diff)throw new Error('PROBE_CONTENT_MISMATCH');

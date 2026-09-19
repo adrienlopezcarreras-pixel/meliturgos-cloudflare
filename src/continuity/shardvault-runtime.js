@@ -167,10 +167,20 @@ async function upload(env,e,objectId,payload){
     if(!env?.DB?.prepare)throw new Error('D1_BINDING_UNAVAILABLE');
     await env.DB.prepare('CREATE TABLE IF NOT EXISTS shardvault_objects (object_id TEXT PRIMARY KEY, payload_b64 TEXT NOT NULL, byte_length INTEGER NOT NULL, created_at TEXT NOT NULL)').run();
     await env.DB.prepare('INSERT OR REPLACE INTO shardvault_objects (object_id,payload_b64,byte_length,created_at) VALUES (?,?,?,?)').bind(objectId,b64u(payload),payload.length,new Date().toISOString()).run();
-    return;
+    return null;
   }
-  const u=publicUrl(e.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),`WRITE_${e.id}`),r=await fetchTimed(u,{method:e.method,headers:{'content-type':'application/octet-stream'},body:payload});
+  const u=publicUrl(e.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),`WRITE_${e.id}`);
+  if(e.adapter==='temp_sh'){
+    const form=new FormData();
+    form.append('file',new Blob([payload],{type:'application/octet-stream'}),objectId+'.bin');
+    const r=await fetchTimed(u,{method:'POST',body:form},15000);
+    if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
+    const remote=String(await r.text()).trim();
+    return {remoteUrl:publicUrl(remote,`WRITE_${e.id}_REMOTE`)};
+  }
+  const r=await fetchTimed(u,{method:e.method,headers:{'content-type':'application/octet-stream'},body:payload});
   if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
+  return null;
 }
 async function fetchOnceManual(url,options={},ms=12000){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),ms);
@@ -190,7 +200,7 @@ async function filebinDownload(url){
   }
   return r;
 }
-async function download(env,e,objectId){
+async function download(env,e,objectId,descriptor=null){
   if(e.backend==='r2'){
     if(!env?.MEDIA_BUCKET?.get)throw new Error('R2_BINDING_UNAVAILABLE');
     const body=await env.MEDIA_BUCKET.get(String(e.keyPrefix||'shardvault/objects/')+objectId);
@@ -206,6 +216,13 @@ async function download(env,e,objectId){
     if(Number(row.byte_length)!==payload.length)throw new Error(`READ_${e.id}_LENGTH_MISMATCH`);
     return payload;
   }
+  if(e.adapter==='temp_sh'){
+    const remote=descriptor?.remoteUrl;
+    if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET'},15000);
+    if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
+    return new Uint8Array(await r.arrayBuffer());
+  }
   const u=publicUrl(e.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),`READ_${e.id}`);
   const r=e.adapter==='filebin'?await filebinDownload(u):await fetchTimed(u,{method:'GET'});
   if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
@@ -220,10 +237,10 @@ async function appendManifest(env,c,m){
   const r=await fetchTimed(env.MEL_INVENTORY_APPEND_URL,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(m)});
   if(!r.ok)throw new Error(`INVENTORY_APPEND_${r.status}`);
 }
-async function collect(env,c,m){const key=await hkdf(c.master,utf8(m.snapshotId),utf8('MEL-ShardVault/v1/shard-mac')),available=Array(m.totalShards).fill(null),missing=[],errors=[];for(const d of m.shards||[]){try{const e=endpointById(c,d.endpointId,d);if(!e)throw new Error('ENDPOINT_UNKNOWN');const b=await download(env,e,d.objectId),mac=b64u(await hmac(key,concat(utf8(`${m.snapshotId}:${d.index}:`),b)));if(b.length!==m.shardSize||mac!==d.mac)throw new Error('SHARD_MAC_INVALID');available[d.index]=b;}catch(error){missing.push(d.index);errors.push({index:d.index,message:String(error?.message||error)});}}return {available,missing:[...new Set(missing)],errors};}
-async function repair(env,c,m,reconstructed,missing){if(!missing.length)return m;const descriptors=m.shards.map(d=>({...d})),key=await hkdf(c.master,utf8(m.snapshotId),utf8('MEL-ShardVault/v1/shard-mac')),counts=new Map(c.allEndpoints.map(e=>[e.id,0]));for(const d of descriptors)if(!missing.includes(d.index))counts.set(d.endpointId,(counts.get(d.endpointId)||0)+1);for(const index of missing){const prev=descriptors[index],candidates=[...c.allEndpoints].sort((a,b)=>(counts.get(a.id)||0)-(counts.get(b.id)||0)||(a.id===prev?.endpointId?-1:b.id===prev?.endpointId?1:a.id.localeCompare(b.id)));let done=false;for(const e of candidates){const objectId=e.id===prev?.endpointId?prev.objectId:rid(24);try{await upload(env,e,objectId,reconstructed[index]);descriptors[index]={index,endpointId:e.id,endpoint:endpointSnapshot(e),objectId,byteLength:m.shardSize,mac:b64u(await hmac(key,concat(utf8(`${m.snapshotId}:${index}:`),reconstructed[index])))};counts.set(e.id,(counts.get(e.id)||0)+1);done=true;break;}catch{}}if(!done)throw new Error(`REPAIR_FAILED_${index}`);}const next={...m,revision:(m.revision||1)+1,updatedAt:new Date().toISOString(),shards:descriptors};next.manifestMac=await manifestMac(c,next);await appendManifest(env,c,next);return next;}
+async function collect(env,c,m){const key=await hkdf(c.master,utf8(m.snapshotId),utf8('MEL-ShardVault/v1/shard-mac')),available=Array(m.totalShards).fill(null),missing=[],errors=[];for(const d of m.shards||[]){try{const e=endpointById(c,d.endpointId,d);if(!e)throw new Error('ENDPOINT_UNKNOWN');const b=await download(env,e,d.objectId,d),mac=b64u(await hmac(key,concat(utf8(`${m.snapshotId}:${d.index}:`),b)));if(b.length!==m.shardSize||mac!==d.mac)throw new Error('SHARD_MAC_INVALID');available[d.index]=b;}catch(error){missing.push(d.index);errors.push({index:d.index,message:String(error?.message||error)});}}return {available,missing:[...new Set(missing)],errors};}
+async function repair(env,c,m,reconstructed,missing){if(!missing.length)return m;const descriptors=m.shards.map(d=>({...d})),key=await hkdf(c.master,utf8(m.snapshotId),utf8('MEL-ShardVault/v1/shard-mac')),counts=new Map(c.allEndpoints.map(e=>[e.id,0]));for(const d of descriptors)if(!missing.includes(d.index))counts.set(d.endpointId,(counts.get(d.endpointId)||0)+1);for(const index of missing){const prev=descriptors[index],candidates=[...c.allEndpoints].sort((a,b)=>(counts.get(a.id)||0)-(counts.get(b.id)||0)||(a.id===prev?.endpointId?-1:b.id===prev?.endpointId?1:a.id.localeCompare(b.id)));let done=false;for(const e of candidates){const objectId=e.id===prev?.endpointId?prev.objectId:rid(24);try{const locator=await upload(env,e,objectId,reconstructed[index]);descriptors[index]={index,endpointId:e.id,endpoint:endpointSnapshot(e),objectId,remoteUrl:locator?.remoteUrl||null,byteLength:m.shardSize,mac:b64u(await hmac(key,concat(utf8(`${m.snapshotId}:${index}:`),reconstructed[index])))};counts.set(e.id,(counts.get(e.id)||0)+1);done=true;break;}catch{}}if(!done)throw new Error(`REPAIR_FAILED_${index}`);}const next={...m,revision:(m.revision||1)+1,updatedAt:new Date().toISOString(),shards:descriptors};next.manifestMac=await manifestMac(c,next);await appendManifest(env,c,next);return next;}
 async function checkAndRepair(env,c,m){const got=await collect(env,c,m),reconstructed=decode(got.available,m.dataShards,m.totalShards,m.shardSize),padded=concat(...reconstructed.slice(0,m.dataShards)),cipher=padded.slice(0,m.ciphertextLength);await decrypt(c.master,m.snapshotId,cipher,unb64u(m.iv));const repaired=got.missing.length?await repair(env,c,m,reconstructed,got.missing):m;return {snapshotId:m.snapshotId,revision:repaired.revision,healthy:true,missing:got.missing,repaired:repaired.revision!==m.revision,errors:got.errors};}
-async function publishSnapshot(env,c,payload){const plain=utf8(JSON.stringify(payload)),snapshotId=rid(18),iv=new Uint8Array(12);crypto.getRandomValues(iv);const cipher=await encrypt(c.master,snapshotId,plain,iv),size=Math.max(1,Math.ceil(cipher.length/c.k)),padded=new Uint8Array(size*c.k);padded.set(cipher);const data=Array.from({length:c.k},(_,i)=>padded.slice(i*size,(i+1)*size)),shards=encode(data,c.n),shardKey=await hkdf(c.master,utf8(snapshotId),utf8('MEL-ShardVault/v1/shard-mac')),descriptors=[];for(let i=0;i<shards.length;i++){const e=c.endpoints[i%c.endpoints.length],objectId=rid(24);await upload(env,e,objectId,shards[i]);descriptors.push({index:i,endpointId:e.id,endpoint:endpointSnapshot(e),objectId,byteLength:size,mac:b64u(await hmac(shardKey,concat(utf8(`${snapshotId}:${i}:`),shards[i])))});}const manifest={format:'MEL-ShardVault',formatVersion:1,moduleVersion:'0.2.1-integrated',vaultId:c.vaultId,snapshotId,revision:1,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),dataShards:c.k,totalShards:c.n,shardSize:size,ciphertextLength:cipher.length,iv:b64u(iv),shards:descriptors,source:{format:payload.format,version:payload.version,exported_at:payload.exported_at,counts:{memories:payload.memories?.length||0,conversations:payload.conversations?.length||0,archive_messages:payload.archive_messages?.length||0}},diversity:diversity(c.endpoints)};manifest.manifestMac=await manifestMac(c,manifest);await appendManifest(env,c,manifest);return manifest;}
+async function publishSnapshot(env,c,payload){const plain=utf8(JSON.stringify(payload)),snapshotId=rid(18),iv=new Uint8Array(12);crypto.getRandomValues(iv);const cipher=await encrypt(c.master,snapshotId,plain,iv),size=Math.max(1,Math.ceil(cipher.length/c.k)),padded=new Uint8Array(size*c.k);padded.set(cipher);const data=Array.from({length:c.k},(_,i)=>padded.slice(i*size,(i+1)*size)),shards=encode(data,c.n),shardKey=await hkdf(c.master,utf8(snapshotId),utf8('MEL-ShardVault/v1/shard-mac')),descriptors=[];for(let i=0;i<shards.length;i++){const e=c.endpoints[i%c.endpoints.length],objectId=rid(24),locator=await upload(env,e,objectId,shards[i]);descriptors.push({index:i,endpointId:e.id,endpoint:endpointSnapshot(e),objectId,remoteUrl:locator?.remoteUrl||null,byteLength:size,mac:b64u(await hmac(shardKey,concat(utf8(`${snapshotId}:${i}:`),shards[i])))});}const manifest={format:'MEL-ShardVault',formatVersion:1,moduleVersion:'0.2.1-integrated',vaultId:c.vaultId,snapshotId,revision:1,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),dataShards:c.k,totalShards:c.n,shardSize:size,ciphertextLength:cipher.length,iv:b64u(iv),shards:descriptors,source:{format:payload.format,version:payload.version,exported_at:payload.exported_at,counts:{memories:payload.memories?.length||0,conversations:payload.conversations?.length||0,archive_messages:payload.archive_messages?.length||0}},diversity:diversity(c.endpoints)};manifest.manifestMac=await manifestMac(c,manifest);await appendManifest(env,c,manifest);return manifest;}
 
 function deployedCodeIdentity(env){
   const repository=String(env?.MEL_GITHUB_REPOSITORY||'').trim();
