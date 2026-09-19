@@ -19,6 +19,10 @@ test('ShardVault qualification XP is persistent, complete and machine-readable',
   );
   assert.ok(playbook.promotion_state_machine.includes('VALIDATED'));
   assert.ok(playbook.promotion_state_machine.includes('QUARANTINED'));
+  assert.equal(playbook.validated_targets.length, 7);
+  assert.ok(Array.isArray(playbook.operational_use?.write_flow) && playbook.operational_use.write_flow.length >= 6);
+  assert.ok(Array.isArray(playbook.discovery_method?.search_cycle) && playbook.discovery_method.search_cycle.length >= 8);
+  assert.ok(Array.isArray(playbook.discovery_method?.query_families) && playbook.discovery_method.query_families.length >= 6);
 });
 
 test('hourly discovery consumes qualification XP instead of leaving it as documentation only', () => {
@@ -31,4 +35,6 @@ test('hourly discovery consumes qualification XP instead of leaving it as docume
   assert.match(source, /EXPERIENCE_LEAD/);
   assert.match(source, /experienceQueries/);
   assert.match(source, /xpQuery/);
+  assert.match(source, /discovery_method\?\.query_families/);
+  assert.match(source, /VALIDATED_EXPERIENCE/);
 });
