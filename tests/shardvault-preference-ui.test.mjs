@@ -28,3 +28,12 @@ test('ShardVault UI distinguishes seven external targets from internal fallbacks
   assert.match(page,/syncShardVaultCodeExternally/);
   assert.match(page,/externalSelected=allSelected\.filter\(e=>e\.backend==='http'\)/);
 });
+
+
+test('ShardVault code sync route is wired', async () => {
+  const response=await handleShardVaultStatus(new Request('https://example.test/api/gen2/shardvault/code-sync',{method:'POST'}),{});
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.enabled,false);
+});
