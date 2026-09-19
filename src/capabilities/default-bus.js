@@ -2,6 +2,7 @@ import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
 import { registerWorkCapabilities } from './work-capabilities.js';
 import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
+import { registerComputerRuntimeCapabilities } from './computer-runtime-capabilities.js';
 import { registerCreativeMediaCapabilities } from './creative-media-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
@@ -246,6 +247,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
 
   registerCreativeMediaCapabilities(bus, { env: runtimeEnv });
   registerBrowserRuntimeCapabilities(bus, { binding: runtimeEnv.MEL_BROWSER_COMPANION });
+  registerComputerRuntimeCapabilities(bus, { db: runtimeEnv.DB });
   registerWorkCapabilities(bus, { db: runtimeEnv.DB });
   return bus;
 }
