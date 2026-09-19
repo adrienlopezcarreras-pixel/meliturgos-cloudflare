@@ -37,3 +37,13 @@ test('ShardVault code sync route is wired', async () => {
   assert.equal(body.ok,true);
   assert.equal(body.enabled,false);
 });
+
+
+test('ShardVault UI uses snapshot-proven active endpoints as the only activation truth', async () => {
+  const page=fs.readFileSync(new URL('../src/pages/shardvault-status.js',import.meta.url),'utf8');
+  assert.match(page,/actualActiveIds=\(d\.selected_endpoints\|\|\[\]\)\.filter\(e=>e\.backend==='http'&&e\.active===true\)\.map\(e=>e\.id\)/);
+  assert.doesNotMatch(page,/renderDiscovery\(d\.last_discovery[^\n]*active_external_registry/);
+  const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  assert.match(runtime,/reconcileActiveExternalEndpoints/);
+  assert.match(runtime,/externalEndpointsFromSnapshot/);
+});
