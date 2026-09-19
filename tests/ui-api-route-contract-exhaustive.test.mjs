@@ -19,6 +19,7 @@ const SERVER_FILES = [
   '../src/evolution/autonomy-api.js',
   '../src/api/voice-transcribe.js',
   '../src/api/file-upload.js',
+  '../src/pages/shardvault-status.js',
 ];
 
 test('every fixed API endpoint referenced by canonical UI exists in deployed server routing', async () => {
