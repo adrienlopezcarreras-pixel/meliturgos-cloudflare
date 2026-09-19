@@ -1,0 +1,83 @@
+name: probe-shardvault-last-two
+
+on:
+  push:
+    branches:
+      - probe/shardvault-providers-20260919
+    paths:
+      - .github/workflows/probe-shardvault-last-two.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          head -c 315000 /dev/urandom > probe.bin
+
+      - name: Probe dpaste.com with 45KB chunks
+        shell: bash
+        run: |
+          set +e
+          rm -f chunk-*; split -b 45000 -d -a 2 probe.bin chunk-
+          : > rebuilt
+          ok=1
+          for f in chunk-*; do
+            base64 -w0 "$f" > chunk.b64
+            url="$(curl -fsS --max-time 35 -A 'MEL-ShardVault/1.0' -X POST --data-urlencode content@chunk.b64 -d expiry_days=365 https://dpaste.com/api/v2/ 2>err | tr -d '\r\n')"
+            if ! printf '%s' "$url" | grep -q '^https://'; then ok=0; echo "DPASTE_PART_FAIL $(tr '\n' ' ' < err)"; break; fi
+            curl -fsSL --max-time 35 -A 'MEL-ShardVault/1.0' "${url%/}.txt" -o read.b64 || { ok=0; break; }
+            base64 -d read.b64 >> rebuilt 2>/dev/null || { ok=0; break; }
+          done
+          if [ "$ok" -eq 1 ] && cmp -s probe.bin rebuilt; then echo "LAST_RESULT dpastecom PASS"; else echo "LAST_RESULT dpastecom FAIL"; fi
+          exit 0
+
+      - name: Probe Pastebin.ai with 90KB chunks
+        shell: bash
+        run: |
+          set +e
+          rm -f chunk-*; split -b 90000 -d -a 2 probe.bin chunk-
+          : > rebuilt
+          ok=1
+          for f in chunk-*; do
+            base64 -w0 "$f" > chunk.b64
+            jq -n --rawfile c chunk.b64 '{content:$c,title:"MEL ShardVault",language:"plaintext",visibility:"unlisted",expiration:"never"}' > body.json
+            body="$(curl -fsS --max-time 35 -H 'Content-Type: application/json' --data-binary @body.json https://pastebin.ai/api/v1/pastes 2>err)"
+            id="$(printf '%s' "$body" | jq -r '.id // empty' 2>/dev/null)"
+            raw="$(printf '%s' "$body" | jq -r '.raw_url // empty' 2>/dev/null)"
+            if [ -z "$id" ]; then ok=0; echo "PASTEBINAI_PART_FAIL $(tr '\n' ' ' < err)"; break; fi
+            if [ -n "$raw" ]; then curl -fsSL --max-time 35 "$raw" -o read.b64 || { ok=0; break; }; else
+              curl -fsS --max-time 35 "https://pastebin.ai/api/v1/pastes/$id" | jq -r '.content' > read.b64 || { ok=0; break; }
+            fi
+            base64 -d read.b64 >> rebuilt 2>/dev/null || { ok=0; break; }
+          done
+          if [ "$ok" -eq 1 ] && cmp -s probe.bin rebuilt; then echo "LAST_RESULT pastebinai PASS"; else echo "LAST_RESULT pastebinai FAIL"; fi
+          exit 0
+
+      - name: Probe Pastebin.ai with 45KB chunks if needed
+        shell: bash
+        run: |
+          set +e
+          rm -f chunk-*; split -b 45000 -d -a 2 probe.bin chunk-
+          : > rebuilt
+          ok=1
+          for f in chunk-*; do
+            base64 -w0 "$f" > chunk.b64
+            jq -n --rawfile c chunk.b64 '{content:$c,title:"MEL ShardVault",language:"plaintext",visibility:"unlisted",expiration:"never"}' > body.json
+            body="$(curl -fsS --max-time 35 -H 'Content-Type: application/json' --data-binary @body.json https://pastebin.ai/api/v1/pastes 2>err)"
+            id="$(printf '%s' "$body" | jq -r '.id // empty' 2>/dev/null)"
+            raw="$(printf '%s' "$body" | jq -r '.raw_url // empty' 2>/dev/null)"
+            if [ -z "$id" ]; then ok=0; break; fi
+            if [ -n "$raw" ]; then curl -fsSL --max-time 35 "$raw" -o read.b64 || { ok=0; break; }; else
+              curl -fsS --max-time 35 "https://pastebin.ai/api/v1/pastes/$id" | jq -r '.content' > read.b64 || { ok=0; break; }
+            fi
+            base64 -d read.b64 >> rebuilt 2>/dev/null || { ok=0; break; }
+          done
+          if [ "$ok" -eq 1 ] && cmp -s probe.bin rebuilt; then echo "LAST_RESULT pastebinai45 PASS"; else echo "LAST_RESULT pastebinai45 FAIL"; fi
+          exit 0
