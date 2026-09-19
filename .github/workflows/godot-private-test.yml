@@ -1,5 +1,5 @@
 name: Godot private five-game test
-# artifact-key moviewriter run 13
+# artifact-key moviewriter run 14
 
 on:
   push:
@@ -88,11 +88,21 @@ jobs:
             -pass file:/tmp/pass.bin
 
           chmod 600 /tmp/manifest.env
-          while IFS='=' read -r key value; do
-            if [ -n "$key" ]; then
-              export "$key=$value"
-            fi
-          done < /tmp/manifest.env
+          get_b64_value () {
+            key="$1"
+            grep "^$key=" /tmp/manifest.env | head -n1 | cut -d= -f2-
+          }
+          TARNEN_URL="$(get_b64_value TARNEN_B64 | base64 -d)"
+          DIVISION_URL="$(get_b64_value DIVISION_B64 | base64 -d)"
+          CHEVALIER_URL="$(get_b64_value CHEVALIER_B64 | base64 -d)"
+          ORPHELINS_URL="$(get_b64_value ORPHELINS_B64 | base64 -d)"
+          CIVITAS_URL="$(get_b64_value CIVITAS_B64 | base64 -d)"
+
+          test -n "$TARNEN_URL"
+          test -n "$DIVISION_URL"
+          test -n "$CHEVALIER_URL"
+          test -n "$ORPHELINS_URL"
+          test -n "$CIVITAS_URL"
 
           mkdir -p "$RUNNER_TEMP/games"
           download_game () {
