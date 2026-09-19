@@ -1,13 +1,18 @@
 const api = globalThis.browser;
-const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},failed:{},unavailable:{},deferred:{},discovered:0,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,lastProgressAt:null,currentMessageCount:0,stalledCount:0,updatedAt:null};
+const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},failed:{},unavailable:{},deferred:{},discovered:0,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,lastProgressAt:null,currentMessageCount:0,captureProcessed:0,stalledCount:0,updatedAt:null};
 const WATCHDOG_IDLE_MS=8*60*1000;
 const NETWORK_TIMEOUT_MS=6*60*1000;
-const MESSAGE_TIMEOUT_MS=20000;
+const MESSAGE_TIMEOUT_MS=60000;
+const DOM_STABLE_MAX_MS=3*60*1000;
+const ECO_HEAVY_MESSAGES=250;
+const ECO_BLANK_EVERY=5;
 const STOP_WAIT_MS=3000;
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 let processPromise=null;
 let processGeneration=0;
 let activeAbortController=null;
+let activeCapturePulse=null;
+let processedSinceBlank=0;
 
 function codedError(code){return Object.assign(new Error(code),{code})}
 async function withTimeout(task,timeoutMs,code,onTimeout){
@@ -37,7 +42,7 @@ function norm(value){
 function idFromUrl(value){const u=norm(value);return u?decodeURIComponent(new URL(u).pathname.match(/(?:^|\/)c\/([^/?#]+)/i)?.[1]||''):''}
 async function state(){const x=await api.storage.local.get('melCollectorState');return {...DEFAULT,...(x.melCollectorState||{})}}
 async function save(p){const n={...(await state()),...p,updatedAt:Date.now()};await api.storage.local.set({melCollectorState:n});return n}
-async function config(){const x=await api.storage.local.get('melCollectorConfig'),c=x.melCollectorConfig||{};return{endpoint:String(c.endpoint||'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/,''),username:String(c.username||''),password:String(c.password||''),continuous:c.continuous!==false,ecoMode:c.ecoMode!==false,delayMs:Math.max(3000,Math.min(60000,Number(c.delayMs)||12000))}}
+async function config(){const x=await api.storage.local.get('melCollectorConfig'),c=x.melCollectorConfig||{};return{endpoint:String(c.endpoint||'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/,''),username:String(c.username||''),password:String(c.password||''),continuous:c.continuous!==false,ecoMode:c.ecoMode!==false,delayMs:Math.max(8000,Math.min(60000,Number(c.delayMs)||30000))}}
 function auth(u,p){return 'Basic '+btoa(unescape(encodeURIComponent(`${u}:${p}`)))}
 
 async function sendConversation(conversation,trackActive=false){
@@ -82,9 +87,9 @@ async function tabMessage(tabId,payload,attempts=8){
   for(let i=0;i<attempts;i++){try{return await withTimeout(api.tabs.sendMessage(tabId,payload),MESSAGE_TIMEOUT_MS,'CONTENT_SCRIPT_TIMEOUT')}catch(e){err=e;await wait(500+i*250)}}
   throw err||new Error('CONTENT_SCRIPT_UNAVAILABLE');
 }
-async function pageUrls(tabId){try{const r=await tabMessage(tabId,{type:'mel.collector.discover'},4);return Array.isArray(r?.urls)?r.urls.map(norm).filter(Boolean):[]}catch{return[]}}
+async function pageUrls(tabId,deep=false){try{const r=await tabMessage(tabId,{type:'mel.collector.discover',deep},2);return Array.isArray(r?.urls)?r.urls.map(norm).filter(Boolean):[]}catch{return[]}}
 async function mergeDiscovery(tabId){
-  const [a,b]=await Promise.all([historyUrls(),pageUrls(tabId)]);
+  const [a,b]=await Promise.all([historyUrls(),pageUrls(tabId,false)]);
   const s=await state(),done=s.done||{},failed=s.failed||{},unavailable=s.unavailable||{},deferred=s.deferred||{},queued=new Set(s.queue||[]);
   const add=[...new Set([...a,...b])].filter(u=>{
     const id=idFromUrl(u);
@@ -115,21 +120,80 @@ async function waitForExpectedConversation(tabId,sourceId,timeout=15000){
   }
   return false;
 }
+async function waitForDomStable(tabId,ecoMode=true){
+  const started=Date.now();
+  let lastCount=-1,stable=0,lastProbe=null;
+  const interval=ecoMode?2500:1200;
+  while(Date.now()-started<DOM_STABLE_MAX_MS){
+    try{
+      const probe=await tabMessage(tabId,{type:'mel.collector.probe'},1);
+      lastProbe=probe;
+      if(probe?.generating){stable=0;await wait(interval);continue}
+      const count=Number(probe?.messageCount||0);
+      if(count>0&&count===lastCount)stable++;
+      else stable=0;
+      lastCount=count;
+      if(stable>=(ecoMode?3:2))return probe;
+    }catch{}
+    await wait(interval);
+  }
+  if(Number(lastProbe?.messageCount||0)>0&&!lastProbe?.generating)return lastProbe;
+  throw codedError('DOM_NOT_STABLE');
+}
+
+async function captureMessage(tabId){
+  const requestId='cap-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
+  const pulse={requestId,lastAt:Date.now(),processed:0,total:0};
+  activeCapturePulse=pulse;
+  const task=api.tabs.sendMessage(tabId,{type:'mel.collector.capture',requestId});
+  let settled=false,value,error;
+  task.then(v=>{settled=true;value=v}).catch(e=>{settled=true;error=e});
+  try{
+    while(!settled){
+      await wait(5000);
+      if(Date.now()-pulse.lastAt>WATCHDOG_IDLE_MS)throw codedError('CAPTURE_NO_PROGRESS_TIMEOUT');
+    }
+    if(error)throw error;
+    return value;
+  }finally{
+    if(activeCapturePulse===pulse)activeCapturePulse=null;
+  }
+}
+
 async function captureStable(tabId,maxAttempts=5){
   let last;
   for(let i=0;i<maxAttempts;i++){
-    try{last=await tabMessage(tabId,{type:'mel.collector.capture'},3)}catch(e){last={ok:false,code:e?.message||'CAPTURE_FAILED'}}
+    try{last=await captureMessage(tabId)}catch(e){last={ok:false,code:e?.code||e?.message||'CAPTURE_FAILED'}}
     if(last?.ok)return last;
-    if(!['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND','NOT_A_CONVERSATION','CONTENT_SCRIPT_UNAVAILABLE','CONTENT_SCRIPT_TIMEOUT'].includes(last?.code))break;
-    await wait(1200);
+    if(!['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND','NOT_A_CONVERSATION','CONTENT_SCRIPT_UNAVAILABLE','CONTENT_SCRIPT_TIMEOUT','CAPTURE_NO_PROGRESS_TIMEOUT','DOM_NOT_STABLE'].includes(last?.code))break;
+    await wait(2500);
   }
   return last||{ok:false,code:'CAPTURE_FAILED'};
+}
+
+async function ecoCooldown(tabId,cfg,messageCount=0){
+  if(!cfg.ecoMode){await wait(1500);return}
+  processedSinceBlank++;
+  const heavy=Number(messageCount||0)>=ECO_HEAVY_MESSAGES;
+  const shouldBlank=heavy||processedSinceBlank>=ECO_BLANK_EVERY;
+  if(shouldBlank){
+    processedSinceBlank=0;
+    try{
+      await api.tabs.update(tabId,{url:'about:blank'});
+      await waitComplete(tabId,15000);
+      await wait(1500);
+    }catch{}
+  }
+  let delay=cfg.delayMs;
+  if(messageCount>=250)delay=Math.max(delay,45000);
+  if(messageCount>=600)delay=Math.max(delay,60000);
+  await wait(delay);
 }
 async function collectorTab(preferred){
   if(preferred!=null){
     try{
       const t=await api.tabs.get(preferred);
-      if(t?.id!=null && t.active!==true && /^https:\/\/(chatgpt\.com|chat\.openai\.com)\//i.test(t.url||'')) return {tab:t,owned:true};
+      if(t?.id!=null && t.active!==true && (/^https:\/\/(chatgpt\.com|chat\.openai\.com)\//i.test(t.url||'') || t.url==='about:blank')) return {tab:t,owned:true};
     }catch{}
   }
   const created=await api.tabs.create({url:'https://chatgpt.com/',active:false});
@@ -162,14 +226,16 @@ async function process(tabId,generation){
       await save({currentStage:'conversation_check',lastProgressAt:Date.now()});
       const reached=await waitForExpectedConversation(tabId,sourceId,15000);
       if(!reached)throw Object.assign(new Error('CONVERSATION_REDIRECTED_OR_UNAVAILABLE'),{code:'CONVERSATION_REDIRECTED_OR_UNAVAILABLE'});
-      await save({currentStage:'settling',lastProgressAt:Date.now()});
-      await wait(1200);
       const cfg=await config();
-      await save({currentStage:'capture',lastProgressAt:Date.now()});
-      const cap=await captureStable(tabId,cfg.ecoMode?4:8);
+      await save({currentStage:'settling',lastProgressAt:Date.now()});
+      await wait(cfg.ecoMode?4000:1200);
+      await save({currentStage:'dom_stabilize',lastProgressAt:Date.now()});
+      const probe=await waitForDomStable(tabId,cfg.ecoMode);
+      await save({currentStage:'capture',lastProgressAt:Date.now(),currentMessageCount:Number(probe?.messageCount||0),captureProcessed:0});
+      const cap=await captureStable(tabId,cfg.ecoMode?3:6);
       if(!cap?.ok||!cap.conversation) throw Object.assign(new Error(cap?.code||'CAPTURE_FAILED'),{code:cap?.code||'CAPTURE_FAILED'});
       const messageCount=Number(cap.conversation.messages?.length||0);
-      await save({currentStage:'import',lastProgressAt:Date.now(),currentMessageCount:messageCount});
+      await save({currentStage:'import',lastProgressAt:Date.now(),currentMessageCount:messageCount,captureProcessed:messageCount});
       const result=await withTimeout(sendConversation(cap.conversation,true),WATCHDOG_IDLE_MS,'CONVERSATION_NO_PROGRESS_TIMEOUT',()=>{try{activeAbortController?.abort()}catch{}});
       if(!isCurrentRun(generation))return;
       s=await state();
@@ -179,7 +245,7 @@ async function process(tabId,generation){
       const failed={...(s.failed||{})};delete failed[sourceId];
       const unavailable={...(s.unavailable||{})};delete unavailable[sourceId];
       const deferred={...(s.deferred||{})};delete deferred[sourceId];
-      await save({done,failed,unavailable,deferred,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,lastProgressAt:Date.now()});
+      await save({done,failed,unavailable,deferred,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now()});
     }catch(e){
       s=await state();
       if(!isCurrentRun(generation)||s.paused||!s.running)return;
@@ -190,8 +256,8 @@ async function process(tabId,generation){
       failed[key]={url,code,attempts,failedAt:Date.now()};
       const unavailable={...(s.unavailable||{})};
       const deferred={...(s.deferred||{})};
-      const transient=['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND','NOT_A_CONVERSATION','CONTENT_SCRIPT_UNAVAILABLE','CONTENT_SCRIPT_TIMEOUT','TAB_UPDATE_TIMEOUT','MEL_IMPORT_TIMEOUT','MEL_IMPORT_ABORTED','CONVERSATION_NO_PROGRESS_TIMEOUT'].includes(code);
-      const deferImmediately=['CONTENT_SCRIPT_TIMEOUT','TAB_UPDATE_TIMEOUT','MEL_IMPORT_TIMEOUT','MEL_IMPORT_ABORTED','CONVERSATION_NO_PROGRESS_TIMEOUT'].includes(code);
+      const transient=['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND','NOT_A_CONVERSATION','CONTENT_SCRIPT_UNAVAILABLE','CONTENT_SCRIPT_TIMEOUT','TAB_UPDATE_TIMEOUT','MEL_IMPORT_TIMEOUT','MEL_IMPORT_ABORTED','CONVERSATION_NO_PROGRESS_TIMEOUT','CAPTURE_NO_PROGRESS_TIMEOUT','DOM_NOT_STABLE'].includes(code);
+      const deferImmediately=['CONTENT_SCRIPT_TIMEOUT','TAB_UPDATE_TIMEOUT','MEL_IMPORT_TIMEOUT','MEL_IMPORT_ABORTED','CONVERSATION_NO_PROGRESS_TIMEOUT','CAPTURE_NO_PROGRESS_TIMEOUT','DOM_NOT_STABLE'].includes(code);
       const maxAttempts=code==='CONVERSATION_REDIRECTED_OR_UNAVAILABLE'?2:(deferImmediately?1:(transient?2:3));
       const nextQueue=[...(s.queue||[])];
       if(attempts<maxAttempts){
@@ -202,11 +268,12 @@ async function process(tabId,generation){
         deferred[key]={url,code,attempts,deferredAt:Date.now()};
       }
       const stalledCount=Number(s.stalledCount||0)+(deferImmediately?1:0);
-      await save({failed,unavailable,deferred,queue:nextQueue,lastError:code,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,lastProgressAt:Date.now(),stalledCount});
+      await save({failed,unavailable,deferred,queue:nextQueue,lastError:code,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now(),stalledCount});
     }
-    const cfg=await config();
-    if(cfg.ecoMode) await wait(cfg.delayMs);
-    else await wait(1500);
+    const cooldownCfg=await config();
+    const cooldownState=await state();
+    const lastMessages=Number(cooldownState.done?.[sourceId]?.messages||0);
+    await ecoCooldown(tabId,cooldownCfg,lastMessages);
   }
 }
 
@@ -255,11 +322,29 @@ async function retryDeferred(){
 
 api.runtime.onMessage.addListener(async msg=>{
   if(msg?.type==='mel.collector.status')return state();
+  if(msg?.type==='mel.collector.passive-status'){
+    const s=await state();
+    return{busy:!!(s.running&&!s.paused)};
+  }
+  if(msg?.type==='mel.collector.capture-progress'&&activeCapturePulse&&msg.requestId===activeCapturePulse.requestId){
+    const now=Date.now();
+    activeCapturePulse.lastAt=now;
+    activeCapturePulse.processed=Number(msg.processed||0);
+    activeCapturePulse.total=Number(msg.total||0);
+    if(!activeCapturePulse.lastSavedAt||now-activeCapturePulse.lastSavedAt>=5000){
+      activeCapturePulse.lastSavedAt=now;
+      await save({lastProgressAt:now,currentMessageCount:activeCapturePulse.total,captureProcessed:activeCapturePulse.processed});
+    }
+    return{ok:true};
+  }
   if(msg?.type==='mel.collector.start'||msg?.type==='mel.collector.resume')return start();
   if(msg?.type==='mel.collector.pause'){
     processGeneration++;
     try{activeAbortController?.abort()}catch{}
-    return save({running:false,paused:true,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,lastProgressAt:Date.now()});
+    const s=await state();
+    const queue=[...(s.queue||[])];
+    if(s.currentUrl&&!queue.includes(s.currentUrl))queue.unshift(s.currentUrl);
+    return save({running:false,paused:true,queue,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now()});
   }
   if(msg?.type==='mel.collector.retry-deferred')return retryDeferred();
   if(msg?.type==='mel.collector.capture-current'){
@@ -272,9 +357,11 @@ api.runtime.onMessage.addListener(async msg=>{
   }
   if(msg?.type==='mel.collector.auto-capture'&&msg.conversation){
     const c=await config();if(!c.continuous)return{ok:false,skipped:'CONTINUOUS_DISABLED'};
-    const sourceId=String(msg.conversation.id||''),count=Array.isArray(msg.conversation.messages)?msg.conversation.messages.length:0;
+    const sourceId=String(msg.conversation.id||''),count=Math.max(Number(msg.conversation.collector?.totalMessages||0),Array.isArray(msg.conversation.messages)?msg.conversation.messages.length:0);
     if(!sourceId)return{ok:false,skipped:'CONVERSATION_ID_REQUIRED'};
-    let s=await state();if(s.done?.[sourceId]&&Number(s.done[sourceId].messages||0)>=count)return{ok:true,skipped:'ALREADY_CAPTURED'};
+    let s=await state();
+    if(s.running&&!s.paused)return{ok:false,skipped:'BATCH_RUNNING'};
+    if(s.done?.[sourceId]&&Number(s.done[sourceId].messages||0)>=count)return{ok:true,skipped:'ALREADY_CAPTURED'};
     try{
       const result=await sendConversation(msg.conversation);s=await state();
       const done={...(s.done||{}),[sourceId]:{url:msg.conversation.collector?.url||null,title:msg.conversation.title,messages:count,importedAt:Date.now()}};
