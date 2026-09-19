@@ -1,0 +1,86 @@
+name: probe-shardvault-providers
+
+on:
+  push:
+    branches:
+      - probe/shardvault-providers-20260919
+    paths:
+      - .github/workflows/probe-shardvault-providers.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Prepare probe payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'MEL-SHARDVAULT-PROBE-%s-%s\n' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > probe.txt
+          head -c 3072 /dev/urandom | base64 >> probe.txt
+          sha256sum probe.txt > probe.sha256
+
+      - name: Probe Catbox
+        shell: bash
+        run: |
+          set +e
+          url="$(curl -fsS --max-time 25 -F reqtype=fileupload -F "fileToUpload=@probe.txt" https://catbox.moe/user/api.php 2>err)"
+          if printf '%s' "$url" | grep -q '^https://'; then curl -fsSL --max-time 25 "$url" -o out && cmp -s probe.txt out && echo "RESULT catbox PASS $url" || echo "RESULT catbox FAIL_READ"; else echo "RESULT catbox FAIL_UPLOAD $(tr '\n' ' ' < err)"; fi
+
+      - name: Probe qu.ax
+        shell: bash
+        run: |
+          set +e
+          body="$(curl -fsS --max-time 25 -F "files[]=@probe.txt" https://qu.ax/upload 2>err)"
+          url="$(printf '%s' "$body" | jq -r '.files[0].url // empty' 2>/dev/null)"
+          if printf '%s' "$url" | grep -q '^https://'; then curl -fsSL --max-time 25 "$url" -o out && cmp -s probe.txt out && echo "RESULT quax PASS $url" || echo "RESULT quax FAIL_READ"; else echo "RESULT quax FAIL_UPLOAD body=$body err=$(tr '\n' ' ' < err)"; fi
+
+      - name: Probe FileDitch
+        shell: bash
+        run: |
+          set +e
+          body="$(curl -fsS --max-time 25 -F "file=@probe.txt" https://new.fileditch.com/upload.php 2>err)"
+          url="$(printf '%s' "$body" | jq -r '.. | .url? // empty' 2>/dev/null | tail -n1)"
+          if printf '%s' "$url" | grep -q '^https://'; then curl -fsSL --max-time 25 "$url" -o out && cmp -s probe.txt out && echo "RESULT fileditch PASS $url" || echo "RESULT fileditch FAIL_READ"; else echo "RESULT fileditch FAIL_UPLOAD body=$body err=$(tr '\n' ' ' < err)"; fi
+
+      - name: Probe x0.at
+        shell: bash
+        run: |
+          set +e
+          url="$(curl -fsS --max-time 25 -F "file=@probe.txt" https://x0.at/ 2>err | tr -d '\r\n')"
+          if printf '%s' "$url" | grep -q '^https://'; then curl -fsSL --max-time 25 "$url" -o out && cmp -s probe.txt out && echo "RESULT x0at PASS $url" || echo "RESULT x0at FAIL_READ"; else echo "RESULT x0at FAIL_UPLOAD $(tr '\n' ' ' < err)"; fi
+
+      - name: Probe 0x0.st
+        shell: bash
+        run: |
+          set +e
+          url="$(curl -fsS --max-time 25 -F "file=@probe.txt" https://0x0.st/ 2>err | tr -d '\r\n')"
+          if printf '%s' "$url" | grep -q '^https://'; then curl -fsSL --max-time 25 "$url" -o out && cmp -s probe.txt out && echo "RESULT 0x0st PASS $url" || echo "RESULT 0x0st FAIL_READ"; else echo "RESULT 0x0st FAIL_UPLOAD $(tr '\n' ' ' < err)"; fi
+
+      - name: Probe dpaste.org never-expire
+        shell: bash
+        run: |
+          set +e
+          content="$(base64 -w0 probe.txt)"
+          url="$(curl -fsS --max-time 25 -X POST -F format=url -F expires=never --form-string "content=$content" https://dpaste.org/api/ 2>err | tr -d '\r\n')"
+          raw="${url%/}/raw"
+          if printf '%s' "$url" | grep -q '^https://'; then curl -fsSL --max-time 25 "$raw" -o encoded && base64 -d encoded > out 2>/dev/null && cmp -s probe.txt out && echo "RESULT dpaste PASS $url" || echo "RESULT dpaste FAIL_READ url=$url"; else echo "RESULT dpaste FAIL_UPLOAD $(tr '\n' ' ' < err)"; fi
+
+      - name: Probe put.re
+        shell: bash
+        run: |
+          set +e
+          body="$(curl -fsS --max-time 25 -F "file=@probe.txt" https://api.put.re/upload 2>err)"
+          url="$(printf '%s' "$body" | jq -r '.data.link // empty' 2>/dev/null)"
+          if printf '%s' "$url" | grep -q '^https://'; then curl -fsSL --max-time 25 "$url" -o out && cmp -s probe.txt out && echo "RESULT putre PASS $url" || echo "RESULT putre FAIL_READ"; else echo "RESULT putre FAIL_UPLOAD body=$body err=$(tr '\n' ' ' < err)"; fi
+
+      - name: Probe paste.rs
+        shell: bash
+        run: |
+          set +e
+          content="$(base64 -w0 probe.txt)"
+          url="$(printf '%s' "$content" | curl -fsS --max-time 25 --data-binary @- https://paste.rs/ 2>err | tr -d '\r\n')"
+          if printf '%s' "$url" | grep -q '^https://'; then curl -fsSL --max-time 25 "$url" -o encoded && base64 -d encoded > out 2>/dev/null && cmp -s probe.txt out && echo "RESULT pasters PASS $url" || echo "RESULT pasters FAIL_READ"; else echo "RESULT pasters FAIL_UPLOAD $(tr '\n' ' ' < err)"; fi
