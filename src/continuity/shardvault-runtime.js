@@ -50,3 +50,57 @@ async function publishSnapshot(env,c,payload){const plain=utf8(JSON.stringify(pa
 
 export async function runShardVaultCycle(env,{force=false}={}){if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:true,enabled:false,skipped:true,reason:'DISABLED'};let c;try{c=config(env);}catch(error){return {ok:false,enabled:true,skipped:true,reason:'CONFIG_INVALID',error:String(error?.message||error)}}if(!c.ok)return {ok:false,enabled:true,skipped:true,reason:'CONFIG_MISSING',missing:c.missing};try{const rows=await inventoryRows(env,c),last=latestSnapshot(rows),age=last?Date.now()-Date.parse(last.createdAt||0):Infinity;let health=null,autonomous=null;if(last){try{health=await checkAndRepair(env,c,last);}catch(error){health={snapshotId:last.snapshotId,healthy:false,fatal:String(error?.message||error)};const enriched=await enrichAutonomous(env,c,last.shardSize||0);c=enriched.config;autonomous=enriched.report;if(c.allEndpoints.length){try{health=await checkAndRepair(env,c,last);}catch(error2){health={snapshotId:last.snapshotId,healthy:false,fatal:String(error2?.message||error2)};}}}}if(!force&&last&&Number.isFinite(age)&&age<c.intervalMs)return {ok:health?.healthy!==false,enabled:true,skipped:true,reason:'INTERVAL_NOT_DUE',latest_snapshot:last.snapshotId,age_ms:age,health,autonomous,diversity:diversity(c.endpoints)};const payload=await buildMemoryExportPayload(env,{limit:Number(env.MEL_SHARDVAULT_EXPORT_LIMIT)||10000}),estimated=Math.max(256,Math.ceil((utf8(JSON.stringify(payload)).length+16)/c.k)),enriched=await enrichAutonomous(env,c,estimated);c=enriched.config;autonomous=enriched.report;if(!c.endpoints.length)throw new Error('NO_STORAGE_ENDPOINTS_AVAILABLE');const manifest=await publishSnapshot(env,c,payload);manifest.autonomousSelection=autonomous?{discovered:autonomous.discovered||0,probed:autonomous.probed||0,selected:autonomous.selected?.length||0,diversity:autonomous.diversity||null,error:autonomous.error||null}:null;return {ok:true,enabled:true,skipped:false,snapshot_id:manifest.snapshotId,created_at:manifest.createdAt,shards:manifest.totalShards,data_shards:manifest.dataShards,health_before:health,counts:manifest.source.counts,autonomous:manifest.autonomousSelection,diversity:manifest.diversity};}catch(error){return {ok:false,enabled:true,skipped:false,reason:'CYCLE_FAILED',error:String(error?.message||error),diversity:diversity(c.endpoints)};}}
 export const __shardvaultTest = Object.freeze({ encode, decode, selectEndpoints, diversity });
+
+
+function publicEndpointView(e){return {id:e.id,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:Number(e.score)||0,confidence:Number(e.confidence)||0,autonomous:e.autonomous===true,authMode:e.authMode||null,maxBytes:Number(e.maxBytes)||0};}
+
+export async function getShardVaultStatus(env){
+  if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:true,enabled:false,status:'DISABLED'};
+  let c;
+  try{c=config(env);}catch(error){return {ok:false,enabled:true,status:'CONFIG_INVALID',error:String(error?.message||error)};}
+  if(!c.ok)return {ok:false,enabled:true,status:'CONFIG_MISSING',missing:c.missing};
+  try{
+    const rows=await inventoryRows(env,c),last=latestSnapshot(rows);
+    let health=null;
+    if(last){
+      try{
+        const got=await collect(c,last);
+        const healthy=got.available.filter(Boolean).length;
+        health={healthy_shards:healthy,total_shards:last.totalShards,data_shards:last.dataShards,missing:got.missing,recoverable:healthy>=last.dataShards,errors:got.errors};
+      }catch(error){health={recoverable:false,error:String(error?.message||error)};}
+    }
+    return {
+      ok:true,enabled:true,status:last?'ONLINE':'NO_SNAPSHOT',
+      scheme:{data_shards:c.k,total_shards:c.n,tolerated_losses:c.n-c.k},
+      latest:last?{snapshot_id:last.snapshotId,revision:last.revision||1,created_at:last.createdAt,updated_at:last.updatedAt,shard_size:last.shardSize,source:last.source||null,diversity:last.diversity||null}:null,
+      health,
+      configured_endpoints:c.allEndpoints.map(publicEndpointView),
+      selected_endpoints:c.endpoints.map(publicEndpointView),
+      autonomous_enabled:String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')==='true',
+      autonomous_feeds:parseJson(env?.MEL_AUTONOMOUS_FEEDS_JSON,[]).length,
+      autonomous_catalog_entries:parseJson(env?.MEL_AUTONOMOUS_REPOSITORIES_JSON,[]).length,
+      checked_at:new Date().toISOString()
+    };
+  }catch(error){return {ok:false,enabled:true,status:'ERROR',error:String(error?.message||error)};}
+}
+
+export async function searchAutonomousShardVaultRepositories(env){
+  let c;
+  try{c=config(env);}catch(error){return {ok:false,error:String(error?.message||error),status:'CONFIG_INVALID'};}
+  if(!c.ok)return {ok:false,status:'CONFIG_MISSING',missing:c.missing};
+  try{
+    let requiredBytes=256;
+    try{const rows=await inventoryRows(env,c),last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
+    const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
+    return {
+      ok:true,
+      searched_at:new Date().toISOString(),
+      required_bytes:requiredBytes,
+      discovered:report.discovered||0,
+      probed:report.probed||0,
+      selected:(report.selected||[]).map(publicEndpointView),
+      rejected:report.rejected||[],
+      diversity:report.diversity||null
+    };
+  }catch(error){return {ok:false,status:'SEARCH_FAILED',error:String(error?.message||error),searched_at:new Date().toISOString()};}
+}
