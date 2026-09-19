@@ -90,11 +90,14 @@ async function tabMessage(tabId,payload,attempts=8){
 async function pageUrls(tabId,deep=false){try{const r=await tabMessage(tabId,{type:'mel.collector.discover',deep},2);return Array.isArray(r?.urls)?r.urls.map(norm).filter(Boolean):[]}catch{return[]}}
 async function mergeDiscovery(tabId){
   const [a,b]=await Promise.all([historyUrls(),pageUrls(tabId,false)]);
-  const s=await state(),done=s.done||{},failed=s.failed||{},unavailable=s.unavailable||{},deferred=s.deferred||{},queued=new Set(s.queue||[]);
+  const s=await state(),done=s.done||{},partial=s.partial||{},failed=s.failed||{},unavailable=s.unavailable||{},deferred=s.deferred||{},queued=new Set(s.queue||[]);
   const add=[...new Set([...a,...b])].filter(u=>{
     const id=idFromUrl(u);
     const attempts=Number(failed[id]?.attempts||0);
-    return id && !done[id] && !unavailable[id] && !deferred[id] && attempts<3 && !queued.has(u);
+    const completedMessages=Number(done[id]?.messages||0);
+    const partialMessages=Number(partial[id]?.messages||0);
+    const needsFullCapture=!done[id]||partialMessages>completedMessages;
+    return id && needsFullCapture && !unavailable[id] && !deferred[id] && attempts<3 && !queued.has(u);
   });
   const queue=[...(s.queue||[]),...add];
   return save({queue,discovered:new Set([...queue,...Object.values(done).map(x=>x.url).filter(Boolean),...Object.values(deferred).map(x=>x.url).filter(Boolean),...Object.values(failed).map(x=>x.url).filter(Boolean),...Object.values(unavailable).map(x=>x.url).filter(Boolean)]).size});
@@ -216,7 +219,9 @@ async function process(tabId,generation){
       if(!queue.length){await save({running:false,paused:false,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,lastProgressAt:Date.now()});return}
     }
     const url=queue.shift(),sourceId=idFromUrl(url);
-    if(!sourceId||s.done?.[sourceId]){await save({queue});continue}
+    const completedMessages=Number(s.done?.[sourceId]?.messages||0);
+    const partialMessages=Number(s.partial?.[sourceId]?.messages||0);
+    if(!sourceId||(s.done?.[sourceId]&&partialMessages<=completedMessages)){await save({queue});continue}
     let itemMessageCount=0;
     const startedAt=Date.now();
     await save({queue,currentUrl:url,currentStage:'navigation',currentStartedAt:startedAt,lastProgressAt:startedAt,currentMessageCount:0});
@@ -368,7 +373,7 @@ api.runtime.onMessage.addListener(async msg=>{
     let s=await state();
     if(s.running&&!s.paused)return{ok:false,skipped:'BATCH_RUNNING'};
     const partialCapture=msg.conversation.collector?.partial===true;
-    if(!partialCapture&&s.done?.[sourceId]&&Number(s.done[sourceId].messages||0)>=count)return{ok:true,skipped:'ALREADY_CAPTURED'};
+    if(s.done?.[sourceId]&&Number(s.done[sourceId].messages||0)>=count)return{ok:true,skipped:'ALREADY_CAPTURED'};
     if(partialCapture&&s.partial?.[sourceId]&&Number(s.partial[sourceId].messages||0)>=count)return{ok:true,skipped:'ALREADY_CAPTURED_PARTIAL'};
     try{
       const result=await sendConversation(msg.conversation);s=await state();
