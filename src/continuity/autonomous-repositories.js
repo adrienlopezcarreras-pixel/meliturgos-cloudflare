@@ -5,6 +5,7 @@ const MAX_PUBLIC_FEEDS = 30;
 const MAX_GITHUB_REPOS = 20;
 const MAX_GITHUB_CATALOG_REPOS = 12;
 const MAX_CATALOG_LEADS = 120;
+const MAX_EXPERIENCE_PLAYBOOKS = 5;
 const DISCOVERY_HISTORY_KEY='shardvault/discovery/history.json';
 const DISCOVERY_LATEST_KEY='shardvault/discovery/latest.json';
 const QUERY_SETS = Object.freeze([
@@ -250,7 +251,7 @@ async function loadPublicFeed(url,accepted,rejected,queue,seen){
 async function discoverInternetSources(env,accepted,rejected){
   const history=await readDiscoveryHistory(env),generation=history.generation+1,previousSeen=new Set(history.seen_leads||[]);
   const sources=[],allLeads=EMBEDDED_SEED_LEADS.map(x=>({...x,source:'embedded-bootstrap',status:'SEED_LEAD'})),queue=[],seen=new Set();
-  let leads=allLeads,catalogs=generation===1||generation%6===0?[...EMBEDDED_CATALOGS]:[];
+  let leads=allLeads,catalogs=generation===1||generation%6===0?[...EMBEDDED_CATALOGS]:[],experienceQueries=[];
   const indexUrl=String(env?.MEL_SHARDVAULT_DISCOVERY_INDEX||DEFAULT_DISCOVERY_INDEX);
   try{
     const clean=publicHttps(indexUrl,'DISCOVERY_INDEX').toString();
@@ -265,6 +266,35 @@ async function discoverInternetSources(env,accepted,rejected){
       const url=String(seed?.url||'').trim();
       if(!name)continue;
       allLeads.push({name,url:url||null,source:clean,summary:String(seed?.summary||'Source trouvée lors de la première exploration manuelle.').slice(0,500),status:'SEED_LEAD'});
+    }
+    for(const rawBook of (index.experience_playbooks||[]).slice(0,MAX_EXPERIENCE_PLAYBOOKS)){
+      const bookUrl=typeof rawBook==='string'?rawBook:rawBook?.url;
+      if(!bookUrl)continue;
+      try{
+        const xu=publicHttps(bookUrl,'EXPERIENCE_PLAYBOOK').toString();
+        const xr=await fetchTimed(xu,{method:'GET',headers:{'accept':'application/json'}},8000);
+        if(!xr.ok)throw new Error('EXPERIENCE_PLAYBOOK_HTTP_'+xr.status);
+        const book=await xr.json();
+        if(book?.format!=='MEL-ShardVault-QualificationPlaybook')throw new Error('EXPERIENCE_PLAYBOOK_FORMAT_INVALID');
+        for(const target of book.candidate_targets||[]){
+          const name=String(target?.name||target?.id||'').trim();
+          const url=String(target?.url||'').trim();
+          if(!name)continue;
+          const retention=target?.retention&&typeof target.retention==='object'?target.retention:{};
+          const summary=[
+            String(target?.status||'EXPERIENCE_LEAD'),
+            target?.adapter_hint?'adapter '+String(target.adapter_hint):'',
+            retention.model?'retention '+String(retention.model):'',
+            Number(retention.days)>0?String(retention.days)+'d':'',
+            String(target?.notes||'')
+          ].filter(Boolean).join(' · ').slice(0,500);
+          allLeads.push({name,url:url||null,source:xu,summary,status:'EXPERIENCE_LEAD'});
+        }
+        if(Array.isArray(book?.search_strategy?.search_queries))experienceQueries.push(...book.search_strategy.search_queries.map(String).filter(Boolean).slice(0,30));
+        sources.push({id:'qualification-playbook',url:xu,status:'LOADED',kind:'experience',targets:Array.isArray(book.candidate_targets)?book.candidate_targets.length:0,lessons:Array.isArray(book.failure_memory)?book.failure_memory.length:0});
+      }catch(error){
+        sources.push({id:'qualification-playbook',url:String(bookUrl),status:'ERROR',kind:'experience',error:String(error?.message||error)});
+      }
     }
     for(const feed of index.native_feeds||[]){try{queue.push(publicHttps(typeof feed==='string'?feed:feed?.url,'BOOTSTRAP_FEED').toString());}catch{}}
     for(const catalog of catalogs){
@@ -324,7 +354,9 @@ async function discoverInternetSources(env,accepted,rejected){
     }
   }catch(error){sources.push({id:'github-shardvault-search',url:'https://github.com/search?q=mel-shardvault&type=repositories',status:'ERROR',kind:'search',error:String(error?.message||error)});}
 
-  const catalogQueries=QUERY_SETS[(generation-1)%QUERY_SETS.length];
+  const baseQueries=QUERY_SETS[(generation-1)%QUERY_SETS.length];
+  const xpQuery=experienceQueries.length?experienceQueries[(generation-1)%experienceQueries.length]:null;
+  const catalogQueries=xpQuery?[...baseQueries,xpQuery]:baseQueries;
   const catalogRepos=new Map();
   for(const query of catalogQueries){
     try{
