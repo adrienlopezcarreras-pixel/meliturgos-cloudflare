@@ -1,7 +1,7 @@
 {
   "format": "MEL-ShardVault-DiscoveryIndex",
   "version": 3,
-  "updated_at": "2026-09-19T17:12:00Z",
+  "updated_at": "2026-09-19T17:48:00Z",
   "seed_leads": [
     {
       "name": "/TMP/FILES",
@@ -91,6 +91,6 @@
   "github_repository_search": true,
   "github_catalog_search": true,
   "experience_playbooks": [
-    "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/refs/heads/candidate/mel-clean-autonomy/shardvault/qualification-playbook.json"
+    "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/qualification-playbook.json"
   ]
 }
