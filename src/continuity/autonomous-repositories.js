@@ -452,7 +452,8 @@ function eligible(c,{requiredBytes=0,policyMaxAgeDays=180,minRetentionDays=90}={
     if(!c.policyUrl||!c.policyReviewedAt)reasons.push('POLICY_EVIDENCE_MISSING');
     else if(Date.now()-Date.parse(c.policyReviewedAt)>policyMaxAgeDays*DAY)reasons.push('POLICY_EVIDENCE_STALE');
   }
-  if(c.maxBytes<Math.max(256,requiredBytes))reasons.push('CAPACITY_TOO_SMALL');
+  const requiredObjectBytes=Math.max(256,Math.min(Math.max(256,requiredBytes),32*1024));
+  if(c.maxBytes<requiredObjectBytes)reasons.push('CAPACITY_TOO_SMALL');
   const renewable=c.retentionModel==='renewable'&&c.fullReadRenewsRetention===true&&c.baseRetentionDays>=30&&c.refreshEveryDays>0&&c.refreshEveryDays<c.baseRetentionDays;
   if(c.expectedRetentionDays<minRetentionDays&&!renewable)reasons.push('RETENTION_TOO_SHORT_'+c.expectedRetentionDays+'D_MIN_'+minRetentionDays+'D');
   return {ok:reasons.length===0,reasons};
