@@ -136,3 +136,5 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
     diversity:{selected:selected.length,uniqueOperators:new Set(selected.map(c=>c.operatorDomain)).size,uniqueProviders:new Set(selected.map(c=>c.providerId)).size,uniqueJurisdictions:new Set(selected.map(c=>c.jurisdiction).filter(x=>x!=='UNKNOWN')).size},
   };
 }
+
+export const __autonomousTest = Object.freeze({ normalize, eligible, choose });
