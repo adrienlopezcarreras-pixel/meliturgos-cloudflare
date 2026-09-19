@@ -213,5 +213,21 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     created_at: 1789838400000,
   },
 
+  {
+    id: 'shardvault-seven-target-usage-and-discovery-20260919',
+    source: 'chatgpt-teacher',
+    domain: 'storage-resilience',
+    task: 'Utiliser correctement les sept cibles ShardVault validées et savoir découvrir, adapter, tester et remplacer de nouvelles cibles sans dépendre d’un humain.',
+    input: 'MEL dispose de sept fournisseurs externes validés mais doit savoir écrire/lire réellement sur chacun, conserver les bons locateurs distants, remplacer une cible morte et agrandir son pool de façon autonome.',
+    before: 'Traiter un fournisseur comme un simple URL générique, reconstruire une URL de lecture au lieu de conserver celle renvoyée, envoyer des octets binaires à une API texte, considérer un HTTP 2xx comme une preuve suffisante, réutiliser indéfiniment une cible cassée, ou attendre qu’un humain fournisse le prochain service.',
+    after: 'Pour une écriture réelle: partir uniquement d’un shard déjà chiffré; choisir une cible VALIDATED en privilégiant la diversité d’opérateur; appliquer exactement son adaptateur; persister le locateur de lecture renvoyé; relire immédiatement; décoder le wrapper éventuel; comparer longueur et octets; n’accepter le fragment qu’après égalité exacte. Pour trouver de nouvelles cibles: varier les familles de requêtes, rechercher d’abord documentation officielle/conditions/API puis dépôts open source et catalogues publics; extraire méthode d’écriture, format de payload, authentification, extraction du locateur, représentation raw/direct, taille, rétention, limites et politique d’automatisation; rejeter les comptes humains, secrets permanents, paiements, interdictions d’automatisation et rétentions insuffisantes; convertir la documentation en profil d’adaptateur borné; lancer un probe synthétique de 256–1024 octets depuis Cloudflare; exiger write -> read -> exact byte match -> retention evidence avant VALIDATED; mémoriser les échecs et changer de famille de recherche au lieu de boucler. Les jetons éphémères créés anonymement par le fournisseur sont acceptables uniquement si aucun secret utilisateur ni autorisation manuelle n’est requis.',
+    rationale: 'Le run de preview 35461742052 a démontré sept cibles indépendantes réellement utilisables depuis l’infrastructure MEL. L’expérience a aussi montré que les détails d’adaptateur sont décisifs: WaifuVault exige sa représentation de téléchargement direct, Telegraph peut créer son propre jeton anonyme, et des fournisseurs documentés comme uDrop peuvent néanmoins bloquer Cloudflare. La capacité utile n’est donc pas de mémoriser sept noms mais de mémoriser la méthode complète usage -> preuve -> maintenance -> remplacement.',
+    tests: ['preview run 35461742052 reached discovered=16, probed=7, selected=7 and target_reached=true', 'validated providers: Pastebin.ai, MSK Paste, PasteMyst, Telegraph, WaifuVault, Markdown Paste, Pastebox', 'shardvault/qualification-playbook.json v3 contains validated_targets, operational_use and discovery_method', 'runtime contains provider-specific write/read adapters and stores provider-returned remote locators', 'qualification requires deployed write/read/exact-byte proof before activation'],
+    tags: ['learning', 'xp', 'shardvault', 'seven-targets', 'operational-use', 'provider-adapters', 'discovery', 'replacement', 'exact-byte-match', 'cloudflare', 'ephemeral-token', 'autonomy'],
+    validated: true,
+    quality: 1,
+    created_at: 1789843320000,
+  },
+
 
 ]);
