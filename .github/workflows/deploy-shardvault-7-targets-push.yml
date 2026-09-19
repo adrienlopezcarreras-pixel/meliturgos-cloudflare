@@ -1,0 +1,86 @@
+name: deploy-shardvault-7-targets-push
+
+on:
+  push:
+    branches:
+      - 'release/shardvault-7-targets-6ff61543'
+    paths:
+      - '.github/workflows/deploy-shardvault-7-targets-push.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meliturgos-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPECTED_SHA: 6ff61543b6631e0f34d1d82ff1380b27a5f633fe
+      RELEASE_BRANCH: release/shardvault-7-targets-6ff61543
+    steps:
+      - name: Checkout exact approved candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 6ff61543b6631e0f34d1d82ff1380b27a5f633fe
+          fetch-depth: 0
+
+      - name: Prove exact candidate identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git fetch origin candidate/mel-clean-autonomy --depth=1
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          echo "Exact candidate identity verified: $EXPECTED_SHA"
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs
+
+      - name: Syntax gate
+        run: npm run check
+
+      - name: Full test suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B candidate/release-ci-head "$EXPECTED_SHA"
+          npm test
+
+      - name: Deploy exact approved SHA to production
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy \
+            --define "MEL_DEPLOYED_GIT_SHA:'6ff61543b6631e0f34d1d82ff1380b27a5f633fe'" \
+            --define "MEL_DEPLOYED_GIT_BRANCH:'release/shardvault-7-targets-6ff61543'"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify production HTTP
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROD_STATUS="$(curl --silent --show-error --location \
+            --retry 5 --retry-all-errors --retry-delay 3 --max-time 30 \
+            --output production-root.html \
+            --write-out '%{http_code}' \
+            https://meliturgos.adrien-lopezcarreras.workers.dev)"
+          case "$PROD_STATUS" in
+            2??|3??|401) ;;
+            *) echo "Unexpected production HTTP status: $PROD_STATUS"; exit 22 ;;
+          esac
+          echo "Production HTTP verification passed with status ${PROD_STATUS}."
