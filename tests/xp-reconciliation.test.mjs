@@ -56,3 +56,20 @@ test('canonical deployment XP grows the MEL corpus without changing the LoRA thr
   assert.equal(bundle.preference.some(item => item.id === id), true, 'deployment XP absent from trainingBundle');
   assert.ok(bundle.accepted >= 51, 'MEL corpus should be allowed to grow beyond 50 lessons');
 });
+
+
+test('ShardVault proven-active XP is loaded by MEL training', async () => {
+  const id = 'shardvault-proven-active-source-of-truth-20260919';
+  const row = BOOTSTRAP_CORRECTIONS.find(item => item.id === id);
+  assert.ok(row, 'ShardVault source-of-truth XP missing');
+  assert.equal(row.validated, true);
+  assert.equal(row.quality, 1);
+  assert.match(row.after, /QUALIFIÉ, STAGED et ACTIF/);
+  assert.match(row.after, /même source de vérité backend/);
+
+  const engine = new LearningEngine({ memory: new MemoryStub() });
+  const corrections = await engine.corrections({ limit: 500 });
+  const bundle = await engine.trainingBundle({ minQuality: 0.65, limit: 500 });
+  assert.equal(corrections.some(item => item.id === id && item.validated === true), true, 'XP absent from MEL corrections');
+  assert.equal(bundle.preference.some(item => item.id === id), true, 'XP absent from MEL trainingBundle');
+});
