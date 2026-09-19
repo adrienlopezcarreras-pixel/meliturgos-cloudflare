@@ -147,7 +147,7 @@ async function captureMessage(tabId){
   activeCapturePulse=pulse;
   const task=api.tabs.sendMessage(tabId,{type:'mel.collector.capture',requestId});
   let settled=false,value,error;
-  task.then(v=>{settled=true;value=v}).catch(e=>{settled=true;error=e});
+  task.then(v=>{settled=true;value=v}).catch(()=>{settled=true;error=codedError('CONTENT_SCRIPT_UNAVAILABLE')});
   try{
     while(!settled){
       await wait(5000);
@@ -165,7 +165,8 @@ async function captureStable(tabId,maxAttempts=5){
   for(let i=0;i<maxAttempts;i++){
     try{last=await captureMessage(tabId)}catch(e){last={ok:false,code:e?.code||e?.message||'CAPTURE_FAILED'}}
     if(last?.ok)return last;
-    if(!['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND','NOT_A_CONVERSATION','CONTENT_SCRIPT_UNAVAILABLE','CONTENT_SCRIPT_TIMEOUT','CAPTURE_NO_PROGRESS_TIMEOUT','DOM_NOT_STABLE'].includes(last?.code))break;
+    if(last?.code==='CAPTURE_NO_PROGRESS_TIMEOUT')return last;
+    if(!['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND','NOT_A_CONVERSATION','CONTENT_SCRIPT_UNAVAILABLE','CONTENT_SCRIPT_TIMEOUT','DOM_NOT_STABLE'].includes(last?.code))break;
     await wait(2500);
   }
   return last||{ok:false,code:'CAPTURE_FAILED'};
@@ -216,6 +217,7 @@ async function process(tabId,generation){
     }
     const url=queue.shift(),sourceId=idFromUrl(url);
     if(!sourceId||s.done?.[sourceId]){await save({queue});continue}
+    let itemMessageCount=0;
     const startedAt=Date.now();
     await save({queue,currentUrl:url,currentStage:'navigation',currentStartedAt:startedAt,lastProgressAt:startedAt,currentMessageCount:0});
     try{
@@ -231,10 +233,12 @@ async function process(tabId,generation){
       await wait(cfg.ecoMode?4000:1200);
       await save({currentStage:'dom_stabilize',lastProgressAt:Date.now()});
       const probe=await waitForDomStable(tabId,cfg.ecoMode);
-      await save({currentStage:'capture',lastProgressAt:Date.now(),currentMessageCount:Number(probe?.messageCount||0),captureProcessed:0});
+      itemMessageCount=Number(probe?.messageCount||0);
+      await save({currentStage:'capture',lastProgressAt:Date.now(),currentMessageCount:itemMessageCount,captureProcessed:0});
       const cap=await captureStable(tabId,cfg.ecoMode?3:6);
       if(!cap?.ok||!cap.conversation) throw Object.assign(new Error(cap?.code||'CAPTURE_FAILED'),{code:cap?.code||'CAPTURE_FAILED'});
       const messageCount=Number(cap.conversation.messages?.length||0);
+      itemMessageCount=Math.max(itemMessageCount,messageCount);
       await save({currentStage:'import',lastProgressAt:Date.now(),currentMessageCount:messageCount,captureProcessed:messageCount});
       const result=await withTimeout(sendConversation(cap.conversation,true),WATCHDOG_IDLE_MS,'CONVERSATION_NO_PROGRESS_TIMEOUT',()=>{try{activeAbortController?.abort()}catch{}});
       if(!isCurrentRun(generation))return;
@@ -271,9 +275,7 @@ async function process(tabId,generation){
       await save({failed,unavailable,deferred,queue:nextQueue,lastError:code,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now(),stalledCount});
     }
     const cooldownCfg=await config();
-    const cooldownState=await state();
-    const lastMessages=Number(cooldownState.done?.[sourceId]?.messages||0);
-    await ecoCooldown(tabId,cooldownCfg,lastMessages);
+    await ecoCooldown(tabId,cooldownCfg,itemMessageCount);
   }
 }
 
