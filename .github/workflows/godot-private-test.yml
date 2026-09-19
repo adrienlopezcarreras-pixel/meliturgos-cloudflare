@@ -13,7 +13,7 @@ permissions:
 jobs:
   godot-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
     steps:
       - name: Checkout handshake branch
         uses: actions/checkout@v4
@@ -37,7 +37,7 @@ jobs:
           echo "GODOT=$GODOT" >> "$GITHUB_ENV"
           "$GODOT" --version
 
-      - name: Publish one-run encryption key and wait for encrypted payload
+      - name: Publish one-run key and wait for encrypted payload parts
         env:
           BRANCH: godot-private-test-20260919
           REPO: adrienlopezcarreras-pixel/meliturgos-cloudflare
@@ -58,12 +58,11 @@ jobs:
           echo "GODOT_TEST_RUN_ID=$GITHUB_RUN_ID"
           echo "Ephemeral public key published for run $GITHUB_RUN_ID"
 
-          PAYLOAD_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/ci-godot-test/payload-$GITHUB_RUN_ID.txt"
-          echo "Waiting for encrypted payload: ci-godot-test/payload-$GITHUB_RUN_ID.txt"
+          MANIFEST_URL="https://raw.githubusercontent.com/$REPO/$BRANCH/ci-godot-test/payload-$GITHUB_RUN_ID-manifest.txt"
           found=0
-          for i in $(seq 1 100); do
-            if curl -fsSL "$PAYLOAD_URL?cache=$i-$(date +%s)" -o /tmp/payload.txt; then
-              if grep -q '^KEY_B64=' /tmp/payload.txt && grep -q '^CIPHER_B64=' /tmp/payload.txt; then
+          for i in $(seq 1 120); do
+            if curl -fsSL "$MANIFEST_URL?cache=$i-$(date +%s)" -o /tmp/manifest.txt; then
+              if grep -q '^PARTS=' /tmp/manifest.txt; then
                 found=1
                 break
               fi
@@ -71,22 +70,54 @@ jobs:
             sleep 5
           done
           if [ "$found" -ne 1 ]; then
-            echo "PAYLOAD_TIMEOUT"
+            echo "PAYLOAD_MANIFEST_TIMEOUT"
             exit 90
+          fi
+
+          PARTS="$(sed -n 's/^PARTS=//p' /tmp/manifest.txt | head -n1)"
+          if ! [[ "$PARTS" =~ ^[0-9]+$ ]] || [ "$PARTS" -lt 1 ] || [ "$PARTS" -gt 100 ]; then
+            echo "INVALID_PART_COUNT:$PARTS"
+            exit 91
+          fi
+
+          : > /tmp/payload.txt
+          for n in $(seq -w 1 "$PARTS"); do
+            URL="https://raw.githubusercontent.com/$REPO/$BRANCH/ci-godot-test/payload-$GITHUB_RUN_ID-part$n.txt"
+            ok=0
+            for attempt in $(seq 1 60); do
+              if curl -fsSL "$URL?cache=$attempt-$(date +%s)" -o "/tmp/part$n"; then
+                ok=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "$ok" -ne 1 ]; then
+              echo "PAYLOAD_PART_TIMEOUT:$n"
+              exit 92
+            fi
+            cat "/tmp/part$n" >> /tmp/payload.txt
+          done
+
+          if ! grep -q '^KEY_B64=' /tmp/payload.txt || ! grep -q '^CIPHER_B64=' /tmp/payload.txt; then
+            echo "PAYLOAD_FORMAT_INVALID"
+            exit 93
           fi
 
           sed -n 's/^KEY_B64=//p' /tmp/payload.txt | base64 -d > /tmp/key.enc
           sed -n 's/^CIPHER_B64=//p' /tmp/payload.txt | base64 -d > /tmp/bundle.enc
+
           openssl pkeyutl -decrypt -inkey /tmp/private.pem \
             -pkeyopt rsa_padding_mode:oaep \
             -in /tmp/key.enc -out /tmp/pass.bin
+
           openssl enc -d -aes-256-cbc -pbkdf2 \
             -in /tmp/bundle.enc -out /tmp/games.tar.gz \
             -pass file:/tmp/pass.bin
 
           mkdir -p "$RUNNER_TEMP/games"
           tar -xzf /tmp/games.tar.gz -C "$RUNNER_TEMP/games"
-          rm -f /tmp/private.pem /tmp/public.pem /tmp/key.enc /tmp/bundle.enc /tmp/pass.bin /tmp/games.tar.gz /tmp/payload.txt
+
+          rm -f /tmp/private.pem /tmp/public.pem /tmp/key.enc /tmp/bundle.enc /tmp/pass.bin /tmp/games.tar.gz /tmp/payload.txt /tmp/manifest.txt /tmp/part*
           echo "GAMES_ROOT=$RUNNER_TEMP/games" >> "$GITHUB_ENV"
 
       - name: Execute five projects in Godot
@@ -142,4 +173,5 @@ jobs:
           else
             echo "OVERALL_RESULT=FAIL"
           fi
+
           exit "$overall"
