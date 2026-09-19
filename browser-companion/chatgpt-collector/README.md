@@ -4,7 +4,7 @@ Collecteur local et progressif des conversations ChatGPT vers la mémoire persis
 
 ## Fonctionnement
 
-- découvre les conversations via la barre latérale ChatGPT et l'historique Firefox ;
+- découvre les conversations via l'historique Firefox et effectue une exploration profonde bornée de la barre latérale ChatGPT afin de rattraper des conversations jamais ouvertes sur ce PC ;
 - ouvre les conversations une à une ;
 - extrait les messages affichés dans le DOM ;
 - envoie chaque conversation vers `/api/gen2/import/chatgpt-archive` ;
@@ -36,6 +36,6 @@ Le mode temporaire disparaît après redémarrage de Firefox. Pour une installat
 
 ## Limites
 
-Le collecteur ne peut récupérer que les conversations que Firefox peut ouvrir. L'historique du navigateur augmente fortement la couverture par rapport à la seule barre latérale, mais l'export officiel ChatGPT restera utile pour contrôler l'exhaustivité et récupérer ce qui n'a jamais été ouvert sur ce navigateur ou certaines pièces jointes.
+Le collecteur ne peut récupérer que les conversations que Firefox peut ouvrir ou découvrir dans l'interface ChatGPT. L'historique du navigateur et l'exploration profonde de la barre latérale augmentent fortement la couverture, mais l'export officiel ChatGPT reste la seule référence externe permettant de contrôler une exhaustivité absolue du compte et de récupérer certaines pièces jointes.
 
 Le DOM ChatGPT peut évoluer. Le collecteur échoue sans valider la conversation lorsqu'il ne trouve aucun message. Les conversations différées et les échecs non résolus ne sont plus redécouverts automatiquement pendant le passage courant : ils restent isolés jusqu'à l'action « Réessayer échecs / différées », ce qui évite une boucle infinie tout en permettant une reprise volontaire.
