@@ -26,7 +26,8 @@ test('pairing remains owner-auth protected', async () => {
       headers: {'content-type':'application/json'},
       body: JSON.stringify({device_id:'test-device'})
     }),
-    {}
+    { MELITURGOS_USER: 'owner', MELITURGOS_PASSWORD: 'configured-secret' }
   );
   assert.equal(response.status, 401);
+  assert.equal((await response.json()).code, 'AUTH_REQUIRED');
 });
