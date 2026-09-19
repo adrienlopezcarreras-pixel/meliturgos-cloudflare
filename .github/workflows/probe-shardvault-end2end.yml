@@ -1,0 +1,35 @@
+name: probe-shardvault-end2end
+
+on:
+  push:
+    branches:
+      - probe/shardvault-providers-20260919
+    paths:
+      - .github/workflows/probe-shardvault-end2end.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe End2End.tech at real shard size with 1 year expiry
+        shell: bash
+        run: |
+          set +e
+          head -c 315000 /dev/urandom > probe.bin
+          body="$(curl -fsS --max-time 40 https://api.end2end.tech/upload -X POST             -F "file=@probe.bin;filename=mel-shard.bin"             -F "setDateLimit=on"             -F "DownloadLimit=+1 year" 2>err)"
+          id="$(printf '%s' "$body" | jq -r '.FileID // empty' 2>/dev/null)"
+          if [ -n "$id" ]; then
+            curl -fsSL --max-time 40 "https://api.end2end.tech/download?id=$id" -o out
+            if cmp -s probe.bin out; then
+              echo "END2END_RESULT PASS id=$id"
+            else
+              echo "END2END_RESULT FAIL_READ body=$body"
+            fi
+          else
+            echo "END2END_RESULT FAIL_UPLOAD body=$body err=$(tr '\n' ' ' < err)"
+          fi
+          exit 0
