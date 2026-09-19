@@ -47,13 +47,15 @@ test('collector can retry every unresolved recoverable item and counts them in d
   assert.match(popup, /Réessayer échecs \/ différées/);
 });
 
-test('collector partial state is explicit and does not block full discovery', async () => {
+test('collector partial state forces full recapture when newer than the last completed snapshot', async () => {
   const background = await readFile(new URL('../browser-companion/chatgpt-collector/background.js', import.meta.url), 'utf8');
   const popup = await readFile(new URL('../browser-companion/chatgpt-collector/popup.js', import.meta.url), 'utf8');
 
   assert.match(background, /partial:\{\}/);
-  const discoveryFilter = background.match(/const add=\[\.\.\.new Set\(\[\.\.\.a,\.\.\.b\]\)\]\.filter\(u=>\{[\s\S]*?\n  \}\);/)?.[0] || '';
-  assert.ok(discoveryFilter, 'discovery filter not found');
-  assert.doesNotMatch(discoveryFilter, /partial\[id\]/, 'partial captures must not suppress full batch discovery');
+  assert.match(background, /const completedMessages=Number\(done\[id\]\?\.messages\|\|0\)/);
+  assert.match(background, /const partialMessages=Number\(partial\[id\]\?\.messages\|\|0\)/);
+  assert.match(background, /const needsFullCapture=!done\[id\]\|\|partialMessages>completedMessages/);
+  assert.match(background, /s\.done\?\.\[sourceId\]&&partialMessages<=completedMessages/);
+  assert.match(background, /if\(s\.done\?\.\[sourceId\]&&Number\(s\.done\[sourceId\]\.messages\|\|0\)>=count\)return\{ok:true,skipped:'ALREADY_CAPTURED'\}/);
   assert.match(popup, /Captures partielles/);
 });
