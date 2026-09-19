@@ -1,7 +1,7 @@
 {
   "format": "MEL-ShardVault-QualificationPlaybook",
-  "version": 1,
-  "updated_at": "2026-09-19T17:10:00Z",
+  "version": 2,
+  "updated_at": "2026-09-19T18:30:00Z",
   "objective": {
     "external_targets": 7,
     "independent_operators_preferred": true,
@@ -9,7 +9,7 @@
   },
   "hard_gates": [
     "HTTPS public endpoint only; reject private/local networks and credential-bearing URLs.",
-    "No account or permanent API secret required for the autonomous path.",
+    "No user-supplied credentials, manual authorization or permanent API secret required for the autonomous path. A provider-issued ephemeral anonymous token is allowed only when it is created programmatically from an officially documented unauthenticated endpoint and is not needed for public reads.",
     "Free use and automation must be explicitly documented or otherwise clearly permitted; never infer permission from technical reachability.",
     "Synthetic probe only. Never upload user memory during qualification.",
     "Round-trip must preserve the exact original bytes after the adapter decoder.",
@@ -86,6 +86,18 @@
       "classification": "REJECT_FOR_STRICT_MODE",
       "reason": "Free expiry begins at 15 days and extends only through repeated downloads, capped at 45 days.",
       "lesson": "Do not manufacture artificial downloads just to simulate durability."
+    },
+    {
+      "provider": "udrop.dev",
+      "classification": "QUARANTINE",
+      "reason": "Live Cloudflare probe returned HTTP 403 even though the public agent API is documented.",
+      "lesson": "A provider can be suitable in a browser or another agent environment and still reject the deployed Worker; keep infrastructure-specific live proof mandatory."
+    },
+    {
+      "provider": "waifuvault.moe",
+      "classification": "VALIDATED_LIVE",
+      "reason": "After switching to the provider's direct-download representation, MEL's deployed preview completed write/read/exact-byte comparison.",
+      "lesson": "When an upload API returns a presentation URL, prefer the provider's explicit direct-download form for integrity probes."
     }
   ],
   "candidate_targets": [
@@ -216,6 +228,22 @@
         "https://new.fileditch.com/api.html"
       ],
       "notes": "Scripts/bots are explicitly supported. Files have no scheduled expiry while accessed; only files untouched 45+ days may be removed when space is needed. Status API checks do not renew the clock, so MEL must not mistake HEAD/status for a retention refresh."
+    },
+    {
+      "id": "telegraph-ephemeral-anonymous",
+      "name": "Telegraph",
+      "url": "https://api.telegra.ph",
+      "status": "DOC_QUALIFIED_PENDING_MEL_ROUNDTRIP",
+      "adapter_hint": "ephemeral_anonymous_account_token_then_base64url_node_content",
+      "retention": {
+        "model": "declared_never",
+        "days_floor_for_scoring": 365
+      },
+      "auth": "provider_issued_ephemeral_anonymous_token_no_user_authorization",
+      "evidence": [
+        "https://telegra.ph/api"
+      ],
+      "notes": "createAccount is unauthenticated and returns the short-lived/use-scoped access token MEL needs to create a public page; reads are public and require no token. Never ask the user for credentials."
     }
   ],
   "promotion_state_machine": [
