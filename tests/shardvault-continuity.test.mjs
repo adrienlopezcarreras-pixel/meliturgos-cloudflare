@@ -24,4 +24,23 @@ const selected = __shardvaultTest.selectEndpoints(endpoints, 4, 2, 2);
 assert.deepEqual(selected.map(x => x.id), ['a1','b1','c1','d1']);
 assert.equal(__shardvaultTest.diversity(selected).fallbackUsed, false);
 
+
+const activeBase = [
+  { id:'a', operatorDomain:'a.test', providerId:'a' },
+  { id:'b', operatorDomain:'b.test', providerId:'b' },
+  { id:'c', operatorDomain:'c.test', providerId:'c' },
+  { id:'d', operatorDomain:'d.test', providerId:'d' },
+  { id:'e', operatorDomain:'e.test', providerId:'e' },
+];
+const activeSeven = __shardvaultTest.extendActiveEndpoints(activeBase,[
+  { id:'f', operatorDomain:'f.test', providerId:'f' },
+  { id:'g', operatorDomain:'g.test', providerId:'g' },
+  { id:'h', operatorDomain:'h.test', providerId:'h' },
+],7,2,2);
+assert.deepEqual(activeSeven.map(x=>x.id),['a','b','c','d','e','f','g']);
+const noSilentEviction = __shardvaultTest.extendActiveEndpoints(activeSeven,[
+  { id:'h', operatorDomain:'h.test', providerId:'h' },
+],7,2,2);
+assert.deepEqual(noSilentEviction.map(x=>x.id),['a','b','c','d','e','f','g']);
+
 console.log('ShardVault continuity tests: OK');
