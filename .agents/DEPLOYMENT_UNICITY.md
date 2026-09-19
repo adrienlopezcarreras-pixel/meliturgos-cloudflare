@@ -8,6 +8,8 @@ Une branche `release/*` n’est qu’un pointeur temporaire vers le SHA exact de
 
 `teacher-bridge/runtime` est un transport de métadonnées Teacher, jamais une branche de code exécutable. Le laboratoire `godot-private-test-*` est une exception non-MEL conditionnelle : sa divergence n’est admise que si son diff reste limité à `.github/workflows/godot-private-test.yml` et `ci-godot-test/*`.
 
+`feature/mel-waveshare-terminal` est un laboratoire matériel isolé : il peut diverger uniquement dans les fichiers terminal/ordinateur explicitement autorisés. Il ne peut pas toucher les workflows GitHub, `wrangler*`, les entrypoints de production ni créer un chemin de déploiement. Toute sortie de cette allowlist fait échouer le garde.
+
 Les branches LoRA/adapter/compatibilité actives sont désormais soumises à la même règle que tout autre développement : aucune divergence active n’est autorisée. Les anciens HEAD utiles peuvent être conservés uniquement sous `archive/*`, qui est historique et non déployable.
 
 ## Règles obligatoires pour MEL, Teacher Bridge et les agents de développement
