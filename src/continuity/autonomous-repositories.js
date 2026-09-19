@@ -35,7 +35,24 @@ function stable(v){ if(v===null||typeof v!=='object')return JSON.stringify(v);if
 function rid(n=18){ const a=new Uint8Array(n);crypto.getRandomValues(a);return b64u(a); }
 function isPrivate4(h){ const m=/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);if(!m)return false;const o=m.slice(1).map(Number);return o.some(x=>x>255)||o[0]===10||o[0]===127||o[0]===0||(o[0]===169&&o[1]===254)||(o[0]===172&&o[1]>=16&&o[1]<=31)||(o[0]===192&&o[1]===168); }
 function publicHttps(value,label,{template=false}={}){ let u;try{u=new URL(template?String(value).replaceAll('{objectId}','probe'):String(value));}catch{throw new Error(`${label}_INVALID`)}const h=u.hostname.toLowerCase();if(u.protocol!=='https:')throw new Error(`${label}_HTTPS_REQUIRED`);if(u.username||u.password)throw new Error(`${label}_CREDENTIALS_FORBIDDEN`);if(h==='localhost'||h.endsWith('.local')||isPrivate4(h)||(h.includes(':')&&(h==='::1'||h.startsWith('fc')||h.startsWith('fd')||h.startsWith('fe80'))))throw new Error(`${label}_PRIVATE_NETWORK_FORBIDDEN`);return u; }
-async function fetchTimed(url,options={},ms=10000){ const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);try{return await fetch(url,{...options,redirect:'error',signal:c.signal});}finally{clearTimeout(t);} }
+async function fetchTimed(url,options={},ms=10000){
+  const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);
+  try{
+    let current=String(url),opts={...options};
+    for(let hop=0;hop<4;hop++){
+      const method=String(opts.method||'GET').toUpperCase();
+      const r=await fetch(current,{...opts,redirect:'manual',signal:c.signal});
+      if(![301,302,303,307,308].includes(r.status))return r;
+      if(method!=='GET'&&method!=='HEAD')return r;
+      const location=r.headers.get('location');
+      if(!location)return r;
+      const next=new URL(location,current).toString();
+      current=publicHttps(next,'FETCH_REDIRECT').toString();
+      if(r.status===303)opts={...opts,method:'GET',body:undefined};
+    }
+    throw new Error('REDIRECT_LIMIT');
+  }finally{clearTimeout(t);}
+}
 async function hkdf(master,salt,info,len=32){ const k=await crypto.subtle.importKey('raw',bytes(master),'HKDF',false,['deriveBits']);return new Uint8Array(await crypto.subtle.deriveBits({name:'HKDF',hash:'SHA-256',salt:bytes(salt),info:bytes(info)},k,len*8)); }
 async function hmac(key,payload){ const k=await crypto.subtle.importKey('raw',bytes(key),{name:'HMAC',hash:'SHA-256'},false,['sign']);return new Uint8Array(await crypto.subtle.sign('HMAC',k,bytes(payload))); }
 
@@ -325,7 +342,16 @@ async function loadCandidates(env,master,vaultId){
     ? await discoverInternetSources(env,accepted,rejected)
     : {sources:[],leads:[]};
   const byId=new Map();for(const c of accepted)byId.set(c.id,c);
-  return {candidates:[...byId.values()],rejected,sources:internet.sources,leads:internet.leads};
+  return {
+    candidates:[...byId.values()],
+    rejected,
+    sources:internet.sources||[],
+    leads:internet.leads||[],
+    generation:internet.generation||1,
+    known_leads:internet.known_leads||0,
+    new_leads:internet.new_leads||0,
+    query_set:internet.query_set||[]
+  };
 }
 async function probe(c, requiredBytes, policyMaxAgeDays=180){
   const policyStart=Date.now();
