@@ -17,6 +17,7 @@ import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
 import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-state-store.js";
 import { getChatGPTImportStatus } from "./persistence/chatgpt-archive-importer.js";
+import { runShardVaultCycle } from "./continuity/shardvault-runtime.js";
 
 function deployedWatchSourceSha() {
   return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') || null : null;
@@ -415,6 +416,13 @@ export default {
           }),
           runEcosystemCapabilityWatch(env, { sourceSha: deployedWatchSourceSha() }).catch((error) => {
             console.error('[MEL watch] hourly ecosystem watch failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runShardVaultCycle(env).then((result) => {
+            if (result?.ok === false) console.error('[MEL ShardVault] cycle reported:', result.reason || result.error || 'NOT_OK');
+            return result;
+          }).catch((error) => {
+            console.error('[MEL ShardVault] scheduled continuity cycle failed:', error?.code || error?.message || error);
             return null;
           }),
         ]
