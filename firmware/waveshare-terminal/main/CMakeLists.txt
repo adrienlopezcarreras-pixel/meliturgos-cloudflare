@@ -12,4 +12,6 @@ idf_component_register(
     esp_timer
     json
     mbedtls
+    esp_port
+    esp32-camera
 )
