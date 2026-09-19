@@ -269,6 +269,21 @@ async function upload(env,e,objectId,payload){
     if(!id)throw new Error(`WRITE_${e.id}_REMOTE_ID_MISSING`);
     return {remoteUrl:'https://markdownpasteit.vercel.app/api/paste/'+encodeURIComponent(id)};
   }
+  if(e.adapter==='udrop_dev_b64'){
+    const endpoint=fixedApiUrl(u);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'text/plain; charset=utf-8','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:b64u(payload)},15000);
+    if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
+    const data=await r.json().catch(()=>null),base=String(data?.url||'').trim();
+    if(!base)throw new Error(`WRITE_${e.id}_REMOTE_URL_MISSING`);
+    return {remoteUrl:publicUrl(base.replace(/\/$/,'')+'/raw',`WRITE_${e.id}_REMOTE`).toString()};
+  }
+  if(e.adapter==='waifuvault_b64'){
+    const endpoint=fixedApiUrl(u),form=new FormData();
+    form.append('file',new Blob([b64u(payload)],{type:'text/plain'}),objectId+'.txt');
+    const r=await fetchTimed(endpoint,{method:'PUT',headers:{'accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:form},20000);
+    if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
+    return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
+  }
   if(e.adapter==='paste_c_net'){
     const endpoint=fixedApiUrl(u);
     const r=await fetchTimed(endpoint,{method:'PUT',headers:{'content-type':'application/octet-stream','accept':'application/json, */*','x-uuid':'1','user-agent':'curl/8.0 MEL-ShardVault/1.0'},body:payload},15000);
@@ -355,6 +370,22 @@ async function download(env,e,objectId,descriptor=null){
     if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
     const data=await r.json().catch(()=>null),encoded=String(data?.content||'').trim();
     if(!encoded)throw new Error(`READ_${e.id}_MARKDOWNPASTE_CONTENT_MISSING`);
+    return unb64u(encoded);
+  }
+  if(e.adapter==='udrop_dev_b64'){
+    if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'text/plain','user-agent':'MEL-ShardVault/1.0'}},15000);
+    if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
+    const encoded=String(await r.text()).trim();
+    if(!encoded)throw new Error(`READ_${e.id}_UDROP_CONTENT_MISSING`);
+    return unb64u(encoded);
+  }
+  if(e.adapter==='waifuvault_b64'){
+    if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'text/plain,application/octet-stream','user-agent':'MEL-ShardVault/1.0'}},20000);
+    if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
+    const encoded=String(await r.text()).trim();
+    if(!encoded)throw new Error(`READ_${e.id}_WAIFUVAULT_CONTENT_MISSING`);
     return unb64u(encoded);
   }
   if(['catbox','temp_sh'].includes(e.adapter)){
