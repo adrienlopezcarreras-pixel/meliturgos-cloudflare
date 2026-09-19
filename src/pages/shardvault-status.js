@@ -85,13 +85,14 @@ async function activateEndpoint(endpointId,btn){
   await load();
  }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Activation impossible : '+e.message;btn.disabled=false;btn.textContent=old}
 }
-function renderDiscovery(d,prefix='Exploration',preferredId=null){
+function renderDiscovery(d,prefix='Exploration',preferredId=null,activeIds=[]){
  if(!d)return;
  $('searchStatus').className=d.ok?'ok':'bad';
  $('searchStatus').textContent=d.ok?prefix+' · génération '+fmt(d.generation||1)+' : '+fmt(d.new_leads??(d.leads||[]).length)+' nouvelles pistes ('+fmt(d.known_leads||0)+' connues), '+fmt(d.discovered)+' cibles vérifiables, '+fmt(d.probed)+' testées, '+fmt((d.selected||[]).length)+' retenues · '+(d.target_reached?'OBJECTIF 7/7 ATTEINT':((d.selected||[]).length?('progression '+fmt((d.selected||[]).length)+' / '+fmt(d.target_count||7)+' · recherche continue active'):'recherche continue active'))+(d.searched_at?' · '+safe(d.searched_at):''):(prefix+' échouée : '+safe(d.error||d.status||'erreur'));
  const sources=(d.internet_sources||[]).map(x=>'<div class="row"><span>'+safe(x.id||x.kind||'source')+'</span><span class="muted">'+safe(x.status||'—')+(x.leads!=null?' · '+fmt(x.leads)+' pistes':'')+(x.error?' · '+safe(x.error):'')+'</span></div>').join('');
  const leads=(d.leads||[]).slice(0,40).map(x=>'<div class="row"><span>'+safe(x.name||'piste')+'</span><span class="muted">'+safe(x.summary||x.url||'à vérifier')+'</span></div>').join('');
- const sel=(d.selected||[]).map(e=>endpointRow({...e,active:String(e.id||'')===String(preferredId||'')},true,preferredId)).join('')||'<div class="muted">Aucune nouvelle cible durable n’a encore satisfait tous les contrôles.</div>';
+ const activeSet=new Set((activeIds||[]).map(String));
+ const sel=(d.selected||[]).map(e=>endpointRow({...e,active:activeSet.has(String(e.id||''))||String(e.id||'')===String(preferredId||'')},true,preferredId)).join('')||'<div class="muted">Aucune nouvelle cible durable n’a encore satisfait tous les contrôles.</div>';
  const rej=(d.rejected||[]).slice(0,25).map(x=>'<div class="row"><span>'+safe(x.id||x.source||'candidat')+'</span><span class="muted">'+safe(x.reason||'rejeté')+'</span></div>').join('');
  $('results').innerHTML='<h3>Sources Internet parcourues</h3>'+(sources||'<div class="muted">Aucune source chargée.</div>')+'<h3>Nouvelles pistes trouvées</h3>'+(leads||'<div class="muted">Aucune piste générique.</div>')+'<h3>Cibles compatibles retenues</h3>'+sel+'<h3>Rejets techniques</h3>'+(rej||'<div class="muted">Aucun rejet.</div>');
  bindPreferenceButtons();
@@ -128,7 +129,7 @@ async function load(){
    (extEndpoints.length?'<div class="row"><span>Dépôts externes du code</span><span class="muted">'+extEndpoints.map(safe).join(' · ')+'</span></div>':'')+
    (ext.snapshot_id?'<div class="row"><span>Snapshot code</span><span class="muted">'+safe(ext.snapshot_id)+'</span></div>':'')+
    (code.key?'<div class="row"><span>Objet cache R2</span><span class="muted">'+safe(code.bucket||'')+' / '+safe(code.key)+'</span></div>':'');
-  if(d.last_discovery)renderDiscovery(d.last_discovery,'Dernière exploration automatique',d.preferred_endpoint?.endpoint_id||null);
+  if(d.last_discovery)renderDiscovery(d.last_discovery,'Dernière exploration automatique',d.preferred_endpoint?.endpoint_id||null,(d.active_external_registry||[]).map(e=>e.id));
   $('raw').textContent=JSON.stringify(d,null,2);
   const externalActive=(d.selected_endpoints||[]).filter(e=>e.backend==='http'&&e.active===true).length;
   const externalCode=(d.code_survival?.external?.endpoints||[]).length;
@@ -175,7 +176,7 @@ async function search(){
  try{
   const r=await fetch('/api/gen2/shardvault/search',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
   const d=await r.json();
-  renderDiscovery(d,'Nouvelle exploration');
+  renderDiscovery(d,'Nouvelle exploration',null,d.active_endpoint_ids||[]);
   if(d.target_reached){
     $('searchStatus').className='muted pulse';$('searchStatus').textContent='7/7 externes validés. MEL crée le snapshot externe puis synchronise aussi le code critique.';
     const cd=await syncCodeExternal({quiet:true});
@@ -200,6 +201,10 @@ export async function handleShardVaultStatus(request,env){
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/search'){
     const result=await searchAutonomousShardVaultRepositories(env);
     return Response.json(result,{status:result.ok?200:503,headers:{'cache-control':'no-store'}});
+  }
+  if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/code-sync'){
+    const result=await syncShardVaultCodeExternally(env);
+    return Response.json(result,{status:result.ok?200:409,headers:{'cache-control':'no-store'}});
   }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/preference'){
     const body=await request.json().catch(()=>({}));
