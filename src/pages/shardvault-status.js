@@ -1,0 +1,94 @@
+import { getShardVaultStatus, searchAutonomousShardVaultRepositories } from '../continuity/shardvault-runtime.js';
+
+function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+function page(){
+return new Response(`<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MEL · ShardVault</title>
+<style>
+:root{font-family:Inter,system-ui,Segoe UI,sans-serif;color-scheme:dark}
+body{margin:0;background:#0b1020;color:#eef2ff}
+main{max-width:1080px;margin:auto;padding:28px 18px 50px}
+h1{margin:0 0 8px;font-size:clamp(28px,5vw,44px)} .sub{color:#aab6d3;margin-bottom:24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.card{background:#141b31;border:1px solid #273250;border-radius:16px;padding:16px;box-shadow:0 12px 30px #0004}
+.big{font-size:30px;font-weight:800;margin-top:6px}.ok{color:#72e0a0}.bad{color:#ff8f8f}.warn{color:#ffd479}
+button{appearance:none;border:0;border-radius:12px;padding:13px 18px;font-weight:800;background:#eef2ff;color:#11182b;cursor:pointer}
+button:disabled{opacity:.55;cursor:wait}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}
+small,.muted{color:#9eabc8}.row{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid #26304a}.row:last-child{border-bottom:0}
+pre{white-space:pre-wrap;word-break:break-word;background:#0d1427;padding:12px;border-radius:12px;border:1px solid #25304a;max-height:360px;overflow:auto}
+.tag{display:inline-block;padding:4px 8px;border-radius:999px;background:#24304f;margin:2px;font-size:12px}
+.section{margin-top:18px}a{color:#cbd7ff}.pulse{animation:p 1.1s infinite alternate}@keyframes p{to{opacity:.5}}
+</style></head>
+<body><main>
+<h1>ShardVault · statut</h1>
+<div class="sub">Continuité mémoire de MEL · chiffrement, fragmentation 4/7, réparation et recherche autonome.</div>
+<div class="toolbar">
+<button id="refresh">Actualiser</button>
+<button id="search">Rechercher des dépôts autonomes</button>
+<a href="/" style="align-self:center">← Retour à MEL</a>
+</div>
+<div id="summary" class="grid"></div>
+<div class="section card"><h2>Dernier snapshot</h2><div id="snapshot">Chargement…</div></div>
+<div class="section card"><h2>Dépôts sélectionnés</h2><div id="endpoints">Chargement…</div></div>
+<div class="section card"><h2>Recherche autonome</h2><div id="searchStatus" class="muted">Aucune recherche manuelle lancée dans cette page.</div><div id="results"></div></div>
+<div class="section card"><h2>Détails techniques</h2><pre id="raw">Chargement…</pre></div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const fmt=n=>Number.isFinite(Number(n))?Number(n).toLocaleString('fr-FR'):'—';
+function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function card(label,value,state=''){return '<div class="card"><small>'+safe(label)+'</small><div class="big '+state+'">'+safe(value)+'</div></div>'}
+function endpointRow(e){return '<div class="row"><div><b>'+safe(e.id)+'</b><div class="muted">'+safe(e.operatorDomain||'—')+' · '+safe(e.providerId||'—')+' · '+safe(e.jurisdiction||'—')+'</div></div><div><span class="tag">'+(e.autonomous?'autonome':'configuré')+'</span><span class="tag">score '+fmt(e.score)+'</span></div></div>'}
+async function load(){
+ $('refresh').disabled=true;
+ try{
+  const r=await fetch('/api/gen2/shardvault/status',{cache:'no-store'}),d=await r.json();
+  const h=d.health||{},s=d.scheme||{};
+  $('summary').innerHTML=[
+   card('État',d.status||'—',d.ok?'ok':'bad'),
+   card('Fragments sains',h.healthy_shards!=null?fmt(h.healthy_shards)+' / '+fmt(h.total_shards):'—',h.recoverable===false?'bad':'ok'),
+   card('Seuil de récupération',s.data_shards!=null?fmt(s.data_shards)+' / '+fmt(s.total_shards):'—',''),
+   card('Pertes tolérées',s.tolerated_losses!=null?fmt(s.tolerated_losses):'—','warn'),
+   card('Dépôts actifs',(d.selected_endpoints||[]).length,''),
+   card('Mode autonome',d.autonomous_enabled?'ACTIF':'INACTIF',d.autonomous_enabled?'ok':'warn')
+  ].join('');
+  const l=d.latest;
+  $('snapshot').innerHTML=l?'<div class="row"><span>ID</span><b>'+safe(l.snapshot_id)+'</b></div><div class="row"><span>Révision</span><b>'+fmt(l.revision)+'</b></div><div class="row"><span>Créé</span><b>'+safe(l.created_at||'—')+'</b></div><div class="row"><span>Taille fragment</span><b>'+fmt(l.shard_size)+' octets</b></div>':'Aucun snapshot valide trouvé.';
+  $('endpoints').innerHTML=(d.selected_endpoints||[]).length?(d.selected_endpoints||[]).map(endpointRow).join(''):'Aucun dépôt actuellement sélectionné.';
+  $('raw').textContent=JSON.stringify(d,null,2);
+ }catch(e){$('summary').innerHTML=card('Erreur',e.message,'bad');$('raw').textContent=String(e)}
+ finally{$('refresh').disabled=false}
+}
+async function search(){
+ const b=$('search');b.disabled=true;b.textContent='Recherche en cours…';$('searchStatus').className='muted pulse';$('searchStatus').textContent='MEL vérifie les politiques puis effectue des tests d’écriture/lecture sur les candidats autorisés.';
+ $('results').innerHTML='';
+ try{
+  const r=await fetch('/api/gen2/shardvault/search',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+  const d=await r.json();
+  $('searchStatus').className=d.ok?'ok':'bad';
+  $('searchStatus').textContent=d.ok?'Recherche terminée : '+fmt(d.discovered)+' découverts, '+fmt(d.probed)+' testés, '+fmt((d.selected||[]).length)+' retenus.':'Recherche échouée : '+(d.error||d.status||'erreur');
+  if(d.ok){
+   const sel=(d.selected||[]).map(endpointRow).join('')||'<div class="muted">Aucun dépôt retenu.</div>';
+   const rej=(d.rejected||[]).slice(0,25).map(x=>'<div class="row"><span>'+safe(x.id||x.source||'candidat')+'</span><span class="muted">'+safe(x.reason||'rejeté')+'</span></div>').join('');
+   $('results').innerHTML='<h3>Retenus</h3>'+sel+'<h3>Rejetés</h3>'+(rej||'<div class="muted">Aucun rejet.</div>');
+  }
+  await load();
+ }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Erreur : '+e.message}
+ finally{b.disabled=false;b.textContent='Rechercher des dépôts autonomes'}
+}
+$('refresh').onclick=load;$('search').onclick=search;load();setInterval(load,30000);
+</script></body></html>`,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
+}
+
+export async function handleShardVaultStatus(request,env){
+  const url=new URL(request.url);
+  if(request.method==='GET'&&url.pathname==='/shardvault')return page();
+  if(request.method==='GET'&&url.pathname==='/api/gen2/shardvault/status')return Response.json(await getShardVaultStatus(env),{headers:{'cache-control':'no-store'}});
+  if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/search'){
+    const result=await searchAutonomousShardVaultRepositories(env);
+    return Response.json(result,{status:result.ok?200:503,headers:{'cache-control':'no-store'}});
+  }
+  return null;
+}
