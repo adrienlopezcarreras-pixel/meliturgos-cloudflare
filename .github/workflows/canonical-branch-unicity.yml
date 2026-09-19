@@ -74,6 +74,9 @@ jobs:
           canonical="refs/remotes/origin/candidate/mel-clean-autonomy"
           divergent=()
 
+          # Every active MEL code branch, including LoRA/compat workspaces, must converge.
+          # Only explicitly isolated non-production laboratories may diverge inside their strict path allowlists.
+
           while IFS= read -r remote_ref; do
             branch="${remote_ref#origin/}"
 
