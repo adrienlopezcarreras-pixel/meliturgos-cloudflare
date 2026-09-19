@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <cstdio>
+#include <sys/stat.h>
 
 #include "nvs.h"
 #include "esp_log.h"
@@ -528,6 +530,70 @@ static void camera_task(void *) {
     vTaskDelete(nullptr);
 }
 
+
+static std::string safe_asset_name(const char *name) {
+    std::string out;
+    for (const char *p = name; p && *p && out.size() < 80; ++p) {
+        char c = *p;
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') out.push_back(c);
+        else out.push_back('_');
+    }
+    return out;
+}
+
+static bool download_asset(const std::string &key, const std::string &name) {
+    if (!g_sd_ok || key.empty() || name.empty()) return false;
+    std::string url = std::string(SERVER) + "/api/device/v1/download?key=" + key;
+    esp_http_client_config_t cfg = {};
+    cfg.url = url.c_str();
+    cfg.crt_bundle_attach = esp_crt_bundle_attach;
+    cfg.timeout_ms = 60000;
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) return false;
+    std::string auth = std::string("Bearer ") + g_cfg.token;
+    esp_http_client_set_header(client, "Authorization", auth.c_str());
+    esp_http_client_set_header(client, "X-MEL-Device-ID", g_device_id);
+    if (esp_http_client_open(client, 0) != ESP_OK) { esp_http_client_cleanup(client); return false; }
+    esp_http_client_fetch_headers(client);
+    if (esp_http_client_get_status_code(client) != 200) {
+        esp_http_client_close(client); esp_http_client_cleanup(client); return false;
+    }
+    mkdir("/sdcard/mel", 0775);
+    std::string path = std::string("/sdcard/mel/") + safe_asset_name(name.c_str());
+    FILE *fp = fopen(path.c_str(), "wb");
+    if (!fp) { esp_http_client_close(client); esp_http_client_cleanup(client); return false; }
+    uint8_t buffer[4096];
+    bool ok = true;
+    while (true) {
+        int n = esp_http_client_read(client, reinterpret_cast<char *>(buffer), sizeof(buffer));
+        if (n < 0) { ok = false; break; }
+        if (n == 0) break;
+        if (fwrite(buffer, 1, n, fp) != (size_t)n) { ok = false; break; }
+    }
+    fclose(fp);
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    if (!ok) remove(path.c_str());
+    return ok;
+}
+
+static int sync_assets(cJSON *root) {
+    if (!root || !g_sd_ok) return 0;
+    cJSON *assets = cJSON_GetObjectItemCaseSensitive(root, "assets");
+    cJSON *items = assets ? cJSON_GetObjectItemCaseSensitive(assets, "items") : nullptr;
+    if (!cJSON_IsArray(items)) return 0;
+    int synced = 0;
+    cJSON *item = nullptr;
+    cJSON_ArrayForEach(item, items) {
+        cJSON *key = cJSON_GetObjectItemCaseSensitive(item, "key");
+        cJSON *name = cJSON_GetObjectItemCaseSensitive(item, "name");
+        if (cJSON_IsString(key) && cJSON_IsString(name) && key->valuestring && name->valuestring) {
+            if (download_asset(key->valuestring, name->valuestring)) synced++;
+        }
+    }
+    return synced;
+}
+
 static bool ota_download(const std::string &key) {
     std::string url = std::string(SERVER) + "/api/device/v1/download?key=" + key;
     esp_http_client_config_t cfg = {};
@@ -593,6 +659,7 @@ static void update_task(void *) {
     }
 
     cJSON *root = cJSON_Parse(response.c_str());
+    const int assets_synced = sync_assets(root);
     cJSON *fw = root ? cJSON_GetObjectItemCaseSensitive(root, "firmware") : nullptr;
     cJSON *available = fw ? cJSON_GetObjectItemCaseSensitive(fw, "available") : nullptr;
     cJSON *version = fw ? cJSON_GetObjectItemCaseSensitive(fw, "version") : nullptr;
@@ -602,7 +669,9 @@ static void update_task(void *) {
     if (!has || !strcmp(ver, MEL_FW_VERSION)) {
         if (root) cJSON_Delete(root);
         ui_status("À JOUR");
-        ui_answer("Aucune mise à jour plus récente publiée.");
+        char msg[180];
+        snprintf(msg, sizeof(msg), "Aucune mise à jour plus récente publiée.%s", assets_synced > 0 ? " Ressources téléchargées sur la microSD." : "");
+        ui_answer(msg);
         vTaskDelete(nullptr);
         return;
     }
