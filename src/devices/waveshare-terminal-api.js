@@ -7,6 +7,9 @@ export const WAVESHARE_TERMINAL_MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
 export const WAVESHARE_TERMINAL_API = "/api/device/v1";
 export const WAVESHARE_TERMINAL_PROTOCOL = "1.0";
 const DOWNLOAD_PREFIX = "devices/waveshare-esp32-s3-touch-lcd-3.5-c/";
+const OWNER_PAIR_CODE_PATH = "/api/device/v1/pair-code";
+const OWNER_STATUS_PATH = "/api/device/v1/status";
+const OWNER_SETUP_SCRIPT_PATH = "/api/device/v1/setup-script";
 const PAIR_TTL_MS = 10 * 60 * 1000;
 
 function json(value, status = 200, headers = {}) {
@@ -372,12 +375,12 @@ export async function maybeHandleWaveshareTerminalApi(request, env) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith(WAVESHARE_TERMINAL_API + "/")) return null;
 
-  if (url.pathname === WAVESHARE_TERMINAL_API + "/pair-code" && request.method === "POST") return createPairCode(request, env);
+  if (url.pathname === OWNER_PAIR_CODE_PATH && request.method === "POST") return createPairCode(request, env);
   if (url.pathname === WAVESHARE_TERMINAL_API + "/pair" && request.method === "POST") return pairDevice(request, env);
-  if (url.pathname === WAVESHARE_TERMINAL_API + "/status" && request.method === "GET") return ownerStatus(request, env);
+  if (url.pathname === OWNER_STATUS_PATH && request.method === "GET") return ownerStatus(request, env);
   if (url.pathname === WAVESHARE_TERMINAL_API + "/firmware-info" && request.method === "GET") return ownerFirmwareInfo(request, env);
   if (url.pathname === WAVESHARE_TERMINAL_API + "/firmware" && request.method === "GET") return ownerFirmware(request, env);
-  if (url.pathname === WAVESHARE_TERMINAL_API + "/setup-script" && request.method === "GET") return serveSetupScript(request, env);
+  if (url.pathname === OWNER_SETUP_SCRIPT_PATH && request.method === "GET") return serveSetupScript(request, env);
 
   const auth = await authorizeDevice(request, env);
   if (!auth.ok) return auth.response;
