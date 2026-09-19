@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-09-18T17:58:00Z",
+  "updated_at": "2026-09-19T07:26:00Z",
   "status_values": [
     "NOT_STARTED",
     "PARTIAL",
@@ -33,7 +33,14 @@
       "evidence": [
         "tests/native-chat-memory.test.mjs",
         "tests/mvp-product.test.mjs",
-        "tests/learning-personalization.test.mjs"
+        "tests/learning-personalization.test.mjs",
+        "tests/chatgpt-archive-importer.test.mjs",
+        "tests/chatgpt-collector-integrity.test.mjs",
+        "tests/phase6-rag-search.test.mjs"
+      ],
+      "verified_subcapabilities": [
+        "ChatGPT archive imports are deduplicated, synchronized to memory candidates, and expose server-side partial/full completeness receipts.",
+        "Native lexical retrieval can recover matching old ChatGPT archive messages beyond the former 1000-most-recent-message window."
       ]
     },
     "coding": {
