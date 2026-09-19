@@ -20,6 +20,28 @@ const EMBEDDED_SEED_LEADS = Object.freeze([
   {name:'TempFile.org',url:'https://tempfile.org',summary:'API REST publique signalée pour fichiers temporaires. Piste à vérifier avant tout usage.'},
   {name:'FileDitch',url:'https://fileditch.com',summary:'Service anonyme avec backend API mentionné publiquement. Piste à vérifier avant tout usage.'}
 ]);
+const DOCUMENTED_CANDIDATES = Object.freeze([
+  {
+    id:'filebin-public',
+    adapter:'filebin',
+    urlTemplate:'https://filebin.net/mel-shardvault-{objectId}/shard.bin',
+    method:'POST',
+    maxObjectBytes:1048576,
+    operatorDomain:'filebin.net',
+    providerId:'filebin',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:6,
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
+    evidenceUrls:['https://filebin.net/api.yaml','https://filebin.net/terms']
+  }
+]);
 const EMBEDDED_CATALOGS = Object.freeze([
   {id:'awesome-file-hosts',url:'https://raw.githubusercontent.com/FahadBinHussain/awesome-file-hosts/main/README.md'},
   {id:'awesome-free-file-hosting',url:'https://raw.githubusercontent.com/Nick088Official/awesome-free-file-hosting/main/README.md'},
@@ -82,6 +104,10 @@ function normalize(raw, source){
     automationAllowedDeclared:raw.automationAllowedDeclared===true,
     freeDeclared:raw.freeDeclared===true,
     writeProbeAllowed:raw.writeProbeAllowed===true,
+    adapter:String(raw.adapter||'').toLowerCase()||null,
+    evidenceMode:source==='builtin-documented'&&raw.evidenceMode==='documented_api'?'documented_api':'mel_policy',
+    evidenceReviewedAt:source==='builtin-documented'&&raw.evidenceReviewedAt?String(raw.evidenceReviewedAt):null,
+    evidenceUrls:source==='builtin-documented'&&Array.isArray(raw.evidenceUrls)?raw.evidenceUrls.filter(x=>typeof x==='string').slice(0,5):[],
     source,
   };
 }
@@ -94,8 +120,13 @@ function eligible(c,{requiredBytes=0,policyMaxAgeDays=180}={}){
   if(!c.automationAllowedDeclared)reasons.push('AUTOMATION_NOT_DECLARED');
   if(!c.freeDeclared)reasons.push('FREE_USE_NOT_DECLARED');
   if(!c.writeProbeAllowed)reasons.push('WRITE_PROBE_NOT_ALLOWED');
-  if(!c.policyUrl||!c.policyReviewedAt)reasons.push('POLICY_EVIDENCE_MISSING');
-  else if(Date.now()-Date.parse(c.policyReviewedAt)>policyMaxAgeDays*DAY)reasons.push('POLICY_EVIDENCE_STALE');
+  if(c.evidenceMode==='documented_api'){
+    if(!c.evidenceReviewedAt||!Array.isArray(c.evidenceUrls)||c.evidenceUrls.length<1)reasons.push('DOCUMENTED_EVIDENCE_MISSING');
+    else if(Date.now()-Date.parse(c.evidenceReviewedAt)>365*DAY)reasons.push('DOCUMENTED_EVIDENCE_REVIEW_STALE');
+  }else{
+    if(!c.policyUrl||!c.policyReviewedAt)reasons.push('POLICY_EVIDENCE_MISSING');
+    else if(Date.now()-Date.parse(c.policyReviewedAt)>policyMaxAgeDays*DAY)reasons.push('POLICY_EVIDENCE_STALE');
+  }
   if(c.maxBytes<Math.max(256,requiredBytes))reasons.push('CAPACITY_TOO_SMALL');
   return {ok:reasons.length===0,reasons};
 }
@@ -326,6 +357,9 @@ async function verifyFeed(master,vaultId,payload){
 
 async function loadCandidates(env,master,vaultId){
   const accepted=[],rejected=[];
+  for(const raw of DOCUMENTED_CANDIDATES){
+    try{accepted.push(normalize(raw,'builtin-documented'));}catch(error){rejected.push({source:'builtin-documented',id:raw?.id||null,reason:String(error?.message||error)});}
+  }
   const local=parseJson(env?.MEL_AUTONOMOUS_REPOSITORIES_JSON,[]);
   if(Array.isArray(local))for(const raw of local){try{accepted.push(normalize(raw,'configured'));}catch(error){rejected.push({source:'configured',id:raw?.id||null,reason:String(error?.message||error)});}}
   const feeds=parseJson(env?.MEL_AUTONOMOUS_FEEDS_JSON,[]);
@@ -353,12 +387,46 @@ async function loadCandidates(env,master,vaultId){
     query_set:internet.query_set||[]
   };
 }
+async function fetchOnceManual(url,options={},ms=10000){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),ms);
+  try{return await fetch(url,{...options,redirect:'manual',signal:controller.signal});}
+  finally{clearTimeout(timer);}
+}
+async function candidateRead(c,url){
+  if(c.adapter!=='filebin')return fetchTimed(url,{method:'GET'},10000);
+  let r=await fetchOnceManual(url,{method:'GET',headers:{'accept':'application/octet-stream'}},10000);
+  if(r.status===200&&String(r.headers.get('content-type')||'').toLowerCase().includes('text/html')){
+    const setCookie=String(r.headers.get('set-cookie')||'');
+    const cookie=setCookie.split(';')[0].trim();
+    if(cookie)r=await fetchOnceManual(url,{method:'GET',headers:{'accept':'application/octet-stream','cookie':cookie}},10000);
+  }
+  if([301,302,303,307,308].includes(r.status)){
+    const location=r.headers.get('location');
+    if(!location)throw new Error('READ_REDIRECT_LOCATION_MISSING');
+    return fetchTimed(publicHttps(new URL(location,url).toString(),'CANDIDATE_READ_REDIRECT').toString(),{method:'GET'},10000);
+  }
+  return r;
+}
+async function validateDocumentedEvidence(c){
+  if(c.evidenceMode!=='documented_api')return null;
+  for(const raw of c.evidenceUrls||[]){
+    const url=publicHttps(raw,'DOCUMENTED_EVIDENCE').toString();
+    const r=await fetchTimed(url,{method:'GET',headers:{'accept':'text/plain,text/html,application/yaml,application/json'}},8000);
+    if(!r.ok)throw new Error('DOCUMENTED_EVIDENCE_HTTP_'+r.status);
+  }
+  return {maxBytes:c.maxBytes,expectedRetentionDays:c.expectedRetentionDays};
+}
 async function probe(c, requiredBytes, policyMaxAgeDays=180){
   const policyStart=Date.now();
-  const policy=await fetchTimed(c.policyUrl,{method:'GET',headers:{'accept':'application/json'}},8000);
-  if(!policy.ok)throw new Error(`POLICY_HTTP_${policy.status}`);
-  const policyBody=await policy.json().catch(()=>null);
-  const authority=validatePublicPolicy(c,policyBody,{requiredBytes,policyMaxAgeDays});
+  let authority;
+  if(c.evidenceMode==='documented_api'){
+    authority=await validateDocumentedEvidence(c);
+  }else{
+    const policy=await fetchTimed(c.policyUrl,{method:'GET',headers:{'accept':'application/json'}},8000);
+    if(!policy.ok)throw new Error(`POLICY_HTTP_${policy.status}`);
+    const policyBody=await policy.json().catch(()=>null);
+    authority=validatePublicPolicy(c,policyBody,{requiredBytes,policyMaxAgeDays});
+  }
   const policyLatency=Date.now()-policyStart;
   const payload=new Uint8Array(Math.min(authority.maxBytes,Math.max(256,Math.min(requiredBytes||256,1024))));crypto.getRandomValues(payload);
   const objectId=`mel-probe-${rid(12)}`;
@@ -368,7 +436,7 @@ async function probe(c, requiredBytes, policyMaxAgeDays=180){
   if(!w.ok)throw new Error(`WRITE_HTTP_${w.status}`);
   const writeLatency=Date.now()-writeStart;
   const readStart=Date.now();
-  const r=await fetchTimed(url,{method:'GET'},10000);if(!r.ok)throw new Error(`READ_HTTP_${r.status}`);
+  const r=await candidateRead(c,url);if(!r.ok)throw new Error(`READ_HTTP_${r.status}`);
   const got=new Uint8Array(await r.arrayBuffer());const readLatency=Date.now()-readStart;
   if(got.length!==payload.length)throw new Error('PROBE_LENGTH_MISMATCH');
   let diff=0;for(let i=0;i<got.length;i++)diff|=got[i]^payload[i];if(diff)throw new Error('PROBE_CONTENT_MISMATCH');
@@ -402,7 +470,7 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
   for(const c of eligibleRows.slice(0,probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
   const selected=choose(probed,selectionCount,maxPerOperator,maxPerProvider);
   return {
-    selected: selected.map(c=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:c.score,confidence:c.confidence,autonomous:true,authMode:'none'})),
+    selected: selected.map(c=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:c.score,confidence:c.confidence,autonomous:true,authMode:'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,expectedRetentionDays:c.expectedRetentionDays||0})),
     rejected,
     discovered:loaded.candidates.length,
     probed:probed.length,

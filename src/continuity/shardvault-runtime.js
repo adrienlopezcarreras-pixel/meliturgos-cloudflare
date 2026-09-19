@@ -14,7 +14,23 @@ function stable(v){ if(v===null||typeof v!=='object')return JSON.stringify(v);if
 function parseJson(v,fallback){ try{return JSON.parse(v??JSON.stringify(fallback));}catch{return fallback;} }
 function isPrivate4(h){ const m=/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);if(!m)return false;const o=m.slice(1).map(Number);return o.some(x=>x>255)||o[0]===10||o[0]===127||o[0]===0||(o[0]===169&&o[1]===254)||(o[0]===172&&o[1]>=16&&o[1]<=31)||(o[0]===192&&o[1]===168); }
 function publicUrl(value,label,template=false){ let u;try{u=new URL(template?String(value).replaceAll('{objectId}','probe'):String(value));}catch{throw new Error(`${label}_INVALID`)}const h=u.hostname.toLowerCase();if(u.protocol!=='https:')throw new Error(`${label}_HTTPS_REQUIRED`);if(u.username||u.password)throw new Error(`${label}_CREDENTIALS_FORBIDDEN`);if(h==='localhost'||h.endsWith('.local')||isPrivate4(h)||(h.includes(':')&&(h==='::1'||h.startsWith('fc')||h.startsWith('fd')||h.startsWith('fe80'))))throw new Error(`${label}_PRIVATE_NETWORK_FORBIDDEN`);return u; }
-async function fetchTimed(url,options={},ms=12000){ const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);try{return await fetch(url,{...options,redirect:'error',signal:c.signal});}finally{clearTimeout(t);} }
+async function fetchTimed(url,options={},ms=12000){
+  const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);
+  try{
+    let current=String(url),opts={...options};
+    for(let hop=0;hop<4;hop++){
+      const method=String(opts.method||'GET').toUpperCase();
+      const r=await fetch(current,{...opts,redirect:'manual',signal:c.signal});
+      if(![301,302,303,307,308].includes(r.status))return r;
+      if(method!=='GET'&&method!=='HEAD')return r;
+      const location=r.headers.get('location');
+      if(!location)return r;
+      current=publicUrl(new URL(location,current).toString(),'RUNTIME_REDIRECT');
+      if(r.status===303)opts={...opts,method:'GET',body:undefined};
+    }
+    throw new Error('REDIRECT_LIMIT');
+  }finally{clearTimeout(t);}
+}
 async function hkdf(master,salt,info,len=32){ const k=await crypto.subtle.importKey('raw',bytes(master),'HKDF',false,['deriveBits']);return new Uint8Array(await crypto.subtle.deriveBits({name:'HKDF',hash:'SHA-256',salt:bytes(salt),info:bytes(info)},k,len*8)); }
 async function hmac(key,payload){ const k=await crypto.subtle.importKey('raw',bytes(key),{name:'HMAC',hash:'SHA-256'},false,['sign']);return new Uint8Array(await crypto.subtle.sign('HMAC',k,bytes(payload))); }
 async function encrypt(master,snapshotId,plain,iv){ const raw=await hkdf(master,utf8(snapshotId),utf8('MEL-ShardVault/v1/aes-gcm'));const k=await crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['encrypt']);return new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:utf8(snapshotId)},k,plain)); }
@@ -27,10 +43,10 @@ function generator(k,n){if(!Number.isInteger(k)||!Number.isInteger(n)||k<1||n<=k
 function encode(data,n){const k=data.length,size=data[0]?.length||0;if(!k||!size)throw new Error('RS_DATA_EMPTY');const g=generator(k,n),out=data.map(x=>new Uint8Array(x));for(let r=k;r<n;r++){const p=new Uint8Array(size);for(let s=0;s<k;s++){const c=g[r][s];if(!c)continue;for(let i=0;i<size;i++)p[i]^=mul(c,data[s][i]);}out.push(p);}return out;}
 function decode(available,k,n,size){const idx=available.map((x,i)=>x?i:-1).filter(i=>i>=0);if(idx.length<k)throw new Error(`SHARDS_INSUFFICIENT_${idx.length}_${k}`);const g=generator(k,n),sel=idx.slice(0,k),inverse=invert(sel.map(i=>g[i].slice())),data=[];for(let d=0;d<k;d++){const out=new Uint8Array(size);for(let s=0;s<k;s++){const c=inverse[d][s];if(!c)continue;const src=available[sel[s]];for(let i=0;i<size;i++)out[i]^=mul(c,src[i]);}data.push(out);}return encode(data,n);}
 
-function normalizeEndpoint(e,i){ if(!e?.id||!String(e.urlTemplate||'').includes('{objectId}'))throw new Error(`ENDPOINT_${i}_INVALID`);const probe=publicUrl(e.urlTemplate,`ENDPOINT_${e.id}`,true),method=String(e.method||'PUT').toUpperCase();if(!['PUT','POST'].includes(method))throw new Error(`ENDPOINT_${e.id}_METHOD`);return {id:String(e.id),urlTemplate:String(e.urlTemplate),method,maxBytes:Number(e.maxBytes)||8*1024*1024,operatorDomain:String(e.operatorDomain||probe.hostname).toLowerCase(),providerId:String(e.providerId||e.operatorDomain||probe.hostname).toLowerCase(),jurisdiction:String(e.jurisdiction||'UNKNOWN').toUpperCase(),score:Number.isFinite(Number(e.score))?Number(e.score):0,confidence:Number.isFinite(Number(e.confidence))?Number(e.confidence):0}; }
+function normalizeEndpoint(e,i){ if(!e?.id||!String(e.urlTemplate||'').includes('{objectId}'))throw new Error(`ENDPOINT_${i}_INVALID`);const probe=publicUrl(e.urlTemplate,`ENDPOINT_${e.id}`,true),method=String(e.method||'PUT').toUpperCase();if(!['PUT','POST'].includes(method))throw new Error(`ENDPOINT_${e.id}_METHOD`);return {id:String(e.id),urlTemplate:String(e.urlTemplate),method,maxBytes:Number(e.maxBytes)||8*1024*1024,operatorDomain:String(e.operatorDomain||probe.hostname).toLowerCase(),providerId:String(e.providerId||e.operatorDomain||probe.hostname).toLowerCase(),jurisdiction:String(e.jurisdiction||'UNKNOWN').toUpperCase(),score:Number.isFinite(Number(e.score))?Number(e.score):0,confidence:Number.isFinite(Number(e.confidence))?Number(e.confidence):0,adapter:e.adapter||null,evidenceMode:e.evidenceMode||null,expectedRetentionDays:Number(e.expectedRetentionDays)||0,autonomous:e.autonomous===true,authMode:e.authMode||null}; }
 function selectEndpoints(endpoints,count,maxPerOperator=2,maxPerProvider=2){const ranked=[...endpoints].sort((a,b)=>b.score-a.score||b.confidence-a.confidence||a.id.localeCompare(b.id)),selected=[],ids=new Set(),op=new Map(),prov=new Map();const can=(e,uo=false,up=false)=>!ids.has(e.id)&&(op.get(e.operatorDomain)||0)<maxPerOperator&&(prov.get(e.providerId)||0)<maxPerProvider&&(!uo||(op.get(e.operatorDomain)||0)===0)&&(!up||(prov.get(e.providerId)||0)===0);const add=e=>{selected.push(e);ids.add(e.id);op.set(e.operatorDomain,(op.get(e.operatorDomain)||0)+1);prov.set(e.providerId,(prov.get(e.providerId)||0)+1);};for(const e of ranked){if(can(e,true,true))add(e);if(selected.length>=count)return selected;}for(const e of ranked){if(can(e,true,false))add(e);if(selected.length>=count)return selected;}for(const e of ranked){if(can(e,false,false))add(e);if(selected.length>=count)break;}return selected;}
 function diversity(endpoints){return {selected:endpoints.length,uniqueOperators:new Set(endpoints.map(e=>e.operatorDomain)).size,uniqueProviders:new Set(endpoints.map(e=>e.providerId)).size,uniqueJurisdictions:new Set(endpoints.map(e=>e.jurisdiction).filter(x=>x&&x!=='UNKNOWN')).size,fallbackUsed:new Set(endpoints.map(e=>e.operatorDomain)).size<endpoints.length};}
-function endpointSnapshot(e){return {backend:e.backend||'http',urlTemplate:e.urlTemplate||null,keyPrefix:e.keyPrefix||null,bucketName:e.bucketName||null,method:e.method||'PUT',maxBytes:e.maxBytes,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:e.score,confidence:e.confidence,autonomous:e.autonomous===true,authMode:e.authMode||null};}
+function endpointSnapshot(e){return {backend:e.backend||'http',urlTemplate:e.urlTemplate||null,keyPrefix:e.keyPrefix||null,bucketName:e.bucketName||null,method:e.method||'PUT',maxBytes:e.maxBytes,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:e.score,confidence:e.confidence,autonomous:e.autonomous===true,authMode:e.authMode||null,adapter:e.adapter||null,evidenceMode:e.evidenceMode||null,expectedRetentionDays:Number(e.expectedRetentionDays)||0};}
 function mergeAutonomous(c,report,env){if(!report?.selected?.length)return c;const by=new Map(c.allEndpoints.map(e=>[e.id,e]));for(const e of report.selected)by.set(e.id,e);const all=[...by.values()],maxOp=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_OPERATOR)||2),maxProv=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_PROVIDER)||2);return {...c,allEndpoints:all,endpoints:selectEndpoints(all,Math.min(c.n,all.length),maxOp,maxProv)};}
 async function enrichAutonomous(env,c,requiredBytes){
   if(String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')!=='true')return {config:c,report:null};
@@ -156,6 +172,24 @@ async function upload(env,e,objectId,payload){
   const u=publicUrl(e.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),`WRITE_${e.id}`),r=await fetchTimed(u,{method:e.method,headers:{'content-type':'application/octet-stream'},body:payload});
   if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
 }
+async function fetchOnceManual(url,options={},ms=12000){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),ms);
+  try{return await fetch(url,{...options,redirect:'manual',signal:controller.signal});}
+  finally{clearTimeout(timer);}
+}
+async function filebinDownload(url){
+  let r=await fetchOnceManual(url,{method:'GET',headers:{'accept':'application/octet-stream'}},12000);
+  if(r.status===200&&String(r.headers.get('content-type')||'').toLowerCase().includes('text/html')){
+    const cookie=String(r.headers.get('set-cookie')||'').split(';')[0].trim();
+    if(cookie)r=await fetchOnceManual(url,{method:'GET',headers:{'accept':'application/octet-stream','cookie':cookie}},12000);
+  }
+  if([301,302,303,307,308].includes(r.status)){
+    const location=r.headers.get('location');
+    if(!location)throw new Error('FILEBIN_REDIRECT_LOCATION_MISSING');
+    return fetchTimed(publicUrl(new URL(location,url).toString(),'FILEBIN_READ_REDIRECT'),{method:'GET'},12000);
+  }
+  return r;
+}
 async function download(env,e,objectId){
   if(e.backend==='r2'){
     if(!env?.MEDIA_BUCKET?.get)throw new Error('R2_BINDING_UNAVAILABLE');
@@ -172,7 +206,8 @@ async function download(env,e,objectId){
     if(Number(row.byte_length)!==payload.length)throw new Error(`READ_${e.id}_LENGTH_MISMATCH`);
     return payload;
   }
-  const u=publicUrl(e.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),`READ_${e.id}`),r=await fetchTimed(u,{method:'GET'});
+  const u=publicUrl(e.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),`READ_${e.id}`);
+  const r=e.adapter==='filebin'?await filebinDownload(u):await fetchTimed(u,{method:'GET'});
   if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
   return new Uint8Array(await r.arrayBuffer());
 }
@@ -257,7 +292,7 @@ export async function runShardVaultCycle(env,{force=false}={}){
 export const __shardvaultTest = Object.freeze({ encode, decode, selectEndpoints, diversity });
 
 
-function publicEndpointView(e){return {id:e.id,backend:e.backend||'http',bucket:e.bucketName||null,key_prefix:e.keyPrefix||null,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:Number(e.score)||0,confidence:Number(e.confidence)||0,autonomous:e.autonomous===true,authMode:e.authMode||null,maxBytes:Number(e.maxBytes)||0,preferred:e.preferred===true};}
+function publicEndpointView(e){return {id:e.id,backend:e.backend||'http',bucket:e.bucketName||null,key_prefix:e.keyPrefix||null,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:Number(e.score)||0,confidence:Number(e.confidence)||0,autonomous:e.autonomous===true,authMode:e.authMode||null,maxBytes:Number(e.maxBytes)||0,preferred:e.preferred===true,adapter:e.adapter||null,expectedRetentionDays:Number(e.expectedRetentionDays)||0};}
 const DISCOVERY_STATUS_KEY='shardvault/discovery/latest.json';
 const PREFERRED_ENDPOINT_KEY='shardvault/discovery/preferred-endpoint.json';
 async function readPreferredEndpoint(env){
@@ -384,7 +419,10 @@ export async function searchAutonomousShardVaultRepositories(env){
       known_leads:report.known_leads||0,
       new_leads:report.new_leads||0,
       query_set:report.query_set||[],
-      diversity:report.diversity||null
+      diversity:report.diversity||null,
+      external_found:Array.isArray(report.selected)&&report.selected.length>0,
+      continue_searching:!(Array.isArray(report.selected)&&report.selected.length>0),
+      search_mode:'UNTIL_EXTERNAL_FOUND'
     };
     await writeDiscoveryStatus(env,result);
     return result;
