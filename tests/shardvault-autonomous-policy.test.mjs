@@ -11,7 +11,7 @@ const base = {
   jurisdiction:'FR',
   policyUrl:'https://storage.example.test/policy',
   policyReviewedAt:new Date().toISOString(),
-  expectedRetentionDays:30,
+  expectedRetentionDays:180,
   authMode:'none',
   anonymousWriteDeclared:true,
   publicReadDeclared:true,
@@ -63,7 +63,7 @@ const policy = {
   writeProbeAllowed:true,
   maxObjectBytes:1024*1024,
   reviewedAt:new Date().toISOString(),
-  expectedRetentionDays:30,
+  expectedRetentionDays:180,
 };
 assert.equal(__autonomousTest.validatePublicPolicy(good,policy,{requiredBytes:4096}).maxBytes,1024*1024);
 assert.throws(()=>__autonomousTest.validatePublicPolicy(good,{...policy,automationAllowed:false},{requiredBytes:4096}),/POLICY_AUTOMATION_DENIED/);
