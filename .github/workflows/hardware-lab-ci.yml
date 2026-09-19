@@ -1,0 +1,37 @@
+name: hardware-lab-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/devices/waveshare-terminal-api.js'
+      - 'src/devices/computer-*.js'
+      - 'src/capabilities/computer-runtime-capabilities.js'
+      - 'src/api/native-chat.js'
+      - 'src/api/voice-transcribe.js'
+      - 'src/pages/full-interface-v2.js'
+      - 'dist/MEL-*.ps1'
+      - 'tests/*terminal*.test.mjs'
+      - 'tests/*computer*.test.mjs'
+      - 'tests/voice-internal-device.test.mjs'
+      - '.github/workflows/hardware-lab-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Syntax
+        run: npm run check
+      - name: Hardware lab tests
+        run: |
+          node --test             tests/waveshare-terminal-api.test.mjs             tests/waveshare-terminal-owner-routes.test.mjs             tests/full-interface-terminal.test.mjs             tests/computer-companion-api.test.mjs             tests/native-chat-computer-intent.test.mjs             tests/full-interface-computer.test.mjs             tests/voice-internal-device.test.mjs             tests/gen2/computer-use.test.mjs
