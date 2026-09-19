@@ -69,10 +69,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd build/waveshare-mel
+          cd build/waveshare-mel/build
           SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
           SIZE="$(stat -c '%s' mel-terminal.bin)"
-          cat > manifest.json <<JSON
+          cat > ../manifest.json <<JSON
           {
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
@@ -102,7 +102,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler r2 object put             meliturgos-private-media/devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin             --file build/waveshare-mel/mel-terminal.bin             --content-type application/octet-stream             --cache-control no-store             --remote --force
+          npx wrangler r2 object put             meliturgos-private-media/devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin             --file build/waveshare-mel/build/mel-terminal.bin             --content-type application/octet-stream             --cache-control no-store             --remote --force
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
