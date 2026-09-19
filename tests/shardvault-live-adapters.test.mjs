@@ -20,10 +20,14 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/adapter:'markdownpaste_b64'/);
   assert.match(autonomous,/markdownpasteit\.vercel\.app\/api\/paste/);
   assert.match(autonomous,/expires_in:0/);
+  assert.match(autonomous,/adapter:'udrop_dev_b64'/);
+  assert.match(autonomous,/https:\/\/udrop\.dev/);
+  assert.match(autonomous,/adapter:'waifuvault_b64'/);
+  assert.match(autonomous,/https:\/\/waifuvault\.moe\/rest/);
 });
 
 test('snapshot runtime can write and read every repaired adapter selected by discovery', () => {
-  for (const adapter of ['dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64','pastegg_b64','markdownpaste_b64']) {
+  for (const adapter of ['dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64']) {
     assert.ok(runtime.includes(`e.adapter==='${adapter}'`) || runtime.includes(`'${adapter}'`), adapter);
   }
   assert.match(runtime,/paste\.myst\.rs\/api\/v2\/paste\//);
@@ -31,4 +35,7 @@ test('snapshot runtime can write and read every repaired adapter selected by dis
   assert.match(runtime,/fileditch_b64/);
   assert.match(runtime,/api\.paste\.gg\/v1\/pastes\//);
   assert.match(runtime,/markdownpasteit\.vercel\.app\/api\/paste\//);
+  assert.match(runtime,/udrop_dev_b64/);
+  assert.match(runtime,/waifuvault_b64/);
+  assert.match(runtime,/WAIFUVAULT_CONTENT_MISSING/);
 });
