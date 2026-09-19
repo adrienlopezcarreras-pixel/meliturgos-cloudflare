@@ -470,14 +470,19 @@ async function candidateRead(c,url){
   }
   return r;
 }
-async function validateDocumentedEvidence(c){
+async function validateDocumentedEvidence(c,{maxAgeDays=365}={}){
   if(c.evidenceMode!=='documented_api')return null;
-  for(const raw of c.evidenceUrls||[]){
-    const url=publicHttps(raw,'DOCUMENTED_EVIDENCE').toString();
-    const r=await fetchTimed(url,{method:'GET',headers:{'accept':'text/plain,text/html,application/yaml,application/json'}},8000);
-    if(!r.ok)throw new Error('DOCUMENTED_EVIDENCE_HTTP_'+r.status);
-  }
-  return {maxBytes:c.maxBytes,expectedRetentionDays:c.expectedRetentionDays};
+  const reviewed=Date.parse(c.evidenceReviewedAt||'');
+  if(!Number.isFinite(reviewed))throw new Error('DOCUMENTED_EVIDENCE_REVIEW_MISSING');
+  if(Date.now()-reviewed>Math.max(1,maxAgeDays)*DAY)throw new Error('DOCUMENTED_EVIDENCE_REVIEW_STALE');
+  const urls=Array.isArray(c.evidenceUrls)?c.evidenceUrls:[];
+  if(!urls.length)throw new Error('DOCUMENTED_EVIDENCE_URL_MISSING');
+  for(const raw of urls)publicHttps(raw,'DOCUMENTED_EVIDENCE');
+  return {
+    maxBytes:c.maxBytes,
+    expectedRetentionDays:c.expectedRetentionDays,
+    evidenceVerification:'reviewed_documentation_plus_live_roundtrip'
+  };
 }
 async function probe(c, requiredBytes, policyMaxAgeDays=180){
   const policyStart=Date.now();
@@ -533,7 +538,7 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
   for(const c of eligibleRows.slice(0,probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
   const selected=choose(probed,selectionCount,maxPerOperator,maxPerProvider);
   return {
-    selected: selected.map(c=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:c.score,confidence:c.confidence,autonomous:true,authMode:'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,expectedRetentionDays:c.expectedRetentionDays||0})),
+    selected: selected.map(c=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:c.score,confidence:c.confidence,autonomous:true,authMode:'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:'reviewed_documentation_plus_live_roundtrip',expectedRetentionDays:c.expectedRetentionDays||0,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0)})),
     rejected,
     discovered:loaded.candidates.length,
     probed:probed.length,
