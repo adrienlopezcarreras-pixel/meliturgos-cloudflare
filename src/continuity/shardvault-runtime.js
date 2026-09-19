@@ -284,6 +284,32 @@ async function upload(env,e,objectId,payload){
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
+  if(e.adapter==='telegraph_b64'){
+    const accountEndpoint='https://api.telegra.ph/createAccount';
+    const accountBody=new URLSearchParams({
+      short_name:('mel'+objectId.replace(/[^a-zA-Z0-9]/g,'')).slice(0,32)||'melshardvault',
+      author_name:'MEL ShardVault'
+    });
+    const accountResp=await fetchTimed(accountEndpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:accountBody.toString()},15000);
+    if(!accountResp.ok)throw new Error(`WRITE_${e.id}_ACCOUNT_${accountResp.status}`);
+    const account=await accountResp.json().catch(()=>null);
+    const token=String(account?.result?.access_token||'').trim();
+    if(account?.ok!==true||!token)throw new Error(`WRITE_${e.id}_ACCOUNT_TOKEN_MISSING`);
+    const endpoint=fixedApiUrl(u);
+    const content=JSON.stringify([{tag:'pre',children:[b64u(payload)]}]);
+    const pageBody=new URLSearchParams({
+      access_token:token,
+      title:objectId,
+      author_name:'MEL ShardVault',
+      content,
+      return_content:'false'
+    });
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:pageBody.toString()},15000);
+    if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
+    const data=await r.json().catch(()=>null),path=String(data?.result?.path||'').trim();
+    if(data?.ok!==true||!path)throw new Error(`WRITE_${e.id}_REMOTE_PATH_MISSING`);
+    return {remoteUrl:'https://api.telegra.ph/getPage/'+encodeURIComponent(path)+'?return_content=true'};
+  }
   if(e.adapter==='paste_c_net'){
     const endpoint=fixedApiUrl(u);
     const r=await fetchTimed(endpoint,{method:'PUT',headers:{'content-type':'application/octet-stream','accept':'application/json, */*','x-uuid':'1','user-agent':'curl/8.0 MEL-ShardVault/1.0'},body:payload},15000);
@@ -382,10 +408,26 @@ async function download(env,e,objectId,descriptor=null){
   }
   if(e.adapter==='waifuvault_b64'){
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
-    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'text/plain,application/octet-stream','user-agent':'MEL-ShardVault/1.0'}},20000);
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'*/*','user-agent':'Mozilla/5.0 MEL-ShardVault/1.0'}},20000);
     if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
     const encoded=String(await r.text()).trim();
     if(!encoded)throw new Error(`READ_${e.id}_WAIFUVAULT_CONTENT_MISSING`);
+    return unb64u(encoded);
+  }
+  if(e.adapter==='telegraph_b64'){
+    if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'application/json','user-agent':'MEL-ShardVault/1.0'}},15000);
+    if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
+    const data=await r.json().catch(()=>null);
+    if(data?.ok!==true)throw new Error(`READ_${e.id}_TELEGRAPH_FAILED`);
+    const collect=node=>{
+      if(typeof node==='string')return node;
+      if(Array.isArray(node))return node.map(collect).join('');
+      if(node&&typeof node==='object')return collect(node.children||[]);
+      return '';
+    };
+    const encoded=collect(data?.result?.content).trim();
+    if(!encoded)throw new Error(`READ_${e.id}_TELEGRAPH_CONTENT_MISSING`);
     return unb64u(encoded);
   }
   if(['catbox','temp_sh'].includes(e.adapter)){
