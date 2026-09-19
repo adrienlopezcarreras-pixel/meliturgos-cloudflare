@@ -1,3 +1,4 @@
+// deployment trigger: ShardVault dashboard
 import { getShardVaultStatus, searchAutonomousShardVaultRepositories } from '../continuity/shardvault-runtime.js';
 
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
