@@ -32,7 +32,17 @@ function selectEndpoints(endpoints,count,maxPerOperator=2,maxPerProvider=2){cons
 function diversity(endpoints){return {selected:endpoints.length,uniqueOperators:new Set(endpoints.map(e=>e.operatorDomain)).size,uniqueProviders:new Set(endpoints.map(e=>e.providerId)).size,uniqueJurisdictions:new Set(endpoints.map(e=>e.jurisdiction).filter(x=>x&&x!=='UNKNOWN')).size,fallbackUsed:new Set(endpoints.map(e=>e.operatorDomain)).size<endpoints.length};}
 function endpointSnapshot(e){return {backend:e.backend||'http',urlTemplate:e.urlTemplate||null,keyPrefix:e.keyPrefix||null,bucketName:e.bucketName||null,method:e.method||'PUT',maxBytes:e.maxBytes,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:e.score,confidence:e.confidence,autonomous:e.autonomous===true,authMode:e.authMode||null};}
 function mergeAutonomous(c,report,env){if(!report?.selected?.length)return c;const by=new Map(c.allEndpoints.map(e=>[e.id,e]));for(const e of report.selected)by.set(e.id,e);const all=[...by.values()],maxOp=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_OPERATOR)||2),maxProv=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_PROVIDER)||2);return {...c,allEndpoints:all,endpoints:selectEndpoints(all,Math.min(c.n,all.length),maxOp,maxProv)};}
-async function enrichAutonomous(env,c,requiredBytes){if(String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')!=='true')return {config:c,report:null};try{const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});return {config:mergeAutonomous(c,report,env),report};}catch(error){return {config:c,report:{error:String(error?.message||error),selected:[],rejected:[]}};}}
+async function enrichAutonomous(env,c,requiredBytes){
+  if(String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')!=='true')return {config:c,report:null};
+  try{
+    const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
+    const preferred=await readPreferredEndpoint(env);
+    if(preferred?.endpoint_id&&Array.isArray(report?.selected)){
+      report.selected=report.selected.map(e=>String(e?.id||'')===preferred.endpoint_id?{...e,score:(Number(e.score)||0)+100000,preferred:true}:e);
+    }
+    return {config:mergeAutonomous(c,report,env),report};
+  }catch(error){return {config:c,report:{error:String(error?.message||error),selected:[],rejected:[]}};}
+}
 async function recoveryMaster(env){
   const encoded=String(env?.MEL_RECOVERY_KEY||'').trim();
   if(encoded){
@@ -213,8 +223,24 @@ export async function runShardVaultCycle(env,{force=false}={}){
 export const __shardvaultTest = Object.freeze({ encode, decode, selectEndpoints, diversity });
 
 
-function publicEndpointView(e){return {id:e.id,backend:e.backend||'http',bucket:e.bucketName||null,key_prefix:e.keyPrefix||null,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:Number(e.score)||0,confidence:Number(e.confidence)||0,autonomous:e.autonomous===true,authMode:e.authMode||null,maxBytes:Number(e.maxBytes)||0};}
+function publicEndpointView(e){return {id:e.id,backend:e.backend||'http',bucket:e.bucketName||null,key_prefix:e.keyPrefix||null,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:Number(e.score)||0,confidence:Number(e.confidence)||0,autonomous:e.autonomous===true,authMode:e.authMode||null,maxBytes:Number(e.maxBytes)||0,preferred:e.preferred===true};}
 const DISCOVERY_STATUS_KEY='shardvault/discovery/latest.json';
+const PREFERRED_ENDPOINT_KEY='shardvault/discovery/preferred-endpoint.json';
+async function readPreferredEndpoint(env){
+  if(!env?.MEDIA_BUCKET?.get)return null;
+  try{
+    const body=await env.MEDIA_BUCKET.get(PREFERRED_ENDPOINT_KEY);
+    if(!body)return null;
+    const parsed=JSON.parse(await body.text());
+    return parsed&&typeof parsed.endpoint_id==='string'?parsed:null;
+  }catch{return null}
+}
+async function writePreferredEndpoint(env,endpointId){
+  if(!env?.MEDIA_BUCKET?.put)throw new Error('R2_BINDING_UNAVAILABLE');
+  const value={endpoint_id:String(endpointId),updated_at:new Date().toISOString()};
+  await env.MEDIA_BUCKET.put(PREFERRED_ENDPOINT_KEY,JSON.stringify(value),{httpMetadata:{contentType:'application/json'}});
+  return value;
+}
 async function readDiscoveryStatus(env){
   if(!env?.MEDIA_BUCKET?.get)return null;
   try{
@@ -275,9 +301,21 @@ export async function getShardVaultStatus(env){
       internet_discovery_enabled:String(env?.MEL_SHARDVAULT_INTERNET_DISCOVERY||'true')==='true',
       discovery_index:String(env?.MEL_SHARDVAULT_DISCOVERY_INDEX||'https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/discovery-index.json'),
       last_discovery:await readDiscoveryStatus(env),
+      preferred_endpoint:await readPreferredEndpoint(env),
       checked_at:new Date().toISOString()
     };
   }catch(error){return {ok:false,enabled:true,status:'ERROR',error:String(error?.message||error)};}
+}
+
+export async function setPreferredShardVaultEndpoint(env,endpointId){
+  const id=String(endpointId||'').trim();
+  if(!id)return {ok:false,status:'ENDPOINT_ID_REQUIRED'};
+  const last=await readDiscoveryStatus(env);
+  const selected=Array.isArray(last?.selected)?last.selected:[];
+  const endpoint=selected.find(x=>String(x?.id||'')===id);
+  if(!endpoint)return {ok:false,status:'ENDPOINT_NOT_VALIDATED',endpoint_id:id};
+  const saved=await writePreferredEndpoint(env,id);
+  return {ok:true,status:'PREFERRED',preferred_endpoint:saved,endpoint};
 }
 
 export async function searchAutonomousShardVaultRepositories(env){
