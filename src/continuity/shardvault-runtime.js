@@ -612,6 +612,8 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
   const object=await env.MEDIA_BUCKET.get(id.criticalKey);
   if(!object)return {...codeBackup,external:{status:'CRITICAL_ARCHIVE_MISSING',target_count:goal,critical_key:id.criticalKey}};
   const plain=new Uint8Array(await object.arrayBuffer());
+  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',plain));
+  const archiveSha256=[...digest].map(x=>x.toString(16).padStart(2,'0')).join('');
   const snapshotId='code-'+id.sha.slice(0,16)+'-'+rid(6),iv=new Uint8Array(12);crypto.getRandomValues(iv);
   const cipher=await encrypt(c.master,snapshotId,plain,iv),size=Math.max(1,Math.ceil(cipher.length/c.k)),padded=new Uint8Array(size*c.k);padded.set(cipher);
   const data=Array.from({length:c.k},(_,i)=>padded.slice(i*size,(i+1)*size)),shards=encode(data,c.n);
@@ -621,7 +623,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     const locator=await uploadFragment(env,e,objectId,shards[i]);
     descriptors.push({index:i,endpointId:e.id,endpoint:endpointSnapshot(e),objectId:locator.objectId,remoteUrl:locator.remoteUrl||null,parts:locator.parts||null,byteLength:size,mac:b64u(await hmac(shardKey,concat(utf8(`${snapshotId}:${i}:`),shards[i])))});
   }
-  const manifest={format:'MEL-ShardVault-Code',formatVersion:2,repository:id.repository,git_sha:id.sha,archive_key:id.criticalKey,snapshotId,createdAt:new Date().toISOString(),dataShards:c.k,totalShards:c.n,shardSize:size,ciphertextLength:cipher.length,iv:b64u(iv),archiveBytes:plain.length,sha256:codeBackup.sha256||null,shards:descriptors,diversity:diversity(externalEndpoints)};
+  const manifest={format:'MEL-ShardVault-Code',formatVersion:2,repository:id.repository,git_sha:id.sha,archive_key:id.criticalKey,snapshotId,createdAt:new Date().toISOString(),dataShards:c.k,totalShards:c.n,shardSize:size,ciphertextLength:cipher.length,iv:b64u(iv),archiveBytes:plain.length,sha256:archiveSha256,shards:descriptors,diversity:diversity(externalEndpoints)};
   const unsigned={...manifest},key=await hkdf(c.master,utf8(id.sha),utf8('MEL-ShardVault/v1/code-manifest-mac'));
   manifest.manifestMac=b64u(await hmac(key,utf8(stable(unsigned))));
   await env.MEDIA_BUCKET.put(id.manifestKey,JSON.stringify(manifest),{httpMetadata:{contentType:'application/json'}});
