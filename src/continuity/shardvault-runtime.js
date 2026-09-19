@@ -75,16 +75,42 @@ function mergeAutonomous(c,report,env){
   const externalFirst=[...external,...all.filter(e=>e.backend)];
   return {...c,allEndpoints:all,endpoints:selectEndpoints(externalFirst,Math.min(c.n,externalFirst.length),maxOp,maxProv)};
 }
+function extendActiveEndpoints(current,candidates,limit=7,maxPerOperator=2,maxPerProvider=2){
+  const out=[],ids=new Set(),ops=new Map(),provs=new Map();
+  const add=e=>{out.push(e);ids.add(e.id);ops.set(e.operatorDomain,(ops.get(e.operatorDomain)||0)+1);provs.set(e.providerId,(provs.get(e.providerId)||0)+1);};
+  for(const e of current||[]){
+    if(!e?.id||ids.has(e.id)||out.length>=limit)continue;
+    add(e);
+  }
+  for(const e of candidates||[]){
+    if(!e?.id||ids.has(e.id)||out.length>=limit)continue;
+    if((ops.get(e.operatorDomain)||0)>=maxPerOperator||(provs.get(e.providerId)||0)>=maxPerProvider)continue;
+    add(e);
+  }
+  return out;
+}
 async function enrichAutonomous(env,c,requiredBytes){
-  if(String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')!=='true')return {config:c,report:null};
+  let active=[];
+  try{active=await readActiveExternalEndpoints(env);}catch{}
+  const activeBoosted=active.map((e,i)=>({...e,score:1000000-i,activeRegistry:true}));
+  if(String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')!=='true'){
+    return {config:activeBoosted.length?mergeAutonomous(c,{selected:activeBoosted},env):c,report:null};
+  }
   try{
     const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
+    const by=new Map();
+    for(const e of activeBoosted)by.set(e.id,e);
+    for(const e of (report?.selected||[]))if(!by.has(e.id))by.set(e.id,e);
+    report.selected=[...by.values()];
     const preferred=await readPreferredEndpoint(env);
     if(preferred?.endpoint_id&&Array.isArray(report?.selected)){
       report.selected=report.selected.map(e=>String(e?.id||'')===preferred.endpoint_id?{...e,score:(Number(e.score)||0)+100000,preferred:true}:e);
     }
     return {config:mergeAutonomous(c,report,env),report};
-  }catch(error){return {config:c,report:{error:String(error?.message||error),selected:[],rejected:[]}};}
+  }catch(error){
+    const configWithActive=activeBoosted.length?mergeAutonomous(c,{selected:activeBoosted},env):c;
+    return {config:configWithActive,report:{error:String(error?.message||error),selected:activeBoosted,rejected:[]}};
+  }
 }
 async function recoveryMaster(env){
   const encoded=String(env?.MEL_RECOVERY_KEY||'').trim();
@@ -683,12 +709,13 @@ export async function syncShardVaultCodeExternally(env){
   }
 }
 
-export const __shardvaultTest = Object.freeze({ encode, decode, selectEndpoints, diversity });
+export const __shardvaultTest = Object.freeze({ encode, decode, selectEndpoints, diversity, extendActiveEndpoints });
 
 
 function publicEndpointView(e){return {id:e.id,backend:e.backend||'http',bucket:e.bucketName||null,key_prefix:e.keyPrefix||null,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:Number(e.score)||0,confidence:Number(e.confidence)||0,autonomous:e.autonomous===true,authMode:e.authMode||null,maxBytes:Number(e.maxBytes)||0,preferred:e.preferred===true,adapter:e.adapter||null,expectedRetentionDays:Number(e.expectedRetentionDays)||0,retentionModel:e.retentionModel||'fixed',baseRetentionDays:Number(e.baseRetentionDays)||Number(e.expectedRetentionDays)||0,refreshEveryDays:Number(e.refreshEveryDays)||0,fullReadRenewsRetention:e.fullReadRenewsRetention===true,evidenceVerification:e.evidenceVerification||null,verifiedAt:e.verifiedAt||null,probeLatencyMs:Number(e.probeLatencyMs)||0};}
 const DISCOVERY_STATUS_KEY='shardvault/discovery/latest.json';
 const PREFERRED_ENDPOINT_KEY='shardvault/discovery/preferred-endpoint.json';
+const ACTIVE_ENDPOINTS_KEY='shardvault/discovery/active-external-endpoints.json';
 async function readPreferredEndpoint(env){
   if(!env?.MEDIA_BUCKET?.get)return null;
   try{
@@ -712,6 +739,42 @@ function endpointMeetsDurability(env,e){
   const min=Math.max(1,Number(env?.MEL_AUTONOMOUS_MIN_RETENTION_DAYS)||90);
   if(Number(e?.expectedRetentionDays||0)>=min)return true;
   return e?.retentionModel==='renewable'&&e?.fullReadRenewsRetention===true&&Number(e?.baseRetentionDays||0)>=30&&Number(e?.refreshEveryDays||0)>0&&Number(e?.refreshEveryDays)<Number(e?.baseRetentionDays||0);
+}
+async function readActiveExternalEndpoints(env){
+  if(!env?.MEDIA_BUCKET?.get)return [];
+  try{
+    const body=await env.MEDIA_BUCKET.get(ACTIVE_ENDPOINTS_KEY);
+    if(!body)return [];
+    const parsed=JSON.parse(await body.text()),rows=Array.isArray(parsed)?parsed:(Array.isArray(parsed?.endpoints)?parsed.endpoints:[]);
+    const out=[];
+    for(let i=0;i<rows.length&&out.length<7;i++){
+      try{
+        const e=normalizeEndpoint(rows[i],i);
+        if(endpointMeetsDurability(env,e)&&!out.some(x=>x.id===e.id))out.push(e);
+      }catch{}
+    }
+    return out;
+  }catch{return []}
+}
+async function writeActiveExternalEndpoints(env,endpoints){
+  if(!env?.MEDIA_BUCKET?.put)throw new Error('R2_BINDING_UNAVAILABLE');
+  const rows=(endpoints||[]).slice(0,7).map(e=>({id:e.id,...endpointSnapshot(e)}));
+  await env.MEDIA_BUCKET.put(ACTIVE_ENDPOINTS_KEY,JSON.stringify({version:1,updated_at:new Date().toISOString(),endpoints:rows}),{httpMetadata:{contentType:'application/json'}});
+  return endpoints.slice(0,7);
+}
+async function rememberActiveExternalEndpoints(env,c,last,candidates=[]){
+  let active=await readActiveExternalEndpoints(env);
+  const fromSnapshot=[];
+  for(const shard of last?.shards||[]){
+    if(fromSnapshot.some(e=>e.id===shard.endpointId))continue;
+    const e=endpointById(c,shard.endpointId,shard);
+    if(e&&!e.backend&&endpointMeetsDurability(env,e))fromSnapshot.push(e);
+  }
+  const incoming=[...fromSnapshot,...(candidates||[]).filter(e=>!e?.backend&&endpointMeetsDurability(env,e))];
+  const maxOp=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_OPERATOR)||2),maxProv=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_PROVIDER)||2);
+  const next=extendActiveEndpoints(active,incoming,Math.min(7,c?.n||7),maxOp,maxProv);
+  if(next.length!==active.length||next.some((e,i)=>e.id!==active[i]?.id))await writeActiveExternalEndpoints(env,next);
+  return next;
 }
 async function readDiscoveryStatus(env){
   if(!env?.MEDIA_BUCKET?.get)return null;
@@ -800,6 +863,7 @@ export async function getShardVaultStatus(env){
       discovery_index:String(env?.MEL_SHARDVAULT_DISCOVERY_INDEX||'https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/discovery-index.json'),
       last_discovery:discovery,
       preferred_endpoint:preferred,
+      active_external_registry:(await readActiveExternalEndpoints(env)).map(publicEndpointView),
       checked_at:new Date().toISOString()
     };
   }catch(error){return {ok:false,enabled:true,status:'ERROR',error:String(error?.message||error)};}
@@ -824,16 +888,20 @@ export async function activateValidatedShardVaultEndpoint(env,endpointId){
   const endpoint=(Array.isArray(discovery?.selected)?discovery.selected:[]).find(x=>String(x?.id||'')===id);
   if(!endpoint)return {ok:false,status:'ENDPOINT_NOT_VALIDATED',endpoint_id:id};
   if(!endpointMeetsDurability(env,endpoint))return {ok:false,status:'RETENTION_TOO_SHORT',endpoint_id:id,expected_retention_days:Number(endpoint.expectedRetentionDays)||0};
-  await writePreferredEndpoint(env,id);
-  const cycle=await runShardVaultCycle(env,{force:true});
-  if(!cycle?.ok){await clearPreferredEndpoint(env);return {ok:false,status:'ACTIVATION_SNAPSHOT_FAILED',endpoint_id:id,cycle};}
   let c;
   try{c=await config(env);}catch{}
-  if(!c?.ok){await clearPreferredEndpoint(env);return {ok:false,status:'ACTIVATION_STATUS_FAILED',endpoint_id:id};}
-  const rows=await inventoryRows(env,c),latest=latestSnapshot(rows);
+  if(!c?.ok)return {ok:false,status:'ACTIVATION_STATUS_FAILED',endpoint_id:id};
+  const rows=await inventoryRows(env,c),latestBefore=latestSnapshot(rows);
+  const before=await rememberActiveExternalEndpoints(env,c,latestBefore,[]);
+  if(!before.some(e=>e.id===id)&&before.length>=Math.min(7,c.n))return {ok:false,status:'ACTIVE_EXTERNAL_REGISTRY_FULL',endpoint_id:id,active_endpoint_ids:before.map(e=>e.id),target_count:Math.min(7,c.n)};
+  const active=await rememberActiveExternalEndpoints(env,c,latestBefore,[endpoint]);
+  await writePreferredEndpoint(env,id);
+  const cycle=await runShardVaultCycle(env,{force:true});
+  if(!cycle?.ok)return {ok:false,status:'ACTIVATION_SNAPSHOT_FAILED',endpoint_id:id,cycle,active_endpoint_ids:active.map(e=>e.id)};
+  const rowsAfter=await inventoryRows(env,c),latest=latestSnapshot(rowsAfter);
   const used=(latest?.shards||[]).filter(x=>x.endpointId===id).length;
-  if(!used){await clearPreferredEndpoint(env);return {ok:false,status:'ACTIVATION_NOT_USED',endpoint_id:id,cycle};}
-  return {ok:true,status:'ACTIVATED',endpoint_id:id,used_fragments:used,snapshot_id:latest.snapshotId,cycle};
+  if(!used)return {ok:false,status:'ACTIVATION_NOT_USED',endpoint_id:id,cycle,active_endpoint_ids:active.map(e=>e.id)};
+  return {ok:true,status:'ACTIVATED',endpoint_id:id,used_fragments:used,snapshot_id:latest.snapshotId,active_external_count:active.length,active_endpoint_ids:active.map(e=>e.id),cycle};
 }
 
 export async function searchAutonomousShardVaultRepositories(env){
@@ -847,11 +915,17 @@ export async function searchAutonomousShardVaultRepositories(env){
     await writeDiscoveryStatus(env,result);return result;
   }
   try{
-    let requiredBytes=256;
-    try{const rows=await inventoryRows(env,c),last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
+    let requiredBytes=256,last=null;
+    try{const rows=await inventoryRows(env,c);last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
+    const activeBefore=await rememberActiveExternalEndpoints(env,c,last,[]);
     const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
+    const active=await rememberActiveExternalEndpoints(env,c,last,report.selected||[]);
+    const activeIds=new Set(active.map(e=>e.id));
     let preferred=await readPreferredEndpoint(env);
-    const selectedViews=(report.selected||[]).map(publicEndpointView);
+    const selectedViews=[
+      ...active.map(e=>({...publicEndpointView(e),active_registry:true})),
+      ...(report.selected||[]).filter(e=>!activeIds.has(e.id)).map(publicEndpointView)
+    ];
     if(preferred&&!selectedViews.some(x=>x.id===preferred.endpoint_id&&endpointMeetsDurability(env,x))){
       await clearPreferredEndpoint(env);
       preferred=null;
@@ -872,16 +946,22 @@ export async function searchAutonomousShardVaultRepositories(env){
       new_leads:report.new_leads||0,
       query_set:report.query_set||[],
       diversity:report.diversity||null,
-      external_found:Array.isArray(report.selected)&&report.selected.length>0,
+      external_found:active.length>0,
+      active_external_count:active.length,
+      active_endpoint_ids:active.map(e=>e.id),
       target_count:Math.min(7,c.n),
-      target_reached:Array.isArray(report.selected)&&report.selected.length>=Math.min(7,c.n),
-      continue_searching:!(Array.isArray(report.selected)&&report.selected.length>=Math.min(7,c.n)),
+      target_reached:active.length>=Math.min(7,c.n),
+      continue_searching:active.length<Math.min(7,c.n),
       search_mode:'MAINTAIN_7_EXTERNAL'
     };
     await writeDiscoveryStatus(env,result);
-    if(result.target_reached){
+    if(active.length>activeBefore.length||result.target_reached){
       try{result.activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true});}
       catch(error){result.activation_cycle={ok:false,error:String(error?.message||error)};}
+    }
+    if(result.target_reached&&result.activation_cycle?.ok){
+      try{result.code_sync=await syncShardVaultCodeExternally(env);}
+      catch(error){result.code_sync={ok:false,status:'COPY_FAILED',error:String(error?.message||error)};}
     }
     return result;
   }catch(error){
