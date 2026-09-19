@@ -5,6 +5,7 @@ function render(s){$('status').textContent=[
 `Découvertes : ${s.discovered||0}`,
 `File restante : ${s.queue?.length||0}`,
 `Conversations archivées : ${s.importedConversations||0}`,
+`Captures partielles : ${Object.keys(s.partial||{}).length}`,
 `Messages nouveaux : ${s.importedMessages||0}`,
 `Doublons ignorés : ${s.duplicates||0}`,
 `Échecs : ${Object.keys(s.failed||{}).length}`,
@@ -72,7 +73,7 @@ $('save').onclick=async()=>{try{await saveConfig()}catch(e){$('configStatus').cl
 $('test').onclick=async()=>{try{$('configStatus').className='muted';$('configStatus').textContent='Test…';await testMel()}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}};
 $('start').onclick=async()=>{try{await saveConfig();await api.runtime.sendMessage({type:'mel.collector.start'})}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}refresh()};
 $('pause').onclick=async()=>{await api.runtime.sendMessage({type:'mel.collector.pause'});refresh()};
-$('retry').onclick=async()=>{try{const s=await api.runtime.sendMessage({type:'mel.collector.retry-deferred'});$('configStatus').className='ok';$('configStatus').textContent=(s.retryDeferredAdded||0)+' conversation(s) remise(s) en file.'}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}refresh()};
+$('retry').onclick=async()=>{try{const s=await api.runtime.sendMessage({type:'mel.collector.retry-deferred'});$('configStatus').className='ok';$('configStatus').textContent=(s.retryDeferredAdded||0)+' conversation(s) en échec/différée(s) remise(s) en file.'}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}refresh()};
 $('capture').onclick=async()=>{try{await saveConfig();await api.runtime.sendMessage({type:'mel.collector.capture-current'})}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}refresh()};
 
 loadConfig();
