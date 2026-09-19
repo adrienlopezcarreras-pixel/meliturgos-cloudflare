@@ -11,5 +11,5 @@ test('full interface emits parseable browser runtime and keeps core navigation b
   assert.doesNotThrow(() => new Function(match[1]), 'generated browser runtime must parse');
   assert.match(match[1], /qsa\('#nav button'\)\.forEach/, 'sidebar navigation must be bound');
   assert.match(match[1], /qsa\('\[data-jump\]'\)\.forEach/, 'overview action buttons must be bound');
-  assert.match(match[1], /Cibles actives[\s\S]*\\n/, 'ShardVault output newline must remain escaped in browser JS');
+  assert.match(match[1], /Sauvegardes réelles[\s\S]*\\n/, 'ShardVault status output newline must remain escaped in browser JS');
 });
