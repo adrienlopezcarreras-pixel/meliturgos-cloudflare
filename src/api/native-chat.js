@@ -82,8 +82,12 @@ export function inferNativeComputerCapability(text) {
   }
 
   if(computer){
-    const typed=value.match(/(?:^|\s)(?:écris|ecris|tape|saisis|inscris)\s+(.+?)(?:\s+(?:sur|dans)\s+(?:le\s+)?(?:pc|ordinateur|bureau|windows|fenêtre|fenetre))?[.!?]*$/i);
-    if(typed&&typed[1]?.trim())return {id:'computer.quick',input:{kind:'type_text',text:typed[1].trim().slice(0,4096),approve_sensitive:true}};
+    const typed=value.match(/(?:^|\s)(?:écris|ecris|tape|saisis|inscris)\s+(.+?)[.!?]*$/i);
+    if(typed&&typed[1]?.trim()){
+      const targetSuffix=/\s+(?:sur|dans)\s+(?:le\s+|la\s+|l['’])?(?:pc|ordinateur|bureau|windows|fenêtre|fenetre)\s*$/i;
+      const requestedText=typed[1].trim().replace(targetSuffix,'').trim();
+      if(requestedText)return {id:'computer.quick',input:{kind:'type_text',text:requestedText.slice(0,4096),approve_sensitive:true}};
+    }
 
     const key=value.match(/\b(?:appuie|presse)\s+(?:sur\s+)?(?:la\s+touche\s+)?(entrée|entree|enter|tab|tabulation|ctrl\+l|alt\+tab)\b/i);
     if(key){
