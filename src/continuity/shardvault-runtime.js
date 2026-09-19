@@ -580,8 +580,10 @@ export async function searchAutonomousShardVaultRepositories(env){
       query_set:report.query_set||[],
       diversity:report.diversity||null,
       external_found:Array.isArray(report.selected)&&report.selected.length>0,
-      continue_searching:!(Array.isArray(report.selected)&&report.selected.length>0),
-      search_mode:'UNTIL_EXTERNAL_FOUND'
+      target_count:Math.min(7,c.n),
+      target_reached:Array.isArray(report.selected)&&report.selected.length>=Math.min(7,c.n),
+      continue_searching:!(Array.isArray(report.selected)&&report.selected.length>=Math.min(7,c.n)),
+      search_mode:'MAINTAIN_7_EXTERNAL'
     };
     await writeDiscoveryStatus(env,result);
     return result;
