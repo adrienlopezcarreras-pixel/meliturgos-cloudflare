@@ -49,11 +49,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd build/waveshare-mel
+          cd build/waveshare-mel/build
           test -s mel-terminal.bin
           SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
           SIZE="$(stat -c '%s' mel-terminal.bin)"
-          cat > firmware-manifest.json <<JSON
+          cat > ../firmware-manifest.json <<JSON
           {
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
@@ -69,14 +69,14 @@ jobs:
             "assets": { "version": "1", "items": [] }
           }
           JSON
-          sha256sum mel-terminal.bin firmware-manifest.json > SHA256SUMS.txt
+          sha256sum mel-terminal.bin ../firmware-manifest.json > ../SHA256SUMS.txt
 
       - name: Upload flash-ready artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: MEL-Waveshare-3.5-C-${{ github.sha }}
           path: |
-            build/waveshare-mel/mel-terminal.bin
+            build/waveshare-mel/build/mel-terminal.bin
             build/waveshare-mel/firmware-manifest.json
             build/waveshare-mel/SHA256SUMS.txt
             build/waveshare-mel/WAVESHARE_UPSTREAM_SHA
