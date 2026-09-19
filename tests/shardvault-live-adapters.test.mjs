@@ -91,3 +91,9 @@ test('critical code bundle is the external code payload and search snapshots sta
   assert.match(runtime,/syncShardVaultCodeExternally/);
   assert.match(runtime,/skipExternalCode:true/);
 });
+
+
+test('external data mode still persists manifests through the internal R2 inventory', () => {
+  assert.match(runtime,/c\.storageMode==='CLOUDFLARE_FALLBACK'\|\|c\.storageMode==='EXTERNAL_DISTRIBUTED'/);
+  assert.match(runtime,/external_only:c\.endpoints\.length>=c\.n&&c\.endpoints\.every\(e=>!e\.backend\)/);
+});
