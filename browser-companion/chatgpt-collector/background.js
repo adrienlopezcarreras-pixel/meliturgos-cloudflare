@@ -1,5 +1,5 @@
 const api = globalThis.browser;
-const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},failed:{},unavailable:{},deferred:{},discovered:0,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,lastProgressAt:null,currentMessageCount:0,captureProcessed:0,stalledCount:0,updatedAt:null};
+const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},partial:{},failed:{},unavailable:{},deferred:{},discovered:0,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,lastProgressAt:null,currentMessageCount:0,captureProcessed:0,stalledCount:0,updatedAt:null};
 const WATCHDOG_IDLE_MS=8*60*1000;
 const NETWORK_TIMEOUT_MS=6*60*1000;
 const MESSAGE_TIMEOUT_MS=60000;
@@ -97,7 +97,7 @@ async function mergeDiscovery(tabId){
     return id && !done[id] && !unavailable[id] && !deferred[id] && attempts<3 && !queued.has(u);
   });
   const queue=[...(s.queue||[]),...add];
-  return save({queue,discovered:new Set([...queue,...Object.values(done).map(x=>x.url).filter(Boolean),...Object.values(unavailable).map(x=>x.url).filter(Boolean)]).size});
+  return save({queue,discovered:new Set([...queue,...Object.values(done).map(x=>x.url).filter(Boolean),...Object.values(deferred).map(x=>x.url).filter(Boolean),...Object.values(failed).map(x=>x.url).filter(Boolean),...Object.values(unavailable).map(x=>x.url).filter(Boolean)]).size});
 }
 
 function waitComplete(tabId,timeout=30000){
@@ -237,6 +237,7 @@ async function process(tabId,generation){
       await save({currentStage:'capture',lastProgressAt:Date.now(),currentMessageCount:itemMessageCount,captureProcessed:0});
       const cap=await captureStable(tabId,cfg.ecoMode?3:6);
       if(!cap?.ok||!cap.conversation) throw Object.assign(new Error(cap?.code||'CAPTURE_FAILED'),{code:cap?.code||'CAPTURE_FAILED'});
+      if(String(cap.conversation.id||'')!==sourceId) throw codedError('CAPTURE_ID_MISMATCH');
       const messageCount=Number(cap.conversation.messages?.length||0);
       itemMessageCount=Math.max(itemMessageCount,messageCount);
       await save({currentStage:'import',lastProgressAt:Date.now(),currentMessageCount:messageCount,captureProcessed:messageCount});
@@ -249,7 +250,8 @@ async function process(tabId,generation){
       const failed={...(s.failed||{})};delete failed[sourceId];
       const unavailable={...(s.unavailable||{})};delete unavailable[sourceId];
       const deferred={...(s.deferred||{})};delete deferred[sourceId];
-      await save({done,failed,unavailable,deferred,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now()});
+      const partial={...(s.partial||{})};delete partial[sourceId];
+      await save({done,partial,failed,unavailable,deferred,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now()});
     }catch(e){
       s=await state();
       if(!isCurrentRun(generation)||s.paused||!s.running)return;
@@ -312,7 +314,8 @@ async function retryDeferred(){
   const deferred={...(s.deferred||{})};
   const failed={...(s.failed||{})};
   let added=0;
-  for(const [key,item] of Object.entries({...deferred})){
+  const unresolved={...failed,...deferred};
+  for(const [key,item] of Object.entries(unresolved)){
     const url=norm(item?.url);
     if(!url||s.done?.[key]||s.unavailable?.[key])continue;
     if(!queue.includes(url)){queue.push(url);added++}
@@ -355,7 +358,8 @@ api.runtime.onMessage.addListener(async msg=>{
     const cap=await captureStable(tab.id);if(!cap?.ok)throw new Error(cap?.code||'CAPTURE_FAILED');
     const result=await sendConversation(cap.conversation),s=await state(),sourceId=cap.conversation.id;
     const done={...(s.done||{}),[sourceId]:{url:norm(tab.url),title:cap.conversation.title,messages:cap.conversation.messages.length,importedAt:Date.now()}};
-    return save({done,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0)});
+    const partial={...(s.partial||{})};delete partial[sourceId];
+    return save({done,partial,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0)});
   }
   if(msg?.type==='mel.collector.auto-capture'&&msg.conversation){
     const c=await config();if(!c.continuous)return{ok:false,skipped:'CONTINUOUS_DISABLED'};
@@ -363,12 +367,22 @@ api.runtime.onMessage.addListener(async msg=>{
     if(!sourceId)return{ok:false,skipped:'CONVERSATION_ID_REQUIRED'};
     let s=await state();
     if(s.running&&!s.paused)return{ok:false,skipped:'BATCH_RUNNING'};
-    if(s.done?.[sourceId]&&Number(s.done[sourceId].messages||0)>=count)return{ok:true,skipped:'ALREADY_CAPTURED'};
+    const partialCapture=msg.conversation.collector?.partial===true;
+    if(!partialCapture&&s.done?.[sourceId]&&Number(s.done[sourceId].messages||0)>=count)return{ok:true,skipped:'ALREADY_CAPTURED'};
+    if(partialCapture&&s.partial?.[sourceId]&&Number(s.partial[sourceId].messages||0)>=count)return{ok:true,skipped:'ALREADY_CAPTURED_PARTIAL'};
     try{
       const result=await sendConversation(msg.conversation);s=await state();
-      const done={...(s.done||{}),[sourceId]:{url:msg.conversation.collector?.url||null,title:msg.conversation.title,messages:count,importedAt:Date.now()}};
-      await save({done,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0)});
-      return{ok:true};
+      const done={...(s.done||{})};
+      const partial={...(s.partial||{})};
+      const record={url:msg.conversation.collector?.url||null,title:msg.conversation.title,messages:count,importedAt:Date.now()};
+      if(partialCapture){
+        partial[sourceId]=record;
+      }else{
+        done[sourceId]=record;
+        delete partial[sourceId];
+      }
+      await save({done,partial,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0)});
+      return{ok:true,partial:partialCapture};
     }catch(e){await save({lastError:e?.code||e?.message||'AUTO_CAPTURE_FAILED'});return{ok:false,code:e?.code||e?.message||'AUTO_CAPTURE_FAILED'}}
   }
 });
