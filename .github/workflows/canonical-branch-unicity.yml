@@ -82,7 +82,7 @@ jobs:
                 continue
                 ;;
 
-              feature/mel-waveshare-terminal)
+              feature/mel-waveshare-terminal|feature/mel-device-and-computer-interface)
                 branch_ref="refs/remotes/origin/$branch"
                 base="$(git merge-base "$branch_ref" "$canonical")"
                 unexpected="$(git diff --name-only "$base" "$branch_ref" | grep -Ev '^(assets/MEL-Computer-[A-Za-z0-9._-]+[.]ps1|src/devices/[A-Za-z0-9._/-]+[.]js|src/capabilities/computer-runtime-capabilities[.]js|tests/[A-Za-z0-9._/-]*(computer|waveshare)[A-Za-z0-9._/-]*[.]test[.]mjs|scripts/[A-Za-z0-9._/-]*(computer|waveshare)[A-Za-z0-9._/-]*)$' || true)"
