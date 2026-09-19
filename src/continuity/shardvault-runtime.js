@@ -8,6 +8,8 @@ function bytes(v){ if(v instanceof Uint8Array)return new Uint8Array(v); if(v ins
 function utf8(v){ return te.encode(String(v)); }
 function concat(...parts){ const a=parts.map(bytes),n=a.reduce((s,x)=>s+x.length,0),out=new Uint8Array(n);let o=0;for(const x of a){out.set(x,o);o+=x.length;}return out; }
 function b64u(v){ let s='';const a=bytes(v);for(let i=0;i<a.length;i+=0x8000)s+=String.fromCharCode(...a.subarray(i,i+0x8000));return btoa(s).replaceAll('+','-').replaceAll('/','_').replaceAll('=',''); }
+function b64(v){ let s='';const a=bytes(v);for(let i=0;i<a.length;i+=0x8000)s+=String.fromCharCode(...a.subarray(i,i+0x8000));return btoa(s); }
+function unb64(v){ const raw=atob(String(v||'').trim());return Uint8Array.from(raw,c=>c.charCodeAt(0)); }
 function unb64u(v){ const n=String(v||'').replaceAll('-','+').replaceAll('_','/');const s=atob(n+'='.repeat((4-n.length%4)%4));return Uint8Array.from(s,c=>c.charCodeAt(0)); }
 function rid(n=18){ const a=new Uint8Array(n);crypto.getRandomValues(a);return b64u(a); }
 function stable(v){ if(v===null||typeof v!=='object')return JSON.stringify(v);if(Array.isArray(v))return `[${v.map(stable).join(',')}]`;return `{${Object.keys(v).sort().map(k=>`${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}`; }
@@ -211,11 +213,13 @@ async function upload(env,e,objectId,payload){
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
   if(e.adapter==='dpaste_b64'){
-    const endpoint=fixedApiUrl(u),form=new FormData();
-    form.append('content',b64u(payload));
-    form.append('expiry_days','365');
-    form.append('title',objectId);
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:form},15000);
+    const current=fixedApiUrl(u),body=new URLSearchParams({content:b64u(payload),expiry_days:'365'});
+    let r=await fetchTimed(current,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:body.toString()},15000);
+    let endpoint=current;
+    if(r.status===400||r.status===404||r.status===405){
+      endpoint='https://dpaste.com/api/';
+      r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:body.toString()},15000);
+    }
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     const page=responseRemoteUrl(await r.text(),r.headers,endpoint);
     return {remoteUrl:page.endsWith('.txt')?page:page.replace(/\/$/,'')+'.txt'};
@@ -230,9 +234,9 @@ async function upload(env,e,objectId,payload){
   }
   if(e.adapter==='onec3_b64'){
     const endpoint=fixedApiUrl(u),form=new FormData();
-    form.append('file',new Blob([b64u(payload)],{type:'text/plain'}),objectId+'.txt');
+    form.append('content',b64u(payload));
     form.append('expires','31536000');
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:form},15000);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:form},30000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
@@ -247,6 +251,23 @@ async function upload(env,e,objectId,payload){
     const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({content:b64u(payload),title:objectId,language:'plaintext',content_type:'memory',expiration:'3M',exposure:'unlisted',source:'agent',agent_name:'MEL-ShardVault'})},15000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
+  }
+  if(e.adapter==='pastegg_b64'){
+    const endpoint=fixedApiUrl(u);
+    const body={name:objectId,visibility:'unlisted',files:[{name:'shard.bin',content:{format:'base64',content:b64(payload)}}]};
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify(body)},15000);
+    if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
+    const data=await r.json().catch(()=>null),id=String(data?.result?.id||data?.id||'').trim();
+    if(!id)throw new Error(`WRITE_${e.id}_REMOTE_ID_MISSING`);
+    return {remoteUrl:'https://api.paste.gg/v1/pastes/'+encodeURIComponent(id)+'?full=true'};
+  }
+  if(e.adapter==='markdownpaste_b64'){
+    const endpoint=fixedApiUrl(u);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify({content:b64u(payload),expires_in:0})},15000);
+    if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
+    const data=await r.json().catch(()=>null),id=String(data?.id||'').trim();
+    if(!id)throw new Error(`WRITE_${e.id}_REMOTE_ID_MISSING`);
+    return {remoteUrl:'https://markdownpasteit.vercel.app/api/paste/'+encodeURIComponent(id)};
   }
   if(e.adapter==='paste_c_net'){
     const endpoint=fixedApiUrl(u);
@@ -317,6 +338,23 @@ async function download(env,e,objectId,descriptor=null){
     if(e.adapter==='pastebox_b64'){
       try{const data=JSON.parse(text);encoded=String(data?.content??data?.data?.content??data?.paste?.content??text).trim();}catch{}
     }
+    return unb64u(encoded);
+  }
+  if(e.adapter==='pastegg_b64'){
+    if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'application/json','user-agent':'MEL-ShardVault/1.0'}},15000);
+    if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
+    const data=await r.json().catch(()=>null),content=data?.result?.files?.[0]?.content;
+    const encoded=String(content?.content??content?.value??'').trim();
+    if(!encoded)throw new Error(`READ_${e.id}_PASTEGG_CONTENT_MISSING`);
+    return unb64(encoded);
+  }
+  if(e.adapter==='markdownpaste_b64'){
+    if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'application/json','user-agent':'MEL-ShardVault/1.0'}},15000);
+    if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
+    const data=await r.json().catch(()=>null),encoded=String(data?.content||'').trim();
+    if(!encoded)throw new Error(`READ_${e.id}_MARKDOWNPASTE_CONTENT_MISSING`);
     return unb64u(encoded);
   }
   if(['catbox','temp_sh'].includes(e.adapter)){
