@@ -10,11 +10,12 @@ function render(s){$('status').textContent=[
 `Échecs : ${Object.keys(s.failed||{}).length}`,
 `Inaccessibles : ${Object.keys(s.unavailable||{}).length}`,
 `À retenter plus tard : ${Object.keys(s.deferred||{}).length}`,
-`Mode : PC lent / file progressive`,
+`Mode : PC très lent / protection mémoire`,
 `Watchdog : 8 min sans progression`,
 `Blocages évités : ${s.stalledCount||0}`,
 s.currentStage?`Étape : ${s.currentStage}`:'',
 s.currentMessageCount?`Messages détectés ici : ${s.currentMessageCount}`:'',
+s.currentMessageCount?`Capture : ${s.captureProcessed||0} / ${s.currentMessageCount}`:'',
 s.lastProgressAt?`Dernière progression : ${new Date(s.lastProgressAt).toLocaleTimeString('fr-FR')}`:'',
 s.currentUrl?`En cours : ${s.currentUrl}`:'',
 s.lastError?`Dernière erreur : ${s.lastError}`:''
@@ -32,7 +33,7 @@ async function loadConfig(){
   $('password').value=c.password||'';
   $('continuous').checked=c.continuous!==false;
   $('ecoMode').checked=c.ecoMode!==false;
-  $('delayMs').value=String(c.delayMs||12000);
+  $('delayMs').value=String(c.delayMs||30000);
 }
 
 async function saveConfig(){
@@ -44,7 +45,7 @@ async function saveConfig(){
     password:$('password').value,
     continuous:$('continuous').checked,
     ecoMode:$('ecoMode').checked,
-    delayMs:Number($('delayMs').value)||12000
+    delayMs:Number($('delayMs').value)||30000
   }});
   $('configStatus').className='ok';
   $('configStatus').textContent='Réglages enregistrés.';
