@@ -15,3 +15,16 @@ test('ShardVault exposes new search and validated activation controls', async ()
   assert.match(runtime,/ACTIVATION_NOT_USED/);
   assert.match(runtime,/endpointMeetsDurability/);
 });
+
+
+test('ShardVault UI distinguishes seven external targets from internal fallbacks and exposes code sync', async () => {
+  const response=await handleShardVaultStatus(new Request('https://example.test/shardvault'),{});
+  const html=await response.text();
+  assert.match(html,/Dépôts externes actifs/);
+  assert.match(html,/Fallbacks internes · hors quota 7\/7/);
+  assert.match(html,/Copie ShardVault externe/);
+  assert.match(html,/\/api\/gen2\/shardvault\/code-sync/);
+  const page=fs.readFileSync(new URL('../src/pages/shardvault-status.js',import.meta.url),'utf8');
+  assert.match(page,/syncShardVaultCodeExternally/);
+  assert.match(page,/externalSelected=allSelected\.filter\(e=>e\.backend==='http'\)/);
+});
