@@ -49,7 +49,20 @@
     "MEL_LORA_HEARTBEAT_RETRY_MINUTES": "60",
     "MEL_LORA_KAGGLE_SHARD_SIZE": "750",
     "MEL_LORA_KAGGLE_MAX_CYCLES": "1000",
-    "MEL_LORA_KAGGLE_WORKFLOW": "lora-kaggle-free-gpu.yml"
+    "MEL_LORA_KAGGLE_WORKFLOW": "lora-kaggle-free-gpu.yml",
+    "MEL_SHARDVAULT_ENABLED": "true",
+    "MEL_VAULT_ID": "mel-primary",
+    "MEL_DATA_SHARDS": "4",
+    "MEL_TOTAL_SHARDS": "7",
+    "MEL_SHARDVAULT_INTERVAL_HOURS": "24",
+    "MEL_SHARDVAULT_EXPORT_LIMIT": "10000",
+    "MEL_WATCH_MAX_PER_OPERATOR": "2",
+    "MEL_WATCH_MAX_PER_PROVIDER": "2",
+    "MEL_SHARDVAULT_AUTONOMOUS": "true",
+    "MEL_AUTONOMOUS_POLICY_MAX_AGE_DAYS": "180",
+    "MEL_AUTONOMOUS_PROBE_LIMIT": "14",
+    "MEL_AUTONOMOUS_REPOSITORIES_JSON": "[]",
+    "MEL_AUTONOMOUS_FEEDS_JSON": "[]"
   },
   "env": {
     "preview": {
@@ -86,7 +99,20 @@
         "MEL_LORA_HEARTBEAT_RETRY_MINUTES": "60",
         "MEL_LORA_KAGGLE_SHARD_SIZE": "750",
         "MEL_LORA_KAGGLE_MAX_CYCLES": "1000",
-        "MEL_LORA_KAGGLE_WORKFLOW": "lora-kaggle-free-gpu.yml"
+        "MEL_LORA_KAGGLE_WORKFLOW": "lora-kaggle-free-gpu.yml",
+        "MEL_SHARDVAULT_ENABLED": "true",
+        "MEL_VAULT_ID": "mel-primary",
+        "MEL_DATA_SHARDS": "4",
+        "MEL_TOTAL_SHARDS": "7",
+        "MEL_SHARDVAULT_INTERVAL_HOURS": "24",
+        "MEL_SHARDVAULT_EXPORT_LIMIT": "10000",
+        "MEL_WATCH_MAX_PER_OPERATOR": "2",
+        "MEL_WATCH_MAX_PER_PROVIDER": "2",
+        "MEL_SHARDVAULT_AUTONOMOUS": "true",
+        "MEL_AUTONOMOUS_POLICY_MAX_AGE_DAYS": "180",
+        "MEL_AUTONOMOUS_PROBE_LIMIT": "14",
+        "MEL_AUTONOMOUS_REPOSITORIES_JSON": "[]",
+        "MEL_AUTONOMOUS_FEEDS_JSON": "[]"
       }
     }
   }
