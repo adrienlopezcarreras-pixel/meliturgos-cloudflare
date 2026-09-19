@@ -10,6 +10,7 @@ import { onRequestGet as handleWatchInterface } from "./pages/watch-interface.js
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { NORMAL_RUNTIME_SOURCE } from "./pages/mvp-runtime.js";
 import { devRuntime } from "./dev/runtime-api.js";
+import { handleShardVaultStatus } from "./pages/shardvault-status.js";
 export { inferNativeCodeCapability as inferCodeCapability } from "./api/native-chat.js";
 
 function capabilityContext(env) {
@@ -177,6 +178,9 @@ export default {
         headers: { location: "/professor", "cache-control": "no-store" }
       });
     }
+
+    const shardVaultResponse = await handleShardVaultStatus(request, env);
+    if (shardVaultResponse) return shardVaultResponse;
 
     const conversationResponse = await conversationRoutes(request, env);
     if (conversationResponse) return conversationResponse;
