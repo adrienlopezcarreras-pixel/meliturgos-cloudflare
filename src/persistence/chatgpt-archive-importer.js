@@ -115,14 +115,15 @@ async function persistConversationImportReceipt(db, conversation) {
   const expected = Number(conversation.collector?.expected_messages || conversation.messages.length || 0);
   const previousExpected = Number(previous?.expected_messages || 0);
   const incomingPartial = conversation.collector?.partial === true;
+  const targetExpected = Math.max(expected, previousExpected);
   const complete = incomingPartial
     ? Boolean(previous?.complete === true && previousExpected >= expected)
-    : true;
+    : expected >= previousExpected;
 
   const receipt = {
     complete,
     partial: !complete,
-    expected_messages: Math.max(expected, complete ? 0 : previousExpected),
+    expected_messages: targetExpected,
     batch_messages: Number(conversation.collector?.batch_messages || conversation.messages.length || 0),
     source: conversation.collector?.source || null,
     collector_version: conversation.collector?.version || null,
