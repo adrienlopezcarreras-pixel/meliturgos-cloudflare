@@ -11,6 +11,11 @@ function render(s){$('status').textContent=[
 `Inaccessibles : ${Object.keys(s.unavailable||{}).length}`,
 `À retenter plus tard : ${Object.keys(s.deferred||{}).length}`,
 `Mode : PC lent / file progressive`,
+`Watchdog : 8 min sans progression`,
+`Blocages évités : ${s.stalledCount||0}`,
+s.currentStage?`Étape : ${s.currentStage}`:'',
+s.currentMessageCount?`Messages détectés ici : ${s.currentMessageCount}`:'',
+s.lastProgressAt?`Dernière progression : ${new Date(s.lastProgressAt).toLocaleTimeString('fr-FR')}`:'',
 s.currentUrl?`En cours : ${s.currentUrl}`:'',
 s.lastError?`Dernière erreur : ${s.lastError}`:''
 ].filter(Boolean).join('\n')}
@@ -66,6 +71,7 @@ $('save').onclick=async()=>{try{await saveConfig()}catch(e){$('configStatus').cl
 $('test').onclick=async()=>{try{$('configStatus').className='muted';$('configStatus').textContent='Test…';await testMel()}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}};
 $('start').onclick=async()=>{try{await saveConfig();await api.runtime.sendMessage({type:'mel.collector.start'})}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}refresh()};
 $('pause').onclick=async()=>{await api.runtime.sendMessage({type:'mel.collector.pause'});refresh()};
+$('retry').onclick=async()=>{try{const s=await api.runtime.sendMessage({type:'mel.collector.retry-deferred'});$('configStatus').className='ok';$('configStatus').textContent=(s.retryDeferredAdded||0)+' conversation(s) remise(s) en file.'}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}refresh()};
 $('capture').onclick=async()=>{try{await saveConfig();await api.runtime.sendMessage({type:'mel.collector.capture-current'})}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}refresh()};
 
 loadConfig();
