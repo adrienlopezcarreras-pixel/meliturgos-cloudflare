@@ -161,7 +161,7 @@ async function manifestMac(c,m){const key=await hkdf(c.master,utf8(c.vaultId),ut
 async function validManifest(c,m){if(!m||m.vaultId!==c.vaultId||m.format!=='MEL-ShardVault'||!m.manifestMac)return false;try{return (await manifestMac(c,m))===m.manifestMac;}catch{return false;}}
 function r2ManifestPrefix(c){return 'shardvault/manifests/'+encodeURIComponent(c.vaultId)+'/';}
 async function inventoryRows(env,c){
-  if(c.storageMode==='CLOUDFLARE_FALLBACK'){
+  if(c.storageMode==='CLOUDFLARE_FALLBACK'||c.storageMode==='EXTERNAL_DISTRIBUTED'){
     const out=[];let cursor=undefined,seen=0;
     do{
       const listed=await env.MEDIA_BUCKET.list({prefix:r2ManifestPrefix(c),cursor,limit:1000});
@@ -524,7 +524,7 @@ async function downloadFragment(env,e,d){
   return concat(...out);
 }
 async function appendManifest(env,c,m){
-  if(c.storageMode==='CLOUDFLARE_FALLBACK'){
+  if(c.storageMode==='CLOUDFLARE_FALLBACK'||c.storageMode==='EXTERNAL_DISTRIBUTED'){
     const key=r2ManifestPrefix(c)+m.snapshotId+'-r'+String(m.revision||1).padStart(4,'0')+'.json';
     await env.MEDIA_BUCKET.put(key,JSON.stringify(m),{httpMetadata:{contentType:'application/json'}});
     return;
@@ -770,11 +770,15 @@ export async function getShardVaultStatus(env){
     if(preferred&&(!activeExternal||!endpointMeetsDurability(env,activeExternal))){await clearPreferredEndpoint(env);preferred=null;activeExternal=null;}
     const usedCounts={};
     for(const shard of last?.shards||[])usedCounts[shard.endpointId]=(usedCounts[shard.endpointId]||0)+1;
-    const selectedViews=c.endpoints.map(publicEndpointView);
-    for(const shard of last?.shards||[]){
-      if(selectedViews.some(x=>x.id===shard.endpointId))continue;
-      const endpoint=endpointById(c,shard.endpointId,shard);
-      if(endpoint)selectedViews.push(publicEndpointView(endpoint));
+    const selectedViews=[];
+    if(last?.shards?.length){
+      for(const shard of last.shards){
+        if(selectedViews.some(x=>x.id===shard.endpointId))continue;
+        const endpoint=endpointById(c,shard.endpointId,shard);
+        if(endpoint)selectedViews.push(publicEndpointView(endpoint));
+      }
+    }else{
+      selectedViews.push(...c.endpoints.map(publicEndpointView));
     }
     if(activeExternal&&!selectedViews.some(x=>x.id===activeExternal.id))selectedViews.push({...activeExternal,preferred:true,active:true});
     return {
