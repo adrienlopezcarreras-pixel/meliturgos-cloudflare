@@ -8,5 +8,5 @@ test('ShardVault page owns the single Internet discovery control', async () => {
   assert.match(html, /id="search"/);
   assert.match(html, /Nouvelle recherche Internet/);
   assert.match(html, /Sources Internet parcourues/);
-  assert.match(html, /Pistes trouvées/);
+  assert.match(html, /Nouvelles pistes trouvées/);
 });

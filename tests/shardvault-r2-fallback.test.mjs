@@ -37,12 +37,12 @@ test('ShardVault bootstraps on private R2 without external endpoint configuratio
   const result=await runShardVaultCycle(env,{force:true});
   assert.equal(result.ok,true);
   assert.equal(result.skipped,false);
-  assert.equal(result.storage_mode,'R2_FALLBACK');
+  assert.equal(result.storage_mode,'CLOUDFLARE_FALLBACK');
   assert.equal(result.shards,7);
   const status=await getShardVaultStatus(env);
   assert.equal(status.ok,true);
   assert.equal(status.status,'ONLINE');
-  assert.equal(status.storage_mode,'R2_FALLBACK');
+  assert.equal(status.storage_mode,'CLOUDFLARE_FALLBACK');
   assert.equal(status.selected_endpoints[0].backend,'r2');
   assert.equal(status.health.healthy_shards,7);
 });
