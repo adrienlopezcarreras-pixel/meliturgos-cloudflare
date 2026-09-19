@@ -24,9 +24,15 @@ jobs:
           echo "HTTP=$code"
           head -c 1000 "$body" || true
           echo
-          if [ "$code" = "401" ] && grep -Eq 'AUTH_REQUIRED|auth|required|unauthorized' "$body"; then
-            echo "MEL terminal production route is deployed and protected."
-            exit 0
+          if ! { [ "$code" = "401" ] && grep -Eq 'AUTH_REQUIRED|auth|required|unauthorized' "$body"; }; then
+            echo "MEL terminal production owner route is not yet proven live."
+            exit 1
           fi
-          echo "MEL terminal production route is not yet proven live."
-          exit 1
+          pair_body="$(mktemp)"
+          pair_code="$(curl --silent --show-error --location --max-time 20             --header 'content-type: application/json'             --data '{"device_id":"mel-probe-invalid","model":"waveshare-esp32-s3-touch-lcd-3.5-c","firmware":"0.1.0","protocol_version":"1.0","pair_code":"INVALID0"}'             --output "$pair_body" --write-out '%{http_code}'             "$base/api/device/v1/pair" || true)"
+          echo "PAIR_HTTP=$pair_code"
+          head -c 1000 "$pair_body" || true
+          echo
+          test "$pair_code" = "401"
+          grep -Fq 'PAIR_CODE_INVALID_OR_EXPIRED' "$pair_body"
+          echo "MEL terminal protocol v1 pairing path is deployed and protected."
