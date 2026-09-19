@@ -435,7 +435,8 @@ function normalize(raw, source){
 
 function eligible(c,{requiredBytes=0,policyMaxAgeDays=180,minRetentionDays=90}={}){
   const reasons=[];
-  if(c.authMode!=='none')reasons.push('AUTH_REQUIRED');
+  const autonomousAuth=c.authMode==='none'||c.authMode==='ephemeral_account_token';
+  if(!autonomousAuth)reasons.push('USER_AUTH_REQUIRED');
   if(!c.anonymousWriteDeclared)reasons.push('ANONYMOUS_WRITE_NOT_DECLARED');
   if(!c.publicReadDeclared)reasons.push('PUBLIC_READ_NOT_DECLARED');
   if(!c.automationAllowedDeclared)reasons.push('AUTOMATION_NOT_DECLARED');
@@ -1071,7 +1072,7 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
   for(const c of eligibleRows.slice(0,probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
   const selected=choose(probed,selectionCount,maxPerOperator,maxPerProvider);
   return {
-    selected: selected.map(c=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:c.score,confidence:c.confidence,autonomous:true,authMode:'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:'reviewed_documentation_plus_live_roundtrip',expectedRetentionDays:c.expectedRetentionDays||0,retentionModel:c.retentionModel||'fixed',baseRetentionDays:c.baseRetentionDays||c.expectedRetentionDays||0,refreshEveryDays:c.refreshEveryDays||0,fullReadRenewsRetention:c.fullReadRenewsRetention===true,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0)})),
+    selected: selected.map(c=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:c.score,confidence:c.confidence,autonomous:true,authMode:c.authMode||'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:'reviewed_documentation_plus_live_roundtrip',expectedRetentionDays:c.expectedRetentionDays||0,retentionModel:c.retentionModel||'fixed',baseRetentionDays:c.baseRetentionDays||c.expectedRetentionDays||0,refreshEveryDays:c.refreshEveryDays||0,fullReadRenewsRetention:c.fullReadRenewsRetention===true,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0)})),
     rejected,
     discovered:loaded.candidates.length,
     probed:probed.length,
