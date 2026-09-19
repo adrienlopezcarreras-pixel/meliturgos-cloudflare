@@ -1,0 +1,59 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+test('collector passive captures can never mark a partial conversation complete', async () => {
+  const background = await readFile(new URL('../browser-companion/chatgpt-collector/background.js', import.meta.url), 'utf8');
+  const content = await readFile(new URL('../browser-companion/chatgpt-collector/content.js', import.meta.url), 'utf8');
+
+  assert.match(content, /PASSIVE_TAIL_MESSAGES = 24/);
+  assert.match(content, /capture\(\{tailLimit:PASSIVE_TAIL_MESSAGES\}\)/);
+  assert.match(content, /partial:tailLimit > 0/);
+
+  assert.match(background, /const partialCapture=msg\.conversation\.collector\?\.partial===true/);
+  assert.match(background, /if\(partialCapture\)\{\s*partial\[sourceId\]=record;\s*\}else\{\s*done\[sourceId\]=record;/s);
+  assert.doesNotMatch(
+    background,
+    /const done=\{\.\.\.\(s\.done\|\|\{\}\),\[sourceId\]:\{[^}]*messages:count/s,
+    'partial auto-capture must not unconditionally write completion state',
+  );
+  assert.match(background, /const partial=\{\.\.\.\(s\.partial\|\|\{\}\)\};delete partial\[sourceId\]/);
+});
+
+test('collector batch path verifies conversation identity and remains resumable', async () => {
+  const background = await readFile(new URL('../browser-companion/chatgpt-collector/background.js', import.meta.url), 'utf8');
+
+  assert.match(background, /if\(String\(cap\.conversation\.id\|\|''\)!==sourceId\) throw codedError\('CAPTURE_ID_MISMATCH'\)/);
+  assert.match(background, /let processPromise=null/);
+  assert.match(background, /let processGeneration=0/);
+  assert.match(background, /if\(processPromise\)/);
+  assert.match(background, /processPromise=process\(tab\.id,generation\)/);
+  assert.match(background, /generation!==processGeneration/);
+  assert.match(background, /activeAbortController\?\.abort\(\)/);
+  assert.match(background, /WATCHDOG_IDLE_MS=8\*60\*1000/);
+  assert.match(background, /NETWORK_TIMEOUT_MS=6\*60\*1000/);
+  assert.match(background, /DOM_STABLE_MAX_MS=3\*60\*1000/);
+});
+
+test('collector can retry every unresolved recoverable item and counts them in discovery truth', async () => {
+  const background = await readFile(new URL('../browser-companion/chatgpt-collector/background.js', import.meta.url), 'utf8');
+  const popup = await readFile(new URL('../browser-companion/chatgpt-collector/popup.html', import.meta.url), 'utf8');
+
+  assert.match(background, /const unresolved=\{\.\.\.failed,\.\.\.deferred\}/);
+  assert.match(background, /delete deferred\[key\]/);
+  assert.match(background, /delete failed\[key\]/);
+  assert.match(background, /Object\.values\(deferred\)\.map\(x=>x\.url\)/);
+  assert.match(background, /Object\.values\(failed\)\.map\(x=>x\.url\)/);
+  assert.match(popup, /Réessayer échecs \/ différées/);
+});
+
+test('collector partial state is explicit and does not block full discovery', async () => {
+  const background = await readFile(new URL('../browser-companion/chatgpt-collector/background.js', import.meta.url), 'utf8');
+  const popup = await readFile(new URL('../browser-companion/chatgpt-collector/popup.js', import.meta.url), 'utf8');
+
+  assert.match(background, /partial:\{\}/);
+  const discoveryFilter = background.match(/const add=\[\.\.\.new Set\(\[\.\.\.a,\.\.\.b\]\)\]\.filter\(u=>\{[\s\S]*?\n  \}\);/)?.[0] || '';
+  assert.ok(discoveryFilter, 'discovery filter not found');
+  assert.doesNotMatch(discoveryFilter, /partial\[id\]/, 'partial captures must not suppress full batch discovery');
+  assert.match(popup, /Captures partielles/);
+});
