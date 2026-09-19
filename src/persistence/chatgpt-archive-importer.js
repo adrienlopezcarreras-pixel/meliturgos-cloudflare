@@ -87,6 +87,55 @@ function flattenLinearConversation(conversation, conversationIndex) {
   }).filter(x => x.content);
 }
 
+function collectorReceipt(raw, messages) {
+  const meta = raw?.collector && typeof raw.collector === 'object' ? raw.collector : null;
+  const expectedRaw = Number(meta?.totalMessages);
+  const expectedMessages = Number.isFinite(expectedRaw) && expectedRaw >= 0
+    ? Math.max(messages.length, Math.round(expectedRaw))
+    : messages.length;
+  return {
+    source: String(meta?.source || (raw?.mapping ? 'chatgpt_official_export' : 'chatgpt_linear_import')).slice(0, 80),
+    version: meta?.version ? String(meta.version).slice(0, 40) : null,
+    partial: meta?.partial === true,
+    expected_messages: expectedMessages,
+    batch_messages: messages.length,
+  };
+}
+
+async function persistConversationImportReceipt(db, conversation) {
+  let existing = {};
+  try {
+    const row = await db.prepare('SELECT metadata FROM conversations WHERE id=?').bind(conversation.id).first();
+    existing = row?.metadata ? JSON.parse(row.metadata) : {};
+  } catch { existing = {}; }
+
+  const previous = existing?.chatgpt_import && typeof existing.chatgpt_import === 'object'
+    ? existing.chatgpt_import
+    : null;
+  const expected = Number(conversation.collector?.expected_messages || conversation.messages.length || 0);
+  const previousExpected = Number(previous?.expected_messages || 0);
+  const incomingPartial = conversation.collector?.partial === true;
+  const complete = incomingPartial
+    ? Boolean(previous?.complete === true && previousExpected >= expected)
+    : true;
+
+  const receipt = {
+    complete,
+    partial: !complete,
+    expected_messages: Math.max(expected, complete ? 0 : previousExpected),
+    batch_messages: Number(conversation.collector?.batch_messages || conversation.messages.length || 0),
+    source: conversation.collector?.source || null,
+    collector_version: conversation.collector?.version || null,
+    received_at: Date.now(),
+  };
+
+  const metadata = { ...existing, chatgpt_import: receipt };
+  await db.prepare('UPDATE conversations SET title=?, metadata=?, updated_at=? WHERE id=?')
+    .bind(conversation.title, JSON.stringify(metadata), Date.now(), conversation.id)
+    .run();
+  return receipt;
+}
+
 export function normalizeChatGPTArchive(payload) {
   const conversations = asArray(payload).slice(0, MAX_CONVERSATIONS);
   const normalized = [];
@@ -107,7 +156,8 @@ export function normalizeChatGPTArchive(payload) {
       title,
       createdAt: timestampMs(raw.create_time, messages[0]?.timestamp || Date.now()),
       updatedAt: timestampMs(raw.update_time, messages.at(-1)?.timestamp || Date.now()),
-      messages
+      messages,
+      collector: collectorReceipt(raw, messages)
     });
   }
   return {
@@ -168,6 +218,8 @@ export async function importChatGPTArchive(env, payload, { preview = false } = {
       }
     }
 
+    await persistConversationImportReceipt(env.DB, conversation);
+
     try {
       for (let pass = 0; pass < 20; pass++) {
         const result = await syncService.syncToMemory({ conversationId: conversation.id, limit: 1000 });
@@ -218,6 +270,10 @@ export async function getChatGPTImportStatus(env) {
       messages: 0,
       memory_candidates: 0,
       unsynced_messages: 0,
+      complete_conversations: 0,
+      partial_conversations: 0,
+      unknown_completeness: 0,
+      full_archive_confirmed: false,
       last_received: null
     };
   }
@@ -240,6 +296,34 @@ export async function getChatGPTImportStatus(env) {
           WHERE c.conversation_id=a.conversation_id AND c.message_id=a.id
         )`)
   ]);
+
+  let completionRows = [];
+  try {
+    const rows = await env.DB.prepare("SELECT id,metadata FROM conversations WHERE id LIKE 'chatgpt:%' ORDER BY updated_at DESC LIMIT 2000").all();
+    completionRows = rows?.results || [];
+  } catch {}
+
+  let completeConversations = 0;
+  let partialConversations = 0;
+  let unknownCompleteness = 0;
+  let expectedMessages = 0;
+  for (const row of completionRows) {
+    let metadata = {};
+    try { metadata = row?.metadata ? JSON.parse(row.metadata) : {}; } catch {}
+    const receipt = metadata?.chatgpt_import;
+    if (!receipt || typeof receipt !== 'object') {
+      unknownCompleteness++;
+      continue;
+    }
+    expectedMessages += Math.max(0, Number(receipt.expected_messages || 0));
+    if (receipt.complete === true) completeConversations++;
+    else partialConversations++;
+  }
+  const trackedConversations = completionRows.length;
+  const fullArchiveConfirmed = trackedConversations > 0
+    && completeConversations === trackedConversations
+    && partialConversations === 0
+    && unknownCompleteness === 0;
 
   let lastReceived = null;
   try {
@@ -264,6 +348,12 @@ export async function getChatGPTImportStatus(env) {
     pending_memory_candidates: pendingCandidates,
     unsynced_messages: unsyncedMessages,
     memory_sync_complete: messages > 0 && unsyncedMessages === 0,
+    tracked_conversations: trackedConversations,
+    complete_conversations: completeConversations,
+    partial_conversations: partialConversations,
+    unknown_completeness: unknownCompleteness,
+    expected_messages: expectedMessages,
+    full_archive_confirmed: fullArchiveConfirmed,
     last_received: lastReceived ? {
       conversation_id: lastReceived.conversation_id,
       title: lastReceived.title || null,
@@ -274,7 +364,9 @@ export async function getChatGPTImportStatus(env) {
     stages: {
       archive: messages > 0 ? 'RECEIVING' : 'EMPTY',
       memory_candidate_extraction: unsyncedMessages === 0 && messages > 0 ? 'UP_TO_DATE' : 'IN_PROGRESS',
-      semantic_memory: 'AVAILABLE_FOR_RETRIEVAL_AND_CONSOLIDATION'
+      archive_retrieval: messages > 0 ? 'AVAILABLE' : 'EMPTY',
+      semantic_memory: 'CANDIDATES_AVAILABLE_FOR_CONSOLIDATION',
+      completeness: fullArchiveConfirmed ? 'CONFIRMED_FULL' : 'NOT_CONFIRMED'
     }
   };
 }
