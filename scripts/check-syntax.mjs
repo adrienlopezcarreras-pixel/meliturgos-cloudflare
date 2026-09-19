@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { extname, join } from 'node:path';
 
 const ROOT_FILES = ['worker.js'];
-const ROOT_DIRS = ['src', 'scripts', 'tests'];
+const ROOT_DIRS = ['src', 'scripts', 'tests', 'browser-companion/chatgpt-collector'];
 const EXTENSIONS = new Set(['.js', '.mjs']);
 
 async function collect(dir) {
