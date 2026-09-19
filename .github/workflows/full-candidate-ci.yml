@@ -32,7 +32,7 @@ jobs:
           echo "exit_code=$code" >> test-report.log
           exit $code
       - name: Runtime dependency security gate
-        run: npm audit --package-lock-only --omit=dev --audit-level=high
+        run: node scripts/runtime-security-gate.mjs
       - name: Development dependency advisory report
         run: |
           npm audit --package-lock-only --audit-level=high || echo 'DEV_DEPENDENCY_ADVISORY_PRESENT - non-runtime tooling advisory recorded; runtime gate passed.'
