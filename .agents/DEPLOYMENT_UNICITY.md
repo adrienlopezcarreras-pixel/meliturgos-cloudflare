@@ -17,6 +17,9 @@ Les branches LoRA/adapter/compatibilité actives sont désormais soumises à la 
 - Une branche technique temporaire, lorsqu’elle est indispensable, doit être comparée, intégrée puis rendue ancêtre de la candidate canonique avant la fin du chantier.
 - Un statut Git `diverged` entre la candidate canonique et une branche de développement active non exemptée est une anomalie à corriger, pas un état normal.
 - Un seul chemin de mutation production doit exister : `.github/workflows/deploy-cloudflare-release.yml`, déclenché manuellement avec `DEPLOY_APPROVED`, une branche `release/*` et le SHA exact du HEAD canonique.
+- Aucun workflow secondaire ne peut invoquer `wrangler deploy`, `wrangler publish`, `npm run deploy`, `cloudflare/wrangler-action` ou une API Workers de production. Les seuls déploiements secondaires autorisés sont des previews isolées et explicitement identifiées par leur configuration `preview`.
+- Un workflow ajouté sur `main` ne doit jamais recevoir le rôle de déploiement production. `main` doit rester alignée avec la candidate canonique, ou être considérée en anomalie jusqu'à réalignement.
+- Toute capacité fonctionnelle développée hors candidate (ex. ShardVault) doit être portée dans `candidate/mel-clean-autonomy` avant promotion, sans importer son éventuel mécanisme de déploiement parallèle.
 - Toute fonctionnalité utile développée sur une autre branche doit être comparée puis intégrée à la candidate canonique.
 - Une branche secondaire ne doit jamais devenir une seconde version concurrente de MEL.
 - Après absorption de son contenu unique, elle est considérée `RETIRED/SUPERSEDED` et ne doit plus servir de source de déploiement.
