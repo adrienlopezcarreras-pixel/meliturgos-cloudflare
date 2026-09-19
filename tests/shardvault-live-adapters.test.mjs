@@ -24,6 +24,9 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/https:\/\/udrop\.dev/);
   assert.match(autonomous,/adapter:'waifuvault_b64'/);
   assert.match(autonomous,/https:\/\/waifuvault\.moe\/rest/);
+  assert.match(autonomous,/adapter:'telegraph_b64'/);
+  assert.match(autonomous,/api\.telegra\.ph\/createPage/);
+  assert.match(autonomous,/c\.authMode==='none'\|\|c\.authMode==='ephemeral_account_token'/);
 });
 
 test('snapshot runtime can write and read every repaired adapter selected by discovery', () => {
