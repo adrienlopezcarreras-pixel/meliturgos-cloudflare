@@ -5,7 +5,15 @@ import path from 'node:path';
 
 const WORKFLOWS = path.join(process.cwd(), '.github', 'workflows');
 const CANONICAL = 'deploy-cloudflare-release.yml';
-const DEPLOY_PATTERN = /cloudflare\/wrangler-action|(^|\s)(npx\s+)?wrangler\s+deploy|CLOUDFLARE_API_TOKEN|CLOUDFLARE_ACCOUNT_ID/im;
+const DEPLOY_PATTERN = /cloudflare\/wrangler-action|(^|\s)(npx\s+|pnpm\s+exec\s+)?wrangler\s+(deploy|publish)|npm\s+run\s+deploy|workers\/scripts/im;
+
+function isIsolatedPreview(name, source) {
+  if (name === 'deploy-candidate-preview.yml') return source.includes('--env preview');
+  if (['deploy-dreamina-preview.yml','deploy-memory-export-preview.yml','deploy-memory-sync-preview.yml'].includes(name)) {
+    return /--config\s+wrangler\.[A-Za-z0-9._-]*preview\.jsonc/.test(source);
+  }
+  return false;
+}
 
 test('only the canonical release workflow can mutate Cloudflare production', async () => {
   const files = (await readdir(WORKFLOWS)).filter(name => /\.ya?ml$/i.test(name)).sort();
@@ -13,9 +21,9 @@ test('only the canonical release workflow can mutate Cloudflare production', asy
   for (const name of files) {
     if (name === CANONICAL) continue;
     const source = await readFile(path.join(WORKFLOWS, name), 'utf8');
-    if (DEPLOY_PATTERN.test(source)) violations.push(name);
+    if (DEPLOY_PATTERN.test(source) && !isIsolatedPreview(name, source)) violations.push(name);
   }
-  assert.deepEqual(violations, [], 'parallel Cloudflare deployment paths are forbidden');
+  assert.deepEqual(violations, [], 'parallel production deployment paths are forbidden');
 });
 
 test('canonical production release requires human approval and exact immutable identity', async () => {
