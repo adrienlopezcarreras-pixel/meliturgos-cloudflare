@@ -59,3 +59,16 @@ test('collector partial state forces full recapture when newer than the last com
   assert.match(background, /if\(s\.done\?\.\[sourceId\]&&Number\(s\.done\[sourceId\]\.messages\|\|0\)>=count\)return\{ok:true,skipped:'ALREADY_CAPTURED'\}/);
   assert.match(popup, /Captures partielles/);
 });
+
+test('collector performs bounded deep sidebar discovery and includes partials in coverage truth', async () => {
+  const background = await readFile(new URL('../browser-companion/chatgpt-collector/background.js', import.meta.url), 'utf8');
+  const content = await readFile(new URL('../browser-companion/chatgpt-collector/content.js', import.meta.url), 'utf8');
+
+  assert.match(background, /deepDiscoveryDone:false/);
+  assert.match(background, /mergeDiscovery\(tabId,deep\)/);
+  assert.match(background, /deep\?120000:60000/);
+  assert.match(background, /Object\.values\(partial\)\.map\(x=>x\.url\)/);
+  assert.match(background, /deepDiscoveryDone:deep&&page\.ok\?true:s\.deepDiscoveryDone/);
+  assert.match(content, /DEEP_DISCOVERY_MAX_ROUNDS = 60/);
+  assert.match(content, /for \(let i = 0; i < DEEP_DISCOVERY_MAX_ROUNDS; i\+\+\)/);
+});
