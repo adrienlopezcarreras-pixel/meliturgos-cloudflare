@@ -54,13 +54,19 @@ Rapport exhaustif : `.agents/XP_RECONCILIATION_20260917.md`.
 
 Ces cinq entrées sont **validées** par la full candidate CI `35325973201`, le smoke Teacher/runtime `35325973132` et le garde d’unicité `35325973253` sur le SHA `a141ea626e1abb05e60c3d93d1f5c9308897ca70`. Elles sont chargées à chaque requête depuis `src/learning/runtime-operating-experience.js` et restent séparées du corpus d’entraînement.
 
+## Expériences 2026-09-19 — matériel et protocole
+
+- `bootstrap-hardware-device-protocol-20260919` — concevoir firmware + backend comme un contrat versionné; appairage court, jeton appareil, heartbeat, chat/voix, téléchargement/OTA, récupération locale, pilotes constructeur épinglés et vraie compilation ESP32-S3 avant preuve physique.
+
+Cette leçon est matérialisée dans `src/learning/runtime-operating-experience.js`, le protocole dans `docs/mel-terminal-protocol-v1.md`, et la méthode réutilisable dans `.agents/skills/mel-hardware-protocol/SKILL.md`.
+
 ## Règle de déduplication
 
 Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le corpus. Une différence de vocabulaire ne justifie pas une nouvelle leçon si la préférence comportementale est déjà couverte.
 
 ## Couverture actuelle
 
-Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, Benchmark/LoRA, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, Dev Bridge, observabilité, UI partagée, gouvernance de preuve, readiness zéro-euro runtime et checkpoint XP systématique.
+Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, Benchmark/LoRA, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, Dev Bridge, observabilité, UI partagée, gouvernance de preuve, readiness zéro-euro runtime, checkpoint XP systématique et ingénierie de protocoles matériels versionnés.
 
 Total documenté : **52 leçons du corpus d’entraînement actuel + 5 expériences opérationnelles runtime validées**.
 
