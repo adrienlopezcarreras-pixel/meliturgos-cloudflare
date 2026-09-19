@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getChatGPTImportStatus, normalizeChatGPTArchive } from '../src/persistence/chatgpt-archive-importer.js';
+import { getChatGPTImportStatus, importChatGPTArchive, normalizeChatGPTArchive } from '../src/persistence/chatgpt-archive-importer.js';
+import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import worker from '../src/index.js';
 
 const sample = [{
@@ -58,4 +59,52 @@ test('authenticated ChatGPT import status endpoint exposes server-side ingestion
   const body = await response.json();
   assert.equal(body.status, 'UNAVAILABLE');
   assert.equal(body.db_bound, false);
+});
+
+test('server status distinguishes partial Collector receipts from a later complete capture', async () => {
+  const DB = sqliteD1();
+  try {
+    const env = { DB, MELITURGOS_USER: 'adrien' };
+    const partial = [{
+      id: 'collector-completeness',
+      title: 'Conversation longue',
+      collector: { source: 'firefox_dom', version: '0.5.1', partial: true, totalMessages: 4 },
+      messages: [
+        { id: 'm3', role: 'user', content: 'troisième', timestamp: 3 },
+        { id: 'm4', role: 'assistant', content: 'quatrième', timestamp: 4 },
+      ],
+    }];
+
+    const first = await importChatGPTArchive(env, partial, { preview: false });
+    assert.equal(first.conversations, 1);
+    let status = await getChatGPTImportStatus(env);
+    assert.equal(status.tracked_conversations, 1);
+    assert.equal(status.complete_conversations, 0);
+    assert.equal(status.partial_conversations, 1);
+    assert.equal(status.unknown_completeness, 0);
+    assert.equal(status.full_archive_confirmed, false);
+    assert.equal(status.expected_messages, 4);
+
+    const full = [{
+      id: 'collector-completeness',
+      title: 'Conversation longue',
+      collector: { source: 'firefox_dom', version: '0.5.1', partial: false, totalMessages: 4 },
+      messages: [
+        { id: 'm1', role: 'user', content: 'premier', timestamp: 1 },
+        { id: 'm2', role: 'assistant', content: 'deuxième', timestamp: 2 },
+        { id: 'm3', role: 'user', content: 'troisième', timestamp: 3 },
+        { id: 'm4', role: 'assistant', content: 'quatrième', timestamp: 4 },
+      ],
+    }];
+
+    await importChatGPTArchive(env, full, { preview: false });
+    status = await getChatGPTImportStatus(env);
+    assert.equal(status.complete_conversations, 1);
+    assert.equal(status.partial_conversations, 0);
+    assert.equal(status.unknown_completeness, 0);
+    assert.equal(status.full_archive_confirmed, true);
+    assert.equal(status.expected_messages, 4);
+  } finally {
+    DB.close();
+  }
 });
