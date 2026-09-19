@@ -125,7 +125,7 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
   {
     id:'pastemyst-public',
     adapter:'pastemyst_b64',
-    urlTemplate:'https://paste.myst.rs/paste?mel_object={objectId}',
+    urlTemplate:'https://paste.myst.rs/api/v2/paste?mel_object={objectId}',
     method:'POST',
     maxObjectBytes:700000,
     operatorDomain:'paste.myst.rs',
@@ -228,8 +228,8 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
   },
   {
     id:'fileditch-public',
-    adapter:'fileditch_raw',
-    urlTemplate:'https://new.fileditch.com/upload.php?filename={objectId}.bin',
+    adapter:'fileditch_b64',
+    urlTemplate:'https://new.fileditch.com/upload.php?filename={objectId}.txt',
     method:'POST',
     maxObjectBytes:104857600,
     operatorDomain:'new.fileditch.com',
@@ -682,24 +682,28 @@ async function candidateWrite(c,url,payload,objectId){
     return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
   }
   if(c.adapter==='dpaste_b64'){
-    const endpoint=fixedApiUrl(url),body=new URLSearchParams({content:b64u(payload),expiry_days:'365',title:objectId});
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:body.toString()},12000);
+    const endpoint=fixedApiUrl(url),form=new FormData();
+    form.append('content',b64u(payload));
+    form.append('expiry_days','365');
+    form.append('title',objectId);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:form},12000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const raw=await r.text(),page=responseRemoteUrl(raw,r.headers,endpoint);
     return {readUrl:page.endsWith('.txt')?page:page.replace(/\/$/,'')+'.txt'};
   }
   if(c.adapter==='pastemyst_b64'){
     const endpoint=fixedApiUrl(url);
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({title:objectId,expiresIn:'1y',pasties:[{language:'plaintext',title:'shard',code:b64u(payload)}]})},12000);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify({title:objectId,expiresIn:'1y',isPrivate:false,isPublic:false,pasties:[{language:'Plain Text',title:'shard.txt',code:b64u(payload)}]})},12000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const data=await r.json().catch(()=>null),id=String(data?._id||data?.id||'').trim();
     if(!id)throw new Error('WRITE_REMOTE_ID_MISSING');
-    return {readUrl:publicHttps('https://paste.myst.rs/paste/'+encodeURIComponent(id),'PASTEMYST_READ').toString()};
+    return {readUrl:publicHttps('https://paste.myst.rs/api/v2/paste/'+encodeURIComponent(id),'PASTEMYST_READ').toString()};
   }
   if(c.adapter==='onec3_b64'){
     const endpoint=fixedApiUrl(url),form=new FormData();
-    form.append('content',b64u(payload));form.append('expires','31536000');
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'accept':'application/json'},body:form},12000);
+    form.append('file',new Blob([b64u(payload)],{type:'text/plain'}),objectId+'.txt');
+    form.append('expires','31536000');
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:form},12000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const raw=await r.text();
     return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
@@ -720,13 +724,14 @@ async function candidateWrite(c,url,payload,objectId){
   }
   if(c.adapter==='paste_c_net'){
     const endpoint=fixedApiUrl(url);
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/octet-stream','accept':'application/json, */*','user-agent':'MEL-ShardVault/1.0'},body:payload},15000);
+    const r=await fetchTimed(endpoint,{method:'PUT',headers:{'content-type':'application/octet-stream','accept':'application/json, */*','x-uuid':'1','user-agent':'curl/8.0 MEL-ShardVault/1.0'},body:payload},15000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const raw=await r.text();
     return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
   }
-  if(c.adapter==='fileditch_raw'){
-    const r=await fetchTimed(url,{method:'POST',headers:{'content-type':'application/octet-stream','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:payload},15000);
+  if(c.adapter==='fileditch_b64'){
+    const encoded=b64u(payload);
+    const r=await fetchTimed(url,{method:'PUT',headers:{'content-type':'text/plain; charset=utf-8','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:encoded},15000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const raw=await r.text();
     return {readUrl:responseRemoteUrl(raw,r.headers,url)};
@@ -758,8 +763,8 @@ async function candidateReadBytes(c,url){
     if(!code)throw new Error('READ_CONTENT_MISSING');
     return unb64u(code);
   }
-  if(['pastebin_ai_b64','dpaste_b64','onec3_b64','msk_paste_b64','pastebox_b64'].includes(c.adapter)){
-    const r=await fetchTimed(url,{method:'GET',headers:{'accept':'text/plain,application/json'}},12000);
+  if(['pastebin_ai_b64','dpaste_b64','onec3_b64','msk_paste_b64','pastebox_b64','fileditch_b64'].includes(c.adapter)){
+    const r=await fetchTimed(url,{method:'GET',headers:{'accept':'text/plain,application/json','user-agent':'MEL-ShardVault/1.0'}},12000);
     if(!r.ok)throw new Error('READ_HTTP_'+r.status);
     const text=String(await r.text()).trim();
     if(!text)throw new Error('READ_CONTENT_MISSING');
@@ -768,6 +773,11 @@ async function candidateReadBytes(c,url){
       try{const data=JSON.parse(text);encoded=String(data?.content??data?.data?.content??data?.paste?.content??text).trim();}catch{}
     }
     return unb64u(encoded);
+  }
+  if(c.adapter==='paste_c_net'){
+    const r=await fetchTimed(url,{method:'GET',headers:{'accept':'application/octet-stream, */*','user-agent':'curl/8.0 MEL-ShardVault/1.0'}},12000);
+    if(!r.ok)throw new Error('READ_HTTP_'+r.status);
+    return new Uint8Array(await r.arrayBuffer());
   }
   const r=await candidateRead(c,url);
   if(!r.ok)throw new Error('READ_HTTP_'+r.status);
