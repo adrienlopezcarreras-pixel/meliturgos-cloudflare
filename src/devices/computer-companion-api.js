@@ -2,6 +2,16 @@ import { requireAuth } from "../core/security.js";
 import { evaluateComputerUsePlan } from "./computer-use.js";
 
 export const COMPUTER_API_BASE="/api/computer/v1";
+export const COMPUTER_ROUTES=Object.freeze({
+ pair:"/api/computer/v1/pair",
+ status:"/api/computer/v1/status",
+ commands:"/api/computer/v1/commands",
+ halt:"/api/computer/v1/halt",
+ resume:"/api/computer/v1/resume",
+ installer:"/api/computer/v1/installer",
+ companion:"/api/computer/v1/companion",
+ screenshot:"/api/computer/v1/screenshot"
+});
 const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome"];
 
 function json(v,s=200,h={}){return Response.json(v,{status:s,headers:{"cache-control":"no-store",...h}})}
@@ -70,18 +80,18 @@ async function uploadShot(request,env,a,url){if(!env?.MEDIA_BUCKET)return json({
 
 export async function maybeHandleComputerApi(request,env){
  const url=new URL(request.url);if(!url.pathname.startsWith(COMPUTER_API_BASE+"/"))return null;
- if(url.pathname===COMPUTER_API_BASE+"/pair"&&request.method==="POST")return pair(request,env);
- if(url.pathname===COMPUTER_API_BASE+"/status"&&request.method==="GET")return ownerStatus(request,env,url);
- if(url.pathname===COMPUTER_API_BASE+"/commands"&&request.method==="POST")return ownerCommand(request,env);
- if(url.pathname===COMPUTER_API_BASE+"/halt"&&request.method==="POST")return ownerHalt(request,env,true);
- if(url.pathname===COMPUTER_API_BASE+"/resume"&&request.method==="POST")return ownerHalt(request,env,false);
- if(url.pathname===COMPUTER_API_BASE+"/installer"&&request.method==="GET")return asset(request,env,"MEL-Computer-Setup.ps1");
- if(url.pathname===COMPUTER_API_BASE+"/companion"&&request.method==="GET")return asset(request,env,"MEL-Computer-Companion.ps1");
- if(url.pathname===COMPUTER_API_BASE+"/screenshot"&&request.method==="GET")return screenshotView(request,env,url);
+ if(url.pathname===COMPUTER_ROUTES.pair&&request.method==="POST")return pair(request,env);
+ if(url.pathname===COMPUTER_ROUTES.status&&request.method==="GET")return ownerStatus(request,env,url);
+ if(url.pathname===COMPUTER_ROUTES.commands&&request.method==="POST")return ownerCommand(request,env);
+ if(url.pathname===COMPUTER_ROUTES.halt&&request.method==="POST")return ownerHalt(request,env,true);
+ if(url.pathname===COMPUTER_ROUTES.resume&&request.method==="POST")return ownerHalt(request,env,false);
+ if(url.pathname===COMPUTER_ROUTES.installer&&request.method==="GET")return asset(request,env,"MEL-Computer-Setup.ps1");
+ if(url.pathname===COMPUTER_ROUTES.companion&&request.method==="GET")return asset(request,env,"MEL-Computer-Companion.ps1");
+ if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="GET")return screenshotView(request,env,url);
  const a=await authDevice(request,env);if(!a.ok)return a.response;
  if(url.pathname===COMPUTER_API_BASE+"/heartbeat"&&request.method==="POST")return heartbeat(request,env,a);
- if(url.pathname===COMPUTER_API_BASE+"/commands"&&request.method==="GET")return claim(env,a);
+ if(url.pathname===COMPUTER_ROUTES.commands&&request.method==="GET")return claim(env,a);
  if(url.pathname===COMPUTER_API_BASE+"/result"&&request.method==="POST")return result(request,env,a);
- if(url.pathname===COMPUTER_API_BASE+"/screenshot"&&request.method==="POST")return uploadShot(request,env,a,url);
+ if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="POST")return uploadShot(request,env,a,url);
  return json({ok:false,code:"COMPUTER_ROUTE_NOT_FOUND"},404);
 }
