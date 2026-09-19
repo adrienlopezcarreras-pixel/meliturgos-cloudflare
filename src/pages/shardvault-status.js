@@ -9,18 +9,44 @@ return new Response(`<!doctype html>
 <title>MEL · ShardVault</title>
 <style>
 :root{font-family:Inter,system-ui,Segoe UI,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{max-width:100%;overflow-x:hidden}
 body{margin:0;background:#0b1020;color:#eef2ff}
-main{max-width:1080px;margin:auto;padding:28px 18px 50px}
-h1{margin:0 0 8px;font-size:clamp(28px,5vw,44px)} .sub{color:#aab6d3;margin-bottom:24px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
-.card{background:#141b31;border:1px solid #273250;border-radius:16px;padding:16px;box-shadow:0 12px 30px #0004}
-.big{font-size:30px;font-weight:800;margin-top:6px}.ok{color:#72e0a0}.bad{color:#ff8f8f}.warn{color:#ffd479}
-button{appearance:none;border:0;border-radius:12px;padding:13px 18px;font-weight:800;background:#eef2ff;color:#11182b;cursor:pointer}
-button:disabled{opacity:.55;cursor:wait}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}
-small,.muted{color:#9eabc8}.row{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid #26304a}.row:last-child{border-bottom:0}
-pre{white-space:pre-wrap;word-break:break-word;background:#0d1427;padding:12px;border-radius:12px;border:1px solid #25304a;max-height:360px;overflow:auto}
-.tag{display:inline-block;padding:4px 8px;border-radius:999px;background:#24304f;margin:2px;font-size:12px}
-.section{margin-top:18px}a{color:#cbd7ff}.pulse{animation:p 1.1s infinite alternate}@keyframes p{to{opacity:.5}}
+main{width:min(100%,1080px);margin:auto;padding:28px 18px 50px;min-width:0}
+h1{margin:0 0 8px;font-size:clamp(28px,5vw,44px);overflow-wrap:anywhere}.sub{color:#aab6d3;margin-bottom:24px;line-height:1.45}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:14px;min-width:0}
+.card{min-width:0;background:#141b31;border:1px solid #273250;border-radius:16px;padding:16px;box-shadow:0 12px 30px #0004;overflow:hidden}
+.big{font-size:30px;font-weight:800;margin-top:6px;overflow-wrap:anywhere}.ok{color:#72e0a0}.bad{color:#ff8f8f}.warn{color:#ffd479}
+button{appearance:none;border:0;border-radius:12px;padding:13px 18px;font-weight:800;background:#eef2ff;color:#11182b;cursor:pointer;min-height:46px;white-space:normal}
+button:disabled{opacity:.55;cursor:wait}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0;align-items:center}
+small,.muted{color:#9eabc8}.row{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:9px 0;border-bottom:1px solid #26304a;min-width:0}.row:last-child{border-bottom:0}.row>*{min-width:0;overflow-wrap:anywhere;word-break:break-word}.row>div:last-child{text-align:right}
+pre{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;background:#0d1427;padding:12px;border-radius:12px;border:1px solid #25304a;max-height:360px;max-width:100%;overflow:auto}
+.tag{display:inline-block;max-width:100%;padding:4px 8px;border-radius:999px;background:#24304f;margin:2px;font-size:12px;overflow-wrap:anywhere}
+.section{margin-top:18px}a{color:#cbd7ff;overflow-wrap:anywhere}.pulse{animation:p 1.1s infinite alternate}@keyframes p{to{opacity:.5}}
+@media(max-width:640px){
+ body{font-size:15px}
+ main{padding:18px 12px calc(28px + env(safe-area-inset-bottom))}
+ h1{font-size:30px;line-height:1.05}
+ h2{font-size:20px;margin-top:0}
+ .sub{font-size:14px;margin-bottom:16px}
+ .toolbar{display:grid;grid-template-columns:1fr;gap:8px;margin:14px 0 16px}
+ .toolbar button,.toolbar a{width:100%;min-width:0}
+ .toolbar a{display:flex;min-height:44px;align-items:center;justify-content:center;border:1px solid #34405f;border-radius:12px;text-decoration:none;background:#11182b;padding:10px 12px}
+ .grid{grid-template-columns:1fr;gap:10px}
+ .card{padding:14px;border-radius:14px}
+ .big{font-size:26px}
+ .row{display:grid;grid-template-columns:1fr;gap:5px;padding:10px 0}
+ .row>div:last-child{text-align:left}
+ .row>b,.row>strong,.row>.muted{width:100%}
+ .section{margin-top:12px}
+ pre{font-size:12px;line-height:1.45;max-height:300px;padding:10px}
+ .tag{font-size:11px;margin:2px 4px 2px 0}
+}
+@media(max-width:380px){
+ main{padding-left:10px;padding-right:10px}
+ h1{font-size:27px}
+ .card{padding:12px}
+}
 </style></head>
 <body><main>
 <h1>ShardVault · statut</h1>
