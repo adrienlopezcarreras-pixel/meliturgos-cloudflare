@@ -111,8 +111,15 @@ async function load(){
   const l=d.latest;
   $('snapshotInfo').innerHTML=l?'<div class="row"><span>ID</span><b>'+safe(l.snapshot_id)+'</b></div><div class="row"><span>Révision</span><b>'+fmt(l.revision)+'</b></div><div class="row"><span>Créé</span><b>'+safe(l.created_at||'—')+'</b></div><div class="row"><span>Taille fragment</span><b>'+fmt(l.shard_size)+' octets</b></div>':'Aucun snapshot valide trouvé.';
   $('endpoints').innerHTML=(d.selected_endpoints||[]).length?(d.selected_endpoints||[]).map(e=>endpointRow(e,false,d.preferred_endpoint?.endpoint_id||null)).join(''):'Aucun dépôt actuellement sélectionné.';
-  const code=d.code_survival||{};
-  $('codeBackup').innerHTML='<div class="row"><span>GitHub</span><b>'+safe(code.repository||'non identifié')+(code.sha?' · '+safe(String(code.sha).slice(0,12)):'')+'</b></div><div class="row"><span>Cloudflare R2</span><b class="'+(code.ok?'ok':'warn')+'">'+safe(code.status||'—')+'</b></div>'+(code.key?'<div class="row"><span>Objet R2</span><span class="muted">'+safe(code.bucket||'')+' / '+safe(code.key)+'</span></div>':'');
+  const code=d.code_survival||{},ext=code.external||{};
+  const extEndpoints=Array.isArray(ext.endpoints)?ext.endpoints:[];
+  $('codeBackup').innerHTML=
+   '<div class="row"><span>Source GitHub</span><b>'+safe(code.repository||'non identifié')+(code.sha?' · '+safe(String(code.sha).slice(0,12)):'')+'</b></div>'+
+   '<div class="row"><span>Cache interne Cloudflare R2</span><b class="'+(code.ok?'ok':'warn')+'">'+safe(code.status||'—')+'</b></div>'+
+   '<div class="row"><span>Copie ShardVault externe</span><b class="'+(ext.status==='COPIED'&&extEndpoints.length>=7?'ok':'warn')+'">'+safe(ext.status||'EN ATTENTE')+(extEndpoints.length?' · '+fmt(extEndpoints.length)+' dépôt(s) externe(s)':'')+'</b></div>'+
+   (extEndpoints.length?'<div class="row"><span>Dépôts externes du code</span><span class="muted">'+extEndpoints.map(safe).join(' · ')+'</span></div>':'')+
+   (ext.snapshot_id?'<div class="row"><span>Snapshot code</span><span class="muted">'+safe(ext.snapshot_id)+'</span></div>':'')+
+   (code.key?'<div class="row"><span>Objet cache R2</span><span class="muted">'+safe(code.bucket||'')+' / '+safe(code.key)+'</span></div>':'');
   if(d.last_discovery)renderDiscovery(d.last_discovery,'Dernière exploration automatique',d.preferred_endpoint?.endpoint_id||null);
   $('raw').textContent=JSON.stringify(d,null,2);
  }catch(e){$('summary').innerHTML=card('Erreur',e.message,'bad');$('raw').textContent=String(e)}
