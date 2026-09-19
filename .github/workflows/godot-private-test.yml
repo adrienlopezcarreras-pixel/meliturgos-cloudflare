@@ -1,5 +1,5 @@
 name: Godot private five-game test
-# screenshot capture run 10
+# screenshot capture run 11
 
 on:
   push:
@@ -80,7 +80,11 @@ jobs:
           openssl pkeyutl -decrypt -inkey /tmp/private.pem             -pkeyopt rsa_padding_mode:oaep             -in /tmp/key.enc -out /tmp/pass.bin
           openssl enc -d -aes-256-cbc -pbkdf2             -in /tmp/manifest.enc -out /tmp/manifest.env             -pass file:/tmp/pass.bin
           chmod 600 /tmp/manifest.env
-          source /tmp/manifest.env
+          while IFS='=' read -r key value; do
+            if [ -n "$key" ]; then
+              export "$key=$value"
+            fi
+          done < /tmp/manifest.env
 
           mkdir -p "$RUNNER_TEMP/games"
           download_game () {
