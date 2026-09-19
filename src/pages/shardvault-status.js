@@ -129,7 +129,8 @@ async function load(){
    (extEndpoints.length?'<div class="row"><span>Dépôts externes du code</span><span class="muted">'+extEndpoints.map(safe).join(' · ')+'</span></div>':'')+
    (ext.snapshot_id?'<div class="row"><span>Snapshot code</span><span class="muted">'+safe(ext.snapshot_id)+'</span></div>':'')+
    (code.key?'<div class="row"><span>Objet cache R2</span><span class="muted">'+safe(code.bucket||'')+' / '+safe(code.key)+'</span></div>':'');
-  if(d.last_discovery)renderDiscovery(d.last_discovery,'Dernière exploration automatique',d.preferred_endpoint?.endpoint_id||null,(d.active_external_registry||[]).map(e=>e.id));
+  const actualActiveIds=(d.selected_endpoints||[]).filter(e=>e.backend==='http'&&e.active===true).map(e=>e.id);
+  if(d.last_discovery)renderDiscovery(d.last_discovery,'Dernière exploration automatique',d.preferred_endpoint?.endpoint_id||null,actualActiveIds);
   $('raw').textContent=JSON.stringify(d,null,2);
   const externalActive=(d.selected_endpoints||[]).filter(e=>e.backend==='http'&&e.active===true).length;
   const externalCode=(d.code_survival?.external?.endpoints||[]).length;
@@ -176,7 +177,9 @@ async function search(){
  try{
   const r=await fetch('/api/gen2/shardvault/search',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
   const d=await r.json();
-  renderDiscovery(d,'Nouvelle exploration',null,d.active_endpoint_ids||[]);
+  const sd=await fetch('/api/gen2/shardvault/status',{cache:'no-store'}).then(x=>x.json()).catch(()=>null);
+  const activeIds=(sd?.selected_endpoints||[]).filter(e=>e.backend==='http'&&e.active===true).map(e=>e.id);
+  renderDiscovery(d,'Nouvelle exploration',sd?.preferred_endpoint?.endpoint_id||null,activeIds);
   if(d.target_reached){
     $('searchStatus').className='muted pulse';$('searchStatus').textContent='7/7 externes validés. MEL crée le snapshot externe puis synchronise aussi le code critique.';
     const cd=await syncCodeExternal({quiet:true});
