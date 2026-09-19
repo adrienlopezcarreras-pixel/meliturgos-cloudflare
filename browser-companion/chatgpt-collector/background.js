@@ -1,5 +1,5 @@
 const api = globalThis.browser;
-const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},partial:{},failed:{},unavailable:{},deferred:{},discovered:0,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,lastProgressAt:null,currentMessageCount:0,captureProcessed:0,stalledCount:0,updatedAt:null};
+const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},partial:{},failed:{},unavailable:{},deferred:{},discovered:0,deepDiscoveryDone:false,deepDiscoveryAt:null,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,lastProgressAt:null,currentMessageCount:0,captureProcessed:0,stalledCount:0,updatedAt:null};
 const WATCHDOG_IDLE_MS=8*60*1000;
 const NETWORK_TIMEOUT_MS=6*60*1000;
 const MESSAGE_TIMEOUT_MS=60000;
@@ -87,9 +87,26 @@ async function tabMessage(tabId,payload,attempts=8){
   for(let i=0;i<attempts;i++){try{return await withTimeout(api.tabs.sendMessage(tabId,payload),MESSAGE_TIMEOUT_MS,'CONTENT_SCRIPT_TIMEOUT')}catch(e){err=e;await wait(500+i*250)}}
   throw err||new Error('CONTENT_SCRIPT_UNAVAILABLE');
 }
-async function pageUrls(tabId,deep=false){try{const r=await tabMessage(tabId,{type:'mel.collector.discover',deep},2);return Array.isArray(r?.urls)?r.urls.map(norm).filter(Boolean):[]}catch{return[]}}
-async function mergeDiscovery(tabId){
-  const [a,b]=await Promise.all([historyUrls(),pageUrls(tabId,false)]);
+async function pageUrls(tabId,deep=false){
+  try{
+    const r=await tabMessage(tabId,{type:'mel.collector.discover',deep},2);
+    return{ok:r?.ok===true,urls:Array.isArray(r?.urls)?r.urls.map(norm).filter(Boolean):[]};
+  }catch{return{ok:false,urls:[]}}
+}
+async function ensureDiscoveryPage(tabId){
+  try{
+    const tab=await api.tabs.get(tabId);
+    if(/^https:\/\/(chatgpt\.com|chat\.openai\.com)\//i.test(tab?.url||''))return true;
+  }catch{}
+  await withTimeout(api.tabs.update(tabId,{url:'https://chatgpt.com/'}),30000,'DISCOVERY_NAVIGATION_TIMEOUT');
+  await waitComplete(tabId,30000);
+  await wait(2500);
+  return true;
+}
+async function mergeDiscovery(tabId,deep=false){
+  if(deep)await ensureDiscoveryPage(tabId);
+  const [a,page]=await Promise.all([historyUrls(),pageUrls(tabId,deep)]);
+  const b=page.urls;
   const s=await state(),done=s.done||{},partial=s.partial||{},failed=s.failed||{},unavailable=s.unavailable||{},deferred=s.deferred||{},queued=new Set(s.queue||[]);
   const add=[...new Set([...a,...b])].filter(u=>{
     const id=idFromUrl(u);
@@ -100,7 +117,7 @@ async function mergeDiscovery(tabId){
     return id && needsFullCapture && !unavailable[id] && !deferred[id] && attempts<3 && !queued.has(u);
   });
   const queue=[...(s.queue||[]),...add];
-  return save({queue,discovered:new Set([...queue,...Object.values(done).map(x=>x.url).filter(Boolean),...Object.values(deferred).map(x=>x.url).filter(Boolean),...Object.values(failed).map(x=>x.url).filter(Boolean),...Object.values(unavailable).map(x=>x.url).filter(Boolean)]).size});
+  return save({queue,discovered:new Set([...queue,...Object.values(done).map(x=>x.url).filter(Boolean),...Object.values(partial).map(x=>x.url).filter(Boolean),...Object.values(deferred).map(x=>x.url).filter(Boolean),...Object.values(failed).map(x=>x.url).filter(Boolean),...Object.values(unavailable).map(x=>x.url).filter(Boolean)]).size,deepDiscoveryDone:deep&&page.ok?true:s.deepDiscoveryDone,deepDiscoveryAt:deep&&page.ok?Date.now():s.deepDiscoveryAt});
 }
 
 function waitComplete(tabId,timeout=30000){
@@ -208,13 +225,17 @@ async function process(tabId,generation){
   if(!isCurrentRun(generation))return;
   await save({running:true,paused:false,tabId,lastError:null});
   let initial=await state();
-  if(!(initial.queue||[]).length) await withTimeout(mergeDiscovery(tabId),60000,'DISCOVERY_TIMEOUT');
+  if(!(initial.queue||[]).length){
+    const deep=initial.deepDiscoveryDone!==true;
+    await withTimeout(mergeDiscovery(tabId,deep),deep?120000:60000,'DISCOVERY_TIMEOUT');
+  }
   while(isCurrentRun(generation)){
     let s=await state();
     if(!s.running||s.paused)return;
     let queue=[...(s.queue||[])];
     if(!queue.length){
-      await withTimeout(mergeDiscovery(tabId),60000,'DISCOVERY_TIMEOUT');
+      const deep=s.deepDiscoveryDone!==true;
+      await withTimeout(mergeDiscovery(tabId,deep),deep?120000:60000,'DISCOVERY_TIMEOUT');
       s=await state();queue=[...(s.queue||[])];
       if(!queue.length){await save({running:false,paused:false,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,lastProgressAt:Date.now()});return}
     }
