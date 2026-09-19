@@ -1,5 +1,5 @@
 // deployment trigger: ShardVault dashboard
-import { getShardVaultStatus, searchAutonomousShardVaultRepositories } from '../continuity/shardvault-runtime.js';
+import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle } from '../continuity/shardvault-runtime.js';
 
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
@@ -27,12 +27,14 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0d1427;padding:12px;b
 <div class="sub">Continuité mémoire de MEL · chiffrement, fragmentation 4/7, réparation et recherche autonome.</div>
 <div class="toolbar">
 <button id="refresh">Actualiser</button>
+<button id="snapshot">Sauvegarder maintenant</button>
 <button id="search">Rechercher des dépôts autonomes</button>
 <a href="/" style="align-self:center">← Retour à MEL</a>
 </div>
 <div id="summary" class="grid"></div>
 <div class="section card"><h2>Dernier snapshot</h2><div id="snapshot">Chargement…</div></div>
 <div class="section card"><h2>Dépôts sélectionnés</h2><div id="endpoints">Chargement…</div></div>
+<div class="section card"><h2>Copies du code de MEL</h2><div id="codeBackup">Chargement…</div></div>
 <div class="section card"><h2>Recherche autonome</h2><div id="searchStatus" class="muted">Aucune recherche manuelle lancée dans cette page.</div><div id="results"></div></div>
 <div class="section card"><h2>Détails techniques</h2><pre id="raw">Chargement…</pre></div>
 </main>
@@ -41,7 +43,7 @@ const $=id=>document.getElementById(id);
 const fmt=n=>Number.isFinite(Number(n))?Number(n).toLocaleString('fr-FR'):'—';
 function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function card(label,value,state=''){return '<div class="card"><small>'+safe(label)+'</small><div class="big '+state+'">'+safe(value)+'</div></div>'}
-function endpointRow(e){return '<div class="row"><div><b>'+safe(e.id)+'</b><div class="muted">'+safe(e.operatorDomain||'—')+' · '+safe(e.providerId||'—')+' · '+safe(e.jurisdiction||'—')+'</div></div><div><span class="tag">'+(e.autonomous?'autonome':'configuré')+'</span><span class="tag">score '+fmt(e.score)+'</span></div></div>'}
+function endpointRow(e){const where=e.backend==='r2'?(safe(e.bucket||'R2')+' · '+safe(e.key_prefix||'')):(safe(e.operatorDomain||'—')+' · '+safe(e.providerId||'—')+' · '+safe(e.jurisdiction||'—'));return '<div class="row"><div><b>'+safe(e.id)+'</b><div class="muted">'+where+'</div></div><div><span class="tag">'+safe(e.backend||'http')+'</span><span class="tag">'+(e.autonomous?'autonome':'configuré')+'</span><span class="tag">score '+fmt(e.score)+'</span></div></div>'}
 async function load(){
  $('refresh').disabled=true;
  try{
@@ -58,9 +60,22 @@ async function load(){
   const l=d.latest;
   $('snapshot').innerHTML=l?'<div class="row"><span>ID</span><b>'+safe(l.snapshot_id)+'</b></div><div class="row"><span>Révision</span><b>'+fmt(l.revision)+'</b></div><div class="row"><span>Créé</span><b>'+safe(l.created_at||'—')+'</b></div><div class="row"><span>Taille fragment</span><b>'+fmt(l.shard_size)+' octets</b></div>':'Aucun snapshot valide trouvé.';
   $('endpoints').innerHTML=(d.selected_endpoints||[]).length?(d.selected_endpoints||[]).map(endpointRow).join(''):'Aucun dépôt actuellement sélectionné.';
+  const code=d.code_survival||{};
+  $('codeBackup').innerHTML='<div class="row"><span>GitHub</span><b>'+safe(code.repository||'non identifié')+(code.sha?' · '+safe(String(code.sha).slice(0,12)):'')+'</b></div><div class="row"><span>Cloudflare R2</span><b class="'+(code.ok?'ok':'warn')+'">'+safe(code.status||'—')+'</b></div>'+(code.key?'<div class="row"><span>Objet R2</span><span class="muted">'+safe(code.bucket||'')+' / '+safe(code.key)+'</span></div>':'');
   $('raw').textContent=JSON.stringify(d,null,2);
  }catch(e){$('summary').innerHTML=card('Erreur',e.message,'bad');$('raw').textContent=String(e)}
  finally{$('refresh').disabled=false}
+}
+async function snapshot(){
+ const b=$('snapshot');b.disabled=true;b.textContent='Sauvegarde en cours…';
+ try{
+  const r=await fetch('/api/gen2/shardvault/snapshot',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+  const d=await r.json();
+  if(!r.ok||d.ok===false)throw new Error(d.error||d.reason||('HTTP '+r.status));
+  $('searchStatus').className='ok';$('searchStatus').textContent='Sauvegarde créée : '+(d.snapshot_id||'snapshot')+' · '+fmt(d.shards)+' fragments.';
+  await load();
+ }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Sauvegarde échouée : '+e.message}
+ finally{b.disabled=false;b.textContent='Sauvegarder maintenant'}
 }
 async function search(){
  const b=$('search');b.disabled=true;b.textContent='Recherche en cours…';$('searchStatus').className='muted pulse';$('searchStatus').textContent='MEL vérifie les politiques puis effectue des tests d’écriture/lecture sur les candidats autorisés.';
@@ -79,7 +94,7 @@ async function search(){
  }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Erreur : '+e.message}
  finally{b.disabled=false;b.textContent='Rechercher des dépôts autonomes'}
 }
-$('refresh').onclick=load;$('search').onclick=search;load();setInterval(load,30000);
+$('refresh').onclick=load;$('snapshot').onclick=snapshot;$('search').onclick=search;load();setInterval(load,30000);
 </script></body></html>`,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
 }
 
@@ -87,6 +102,10 @@ export async function handleShardVaultStatus(request,env){
   const url=new URL(request.url);
   if(request.method==='GET'&&url.pathname==='/shardvault')return page();
   if(request.method==='GET'&&url.pathname==='/api/gen2/shardvault/status')return Response.json(await getShardVaultStatus(env),{headers:{'cache-control':'no-store'}});
+  if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/snapshot'){
+    const result=await runShardVaultCycle(env,{force:true});
+    return Response.json(result,{status:result.ok?200:503,headers:{'cache-control':'no-store'}});
+  }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/search'){
     const result=await searchAutonomousShardVaultRepositories(env);
     return Response.json(result,{status:result.ok?200:503,headers:{'cache-control':'no-store'}});
