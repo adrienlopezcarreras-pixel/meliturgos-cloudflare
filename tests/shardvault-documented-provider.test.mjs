@@ -16,7 +16,8 @@ test('runtime preserves Filebin adapter and persistent search state', () => {
   const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
   assert.match(runtime,/filebinDownload/);
   assert.match(runtime,/adapter:e\.adapter\|\|null/);
-  assert.match(runtime,/search_mode:'UNTIL_EXTERNAL_FOUND'/);
+  assert.match(runtime,/search_mode:'MAINTAIN_7_EXTERNAL'/);
+  assert.match(runtime,/target_count:Math\.min\(7,c\.n\)/);
   assert.match(runtime,/continue_searching/);
   assert.doesNotMatch(runtime,/redirect:'error'/);
 });
