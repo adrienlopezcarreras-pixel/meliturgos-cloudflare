@@ -5,6 +5,7 @@ import { handleVoiceTranscription } from "../api/voice-transcribe.js";
 
 export const WAVESHARE_TERMINAL_MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
 export const WAVESHARE_TERMINAL_API = "/api/device/v1";
+export const WAVESHARE_TERMINAL_PROTOCOL = "1.0";
 const DOWNLOAD_PREFIX = "devices/waveshare-esp32-s3-touch-lcd-3.5-c/";
 const PAIR_TTL_MS = 10 * 60 * 1000;
 
@@ -125,6 +126,8 @@ async function issueDeviceToken(env, body) {
   if (!deviceId) return json({ ok: false, code: "DEVICE_ID_REQUIRED" }, 400);
   const model = String(body.model || WAVESHARE_TERMINAL_MODEL);
   if (model !== WAVESHARE_TERMINAL_MODEL) return json({ ok: false, code: "MODEL_UNSUPPORTED" }, 400);
+  const protocolVersion = String(body.protocol_version || WAVESHARE_TERMINAL_PROTOCOL);
+  if (protocolVersion !== WAVESHARE_TERMINAL_PROTOCOL) return json({ ok: false, code: "PROTOCOL_UNSUPPORTED", supported: WAVESHARE_TERMINAL_PROTOCOL }, 426);
 
   const tokenBytes = new Uint8Array(32);
   crypto.getRandomValues(tokenBytes);
@@ -143,7 +146,8 @@ async function issueDeviceToken(env, body) {
     .bind(deviceId, JSON.stringify({
       name: body.name || "MEL Terminal",
       firmware: body.firmware || null,
-      phase: "PAIRED"
+      phase: "PAIRED",
+      protocol_version: protocolVersion
     }), now).run();
 
   await registerRuntimeDevice(env, { ...body, device_id: deviceId });
@@ -151,6 +155,7 @@ async function issueDeviceToken(env, body) {
     ok: true,
     device_id: deviceId,
     model,
+    protocol_version: WAVESHARE_TERMINAL_PROTOCOL,
     token,
     api_base: WAVESHARE_TERMINAL_API,
     note: "Store the token in NVS. Pair codes and operator credentials must not be retained."
@@ -209,6 +214,7 @@ async function updateHeartbeat(request, env, auth) {
   const now = Date.now();
   const status = {
     firmware: body.firmware || null,
+    protocol_version: body.protocol_version || null,
     battery: body.battery ?? null,
     wifi_rssi: body.wifi_rssi ?? null,
     free_heap: body.free_heap ?? null,
@@ -239,6 +245,7 @@ async function loadManifest(env, origin) {
   }
   const defaults = {
     model: WAVESHARE_TERMINAL_MODEL,
+    protocol_version: WAVESHARE_TERMINAL_PROTOCOL,
     channel: "stable",
     firmware: {
       version: String(env.MEL_TERMINAL_FIRMWARE_VERSION || "0.1.0-dev"),
