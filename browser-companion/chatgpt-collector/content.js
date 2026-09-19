@@ -7,6 +7,7 @@
   const PASSIVE_INTERVAL_MS = 120000;
   const PASSIVE_MIN_GAP_MS = 5 * 60 * 1000;
   const PASSIVE_TAIL_MESSAGES = 24;
+  const DEEP_DISCOVERY_MAX_ROUNDS = 60;
   const wait = ms => new Promise(r => setTimeout(r, ms));
 
   let passiveBusy = false;
@@ -169,9 +170,9 @@
     for (const scroller of sidebarCandidates()) {
       let lastHeight = -1;
       let stableRounds = 0;
-      for (let i = 0; i < 20; i++) {
+      for (let i = 0; i < DEEP_DISCOVERY_MAX_ROUNDS; i++) {
         scroller.scrollTop = scroller.scrollHeight;
-        await wait(500);
+        await wait(650);
         links().forEach(u => out.add(u));
         stableRounds = scroller.scrollHeight === lastHeight ? stableRounds + 1 : 0;
         lastHeight = scroller.scrollHeight;
