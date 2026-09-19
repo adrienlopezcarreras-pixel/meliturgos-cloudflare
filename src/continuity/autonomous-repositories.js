@@ -12,7 +12,10 @@ const QUERY_SETS = Object.freeze([
   ['anonymous file hosting api in:name,description,readme','temporary file upload api in:name,description,readme','free file hosting api in:name,description,readme'],
   ['guest upload rest api in:name,description,readme','no signup file upload api in:name,description,readme','free object storage api in:name,description,readme'],
   ['temporary object storage api in:name,description,readme','anonymous upload service api in:name,description,readme','file sharing api guest in:name,description,readme'],
-  ['free storage upload endpoint in:name,description,readme','public file upload rest api in:name,description,readme','ephemeral file storage api in:name,description,readme']
+  ['free storage upload endpoint in:name,description,readme','public file upload rest api in:name,description,readme','ephemeral file storage api in:name,description,readme'],
+  ['anonymous paste api no auth 1 year retention in:name,description,readme','paste service api never expire anonymous in:name,description,readme','developer paste api raw endpoint no signup in:name,description,readme'],
+  ['guest file upload rest api public download no api key in:name,description,readme','file hosting api scripts bots long retention in:name,description,readme','direct download upload api automation allowed in:name,description,readme'],
+  ['open source pastebin public instance api anonymous in:name,description,readme','self hosted file share anonymous upload api in:name,description,readme','public paste server no authentication api in:name,description,readme']
 ]);
 const EMBEDDED_SEED_LEADS = Object.freeze([
   {name:'/TMP/FILES',url:'https://tmpfiles.org',summary:'Hébergement temporaire anonyme avec API signalée. Piste à vérifier avant tout usage.'},
@@ -572,8 +575,30 @@ async function discoverInternetSources(env,accepted,rejected){
           ].filter(Boolean).join(' · ').slice(0,500);
           allLeads.push({name,url:url||null,source:xu,summary,status:'EXPERIENCE_LEAD'});
         }
+        for(const target of book.validated_targets||[]){
+          const name=String(target?.name||target?.id||'').trim();
+          if(!name)continue;
+          allLeads.push({
+            name,
+            url:null,
+            source:xu,
+            summary:[
+              'VALIDATED_EXPERIENCE',
+              target?.adapter?'adapter '+String(target.adapter):'',
+              target?.retention_model?'retention '+String(target.retention_model):'',
+              String(target?.proof||'')
+            ].filter(Boolean).join(' · ').slice(0,500),
+            status:'VALIDATED_EXPERIENCE'
+          });
+        }
         if(Array.isArray(book?.search_strategy?.search_queries))experienceQueries.push(...book.search_strategy.search_queries.map(String).filter(Boolean).slice(0,30));
-        sources.push({id:'qualification-playbook',url:xu,status:'LOADED',kind:'experience',targets:Array.isArray(book.candidate_targets)?book.candidate_targets.length:0,lessons:Array.isArray(book.failure_memory)?book.failure_memory.length:0});
+        if(Array.isArray(book?.discovery_method?.query_families))experienceQueries.push(...book.discovery_method.query_families.map(String).filter(Boolean).slice(0,30));
+        sources.push({
+          id:'qualification-playbook',url:xu,status:'LOADED',kind:'experience',
+          targets:Array.isArray(book.candidate_targets)?book.candidate_targets.length:0,
+          validated_targets:Array.isArray(book.validated_targets)?book.validated_targets.length:0,
+          lessons:Array.isArray(book.failure_memory)?book.failure_memory.length:0
+        });
       }catch(error){
         sources.push({id:'qualification-playbook',url:String(bookUrl),status:'ERROR',kind:'experience',error:String(error?.message||error)});
       }
