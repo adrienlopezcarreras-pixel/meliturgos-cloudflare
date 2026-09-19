@@ -1,0 +1,84 @@
+name: waveshare-terminal-firmware
+
+on:
+  pull_request:
+    paths:
+      - 'firmware/waveshare-terminal/**'
+      - '.github/workflows/waveshare-terminal-firmware.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: waveshare-terminal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout MEL
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Prepare pinned Waveshare base
+        shell: bash
+        run: |
+          set -euo pipefail
+          UPSTREAM_SHA=283ec84c566c096f8c30493b93dcd4b0bb608de7
+          git clone --filter=blob:none https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.5.git upstream-waveshare
+          git -C upstream-waveshare checkout "$UPSTREAM_SHA"
+          mkdir -p build/waveshare-mel
+          cp -a upstream-waveshare/ESP-IDF/03_lvgl_system/. build/waveshare-mel/
+          rm -f build/waveshare-mel/main/*
+          cp firmware/waveshare-terminal/main/* build/waveshare-mel/main/
+          cp firmware/waveshare-terminal/partitions.csv build/waveshare-mel/partitions.csv
+          cp firmware/waveshare-terminal/sdkconfig.defaults build/waveshare-mel/sdkconfig.defaults
+          printf '%s\n' "$UPSTREAM_SHA" > build/waveshare-mel/WAVESHARE_UPSTREAM_SHA
+
+      - name: Build and merge ESP32-S3 image
+        uses: espressif/esp-idf-ci-action@e6f5c74232b1ccd4c97ed641f1e48553853f1fd5
+        with:
+          esp_idf_version: v5.3.2
+          target: esp32s3
+          path: build/waveshare-mel
+          command: bash -lc 'idf.py build && esptool.py --chip esp32s3 merge_bin -o mel-terminal.bin @build/flash_args'
+
+      - name: Build firmware manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build/waveshare-mel
+          test -s mel-terminal.bin
+          SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
+          SIZE="$(stat -c '%s' mel-terminal.bin)"
+          cat > firmware-manifest.json <<JSON
+          {
+            "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
+            "channel": "stable",
+            "firmware": {
+              "version": "0.1.0",
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
+              "sha256": "${SHA256}",
+              "size": ${SIZE},
+              "source_sha": "${GITHUB_SHA}",
+              "waveshare_upstream_sha": "283ec84c566c096f8c30493b93dcd4b0bb608de7"
+            },
+            "assets": { "version": "1", "items": [] }
+          }
+          JSON
+          sha256sum mel-terminal.bin firmware-manifest.json > SHA256SUMS.txt
+
+      - name: Upload flash-ready artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MEL-Waveshare-3.5-C-${{ github.sha }}
+          path: |
+            build/waveshare-mel/mel-terminal.bin
+            build/waveshare-mel/firmware-manifest.json
+            build/waveshare-mel/SHA256SUMS.txt
+            build/waveshare-mel/WAVESHARE_UPSTREAM_SHA
+          if-no-files-found: error
+          retention-days: 30
