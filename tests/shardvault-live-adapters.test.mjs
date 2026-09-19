@@ -8,18 +8,27 @@ const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',
 test('ShardVault provider adapters reflect current official API contracts', () => {
   assert.match(autonomous,/https:\/\/paste\.myst\.rs\/api\/v2\/paste\?mel_object=/);
   assert.match(autonomous,/language:'Plain Text'/);
-  assert.match(autonomous,/form\.append\('expiry_days','365'\)/);
-  assert.match(autonomous,/form\.append\('file',new Blob\(\[b64u\(payload\)\]/);
+  assert.match(autonomous,/expiry_days:'365'/);
+  assert.match(autonomous,/https:\/\/dpaste\.com\/api\//);
+  assert.match(autonomous,/form\.append\('content',b64u\(payload\)\)/);
   assert.match(autonomous,/adapter:'fileditch_b64'/);
   assert.match(autonomous,/filename=\{objectId\}\.txt/);
   assert.match(autonomous,/x-uuid':'1'/);
+  assert.match(autonomous,/adapter:'pastegg_b64'/);
+  assert.match(autonomous,/api\.paste\.gg\/v1\/pastes/);
+  assert.match(autonomous,/format:'base64'/);
+  assert.match(autonomous,/adapter:'markdownpaste_b64'/);
+  assert.match(autonomous,/markdownpasteit\.vercel\.app\/api\/paste/);
+  assert.match(autonomous,/expires_in:0/);
 });
 
 test('snapshot runtime can write and read every repaired adapter selected by discovery', () => {
-  for (const adapter of ['dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64']) {
+  for (const adapter of ['dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64','pastegg_b64','markdownpaste_b64']) {
     assert.ok(runtime.includes(`e.adapter==='${adapter}'`) || runtime.includes(`'${adapter}'`), adapter);
   }
   assert.match(runtime,/paste\.myst\.rs\/api\/v2\/paste\//);
   assert.match(runtime,/user-agent':'curl\/8\.0 MEL-ShardVault\/1\.0'/);
   assert.match(runtime,/fileditch_b64/);
+  assert.match(runtime,/api\.paste\.gg\/v1\/pastes\//);
+  assert.match(runtime,/markdownpasteit\.vercel\.app\/api\/paste\//);
 });
