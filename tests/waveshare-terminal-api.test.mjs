@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  maybeHandleWaveshareTerminalApi,
+  WAVESHARE_TERMINAL_API,
+  WAVESHARE_TERMINAL_MODEL
+} from '../src/devices/waveshare-terminal-api.js';
+
+test('Waveshare terminal API uses the canonical namespace and supported board model', () => {
+  assert.equal(WAVESHARE_TERMINAL_API, '/api/device/v1');
+  assert.equal(WAVESHARE_TERMINAL_MODEL, 'waveshare-esp32-s3-touch-lcd-3.5-c');
+});
+
+test('unrelated requests are ignored by the terminal handler', async () => {
+  const response = await maybeHandleWaveshareTerminalApi(
+    new Request('https://mel.test/api/other'),
+    {}
+  );
+  assert.equal(response, null);
+});
+
+test('pairing remains owner-auth protected', async () => {
+  const response = await maybeHandleWaveshareTerminalApi(
+    new Request('https://mel.test/api/device/v1/pair', {
+      method: 'POST',
+      headers: {'content-type':'application/json'},
+      body: JSON.stringify({device_id:'test-device'})
+    }),
+    {}
+  );
+  assert.equal(response.status, 401);
+});
