@@ -13,8 +13,8 @@ Collecteur local et progressif des conversations ChatGPT vers la mémoire persis
 - surveille la progression de chaque conversation : après 8 minutes sans progression exploitable, l'opération bloquée est interrompue, classée « à retenter plus tard » et la file continue ;
 - les appels au contenu et l'import réseau ont leurs propres délais maximum afin qu'une promesse bloquée ne puisse plus immobiliser toute la collecte ;
 - reprend après interruption et permet de remettre explicitement les conversations différées en file ;
-- capture également les nouvelles conversations stables pendant l'utilisation normale de ChatGPT.
 - capture également les nouvelles conversations stables pendant l'utilisation normale de ChatGPT, mais seulement par petits incréments et jamais pendant le traitement massif ;
+- une capture passive partielle reste marquée `partial` et ne peut jamais empêcher le passage massif de récupérer la conversation complète ;
 - en mode PC très lent, découpe l'extraction DOM en petits lots avec des pauses afin de rendre la main à Firefox ;
 - attend que le DOM d'une conversation soit stable avant l'extraction ;
 - évite le balayage coûteux de tous les `div` de ChatGPT pendant la découverte normale ;
@@ -38,4 +38,4 @@ Le mode temporaire disparaît après redémarrage de Firefox. Pour une installat
 
 Le collecteur ne peut récupérer que les conversations que Firefox peut ouvrir. L'historique du navigateur augmente fortement la couverture par rapport à la seule barre latérale, mais l'export officiel ChatGPT restera utile pour contrôler l'exhaustivité et récupérer ce qui n'a jamais été ouvert sur ce navigateur ou certaines pièces jointes.
 
-Le DOM ChatGPT peut évoluer. Le collecteur échoue sans valider la conversation lorsqu'il ne trouve aucun message. Les conversations différées ne sont plus redécouvertes automatiquement pendant le passage courant : elles restent isolées jusqu'à l'action « Réessayer les différées », ce qui évite une boucle infinie sur une conversation difficile.
+Le DOM ChatGPT peut évoluer. Le collecteur échoue sans valider la conversation lorsqu'il ne trouve aucun message. Les conversations différées et les échecs non résolus ne sont plus redécouverts automatiquement pendant le passage courant : ils restent isolés jusqu'à l'action « Réessayer échecs / différées », ce qui évite une boucle infinie tout en permettant une reprise volontaire.
