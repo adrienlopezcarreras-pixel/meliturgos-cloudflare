@@ -965,9 +965,21 @@ export async function searchAutonomousShardVaultRepositories(env){
   try{
     let requiredBytes=256,last=null;
     try{const rows=await inventoryRows(env,c);last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
-    const active=await reconcileActiveExternalEndpoints(env,c,last);
+    const activeBefore=await reconcileActiveExternalEndpoints(env,c,last);
     const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
     await rememberValidatedExternalEndpoints(env,report.selected||[]);
+    const staged=await stageActiveExternalEndpoints(env,c,last,report.selected||[]);
+    let activation_cycle=null,active=activeBefore;
+    if(staged.length>activeBefore.length){
+      try{activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true});}
+      catch(error){activation_cycle={ok:false,error:String(error?.message||error)};}
+      if(activation_cycle?.ok){
+        const rowsAfter=await inventoryRows(env,c),latestAfter=latestSnapshot(rowsAfter);
+        active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
+      }else{
+        await writeActiveExternalEndpoints(env,activeBefore);
+      }
+    }
     const activeIds=new Set(active.map(e=>e.id));
     let preferred=await readPreferredEndpoint(env);
     const selectedViews=[
@@ -1000,8 +1012,13 @@ export async function searchAutonomousShardVaultRepositories(env){
       target_count:Math.min(7,c.n),
       target_reached:active.length>=Math.min(7,c.n),
       continue_searching:active.length<Math.min(7,c.n),
-      search_mode:'MAINTAIN_7_EXTERNAL'
+      search_mode:'MAINTAIN_7_EXTERNAL',
+      activation_cycle
     };
+    if(result.target_reached){
+      try{result.code_sync=await syncShardVaultCodeExternally(env);}
+      catch(error){result.code_sync={ok:false,status:'COPY_FAILED',error:String(error?.message||error)};}
+    }
     await writeDiscoveryStatus(env,result);
     return result;
   }catch(error){
