@@ -32,9 +32,9 @@ body{font:14px system-ui,sans-serif;width:360px;padding:14px;background:#0b1220;
 <div class="row">
   <button id="start">Démarrer / reprendre</button>
   <button id="pause">Pause</button>
-  <button id="retry">Réessayer les différées</button>
+  <button id="retry">Réessayer échecs / différées</button>
   <button id="capture">Capturer cette conversation</button>
 </div>
-<p class="muted">Laisse un onglet ChatGPT ouvert et connecté. En mode PC très lent, la capture est découpée en petits lots, la collecte passive est fortement ralentie, les grosses conversations déclenchent une pause plus longue et l’onglet de collecte est régulièrement vidé pour libérer de la mémoire. Si une conversation ne progresse plus, le watchdog la met de côté et passe à la suivante.</p>
+<p class="muted">Laisse un onglet ChatGPT ouvert et connecté. En mode PC très lent, la capture est découpée en petits lots, la collecte passive est fortement ralentie, les grosses conversations déclenchent une pause plus longue et l’onglet de collecte est régulièrement vidé pour libérer de la mémoire. Une capture passive partielle ne valide jamais une conversation comme entièrement archivée. Si une conversation ne progresse plus, le watchdog la met de côté et passe à la suivante.</p>
 <pre id="status">Chargement…</pre>
 <script src="popup.js"></script></body></html>
