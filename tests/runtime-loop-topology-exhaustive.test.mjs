@@ -75,7 +75,10 @@ test('active branch unicity no longer exempts LoRA or compat development branche
   assert.doesNotMatch(source, /\*lora\*/i);
   assert.doesNotMatch(source, /compat-activateadapter-1/);
   assert.doesNotMatch(source, /compatfix-main/);
-  assert.match(source, /Every active code branch, including LoRA\/compat workspaces, must converge/);
+  assert.match(source, /Every active MEL code branch, including LoRA\/compat workspaces, must converge/);
+  assert.match(source, /godot-private-test-\*/);
+  assert.match(source, /\.github\/workflows\/godot-private-test\\\.yml\|ci-godot-test\//);
+  assert.match(source, /GODOT_LAB_SCOPE_VIOLATION/);
 });
 
 test('production deployment remains a single explicit exact-SHA release path', async () => {
