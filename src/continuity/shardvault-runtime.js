@@ -491,7 +491,7 @@ async function download(env,e,objectId,descriptor=null){
   if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
   return new Uint8Array(await r.arrayBuffer());
 }
-const BASE64_WRAPPED_ADAPTERS=new Set(['pastebin_ai_b64','dpaste_b64','pastemyst_b64','onec3_b64','msk_paste_b64','pastebox_b64','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64']);
+const BASE64_WRAPPED_ADAPTERS=new Set(['pastebin_ai_b64','dpaste_b64','pastemyst_b64','onec3_b64','msk_paste_b64','pastebox_b64','pastehtml_b64','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64']);
 function fragmentChunkLimit(e){
   const max=Math.max(256,Number(e?.maxBytes)||256);
   if(e?.backend==='r2'||e?.backend==='d1')return max;
