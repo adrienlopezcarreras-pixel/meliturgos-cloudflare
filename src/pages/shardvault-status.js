@@ -61,7 +61,7 @@ pre{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;background
 <div class="section card"><h2>Dernier snapshot</h2><div id="snapshotInfo">Chargement…</div></div>
 <div class="section card"><h2>Dépôts sélectionnés</h2><div id="endpoints">Chargement…</div></div>
 <div class="section card"><h2>Copies du code de MEL</h2><div id="codeBackup">Chargement…</div></div>
-<div class="section card"><h2>Exploration Internet</h2><div class="muted" style="margin-bottom:8px"><b>Mode persistant :</b> MEL relance automatiquement une génération chaque heure tant qu’aucune cible externe validée n’a été trouvée.</div><div id="searchStatus" class="muted">Les candidats sont validés par documentation API officielle puis par un test réel écriture/lecture.</div><div id="results"></div></div>
+<div class="section card"><h2>Exploration Internet</h2><div class="muted" style="margin-bottom:8px"><b>Mode persistant :</b> MEL relance automatiquement une génération chaque heure jusqu’à disposer de 7 cibles externes validées, puis continue à les revalider et à remplacer celles qui deviennent indisponibles.</div><div id="searchStatus" class="muted">Les candidats sont validés par documentation API officielle puis par un test réel écriture/lecture.</div><div id="results"></div></div>
 <div class="section card"><h2>Détails techniques</h2><pre id="raw">Chargement…</pre></div>
 </main>
 <script>
@@ -87,7 +87,7 @@ async function activateEndpoint(endpointId,btn){
 function renderDiscovery(d,prefix='Exploration',preferredId=null){
  if(!d)return;
  $('searchStatus').className=d.ok?'ok':'bad';
- $('searchStatus').textContent=d.ok?prefix+' · génération '+fmt(d.generation||1)+' : '+fmt(d.new_leads??(d.leads||[]).length)+' nouvelles pistes ('+fmt(d.known_leads||0)+' connues), '+fmt(d.discovered)+' cibles vérifiables, '+fmt(d.probed)+' testées, '+fmt((d.selected||[]).length)+' retenues · '+(d.external_found?'CIBLE EXTERNE TROUVÉE':'recherche continue active')+(d.searched_at?' · '+safe(d.searched_at):''):(prefix+' échouée : '+safe(d.error||d.status||'erreur'));
+ $('searchStatus').textContent=d.ok?prefix+' · génération '+fmt(d.generation||1)+' : '+fmt(d.new_leads??(d.leads||[]).length)+' nouvelles pistes ('+fmt(d.known_leads||0)+' connues), '+fmt(d.discovered)+' cibles vérifiables, '+fmt(d.probed)+' testées, '+fmt((d.selected||[]).length)+' retenues · '+(d.target_reached?'OBJECTIF 7/7 ATTEINT':((d.selected||[]).length?('progression '+fmt((d.selected||[]).length)+' / '+fmt(d.target_count||7)+' · recherche continue active'):'recherche continue active'))+(d.searched_at?' · '+safe(d.searched_at):''):(prefix+' échouée : '+safe(d.error||d.status||'erreur'));
  const sources=(d.internet_sources||[]).map(x=>'<div class="row"><span>'+safe(x.id||x.kind||'source')+'</span><span class="muted">'+safe(x.status||'—')+(x.leads!=null?' · '+fmt(x.leads)+' pistes':'')+(x.error?' · '+safe(x.error):'')+'</span></div>').join('');
  const leads=(d.leads||[]).slice(0,40).map(x=>'<div class="row"><span>'+safe(x.name||'piste')+'</span><span class="muted">'+safe(x.summary||x.url||'à vérifier')+'</span></div>').join('');
  const sel=(d.selected||[]).map(e=>endpointRow({...e,active:String(e.id||'')===String(preferredId||'')},true,preferredId)).join('')||'<div class="muted">Aucune nouvelle cible durable n’a encore satisfait tous les contrôles.</div>';
