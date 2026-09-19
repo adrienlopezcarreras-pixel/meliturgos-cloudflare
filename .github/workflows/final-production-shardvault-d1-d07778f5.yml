@@ -1,0 +1,94 @@
+name: final-production-shardvault-d1-d07778f5
+
+on:
+  push:
+    branches:
+      - release/shardvault-progressive-d1-d07778f5
+    paths:
+      - .github/workflows/final-production-shardvault-d1-d07778f5.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meliturgos-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact approved SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: d07778f52aad91d4d8047a8ab0e79e92762eba1a
+          fetch-depth: 1
+
+      - name: Prove immutable promotion identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "d07778f52aad91d4d8047a8ab0e79e92762eba1a"
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Runtime dependency security gate
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Syntax gate
+        run: npm run check
+
+      - name: Full regression gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B candidate/release-ci-head d07778f52aad91d4d8047a8ab0e79e92762eba1a
+          npm test
+
+      - name: Build immutable source survival archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz --output=mel-source-d07778f52aad91d4d8047a8ab0e79e92762eba1a.tar.gz d07778f52aad91d4d8047a8ab0e79e92762eba1a
+          test -s mel-source-d07778f52aad91d4d8047a8ab0e79e92762eba1a.tar.gz
+
+      - name: Seed exact code archive into R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler r2 object put "meliturgos-private-media/shardvault/code/adrienlopezcarreras-pixel__meliturgos-cloudflare/d07778f52aad91d4d8047a8ab0e79e92762eba1a.tar.gz" \
+            --file="mel-source-d07778f52aad91d4d8047a8ab0e79e92762eba1a.tar.gz" \
+            --content-type="application/gzip" \
+            --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy exact approved SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy \
+            --define "MEL_DEPLOYED_GIT_SHA:'d07778f52aad91d4d8047a8ab0e79e92762eba1a'" \
+            --define "MEL_DEPLOYED_GIT_BRANCH:'release/shardvault-progressive-d1-d07778f5'"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify production responds
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 3 --max-time 30 --output production-root.html --write-out '%{http_code}' https://meliturgos.adrien-lopezcarreras.workers.dev)"
+          case "$code" in
+            2??|3??|401) ;;
+            *) echo "Unexpected production HTTP status: $code"; exit 22 ;;
+          esac
