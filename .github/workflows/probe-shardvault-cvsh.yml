@@ -1,0 +1,35 @@
+name: probe-shardvault-cvsh
+
+on:
+  push:
+    branches:
+      - probe/shardvault-providers-20260919
+    paths:
+      - .github/workflows/probe-shardvault-cvsh.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe c-v.sh at real shard size
+        shell: bash
+        run: |
+          set +e
+          head -c 315000 /dev/urandom > probe.bin
+          response="$(curl -fsS --max-time 40 -F "a=@probe.bin;filename=mel-shard.bin" https://c-v.sh/ 2>err)"
+          url="$(printf '%s' "$response" | awk '{print $1}')"
+          if printf '%s' "$url" | grep -q '^https://'; then
+            curl -fsSL --max-time 40 "$url" -o out
+            if cmp -s probe.bin out; then
+              echo "CVSH_RESULT PASS $url"
+            else
+              echo "CVSH_RESULT FAIL_READ response=$response"
+            fi
+          else
+            echo "CVSH_RESULT FAIL_UPLOAD response=$response err=$(tr '\n' ' ' < err)"
+          fi
+          exit 0
