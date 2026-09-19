@@ -11,7 +11,7 @@ import { runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
 import { enhanceThemeAvatars } from "./pages/theme-avatar-enhancer.js";
-import { enhanceMvpBehavior } from "./pages/mvp-behavior-enhancer.js";
+import { enhanceMvpBehavior } from "./pages/mvp-behavior-enhancer.js";\nimport { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-api.js";
 
 let lastSafeWorkJob = null;
 
