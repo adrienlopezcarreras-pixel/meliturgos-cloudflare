@@ -67,3 +67,6 @@ const policy = {
 };
 assert.equal(__autonomousTest.validatePublicPolicy(good,policy,{requiredBytes:4096}).maxBytes,1024*1024);
 assert.throws(()=>__autonomousTest.validatePublicPolicy(good,{...policy,automationAllowed:false},{requiredBytes:4096}),/POLICY_AUTOMATION_DENIED/);
+
+
+assert.match(String(__autonomousTest.parseCatalogLeads), /SEED_LEAD|LEAD_ONLY|parseCatalogLeads/);

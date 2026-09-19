@@ -1,17 +1,63 @@
 {
   "format": "MEL-ShardVault-DiscoveryIndex",
-  "version": 1,
-  "updated_at": "2026-09-19T13:30:00Z",
+  "version": 2,
+  "updated_at": "2026-09-19T13:44:00Z",
+  "seed_leads": [
+    {
+      "name": "/TMP/FILES",
+      "url": "https://tmpfiles.org",
+      "summary": "Première exploration manuelle : hébergement temporaire anonyme, API signalée, rétention courte. Piste seulement ; politique d'automatisation à vérifier."
+    },
+    {
+      "name": "Gofile",
+      "url": "https://gofile.io",
+      "summary": "Première exploration manuelle : hébergement de fichiers avec usage invité et API documentée par plusieurs catalogues. Piste seulement ; conditions et autorisation à vérifier."
+    },
+    {
+      "name": "1fichier",
+      "url": "https://1fichier.com",
+      "summary": "Première exploration manuelle : upload invité et prise en charge API signalés par PolyUploader. Piste seulement ; conditions à vérifier."
+    },
+    {
+      "name": "TempFile.org",
+      "url": "https://tempfile.org",
+      "summary": "Première exploration manuelle : API REST publique documentée pour fichiers temporaires. Piste seulement ; politique d'automatisation à vérifier."
+    },
+    {
+      "name": "FileDitch",
+      "url": "https://fileditch.com",
+      "summary": "Première exploration manuelle : service anonyme avec backend API mentionné publiquement. Piste seulement ; politique d'automatisation à vérifier."
+    }
+  ],
   "catalogs": [
     {
       "id": "awesome-file-hosts",
       "kind": "file-host-directory",
       "url": "https://raw.githubusercontent.com/FahadBinHussain/awesome-file-hosts/main/README.md",
-      "note": "Public source-backed directory. Leads only: MEL verifies authorization before any write."
+      "note": "Catalogue public, structuré et sourcé. Génère uniquement des pistes."
+    },
+    {
+      "id": "awesome-free-file-hosting",
+      "kind": "file-host-directory",
+      "url": "https://raw.githubusercontent.com/Nick088Official/awesome-free-file-hosting/main/README.md",
+      "note": "Deuxième catalogue public de services d'hébergement gratuits."
+    },
+    {
+      "id": "polyuploader",
+      "kind": "host-capability-directory",
+      "url": "https://raw.githubusercontent.com/spel987/PolyUploader/main/README.md",
+      "note": "Liste d'hébergeurs et capacités API/anonymes utilisées uniquement comme pistes."
+    },
+    {
+      "id": "awesome-public-free-apis",
+      "kind": "public-api-directory",
+      "url": "https://raw.githubusercontent.com/gunjanjaswal/Awesome-Public-Free-Apis/main/README.md",
+      "note": "Catalogue d'API publiques utilisé uniquement pour découverte."
     }
   ],
   "native_feeds": [
     "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/feed.json"
   ],
-  "github_repository_search": true
+  "github_repository_search": true,
+  "github_catalog_search": true
 }

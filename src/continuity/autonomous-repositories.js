@@ -3,7 +3,8 @@ const DAY = 24 * 60 * 60 * 1000;
 const DEFAULT_DISCOVERY_INDEX = 'https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/discovery-index.json';
 const MAX_PUBLIC_FEEDS = 30;
 const MAX_GITHUB_REPOS = 20;
-const MAX_CATALOG_LEADS = 80;
+const MAX_GITHUB_CATALOG_REPOS = 12;
+const MAX_CATALOG_LEADS = 120;
 
 function bytes(v){ if(v instanceof Uint8Array)return new Uint8Array(v); if(v instanceof ArrayBuffer)return new Uint8Array(v); if(ArrayBuffer.isView(v))return new Uint8Array(v.buffer.slice(v.byteOffset,v.byteOffset+v.byteLength)); throw new TypeError('BYTES_REQUIRED'); }
 function utf8(v){ return te.encode(String(v)); }
@@ -125,6 +126,12 @@ async function discoverInternetSources(env,accepted,rejected){
     const index=await r.json();
     if(index?.format!=='MEL-ShardVault-DiscoveryIndex')throw new Error('DISCOVERY_INDEX_FORMAT_INVALID');
     sources.push({id:'bootstrap-index',url:clean,status:'LOADED',kind:'bootstrap'});
+    for(const seed of index.seed_leads||[]){
+      const name=String(seed?.name||'').trim();
+      const url=String(seed?.url||'').trim();
+      if(!name)continue;
+      leads.push({name,url:url||null,source:clean,summary:String(seed?.summary||'Source trouvée lors de la première exploration manuelle.').slice(0,500),status:'SEED_LEAD'});
+    }
     for(const feed of index.native_feeds||[]){try{queue.push(publicHttps(typeof feed==='string'?feed:feed?.url,'BOOTSTRAP_FEED').toString());}catch{}}
     for(const catalog of index.catalogs||[]){
       const url=typeof catalog==='string'?catalog:catalog?.url;
@@ -141,13 +148,13 @@ async function discoverInternetSources(env,accepted,rejected){
     }
   }catch(error){sources.push({id:'bootstrap-index',url:indexUrl,status:'ERROR',kind:'bootstrap',error:String(error?.message||error)});}
 
-  const query='mel-shardvault in:name,description,readme';
+  const feedQuery='mel-shardvault in:name,description,readme';
   try{
-    const api='https://api.github.com/search/repositories?q='+encodeURIComponent(query)+'&sort=updated&order=desc&per_page='+MAX_GITHUB_REPOS;
+    const api='https://api.github.com/search/repositories?q='+encodeURIComponent(feedQuery)+'&sort=updated&order=desc&per_page='+MAX_GITHUB_REPOS;
     const r=await fetchTimed(api,{method:'GET',headers:githubHeaders(env)},8000);
     if(!r.ok)throw new Error('GITHUB_DISCOVERY_HTTP_'+r.status);
     const body=await r.json(),items=Array.isArray(body?.items)?body.items:[];
-    sources.push({id:'github-repository-search',url:'https://github.com/search?q='+encodeURIComponent('mel-shardvault')+'&type=repositories',status:'LOADED',kind:'search',results:items.length});
+    sources.push({id:'github-shardvault-search',url:'https://github.com/search?q='+encodeURIComponent('mel-shardvault')+'&type=repositories',status:'LOADED',kind:'search',results:items.length});
     const paths=['shardvault/feed.json','.well-known/mel-shardvault.json','shardvault-feed.json'];
     for(const item of items){
       const full=String(item?.full_name||''),defaultBranch=String(item?.default_branch||'main');
@@ -164,8 +171,44 @@ async function discoverInternetSources(env,accepted,rejected){
         }catch{}
       }
     }
-  }catch(error){sources.push({id:'github-repository-search',url:'https://github.com/search?q=mel-shardvault&type=repositories',status:'ERROR',kind:'search',error:String(error?.message||error)});}
+  }catch(error){sources.push({id:'github-shardvault-search',url:'https://github.com/search?q=mel-shardvault&type=repositories',status:'ERROR',kind:'search',error:String(error?.message||error)});}
 
+  const catalogQueries=[
+    'anonymous file hosting api in:name,description,readme',
+    'temporary file upload api in:name,description,readme',
+    'free file hosting api in:name,description,readme'
+  ];
+  const catalogRepos=new Map();
+  for(const query of catalogQueries){
+    try{
+      const api='https://api.github.com/search/repositories?q='+encodeURIComponent(query)+'&sort=updated&order=desc&per_page=6';
+      const r=await fetchTimed(api,{method:'GET',headers:githubHeaders(env)},8000);
+      if(!r.ok)throw new Error('GITHUB_CATALOG_SEARCH_HTTP_'+r.status);
+      const body=await r.json(),items=Array.isArray(body?.items)?body.items:[];
+      sources.push({id:'github-catalog-search',url:'https://github.com/search?q='+encodeURIComponent(query)+'&type=repositories',status:'LOADED',kind:'search',query,results:items.length});
+      for(const item of items){
+        const full=String(item?.full_name||'');
+        if(!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(full)||catalogRepos.has(full))continue;
+        catalogRepos.set(full,{full,branch:String(item?.default_branch||'main'),html_url:String(item?.html_url||'')});
+        if(catalogRepos.size>=MAX_GITHUB_CATALOG_REPOS)break;
+      }
+    }catch(error){sources.push({id:'github-catalog-search',status:'ERROR',kind:'search',query,error:String(error?.message||error)});}
+    if(catalogRepos.size>=MAX_GITHUB_CATALOG_REPOS)break;
+  }
+  for(const repo of catalogRepos.values()){
+    if(leads.length>=MAX_CATALOG_LEADS)break;
+    const raw='https://raw.githubusercontent.com/'+repo.full+'/'+encodeURIComponent(repo.branch)+'/README.md';
+    try{
+      const rr=await fetchTimed(raw,{method:'GET',headers:{'accept':'text/plain','user-agent':'MEL-ShardVault-discovery'}},7000);
+      if(!rr.ok)throw new Error('GITHUB_README_HTTP_'+rr.status);
+      const text=await rr.text();
+      const found=parseCatalogLeads(text,raw);
+      leads.push(...found.slice(0,Math.max(0,MAX_CATALOG_LEADS-leads.length)));
+      sources.push({id:repo.full,url:repo.html_url||raw,status:'LOADED',kind:'github-catalog',leads:found.length});
+    }catch(error){
+      sources.push({id:repo.full,url:repo.html_url||raw,status:'ERROR',kind:'github-catalog',error:String(error?.message||error)});
+    }
+  }
   let loadedFeeds=0;
   while(queue.length&&seen.size<MAX_PUBLIC_FEEDS){
     const next=queue.shift();
