@@ -197,5 +197,21 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
 
 
 
+  {
+    id: 'shardvault-external-target-qualification-20260919',
+    source: 'chatgpt-teacher',
+    domain: 'storage-resilience',
+    task: 'Découvrir, qualifier, activer et remplacer des dépôts externes gratuits et autonomes pour ShardVault.',
+    input: 'MEL doit maintenir des dépôts externes alors que les services tiers changent, expirent, bloquent certains environnements ou utilisent des protocoles d’upload différents.',
+    before: 'Boucler sur les mêmes recherches, prendre une documentation pour une validation, confondre round-trip et durabilité, ignorer les politiques d’automatisation, ou réessayer indéfiniment une cible invalide.',
+    after: 'Utiliser une machine d’états persistante LEAD -> DOC_REVIEWED -> ELIGIBLE -> PROBE_WRITING -> PROBE_READING -> BYTE_MATCHED -> RETENTION_CONFIRMED -> VALIDATED -> ACTIVE; appliquer les hard gates avant le score; ne tester qu’avec un payload synthétique; exiger un vrai write/read/byte-compare depuis l’infrastructure MEL; distinguer rétention fixe, déclarée sans échéance et renouvelable; conserver l’URL de lecture renvoyée quand elle diffère de l’URL d’écriture; mémoriser les causes de rejet et varier les requêtes; mettre en quarantaine les échecs; revalider périodiquement et remplacer une cible morte; préférer des opérateurs indépendants; ne jamais déclarer VALIDATED sans preuve live et règle de rétention suffisante.',
+    rationale: 'Filebin a montré qu’un round-trip réussi reste insuffisant avec une rétention trop courte; Catbox a montré qu’une bonne documentation ne remplace pas un probe live réussi depuis MEL. La méthode doit donc être persistante, reproductible et indépendante d’un fournisseur.',
+    tests: ['shardvault/qualification-playbook.json persisted on main with 7 candidate targets', 'shardvault/discovery-index.json references the qualification playbook', 'candidate discovery engine imports experience_playbooks and XP search queries', 'tests/shardvault-qualification-xp.test.mjs added to enforce the contract'],
+    tags: ['learning', 'xp', 'shardvault', 'storage', 'discovery', 'qualification', 'roundtrip', 'retention', 'quarantine', 'revalidation'],
+    validated: false,
+    quality: 0.95,
+    created_at: 1789838400000,
+  },
+
 
 ]);
