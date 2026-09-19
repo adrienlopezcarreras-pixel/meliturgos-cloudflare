@@ -18,6 +18,7 @@ import { handleFileUpload } from "./api/file-upload.js";
 import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-state-store.js";
 import { getChatGPTImportStatus } from "./persistence/chatgpt-archive-importer.js";
 import { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-api.js";
+import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
 import { runShardVaultCycle } from "./continuity/shardvault-runtime.js";
 
 function deployedWatchSourceSha() {
