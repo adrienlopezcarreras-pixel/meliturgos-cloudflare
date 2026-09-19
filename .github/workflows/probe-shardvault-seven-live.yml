@@ -1,0 +1,93 @@
+name: probe-shardvault-seven-live
+
+on:
+  push:
+    branches:
+      - probe/shardvault-seven-live
+    paths:
+      - .github/workflows/probe-shardvault-seven-live.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 97d3e1b5fef6bc34c0cb1a618345cc231d8f1d4c
+          fetch-depth: 1
+
+      - name: Probe seven public storage targets
+        shell: bash
+        run: |
+          set +e
+          head -c 2048 /dev/urandom > probe.bin
+          base64 -w0 probe.bin > probe.txt
+          pass=0
+
+          check_binary () {
+            name="$1"; url="$2"; out="$3"
+            if [ -n "$url" ]; then
+              curl -fsSL --max-time 30 "$url" -o "$out"
+              if cmp -s probe.bin "$out"; then
+                echo "RESULT $name PASS $url"
+                pass=$((pass+1))
+              else
+                echo "RESULT $name FAIL roundtrip_mismatch"
+              fi
+            else
+              echo "RESULT $name FAIL no_url"
+            fi
+          }
+
+          echo "=== catbox ==="
+          catbox="$(curl -fsS --max-time 30 -A 'Mozilla/5.0 MEL-ShardVault-Probe' -F 'reqtype=fileupload' -F 'fileToUpload=@probe.bin;filename=mel-shard.bin' https://catbox.moe/user/api.php 2>/tmp/catbox.err)"
+          if printf '%s' "$catbox" | grep -q '^https://'; then check_binary catbox "$catbox" catbox.bin; else echo "RESULT catbox FAIL $(tr '\n' ' ' </tmp/catbox.err) response=$catbox"; fi
+
+          echo "=== put.re ==="
+          put_json="$(curl -fsS --max-time 30 -F 'file=@probe.bin;filename=mel-shard.bin' https://api.put.re/upload 2>/tmp/put.err)"
+          put_url="$(printf '%s' "$put_json" | jq -r '.data.link // empty' 2>/dev/null)"
+          if [ -n "$put_url" ]; then check_binary put.re "$put_url" put.bin; else echo "RESULT put.re FAIL $(tr '\n' ' ' </tmp/put.err) response=$(printf '%s' "$put_json" | head -c 300)"; fi
+
+          echo "=== qu.ax ==="
+          qu_json="$(curl -fsS --max-time 30 -F 'files[]=@probe.txt;filename=mel-shard.txt' -F 'expiry=-1' https://qu.ax/upload.php 2>/tmp/qu.err)"
+          qu_url="$(printf '%s' "$qu_json" | jq -r '.files[0].url // empty' 2>/dev/null)"
+          if [ -n "$qu_url" ]; then
+            curl -fsSL --max-time 30 "$qu_url" -o qu.txt
+            tr -d '\r\n' < qu.txt | base64 -d > qu.bin 2>/tmp/qudecode.err
+            if cmp -s probe.bin qu.bin; then echo "RESULT qu.ax PASS $qu_url"; pass=$((pass+1)); else echo "RESULT qu.ax FAIL roundtrip_mismatch response=$(printf '%s' "$qu_json" | head -c 300)"; fi
+          else
+            echo "RESULT qu.ax FAIL $(tr '\n' ' ' </tmp/qu.err) response=$(printf '%s' "$qu_json" | head -c 300)"
+          fi
+
+          echo "=== end2end.tech ==="
+          e2e_json="$(curl -fsS --max-time 30 -F 'file=@probe.bin;filename=mel-shard.bin' https://api.end2end.tech/upload 2>/tmp/e2e.err)"
+          e2e_url="$(printf '%s' "$e2e_json" | jq -r '.URL // .url // empty' 2>/dev/null)"
+          if [ -n "$e2e_url" ]; then check_binary end2end.tech "$e2e_url" e2e.bin; else echo "RESULT end2end.tech FAIL $(tr '\n' ' ' </tmp/e2e.err) response=$(printf '%s' "$e2e_json" | head -c 300)"; fi
+
+          echo "=== c-v.sh ==="
+          cv_resp="$(curl -fsS --max-time 30 -F 'a=@probe.bin;filename=mel-shard.bin' https://c-v.sh/ 2>/tmp/cv.err)"
+          cv_url="$(printf '%s' "$cv_resp" | grep -Eo 'https://c-v\.sh/[^[:space:]]+' | head -1 | sed 's/[[:punct:]]$//')"
+          if [ -n "$cv_url" ]; then check_binary c-v.sh "$cv_url" cv.bin; else echo "RESULT c-v.sh FAIL $(tr '\n' ' ' </tmp/cv.err) response=$(printf '%s' "$cv_resp" | head -c 300)"; fi
+
+          echo "=== fileditch ==="
+          fd_json="$(curl -fsS --max-time 30 -T probe.bin 'https://new.fileditch.com/upload.php?filename=mel-shard.bin' 2>/tmp/fd.err)"
+          fd_url="$(printf '%s' "$fd_json" | jq -r '.url // .files[0].url // empty' 2>/dev/null)"
+          if [ -n "$fd_url" ]; then check_binary fileditch "$fd_url" fd.bin; else echo "RESULT fileditch FAIL $(tr '\n' ' ' </tmp/fd.err) response=$(printf '%s' "$fd_json" | head -c 300)"; fi
+
+          echo "=== buzzheavier ==="
+          bh_json="$(curl -fsS --max-time 30 -T probe.bin 'https://w.buzzheavier.com/mel-shard-probe.bin' 2>/tmp/bh.err)"
+          bh_id="$(printf '%s' "$bh_json" | jq -r '.data.id // empty' 2>/dev/null)"
+          if [ -n "$bh_id" ]; then
+            bh_url="https://buzzheavier.com/$bh_id/download"
+            curl -fsSL --max-time 30 "$bh_url" -o bh.bin
+            if cmp -s probe.bin bh.bin; then echo "RESULT buzzheavier PASS https://buzzheavier.com/$bh_id"; pass=$((pass+1)); else echo "RESULT buzzheavier FAIL download_mismatch id=$bh_id response=$(printf '%s' "$bh_json" | head -c 300)"; fi
+          else
+            echo "RESULT buzzheavier FAIL $(tr '\n' ' ' </tmp/bh.err) response=$(printf '%s' "$bh_json" | head -c 300)"
+          fi
+
+          echo "TOTAL_PASS=$pass/7"
+          exit 0
