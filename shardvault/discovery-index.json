@@ -1,7 +1,7 @@
 {
   "format": "MEL-ShardVault-DiscoveryIndex",
-  "version": 2,
-  "updated_at": "2026-09-19T13:44:00Z",
+  "version": 3,
+  "updated_at": "2026-09-19T17:15:00Z",
   "seed_leads": [
     {
       "name": "/TMP/FILES",
@@ -27,6 +27,36 @@
       "name": "FileDitch",
       "url": "https://fileditch.com",
       "summary": "Première exploration manuelle : service anonyme avec backend API mentionné publiquement. Piste seulement ; politique d'automatisation à vérifier."
+    },
+    {
+      "name": "Pastebin.ai",
+      "url": "https://pastebin.ai",
+      "summary": "API anonyme documentée, automatisation raisonnable permise, expiration jusqu'à 1 an/never. Candidat prioritaire; validation uniquement par round-trip MEL."
+    },
+    {
+      "name": "dpaste.com",
+      "url": "https://dpaste.com",
+      "summary": "API anonyme documentée, expiration jusqu'à 365 jours; User-Agent et <=1 requête/s. Candidat prioritaire à sonder."
+    },
+    {
+      "name": "PasteMyst",
+      "url": "https://paste.myst.rs",
+      "summary": "API ouverte/gratuite, accès anonyme et expirations 1y/never. Candidat prioritaire à sonder."
+    },
+    {
+      "name": "1C3",
+      "url": "https://1c3.ir",
+      "summary": "Upload anonyme texte/fichier, jusqu'à 365 jours; respecter strictement les limites et l'interdiction des uploads massifs."
+    },
+    {
+      "name": "paste.c-net.org",
+      "url": "https://paste.c-net.org",
+      "summary": "Paste binaire console, rétention annoncée 180 jours renouvelée par accès; vérifier TLS/DNS et round-trip depuis MEL."
+    },
+    {
+      "name": "MSK Paste",
+      "url": "https://paste.msk-scripts.de",
+      "summary": "API JSON publique sans authentification, expiration 1 an, 1 MB; candidat prioritaire à sonder."
     }
   ],
   "catalogs": [
@@ -59,5 +89,8 @@
     "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/feed.json"
   ],
   "github_repository_search": true,
-  "github_catalog_search": true
+  "github_catalog_search": true,
+  "experience_playbooks": [
+    "https://raw.githubusercontent.com/adrienlopezcarreras-pixel/meliturgos-cloudflare/main/shardvault/qualification-playbook.json"
+  ]
 }
