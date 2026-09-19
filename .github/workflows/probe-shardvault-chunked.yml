@@ -1,0 +1,91 @@
+name: probe-shardvault-chunked
+
+on:
+  push:
+    branches:
+      - probe/shardvault-providers-20260919
+    paths:
+      - .github/workflows/probe-shardvault-chunked.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare 315KB payload and 90KB chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          head -c 315000 /dev/urandom > probe.bin
+          split -b 90000 -d -a 2 probe.bin chunk-
+          ls -l chunk-*
+
+      - name: Probe paste.gg chunked
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > rebuilt
+          for f in chunk-*; do
+            base64 -w0 "$f" > chunk.b64
+            jq -n --rawfile c chunk.b64 '{visibility:"unlisted",files:[{name:"mel-shard.txt",content:{format:"text",value:$c}}]}' > body.json
+            body="$(curl -fsS --max-time 35 -H 'Content-Type: application/json' --data-binary @body.json https://api.paste.gg/v1/pastes)"
+            id="$(printf '%s' "$body" | jq -r '.result.id')"
+            get="$(curl -fsS --max-time 35 "https://api.paste.gg/v1/pastes/$id?full=true")"
+            printf '%s' "$get" | jq -r '.result.files[0].content.value' > read.b64
+            base64 -d read.b64 >> rebuilt
+          done
+          cmp -s probe.bin rebuilt
+          echo "CHUNK_RESULT pastegg PASS"
+
+      - name: Probe MSK Paste chunked
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > rebuilt
+          for f in chunk-*; do
+            base64 -w0 "$f" > chunk.b64
+            jq -n --rawfile c chunk.b64 '{content:$c,language:"plaintext",expiresIn:"1y"}' > body.json
+            body="$(curl -fsS --max-time 35 -H 'Content-Type: application/json' --data-binary @body.json https://paste.msk-scripts.de/api/pastes)"
+            id="$(printf '%s' "$body" | jq -r '.pasteId')"
+            get="$(curl -fsS --max-time 35 "https://paste.msk-scripts.de/api/pastes/$id")"
+            printf '%s' "$get" | jq -r '.content' > read.b64
+            base64 -d read.b64 >> rebuilt
+          done
+          cmp -s probe.bin rebuilt
+          echo "CHUNK_RESULT mskpaste PASS"
+
+      - name: Probe dpaste.com chunked
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > rebuilt
+          for f in chunk-*; do
+            base64 -w0 "$f" > chunk.b64
+            url="$(curl -fsS --max-time 35 -A 'MEL-ShardVault/1.0' -X POST --data-urlencode content@chunk.b64 -d expiry_days=365 https://dpaste.com/api/v2/ | tr -d '\r\n')"
+            curl -fsSL --max-time 35 -A 'MEL-ShardVault/1.0' "${url%/}.txt" -o read.b64
+            base64 -d read.b64 >> rebuilt
+          done
+          cmp -s probe.bin rebuilt
+          echo "CHUNK_RESULT dpastecom PASS"
+
+      - name: Probe Pastebin.ai chunked
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > rebuilt
+          for f in chunk-*; do
+            base64 -w0 "$f" > chunk.b64
+            jq -n --rawfile c chunk.b64 '{content:$c,title:"MEL ShardVault",language:"plaintext",visibility:"unlisted",expiration:"never"}' > body.json
+            body="$(curl -fsS --max-time 35 -H 'Content-Type: application/json' --data-binary @body.json https://pastebin.ai/api/v1/pastes)"
+            raw="$(printf '%s' "$body" | jq -r '.raw_url // empty')"
+            id="$(printf '%s' "$body" | jq -r '.id')"
+            if [ -n "$raw" ]; then curl -fsSL --max-time 35 "$raw" -o read.b64; else
+              curl -fsS --max-time 35 "https://pastebin.ai/api/v1/pastes/$id" | jq -r '.content' > read.b64
+            fi
+            base64 -d read.b64 >> rebuilt
+          done
+          cmp -s probe.bin rebuilt
+          echo "CHUNK_RESULT pastebinai PASS"
