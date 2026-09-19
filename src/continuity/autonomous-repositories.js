@@ -230,6 +230,27 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
     evidenceUrls:['https://paste.c-net.org/']
   },
   {
+    id:'pastehtml-public',
+    adapter:'pastehtml_b64',
+    urlTemplate:'https://pastehtml.dev/api/pastes?filename={objectId}.html&mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:2097152,
+    operatorDomain:'pastehtml.dev',
+    providerId:'pastehtml',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:3650,
+    retentionModel:'declared_never',
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T19:31:00.000Z',
+    evidenceUrls:['https://github.com/AliOsm/pastehtml.dev/blob/main/README.md']
+  },
+  {
     id:'pastegg-public',
     adapter:'pastegg_b64',
     urlTemplate:'https://api.paste.gg/v1/pastes?mel_object={objectId}',
@@ -872,6 +893,15 @@ async function candidateWrite(c,url,payload,objectId){
     const raw=await r.text();
     return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
   }
+  if(c.adapter==='pastehtml_b64'){
+    const endpoint=fixedApiUrl(url);
+    const body='<pre data-mel-shard="1">'+b64u(payload)+'</pre>';
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'text/html','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body},15000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const data=await r.json().catch(()=>null),raw=String(data?.raw_url||'').trim();
+    if(!raw)throw new Error('WRITE_REMOTE_URL_MISSING');
+    return {readUrl:publicHttps(raw,'PASTEHTML_READ').toString()};
+  }
   if(c.adapter==='pastegg_b64'){
     const endpoint=fixedApiUrl(url);
     const body={
@@ -985,6 +1015,15 @@ async function candidateReadBytes(c,url){
     if(c.adapter==='pastebox_b64'){
       try{const data=JSON.parse(text);encoded=String(data?.content??data?.data?.content??data?.paste?.content??text).trim();}catch{}
     }
+    return unb64u(encoded);
+  }
+  if(c.adapter==='pastehtml_b64'){
+    const r=await fetchTimed(url,{method:'GET',headers:{'accept':'text/plain','user-agent':'MEL-ShardVault/1.0'}},15000);
+    if(!r.ok)throw new Error('READ_HTTP_'+r.status);
+    const text=String(await r.text()).trim();
+    const m=/^<pre data-mel-shard="1">([A-Za-z0-9_-]+)<\/pre>$/.exec(text);
+    const encoded=String(m?.[1]||'').trim();
+    if(!encoded)throw new Error('PASTEHTML_CONTENT_MISSING');
     return unb64u(encoded);
   }
   if(c.adapter==='pastegg_b64'){
