@@ -40,7 +40,22 @@ jobs:
             case "$branch" in
               HEAD|candidate/mel-clean-autonomy|teacher-bridge/runtime|archive/*)
                 # teacher-bridge/runtime is transport data, archive/* is immutable history.
-                # Every active code branch, including LoRA/compat workspaces, must converge.
+                # Every active MEL code branch, including LoRA/compat workspaces, must converge.
+                continue
+                ;;
+              godot-private-test-*)
+                # Separate Godot laboratory. It may diverge only while every branch-local
+                # change stays inside the Godot CI handshake/workflow namespace.
+                branch_ref="refs/remotes/origin/$branch"
+                base="$(git merge-base "$branch_ref" "$canonical")"
+                unexpected="$(git diff --name-only "$base" "$branch_ref" | grep -Ev '^(\.github/workflows/godot-private-test\.yml|ci-godot-test/)' || true)"
+                if [[ -n "$unexpected" ]]; then
+                  echo "GODOT_LAB_SCOPE_VIOLATION:$branch"
+                  printf '%s\n' "$unexpected"
+                  divergent+=("$branch")
+                else
+                  echo "Isolated Godot lab branch accepted: $branch"
+                fi
                 continue
                 ;;
             esac
