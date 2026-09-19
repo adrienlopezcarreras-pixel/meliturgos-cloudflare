@@ -62,6 +62,41 @@ export function inferNativeCodeCapability(text, recent = []) {
   return { id: 'code.search', input: { query: extractNativeSearchQuery(value) } };
 }
 
+
+export function inferNativeComputerCapability(text) {
+  const value=String(text||'').trim();
+  if(!value)return null;
+  const computer=/\b(?:pc|ordinateur|bureau|écran|ecran|windows)\b/i.test(value);
+  const status=/\b(?:état|etat|statut|connecté|connecte|en ligne|hors ligne|disponible)\b/i.test(value);
+  if(computer&&status)return {id:'computer.status',input:{}};
+
+  if(computer&&/\b(?:capture|screenshot|photo|montre|affiche|regarde)\b/i.test(value)&&/\b(?:écran|ecran|bureau|pc|ordinateur)\b/i.test(value)){
+    return {id:'computer.quick',input:{kind:'screenshot'}};
+  }
+
+  const open=value.match(/\b(?:ouvre|ouvrir|lance|lancer|démarre|demarre)\s+(?:le\s+|la\s+|l['’])?(bloc[- ]?notes|notepad|calculatrice|calculator|explorateur|explorer|edge|msedge|firefox|chrome)\b/i);
+  if(open){
+    const key=open[1].toLowerCase().replace(/\s+/g,'-');
+    const apps={'bloc-notes':'notepad','blocnotes':'notepad','notepad':'notepad','calculatrice':'calculator','calculator':'calculator','explorateur':'explorer','explorer':'explorer','edge':'msedge','msedge':'msedge','firefox':'firefox','chrome':'chrome'};
+    return {id:'computer.quick',input:{kind:'open_app',app:apps[key]||apps[open[1].toLowerCase()]||key,approve_sensitive:true}};
+  }
+
+  if(computer){
+    const typed=value.match(/\b(?:écris|ecris|tape|saisis|inscris)\s+(.+?)(?:\s+(?:sur|dans)\s+(?:le\s+)?(?:pc|ordinateur|bureau|windows|fenêtre|fenetre))?[.!?]*$/i);
+    if(typed&&typed[1]?.trim())return {id:'computer.quick',input:{kind:'type_text',text:typed[1].trim().slice(0,4096),approve_sensitive:true}};
+
+    const key=value.match(/\b(?:appuie|presse)\s+(?:sur\s+)?(?:la\s+touche\s+)?(entrée|entree|enter|tab|tabulation|ctrl\+l|alt\+tab)\b/i);
+    if(key){
+      const map={'entrée':'ENTER','entree':'ENTER','enter':'ENTER','tab':'TAB','tabulation':'TAB','ctrl+l':'CTRL+L','alt+tab':'ALT+TAB'};
+      return {id:'computer.quick',input:{kind:'press_key',key:map[key[1].toLowerCase()]||key[1].toUpperCase()}};
+    }
+
+    if(/\b(?:descends|défile\s+vers\s+le\s+bas|defile\s+vers\s+le\s+bas|scroll\s+down)\b/i.test(value))return {id:'computer.quick',input:{kind:'scroll',delta_y:-240}};
+    if(/\b(?:remonte|défile\s+vers\s+le\s+haut|defile\s+vers\s+le\s+haut|scroll\s+up)\b/i.test(value))return {id:'computer.quick',input:{kind:'scroll',delta_y:240}};
+  }
+  return null;
+}
+
 export async function buildRuntimeCapabilityManifest(runtime) {
   if (!runtime?.bus) return [];
   let rows = [];
@@ -435,7 +470,7 @@ export async function handleNativeChat(request, env) {
   }
 
   let capabilityManifest = await buildRuntimeCapabilityManifest(runtime);
-  const capability = body.capability?.id ? body.capability : inferNativeCodeCapability(text, recent);
+  const capability = body.capability?.id ? body.capability : (inferNativeComputerCapability(text) || inferNativeCodeCapability(text, recent));
   const toolResults = [];
   const capabilitiesUsed = [];
 
@@ -493,6 +528,7 @@ export async function handleNativeChat(request, env) {
     'Lorsqu’un résultat d’outil prouve que tu as lu ou recherché ton dépôt, dis clairement que tu as accès à ce code et cite le fichier ou la branche observée.',
     'Ne prétends jamais ne pas avoir accès au code si un TOOL_RESULT SUCCEEDED de cette requête démontre le contraire.',
     'Si un TOOL_RESULT FAILED existe, donne son code d’échec exact au lieu d’inventer une incapacité générale.',
+    'CONTRÔLE ORDINATEUR : les capacités computer.status, computer.quick et computer.execute désignent le compagnon Windows explicitement appairé. Une commande computer.quick SUCCEEDED signifie que l’action a été mise en file ; ne prétends pas qu’elle est déjà terminée tant que le résultat du compagnon ne le prouve pas. Les actions sensibles ne sont approuvées que lorsqu’elles proviennent explicitement de la demande courante ou de l’onglet Ordinateur.',
     memoryWrite.stored
       ? 'Une demande explicite de mémoire de cette requête vient d’être enregistrée. Tu peux le confirmer brièvement et continuer la tâche demandée.'
       : '',
