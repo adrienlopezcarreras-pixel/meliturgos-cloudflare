@@ -81,6 +81,174 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
     evidenceMode:'documented_api',
     evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
     evidenceUrls:['https://temp.sh/']
+  },
+  {
+    id:'pastebin-ai-public',
+    adapter:'pastebin_ai_b64',
+    urlTemplate:'https://pastebin.ai/api/v1/pastes?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:700000,
+    operatorDomain:'pastebin.ai',
+    providerId:'pastebin-ai',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:365,
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
+    evidenceUrls:['https://pastebin.ai/api-docs','https://pastebin.ai/api/quickstart']
+  },
+  {
+    id:'dpaste-public',
+    adapter:'dpaste_b64',
+    urlTemplate:'https://dpaste.com/api/v2/?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:700000,
+    operatorDomain:'dpaste.com',
+    providerId:'dpaste',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:365,
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
+    evidenceUrls:['https://dpaste.com/api/v2/','https://dpaste.com/help']
+  },
+  {
+    id:'pastemyst-public',
+    adapter:'pastemyst_b64',
+    urlTemplate:'https://paste.myst.rs/paste?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:700000,
+    operatorDomain:'paste.myst.rs',
+    providerId:'pastemyst',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:365,
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
+    evidenceUrls:['https://paste.myst.rs/api-docs/paste','https://paste.myst.rs/api-docs/objects']
+  },
+  {
+    id:'1c3-public',
+    adapter:'onec3_b64',
+    urlTemplate:'https://1c3.ir/?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:1048576,
+    operatorDomain:'1c3.ir',
+    providerId:'1c3',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:365,
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
+    evidenceUrls:['https://1c3.ir/']
+  },
+  {
+    id:'msk-paste-public',
+    adapter:'msk_paste_b64',
+    urlTemplate:'https://paste.msk-scripts.de/api/pastes?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:700000,
+    operatorDomain:'paste.msk-scripts.de',
+    providerId:'msk-paste',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:365,
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
+    evidenceUrls:['https://docu.msk-scripts.de/ecosystem/msk-paste/api/']
+  },
+  {
+    id:'pastebox-anonymous',
+    adapter:'pastebox_b64',
+    urlTemplate:'https://lfdekutkxwsczpasjgsg.supabase.co/functions/v1/create-share?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:500000,
+    operatorDomain:'pastebox.ai',
+    providerId:'pastebox',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:90,
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
+    evidenceUrls:['https://pastebox.ai/api','https://pastebox.ai/pricing']
+  },
+  {
+    id:'paste-c-net-public',
+    adapter:'paste_c_net',
+    urlTemplate:'https://paste.c-net.org/?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:52428800,
+    operatorDomain:'paste.c-net.org',
+    providerId:'paste-c-net',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:180,
+    retentionModel:'renewable',
+    baseRetentionDays:180,
+    refreshEveryDays:120,
+    fullReadRenewsRetention:true,
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
+    evidenceUrls:['https://paste.c-net.org/']
+  },
+  {
+    id:'fileditch-public',
+    adapter:'fileditch_raw',
+    urlTemplate:'https://new.fileditch.com/upload.php?filename={objectId}.bin',
+    method:'POST',
+    maxObjectBytes:104857600,
+    operatorDomain:'new.fileditch.com',
+    providerId:'fileditch',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:45,
+    retentionModel:'renewable',
+    baseRetentionDays:45,
+    refreshEveryDays:30,
+    fullReadRenewsRetention:true,
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-19T00:00:00.000Z',
+    evidenceUrls:['https://new.fileditch.com/api.html','https://new.fileditch.com/faq.html']
   }
 ]);
 const EMBEDDED_CATALOGS = Object.freeze([
@@ -93,6 +261,7 @@ const EMBEDDED_CATALOGS = Object.freeze([
 function bytes(v){ if(v instanceof Uint8Array)return new Uint8Array(v); if(v instanceof ArrayBuffer)return new Uint8Array(v); if(ArrayBuffer.isView(v))return new Uint8Array(v.buffer.slice(v.byteOffset,v.byteOffset+v.byteLength)); throw new TypeError('BYTES_REQUIRED'); }
 function utf8(v){ return te.encode(String(v)); }
 function b64u(v){ let s='';const a=bytes(v);for(let i=0;i<a.length;i+=0x8000)s+=String.fromCharCode(...a.subarray(i,i+0x8000));return btoa(s).replaceAll('+','-').replaceAll('/','_').replaceAll('=',''); }
+function unb64u(v){ const n=String(v||'').trim().replaceAll('-','+').replaceAll('_','/');const raw=atob(n+'='.repeat((4-n.length%4)%4));return Uint8Array.from(raw,c=>c.charCodeAt(0)); }
 function parseJson(v,fallback){ try{return JSON.parse(v??JSON.stringify(fallback));}catch{return fallback;} }
 function stable(v){ if(v===null||typeof v!=='object')return JSON.stringify(v);if(Array.isArray(v))return `[${v.map(stable).join(',')}]`;return `{${Object.keys(v).sort().map(k=>`${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}`; }
 function rid(n=18){ const a=new Uint8Array(n);crypto.getRandomValues(a);return b64u(a); }
@@ -139,6 +308,10 @@ function normalize(raw, source){
     policyUrl:policy,
     policyReviewedAt:Number.isFinite(reviewed)?new Date(reviewed).toISOString():null,
     expectedRetentionDays:Math.max(0,Number(raw.expectedRetentionDays||0)||0),
+    retentionModel:String(raw.retentionModel||'fixed').toLowerCase(),
+    baseRetentionDays:Math.max(0,Number(raw.baseRetentionDays??raw.expectedRetentionDays??0)||0),
+    refreshEveryDays:Math.max(0,Number(raw.refreshEveryDays||0)||0),
+    fullReadRenewsRetention:raw.fullReadRenewsRetention===true,
     authMode:String(raw.authMode||'none').toLowerCase(),
     anonymousWriteDeclared:raw.anonymousWriteDeclared===true,
     publicReadDeclared:raw.publicReadDeclared===true,
@@ -169,7 +342,8 @@ function eligible(c,{requiredBytes=0,policyMaxAgeDays=180,minRetentionDays=90}={
     else if(Date.now()-Date.parse(c.policyReviewedAt)>policyMaxAgeDays*DAY)reasons.push('POLICY_EVIDENCE_STALE');
   }
   if(c.maxBytes<Math.max(256,requiredBytes))reasons.push('CAPACITY_TOO_SMALL');
-  if(c.expectedRetentionDays<minRetentionDays)reasons.push('RETENTION_TOO_SHORT_'+c.expectedRetentionDays+'D_MIN_'+minRetentionDays+'D');
+  const renewable=c.retentionModel==='renewable'&&c.fullReadRenewsRetention===true&&c.baseRetentionDays>=30&&c.refreshEveryDays>0&&c.refreshEveryDays<c.baseRetentionDays;
+  if(c.expectedRetentionDays<minRetentionDays&&!renewable)reasons.push('RETENTION_TOO_SHORT_'+c.expectedRetentionDays+'D_MIN_'+minRetentionDays+'D');
   return {ok:reasons.length===0,reasons};
 }
 
@@ -460,6 +634,23 @@ async function loadCandidates(env,master,vaultId){
     query_set:internet.query_set||[]
   };
 }
+function fixedApiUrl(value){
+  const u=new URL(String(value));
+  u.searchParams.delete('mel_object');
+  return u.toString();
+}
+function responseRemoteUrl(raw,headers,base){
+  const text=String(raw||'').trim();
+  let data=null;try{data=JSON.parse(text);}catch{}
+  const candidates=[
+    data?.raw_url,data?.rawUrl,data?.url,data?.link,data?.download_url,data?.downloadUrl,
+    data?.paste?.raw_url,data?.paste?.rawUrl,data?.paste?.url,data?.data?.raw_url,data?.data?.url,
+    data?.file?.url,Array.isArray(data?.files)?data.files[0]?.url:null,
+    headers?.get?.('location'),text.startsWith('https://')?text:null
+  ].filter(Boolean);
+  if(!candidates.length)throw new Error('WRITE_REMOTE_URL_MISSING');
+  return publicHttps(new URL(String(candidates[0]),base).toString(),'WRITE_REMOTE_URL').toString();
+}
 async function fetchOnceManual(url,options={},ms=10000){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),ms);
   try{return await fetch(url,{...options,redirect:'manual',signal:controller.signal});}
@@ -473,7 +664,7 @@ async function candidateWrite(c,url,payload,objectId){
     const r=await fetchTimed(url,{method:'POST',body:form},15000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const remote=String(await r.text()).trim();
-    return {response:r,readUrl:publicHttps(remote,'CATBOX_READ').toString()};
+    return {readUrl:publicHttps(remote,'CATBOX_READ').toString()};
   }
   if(c.adapter==='temp_sh'){
     const form=new FormData();
@@ -481,11 +672,68 @@ async function candidateWrite(c,url,payload,objectId){
     const r=await fetchTimed(url,{method:'POST',body:form},12000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const remote=String(await r.text()).trim();
-    return {response:r,readUrl:publicHttps(remote,'TEMP_SH_READ').toString()};
+    return {readUrl:publicHttps(remote,'TEMP_SH_READ').toString()};
+  }
+  if(c.adapter==='pastebin_ai_b64'){
+    const endpoint=fixedApiUrl(url);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({title:objectId,content:b64u(payload),language:'plaintext',visibility:'unlisted',expiration:'1y'})},12000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const raw=await r.text();
+    return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
+  }
+  if(c.adapter==='dpaste_b64'){
+    const endpoint=fixedApiUrl(url),body=new URLSearchParams({content:b64u(payload),expiry_days:'365',title:objectId});
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','user-agent':'MEL-ShardVault/1.0','accept':'text/plain'},body:body.toString()},12000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const raw=await r.text(),page=responseRemoteUrl(raw,r.headers,endpoint);
+    return {readUrl:page.endsWith('.txt')?page:page.replace(/\/$/,'')+'.txt'};
+  }
+  if(c.adapter==='pastemyst_b64'){
+    const endpoint=fixedApiUrl(url);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({title:objectId,expiresIn:'1y',pasties:[{language:'plaintext',title:'shard',code:b64u(payload)}]})},12000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const data=await r.json().catch(()=>null),id=String(data?._id||data?.id||'').trim();
+    if(!id)throw new Error('WRITE_REMOTE_ID_MISSING');
+    return {readUrl:publicHttps('https://paste.myst.rs/paste/'+encodeURIComponent(id),'PASTEMYST_READ').toString()};
+  }
+  if(c.adapter==='onec3_b64'){
+    const endpoint=fixedApiUrl(url),form=new FormData();
+    form.append('content',b64u(payload));form.append('expires','31536000');
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'accept':'application/json'},body:form},12000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const raw=await r.text();
+    return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
+  }
+  if(c.adapter==='msk_paste_b64'){
+    const endpoint=fixedApiUrl(url);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({content:b64u(payload),title:objectId,language:'plaintext',expiresIn:'1y',burnAfterRead:false})},12000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const raw=await r.text();
+    return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
+  }
+  if(c.adapter==='pastebox_b64'){
+    const endpoint=fixedApiUrl(url);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({content:b64u(payload),title:objectId,language:'plaintext',content_type:'memory',expiration:'3M',exposure:'unlisted',source:'agent',agent_name:'MEL-ShardVault'})},12000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const raw=await r.text();
+    return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
+  }
+  if(c.adapter==='paste_c_net'){
+    const endpoint=fixedApiUrl(url);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/octet-stream','accept':'application/json, */*','user-agent':'MEL-ShardVault/1.0'},body:payload},15000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const raw=await r.text();
+    return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
+  }
+  if(c.adapter==='fileditch_raw'){
+    const r=await fetchTimed(url,{method:'POST',headers:{'content-type':'application/octet-stream','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:payload},15000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const raw=await r.text();
+    return {readUrl:responseRemoteUrl(raw,r.headers,url)};
   }
   const r=await fetchTimed(url,{method:c.method,headers:{'content-type':'application/octet-stream','x-mel-shardvault-probe':'1'},body:payload},10000);
   if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
-  return {response:r,readUrl:url};
+  return {readUrl:url};
 }
 async function candidateRead(c,url){
   if(c.adapter!=='filebin')return fetchTimed(url,{method:'GET'},10000);
@@ -502,6 +750,29 @@ async function candidateRead(c,url){
   }
   return r;
 }
+async function candidateReadBytes(c,url){
+  if(c.adapter==='pastemyst_b64'){
+    const r=await fetchTimed(url,{method:'GET',headers:{'accept':'application/json'}},12000);
+    if(!r.ok)throw new Error('READ_HTTP_'+r.status);
+    const data=await r.json().catch(()=>null),code=String(data?.pasties?.[0]?.code||'').trim();
+    if(!code)throw new Error('READ_CONTENT_MISSING');
+    return unb64u(code);
+  }
+  if(['pastebin_ai_b64','dpaste_b64','onec3_b64','msk_paste_b64','pastebox_b64'].includes(c.adapter)){
+    const r=await fetchTimed(url,{method:'GET',headers:{'accept':'text/plain,application/json'}},12000);
+    if(!r.ok)throw new Error('READ_HTTP_'+r.status);
+    const text=String(await r.text()).trim();
+    if(!text)throw new Error('READ_CONTENT_MISSING');
+    let encoded=text;
+    if(c.adapter==='pastebox_b64'){
+      try{const data=JSON.parse(text);encoded=String(data?.content??data?.data?.content??data?.paste?.content??text).trim();}catch{}
+    }
+    return unb64u(encoded);
+  }
+  const r=await candidateRead(c,url);
+  if(!r.ok)throw new Error('READ_HTTP_'+r.status);
+  return new Uint8Array(await r.arrayBuffer());
+}
 async function validateDocumentedEvidence(c,{maxAgeDays=365}={}){
   if(c.evidenceMode!=='documented_api')return null;
   const reviewed=Date.parse(c.evidenceReviewedAt||'');
@@ -513,6 +784,10 @@ async function validateDocumentedEvidence(c,{maxAgeDays=365}={}){
   return {
     maxBytes:c.maxBytes,
     expectedRetentionDays:c.expectedRetentionDays,
+    retentionModel:c.retentionModel||'fixed',
+    baseRetentionDays:c.baseRetentionDays||c.expectedRetentionDays||0,
+    refreshEveryDays:c.refreshEveryDays||0,
+    fullReadRenewsRetention:c.fullReadRenewsRetention===true,
     evidenceVerification:'reviewed_documentation_plus_live_roundtrip'
   };
 }
@@ -535,8 +810,7 @@ async function probe(c, requiredBytes, policyMaxAgeDays=180){
   const write=await candidateWrite(c,url,payload,objectId);
   const writeLatency=Date.now()-writeStart;
   const readStart=Date.now();
-  const r=await candidateRead(c,write.readUrl);if(!r.ok)throw new Error(`READ_HTTP_${r.status}`);
-  const got=new Uint8Array(await r.arrayBuffer());const readLatency=Date.now()-readStart;
+  const got=await candidateReadBytes(c,write.readUrl);const readLatency=Date.now()-readStart;
   if(got.length!==payload.length)throw new Error('PROBE_LENGTH_MISMATCH');
   let diff=0;for(let i=0;i<got.length;i++)diff|=got[i]^payload[i];if(diff)throw new Error('PROBE_CONTENT_MISMATCH');
   const latency=writeLatency+readLatency;
@@ -570,7 +844,7 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
   for(const c of eligibleRows.slice(0,probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
   const selected=choose(probed,selectionCount,maxPerOperator,maxPerProvider);
   return {
-    selected: selected.map(c=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:c.score,confidence:c.confidence,autonomous:true,authMode:'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:'reviewed_documentation_plus_live_roundtrip',expectedRetentionDays:c.expectedRetentionDays||0,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0)})),
+    selected: selected.map(c=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:c.score,confidence:c.confidence,autonomous:true,authMode:'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:'reviewed_documentation_plus_live_roundtrip',expectedRetentionDays:c.expectedRetentionDays||0,retentionModel:c.retentionModel||'fixed',baseRetentionDays:c.baseRetentionDays||c.expectedRetentionDays||0,refreshEveryDays:c.refreshEveryDays||0,fullReadRenewsRetention:c.fullReadRenewsRetention===true,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0)})),
     rejected,
     discovered:loaded.candidates.length,
     probed:probed.length,
