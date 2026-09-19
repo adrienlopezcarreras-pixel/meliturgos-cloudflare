@@ -62,3 +62,12 @@ test('code archive is copied to external ShardVault targets after seven live tar
   assert.match(runtime,/if\(result\.target_reached\)/);
   assert.match(runtime,/runShardVaultCycle\(env,\{force:true\}\)/);
 });
+
+
+test('rate-limited providers respect Retry-After before quarantine', () => {
+  assert.match(autonomous,/async function fetchRateAware\(/);
+  assert.match(autonomous,/retry-after/);
+  assert.match(autonomous,/fetchRateAware\(endpoint/);
+  assert.match(runtime,/async function fetchRateAware\(/);
+  assert.match(runtime,/retry-after/);
+});
