@@ -21,6 +21,7 @@ const SERVER_FILES = [
   '../src/api/file-upload.js',
   '../src/pages/shardvault-status.js',
   '../src/devices/computer-companion-api.js',
+  '../src/devices/waveshare-terminal-api.js',
 ];
 
 test('every fixed API endpoint referenced by canonical UI exists in deployed server routing', async () => {

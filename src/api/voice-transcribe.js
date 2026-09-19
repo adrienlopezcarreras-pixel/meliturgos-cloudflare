@@ -8,10 +8,13 @@ function resultText(value) {
   return value?.response ?? value?.text ?? value?.transcription ?? value?.result?.response ?? '';
 }
 
-export async function handleVoiceTranscription(request, env) {
-  if (request.method !== 'POST' || new URL(request.url).pathname !== '/api/voice/transcribe') return null;
-  const auth = requireAuth(request, env);
-  if (!auth.ok) return auth.response;
+export async function handleVoiceTranscription(request, env, options = {}) {
+  const pathname = new URL(request.url).pathname;
+  if (request.method !== 'POST' || (pathname !== '/api/voice/transcribe' && options?.authorized !== true)) return null;
+  if (options?.authorized !== true) {
+    const auth = requireAuth(request, env);
+    if (!auth.ok) return auth.response;
+  }
 
   const type = String(request.headers.get('content-type') || '').toLowerCase();
   if (!type.includes('multipart/form-data')) {

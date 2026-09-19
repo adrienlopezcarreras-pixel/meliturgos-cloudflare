@@ -1,0 +1,117 @@
+name: publish-waveshare-firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact validated hardware branch SHA
+        required: true
+        type: string
+      approval:
+        description: Type PUBLISH_FIRMWARE to upload the binary and manifest to private R2
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mel-waveshare-firmware-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      APPROVAL: ${{ inputs.approval }}
+    steps:
+      - name: Require explicit firmware publication approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$APPROVAL" = "PUBLISH_FIRMWARE"
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]
+
+      - name: Checkout exact approved SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.expected_sha }}
+
+      - name: Prove exact checkout
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Prepare pinned Waveshare base
+        shell: bash
+        run: |
+          set -euo pipefail
+          UPSTREAM_SHA=283ec84c566c096f8c30493b93dcd4b0bb608de7
+          git clone --filter=blob:none https://github.com/waveshareteam/ESP32-S3-Touch-LCD-3.5.git upstream-waveshare
+          git -C upstream-waveshare checkout "$UPSTREAM_SHA"
+          mkdir -p build/waveshare-mel
+          cp -a upstream-waveshare/ESP-IDF/03_lvgl_system/. build/waveshare-mel/
+          rm -f build/waveshare-mel/main/*
+          cp firmware/waveshare-terminal/main/* build/waveshare-mel/main/
+          cp firmware/waveshare-terminal/partitions.csv build/waveshare-mel/partitions.csv
+          cp firmware/waveshare-terminal/sdkconfig.defaults build/waveshare-mel/sdkconfig.defaults
+
+      - name: Build and merge image
+        uses: espressif/esp-idf-ci-action@e6f5c74232b1ccd4c97ed641f1e48553853f1fd5
+        with:
+          esp_idf_version: v5.3.2
+          target: esp32s3
+          path: build/waveshare-mel
+          command: idf.py build && idf.py merge-bin -o mel-terminal.bin
+
+      - name: Generate stable manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build/waveshare-mel/build
+          SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
+          SIZE="$(stat -c '%s' mel-terminal.bin)"
+          cat > ../manifest.json <<JSON
+          {
+            "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
+            "channel": "stable",
+            "firmware": {
+              "version": "0.1.0",
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
+              "sha256": "${SHA256}",
+              "size": ${SIZE},
+              "source_sha": "${EXPECTED_SHA}",
+              "waveshare_upstream_sha": "283ec84c566c096f8c30493b93dcd4b0bb608de7"
+            },
+            "assets": { "version": "1", "items": [] }
+          }
+          JSON
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact Wrangler
+        run: npm ci
+
+      - name: Upload firmware first
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler r2 object put             meliturgos-private-media/devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin             --file build/waveshare-mel/build/mel-terminal.bin             --content-type application/octet-stream             --cache-control no-store             --remote --force
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Publish manifest last
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler r2 object put             meliturgos-private-media/devices/waveshare-esp32-s3-touch-lcd-3.5-c/manifest.json             --file build/waveshare-mel/manifest.json             --content-type application/json             --cache-control no-store             --remote --force
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
