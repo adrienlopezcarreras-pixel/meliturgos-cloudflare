@@ -12,6 +12,7 @@ function render(s){$('status').textContent=[
 `Inaccessibles : ${Object.keys(s.unavailable||{}).length}`,
 `À retenter plus tard : ${Object.keys(s.deferred||{}).length}`,
 `Mode : PC très lent / protection mémoire`,
+`s.deepDiscoveryDone?'Exploration profonde ChatGPT : faite':'Exploration profonde ChatGPT : à faire',
 `Watchdog : 8 min sans progression`,
 `Blocages évités : ${s.stalledCount||0}`,
 s.currentStage?`Étape : ${s.currentStage}`:'',
