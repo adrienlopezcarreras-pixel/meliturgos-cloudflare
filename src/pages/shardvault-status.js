@@ -1,5 +1,5 @@
 // deployment trigger: ShardVault dashboard
-import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint } from '../continuity/shardvault-runtime.js';
+import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint, syncShardVaultCodeExternally } from '../continuity/shardvault-runtime.js';
 
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
@@ -143,6 +143,17 @@ async function search(){
   const r=await fetch('/api/gen2/shardvault/search',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
   const d=await r.json();
   renderDiscovery(d,'Nouvelle exploration');
+  if(d.target_reached){
+    $('searchStatus').className='muted pulse';$('searchStatus').textContent='7/7 externes validés. MEL crée le snapshot externe puis synchronise aussi le code critique.';
+    try{
+      const cr=await fetch('/api/gen2/shardvault/code-sync',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+      const cd=await cr.json();
+      if(!cr.ok||cd.ok===false)throw new Error(cd.status||cd.error||('HTTP '+cr.status));
+      $('searchStatus').className='ok';$('searchStatus').textContent='7/7 externes actifs · code critique copié sur '+fmt((cd.external?.endpoints||[]).length)+' dépôts externes.';
+    }catch(e){
+      $('searchStatus').className='warn';$('searchStatus').textContent='7/7 externes pour les snapshots. Synchronisation du code externe encore en cours/à reprendre : '+e.message;
+    }
+  }
   await load();
  }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Erreur : '+e.message}
  finally{b.disabled=false;b.textContent='Nouvelle recherche Internet'}
