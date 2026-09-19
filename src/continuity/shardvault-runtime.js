@@ -716,6 +716,7 @@ function publicEndpointView(e){return {id:e.id,backend:e.backend||'http',bucket:
 const DISCOVERY_STATUS_KEY='shardvault/discovery/latest.json';
 const PREFERRED_ENDPOINT_KEY='shardvault/discovery/preferred-endpoint.json';
 const ACTIVE_ENDPOINTS_KEY='shardvault/discovery/active-external-endpoints.json';
+const VALIDATED_ENDPOINTS_KEY='shardvault/discovery/validated-external-endpoints.json';
 async function readPreferredEndpoint(env){
   if(!env?.MEDIA_BUCKET?.get)return null;
   try{
@@ -761,6 +762,34 @@ async function writeActiveExternalEndpoints(env,endpoints){
   const rows=(endpoints||[]).slice(0,7).map(e=>({id:e.id,...endpointSnapshot(e)}));
   await env.MEDIA_BUCKET.put(ACTIVE_ENDPOINTS_KEY,JSON.stringify({version:1,updated_at:new Date().toISOString(),endpoints:rows}),{httpMetadata:{contentType:'application/json'}});
   return endpoints.slice(0,7);
+}
+async function readValidatedExternalEndpoints(env){
+  if(!env?.MEDIA_BUCKET?.get)return [];
+  try{
+    const body=await env.MEDIA_BUCKET.get(VALIDATED_ENDPOINTS_KEY);
+    if(!body)return [];
+    const parsed=JSON.parse(await body.text()),rows=Array.isArray(parsed)?parsed:(Array.isArray(parsed?.endpoints)?parsed.endpoints:[]);
+    const out=[];
+    for(let i=0;i<rows.length&&out.length<25;i++){
+      try{
+        const e=normalizeEndpoint(rows[i],i);
+        if(endpointMeetsDurability(env,e)&&!out.some(x=>x.id===e.id))out.push(e);
+      }catch{}
+    }
+    return out;
+  }catch{return []}
+}
+async function rememberValidatedExternalEndpoints(env,candidates=[]){
+  if(!env?.MEDIA_BUCKET?.put)return [];
+  const current=await readValidatedExternalEndpoints(env);
+  const by=new Map(current.map(e=>[e.id,e]));
+  for(const e of candidates||[]){
+    if(!e?.id||e?.backend||!endpointMeetsDurability(env,e))continue;
+    by.set(e.id,e);
+  }
+  const rows=[...by.values()].slice(0,25);
+  await env.MEDIA_BUCKET.put(VALIDATED_ENDPOINTS_KEY,JSON.stringify({version:1,updated_at:new Date().toISOString(),endpoints:rows.map(e=>({id:e.id,...endpointSnapshot(e)}))}),{httpMetadata:{contentType:'application/json'}});
+  return rows;
 }
 async function rememberActiveExternalEndpoints(env,c,last,candidates=[]){
   let active=await readActiveExternalEndpoints(env);
@@ -884,8 +913,8 @@ export async function setPreferredShardVaultEndpoint(env,endpointId){
 export async function activateValidatedShardVaultEndpoint(env,endpointId){
   const id=String(endpointId||'').trim();
   if(!id)return {ok:false,status:'ENDPOINT_ID_REQUIRED'};
-  const discovery=await readDiscoveryStatus(env);
-  const endpoint=(Array.isArray(discovery?.selected)?discovery.selected:[]).find(x=>String(x?.id||'')===id);
+  const validated=await readValidatedExternalEndpoints(env);
+  const endpoint=validated.find(x=>String(x?.id||'')===id);
   if(!endpoint)return {ok:false,status:'ENDPOINT_NOT_VALIDATED',endpoint_id:id};
   if(!endpointMeetsDurability(env,endpoint))return {ok:false,status:'RETENTION_TOO_SHORT',endpoint_id:id,expected_retention_days:Number(endpoint.expectedRetentionDays)||0};
   let c;
@@ -919,6 +948,7 @@ export async function searchAutonomousShardVaultRepositories(env){
     try{const rows=await inventoryRows(env,c);last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
     const activeBefore=await rememberActiveExternalEndpoints(env,c,last,[]);
     const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
+    await rememberValidatedExternalEndpoints(env,report.selected||[]);
     const active=await rememberActiveExternalEndpoints(env,c,last,report.selected||[]);
     const activeIds=new Set(active.map(e=>e.id));
     let preferred=await readPreferredEndpoint(env);
