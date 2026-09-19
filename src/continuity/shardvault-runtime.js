@@ -989,9 +989,11 @@ export async function searchAutonomousShardVaultRepositories(env){
       try{result.activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true});}
       catch(error){result.activation_cycle={ok:false,error:String(error?.message||error)};}
     }
-    if(result.target_reached&&result.activation_cycle?.ok){
-      try{result.code_sync=await syncShardVaultCodeExternally(env);}
-      catch(error){result.code_sync={ok:false,status:'COPY_FAILED',error:String(error?.message||error)};}
+    if(result.target_reached){
+      if(result.activation_cycle?.ok){
+        try{result.code_sync=await syncShardVaultCodeExternally(env);}
+        catch(error){result.code_sync={ok:false,status:'COPY_FAILED',error:String(error?.message||error)};}
+      }
     }
     return result;
   }catch(error){
