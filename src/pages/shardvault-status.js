@@ -66,6 +66,7 @@ pre{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;background
 </main>
 <script>
 const $=id=>document.getElementById(id),qsa=s=>[...document.querySelectorAll(s)];
+let autoRepairStarted=false,autoCodeSyncStarted=false;
 const fmt=n=>Number.isFinite(Number(n))?Number(n).toLocaleString('fr-FR'):'—';
 function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function card(label,value,state=''){return '<div class="card"><small>'+safe(label)+'</small><div class="big '+state+'">'+safe(value)+'</div></div>'}
@@ -122,6 +123,15 @@ async function load(){
    (code.key?'<div class="row"><span>Objet cache R2</span><span class="muted">'+safe(code.bucket||'')+' / '+safe(code.key)+'</span></div>':'');
   if(d.last_discovery)renderDiscovery(d.last_discovery,'Dernière exploration automatique',d.preferred_endpoint?.endpoint_id||null);
   $('raw').textContent=JSON.stringify(d,null,2);
+  const externalActive=(d.selected_endpoints||[]).filter(e=>e.backend==='http'&&e.active===true).length;
+  const externalCode=(d.code_survival?.external?.endpoints||[]).length;
+  if(!autoRepairStarted&&externalActive<7){
+    autoRepairStarted=true;
+    setTimeout(()=>search(),250);
+  }else if(!autoCodeSyncStarted&&externalActive>=7&&externalCode<7){
+    autoCodeSyncStarted=true;
+    setTimeout(()=>syncCodeExternal({quiet:true}).then(()=>load()),250);
+  }
  }catch(e){$('summary').innerHTML=card('Erreur',e.message,'bad');$('raw').textContent=String(e)}
  finally{$('refresh').disabled=false}
 }
@@ -136,6 +146,22 @@ async function snapshot(){
  }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Sauvegarde échouée : '+e.message}
  finally{b.disabled=false;b.textContent='Sauvegarder maintenant'}
 }
+async function syncCodeExternal({quiet=false}={}){
+ const b=$('search');
+ if(!quiet){b.disabled=true;b.textContent='Synchronisation du code…';}
+ try{
+  const cr=await fetch('/api/gen2/shardvault/code-sync',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+  const cd=await cr.json();
+  if(!cr.ok||cd.ok===false)throw new Error(cd.status||cd.error||('HTTP '+cr.status));
+  $('searchStatus').className='ok';$('searchStatus').textContent='Code critique copié sur '+fmt((cd.external?.endpoints||[]).length)+' dépôts externes.';
+  return cd;
+ }catch(e){
+  $('searchStatus').className='warn';$('searchStatus').textContent='Synchronisation du code externe à reprendre : '+e.message;
+  return null;
+ }finally{
+  if(!quiet){b.disabled=false;b.textContent='Nouvelle recherche Internet';}
+ }
+}
 async function search(){
  const b=$('search');b.disabled=true;b.textContent='Recherche en cours…';$('searchStatus').className='muted pulse';$('searchStatus').textContent='MEL vérifie les politiques puis effectue des tests d’écriture/lecture sur les candidats autorisés.';
  $('results').innerHTML='';
@@ -145,14 +171,8 @@ async function search(){
   renderDiscovery(d,'Nouvelle exploration');
   if(d.target_reached){
     $('searchStatus').className='muted pulse';$('searchStatus').textContent='7/7 externes validés. MEL crée le snapshot externe puis synchronise aussi le code critique.';
-    try{
-      const cr=await fetch('/api/gen2/shardvault/code-sync',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
-      const cd=await cr.json();
-      if(!cr.ok||cd.ok===false)throw new Error(cd.status||cd.error||('HTTP '+cr.status));
-      $('searchStatus').className='ok';$('searchStatus').textContent='7/7 externes actifs · code critique copié sur '+fmt((cd.external?.endpoints||[]).length)+' dépôts externes.';
-    }catch(e){
-      $('searchStatus').className='warn';$('searchStatus').textContent='7/7 externes pour les snapshots. Synchronisation du code externe encore en cours/à reprendre : '+e.message;
-    }
+    const cd=await syncCodeExternal({quiet:true});
+    if(cd)$('searchStatus').textContent='7/7 externes actifs · code critique copié sur '+fmt((cd.external?.endpoints||[]).length)+' dépôts externes.';
   }
   await load();
  }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Erreur : '+e.message}
