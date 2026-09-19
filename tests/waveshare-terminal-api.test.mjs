@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import {
   maybeHandleWaveshareTerminalApi,
   WAVESHARE_TERMINAL_API,
-  WAVESHARE_TERMINAL_MODEL
+  WAVESHARE_TERMINAL_MODEL,
+  WAVESHARE_TERMINAL_PROTOCOL
 } from '../src/devices/waveshare-terminal-api.js';
 
 test('Waveshare terminal API uses the canonical namespace and supported board model', () => {
   assert.equal(WAVESHARE_TERMINAL_API, '/api/device/v1');
   assert.equal(WAVESHARE_TERMINAL_MODEL, 'waveshare-esp32-s3-touch-lcd-3.5-c');
+  assert.equal(WAVESHARE_TERMINAL_PROTOCOL, '1.0');
 });
 
 test('unrelated requests are ignored by the terminal handler', async () => {

@@ -90,4 +90,14 @@ export const MEL_RUNTIME_OPERATING_EXPERIENCE = Object.freeze([
     validated: true,
     tags: ['rag','chatgpt-archive','memory','retrieval','collector'],
   }),
+  Object.freeze({
+    id: 'bootstrap-hardware-device-protocol-20260919',
+    domain: 'hardware-protocol-engineering',
+    task: 'Développer et faire évoluer un protocole de terminal matériel utilisé directement par MEL.',
+    before: 'Coder séparément le firmware et le serveur, sans contrat versionné, puis considérer une compilation ou un endpoint isolé comme preuve que le terminal est prêt.',
+    after: 'Définir d’abord un protocole versionné et une machine d’états; séparer authentification opérateur et appareil; utiliser un code d’appairage à usage unique échangé contre un jeton propre au terminal; versionner pair/manifest/heartbeat/chat/voice/download; publier le manifeste OTA en dernier; prévoir récupération locale; épingler les pilotes constructeur; compiler la vraie cible en CI; distinguer preuve logicielle, preuve protocolaire et preuve physique.',
+    rationale: 'Le protocole MEL Terminal v1 a été développé pour la Waveshare ESP32-S3-Touch-LCD-3.5-C : provisioning Wi-Fi local, appairage court, jeton NVS, heartbeat, chat, voix, téléchargement/microSD et OTA A/B. Le build ESP-IDF réel a mis en évidence les dépendances constructeur, les types LVGL et les chemins d’artefacts que des tests JavaScript seuls ne pouvaient pas révéler.',
+    validated: true,
+    tags: ['hardware','device','protocol','esp32','waveshare','firmware','pairing','ota','ci','security'],
+  }),
 ]);
