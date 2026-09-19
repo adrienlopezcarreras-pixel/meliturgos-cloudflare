@@ -1,7 +1,7 @@
 {
   "format": "MEL-ShardVault-QualificationPlaybook",
-  "version": 2,
-  "updated_at": "2026-09-19T18:30:00Z",
+  "version": 3,
+  "updated_at": "2026-09-19T18:42:00Z",
   "objective": {
     "external_targets": 7,
     "independent_operators_preferred": true,
@@ -264,5 +264,128 @@
     "Prefer independent operators/providers before adding a second endpoint from the same operator.",
     "Latency can break ties but must never compensate for retention, policy or integrity failure.",
     "Confidence increases only from current evidence and repeated successful probes; age reduces confidence."
-  ]
+  ],
+  "validated_targets": [
+    {
+      "id": "pastebin-ai-public",
+      "name": "Pastebin.ai",
+      "adapter": "pastebin_ai_b64",
+      "auth": "none",
+      "retention_model": "fixed",
+      "retention_days": 365,
+      "proof": "preview run 35461742052 exact write/read byte match"
+    },
+    {
+      "id": "msk-paste-public",
+      "name": "MSK Paste",
+      "adapter": "msk_paste_b64",
+      "auth": "none",
+      "retention_model": "fixed",
+      "retention_days": 365,
+      "proof": "preview run 35461742052 exact write/read byte match"
+    },
+    {
+      "id": "pastemyst-public",
+      "name": "PasteMyst",
+      "adapter": "pastemyst_b64",
+      "auth": "none",
+      "retention_model": "declared_never",
+      "retention_days_floor": 365,
+      "proof": "preview run 35461742052 exact write/read byte match"
+    },
+    {
+      "id": "telegraph-public",
+      "name": "Telegraph",
+      "adapter": "telegraph_b64",
+      "auth": "provider-issued ephemeral anonymous token",
+      "retention_model": "declared_never",
+      "retention_days_floor": 365,
+      "proof": "preview run 35461742052 exact write/read byte match"
+    },
+    {
+      "id": "waifuvault-public",
+      "name": "WaifuVault",
+      "adapter": "waifuvault_b64",
+      "auth": "none",
+      "retention_model": "size_formula",
+      "retention_days_floor": 365,
+      "proof": "preview run 35461742052 exact write/read byte match"
+    },
+    {
+      "id": "markdownpaste-public",
+      "name": "Markdown Paste",
+      "adapter": "markdownpaste_b64",
+      "auth": "none",
+      "retention_model": "declared_never",
+      "retention_days_floor": 365,
+      "proof": "preview run 35461742052 exact write/read byte match"
+    },
+    {
+      "id": "pastebox-anonymous",
+      "name": "Pastebox",
+      "adapter": "pastebox_b64",
+      "auth": "none",
+      "retention_model": "fixed",
+      "retention_days": 90,
+      "proof": "preview run 35461742052 exact write/read byte match"
+    }
+  ],
+  "operational_use": {
+    "rule": "Never write a real shard to an endpoint that is not currently VALIDATED. Use selected targets returned by the live discovery engine, persist the provider-returned remote locator, and always verify the stored bytes on read.",
+    "write_flow": [
+      "Take the already encrypted ShardVault shard bytes.",
+      "Select a currently VALIDATED external endpoint, preferring operator diversity and avoiding a provider already holding too many fragments.",
+      "Apply the endpoint adapter exactly: raw binary only where documented; otherwise encode encrypted bytes as base64url or RFC4648 base64 according to that adapter.",
+      "Perform the documented anonymous write. If the provider returns an id, Location, raw_url or public URL, persist that returned locator in the shard descriptor instead of reconstructing it later.",
+      "Immediately read the object back using the provider-specific read representation.",
+      "Decode adapter wrapping and compare exact length plus every byte against the encrypted shard.",
+      "Only after exact match mark that fragment stored. On mismatch, 4xx/5xx, unexpected redirect or missing locator: quarantine that endpoint for the cycle and use another validated target."
+    ],
+    "read_flow": [
+      "Read from the manifest's persisted remote locator, not from a guessed URL.",
+      "Use the adapter-specific direct/raw representation where available.",
+      "Decode base64/base64url wrapping only after a successful HTTP read.",
+      "Verify cryptographic/integrity expectations before reconstructing the vault data.",
+      "If a target fails, continue with redundant fragments and schedule revalidation/replacement."
+    ],
+    "maintenance": [
+      "Re-run live probes periodically and after any provider error burst.",
+      "Keep seven or more independent validated external targets when possible.",
+      "Replace failed targets; never lower retention or integrity gates just to keep the count at seven.",
+      "Keep R2/D1 internal fallbacks separate from external diversity."
+    ]
+  },
+  "discovery_method": {
+    "goal": "Find new zero-cost, automation-compatible, public-read storage/paste/file APIs that can be used without user-supplied credentials and can satisfy the durability gate.",
+    "search_cycle": [
+      "Generate several materially different search queries instead of repeating one phrase.",
+      "Search official documentation, current public API catalogs, GitHub repositories, self-hostable projects with public instances, and provider terms/help pages.",
+      "Extract candidate host, write method, request content type, auth model, response locator, raw/direct read method, size limit, expiry/retention, rate limits, and automation policy.",
+      "Reject immediately if user login, payment, private-network access, permanent user API key, prohibited automation, or retention below the gate is required.",
+      "For provider-issued anonymous tokens, verify the token can be created programmatically from an unauthenticated documented endpoint and that public reads need no user secret.",
+      "Translate documentation into a bounded adapter profile: write method+URL, payload transform, form/JSON field names, response locator extraction, read URL, read transform, timeout and retention model.",
+      "Run only a synthetic 256-1024 byte probe from MEL's deployed Cloudflare environment.",
+      "Require write success, read success, exact byte equality and retention evidence before VALIDATED.",
+      "Persist failures and rejection reasons so the next cycle changes query/provider family instead of retrying the same dead target forever."
+    ],
+    "query_families": [
+      "anonymous paste API no auth 1 year retention",
+      "guest file upload REST API public download no API key",
+      "temporary file hosting API scripts bots permanent or 365 days",
+      "paste service API unlisted never expire anonymous",
+      "open source pastebin public instance API anonymous",
+      "self hosted file share public instance anonymous upload API",
+      "free upload API direct download automation allowed long retention",
+      "developer paste API no signup raw endpoint retention"
+    ],
+    "adapter_patterns": [
+      "JSON text API: encode encrypted bytes as base64url and extract id/raw_url from JSON.",
+      "Form paste API: URL-encode or multipart the base64url text and save returned Location/public URL.",
+      "Multipart file API: upload a harmless .txt wrapper containing base64url unless binary is explicitly accepted.",
+      "Raw binary API: send application/octet-stream only when documentation and live probe confirm it.",
+      "Ephemeral anonymous-token API: create a provider-issued anonymous token first, use it only for creation, and persist only the public read locator unless later writes require the token.",
+      "Presentation URL providers: prefer documented raw/direct-download representation for integrity reads."
+    ],
+    "stop_condition": "Stop expanding only when at least seven independent targets are live-validated; continue periodic discovery afterward for replacements and diversity."
+  }
 }
