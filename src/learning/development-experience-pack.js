@@ -230,4 +230,20 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
   },
 
 
+  {
+    id: 'shardvault-proven-active-source-of-truth-20260919',
+    source: 'chatgpt-teacher',
+    domain: 'state-truth-governance',
+    task: 'Éviter les états contradictoires entre registre, runtime et interface quand une ressource passe de qualifiée à réellement active.',
+    input: 'Une ressource externe est découverte et validée, puis enregistrée comme candidate/active pendant qu’un snapshot ou une opération runtime constitue la preuve de son utilisation réelle.',
+    before: 'Utiliser un registre d’intention ou une sélection validée comme preuve d’activation, afficher ACTIVÉ avant l’écriture réelle, calculer différents compteurs depuis des sources distinctes, ou conserver un état staged après échec; cela peut produire par exemple 7 ACTIVÉ dans une liste alors que le snapshot réellement utilisé n’en contient que 6.',
+    after: 'Séparer explicitement QUALIFIÉ, STAGED et ACTIF; réserver ACTIF à une preuve runtime persistée et relue après l’opération; réconcilier le registre avec l’artefact réellement produit avant d’exposer l’état; faire dériver compteur, badges, boutons et automatisations de la même source de vérité backend; lors d’une activation, stage la cible, exécuter l’écriture, relire le résultat, ne promouvoir qu’en cas de preuve d’utilisation et revenir au dernier état prouvé en cas d’échec; protéger cet invariant par un test qui interdit les divergences UI/runtime.',
+    rationale: 'Un registre décrit une intention, pas nécessairement un fait. La divergence ShardVault 7/7 affiché dans les cibles contre 6/7 réellement présents dans le snapshot a démontré qu’un système peut être techniquement fonctionnel tout en présentant un faux état opérationnel si chaque surface choisit sa propre vérité. Une preuve read-after-write et une source backend unique éliminent ce split-brain.',
+    tests: ['tests/shardvault-continuity.test.mjs proves active external targets are derived from the actual snapshot and excludes internal fallbacks', 'tests/shardvault-preference-ui.test.mjs enforces snapshot-proven selected_endpoints as the only UI activation truth', 'candidate e9fa869e8cbcd07d0cc321214c715690edd82615 full-candidate-ci run 35468293391: success', 'production release run 35468396394: full suite + exact SHA deploy + production HTTP verification success'],
+    tags: ['learning', 'xp', 'source-of-truth', 'state-machine', 'read-after-write', 'ui-consistency', 'runtime-proof', 'rollback', 'shardvault'],
+    validated: true,
+    quality: 1,
+    created_at: 1789851000000,
+  },
+
 ]);
