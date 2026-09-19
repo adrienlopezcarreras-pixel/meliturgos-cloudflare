@@ -83,6 +83,35 @@ jobs:
                 # Every active MEL code branch, including LoRA/compat workspaces, must converge.
                 continue
                 ;;
+              feature/mel-waveshare-terminal)
+                # Isolated physical-terminal laboratory. It may evolve independently,
+                # but it is forbidden from touching production entrypoints, config or workflows.
+                branch_ref="refs/remotes/origin/$branch"
+                base="$(git merge-base "$branch_ref" "$canonical")"
+                unexpected="$(git diff --name-only "$base" "$branch_ref" | grep -Ev '^(assets/MEL-Computer-[A-Za-z0-9._-]+\.ps1|src/devices/[A-Za-z0-9._/-]+\.js|src/capabilities/computer-runtime-capabilities\.js|tests/[A-Za-z0-9._/-]*(computer|waveshare)[A-Za-z0-9._/-]*\.test\.mjs|scripts/[A-Za-z0-9._/-]*(computer|waveshare)[A-Za-z0-9._/-]*)            esac
+
+            if ! git merge-base --is-ancestor "refs/remotes/origin/$branch" "$canonical"; then
+              divergent+=("$branch")
+            fi
+          done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin)
+
+          if (( ${#divergent[@]} )); then
+            printf 'DIVERGENT_NON_EXEMPT_BRANCHES:\n'
+            printf ' - %s\n' "${divergent[@]}"
+            exit 1
+          fi
+
+          echo "Canonical unicity verified: every non-exempt branch is an ancestor of candidate/mel-clean-autonomy."
+ || true)"
+                if [[ -n "$unexpected" ]]; then
+                  echo "HARDWARE_LAB_SCOPE_VIOLATION:$branch"
+                  printf '%s\n' "$unexpected"
+                  divergent+=("$branch")
+                else
+                  echo "Isolated hardware lab branch accepted: $branch"
+                fi
+                continue
+                ;;
               godot-private-test-*)
                 # Separate Godot laboratory. It may diverge only while every branch-local
                 # change stays inside the Godot CI handshake/workflow namespace.
