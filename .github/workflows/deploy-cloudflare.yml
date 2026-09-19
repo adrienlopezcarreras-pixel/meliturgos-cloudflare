@@ -1,35 +1,17 @@
-name: Deploy Cloudflare Worker
+name: retired-main-cloudflare-deploy
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "src/**"
-      - "assets/**"
-      - "worker.js"
-      - "wrangler.jsonc"
-      - "package.json"
-      - ".github/workflows/deploy-cloudflare.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  deploy:
+  retired:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - run: npm install
-      - run: npm run check
-      - name: Deploy with Wrangler
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
-      - name: Run ShardVault repository search
-        run: node scripts/shardvault-first-search.mjs
+      - name: Refuse legacy production deployment
+        run: |
+          echo "RETIRED: production deployment from main is forbidden."
+          echo "Use .github/workflows/deploy-cloudflare-release.yml from the canonical candidate/release path."
+          exit 1
