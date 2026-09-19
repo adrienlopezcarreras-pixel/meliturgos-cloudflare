@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
 
 function run(args) {
-  return spawnSync(process.execPath, [process.env.npm_execpath, ...args], {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  return spawnSync(npm, args, {
     encoding: 'utf8',
     env: process.env,
   });
