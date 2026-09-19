@@ -1,0 +1,240 @@
+{
+  "format": "MEL-ShardVault-QualificationPlaybook",
+  "version": 1,
+  "updated_at": "2026-09-19T17:10:00Z",
+  "objective": {
+    "external_targets": 7,
+    "independent_operators_preferred": true,
+    "rule": "A candidate is never VALIDATED from documentation alone. It becomes VALIDATED only after a live write -> read -> byte-compare round-trip from MEL's deployed infrastructure."
+  },
+  "hard_gates": [
+    "HTTPS public endpoint only; reject private/local networks and credential-bearing URLs.",
+    "No account or permanent API secret required for the autonomous path.",
+    "Free use and automation must be explicitly documented or otherwise clearly permitted; never infer permission from technical reachability.",
+    "Synthetic probe only. Never upload user memory during qualification.",
+    "Round-trip must preserve the exact original bytes after the adapter decoder.",
+    "Persist the provider-returned read locator in the shard manifest when upload and read URLs differ.",
+    "A fixed retention target must be >= 90 days. A renewable target is a distinct model and is eligible only after renewal behavior is documented and a live renewal proof succeeds.",
+    "On 4xx/5xx, content mismatch, redirect anomaly, policy change, expiry regression or repeated timeout: quarantine the target and continue searching instead of retrying the same candidate forever.",
+    "Revalidate selected providers periodically and immediately replace a target that no longer passes."
+  ],
+  "retention_models": {
+    "fixed": {
+      "eligible_when": "documented days >= minimum retention and live round-trip succeeds"
+    },
+    "declared_never": {
+      "eligible_when": "provider offers 'never' or equivalent, live round-trip succeeds, and MEL still revalidates because 'never' is not a service warranty"
+    },
+    "renewable": {
+      "eligible_when": "provider documents that a permitted access renews retention, MEL proves the renewal mechanism, and refresh cadence leaves a safety margin; ordinary status checks do not count unless documentation says they do"
+    }
+  },
+  "search_strategy": {
+    "rotate_queries": true,
+    "remember_seen_leads": true,
+    "do_not_repeat_failed_query_forever": true,
+    "search_queries": [
+      "anonymous upload API no authentication 1 year retention",
+      "paste API anonymous expires 1y no authentication",
+      "file hosting API anonymous automation long retention",
+      "guest upload REST API 365 days",
+      "anonymous storage API scripts bots retention",
+      "pastebin API unlisted 1y anonymous",
+      "binary paste API 180 days anonymous"
+    ],
+    "expand_from": [
+      "official API documentation",
+      "official terms and acceptable-use pages",
+      "open-source server implementations and instance directories",
+      "current public API catalogs",
+      "GitHub repositories updated recently"
+    ]
+  },
+  "failure_memory": [
+    {
+      "provider": "filebin.net",
+      "classification": "REJECT",
+      "reason": "Live write/read worked, but documented retention is below MEL's 90-day durability gate.",
+      "lesson": "A successful round-trip does not override insufficient retention."
+    },
+    {
+      "provider": "temp.sh",
+      "classification": "REJECT",
+      "reason": "Retention is short and recent round-trip behavior was not reliable enough.",
+      "lesson": "Fast anonymous upload is not equivalent to durable storage."
+    },
+    {
+      "provider": "catbox.moe",
+      "classification": "QUARANTINE",
+      "reason": "Durability is attractive on paper, but MEL's latest real infrastructure probe returned HTTP 412.",
+      "lesson": "Documentation never overrides a failed live probe from the deployment environment."
+    },
+    {
+      "provider": "gofile.io",
+      "classification": "REJECT_FOR_STRICT_MODE",
+      "reason": "Guest retention is about 10 days, below the durability gate.",
+      "lesson": "Guest and account retention must not be conflated."
+    },
+    {
+      "provider": "pixeldrain.com",
+      "classification": "REJECT_FOR_STRICT_MODE",
+      "reason": "Free files expire after 60 days of inactivity; provider explicitly discourages using the free plan as long-term backup storage.",
+      "lesson": "Do not turn a public-sharing free tier into backup storage against the provider's stated intent."
+    },
+    {
+      "provider": "buzzheavier.com",
+      "classification": "REJECT_FOR_STRICT_MODE",
+      "reason": "Free expiry begins at 15 days and extends only through repeated downloads, capped at 45 days.",
+      "lesson": "Do not manufacture artificial downloads just to simulate durability."
+    }
+  ],
+  "candidate_targets": [
+    {
+      "id": "pastebin-ai-anonymous",
+      "name": "Pastebin.ai",
+      "url": "https://pastebin.ai",
+      "status": "DOC_QUALIFIED_PENDING_MEL_ROUNDTRIP",
+      "adapter_hint": "text_base64url_json_dynamic_raw_url",
+      "retention": {
+        "model": "fixed",
+        "days": 365,
+        "request_value": "1y"
+      },
+      "capacity_hint_bytes": 1048576,
+      "auth": "none",
+      "evidence": [
+        "https://pastebin.ai/api-docs",
+        "https://pastebin.ai/terms"
+      ],
+      "notes": "Anonymous POST /api/v1/pastes is documented; reasonable API automation is permitted within limits. Use unlisted plaintext containing base64url of the encrypted shard and save raw_url."
+    },
+    {
+      "id": "dpaste-anonymous",
+      "name": "dpaste.com",
+      "url": "https://dpaste.com",
+      "status": "DOC_QUALIFIED_PENDING_MEL_ROUNDTRIP",
+      "adapter_hint": "text_base64url_form_dynamic_location",
+      "retention": {
+        "model": "fixed",
+        "days": 365,
+        "request_value": "expiry_days=365"
+      },
+      "auth": "none",
+      "evidence": [
+        "https://dpaste.com/api/v2/",
+        "https://dpaste.com/help"
+      ],
+      "notes": "Anonymous create is available; automated clients should send User-Agent and stay <= 1 request/s. Save returned Location and fetch its raw .txt representation."
+    },
+    {
+      "id": "pastemyst-anonymous",
+      "name": "PasteMyst",
+      "url": "https://paste.myst.rs",
+      "status": "DOC_QUALIFIED_PENDING_MEL_ROUNDTRIP",
+      "adapter_hint": "text_base64url_json_api",
+      "retention": {
+        "model": "declared_never",
+        "days_floor_for_scoring": 365,
+        "request_value": "never"
+      },
+      "auth": "none_for_anonymous",
+      "evidence": [
+        "https://docs.beta.myst.rs/",
+        "https://paste.myst.rs/api-docs/paste"
+      ],
+      "notes": "Open/free API with anonymous operations and explicit never/1y expiry choices. Use current API generation and verify response schema before activation."
+    },
+    {
+      "id": "1c3-anonymous",
+      "name": "1C3",
+      "url": "https://1c3.ir",
+      "status": "DOC_QUALIFIED_PENDING_MEL_ROUNDTRIP",
+      "adapter_hint": "binary_multipart_dynamic_url",
+      "retention": {
+        "model": "fixed",
+        "days": 365,
+        "request_value": "365d seconds"
+      },
+      "capacity_hint_bytes": 52428800,
+      "auth": "none",
+      "evidence": [
+        "https://1c3.ir/"
+      ],
+      "notes": "Anonymous text/file upload, 50 MB max, 1h-365d expiry. Stay far below published rate limits and never perform mass uploads."
+    },
+    {
+      "id": "paste-cnet-anonymous",
+      "name": "paste.c-net.org",
+      "url": "https://paste.c-net.org",
+      "status": "DOC_AND_RECENT_LIVE_REPORT_PENDING_MEL_ROUNDTRIP",
+      "adapter_hint": "binary_post_or_put_dynamic_url",
+      "retention": {
+        "model": "fixed",
+        "days": 180,
+        "renewable_by_access": true
+      },
+      "capacity_hint_bytes": 52428800,
+      "auth": "none",
+      "evidence": [
+        "https://paste.c-net.org/"
+      ],
+      "notes": "Console-friendly binary paste service; documentation/community references describe 180-day expiry reset by access. MEL must still verify TLS/DNS and round-trip from its own infrastructure."
+    },
+    {
+      "id": "msk-paste-anonymous",
+      "name": "MSK Paste",
+      "url": "https://paste.msk-scripts.de",
+      "status": "DOC_QUALIFIED_PENDING_MEL_ROUNDTRIP",
+      "adapter_hint": "text_base64url_json_dynamic_raw_url",
+      "retention": {
+        "model": "fixed",
+        "days": 365,
+        "request_value": "1y"
+      },
+      "capacity_hint_bytes": 1048576,
+      "auth": "none",
+      "evidence": [
+        "https://docu.msk-scripts.de/ecosystem/msk-paste/api/"
+      ],
+      "notes": "Documented public JSON API with no authentication, 1 MB content and 1y expiry. Create rate limit is documented; respect Retry-After."
+    },
+    {
+      "id": "fileditch-anonymous-renewable",
+      "name": "FileDitch",
+      "url": "https://new.fileditch.com",
+      "status": "RENEWABLE_DESIGN_PENDING_MEL_ROUNDTRIP_AND_RENEWAL_PROOF",
+      "adapter_hint": "binary_raw_dynamic_url",
+      "retention": {
+        "model": "renewable",
+        "base_days": 45,
+        "refresh_before_days": 30,
+        "refresh_method": "full GET"
+      },
+      "capacity_hint_bytes": 161061273600,
+      "auth": "none",
+      "evidence": [
+        "https://new.fileditch.com/api.html"
+      ],
+      "notes": "Scripts/bots are explicitly supported. Files have no scheduled expiry while accessed; only files untouched 45+ days may be removed when space is needed. Status API checks do not renew the clock, so MEL must not mistake HEAD/status for a retention refresh."
+    }
+  ],
+  "promotion_state_machine": [
+    "LEAD",
+    "DOC_REVIEWED",
+    "ELIGIBLE",
+    "PROBE_WRITING",
+    "PROBE_READING",
+    "BYTE_MATCHED",
+    "RETENTION_CONFIRMED",
+    "VALIDATED",
+    "ACTIVE",
+    "REVALIDATE_DUE",
+    "QUARANTINED"
+  ],
+  "scoring_principles": [
+    "Hard gates come before score.",
+    "Prefer independent operators/providers before adding a second endpoint from the same operator.",
+    "Latency can break ties but must never compensate for retention, policy or integrity failure.",
+    "Confidence increases only from current evidence and repeated successful probes; age reduces confidence."
+  ]
+}
