@@ -132,3 +132,24 @@ jobs:
             echo "RESULT dpastecom FAIL_UPLOAD $(tr '\n' ' ' < err)"
           fi
 
+      - name: Probe Pastebin.ai never-expire
+        shell: bash
+        run: |
+          set +e
+          content="$(base64 -w0 probe.txt)"
+          body="$(jq -n --arg c "$content" '{content:$c,title:"MEL ShardVault probe",language:"plaintext",visibility:"unlisted",expiration:"never"}' | curl -fsS --max-time 25 -H 'Content-Type: application/json' --data-binary @- https://pastebin.ai/api/v1/pastes 2>err)"
+          id="$(printf '%s' "$body" | jq -r '.id // empty' 2>/dev/null)"
+          raw="$(printf '%s' "$body" | jq -r '.raw_url // empty' 2>/dev/null)"
+          if [ -n "$id" ]; then
+            if [ -n "$raw" ]; then
+              curl -fsSL --max-time 25 "$raw" -o encoded
+            else
+              get="$(curl -fsS --max-time 25 "https://pastebin.ai/api/v1/pastes/$id" 2>err2)"
+              printf '%s' "$get" | jq -r '.content // empty' > encoded
+            fi
+            base64 -d encoded > out 2>/dev/null
+            cmp -s probe.txt out && echo "RESULT pastebinai PASS https://pastebin.ai/p/$id" || echo "RESULT pastebinai FAIL_READ body=$body"
+          else
+            echo "RESULT pastebinai FAIL_UPLOAD body=$body err=$(tr '\n' ' ' < err)"
+          fi
+
