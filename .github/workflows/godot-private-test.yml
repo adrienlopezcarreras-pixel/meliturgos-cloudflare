@@ -24,7 +24,7 @@ jobs:
       - name: Install runtime dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y unzip curl openssl xvfb libgl1 libx11-6 libxrandr2 libxcursor1 libxi6 libxinerama1 libwayland-client0
+          sudo apt-get install -y unzip curl openssl xvfb imagemagick x11-apps libgl1 libx11-6 libxrandr2 libxcursor1 libxi6 libxinerama1 libwayland-client0
 
       - name: Install Godot 4.7.2
         run: |
@@ -149,3 +149,39 @@ jobs:
           done
           if [ "$overall" -eq 0 ]; then echo "OVERALL_RESULT=PASS"; else echo "OVERALL_RESULT=FAIL"; fi
           exit "$overall"
+
+      - name: Capture real rendered screenshots
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/godot-screenshots
+          projects=(TARNEN DIVISION_AZUL CHEVALIER_IMMORTEL ORPHELINS_DU_CODE_3D CIVITAS)
+
+          for name in "${projects[@]}"; do
+            proj="$GAMES_ROOT/$name"
+            shot="/tmp/godot-screenshots/$name.png"
+            echo "===== CAPTURE $name ====="
+
+            xvfb-run -a -s "-screen 0 1280x720x24" bash -lc "
+              set +e
+              '$GODOT' --path '$proj' --resolution 1280x720 --position 0,0 >/tmp/${name}-visual.log 2>&1 &
+              pid=\$!
+              sleep 5
+              import -window root '$shot'
+              rc=\$?
+              kill \$pid >/dev/null 2>&1 || true
+              wait \$pid >/dev/null 2>&1 || true
+              exit \$rc
+            "
+
+            test -s "$shot"
+            identify "$shot"
+          done
+
+      - name: Upload real Godot screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: godot-real-screenshots
+          path: /tmp/godot-screenshots/*.png
+          if-no-files-found: error
+          retention-days: 1
+
