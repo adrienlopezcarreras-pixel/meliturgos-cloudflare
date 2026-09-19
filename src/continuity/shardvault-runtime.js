@@ -164,8 +164,15 @@ async function ensureCodeArchive(env){
   if(existing.ok)return existing;
   const id=deployedCodeIdentity(env);
   if(!id||!env?.MEDIA_BUCKET?.put)return existing;
-  const response=await fetchTimed('https://codeload.github.com/'+id.repository+'/tar.gz/'+id.sha,{method:'GET',headers:{'user-agent':'MEL-ShardVault/0.3'}},20000);
-  if(!response.ok)throw new Error('CODE_ARCHIVE_HTTP_'+response.status);
+  const headers={'accept':'application/vnd.github+json','user-agent':'MEL-ShardVault/0.4'};
+  const token=String(env?.MEL_GITHUB_TOKEN||env?.GITHUB_TOKEN||'').trim();
+  if(token)headers.authorization='Bearer '+token;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000);
+  let response;
+  try{
+    response=await fetch('https://api.github.com/repos/'+id.repository+'/tarball/'+id.sha,{method:'GET',headers,redirect:'follow',signal:controller.signal});
+  }finally{clearTimeout(timer);}
+  if(!response?.ok)throw new Error('CODE_ARCHIVE_HTTP_'+String(response?.status||0));
   const bytes=new Uint8Array(await response.arrayBuffer());
   if(bytes.length>64*1024*1024)throw new Error('CODE_ARCHIVE_TOO_LARGE');
   const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));

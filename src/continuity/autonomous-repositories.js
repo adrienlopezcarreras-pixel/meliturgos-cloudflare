@@ -5,6 +5,19 @@ const MAX_PUBLIC_FEEDS = 30;
 const MAX_GITHUB_REPOS = 20;
 const MAX_GITHUB_CATALOG_REPOS = 12;
 const MAX_CATALOG_LEADS = 120;
+const EMBEDDED_SEED_LEADS = Object.freeze([
+  {name:'/TMP/FILES',url:'https://tmpfiles.org',summary:'Hébergement temporaire anonyme avec API signalée. Piste à vérifier avant tout usage.'},
+  {name:'Gofile',url:'https://gofile.io',summary:'Hébergement de fichiers avec API et usage invité signalés. Piste à vérifier avant tout usage.'},
+  {name:'1fichier',url:'https://1fichier.com',summary:'Upload invité/API signalés par des catalogues publics. Piste à vérifier avant tout usage.'},
+  {name:'TempFile.org',url:'https://tempfile.org',summary:'API REST publique signalée pour fichiers temporaires. Piste à vérifier avant tout usage.'},
+  {name:'FileDitch',url:'https://fileditch.com',summary:'Service anonyme avec backend API mentionné publiquement. Piste à vérifier avant tout usage.'}
+]);
+const EMBEDDED_CATALOGS = Object.freeze([
+  {id:'awesome-file-hosts',url:'https://raw.githubusercontent.com/FahadBinHussain/awesome-file-hosts/main/README.md'},
+  {id:'awesome-free-file-hosting',url:'https://raw.githubusercontent.com/Nick088Official/awesome-free-file-hosting/main/README.md'},
+  {id:'polyuploader',url:'https://raw.githubusercontent.com/spel987/PolyUploader/main/README.md'},
+  {id:'awesome-public-free-apis',url:'https://raw.githubusercontent.com/gunjanjaswal/Awesome-Public-Free-Apis/main/README.md'}
+]);
 
 function bytes(v){ if(v instanceof Uint8Array)return new Uint8Array(v); if(v instanceof ArrayBuffer)return new Uint8Array(v); if(ArrayBuffer.isView(v))return new Uint8Array(v.buffer.slice(v.byteOffset,v.byteOffset+v.byteLength)); throw new TypeError('BYTES_REQUIRED'); }
 function utf8(v){ return te.encode(String(v)); }
@@ -117,7 +130,8 @@ async function loadPublicFeed(url,accepted,rejected,queue,seen){
   }
 }
 async function discoverInternetSources(env,accepted,rejected){
-  const sources=[],leads=[],queue=[],seen=new Set();
+  const sources=[],leads=EMBEDDED_SEED_LEADS.map(x=>({...x,source:'embedded-bootstrap',status:'SEED_LEAD'})),queue=[],seen=new Set();
+  let catalogs=[...EMBEDDED_CATALOGS];
   const indexUrl=String(env?.MEL_SHARDVAULT_DISCOVERY_INDEX||DEFAULT_DISCOVERY_INDEX);
   try{
     const clean=publicHttps(indexUrl,'DISCOVERY_INDEX').toString();
@@ -126,6 +140,7 @@ async function discoverInternetSources(env,accepted,rejected){
     const index=await r.json();
     if(index?.format!=='MEL-ShardVault-DiscoveryIndex')throw new Error('DISCOVERY_INDEX_FORMAT_INVALID');
     sources.push({id:'bootstrap-index',url:clean,status:'LOADED',kind:'bootstrap'});
+    if(Array.isArray(index.catalogs)&&index.catalogs.length)catalogs=index.catalogs;
     for(const seed of index.seed_leads||[]){
       const name=String(seed?.name||'').trim();
       const url=String(seed?.url||'').trim();
@@ -133,7 +148,7 @@ async function discoverInternetSources(env,accepted,rejected){
       leads.push({name,url:url||null,source:clean,summary:String(seed?.summary||'Source trouvée lors de la première exploration manuelle.').slice(0,500),status:'SEED_LEAD'});
     }
     for(const feed of index.native_feeds||[]){try{queue.push(publicHttps(typeof feed==='string'?feed:feed?.url,'BOOTSTRAP_FEED').toString());}catch{}}
-    for(const catalog of index.catalogs||[]){
+    for(const catalog of catalogs){
       const url=typeof catalog==='string'?catalog:catalog?.url;
       if(!url)continue;
       try{
@@ -146,7 +161,24 @@ async function discoverInternetSources(env,accepted,rejected){
         sources.push({id:String(catalog?.id||'catalog'),url:cu,status:'LOADED',kind:'catalog',leads:found.length});
       }catch(error){sources.push({id:String(catalog?.id||'catalog'),url:String(url),status:'ERROR',kind:'catalog',error:String(error?.message||error)});}
     }
-  }catch(error){sources.push({id:'bootstrap-index',url:indexUrl,status:'ERROR',kind:'bootstrap',error:String(error?.message||error)});}
+  }catch(error){
+    sources.push({id:'bootstrap-index',url:indexUrl,status:'FALLBACK_EMBEDDED',kind:'bootstrap',error:String(error?.message||error)});
+    for(const catalog of catalogs){
+      const url=typeof catalog==='string'?catalog:catalog?.url;
+      if(!url)continue;
+      try{
+        const cu=publicHttps(url,'DISCOVERY_CATALOG').toString();
+        const cr=await fetchTimed(cu,{method:'GET',headers:{'accept':'text/plain,application/json'}},10000);
+        if(!cr.ok)throw new Error('CATALOG_HTTP_'+cr.status);
+        const text=await cr.text();
+        const found=parseCatalogLeads(text,cu);
+        leads.push(...found.slice(0,Math.max(0,MAX_CATALOG_LEADS-leads.length)));
+        sources.push({id:String(catalog?.id||'catalog'),url:cu,status:'LOADED',kind:'catalog',leads:found.length});
+      }catch(catalogError){
+        sources.push({id:String(catalog?.id||'catalog'),url:String(url),status:'ERROR',kind:'catalog',error:String(catalogError?.message||catalogError)});
+      }
+    }
+  }
 
   const feedQuery='mel-shardvault in:name,description,readme';
   try{

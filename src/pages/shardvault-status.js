@@ -53,12 +53,12 @@ pre{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;background
 <div class="sub">Continuité mémoire de MEL · chiffrement, fragmentation 4/7, réparation et recherche autonome.</div>
 <div class="toolbar">
 <button id="refresh">Actualiser</button>
-<button id="snapshot">Sauvegarder maintenant</button>
+<button id="snapshotNow">Sauvegarder maintenant</button>
 <button id="search">Explorer Internet pour de nouvelles cibles</button>
 <a href="/" style="align-self:center">← Retour à MEL</a>
 </div>
 <div id="summary" class="grid"></div>
-<div class="section card"><h2>Dernier snapshot</h2><div id="snapshot">Chargement…</div></div>
+<div class="section card"><h2>Dernier snapshot</h2><div id="snapshotInfo">Chargement…</div></div>
 <div class="section card"><h2>Dépôts sélectionnés</h2><div id="endpoints">Chargement…</div></div>
 <div class="section card"><h2>Copies du code de MEL</h2><div id="codeBackup">Chargement…</div></div>
 <div class="section card"><h2>Exploration Internet</h2><div id="searchStatus" class="muted">Source de départ : catalogue public + recherche GitHub de catalogues ShardVault. Aucun hébergeur n’est écrit tant que sa politique ne l’autorise pas explicitement.</div><div id="results"></div></div>
@@ -94,7 +94,7 @@ async function load(){
    card('Mode autonome',d.autonomous_enabled?'ACTIF':'INACTIF',d.autonomous_enabled?'ok':'warn')
   ].join('');
   const l=d.latest;
-  $('snapshot').innerHTML=l?'<div class="row"><span>ID</span><b>'+safe(l.snapshot_id)+'</b></div><div class="row"><span>Révision</span><b>'+fmt(l.revision)+'</b></div><div class="row"><span>Créé</span><b>'+safe(l.created_at||'—')+'</b></div><div class="row"><span>Taille fragment</span><b>'+fmt(l.shard_size)+' octets</b></div>':'Aucun snapshot valide trouvé.';
+  $('snapshotInfo').innerHTML=l?'<div class="row"><span>ID</span><b>'+safe(l.snapshot_id)+'</b></div><div class="row"><span>Révision</span><b>'+fmt(l.revision)+'</b></div><div class="row"><span>Créé</span><b>'+safe(l.created_at||'—')+'</b></div><div class="row"><span>Taille fragment</span><b>'+fmt(l.shard_size)+' octets</b></div>':'Aucun snapshot valide trouvé.';
   $('endpoints').innerHTML=(d.selected_endpoints||[]).length?(d.selected_endpoints||[]).map(endpointRow).join(''):'Aucun dépôt actuellement sélectionné.';
   const code=d.code_survival||{};
   $('codeBackup').innerHTML='<div class="row"><span>GitHub</span><b>'+safe(code.repository||'non identifié')+(code.sha?' · '+safe(String(code.sha).slice(0,12)):'')+'</b></div><div class="row"><span>Cloudflare R2</span><b class="'+(code.ok?'ok':'warn')+'">'+safe(code.status||'—')+'</b></div>'+(code.key?'<div class="row"><span>Objet R2</span><span class="muted">'+safe(code.bucket||'')+' / '+safe(code.key)+'</span></div>':'');
@@ -104,7 +104,7 @@ async function load(){
  finally{$('refresh').disabled=false}
 }
 async function snapshot(){
- const b=$('snapshot');b.disabled=true;b.textContent='Sauvegarde en cours…';
+ const b=$('snapshotNow');b.disabled=true;b.textContent='Sauvegarde en cours…';
  try{
   const r=await fetch('/api/gen2/shardvault/snapshot',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
   const d=await r.json();
@@ -125,7 +125,7 @@ async function search(){
  }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Erreur : '+e.message}
  finally{b.disabled=false;b.textContent='Explorer Internet pour de nouvelles cibles'}
 }
-$('refresh').onclick=load;$('snapshot').onclick=snapshot;$('search').onclick=search;load();setInterval(load,30000);
+$('refresh').onclick=load;$('snapshotNow').onclick=snapshot;$('search').onclick=search;load();setInterval(load,30000);
 </script></body></html>`,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
 }
 
