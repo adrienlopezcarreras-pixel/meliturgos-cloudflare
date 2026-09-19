@@ -14,6 +14,12 @@ Collecteur local et progressif des conversations ChatGPT vers la mémoire persis
 - les appels au contenu et l'import réseau ont leurs propres délais maximum afin qu'une promesse bloquée ne puisse plus immobiliser toute la collecte ;
 - reprend après interruption et permet de remettre explicitement les conversations différées en file ;
 - capture également les nouvelles conversations stables pendant l'utilisation normale de ChatGPT.
+- capture également les nouvelles conversations stables pendant l'utilisation normale de ChatGPT, mais seulement par petits incréments et jamais pendant le traitement massif ;
+- en mode PC très lent, découpe l'extraction DOM en petits lots avec des pauses afin de rendre la main à Firefox ;
+- attend que le DOM d'une conversation soit stable avant l'extraction ;
+- évite le balayage coûteux de tous les `div` de ChatGPT pendant la découverte normale ;
+- après une grosse conversation (ou périodiquement), vide l'onglet de collecte sur `about:blank` pour aider Firefox à libérer la mémoire ;
+- allonge automatiquement la pause après les conversations de 250+ et 600+ messages.
 
 Aucun mot de passe ChatGPT n'est lu ou stocké.
 
