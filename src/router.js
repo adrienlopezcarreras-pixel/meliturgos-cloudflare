@@ -15,6 +15,7 @@ import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { devRuntime } from "./dev/runtime-api.js";
 import { getRuntimeRoadmapPayload } from "./roadmap/runtime-roadmap.js";
 import { buildMelProgress } from "./learning/progress.js";
+import { handleShardVaultStatus } from "./pages/shardvault-status.js";
 
 let legacy;
 async function loadLegacy(env) {
@@ -192,6 +193,9 @@ export default {
       const legacyRequest = new Request(new URL('/professor', request.url), request);
       return legacyHandler?.fetch ? legacyHandler.fetch(legacyRequest, env, ctx) : html("<h1>Professor page not available</h1>", 503);
     }
+
+    const shardVaultResponse = await handleShardVaultStatus(request, env);
+    if (shardVaultResponse) return shardVaultResponse;
 
     const conversationResponse = await conversationRoutes(request, env);
     if (conversationResponse) return conversationResponse;
