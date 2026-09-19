@@ -1,0 +1,94 @@
+name: final-production-shardvault-preference-ad836f8a
+
+on:
+  push:
+    branches:
+      - release/shardvault-preferred-target-ad836f8a
+    paths:
+      - .github/workflows/final-production-shardvault-preference-ad836f8a.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meliturgos-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact approved SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ad836f8ab6d49df1b5fdcdd965e2425540e26f6d
+          fetch-depth: 1
+
+      - name: Prove immutable promotion identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "ad836f8ab6d49df1b5fdcdd965e2425540e26f6d"
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Runtime dependency security gate
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Syntax gate
+        run: npm run check
+
+      - name: Full regression gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B candidate/release-ci-head ad836f8ab6d49df1b5fdcdd965e2425540e26f6d
+          npm test
+
+      - name: Build immutable source survival archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz --output=mel-source-ad836f8ab6d49df1b5fdcdd965e2425540e26f6d.tar.gz ad836f8ab6d49df1b5fdcdd965e2425540e26f6d
+          test -s mel-source-ad836f8ab6d49df1b5fdcdd965e2425540e26f6d.tar.gz
+
+      - name: Seed exact code archive into R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler r2 object put "meliturgos-private-media/shardvault/code/adrienlopezcarreras-pixel__meliturgos-cloudflare/ad836f8ab6d49df1b5fdcdd965e2425540e26f6d.tar.gz" \
+            --file="mel-source-ad836f8ab6d49df1b5fdcdd965e2425540e26f6d.tar.gz" \
+            --content-type="application/gzip" \
+            --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy exact approved SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy \
+            --define "MEL_DEPLOYED_GIT_SHA:'ad836f8ab6d49df1b5fdcdd965e2425540e26f6d'" \
+            --define "MEL_DEPLOYED_GIT_BRANCH:'release/shardvault-preferred-target-ad836f8a'"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify production responds
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --location --retry 5 --retry-all-errors --retry-delay 3 --max-time 30 --output production-root.html --write-out '%{http_code}' https://meliturgos.adrien-lopezcarreras.workers.dev)"
+          case "$code" in
+            2??|3??|401) ;;
+            *) echo "Unexpected production HTTP status: $code"; exit 22 ;;
+          esac
