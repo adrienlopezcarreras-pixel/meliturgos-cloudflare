@@ -147,6 +147,37 @@ export async function auditOwnerCommunication(env = {}, input = {}) {
   };
 }
 
+
+export async function readRecentCommunicationQuality(env = {}, input = {}) {
+  if (!env?.DB) throw Object.assign(new Error('DB_BINDING_MISSING'), { code:'DB_BINDING_MISSING' });
+  const limit = Math.max(1, Math.min(50, Number(input.limit) || 20));
+  const conversationId = String(input.conversationId || '').trim();
+  try {
+    const statement = conversationId
+      ? env.DB.prepare('SELECT conversation_id,user_excerpt,response_excerpt,issues_json,relevance_json,created_at FROM mel_response_quality_events WHERE conversation_id=? ORDER BY created_at DESC LIMIT ?').bind(conversationId, limit)
+      : env.DB.prepare('SELECT conversation_id,user_excerpt,response_excerpt,issues_json,relevance_json,created_at FROM mel_response_quality_events ORDER BY created_at DESC LIMIT ?').bind(limit);
+    const result = await statement.all();
+    const events = (result.results || []).map(row => {
+      let issues = [];
+      let relevance = {};
+      try { issues = JSON.parse(row.issues_json || '[]'); } catch {}
+      try { relevance = JSON.parse(row.relevance_json || '{}'); } catch {}
+      return {
+        conversation_id:String(row.conversation_id || ''),
+        user_excerpt:String(row.user_excerpt || '').slice(0,500),
+        response_excerpt:String(row.response_excerpt || '').slice(0,800),
+        issues:Array.isArray(issues) ? issues.slice(0,12) : [],
+        relevance,
+        created_at:Number(row.created_at || 0),
+      };
+    });
+    return { ok:true, count:events.length, events };
+  } catch (error) {
+    if (/no such table|does not exist/i.test(String(error?.message || ''))) return { ok:true, count:0, events:[] };
+    throw error;
+  }
+}
+
 export function registerCommunicationAuditCapability(bus, env = {}) {
   bus.discover({
     id:'conversation.audit',
@@ -170,5 +201,28 @@ export function registerCommunicationAuditCapability(bus, env = {}) {
     health:env.DB ? 'HEALTHY' : 'UNAVAILABLE',
     enabled:true,
   }, (input) => auditOwnerCommunication(env, input || {}));
+
+  bus.discover({
+    id:'conversation.quality.recent',
+    name:'Incidents récents de qualité conversationnelle',
+    category:'conversation',
+    version:'1.0.0',
+    provider:'mel',
+    description:'Relit les incidents automatiquement détectés après génération afin que MEL puisse voir ses dérives récentes sans confondre signal heuristique et preuve absolue.',
+    input_schema:{
+      type:'object',
+      properties:{
+        conversationId:{ type:'string', minLength:0, maxLength:200 },
+        limit:{ type:'integer', minimum:1, maximum:50 },
+      },
+      additionalProperties:false,
+    },
+    output_schema:{ type:'object', additionalProperties:true },
+    risk:'LOW',
+    permissions:[],
+    health:env.DB ? 'HEALTHY' : 'UNAVAILABLE',
+    enabled:true,
+  }, input => readRecentCommunicationQuality(env, input || {}));
+
   return bus;
 }

@@ -1,4 +1,5 @@
 import { getChatGPTImportStatus } from '../persistence/chatgpt-archive-importer.js';
+import { classifyCapabilityTruth } from '../diagnostics/capability-truth-audit.js';
 
 function failure(error) {
   return {
@@ -52,21 +53,37 @@ function summarizeCapabilityInventory(bus) {
   let rows = [];
   try { rows = typeof bus?.list === 'function' ? bus.list() : []; } catch { rows = []; }
   const health = {};
+  const truth = {};
   const categories = {};
+  const categoryDetails = {};
   let enabled = 0;
   for (const row of rows) {
     if (row?.enabled !== false) enabled += 1;
     const h = String(row?.health || 'UNKNOWN').toUpperCase();
     health[h] = (health[h] || 0) + 1;
-    const category = String(row?.category || 'other').slice(0, 80);
+    const status = classifyCapabilityTruth(row, null);
+    truth[status] = (truth[status] || 0) + 1;
+    const id = String(row?.id || 'unknown');
+    const category = String(row?.category || id.split('.')[0] || 'other').slice(0, 80);
     categories[category] = (categories[category] || 0) + 1;
+    if (!categoryDetails[category]) categoryDetails[category] = [];
+    if (categoryDetails[category].length < 10) {
+      categoryDetails[category].push({
+        id,
+        status,
+        health:h,
+        enabled:row?.enabled !== false,
+      });
+    }
   }
   return {
     registered: rows.length,
     enabled,
     disabled: Math.max(0, rows.length - enabled),
     health,
+    truth,
     categories,
+    category_details:categoryDetails,
   };
 }
 
@@ -120,6 +137,7 @@ export async function collectSelfState({ bus, env = {}, context = {} } = {}) {
   const memory = await observeCapability(bus, 'memory.status', {}, context);
   const work = await observeCapability(bus, 'work.open', { limit: 20 }, context);
   const recentWork = await observeCapability(bus, 'work.list', { limit: 12 }, context);
+  const communicationQuality = await observeCapability(bus, 'conversation.quality.recent', { limit: 10 }, context);
   const autonomy = compactAutonomyObservation(await observeCapability(bus, 'autonomy.status', {}, context));
   const system = await observeCapability(bus, 'system.bindings', {}, context);
   const code = compactCodeObservation(await observeCapability(
@@ -129,7 +147,7 @@ export async function collectSelfState({ bus, env = {}, context = {} } = {}) {
     context,
   ));
 
-  const sections = { code, work, recent_work: recentWork, memory, chatgpt_import: chatgpt, autonomy, system };
+  const sections = { code, work, recent_work: recentWork, memory, chatgpt_import: chatgpt, communication_quality: communicationQuality, autonomy, system };
   return {
     ok: Object.values(sections).some(section => section?.ok === true),
     observed_at: new Date().toISOString(),
@@ -142,6 +160,7 @@ export async function collectSelfState({ bus, env = {}, context = {} } = {}) {
       browser_boundary: 'This is structured runtime/tool observation, not visual access to unrelated browser tabs.',
       uncommitted_boundary: 'Remote code state cannot reveal another page changes that have not been committed to the observed branch.',
       memory_retrieval_boundary: 'Persistent memory can be larger than the context injected into one answer; relevant records are retrieved selectively rather than loading the entire archive into every prompt.',
+      communication_quality_boundary: 'Automatically detected communication incidents are heuristic signals for self-correction, not proof that every flagged answer was objectively wrong.',
     },
   };
 }
@@ -151,7 +170,7 @@ export function registerSelfStateCapability(bus, env = {}) {
     id: 'self.state',
     name: 'État interne observé de MEL',
     category: 'diagnostic',
-    version: '1.1.0',
+    version: '1.2.0',
     provider: 'mel',
     description: 'Aggregates bounded read-only evidence about MEL code identity, persistent work, memory, ChatGPT import and runtime bindings for grounded self-introspection.',
     input_schema: { type: 'object', additionalProperties: false },

@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { createConversationService } from '../src/conversations/conversation-service.js';
-import { auditOwnerCommunication } from '../src/capabilities/communication-audit-capability.js';
+import { auditOwnerCommunication, readRecentCommunicationQuality } from '../src/capabilities/communication-audit-capability.js';
+import { persistResponseQualityEvent } from '../src/api/response-quality-audit.js';
 
 test('communication audit detects contradictions from archived exchanges', async () => {
   const DB = sqliteD1();
@@ -19,4 +20,28 @@ test('communication audit detects contradictions from archived exchanges', async
     assert.ok(out.issue_counts.GLOBAL_INCAPACITY_CLAIM >= 1);
     assert.ok(out.issue_counts.POSSIBLE_SELF_CONTRADICTION >= 1);
   } finally { DB.close(); }
+});
+
+
+test('automatic response-quality incidents can be read back by MEL', async () => {
+  const DB=sqliteD1();
+  try {
+    await persistResponseQualityEvent({DB},{
+      conversationId:'quality-read',
+      userText:'continue',
+      responseText:'réponse hors sujet',
+      focus:{anchor:'communication MEL'},
+      assessment:{
+        ok:false,
+        issues:[{code:'POSSIBLE_OFF_TOPIC',severity:'high'}],
+        relevance:{ratio:0,anchor_tokens:3,shared_tokens:0},
+      },
+    });
+    const out=await readRecentCommunicationQuality({DB},{conversationId:'quality-read',limit:10});
+    assert.equal(out.ok,true);
+    assert.equal(out.count,1);
+    assert.equal(out.events[0].issues[0].code,'POSSIBLE_OFF_TOPIC');
+  } finally {
+    DB.close();
+  }
 });

@@ -39,3 +39,45 @@ test('elliptical detector covers operational follow-ups without swallowing detai
   }
   assert.equal(isEllipticalFollowUp('améliore la cohérence des réponses de MEL sans toucher à ShardVault'), false);
 });
+
+
+test('persistent focus rescues a short follow-up when recent context is empty', () => {
+  const focus = deriveConversationFocus([], 'continue', {
+    anchor:'améliore la cohérence des réponses de MEL',
+    constraints:['reste uniquement sur la communication de MEL'],
+    excluded_topics:['shardvault'],
+  });
+  assert.equal(focus.elliptical, true);
+  assert.equal(focus.anchor_source, 'persisted');
+  assert.match(focus.anchor, /cohérence des réponses/i);
+  assert.deepEqual(focus.excluded_topics, ['shardvault']);
+  assert.equal(focus.needs_clarification, false);
+});
+
+test('short follow-up without recent or persisted anchor asks for clarification', () => {
+  const focus = deriveConversationFocus([], 'go');
+  assert.equal(focus.elliptical, true);
+  assert.equal(focus.needs_clarification, true);
+  assert.equal(focus.anchor, '');
+});
+
+test('explicit permission can release a persisted excluded topic', () => {
+  const focus = deriveConversationFocus([], 'tu peux maintenant toucher à ShardVault', {
+    anchor:'communication MEL',
+    constraints:["ne touche pas à ShardVault"],
+    excluded_topics:['shardvault'],
+  });
+  assert.equal(focus.elliptical, false);
+  assert.equal(focus.excluded_topics.includes('shardvault'), false);
+});
+
+
+test('permission reset releases only the named excluded topic when several are persisted', () => {
+  const focus=deriveConversationFocus([], 'tu peux maintenant toucher à ShardVault', {
+    anchor:'communication MEL',
+    constraints:["ne touche pas à ShardVault","ne touche pas à Hardware"],
+    excluded_topics:['shardvault','hardware'],
+  });
+  assert.equal(focus.excluded_topics.includes('shardvault'), false);
+  assert.equal(focus.excluded_topics.includes('hardware'), true);
+});

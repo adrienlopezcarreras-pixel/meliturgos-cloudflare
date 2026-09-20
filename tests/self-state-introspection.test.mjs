@@ -81,10 +81,15 @@ test('self.state aggregates bounded live evidence without mutating product state
     assert.equal(result.sections.system.ok, true);
     assert.equal(result.sections.chatgpt_import.ok, true);
     assert.equal(result.sections.chatgpt_import.data.status, 'ONLINE');
+    assert.equal(result.sections.communication_quality.ok, true);
+    assert.equal(result.sections.communication_quality.data.count, 0);
     assert.equal(result.sections.code.ok, true);
     assert.equal(result.sections.code.data.head, HEAD);
     assert.equal(result.sections.code.data.branch, 'candidate/mel-clean-autonomy');
+    assert.ok(result.capabilities.truth && typeof result.capabilities.truth === 'object');
+    assert.ok(result.capabilities.category_details && typeof result.capabilities.category_details === 'object');
     assert.match(result.interpretation.uncommitted_boundary, /not been committed/i);
+    assert.match(result.interpretation.communication_quality_boundary, /heuristic signals/i);
   } finally {
     DB.close();
   }

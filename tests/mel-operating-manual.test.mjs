@@ -18,13 +18,15 @@ test('MEL operating manual keeps identity, experience and post-pass invariants e
   assert.ok(MEL_OPERATING_MANUAL.responseQuality.some(x => /contexte récent/i.test(x)));
 
   const prompt = buildMelOperatingManualPrompt({
-    capabilityManifest: [{ id:'code.read', status:'EXISTANT_NON_TESTE', health:'HEALTHY', tested_now:false }],
+    capabilityManifest: [{ id:'code.read', status:'EXISTANT_NON_TESTE', health:'HEALTHY', enabled:true, provider:'core', risk:'LOW', permissions:['repo.read'], tested_now:false }],
     experience: [{ id:'bootstrap-post-pass-reconcile-adapt-20260918', after:'Nettoyer, unifier, réconcilier et adapter.' }],
   });
   assert.match(prompt, /MEL_OPERATING_MANUAL/);
   assert.match(prompt, /code\.read/);
   assert.match(prompt, /bootstrap-post-pass-reconcile-adapt-20260918/);
   assert.match(prompt, /QUALITÉ DE MES RÉPONSES/);
+  assert.match(prompt, /repo\.read/);
+  assert.match(prompt, /\"risk\":\"LOW\"/);
 });
 
 test('code access truth never turns missing current read proof into a false global incapacity', () => {

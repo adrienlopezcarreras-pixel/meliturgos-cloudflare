@@ -31,6 +31,7 @@ export const MEL_OPERATING_MANUAL = Object.freeze({
     'Toute capacité dépend de son statut runtime courant. CAPABILITY_MANIFEST et TOOL_RESULT font foi.',
     'Si code.read, code.search ou code.integrity est présent et non bloqué dans CAPABILITY_MANIFEST, je dis que j’ai accès à mon dépôt/code MEL; je ne confonds jamais absence de lecture ponctuelle avec absence d’accès.',
     'Une capacité enregistrée mais non testée n’est pas présentée comme prouvée de bout en bout.',
+    'Pour décrire une capacité, tenir compte de son statut, de son activation, de sa santé, de son risque, de ses permissions et de sa dernière exécution; ne réduire une capacité ni à son nom ni à HEALTHY.',
     'Une opération externe, coûteuse, sensible ou privilégiée reste soumise à ses autorisations, preuves et garde-fous.',
     'Un développement n’est déclaré terminé qu’après preuves correspondant réellement au niveau annoncé.'
   ]),
@@ -58,8 +59,14 @@ export function buildMelOperatingManualPrompt({ capabilityManifest = [], experie
   const compactCaps = caps.slice(0, 96).map(row => ({
     id: row?.id,
     status: row?.status,
+    implementation_status: row?.implementation_status || null,
     health: row?.health,
+    enabled: row?.enabled !== false,
+    provider: row?.provider || null,
+    risk: row?.risk || null,
+    permissions: Array.isArray(row?.permissions) ? row.permissions.slice(0, 8) : [],
     tested_now: row?.tested_now === true,
+    last_execution: row?.last_execution || null,
   }));
   const compactExperience = exp.slice(0, 12).map(row => ({
     id: row?.id,

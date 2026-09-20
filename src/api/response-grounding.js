@@ -30,9 +30,10 @@ function flags(question) {
   const capability = /capacit[ée]|comp[ée]tence|outil|fonctionnalit[ée]|module/i.test(text);
   const autonomy = /autonom|roadmap|feuille\s+de\s+route|self[- ]?development/i.test(text);
   const system = /binding|runtime|syst[eè]me|connexion|acc[eè]s/i.test(text);
+  const communication = /r[ée]ponse|coh[ée]ren|contradic|hors\s+sujet|communication|compr[ée]hension/i.test(text);
   const broad = /[ée]tat\s+(?:r[ée]el|interne|actuel)|tout\s+ce\s+que\s+tu\s+vois|self[- ]?state/i.test(text)
-    || !(memory || code || work || capability || autonomy || system);
-  return { memory, code, work, capability, autonomy, system, broad };
+    || !(memory || code || work || capability || autonomy || system || communication);
+  return { memory, code, work, capability, autonomy, system, communication, broad };
 }
 
 function errorLine(label, row) {
@@ -103,6 +104,23 @@ export function formatVerifiedSelfStateResponse(state, question = '', { fallback
     if (line) unavailable.push(line);
   }
 
+  const communicationQuality = section(state, 'communication_quality');
+  if ((wanted.communication || wanted.broad) && communicationQuality?.ok) {
+    const events = Array.isArray(communicationQuality.data?.events) ? communicationQuality.data.events : [];
+    const codes = {};
+    for (const event of events) {
+      for (const issue of Array.isArray(event?.issues) ? event.issues : []) {
+        const code = String(issue?.code || 'UNKNOWN');
+        codes[code] = (codes[code] || 0) + 1;
+      }
+    }
+    const summary = Object.entries(codes).map(([code,count]) => `${code}=${count}`).join(', ');
+    lines.push(`Qualité conversationnelle récente : ${n(communicationQuality.data?.count)} incident(s) enregistré(s)${summary ? ` — ${summary}` : ''}.`);
+  } else if (wanted.communication || wanted.broad) {
+    const line = errorLine('Qualité conversationnelle', communicationQuality);
+    if (line) unavailable.push(line);
+  }
+
   const autonomy = section(state, 'autonomy');
   if ((wanted.autonomy || wanted.broad) && autonomy?.ok) {
     const d = autonomy.data || {};
@@ -119,7 +137,16 @@ export function formatVerifiedSelfStateResponse(state, question = '', { fallback
     const health = c.health && typeof c.health === 'object'
       ? Object.entries(c.health).map(([k,v]) => `${k}=${v}`).join(', ')
       : '';
-    lines.push(`Capacités : ${n(c.registered)} enregistrée(s), ${n(c.enabled)} activée(s)${health ? ` ; santé ${health}` : ''}.`);
+    const truth = c.truth && typeof c.truth === 'object'
+      ? Object.entries(c.truth).map(([k,v]) => `${k}=${v}`).join(', ')
+      : '';
+    lines.push(`Capacités : ${n(c.registered)} enregistrée(s), ${n(c.enabled)} activée(s)${health ? ` ; santé ${health}` : ''}${truth ? ` ; vérité ${truth}` : ''}.`);
+    const details = c.category_details && typeof c.category_details === 'object' ? c.category_details : {};
+    const domains = Object.entries(details).slice(0, 10).map(([category, rows]) => {
+      const items = (Array.isArray(rows) ? rows : []).slice(0, 8).map(row => `${row.id}[${row.status || 'UNKNOWN'}]`);
+      return items.length ? `${category}: ${items.join(', ')}` : null;
+    }).filter(Boolean);
+    if (domains.length) lines.push(`Domaines : ${domains.join(' ; ')}.`);
   }
 
   const system = section(state, 'system');
@@ -171,7 +198,8 @@ export function formatVerifiedCapabilityAuditResponse(audit, { fallback = '' } =
   const untested = rows.filter(r => r?.truth_status === 'EXISTANT_NON_TESTE');
   const byCategory = new Map();
   for (const row of rows) {
-    const category = String(row?.category || 'other');
+    const id = String(row?.id || 'unknown');
+    const category = String(row?.category || id.split('.')[0] || 'other');
     if (!byCategory.has(category)) byCategory.set(category, []);
     byCategory.get(category).push(row);
   }

@@ -182,6 +182,7 @@ export function buildCurrentTurnPriorityInstruction() {
     'PRIORITÉ DU TOUR ACTUEL — RÈGLES OBLIGATOIRES :',
     'Le dernier message utilisateur qui suit est la source autoritative pour l’intention, le sujet et l’état ACTUELS d’Adrien.',
     'Tout souvenir, résumé, ancien échange ou fait récupéré ci-dessus est un contexte historique potentiellement obsolète : il ne peut ni contredire ni remplacer le dernier message utilisateur.',
+    'Si deux souvenirs sélectionnés se contredisent, une correction explicite plus récente d’Adrien prime. À date comparable, une mémoire explicit_user prime sur une inférence ou un résumé; si l’ordre ou la provenance ne permettent pas de trancher, signale l’incertitude au lieu de fusionner les deux comme s’ils étaient compatibles.',
     'N’introduis aucun ancien sujet sans lien direct avec la demande actuelle, même s’il est présent dans la mémoire.',
     'Respecte exactement les états temporels : « on finit », « on termine », « on continue », « on est en train de » ou « avant de » signifient que le travail est encore en cours, sauf confirmation explicite plus récente qu’il est terminé.',
     'Avec Adrien, le tutoiement est obligatoire. Ne réutilise pas un vouvoiement présent dans un ancien message assistant comme modèle de style.',
@@ -190,10 +191,10 @@ export function buildCurrentTurnPriorityInstruction() {
   ].join('\n');
 }
 
-export function buildContext({ system, recent = [], retrieved = null, toolResults = [], current }) {
+export function buildContext({ system, recent = [], retrieved = null, toolResults = [], current, memoryQuery = null }) {
   const messages = [{ role: 'system', content: String(system || '') }];
   messages[0].content += `\n\n${buildContextInterpreterInstruction(current)}`;
-  if (retrieved?.prompt) messages[0].content += selectRetrievedPrompt(retrieved.prompt, current);
+  if (retrieved?.prompt) messages[0].content += selectRetrievedPrompt(retrieved.prompt, memoryQuery || current);
 
   if (toolResults.length) {
     messages[0].content += '\n\nRÉSULTATS D’OUTILS DE CETTE REQUÊTE — DONNÉES FIABLES DU RUNTIME :\n';
