@@ -20,6 +20,33 @@ export class CapabilityBus {
   search(query) { return this.list().filter(x => `${x.id} ${x.name} ${x.description}`.toLowerCase().includes(String(query).toLowerCase())); }
   describe(id) { const entry = this.records.get(id); requireValue(entry, 'CAPABILITY_NOT_FOUND', 404); return structuredClone(entry.record); }
   health(id) { return this.describe(id).health; }
+  contract(id) {
+    const entry = this.records.get(id); requireValue(entry, 'CAPABILITY_NOT_FOUND', 404);
+    const record = entry.record || {};
+    const inputSchemaValid = Boolean(record.input_schema && typeof record.input_schema === 'object' && !Array.isArray(record.input_schema));
+    const outputSchemaValid = Boolean(record.output_schema && typeof record.output_schema === 'object' && !Array.isArray(record.output_schema));
+    const permissionsValid = Array.isArray(record.permissions) && record.permissions.every(value => typeof value === 'string' && value.trim().length > 0);
+    const riskValid = ['LOW','MEDIUM','HIGH'].includes(String(record.risk || '').toUpperCase());
+    const healthValid = typeof record.health === 'string' && record.health.trim().length > 0;
+    const enabledValid = typeof record.enabled === 'boolean';
+    const handlerRegistered = typeof entry.execute === 'function';
+    const healthcheckValid = entry.healthcheck === null || typeof entry.healthcheck === 'function';
+    const valid = inputSchemaValid && outputSchemaValid && permissionsValid && riskValid && healthValid && enabledValid && handlerRegistered && healthcheckValid;
+    return Object.freeze({
+      valid,
+      handler_registered: handlerRegistered,
+      input_schema_valid: inputSchemaValid,
+      output_schema_valid: outputSchemaValid,
+      permissions_valid: permissionsValid,
+      risk_valid: riskValid,
+      health_valid: healthValid,
+      enabled_boolean: enabledValid,
+      healthcheck_valid: healthcheckValid,
+      authorization_gate: true,
+      input_validation_gate: true,
+      output_validation_gate: true,
+    });
+  }
   async refreshHealth(id) {
     const entry = this.records.get(id); requireValue(entry, 'CAPABILITY_NOT_FOUND', 404);
     if (!entry.healthcheck) return this.describe(id);
