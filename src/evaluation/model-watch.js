@@ -1,3 +1,4 @@
+import { scoreAiCandidate } from '../learning/source-intelligence.js';
 const DEFAULT_THRESHOLDS = Object.freeze({
   minScore: Number.NEGATIVE_INFINITY,
   maxLatencyMs: Number.POSITIVE_INFINITY,
@@ -151,11 +152,26 @@ export function createModelWatch({ catalog, authorization, benchmark, now = () =
       try {
         const raw = await benchmark.run(model, { suite, context });
         const classification = classifyBenchmark(raw, normalizedThresholds);
+        const externalMetrics = raw?.externalMetrics || raw?.details?.source_intelligence_metrics || {};
+        const sourceIntelligence = scoreAiCandidate({
+          provider: model.provider,
+          id: model.id,
+          task: suite,
+          metrics: {
+            ...externalMetrics,
+            mel_benchmark_score: classification.metrics.score,
+            latency_score: externalMetrics.latency_score,
+            cost_efficiency: externalMetrics.cost_efficiency,
+          },
+        }).model_quality;
+        const localScore = classification.metrics.score ?? 0;
+        const rankingScore = Number((0.7 * localScore + 0.3 * Number(sourceIntelligence?.score || 0)).toFixed(6));
         results.push(Object.freeze({
           model,
           status: classification.status,
           reasons: Object.freeze(classification.reasons),
-          metrics: Object.freeze(classification.metrics),
+          metrics: Object.freeze({ ...classification.metrics, rankingScore }),
+          source_intelligence: Object.freeze(sourceIntelligence),
           details: raw?.details ?? null
         }));
       } catch (error) {
@@ -175,6 +191,9 @@ export function createModelWatch({ catalog, authorization, benchmark, now = () =
       .filter((result) => result.status === 'passed')
       .slice()
       .sort((a, b) => {
+        const rankA = a.metrics.rankingScore ?? a.metrics.score ?? Number.NEGATIVE_INFINITY;
+        const rankB = b.metrics.rankingScore ?? b.metrics.score ?? Number.NEGATIVE_INFINITY;
+        if (rankA !== rankB) return rankB - rankA;
         const scoreA = a.metrics.score ?? Number.NEGATIVE_INFINITY;
         const scoreB = b.metrics.score ?? Number.NEGATIVE_INFINITY;
         if (scoreA !== scoreB) return scoreB - scoreA;
