@@ -13,3 +13,21 @@ test('full interface emits parseable browser runtime and keeps core navigation b
   assert.match(match[1], /qsa\('\[data-jump\]'\)\.forEach/, 'overview action buttons must be bound');
   assert.match(match[1], /Sauvegardes réelles[\s\S]*\\n/, 'ShardVault status output newline must remain escaped in browser JS');
 });
+
+
+test('full interface keeps capabilities while avoiding eager heavy hidden-panel loading', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  const match = html.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(match);
+  const runtime = match[1];
+  assert.match(runtime, /const PANEL_TTL_MS=15000,panelLoadedAt=new Map\(\),getInflight=new Map\(\)/);
+  assert.match(runtime, /async function loadCapabilitiesData\(force=false\)/);
+  assert.match(runtime, /async function loadRoadmapData\(force=false\)/);
+  assert.match(runtime, /async function loadPanel\(name,force=false\)/);
+  assert.match(runtime, /lora:\(\)=>loadFreeLoraStatus\(\)/);
+  assert.match(runtime, /Promise\.allSettled\(\[loadCapabilitySummary\(\),loadRoadmapSummary\(\),codeCheck\(\),loadAutonomy\(\)\]\)/);
+  assert.doesNotMatch(runtime, /async function boot\(\)\{[^}]*loadFreeLoraStatus\(\)/);
+  assert.match(runtime, /document\.createDocumentFragment\(\)/);
+  assert.match(html, /content-visibility:auto/);
+});
