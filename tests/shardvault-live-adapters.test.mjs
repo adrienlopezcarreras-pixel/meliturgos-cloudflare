@@ -19,7 +19,8 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/format:'base64'/);
   assert.match(autonomous,/adapter:'markdownpaste_b64'/);
   assert.match(autonomous,/markdownpasteit\.vercel\.app\/api\/paste/);
-  assert.match(autonomous,/expires_in:0/);
+  assert.doesNotMatch(autonomous,/expires_in:0/);
+  assert.doesNotMatch(runtime,/expires_in:0/);
   assert.match(autonomous,/adapter:'udrop_dev_b64'/);
   assert.match(autonomous,/https:\/\/udrop\.dev/);
   assert.match(autonomous,/adapter:'waifuvault_b64'/);
@@ -70,6 +71,17 @@ test('code archive replication is separately gated after seven live targets are 
   assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true\}\)/);
 });
 
+
+test('Telegraph account state is privately reused and code replica deadlines scale with chunk count', () => {
+  assert.match(autonomous,/TELEGRAPH_ACCOUNT_KEY/);
+  assert.match(autonomous,/readTelegraphAccessToken/);
+  assert.match(autonomous,/writeTelegraphAccessToken/);
+  assert.match(runtime,/TELEGRAPH_ACCOUNT_KEY/);
+  assert.match(runtime,/telegraphAccessToken\(env,objectId\)/);
+  assert.match(runtime,/codeFragmentDeadlineMs/);
+  assert.match(runtime,/Math\.min\(82000,adaptive\)/);
+  assert.match(runtime,/FLOOD\|RATE\[_ -\]\?LIMIT/);
+});
 
 test('rate-limited providers respect Retry-After before quarantine', () => {
   assert.match(autonomous,/async function fetchRateAware\(/);
