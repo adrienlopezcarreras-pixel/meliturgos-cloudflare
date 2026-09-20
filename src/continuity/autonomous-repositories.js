@@ -1059,7 +1059,7 @@ async function candidateWrite(c,url,payload,objectId,env){
     const body={
       name:objectId,
       visibility:'unlisted',
-      files:[{name:'shard.bin',content:{format:'base64',content:b64(payload)}}]
+      files:[{name:'shard.txt',content:{format:'text',value:b64u(payload)}}]
     };
     const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify(body)},15000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
@@ -1184,9 +1184,9 @@ async function candidateReadBytes(c,url){
     if(!r.ok)throw new Error('READ_HTTP_'+r.status);
     const data=await r.json().catch(()=>null);
     const content=data?.result?.files?.[0]?.content;
-    const encoded=String(content?.content??content?.value??'').trim();
+    const encoded=String(content?.value??content?.content??'').trim();
     if(!encoded)throw new Error('PASTEGG_CONTENT_MISSING');
-    return unb64(encoded);
+    return unb64u(encoded);
   }
   if(c.adapter==='markdownpaste_b64'){
     const r=await fetchTimed(url,{method:'GET',headers:{'accept':'application/json','user-agent':'MEL-ShardVault/1.0'}},15000);
