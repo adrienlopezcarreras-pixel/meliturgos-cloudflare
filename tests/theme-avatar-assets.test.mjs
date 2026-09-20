@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { getMelAvatarRoute, serveMelAvatar } from '../src/pages/mel-avatar-assets.js';
+import { getMelAvatarRoute } from '../src/pages/mel-avatar-assets.js';
+import { readFile } from 'node:fs/promises';
 import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
 import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface.js';
 
@@ -16,28 +17,20 @@ const AVATARS = [
   ['futuristic', '/assets/avatars/mel-full.webp', 'avatarFuturistic'],
 ];
 
-test('each MEL visual mode resolves to its clean embedded avatar route', async () => {
-  for (const [theme, path, assetKey] of AVATARS) {
+test('each MEL visual mode resolves to its clean Static Asset route', async () => {
+  for (const [theme, path] of AVATARS) {
     assert.equal(getMelAvatarRoute(theme), path);
-    const response = serveMelAvatar(path);
-    assert.ok(response instanceof Response);
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get('content-type'), 'image/webp');
-    assert.equal(response.headers.get('x-mel-asset'), assetKey);
-    assert.equal(response.headers.get('x-mel-avatar'), assetKey);
-    assert.equal(response.headers.get('cache-control'), 'public,max-age=300,must-revalidate');
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const bytes = new Uint8Array(await readFile(new URL('../dist' + path, import.meta.url)));
     assert.ok(bytes.length > 3000);
     assert.equal(String.fromCharCode(...bytes.slice(0, 4)), 'RIFF');
     assert.equal(String.fromCharCode(...bytes.slice(8, 12)), 'WEBP');
   }
-  assert.equal(serveMelAvatar('/assets/avatars/unknown.webp'), null);
 });
 
-test('clean embedded portraits remain byte-distinct', async () => {
+test('clean Static Asset portraits remain byte-distinct', async () => {
   const hashes = [];
   for (const [, path] of AVATARS) {
-    const bytes = Buffer.from(await serveMelAvatar(path).arrayBuffer());
+    const bytes = await readFile(new URL('../dist' + path, import.meta.url));
     hashes.push(createHash('sha256').update(bytes).digest('hex'));
   }
   assert.equal(new Set(hashes).size, AVATARS.length);
