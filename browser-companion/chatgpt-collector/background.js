@@ -147,7 +147,7 @@ async function waitForExpectedConversation(tabId,sourceId,timeout=15000){
 }
 async function waitForDomStable(tabId,ecoMode=true,generation=null){
   const started=Date.now(),deadline=started+DOM_STABLE_MAX_MS;
-  let lastCount=-1,stable=0,lastProbe=null,lastHeartbeatSave=0;
+  let lastCount=-1,stable=0,lastProbe=null,lastHeartbeatSave=0,probeFailures=0;
   const interval=ecoMode?2500:1200;
   while(Date.now()<deadline){
     if(generation!=null&&!isCurrentRun(generation))throw codedError('COLLECTOR_RUN_CANCELLED');
@@ -156,6 +156,7 @@ async function waitForDomStable(tabId,ecoMode=true,generation=null){
       const probe=await tabMessage(tabId,{type:'mel.collector.probe'},1,Math.min(PROBE_TIMEOUT_MS,remaining));
       if(generation!=null&&!isCurrentRun(generation))throw codedError('COLLECTOR_RUN_CANCELLED');
       lastProbe=probe;
+      probeFailures=0;
       const now=Date.now();
       const count=Number(probe?.messageCount||0);
       if(count!==lastCount||now-lastHeartbeatSave>=15000){
@@ -173,6 +174,8 @@ async function waitForDomStable(tabId,ecoMode=true,generation=null){
       if(!probe?.generating&&stable>=(ecoMode?3:2))return probe;
     }catch(e){
       if(e?.code==='COLLECTOR_RUN_CANCELLED')throw e;
+      probeFailures++;
+      if(probeFailures>=2)throw codedError('DOM_NOT_STABLE');
     }
     const remaining=deadline-Date.now();
     if(remaining<=0)break;
