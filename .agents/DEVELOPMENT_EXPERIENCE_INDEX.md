@@ -81,6 +81,28 @@ Cette leçon est matérialisée dans `src/learning/runtime-operating-experience.
 - Statut : corpus d’expertise, pas 1000 nouvelles XP validées. Une leçon ne devient XP canonique qu’après application prouvée selon `.agents/XP_PROTOCOL.md`.
 - Audit post-track : priorité à la vérité runtime, postconditions, migration canonique de l’état, idempotence/reprise, provenance exact-SHA, cohérence conversationnelle et faux succès.
 
+## Expert PLUS unifié — 10 000 cycles (2026-09-20)
+
+- Corpus générable : `src/learning/expert-plus-corpus.js`.
+- Couverture : **100 sous-domaines × 100 angles d'audit = 10 000 cycles**.
+- Chaque cycle contient : problème précis, base de sources, principe, limitation/contre-exemple, pattern, anti-pattern, test/gate et implication MEL.
+- Les cycles sont `SOURCE_GROUNDED_GUIDANCE` : ils servent à l'audit, au raisonnement et à la revue, mais ne sont jamais comptés automatiquement comme XP runtime validées.
+- `LearningEngine.expertGuidance()` donne à MEL un accès ciblé et à la demande au corpus complet, sans instancier 10 000 objets au démarrage du Worker.
+- Les leçons réellement prouvées sont distillées dans le pack XP canonique et donc chargées par `BOOTSTRAP_CORRECTIONS -> LearningEngine.trainingBundle()`.
+
+### Nouvelles XP prouvées distillées
+
+- `shardvault-representative-payload-proof-20260920` — un probe minuscule ne prouve pas la capacité à répliquer un vrai fragment.
+- `shardvault-semantic-rate-limit-20260920` — parser les erreurs sémantiques de rate-limit même sous HTTP 200.
+- `shardvault-independent-exact-sha-restore-gate-20260920` — reconstruction externe indépendante + SHA exact + perte de trois fragments avant readiness.
+- `knowledge-routing-specificity-precedence-20260920` — la connaissance durable ne doit pas voler code.integrity ou web.research.
+- `knowledge-artifact-integrity-provenance-20260920` — niveau de vérification, fichier réel et SHA-256 doivent rester cohérents.
+- `shardvault-resumable-external-replication-20260920` — réplication lourde reprenable, un shard vérifié par requête.
+- `provider-capacity-conservative-registry-20260920` — une capacité catalogue plus élevée exige requalification avant d'écraser la valeur live conservatrice.
+- `ci-test-expectation-follows-intentional-contract-20260920` — mettre à jour un test obsolète seulement après preuve du nouveau contrat.
+- `expert-corpus-runtime-distillation-20260920` — corpus expert complet à la demande, distillation prouvée seulement dans le bundle runtime.
+- `audit-sensor-vs-product-proof-chain-20260920` — séparer code/tests, probe, réplication, reconstruction, stress, launch readiness et production.
+
 ## Règle de déduplication
 
 Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le corpus. Une différence de vocabulaire ne justifie pas une nouvelle leçon si la préférence comportementale est déjà couverte.
@@ -89,6 +111,6 @@ Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le
 
 Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, Benchmark/LoRA, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, Dev Bridge, observabilité, UI partagée, gouvernance de preuve, readiness zéro-euro runtime, checkpoint XP systématique et ingénierie de protocoles matériels versionnés.
 
-Total documenté : **53 leçons du corpus d’entraînement actuel + 5 expériences opérationnelles runtime validées**.
+Total bootstrap statique actuel : **65 leçons canoniques réparties entre historique, pack développement, réconciliation et LoRA**, auxquelles s’ajoute le corpus Expert PLUS de **10 000 cycles de guidance**.
 
 Le nombre de leçons canoniques **n’a pas de plafond fonctionnel** : 50 reste uniquement le seuil minimal de readiness LoRA. Toute nouvelle leçon validée et dédupliquée s’ajoute au corpus complet ; les fenêtres de contexte runtime peuvent rester bornées pour la performance sans supprimer ni exclure les leçons stockées.
