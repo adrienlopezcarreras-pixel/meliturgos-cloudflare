@@ -59,11 +59,12 @@ export function inferSelfStateIntent(text) {
 export function inferCommunicationAuditIntent(text) {
   const value = String(text || '').trim();
   if (!value) return null;
-  const historyDomain = /\b(?:logs?|historique|conversations?|[ée]changes?|messages?|r[ée]ponses?\s+pass[ée]es?|communication)\b/i.test(value);
-  const qualityDomain = /\b(?:contradic|coh[ée]ren|oubli|hors\s+sujet|mauvais\s+sujet|mauvais\s+plan|r[ée]ponses?\s+(?:fausses?|incoh[ée]rentes?)|audit(?:e|er)?|analyse|regarde|inspecte|v[ée]rifie)\b/i.test(value);
-  const relation = /\b(?:avec\s+moi|nos|notre|tes|ta|ton|mel|toi)\b/i.test(value);
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const historyDomain = /\b(?:logs?|historique|conversations?|echang(?:e|es|er|e?s?)|messages?|reponses?\s+passees?|communication)\b/.test(normalized);
+  const qualityDomain = /\b(?:contradic|coheren|oubli|hors\s+sujet|mauvais\s+sujet|mauvais\s+plan|reponses?\s+(?:fausses?|incoherentes?)|audit(?:e|er)?|analyse|regarde|inspecte|verifie)\b/.test(normalized);
+  const relation = /\b(?:avec\s+moi|nos|notre|tes|ta|ton|mel|toi|ensemble)\b/.test(normalized);
   if (!(historyDomain && qualityDomain && relation)) return null;
-  const allConversations = /\b(?:tout|tous|toutes|global|g[ée]n[ée]ral|ensemble|historique\s+complet)\b/i.test(value);
+  const allConversations = /\b(?:tout|tous|toutes|global|general|ensemble|historique\s+complet)\b/.test(normalized);
   return { id: 'conversation.audit', input: { allConversations } };
 }
 
