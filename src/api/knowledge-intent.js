@@ -6,8 +6,10 @@ function normalize(value){
 }
 function stripResearchInstruction(value){
   let q=clean(value,2000);
-  q=q.replace(/^(?:peux[- ]?tu\s+|tu\s+peux\s+)?(?:cherche|chercher|recherche|rechercher|trouve|trouver|v[eé]rifie|v[eé]rifier|confirme|confirmer|documente|documenter|enqu[eê]te|renseigne[- ]?toi)\s+(?:sur\s+|des\s+informations?\s+sur\s+)?/i,'');
-  q=q.split(/\s+(?:et|puis|ensuite)\s+(?=(?:cr[eé]e|cree|sauvegarde|enregistre|m[eé]morise|garde|classe|range|archive)\b)/i)[0];
+  q=q.replace(/^(?:peux[- ]?tu\s+|tu\s+peux\s+)?(?:cherche|chercher|recherche|rechercher|trouve|trouver|v[eé]rifie|v[eé]rifier|confirme|confirmer|documente|documenter|enqu[eê]te|renseigne[- ]?toi)\s+/i,'');
+  q=q.replace(/^(?:sur\s+(?:internet|le\s+web)\s+|sur\s+|des\s+informations?\s+sur\s+)/i,'');
+  q=q.split(/\s*[,;]\s*(?=(?:v[eé]rifie|v[eé]rifier|confirme|recoupe|cr[eé]e|cree|sauvegarde|enregistre|m[eé]morise|garde|classe|range|archive)\b)/i)[0];
+  q=q.split(/\s+(?:et|puis|ensuite)\s+(?=(?:v[eé]rifie|confirme|recoupe|cr[eé]e|cree|sauvegarde|enregistre|m[eé]morise|garde|classe|range|archive)\b)/i)[0];
   return clean(q.replace(/[.!?]+$/g,''),1200)||clean(value,1200);
 }
 function searchQuery(value){
@@ -30,6 +32,9 @@ export function inferKnowledgeCapability(text){
   const value=clean(text,4000);
   if(!value)return null;
   const normalized=normalize(value);
+  const explicitWeb=/\b(?:internet|web|sources?\s+(?:fiables|officielles?|r[eé]centes?|multiples))\b/i.test(value);
+  const codeTarget=/\b(?:ton\s+code|code\s+source|repo|repository|github|branche|branch|commit|src\/|tests\/|\.github\/)\b/i.test(value);
+  if(codeTarget&&!explicitWeb)return null;
 
   const explicitFile=fileCreate(value);
   if(explicitFile)return explicitFile;

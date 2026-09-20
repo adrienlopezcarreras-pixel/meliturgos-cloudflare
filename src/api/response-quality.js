@@ -94,9 +94,8 @@ function successfulKnowledgeEvidence(toolResults=[]){
 }
 
 function deniesKnowledgeAction(text){
-  return /(?:jes+nes+peuxs+pas|jes+n['’]?ais+pass+las+possibilit[ée]|jes+n['’]?ais+pass+acc[eè]s)[^.!?]{0,140}(?:recherch|internet|web|fichier|dossier|m[ée]moire|m[ée]mor|sauvegard|class|retrouv|v[ée]rifi)/i.test(String(text||''));
+  return /\b(?:je\s+ne\s+peux\s+pas|je\s+n['’]?ai\s+pas\s+la\s+possibilit[ée]|je\s+n['’]?ai\s+pas\s+acc[eè]s)\b[^.!?]{0,140}(?:recherch\w*|internet|web|fichiers?|dossiers?|m[ée]mor\w*|sauvegard\w*|class\w*|retrouv\w*|v[ée]rifi\w*)/i.test(String(text||''));
 }
-
 function knowledgeEvidenceFallback(evidence){
   if(!evidence)return '';
   const id=evidence.capability,r=evidence.result||{};

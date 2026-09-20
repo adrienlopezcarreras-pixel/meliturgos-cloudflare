@@ -28,3 +28,10 @@ test('explicit file creation with content creates a durable knowledge file',()=>
 test('explicit durable file read is recognized',()=>{
   assert.deepEqual(inferKnowledgeCapability('lis le fichier synthese.md'),{id:'knowledge.file.read',input:{filename:'synthese.md'}});
 });
+
+
+test('knowledge intent does not steal repository-code searches unless web research is explicit',()=>{
+  assert.equal(inferKnowledgeCapability('cherche dans ton code la fonction buildContext'),null);
+  const web=inferKnowledgeCapability('cherche sur internet des sources récentes sur les agents IA');
+  assert.equal(web.id,'knowledge.research');
+});

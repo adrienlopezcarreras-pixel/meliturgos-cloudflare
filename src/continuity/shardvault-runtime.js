@@ -670,7 +670,7 @@ function codeTargetFailureClass(error){
 }
 function codeTargetRetryDelayMs(count){
   const attempt=Math.max(1,Number(count)||1);
-  return Math.min(120000,5000*(2**Math.min(4,attempt-1)));
+  return Math.min(120000,5000*(2**Math.min(5,attempt-1)));
 }
 function codeTargetAvailableNow(state,endpoint,now=Date.now()){
   const failure=state?.endpoint_failures?.[endpoint?.id];

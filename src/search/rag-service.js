@@ -3,6 +3,7 @@ import { requireValue } from '../core/contracts.js';
 const ARCHIVE_SCAN_LIMIT = 4000;
 const CONVERSATION_SCAN_LIMIT = 1000;
 const MEMORY_SCAN_LIMIT = 4000;
+const KNOWLEDGE_SCAN_LIMIT = 1500;
 
 function lexicalSql(column, tokens) {
   if (!tokens.length) return null;
@@ -20,10 +21,10 @@ function lexicalBindings(tokens) {
  * Semantic embedding provider is a separate, explicitly configured port.
  */
 export class RAGService {
-  static async search(db, owner, query, {sources = ['archive_messages','conversations','memories'], limit = 10, minSimilarity = 0} = {}) {
+  static async search(db, owner, query, {sources = ['archive_messages','conversations','memories','knowledge_artifacts'], limit = 10, minSimilarity = 0} = {}) {
     requireValue(typeof owner === 'string' && owner.length > 0, 'AUTH_REQUIRED',401);
     requireValue(typeof query === 'string' && query.trim().length > 0 && query.length <= 12000, 'INVALID_QUERY');
-    requireValue(Array.isArray(sources) && sources.every(s => ['archive_messages','conversations','memories'].includes(s)), 'INVALID_SOURCES');
+    requireValue(Array.isArray(sources) && sources.every(s => ['archive_messages','conversations','memories','knowledge_artifacts'].includes(s)), 'INVALID_SOURCES');
     requireValue(Number.isInteger(limit) && limit > 0 && limit <= 100, 'INVALID_LIMIT');
     const tokens = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [])].slice(0,32);
     if (!tokens.length) return {results:[],total:0,retrieval:'lexical'};
@@ -64,15 +65,34 @@ export class RAGService {
       `).bind(Date.now(), ...patterns, MEMORY_SCAN_LIMIT).all()).results);
     }
 
+    if (sources.includes('knowledge_artifacts')) {
+      const where = lexicalSql('content', tokens);
+      try {
+        rows.push(...(await db.prepare(`
+          SELECT id,content,updated_at timestamp,filename,title,verification_status,content_sha256,'knowledge_artifacts' source
+          FROM knowledge_artifacts
+          WHERE owner=? AND (${where})
+          ORDER BY updated_at DESC
+          LIMIT ?
+        `).bind(owner, ...patterns, KNOWLEDGE_SCAN_LIMIT).all()).results);
+      } catch {
+        // Compatibility with databases that have not migrated this workspace yet.
+      }
+    }
+
     const results = rows
       .map(row => ({
         ...row,
         similarity: tokens.filter(t => String(row.content).toLowerCase().includes(t)).length/tokens.length,
-        provenance:{table:row.source,id:row.id},
+        provenance:{table:row.source,id:row.id,filename:row.filename||null,sha256:row.content_sha256||null},
         role: row.source === 'archive_messages' ? String(row.role || 'unknown') : null,
         authority: row.source === 'archive_messages'
           ? (String(row.role || '').toLowerCase() === 'user' ? 'historical_user_message' : 'historical_assistant_output')
-          : (row.source === 'memories' ? 'memory_record' : 'conversation_title'),
+          : row.source === 'memories'
+          ? 'memory_record'
+          : row.source === 'knowledge_artifacts'
+            ? (/^(?:VERIFIED_)/.test(String(row.verification_status || '')) ? 'verified_knowledge_artifact' : 'knowledge_artifact')
+            : 'conversation_title',
         retrieval:'lexical'
       }))
       .filter(r => r.similarity > 0 && r.similarity >= minSimilarity)

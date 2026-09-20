@@ -65,7 +65,8 @@ test('runtime has one canonical scheduler topology with maintenance separated fr
   assert.match(roadmapRefresh, /setInterval\(/);
   assert.match(roadmapRefresh, /clearInterval\(timer\)/);
   assert.match(roadmapRefresh, /panel\?\.classList\.contains\('active'\)/);
-  assert.match(fullControls, /activityTimer=setInterval\(loadActivity,15000\)/);
+  assert.match(fullControls, /activityTimer=setInterval\(\(\)=>\{if\(document\.hidden\)return;if\(panel\.classList\.contains\('open'\)\)loadActivity\(\)\},30000\)/);
+  assert.match(fullControls, /visibilitychange/);
   assert.match(fullControls, /clearInterval\(activityTimer\)/);
 });
 

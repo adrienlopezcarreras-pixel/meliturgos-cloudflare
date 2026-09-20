@@ -98,11 +98,11 @@ test('external code sync is resumable and bounded to one verified RS shard per r
   assert.match(runtime,/withCodeReplicaDeadline/);
   assert.match(runtime,/CODE_FRAGMENT_DEADLINE_EXCEEDED/);
   assert.match(runtime,/CODE_FRAGMENT_ROUNDTRIP_MISMATCH/);
-  assert.match(runtime,/report\.qualified\|\|report\.selected/);
-  assert.match(runtime,/report\.eligible\|\|report\.qualified\|\|report\.selected/);
+  assert.ok(runtime.includes("rememberValidatedExternalEndpoints(env,[...(report.qualified||[]),...(report.selected||[])])"));
+  assert.ok(runtime.includes("rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])])"));
   assert.match(runtime,/readCodeCandidateEndpoints/);
   assert.match(runtime,/rememberValidatedExternalEndpoints\(env,\[e\]\)/);
-  assert.match(runtime,/NO_UNTRIED_VALIDATED_CODE_TARGETS/);
+  assert.match(runtime,/NO_READY_VALIDATED_CODE_TARGETS/);
   assert.doesNotMatch(runtime,/state\.failed_endpoint_ids=\[\]/);
   assert.doesNotMatch(runtime,/assignDistinctExternalTargets\(replicas,candidates/);
   assert.match(workflow,/for attempt in \$\(seq 1 32\)/);

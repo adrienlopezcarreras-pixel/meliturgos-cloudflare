@@ -124,12 +124,12 @@ test('code replication uses resumable RS 4-of-7 shards with one external shard p
   assert.match(body,/const i=descriptors\.length,tempKey=state\.temp_shard_keys\?\.\[i\]/);
   assert.match(body,/state\.shards\.push\(descriptor\)/);
   assert.match(body,/writeCodeSyncState\(env,id,state\)/);
-  assert.match(runtime,/report\.qualified\|\|report\.selected/);
-  assert.match(runtime,/report\.eligible\|\|report\.qualified\|\|report\.selected/);
+  assert.ok(runtime.includes("rememberValidatedExternalEndpoints(env,[...(report.qualified||[]),...(report.selected||[])])"));
+  assert.ok(runtime.includes("rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])])"));
   assert.match(runtime,/CODE_CANDIDATES_KEY/);
   assert.match(body,/readCodeCandidateEndpoints/);
   assert.match(body,/rememberValidatedExternalEndpoints\(env,\[e\]\)/);
-  assert.match(body,/NO_UNTRIED_VALIDATED_CODE_TARGETS/);
+  assert.match(body,/NO_READY_VALIDATED_CODE_TARGETS/);
   assert.doesNotMatch(body,/state\.failed_endpoint_ids=\[\]/);
   assert.match(runtime,/CALL_CODE_SYNC_AGAIN/);
   assert.match(runtime,/CODE_FRAGMENT_DEADLINE_EXCEEDED/);
