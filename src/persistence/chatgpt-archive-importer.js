@@ -210,6 +210,9 @@ export async function importChatGPTArchive(env, payload, { preview = false } = {
             chatgpt_conversation_id: conversation.sourceId,
             chatgpt_conversation_title: conversation.title,
             source_type: 'chatgpt_export',
+            collector_source: conversation.collector?.source || null,
+            collector_version: conversation.collector?.version || null,
+            collector_partial: conversation.collector?.partial === true,
             imported_at: Date.now()
           }
         });
