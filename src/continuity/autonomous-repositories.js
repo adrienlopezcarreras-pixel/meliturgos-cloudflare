@@ -276,7 +276,7 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
     adapter:'markdownpaste_b64',
     urlTemplate:'https://markdownpasteit.vercel.app/api/paste?mel_object={objectId}',
     method:'POST',
-    maxObjectBytes:70000,
+    maxObjectBytes:100000,
     operatorDomain:'markdownpasteit.vercel.app',
     providerId:'markdown-paste',
     jurisdiction:'UNKNOWN',
@@ -339,7 +339,7 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
     adapter:'telegraph_b64',
     urlTemplate:'https://api.telegra.ph/createPage?mel_object={objectId}',
     method:'POST',
-    maxObjectBytes:40000,
+    maxObjectBytes:64000,
     operatorDomain:'telegra.ph',
     providerId:'telegraph',
     jurisdiction:'UNKNOWN',
@@ -825,7 +825,40 @@ async function fetchOnceManual(url,options={},ms=10000){
   try{return await fetch(url,{...options,redirect:'manual',signal:controller.signal});}
   finally{clearTimeout(timer);}
 }
-async function candidateWrite(c,url,payload,objectId){
+const TELEGRAPH_ACCOUNT_KEY='shardvault/provider-state/telegraph-account.json';
+async function readTelegraphAccessToken(env){
+  if(!env?.MEDIA_BUCKET?.get)return null;
+  try{
+    const body=await env.MEDIA_BUCKET.get(TELEGRAPH_ACCOUNT_KEY);
+    if(!body)return null;
+    const data=JSON.parse(await body.text());
+    const token=String(data?.access_token||'').trim();
+    return token||null;
+  }catch{return null;}
+}
+async function writeTelegraphAccessToken(env,token){
+  if(!env?.MEDIA_BUCKET?.put||!token)return;
+  await env.MEDIA_BUCKET.put(TELEGRAPH_ACCOUNT_KEY,JSON.stringify({access_token:String(token),updated_at:new Date().toISOString()}),{httpMetadata:{contentType:'application/json'}});
+}
+function safeProviderError(value){
+  return String(value||'UNKNOWN').toUpperCase().replace(/[^A-Z0-9_-]+/g,'_').slice(0,96)||'UNKNOWN';
+}
+async function telegraphAccessToken(env,seed='melshardvault'){
+  const cached=await readTelegraphAccessToken(env);
+  if(cached)return cached;
+  const accountBody=new URLSearchParams({
+    short_name:('mel'+String(seed||'').replace(/[^a-zA-Z0-9]/g,'')).slice(0,32)||'melshardvault',
+    author_name:'MEL ShardVault'
+  });
+  const response=await fetchTimed('https://api.telegra.ph/createAccount',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:accountBody.toString()},15000);
+  if(!response.ok)throw new Error('TELEGRAPH_ACCOUNT_HTTP_'+response.status);
+  const data=await response.json().catch(()=>null);
+  const token=String(data?.result?.access_token||'').trim();
+  if(data?.ok!==true||!token)throw new Error('TELEGRAPH_ACCOUNT_'+safeProviderError(data?.error||'TOKEN_MISSING'));
+  await writeTelegraphAccessToken(env,token);
+  return token;
+}
+async function candidateWrite(c,url,payload,objectId,env){
   if(c.adapter==='catbox'){
     const form=new FormData();
     form.append('reqtype','fileupload');
@@ -917,7 +950,7 @@ async function candidateWrite(c,url,payload,objectId){
   }
   if(c.adapter==='markdownpaste_b64'){
     const endpoint=fixedApiUrl(url);
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify({content:b64u(payload),expires_in:0})},15000);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify({content:b64u(payload)})},15000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const data=await r.json().catch(()=>null),id=String(data?.id||'').trim();
     if(!id)throw new Error('WRITE_REMOTE_ID_MISSING');
@@ -940,16 +973,7 @@ async function candidateWrite(c,url,payload,objectId){
     return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
   }
   if(c.adapter==='telegraph_b64'){
-    const accountEndpoint='https://api.telegra.ph/createAccount';
-    const accountBody=new URLSearchParams({
-      short_name:('mel'+objectId.replace(/[^a-zA-Z0-9]/g,'')).slice(0,32)||'melshardvault',
-      author_name:'MEL ShardVault'
-    });
-    const accountResp=await fetchTimed(accountEndpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:accountBody.toString()},15000);
-    if(!accountResp.ok)throw new Error('WRITE_ACCOUNT_HTTP_'+accountResp.status);
-    const account=await accountResp.json().catch(()=>null);
-    const token=String(account?.result?.access_token||'').trim();
-    if(account?.ok!==true||!token)throw new Error('WRITE_ACCOUNT_TOKEN_MISSING');
+    const token=await telegraphAccessToken(env,objectId);
     const endpoint=fixedApiUrl(url);
     const content=JSON.stringify([{tag:'pre',children:[b64u(payload)]}]);
     const pageBody=new URLSearchParams({
@@ -962,7 +986,8 @@ async function candidateWrite(c,url,payload,objectId){
     const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:pageBody.toString()},15000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const data=await r.json().catch(()=>null),path=String(data?.result?.path||'').trim();
-    if(data?.ok!==true||!path)throw new Error('WRITE_REMOTE_PATH_MISSING');
+    if(data?.ok!==true)throw new Error('WRITE_TELEGRAPH_'+safeProviderError(data?.error));
+    if(!path)throw new Error('WRITE_REMOTE_PATH_MISSING');
     return {readUrl:publicHttps('https://api.telegra.ph/getPage/'+encodeURIComponent(path)+'?return_content=true','TELEGRAPH_READ').toString()};
   }
   if(c.adapter==='paste_c_net'){
@@ -1114,7 +1139,7 @@ async function probe(c, requiredBytes, policyMaxAgeDays=180){
   const objectId=`mel-probe-${rid(12)}`;
   const url=publicHttps(c.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),'AUTONOMOUS_TARGET').toString();
   const writeStart=Date.now();
-  const write=await candidateWrite(c,url,payload,objectId);
+  const write=await candidateWrite(c,url,payload,objectId,env);
   const writeLatency=Date.now()-writeStart;
   const readStart=Date.now();
   const got=await candidateReadBytes(c,write.readUrl);const readLatency=Date.now()-readStart;
