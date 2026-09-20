@@ -10,6 +10,7 @@ import { maybeHandlePublicTeacherBridge } from "./teachers/public-teacher-api.js
 import { runAutonomyMaintenance, runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
 import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
+import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
 import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
 import { enhanceMvpBehavior } from "./pages/mvp-behavior-enhancer.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
@@ -365,6 +366,9 @@ export default {
 
       const fileResponse = await handleFileUpload(request, env);
       if (fileResponse) return fileResponse;
+
+      const releaseBootstrapResponse = await maybeHandleReleaseLaunchBootstrap(request, env);
+      if (releaseBootstrapResponse) return releaseBootstrapResponse;
 
       const publicTeacherResponse = await maybeHandlePublicTeacherBridge(request, env);
       if (publicTeacherResponse) return publicTeacherResponse;
