@@ -388,3 +388,21 @@ test('autonomy supervisor skips roadmap items blocked by a real human dependency
   });
   assert.equal(next.id, 'GEN2-17');
 });
+
+
+test('three failed attempts quarantine one roadmap item and advance safely', async () => {
+  const repo = isolatedRepo();
+  const supervisor = new AutonomySupervisor({ repository: repo, roadmap });
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const created = await supervisor.ensureNextJob();
+    assert.equal(created.job.optional_context.roadmap_id, 'MEL-WORK-01');
+    assert.equal(created.job.optional_context.attempt, attempt);
+    await repo.update(created.job.id, { status: 'FAILED', error: 'TRANSIENT_FAILURE' });
+  }
+  const state = await supervisor.state();
+  assert.ok(state.retryExhaustedIds.includes('MEL-WORK-01'));
+  assert.equal(state.failedAttemptsByRoadmap['MEL-WORK-01'], 3);
+  const next = await supervisor.ensureNextJob();
+  assert.notEqual(next.job.optional_context.roadmap_id, 'MEL-WORK-01');
+  assert.equal(next.job.optional_context.roadmap_id, 'GEN2-17');
+});
