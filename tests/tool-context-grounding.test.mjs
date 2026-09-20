@@ -10,7 +10,7 @@ test('successful code tool results are promoted into trusted runtime context', (
     current: 'Peux-tu lire ton code ?'
   });
   assert.equal(messages[0].role, 'system');
-  assert.match(messages[0].content, /OUTILS EXÉCUTÉS AVEC SUCCÈS/);
+  assert.match(messages[0].content, /RÉSULTATS D’OUTILS DE CETTE REQUÊTE/);
   assert.match(messages[0].content, /src\/router\.js/);
   assert.match(messages[0].content, /release\/test/);
   assert.match(messages[0].content, /ne prétends pas que tu n’as pas accès au code/i);
@@ -23,4 +23,15 @@ test('tool context truncates oversized strings instead of exploding prompt size'
   const messages = buildContext({ system: 'MEL', toolResults: [{ content: huge }], current: 'analyse' });
   assert.match(messages[0].content, /CONTEXTE PARTIEL — \d+ caractères intermédiaires omis/);
   assert.ok(messages[0].content.length < 11500);
+});
+
+
+test('failed tool results are described as punctual failures, not successful executions', () => {
+  const messages = buildContext({
+    system: 'MEL',
+    toolResults: [{ capability: 'code.read', status: 'FAILED', error: 'UPSTREAM_TIMEOUT' }],
+    current: 'peux-tu lire ce fichier ?',
+  });
+  assert.match(messages[0].content, /FAILED prouve seulement cet échec ponctuel/i);
+  assert.match(messages[0].content, /UPSTREAM_TIMEOUT/);
 });

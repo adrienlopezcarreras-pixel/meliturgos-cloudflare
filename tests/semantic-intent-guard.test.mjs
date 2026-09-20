@@ -62,3 +62,25 @@ test('malformed or unavailable semantic provider responses fail closed', async (
     assert.equal(result, null, behavior);
   }
 });
+
+
+test('semantic router accepts a high-confidence SELF_STATE follow-up', async () => {
+  const result = await classifySemanticOwnerIntent({
+    text: 'et là, tu le vois maintenant ?',
+    context: 'USER: Est-ce que tu vois les changements de ton code et les mémoires ChatGPT importées ?',
+    env: {
+      AI: {
+        async run() {
+          return { response: JSON.stringify({
+            intent: 'SELF_STATE',
+            resolved_goal: '',
+            resolved_query: '',
+            confidence: 0.96,
+          }) };
+        },
+      },
+    },
+  });
+  assert.equal(result?.intent, 'SELF_STATE');
+  assert.equal(result?.confidence, 0.96);
+});

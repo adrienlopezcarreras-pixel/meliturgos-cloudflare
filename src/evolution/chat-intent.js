@@ -6,7 +6,7 @@ export function isEvolutionDevelopmentIntent(text) {
 
   const action = /\b(?:d[ée]veloppe(?:r)?|ajoute(?:r)?|cr[ée]e(?:r)?|construis|construire|impl[ée]mente(?:r)?|apprends?|upgrade|am[ée]liore(?:r)?|modifie(?:r)?|change(?:r)?|remplace(?:r)?|supprime(?:r)?|enl[eè]ve(?:r)?|retire(?:r)?|corrige(?:r)?|r[ée]pare(?:r)?|refactor(?:e|er)?|r[ée][ée]cris|r[ée][ée]crire|[ée]dite(?:r)?|int[eè]gre(?:r)?|branche(?:r)?|raccorde(?:r)?|stylise(?:r)?|d[ée]core(?:r)?|mets?\s+[àa]\s+jour|build|develop|implement|add|modify|change|replace|remove|delete|fix|repair|refactor|rewrite|edit|integrate|wire)\b/i.test(value);
 
-  const target = /\b(?:comp[ée]tence|capacit[ée]|module|outil|int[ée]gration|connecteur|plugin|skill|capability|connector|tool|interface|ui|avatar|th[eè]me|design|style|css|html|javascript|js|code|source|fichier|page|frontend|backend|api|route|worker|chat|prompt|roadmap|feuille\s+de\s+route|test|tests?|bouton|menu|panneau|composant|component|layout)\b/i.test(value);
+  const target = /\b(?:comp[ée]tence|capacit[ée]|module|outil|int[ée]gration|connecteur|plugin|skill|capability|connector|tool|interface|ui|avatar|th[eè]me|design|style|css|html|javascript|js|code|source|fichier|page|frontend|backend|api|route|worker|chat|prompt|r[ée]ponses?|comportement|raisonnement|orchestration|routage|m[ée]moire|roadmap|feuille\s+de\s+route|test|tests?|bouton|menu|panneau|composant|component|layout)\b/i.test(value);
 
   return action && target;
 }
@@ -46,10 +46,10 @@ export function inferSelfStateIntent(text) {
   if (!value) return null;
 
   const self = /\b(?:mel|tu|toi|ton|ta|tes|chez\s+toi)\b/i.test(value);
-  const asksObservation = /\b(?:vois|voir|montre|affiche|sais|connais|quel(?:le|les|s)?|[ée]tat|statut|o[uù]\s+en\s+es|qu['’]est[- ]?ce)\b/i.test(value);
+  const asksObservation = /\b(?:vois|voir|observes?|observer|montre|affiche|sais|connais|acc[eè]s|quel(?:le|les|s)?|[ée]tat|statut|o[uù]\s+en\s+es|qu['’]est[- ]?ce)\b/i.test(value);
   const broadSelfState = /\b(?:[ée]tat\s+(?:r[ée]el|interne|actuel)|self[- ]?state|ce\s+qui\s+(?:change|tourne)\s+chez\s+toi)\b/i.test(value);
   const internalDomain = /\b(?:m[ée]moires?|chat\s*gpt|travaux?|jobs?|processus|code|repo|repository|d[ée]p[ôo]t|branche|branch|commit|d[ée]ploiement|runtime|changements?|modifications?|impl[ée]ment(?:ation|e|er|[ée]e?s?))\b/i.test(value);
-  const currentState = /\b(?:en\s+cours|actuel(?:le|les|s)?|actuellement|maintenant|r[ée]cup[eè]r(?:e|es|[ée]e?s?)?|import(?:e|[ée]e?s?|ation)|synchronis(?:e|[ée]e?s?|ation)|impl[ée]ment(?:e|er|[ée]e?s?)?|changements?|statut|[ée]tat)\b/i.test(value);
+  const currentState = /\b(?:en\s+cours|actuel(?:le|les|s)?|actuellement|maintenant|re[çc]ois|re[çc]oit|r[ée]cup[eè]r(?:e|es|[ée]e?s?)?|import(?:e|[ée]e?s?|ation)|synchronis(?:e|[ée]e?s?|ation)|impl[ée]ment(?:e|er|[ée]e?s?)?|changements?|statut|[ée]tat)\b/i.test(value);
 
   if (!(self && asksObservation && (broadSelfState || (internalDomain && currentState)))) return null;
   return { id: 'self.state', input: {} };
@@ -168,6 +168,8 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
         body.capability = { id: 'autonomy.status', input: {} };
       } else if (semantic.intent === 'CAPABILITY_STATUS') {
         body.capability = { id: 'capability.audit', input: { deep: /\b(?:teste|test|v[ée]rifie|audit\s+complet|audit\s+profond|r[ée]ellement|smoke|ex[ée]cute)\b/i.test(text) } };
+      } else if (semantic.intent === 'SELF_STATE') {
+        body.capability = { id: 'self.state', input: {} };
       } else if (semantic.intent === 'WEB_RESEARCH') {
         body.capability = { id: 'web.research', input: { query: String(semantic.resolvedQuery || text).slice(0, 2000), depth: 2 } };
       } else {

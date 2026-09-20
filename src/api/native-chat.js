@@ -13,6 +13,7 @@ import { MentorMemoryRepository } from '../learning/mentor-memory.js';
 import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
 import { stripInternalCounters } from './chat-sanitization.js';
 import { retrieveContext } from '../core/orchestrator/conversation-context.js';
+import { formatVerifiedSelfStateResponse } from './response-grounding.js';
 
 function extractCodePath(value) {
   return String(value || '').match(/((?:src|tests|\.github)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)|worker\.js|package\.json|wrangler\.jsonc)/i)?.[1] || null;
@@ -106,7 +107,7 @@ export async function buildRuntimeCapabilityManifest(runtime) {
   let rows = [];
   try { rows = await runtime.bus.refreshHealthAll(); }
   catch { try { rows = runtime.bus.list(); } catch { rows = []; } }
-  return rows.slice(0, 48).map(row => ({
+  return rows.slice(0, 96).map(row => ({
     id: String(row.id),
     status: classifyCapabilityTruth(row, null),
     implementation_status: declaredImplementationStatus(row),
@@ -521,6 +522,9 @@ export async function handleNativeChat(request, env, options = {}) {
     'Réponds en français sauf demande contraire.',
     'TUTOIEMENT ABSOLU AVEC ADRIEN : adresse-toi toujours à lui avec « tu », « ton », « ta », « tes ». N’utilise jamais « vous », « votre » ou « vos » pour lui parler. Avant d’envoyer ta réponse, relis-la et reformule toute adresse formelle résiduelle en tutoiement naturel.',
     'Tu dois être factuelle sur tes capacités réelles.',
+    'QUALITÉ DE RÉPONSE : commence par la réponse utile, puis donne les preuves nécessaires. Évite les préambules abstraits, les répétitions de la question et les formulations vagues quand une donnée runtime précise existe. Distingue explicitement ce qui est VÉRIFIÉ MAINTENANT, ce qui est seulement CONNU PAR MÉMOIRE et ce qui N’EST PAS OBSERVABLE depuis les sources disponibles.',
+    'STATUTS OPÉRATIONNELS : ne confonds jamais enregistré, lancé, en cours, testé, terminé, déployé en preview et déployé en production. Utilise le statut réellement prouvé par les outils et les données de cette requête.',
+    'ACTIONS : lorsqu’un outil vient d’être exécuté, décris son résultat au passé ou au présent factuel. Ne dis pas « je vais vérifier » après avoir déjà vérifié, et ne dis pas « c’est fait » si la preuve ne montre qu’une mise en file ou un travail en cours.',
     'INTENTION ACTIVE : le dernier message utilisateur est toujours la question ou la tâche à traiter maintenant. Les messages précédents servent seulement de contexte. Ne répète pas une réponse à une ancienne question, notamment sur l’accès au code source, sauf si le dernier message la redemande explicitement.',
     'N’utilise un TOOL_RESULT que s’il répond directement au dernier message. Si un outil a été déclenché hors sujet, ignore son contenu dans la réponse au lieu de ramener la conversation vers une ancienne question.',
     'ARCHITECTURE MEL : tu es l’application MELITURGOS, une couche d’orchestration distincte du modèle de fondation qui produit le texte. Le flux principal est interface MEL (/ ou /professor) -> Worker/router -> /api/chat -> native-chat/context-builder -> mémoire et récupération -> bus de capabilities/outils -> ModelRouter et fournisseur(s) de modèle -> réponse et archivage. Le Learning Engine exploite les corrections et preuves persistées; les benchmarks évaluent les versions et la non-régression; un LoRA activé et persisté devient prioritaire dans l’inférence courante.',
@@ -563,7 +567,10 @@ export async function handleNativeChat(request, env, options = {}) {
     runtime,
   });
 
-  const responseText = stripInternalCounters(ai.text);
+  const modelResponseText = stripInternalCounters(ai.text);
+  const responseText = selfStateObserved
+    ? formatVerifiedSelfStateResponse(selfStateObserved, text, { fallback: modelResponseText })
+    : modelResponseText;
 
   let archiveSaved = false;
   if (service) {
@@ -586,6 +593,7 @@ export async function handleNativeChat(request, env, options = {}) {
     cache_hit: ai.cache_hit === true,
     finish_reason: ai.finish_reason || null,
     response_truncated: ai.truncated === true,
+    response_grounding: selfStateObserved ? { mode: 'deterministic-self-state', source: 'self.state', observed_at: selfStateObserved.observed_at || null } : null,
     memory_count: retrieved?.count || 0,
     memory_stored: memoryWrite.stored === true,
     memory_reason: memoryWrite.reason || null,

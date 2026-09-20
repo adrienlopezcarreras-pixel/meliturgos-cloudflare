@@ -89,3 +89,23 @@ test('self.state aggregates bounded live evidence without mutating product state
     DB.close();
   }
 });
+
+
+test('self-state intent recognizes current ChatGPT memory observation phrasing', () => {
+  assert.deepEqual(
+    inferSelfStateIntent('tu vois les mémoires que tu récupères de ChatGPT maintenant ?'),
+    { id: 'self.state', input: {} }
+  );
+});
+
+test('response improvement request remains a development request, not self observation', async () => {
+  const text = 'améliore encore tes réponses et ton raisonnement';
+  assert.equal(inferSelfStateIntent(text), null);
+  const request = new Request('https://mel.example/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text, conversation_id: 'quality-dev' }),
+  });
+  const body = await (await injectEvolutionPreflightCapability(request)).json();
+  assert.equal(body.capability?.id, 'evolution.enqueue');
+});

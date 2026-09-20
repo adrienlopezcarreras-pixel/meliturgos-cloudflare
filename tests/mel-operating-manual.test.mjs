@@ -12,6 +12,8 @@ test('MEL operating manual keeps identity, experience and post-pass invariants e
   assert.ok(MEL_OPERATING_MANUAL.mustAlways.some(x => /nettoyer, unifier, réconcilier et adapter/i.test(x)));
   assert.ok(MEL_OPERATING_MANUAL.mustAlways.some(x => /candidate\/mel-clean-autonomy/i.test(x)));
   assert.ok(MEL_OPERATING_MANUAL.knowsHowTo.some(x => /protocoles matériels versionnés/i.test(x)));
+  assert.ok(MEL_OPERATING_MANUAL.responseQuality.some(x => /réponse directe et concrète/i.test(x)));
+  assert.ok(MEL_OPERATING_MANUAL.responseQuality.some(x => /statuts opérationnels/i.test(x)));
 
   const prompt = buildMelOperatingManualPrompt({
     capabilityManifest: [{ id:'code.read', status:'EXISTANT_NON_TESTE', health:'HEALTHY', tested_now:false }],
@@ -20,6 +22,7 @@ test('MEL operating manual keeps identity, experience and post-pass invariants e
   assert.match(prompt, /MEL_OPERATING_MANUAL/);
   assert.match(prompt, /code\.read/);
   assert.match(prompt, /bootstrap-post-pass-reconcile-adapt-20260918/);
+  assert.match(prompt, /QUALITÉ DE MES RÉPONSES/);
 });
 
 test('code access truth never turns missing current read proof into a false global incapacity', () => {
