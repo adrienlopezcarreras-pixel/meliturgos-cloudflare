@@ -175,10 +175,15 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
 
   const selfState = inferSelfStateIntent(text);
   const knowledge = selfState ? null : inferKnowledgeCapability(text);
+  const persistentKnowledge = knowledge && (
+    knowledge.id !== 'knowledge.research'
+    || knowledge.input?.save_file === true
+    || knowledge.input?.remember === true
+  );
 
   if (selfState) {
     routeDeterministic(body, selfState, 'SELF_STATE');
-  } else if (knowledge) {
+  } else if (persistentKnowledge) {
     routeDeterministic(body, knowledge, 'KNOWLEDGE');
   } else if (isEvolutionDevelopmentIntent(text)) {
     body.capability = enqueueCapability(text, body, requestKey);
@@ -203,6 +208,7 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
     else if (openWork) routeDeterministic(body, openWork, 'OPEN_WORK');
     else if (moduleProposal) routeDeterministic(body, moduleProposal, 'MODULE_PROPOSAL');
     else if (webResearch) routeDeterministic(body, webResearch, 'WEB_RESEARCH');
+    else if (knowledge) routeDeterministic(body, knowledge, 'KNOWLEDGE');
     else {
       const semanticContext = await buildIntentRoutingContext(body, env);
       const semantic = await classifySemanticOwnerIntent({
