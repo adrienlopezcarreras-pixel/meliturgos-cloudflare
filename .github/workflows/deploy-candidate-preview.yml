@@ -431,7 +431,7 @@ jobs:
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
           curl --fail-with-body --show-error --silent \
-            --max-time 180 \
+            --max-time 240 \
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --header "content-type: application/json" \
             --data '{"force":true}' \
@@ -578,8 +578,8 @@ jobs:
           raise SystemExit(0 if (
               d.get('ok') is True
               and int(d.get('probed') or 0) >= 6
-              and int(d.get('active_external_count') or 0) >= 7
-              and len(d.get('selected') or []) >= 7
+              and int(d.get('representative_validated_count') or 0) >= 7
+              and len(d.get('representative_validated_endpoint_ids') or []) >= 7
               and d.get('target_reached') is True
           ) else 1)
           PY
@@ -601,6 +601,10 @@ jobs:
           discovered=int(data.get('discovered') or 0)
           probed=int(data.get('probed') or 0)
           active=int(data.get('active_external_count') or 0)
+          representative_probed=int(data.get('representative_probed') or 0)
+          representative_qualified=int(data.get('representative_qualified') or 0)
+          representative_validated=int(data.get('representative_validated_count') or 0)
+          representative_ids=list(data.get('representative_validated_endpoint_ids') or [])
           selected=len(data.get('selected') or [])
           if data.get('ok') is not True:
               raise SystemExit('SHARDVAULT_SEARCH_FAILED: '+str(data.get('error') or data.get('status')))
@@ -608,10 +612,10 @@ jobs:
               raise SystemExit(f'SHARDVAULT_DISCOVERY_TOO_SMALL: {discovered}')
           if probed < 6:
               raise SystemExit(f'SHARDVAULT_FRESH_LIVE_PROBES_LT_6: discovered={discovered} probed={probed}')
-          if active < 7:
-              raise SystemExit(f'SHARDVAULT_ACTIVE_EXTERNAL_LT_7: active={active}')
-          if selected < 7:
-              raise SystemExit(f'SHARDVAULT_SELECTED_LT_7: selected={selected}')
+          if representative_validated < 7:
+              raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_VALIDATED_LT_7: representative_validated={representative_validated} active_historical={active}')
+          if len(representative_ids) < 7:
+              raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_IDS_LT_7: ids={representative_ids}')
           if data.get('target_reached') is not True:
               raise SystemExit('SHARDVAULT_TARGET_NOT_REACHED')
           if (data.get('code_sync') or {}).get('status') != 'DEFERRED_SEPARATE_OPERATION':
@@ -621,14 +625,20 @@ jobs:
               with open(summary,'a',encoding='utf-8') as h:
                   h.write('### ShardVault live external probe\n\n')
                   h.write(f'- Candidates discovered: {discovered}\n')
-                  h.write(f'- Fresh live round-trips passed: {probed}\n')
-                  h.write(f'- Active validated external targets: {active}\n')
-                  h.write(f'- Selected targets: {selected}\n')
+                  h.write(f'- Fresh small live probes passed: {probed}\n')
+                  h.write(f'- Representative probes attempted: {representative_probed}\n')
+                  h.write(f'- Representative full-fragment qualifications: {representative_qualified}\n')
+                  h.write(f'- Representative validated targets: {representative_validated}\n')
+                  h.write(f'- Historical active targets: {active}\n')
                   h.write(f'- Goal reached: {data.get("target_reached")}\n')
-                  h.write('- Code replication: deferred to isolated reconstruction step; this stronger gate must prove 7/7 write/read before reconstruction.\n')
+                  h.write('- Validation rule: a target counts only after full representative chunk/write/read/reassembly/hash proof.\n')
           print(json.dumps({
               'discovered': discovered,
               'probed': probed,
+              'representative_probed': representative_probed,
+              'representative_qualified': representative_qualified,
+              'representative_validated_count': representative_validated,
+              'representative_validated_endpoint_ids': representative_ids,
               'active_external_count': active,
               'selected': selected,
               'target_count': data.get('target_count'),
