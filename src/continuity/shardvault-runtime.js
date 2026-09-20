@@ -1551,7 +1551,13 @@ export async function searchAutonomousShardVaultRepositories(env){
     try{const rows=await inventoryRows(env,c);last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
     try{
       const code=await inspectCodeArchive(env,c);
-      const archiveBytes=Math.max(0,Number(code?.critical_bytes||code?.bytes||0));
+      const declaredBundleBytes=typeof MEL_CRITICAL_CODE_BUNDLE_BYTES!=='undefined'
+        ? Math.max(0,Number(MEL_CRITICAL_CODE_BUNDLE_BYTES)||0)
+        : 0;
+      const archiveBytes=Math.max(
+        declaredBundleBytes,
+        Math.max(0,Number(code?.critical_bytes||code?.bytes||0))
+      );
       if(archiveBytes>0){
         const codeShardBytes=Math.max(64*1024,Math.ceil((archiveBytes+32)/Math.max(2,Number(c.k)||4)));
         requiredBytes=Math.max(requiredBytes,codeShardBytes);
@@ -1587,6 +1593,7 @@ export async function searchAutonomousShardVaultRepositories(env){
       ok:true,
       searched_at:new Date().toISOString(),
       required_bytes:requiredBytes,
+      declared_critical_bundle_bytes:typeof MEL_CRITICAL_CODE_BUNDLE_BYTES!=='undefined'?Math.max(0,Number(MEL_CRITICAL_CODE_BUNDLE_BYTES)||0):0,
       discovered:report.discovered||0,
       probed:report.probed||0,
       representative_probed:Number(report?.representative_probed||0),
