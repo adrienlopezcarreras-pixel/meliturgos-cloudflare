@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-18.4';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-20.1';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -59,7 +59,14 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-56', 'Import contexte ChatGPT', 'DONE_VERIFIED', 'Valider les gros exports réels et la compatibilité entre versions', 'P0'),
     item('MEL-MEM-01', 'Memory Compiler: faits, préférences, décisions, compétences', 'IN_PROGRESS', 'Déduplication + confiance + provenance', 'P0'),
     item('MEL-MEM-02', 'Synchronisation continue des nouveaux échanges vers la mémoire', 'PLANNED', 'Créer pipeline incrémental idempotent', 'P1'),
-    item('MEL-MEM-03', 'Export mémoire portable et lisible', 'PARTIAL', 'Ajouter manifeste, checksums et version de schéma', 'P1')
+    item('MEL-MEM-03', 'Export mémoire portable et lisible', 'PARTIAL', 'Ajouter manifeste, checksums et version de schéma', 'P1'),
+    item('MEL-MEM-04', 'Complétude des archives ChatGPT récupérables', 'IN_PROGRESS', 'Mesurer et prouver 100 % des conversations récupérables stockées, sans confondre archive collectée et mémoire opérationnelle', 'P0'),
+    item('MEL-MEM-05', 'Indexation complète messages et pièces jointes', 'PLANNED', 'Reconstruire et indexer tous les messages, métadonnées, dates, conversations et pièces jointes avec reprise idempotente', 'P0'),
+    item('MEL-MEM-06', 'Pont archives vers mémoire opérationnelle unifiée', 'PLANNED', 'Brancher l’index complet à MemoryService/RAG afin que MEL décide elle-même quand consulter les archives sans injecter tout le corpus dans chaque contexte', 'P0'),
+    item('MEL-MEM-07', 'Recherche mémoire hybride sémantique, exacte et filtrable', 'PLANNED', 'Ajouter recherche sémantique + exacte avec filtres date, projet, conversation, source et type de fichier, avec fusion/reranking des résultats', 'P0'),
+    item('MEL-MEM-08', 'Apprentissage mémoire avec provenance conservée', 'PLANNED', 'Permettre à MEL d’enregistrer de nouvelles connaissances issues des archives tout en conservant source, date, conversation, fragment, confiance et contradictions', 'P0'),
+    item('MEL-MEM-09', 'Validation de rappel historique difficile', 'PLANNED', 'Tester des questions anciennes et multi-conversations difficiles à retrouver, vérifier citations d’origine, croisement de sources et absence d’invention', 'P0'),
+    item('MEL-MEM-10', 'Reconstruction mémoire identique après panne', 'PLANNED', 'Tester redémarrage, restauration et reconstruction de l’index puis vérifier que MEL retrouve les mêmes informations et la même provenance', 'P0')
   ]),
 
   phase('P04', 'Capability Bus, outils et accès au code', [
