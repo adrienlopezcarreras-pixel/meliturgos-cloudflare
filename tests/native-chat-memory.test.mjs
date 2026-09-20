@@ -70,6 +70,6 @@ test('collector history reaches native model context with user authority and tit
     assert.match(system, /station lunaire/);
     assert.match(system, /Projet Orion/);
     assert.match(system, /historical_user_message/);
-    assert.match(system, /historical assistant messages are only prior assistant output/i);
+    assert.match(system, /historical assistant output is not a fact unless corroborated/i);
   } finally { DB.close(); }
 });
