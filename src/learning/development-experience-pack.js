@@ -246,4 +246,245 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     created_at: 1789851000000,
   },
 
+  {
+    id: "shardvault-representative-payload-proof-20260920",
+    source: "chatgpt-teacher",
+    domain: "shardvault-recovery",
+    task: "Ne pas confondre un petit probe fournisseur avec une preuve de réplication d'un vrai fragment de code.",
+    input: "Un dépôt externe réussit un round-trip de 256 octets mais doit ensuite porter un fragment Reed-Solomon d'environ 153 Ko avant encodage/chunking.",
+    before: "Déclarer la cible pleinement apte au code parce qu'un petit probe écrit, relit et compare correctement quelques centaines d'octets.",
+    after: "Conserver le petit probe pour la disponibilité mais ajouter une preuve séparée avec la charge représentative: chunking réel, écriture de toutes les parties, relecture, réassemblage, longueur et hash. La capacité code n'est acquise qu'après cette preuve.",
+    rationale: "Les runs ShardVault ont montré 7/7 sur petits probes alors que la réplication du bundle exact-SHA restait à 4/7 puis 5/7; la taille et les limites sémantiques du fournisseur changent le résultat.",
+    tests: [
+      "preview run 35521701620: live probe passed but reconstruction gate failed at 4/7",
+      "preview run 35523106093: live probe passed but code sync stopped at 5/7"
+    ],
+    tags: [
+      "shardvault",
+      "representative-load",
+      "probe",
+      "reconstruction",
+      "e2e"
+    ],
+    validated: true,
+    quality: 1,
+    created_at: 1790010000000
+  },
+  {
+    id: "shardvault-semantic-rate-limit-20260920",
+    source: "chatgpt-teacher",
+    domain: "network-provider",
+    task: "Traiter les limites fournisseur renvoyées dans un corps HTTP 200 comme des erreurs sémantiques temporaires.",
+    input: "Telegraph retourne HTTP 200 avec une erreur FLOOD_WAIT_n pendant une écriture de fragments.",
+    before: "Considérer tout HTTP 200 comme succès transport/applicatif ou quarantiner immédiatement la cible sur l'erreur sémantique.",
+    after: "Parser le contrat fournisseur, reconnaître FLOOD_WAIT/rate-limit, attendre la durée annoncée avec une marge bornée, réessayer dans un budget fini et ne déclarer permanent qu'après classification.",
+    rationale: "Le transport et la sémantique applicative sont deux couches distinctes; le correctif 66db33f6 a ajouté la gestion explicite FLOOD_WAIT et un backoff borné.",
+    tests: [
+      "commit 66db33f67f2fc2cf790dfcb3b90e7f8c2cb63b69",
+      "tests/shardvault-live-adapters.test.mjs contract"
+    ],
+    tags: [
+      "provider",
+      "rate-limit",
+      "semantic-error",
+      "retry",
+      "telegraph"
+    ],
+    validated: true,
+    quality: 1,
+    created_at: 1790010060000
+  },
+  {
+    id: "shardvault-independent-exact-sha-restore-gate-20260920",
+    source: "chatgpt-teacher",
+    domain: "shardvault-recovery",
+    task: "Exiger une reconstruction indépendante et exacte avant de considérer la sauvegarde du code comme prête.",
+    input: "Sept fragments externes sont supposés disponibles pour un bundle correspondant à un SHA Git précis.",
+    before: "Valider la sauvegarde parce que les fragments ont été écrits ou parce qu'un manifest existe localement.",
+    after: "Reconstruire depuis les fragments externes sans dépendre de l'archive locale, vérifier longueur, SHA-256 et SHA Git attendu, puis refaire la reconstruction avec trois indexes retirés avant le gate de lancement.",
+    rationale: "La propriété promise est la récupération 4-of-7 du code exact, pas la seule présence des copies.",
+    tests: [
+      "workflow step Prove ShardVault external code reconstruction checks independent_of_local_archive",
+      "loss simulation [0,2,5] plus stress loss patterns"
+    ],
+    tags: [
+      "shardvault",
+      "restore",
+      "exact-sha",
+      "independent",
+      "loss3"
+    ],
+    validated: true,
+    quality: 1,
+    created_at: 1790010120000
+  },
+  {
+    id: "knowledge-routing-specificity-precedence-20260920",
+    source: "chatgpt-teacher",
+    domain: "knowledge-artifacts",
+    task: "Router les demandes composées de connaissance durable sans voler les intentions code ou recherche web simple.",
+    input: "Une phrase peut contenir recherche, vérification, création de fichier, mémorisation, code ou état système.",
+    before: "Faire passer toute mention de recherche par knowledge.research, ce qui détourne code.integrity et web.research.",
+    after: "Prioriser l'état système explicite; router tôt seulement les demandes de connaissance réellement persistante (save_file/remember ou capability durable); préserver ensuite le développement, code.integrity et web.research; laisser knowledge.research simple en dernier recours.",
+    rationale: "Le premier correctif trop large a cassé trois familles de tests; les commits bee69b24 et 9ef52f86 ont restauré la spécificité et ajouté la régression durable.",
+    tests: [
+      "commit bee69b24aaec4009e5fa66755a575b3fa9b95e0d",
+      "commit 9ef52f8632ac0385741fac7c38b3e642aeb8b514"
+    ],
+    tags: [
+      "router",
+      "knowledge",
+      "web-research",
+      "code-integrity",
+      "precedence"
+    ],
+    validated: true,
+    quality: 1,
+    created_at: 1790010180000
+  },
+  {
+    id: "knowledge-artifact-integrity-provenance-20260920",
+    source: "chatgpt-teacher",
+    domain: "knowledge-artifacts",
+    task: "Distinguer une connaissance vérifiée d'une recherche brute et rendre son fichier réutilisable sans perdre sa provenance.",
+    input: "MEL recherche le web, recoupe les sources, crée un Markdown persistant, le mémorise et le réinjecte dans le RAG.",
+    before: "Mettre toutes les recherches dans le même type d'artefact ou exposer filename/sha256 sur des résultats qui n'ont pas réellement de fichier persistant.",
+    after: "N'émettre verified_knowledge_artifact qu'après recoupement; utiliser knowledge_artifact sinon; calculer SHA-256 du fichier persistant, mémoriser sa référence et réserver filename/sha256 aux artefacts qui existent réellement.",
+    rationale: "La provenance doit représenter le niveau de preuve et l'objet réellement stocké afin que le RAG ne transforme pas une trace de recherche en connaissance vérifiée.",
+    tests: [
+      "commit 5c557fe8a4d63e4dcda38b9755e805eab0355723",
+      "tests/knowledge-rag.test.mjs"
+    ],
+    tags: [
+      "knowledge",
+      "provenance",
+      "sha256",
+      "rag",
+      "verification"
+    ],
+    validated: true,
+    quality: 1,
+    created_at: 1790010240000
+  },
+  {
+    id: "shardvault-resumable-external-replication-20260920",
+    source: "chatgpt-teacher",
+    domain: "shardvault-recovery",
+    task: "Rendre la réplication externe lourde reprenable sans recommencer les fragments déjà vérifiés.",
+    input: "Une copie 7-cibles dépasse la durée confortable d'une requête et certains fournisseurs échouent temporairement.",
+    before: "Tenter les sept fragments dans une seule requête ou recommencer tout le lot après chaque timeout.",
+    after: "Persister l'état de sync et les fragments temporaires, vérifier au plus un nouveau shard externe par requête, reprendre sur l'état durable et conserver les endpoints déjà validés.",
+    rationale: "Cette granularité borne le travail Worker et permet aux retries fournisseur de progresser de 0/7 à 5/7 sans perdre les copies acquises.",
+    tests: [
+      "src/continuity/shardvault-runtime.js ensureExternalCodeArchive resumable state",
+      "preview run 35523106093 progression 0/7 -> 5/7"
+    ],
+    tags: [
+      "shardvault",
+      "resume",
+      "worker",
+      "checkpoint",
+      "external-replication"
+    ],
+    validated: true,
+    quality: 1,
+    created_at: 1790010300000
+  },
+  {
+    id: "provider-capacity-conservative-registry-20260920",
+    source: "chatgpt-teacher",
+    domain: "network-provider",
+    task: "Gérer un catalogue fournisseur plus récent que le registre actif persistant sans surestimer la capacité.",
+    input: "Le code embarqué augmente maxObjectBytes mais des endpoints actifs stockés conservent l'ancienne valeur.",
+    before: "Écraser silencieusement la capacité enregistrée ou supposer que le nouveau maximum est déjà prouvé pour une cible active existante.",
+    after: "Utiliser la valeur active conservatrice pour le chunking tant qu'une requalification live n'a pas prouvé la nouvelle capacité; permettre au catalogue récent d'améliorer les futures qualifications.",
+    rationale: "Une capacité déclarée ou mise à jour dans le code n'est pas automatiquement une capacité live du registre déjà sélectionné.",
+    tests: [
+      "live probe artifact 10609312124 retained older conservative maxBytes for active MarkdownPaste/Telegraph",
+      "runtime chunking uses endpoint maxBytes"
+    ],
+    tags: [
+      "provider",
+      "capacity",
+      "registry",
+      "conservative",
+      "requalification"
+    ],
+    validated: true,
+    quality: 1,
+    created_at: 1790010360000
+  },
+  {
+    id: "ci-test-expectation-follows-intentional-contract-20260920",
+    source: "chatgpt-teacher",
+    domain: "ci-release-supply-chain",
+    task: "Corriger un test obsolète quand le nouveau contrat est volontaire et plus robuste, sans masquer une vraie régression.",
+    input: "Le runtime augmente volontairement un plafond adaptatif de 82s à 85s pour permettre un fournisseur chunké, mais le test regex attend encore 82000.",
+    before: "Revenir au comportement moins robuste uniquement pour satisfaire l'ancienne assertion, ou modifier le test sans vérifier l'intention.",
+    after: "Comparer le diff runtime, le besoin opérationnel et les autres invariants; si le changement est volontaire, mettre à jour l'assertion contractuelle puis exiger full-suite et preview exact-SHA.",
+    rationale: "Le test est un contrat, mais un contrat peut devenir obsolète quand l'exigence change; la preuve doit suivre le comportement intentionnel, pas l'inverse.",
+    tests: [
+      "66db33f6 exposed stale 82000 assertion",
+      "4b4450d5 aligned contract to 85000 and added stronger provider assertions"
+    ],
+    tags: [
+      "ci",
+      "regression",
+      "contract",
+      "exact-sha",
+      "tests"
+    ],
+    validated: true,
+    quality: 1,
+    created_at: 1790010420000
+  },
+  {
+    id: "expert-corpus-runtime-distillation-20260920",
+    source: "chatgpt-teacher",
+    domain: "learning-evaluation",
+    task: "Rendre un grand corpus expert utilisable par MEL sans gonfler son coût de démarrage Worker.",
+    input: "Un programme de 10 000 cycles doit rester consultable tout en respectant les limites CPU/mémoire/startup et la séparation entre théorie et XP prouvée.",
+    before: "Importer 10 000 objets détaillés dans BOOTSTRAP_CORRECTIONS à chaque démarrage ou les compter comme XP validées sans preuve runtime.",
+    after: "Conserver les 10 000 cycles dans une matrice générable à la demande, exposer une recherche expert ciblée et injecter dans trainingBundle seulement les leçons distillées réellement prouvées.",
+    rationale: "Cela préserve toute la couverture d'audit tout en évitant une amplification inutile du bundle runtime et respecte la sémantique validated du protocole XP.",
+    tests: [
+      "expert-plus corpus test requires exactly 10000 unique complete cycles",
+      "LearningEngine expertGuidance exposes on-demand cycles",
+      "distilled XP are the only expert-plus rows added to BOOTSTRAP_CORRECTIONS"
+    ],
+    tags: [
+      "learning",
+      "distillation",
+      "worker-startup",
+      "10000-cycles",
+      "truthfulness"
+    ],
+    validated: true,
+    quality: 0.98,
+    created_at: 1790010480000
+  },
+  {
+    id: "audit-sensor-vs-product-proof-chain-20260920",
+    source: "chatgpt-teacher",
+    domain: "observability-audit",
+    task: "Éviter qu'un audit conclue à une panne globale à partir d'un seul capteur ou d'une étape sautée.",
+    input: "CI, preview, production, provider externe et interface peuvent avoir des états différents au même instant.",
+    before: "Résumer l'état par un unique vert/rouge ou déduire production depuis preview, probe depuis reconstruction, ou outil local depuis service réel.",
+    after: "Conserver des gates séparés et ordonnés: code/tests, live probe, réplication représentative, reconstruction indépendante, stress, launch readiness, production; attribuer chaque conclusion à sa couche.",
+    rationale: "Les runs récents ont montré simultanément des suites générales vertes, un probe 7/7 et une reconstruction encore incomplète; fusionner ces preuves aurait créé un faux OK.",
+    tests: [
+      "preview run 35523106093: step 27 success while step 29 failure",
+      "status reporting kept general gates/live 7/7/reconstruction separate"
+    ],
+    tags: [
+      "audit",
+      "evidence-chain",
+      "truthfulness",
+      "gates",
+      "observability"
+    ],
+    validated: true,
+    quality: 1,
+    created_at: 1790010540000
+  },
 ]);
