@@ -28,12 +28,31 @@ const FATAL_RUNTIME_CONFIGURATION_ERRORS = new Set([
   'AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE',
 ]);
 
-function deployedCandidateSha() {
+function deployedCandidateSha(env = {}) {
+  const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim();
+  if (/^[a-f0-9]{40}$/i.test(direct)) return direct.toLowerCase();
   try {
-    return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') : '';
+    const built = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '').trim() : '';
+    return /^[a-f0-9]{40}$/i.test(built) ? built.toLowerCase() : '';
   } catch {
     return '';
   }
+}
+
+function launchApprovalValid(env, control, options = {}) {
+  if (!env?.DB || options?.skipLaunchGate === true) return { ok: true, enforced: false };
+  const sha = deployedCandidateSha(env);
+  if (!sha) return { ok: false, enforced: true, code: 'DEPLOYED_SHA_UNAVAILABLE', deployed_sha: null };
+  if (String(control?.launch_approved_sha || '').toLowerCase() !== sha) {
+    return {
+      ok: false,
+      enforced: true,
+      code: 'LAUNCH_GATE_REQUIRED',
+      deployed_sha: sha,
+      approved_sha: control?.launch_approved_sha || null,
+    };
+  }
+  return { ok: true, enforced: true, deployed_sha: sha, approved_sha: sha };
 }
 
 export function resolveRuntimeBenchmarkEvaluator(env = {}, options = {}) {
@@ -487,7 +506,7 @@ export async function runAutonomyMaintenance(env, options = {}) {
     let passiveRecovery;
     try {
       passiveRecovery = await recoverPassiveRuntimeStates(repository, {
-        canonicalSha: deployedCandidateSha(),
+        canonicalSha: deployedCandidateSha(env),
         limit: 200,
       });
     } catch (error) {
@@ -495,7 +514,7 @@ export async function runAutonomyMaintenance(env, options = {}) {
         attempted: 0,
         recovered: [],
         failed: [{ job_id: null, code: error?.code || error?.message || 'PASSIVE_RECOVERY_FAILED' }],
-        canonical_sha: deployedCandidateSha() || null,
+        canonical_sha: deployedCandidateSha(env) || null,
       };
     }
 
@@ -523,6 +542,18 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
       advanced: false,
       candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
       control,
+    };
+  }
+
+  const launchApproval = launchApprovalValid(env, control, options);
+  if (!launchApproval.ok) {
+    return {
+      ok: false,
+      status: launchApproval.code,
+      advanced: false,
+      candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
+      control,
+      launch_gate: launchApproval,
     };
   }
 
