@@ -31,6 +31,8 @@ test('normal MEL surface remains available and loads the external canonical cont
   assert.match(NORMAL_RUNTIME_SOURCE, /full\.addEventListener\('click'/);
   assert.match(NORMAL_RUNTIME_SOURCE, /themeTrigger\.addEventListener\('click'/);
   assert.match(NORMAL_RUNTIME_SOURCE, /send\.addEventListener\('click'/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /let conversationId=stableId\('mel\.conversation'\)/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /conversationId=String\(d\.conversation\.id\);localStorage\.setItem\('mel\.conversation',conversationId\)/);
 });
 
 test('canonical Professor keeps chat in the same control surface and sends through /api/chat', async () => {
