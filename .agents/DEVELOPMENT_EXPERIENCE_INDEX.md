@@ -72,6 +72,15 @@ Cette leçon est matérialisée dans `src/learning/runtime-operating-experience.
 - Statut : **corpus de formation, pas 1000 XP validées**. Une règle n’entre dans le pack XP canonique qu’après application prouvée, testée et dédupliquée conformément à `.agents/XP_PROTOCOL.md`.
 - Après ce cycle 1000, les runs MEL reviennent à l’audit/réparation/tests ; la veille ultérieure met à jour le corpus sans fabriquer de nouveaux cycles si aucun acquis nouveau n’existe.
 
+## Formation technique avancée — Expert Track V2 (2026-09-20)
+
+- Corpus : `.agents/AI_ENGINEERING_EXPERT_1000_CYCLES_V2.md`.
+- Compteur : **AI_ENGINEERING_EXPERT_cycle_1000/1000 — COMPLETED**.
+- Cumul structuré : **2000 cycles**.
+- Sources récentes/primaires : OpenAI Agents SDK, MCP 2026-07-28, Cloudflare Agents/Workflows/Durable Objects/Queues/D1, OpenTelemetry, OWASP, NIST AI RMF, GitHub attestations, Sigstore, Google SRE et vérité du repo.
+- Statut : corpus d’expertise, pas 1000 nouvelles XP validées. Une leçon ne devient XP canonique qu’après application prouvée selon `.agents/XP_PROTOCOL.md`.
+- Audit post-track : priorité à la vérité runtime, postconditions, migration canonique de l’état, idempotence/reprise, provenance exact-SHA, cohérence conversationnelle et faux succès.
+
 ## Règle de déduplication
 
 Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le corpus. Une différence de vocabulaire ne justifie pas une nouvelle leçon si la préférence comportementale est déjà couverte.
