@@ -102,7 +102,7 @@ test('Telegraph account state is privately reused and code replica deadlines sca
   assert.match(runtime,/TELEGRAPH_ACCOUNT_KEY/);
   assert.match(runtime,/telegraphAccessToken\(env,objectId\)/);
   assert.match(runtime,/codeFragmentDeadlineMs/);
-  assert.match(runtime,/Math\.min\(85000,adaptive\)/);
+  assert.match(runtime,/Math\.min\(150000,adaptive\)/);
   assert.match(runtime,/telegraphFloodWaitMs/);
   assert.match(runtime,/for\(let attempt=0;attempt<3;attempt\+\+\)/);
   assert.match(runtime,/fetchRateAware\(endpoint,\{method:'POST'.*\},15000,4,10000,30000\)/s);
@@ -238,4 +238,24 @@ test('representative load is sized from the exact critical code bundle and enfor
   assert.match(releaseWorkflow,/MEL_CRITICAL_CODE_BUNDLE_BYTES=\$BUNDLE_BYTES/);
   assert.match(releaseWorkflow,/--define "MEL_CRITICAL_CODE_BUNDLE_BYTES:\$\{MEL_CRITICAL_CODE_BUNDLE_BYTES\}"/);
   assert.equal((wrangler.match(/"MEL_AUTONOMOUS_PROBE_LIMIT": "20"/g)||[]).length,2);
+});
+
+
+test('critical bundle is bound through the runtime before qualification', () => {
+  assert.match(runtime,/export async function storeCriticalCodeBundle\(/);
+  assert.match(runtime,/CRITICAL_BUNDLE_ROUNDTRIP_MISMATCH/);
+  assert.match(previewWorkflow,/Bind exact critical bundle through preview Worker/);
+  assert.match(previewWorkflow,/\/api\/gen2\/shardvault\/code-source/);
+  assert.match(previewWorkflow,/SHARDVAULT_CRITICAL_SOURCE_NOT_BOUND/);
+  assert.match(previewWorkflow,/SHARDVAULT_CRITICAL_SOURCE_SIZE_MISMATCH/);
+});
+
+test('code sync prefers representative proof metadata and timing over legacy registry entries', () => {
+  assert.match(runtime,/const proofWeight=e=>\[/);
+  assert.match(runtime,/if\(!current\|\|better\(e,current\)\)by\.set\(e\.id,e\)/);
+  assert.match(runtime,/rankExternalCodeCandidates\(env,\[\.\.\.validated,\.\.\.extra/);
+  assert.match(runtime,/representativeLatencyMs/);
+  assert.match(runtime,/const proofBudget=representativeLatency>0\?Math\.ceil\(representativeLatency\*1\.35\+10000\):0/);
+  assert.match(autonomous,/REPRESENTATIVE_DEADLINE_EXCEEDED/);
+  assert.match(autonomous,/deadline_ms:deadline/);
 });
