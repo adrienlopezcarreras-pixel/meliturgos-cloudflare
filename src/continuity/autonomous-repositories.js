@@ -1123,7 +1123,7 @@ async function validateDocumentedEvidence(c,{maxAgeDays=365}={}){
     evidenceVerification:'reviewed_documentation_plus_live_roundtrip'
   };
 }
-async function probe(c, requiredBytes, policyMaxAgeDays=180){
+async function probe(c, requiredBytes, policyMaxAgeDays=180, env=null){
   const policyStart=Date.now();
   let authority;
   if(c.evidenceMode==='documented_api'){
@@ -1173,7 +1173,7 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
   const eligibleRows=[],rejected=[...loaded.rejected];
   for(const c of loaded.candidates){const e=eligible(c,{requiredBytes,policyMaxAgeDays,minRetentionDays});if(e.ok)eligibleRows.push(c);else rejected.push({source:c.source,id:c.id,reason:e.reasons.join(',')});}
   const probed=[];
-  for(const c of eligibleRows.slice(0,probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
+  for(const c of eligibleRows.slice(0,probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays,env));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
   const selected=choose(probed,selectionCount,maxPerOperator,maxPerProvider);
   const endpointView=(c,verification='reviewed_documentation_plus_live_roundtrip')=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:Number(c.score)||0,confidence:Number(c.confidence)||0,autonomous:true,authMode:c.authMode||'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:verification,expectedRetentionDays:c.expectedRetentionDays||0,retentionModel:c.retentionModel||'fixed',baseRetentionDays:c.baseRetentionDays||c.expectedRetentionDays||0,refreshEveryDays:c.refreshEveryDays||0,fullReadRenewsRetention:c.fullReadRenewsRetention===true,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0)});
   return {
