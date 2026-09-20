@@ -125,7 +125,7 @@ test('code replication uses resumable RS 4-of-7 shards with one external shard p
   assert.match(body,/state\.shards\.push\(descriptor\)/);
   assert.match(body,/writeCodeSyncState\(env,id,state\)/);
   assert.match(runtime,/CALL_CODE_SYNC_AGAIN/);
-  assert.match(body,/CODE_FRAGMENT_DEADLINE_EXCEEDED/);
+  assert.match(runtime,/CODE_FRAGMENT_DEADLINE_EXCEEDED/);
   assert.match(body,/CODE_FRAGMENT_ROUNDTRIP_MISMATCH/);
   assert.doesNotMatch(body,/assignDistinctExternalTargets\(replicas,candidates/);
 });
