@@ -116,6 +116,7 @@ export async function setAutonomyControl(db, {
 
 export async function setOwnerMaxAutonomy(db, {
   enabled = true,
+  paused,
   source = 'owner-ui',
   reason = null,
   launch_approved_sha,
@@ -124,6 +125,7 @@ export async function setOwnerMaxAutonomy(db, {
   memoryState = null,
 } = {}) {
   return setAutonomyControl(db, {
+    paused,
     max_autonomy: enabled === true,
     source,
     reason: reason ?? (enabled ? 'owner-max-autonomy' : null),
