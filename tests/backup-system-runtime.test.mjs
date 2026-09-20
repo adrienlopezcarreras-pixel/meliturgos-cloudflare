@@ -200,3 +200,24 @@ test('GEN2-47 is wired to the canonical scheduled entry and roadmap source', asy
   assert.match(roadmap, /GEN2-47[\s\S]*Snapshots D1 complets \+ inventaire R2 automatisés et vérifiés/);
   assert.match(roadmap, /GEN2-47[\s\S]*copie des octets R2, chiffrement et drill de restauration/);
 });
+
+
+test('GEN2-47 forced scheduled backup ignores a current snapshot for a new release SHA', async () => {
+  let creates=0;
+  const service={
+    async list(){ return [{id:'current',createdAt:'2026-09-20T04:00:00.000Z'}]; },
+    async verify(){ throw new Error('force must not reuse old snapshot'); },
+    async create({id}){ creates++; return {id,integritySha256:'forced-hash',sourceCount:3}; },
+  };
+  service.verify=async ({id}) => id==='current'
+    ? (()=>{ throw new Error('force must not verify/reuse current'); })()
+    : {ok:true,integritySha256:'forced-hash'};
+  const result=await runScheduledSystemBackup({}, {
+    now:()=> '2026-09-20T04:01:00.123Z',
+    intervalMs:24*60*60*1000,
+    force:true,
+    service,
+  });
+  assert.equal(result.status,'CREATED_VERIFIED');
+  assert.equal(creates,1);
+});
