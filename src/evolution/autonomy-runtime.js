@@ -168,6 +168,8 @@ async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3 } =
 
   if (attempts >= maxAttempts) {
     result.runtime_retry.quarantined = true;
+    result.autonomy_blocked = true;
+    result.autonomy_block_reason = 'RUNTIME_RETRY_EXHAUSTED';
     const updated = await repository.update(candidate.id, {
       status: 'FAILED',
       result_json: result,
