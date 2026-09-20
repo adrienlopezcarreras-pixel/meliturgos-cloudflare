@@ -81,7 +81,11 @@ test('Telegraph account state is privately reused and code replica deadlines sca
   assert.match(runtime,/TELEGRAPH_ACCOUNT_KEY/);
   assert.match(runtime,/telegraphAccessToken\(env,objectId\)/);
   assert.match(runtime,/codeFragmentDeadlineMs/);
-  assert.match(runtime,/Math\.min\(82000,adaptive\)/);
+  assert.match(runtime,/Math\.min\(85000,adaptive\)/);
+  assert.match(runtime,/telegraphFloodWaitMs/);
+  assert.match(runtime,/for\(let attempt=0;attempt<3;attempt\+\+\)/);
+  assert.match(runtime,/fetchRateAware\(endpoint,\{method:'POST'.*\},15000,4,10000,30000\)/s);
+  assert.match(runtime,/markdownpaste_b64'\)return Math\.max\(256,Math\.min\(24000/);
   assert.match(runtime,/FLOOD\|RATE\[_ -\]\?LIMIT/);
 });
 
