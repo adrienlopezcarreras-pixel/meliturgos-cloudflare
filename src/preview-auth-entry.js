@@ -122,12 +122,19 @@ export async function bridgePreviewBasicAuth(request, env, fetchImpl = globalThi
 
 async function authenticatePreviewRequest(request, env) {
   const localPassword = withoutTerminalNewline(env?.MELITURGOS_PASSWORD);
-  if (!localPassword) return request;
-
   const authorization = request.headers.get('authorization') || '';
-  if (isBearerAuthorization(authorization)) return request;
-  if (await requestHasValidPreviewSession(request, localPassword)) return withPreviewLocalBearer(request, localPassword);
-  return bridgePreviewBasicAuth(request, env);
+  if (!localPassword) return { request, hasSession: isBearerAuthorization(authorization) };
+  if (isBearerAuthorization(authorization)) return { request, hasSession: true };
+
+  const sessionValid = await requestHasValidPreviewSession(request, localPassword);
+  if (sessionValid) return { request: withPreviewLocalBearer(request, localPassword), hasSession: true };
+
+  const bridgedRequest = await bridgePreviewBasicAuth(request, env);
+  const bridgedAuthorization = bridgedRequest.headers.get('authorization') || '';
+  return {
+    request: bridgedRequest,
+    hasSession: isBearerAuthorization(bridgedAuthorization),
+  };
 }
 
 export default {
@@ -144,12 +151,10 @@ export default {
       return redirectResponse('/__preview/login', { 'set-cookie': previewSessionClearCookie() });
     }
 
-    const authenticatedRequest = await authenticatePreviewRequest(request, env);
+    const auth = await authenticatePreviewRequest(request, env);
+    const authenticatedRequest = auth.request;
     const originalAuthorization = request.headers.get('authorization') || '';
-    const authenticatedAuthorization = authenticatedRequest.headers.get('authorization') || '';
-    const gainedPreviewAuth = authenticatedAuthorization !== originalAuthorization && isBearerAuthorization(authenticatedAuthorization);
-    const hasUsableAuthorization = isBearerAuthorization(originalAuthorization) || gainedPreviewAuth;
-    const hasSession = hasUsableAuthorization || await requestHasValidPreviewSession(request, env?.MELITURGOS_PASSWORD);
+    const hasSession = auth.hasSession;
 
     if (!hasSession && isInteractivePreviewPage(request, url)) {
       return redirectResponse('/__preview/login');

@@ -14,6 +14,29 @@ function lexicalBindings(tokens) {
   return tokens.map(token => `%${token}%`);
 }
 
+function parseJson(value, fallback = {}) {
+  if (!value || typeof value !== 'string') return fallback;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
+function archiveMetadata(row) {
+  const messageMetadata = parseJson(row?.message_metadata, {});
+  const conversationMetadata = parseJson(row?.conversation_metadata, {});
+  const receipt = conversationMetadata?.chatgpt_import && typeof conversationMetadata.chatgpt_import === 'object'
+    ? conversationMetadata.chatgpt_import
+    : null;
+  return {
+    conversation_title: row?.conversation_title || null,
+    conversation_id: row?.conversation_id || null,
+    archive_provenance: row?.archive_provenance || null,
+    collector_source: messageMetadata.collector_source || receipt?.source || null,
+    collector_version: messageMetadata.collector_version || receipt?.collector_version || null,
+    collector_partial: messageMetadata.collector_partial === true || receipt?.partial === true,
+    collector_complete: receipt?.complete === true,
+    chatgpt_conversation_id: messageMetadata.chatgpt_conversation_id || null,
+  };
+}
+
 /** Canonical retrieval: bounded lexical search on the REAL schema; no invented vectors.
  * Mono-owner DB. Caller must supply authenticated owner, never a client userId.
  * Candidate rows are filtered in SQL by query tokens before the safety LIMIT, so
@@ -34,7 +57,10 @@ export class RAGService {
     if (sources.includes('archive_messages')) {
       const where = lexicalSql('a.content', tokens);
       rows.push(...(await db.prepare(`
-        SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,'archive_messages' source
+        SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
+               a.provenance archive_provenance,a.metadata message_metadata,
+               c.title conversation_title,c.metadata conversation_metadata,
+               'archive_messages' source
         FROM archive_messages a
         JOIN conversations c ON c.id=a.conversation_id
         WHERE (c.owner=? OR c.owner='') AND (${where})
@@ -81,26 +107,93 @@ export class RAGService {
     }
 
     const results = rows
-      .map(row => ({
-        ...row,
-        similarity: tokens.filter(t => String(row.content).toLowerCase().includes(t)).length/tokens.length,
-        provenance:row.source === 'knowledge_artifacts'
-          ? {table:row.source,id:row.id,filename:row.filename||null,sha256:row.content_sha256||null}
-          : {table:row.source,id:row.id},
-        role: row.source === 'archive_messages' ? String(row.role || 'unknown') : null,
-        authority: row.source === 'archive_messages'
-          ? (String(row.role || '').toLowerCase() === 'user' ? 'historical_user_message' : 'historical_assistant_output')
+      .map(row => {
+        const similarity = tokens.filter(t => String(row.content).toLowerCase().includes(t)).length/tokens.length;
+        const role = row.source === 'archive_messages' ? String(row.role || 'unknown') : null;
+        const archive = row.source === 'archive_messages' ? archiveMetadata(row) : null;
+        const authority = row.source === 'archive_messages'
+          ? (role.toLowerCase() === 'user' ? 'historical_user_message' : 'historical_assistant_output')
           : row.source === 'memories'
           ? 'memory_record'
           : row.source === 'knowledge_artifacts'
             ? (/^(?:VERIFIED_)/.test(String(row.verification_status || '')) ? 'verified_knowledge_artifact' : 'knowledge_artifact')
-            : 'conversation_title',
-        retrieval:'lexical'
-      }))
+            : 'conversation_title';
+        const rankScore = similarity
+          + (authority === 'historical_user_message' ? 0.12 : 0)
+          + (archive?.collector_complete === true ? 0.03 : 0);
+        return {
+          ...row,
+          similarity,
+          rank_score: rankScore,
+          provenance:row.source === 'knowledge_artifacts'
+            ? {table:row.source,id:row.id,filename:row.filename||null,sha256:row.content_sha256||null}
+            : row.source === 'archive_messages'
+              ? {table:row.source,id:row.id,...archive}
+              : {table:row.source,id:row.id},
+          role,
+          authority,
+          retrieval:'lexical'
+        };
+      })
       .filter(r => r.similarity > 0 && r.similarity >= minSimilarity)
-      .sort((a,b) => b.similarity-a.similarity || b.timestamp-a.timestamp)
+      .sort((a,b) => b.rank_score-a.rank_score || b.timestamp-a.timestamp)
       .slice(0,limit);
     return {results,total:results.length,retrieval:'lexical'};
+  }
+
+  static async searchCollector(db, owner, query, { limit = 12, roles = ['user','assistant'] } = {}) {
+    requireValue(typeof owner === 'string' && owner.length > 0, 'AUTH_REQUIRED',401);
+    requireValue(typeof query === 'string' && query.trim().length > 0 && query.length <= 12000, 'INVALID_QUERY');
+    requireValue(Number.isInteger(limit) && limit > 0 && limit <= 100, 'INVALID_LIMIT');
+    requireValue(Array.isArray(roles) && roles.length > 0 && roles.every(role => ['user','assistant','system','tool'].includes(String(role))), 'INVALID_ROLES');
+
+    const tokens = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [])].slice(0,32);
+    if (!tokens.length) return { results: [], total: 0, retrieval: 'collector-lexical' };
+    const where = lexicalSql('a.content', tokens);
+    const patterns = lexicalBindings(tokens);
+    const rolePlaceholders = roles.map(() => '?').join(',');
+    const rows = (await db.prepare(`
+      SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
+             a.provenance archive_provenance,a.metadata message_metadata,
+             c.title conversation_title,c.metadata conversation_metadata
+      FROM archive_messages a
+      JOIN conversations c ON c.id=a.conversation_id
+      WHERE (c.owner=? OR c.owner='')
+        AND (a.provenance='chatgpt_export' OR a.conversation_id LIKE 'chatgpt:%')
+        AND a.role IN (${rolePlaceholders})
+        AND (${where})
+      ORDER BY a.timestamp DESC
+      LIMIT ?
+    `).bind(owner, ...roles, ...patterns, ARCHIVE_SCAN_LIMIT).all()).results || [];
+
+    const results = rows.map(row => {
+      const similarity = tokens.filter(t => String(row.content || '').toLowerCase().includes(t)).length / tokens.length;
+      const archive = archiveMetadata(row);
+      const role = String(row.role || 'unknown');
+      const authority = role === 'user' ? 'historical_user_message' : 'historical_assistant_output';
+      const rankScore = similarity
+        + (role === 'user' ? 0.18 : 0)
+        + (archive.collector_complete === true ? 0.04 : 0)
+        - (archive.collector_partial === true ? 0.02 : 0);
+      return {
+        id: row.id,
+        content: row.content,
+        timestamp: Number(row.timestamp || 0),
+        conversation_id: row.conversation_id,
+        conversation_title: row.conversation_title || null,
+        role,
+        authority,
+        similarity,
+        rank_score: rankScore,
+        retrieval: 'collector-lexical',
+        provenance: { table: 'archive_messages', id: row.id, ...archive },
+      };
+    })
+      .filter(row => row.similarity > 0)
+      .sort((a,b) => b.rank_score-a.rank_score || b.timestamp-a.timestamp)
+      .slice(0, limit);
+
+    return { results, total: results.length, retrieval: 'collector-lexical' };
   }
 
   static cosineSimilarity(a,b) {

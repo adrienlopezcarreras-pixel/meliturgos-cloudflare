@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { migrate } from '../src/persistence/migrations.js';
 import { RAGService } from '../src/search/rag-service.js';
+import { importChatGPTArchive } from '../src/persistence/chatgpt-archive-importer.js';
 
 test('verified durable knowledge is reusable by normal RAG with provenance and authority', async () => {
   const DB=sqliteD1();
@@ -28,5 +29,29 @@ test('unverified knowledge is reusable but never mislabeled as verified', async 
     const out=await RAGService.search(DB,'adrien','ambreconnaissance',{sources:['knowledge_artifacts'],limit:10});
     const row=out.results.find(x=>x.source==='knowledge_artifacts');
     assert.equal(row.authority,'knowledge_artifact');
+  } finally { DB.close(); }
+});
+
+
+test('collector-aware RAG preserves provenance and prioritizes user-authored history', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    await importChatGPTArchive({DB,MELITURGOS_USER:'adrien'}, [{
+      id:'collector-rag-1',
+      title:'Décision projet cobalt',
+      collector:{source:'firefox_dom',version:'0.2.0',partial:false,totalMessages:2},
+      messages:[
+        {id:'u1',role:'user',content:'Pour le projet cobalt, je veux garder le phare comme repère principal.',timestamp:10},
+        {id:'a1',role:'assistant',content:'Pour le projet cobalt, je propose de remplacer le phare par une tour.',timestamp:11},
+      ],
+    }], {preview:false});
+    const out=await RAGService.searchCollector(DB,'adrien','projet cobalt phare',{limit:10});
+    assert.equal(out.retrieval,'collector-lexical');
+    assert.equal(out.results[0].role,'user');
+    assert.equal(out.results[0].authority,'historical_user_message');
+    assert.equal(out.results[0].conversation_title,'Décision projet cobalt');
+    assert.equal(out.results[0].provenance.collector_source,'firefox_dom');
+    assert.equal(out.results[0].provenance.collector_complete,true);
   } finally { DB.close(); }
 });

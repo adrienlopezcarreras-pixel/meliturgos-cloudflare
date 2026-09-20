@@ -1,11 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { stat, readFile } from 'node:fs/promises';
 import { onRequestGet as normalMvp } from '../src/pages/mvp-interface.js';
 import { onRequestGet as professorPage } from '../src/pages/full-interface-v2.js';
 import { withConversationArchive } from '../src/conversations/intercept.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import worker from '../src/index.js';
 import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
+import { composeProfessorEnhancements } from '../src/pages/mvp-behavior-enhancer.js';
+import { FULL_MODE_CONTROL_PATCH } from '../src/pages/full-mode-control-enhancer.js';
+import { WORK_TRUTH_PATCH } from '../src/pages/work-truth-enhancer.js';
 
 async function canonicalProfessorHtml() {
   const response = await professorPage({});
@@ -13,6 +17,24 @@ async function canonicalProfessorHtml() {
   assert.match(response.headers.get('content-type') || '', /text\/html/);
   return response.text();
 }
+
+
+test('static MEL visuals stay outside the Worker JavaScript bundle', async () => {
+  const indexSource = await readFile(new URL('../src/index.js', import.meta.url), 'utf8');
+  const assetSource = await readFile(new URL('../src/pages/mel-avatar-assets.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(indexSource, /serveMelAvatar/);
+  assert.doesNotMatch(assetSource, /mel-themes-20260917\/generated|data:image|base64,/);
+  const required = [
+    '../dist/assets/avatars/mel-classic.webp',
+    '../dist/assets/avatars/mel-full.webp',
+    '../dist/assets/backgrounds/mel-bg-library-hd.jpg',
+    '../dist/assets/backgrounds/mel-bg-futuristic-hd.jpg',
+  ];
+  for (const relative of required) {
+    const info = await stat(new URL(relative, import.meta.url));
+    assert.ok(info.size > 10000, relative);
+  }
+});
 
 test('normal MEL surface remains available and loads the external canonical controls runtime', async () => {
   const response = await normalMvp({});
@@ -33,6 +55,18 @@ test('normal MEL surface remains available and loads the external canonical cont
   assert.match(NORMAL_RUNTIME_SOURCE, /send\.addEventListener\('click'/);
   assert.match(NORMAL_RUNTIME_SOURCE, /let conversationId=stableId\('mel\.conversation'\)/);
   assert.match(NORMAL_RUNTIME_SOURCE, /conversationId=String\(d\.conversation\.id\);localStorage\.setItem\('mel\.conversation',conversationId\)/);
+});
+
+test('Professor enhancement pipeline is single-pass and idempotent', async () => {
+  const html = await canonicalProfessorHtml();
+  const enhanced = composeProfessorEnhancements(html);
+  for (const marker of ['mel-full-control-runtime','mel-roadmap-live-refresh-runtime','mel-work-truth-runtime']) {
+    assert.equal((enhanced.match(new RegExp(marker, 'g')) || []).length, 1, marker);
+  }
+  assert.equal(composeProfessorEnhancements(enhanced), enhanced);
+  assert.match(FULL_MODE_CONTROL_PATCH, /loadControlState\(\);activityTimer=setInterval/);
+  assert.doesNotMatch(FULL_MODE_CONTROL_PATCH, /loadActivity\(\);activityTimer=setInterval/);
+  assert.match(WORK_TRUTH_PATCH, /if\(panel\.classList\.contains\('active'\)\)refresh\(\);/);
 });
 
 test('canonical Professor keeps chat in the same control surface and sends through /api/chat', async () => {

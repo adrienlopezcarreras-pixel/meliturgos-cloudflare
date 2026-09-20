@@ -1,6 +1,6 @@
-import { enhanceFullModeControls } from './full-mode-control-enhancer.js';
-import { enhanceRoadmapLiveRefresh } from './roadmap-live-refresh-enhancer.js';
-import { enhanceWorkTruth } from './work-truth-enhancer.js';
+import { FULL_MODE_CONTROL_PATCH } from './full-mode-control-enhancer.js';
+import { ROADMAP_LIVE_REFRESH_PATCH } from './roadmap-live-refresh-enhancer.js';
+import { WORK_TRUTH_PATCH } from './work-truth-enhancer.js';
 
 export const MVP_BEHAVIOR_PATCH = `<style id="mel-mvp-behavior-style">
 .app:before,.app:after{display:none!important;content:none!important}.theme-switch{display:none!important}.mel-bottom-tools .theme-switch{display:block!important;position:relative!important;top:auto!important;left:auto!important;z-index:50!important;width:max-content!important}.mel-bottom-tools .theme-orb{width:44px!important;height:44px!important;font-size:20px!important}.mel-bottom-tools .theme-panel{top:auto!important;bottom:52px!important;left:0!important;max-height:min(68vh,560px)!important}
@@ -19,16 +19,40 @@ export const MVP_BEHAVIOR_PATCH = `<style id="mel-mvp-behavior-style">
 })();
 </script>`;
 
+function injectBeforeBody(html, patches) {
+  if (!patches.length) return html;
+  const payload = patches.join('');
+  return html.includes('</body>') ? html.replace('</body>', payload + '</body>') : html + payload;
+}
+
+export function composeProfessorEnhancements(html) {
+  const patches = [];
+  if (!html.includes('mel-full-control-runtime')) patches.push(FULL_MODE_CONTROL_PATCH);
+  if (
+    html.includes('data-panel="roadmap"')
+    && html.includes('id="roadmapList"')
+    && !html.includes('mel-roadmap-live-refresh-runtime')
+  ) patches.push(ROADMAP_LIVE_REFRESH_PATCH);
+  if (
+    html.includes('data-panel="work"')
+    && html.includes('id="workOut"')
+    && !html.includes('mel-work-truth-runtime')
+  ) patches.push(WORK_TRUTH_PATCH);
+  return injectBeforeBody(html, patches);
+}
+
 export async function enhanceMvpBehavior(response) {
   if (!(response instanceof Response)) return response;
   const type=response.headers.get('content-type')||'';if(!type.includes('text/html'))return response;
   const html=await response.text();
   if(html.includes('data-panel="chat"')&&html.includes('id="chatInput"')){
-    const controlled=await enhanceFullModeControls(new Response(html,{status:response.status,statusText:response.statusText,headers:response.headers}));
-    const roadmapped=await enhanceRoadmapLiveRefresh(controlled);
-    return enhanceWorkTruth(roadmapped);
+    const body=composeProfessorEnhancements(html);
+    const headers=new Headers(response.headers);
+    headers.set('content-length',String(new TextEncoder().encode(body).length));
+    headers.set('cache-control','no-store');
+    return new Response(body,{status:response.status,statusText:response.statusText,headers});
   }
   if(!html.includes('id="input"'))return new Response(html,{status:response.status,statusText:response.statusText,headers:response.headers});
   if(html.includes('mel-mvp-behavior-runtime'))return new Response(html,{status:response.status,statusText:response.statusText,headers:response.headers});
-  const body=html.includes('</body>')?html.replace('</body>',`${MVP_BEHAVIOR_PATCH}</body>`):html+MVP_BEHAVIOR_PATCH;const headers=new Headers(response.headers);headers.set('content-length',String(new TextEncoder().encode(body).length));return new Response(body,{status:response.status,statusText:response.statusText,headers});
+  const body=injectBeforeBody(html,[MVP_BEHAVIOR_PATCH]);const headers=new Headers(response.headers);headers.set('content-length',String(new TextEncoder().encode(body).length));return new Response(body,{status:response.status,statusText:response.statusText,headers});
 }
