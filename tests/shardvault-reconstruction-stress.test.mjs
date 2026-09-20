@@ -101,7 +101,7 @@ test('external code sync is resumable and bounded to one verified RS shard per r
   assert.ok(runtime.includes("rememberValidatedExternalEndpoints(env,[...(report.qualified||[]),...(report.selected||[])])"));
   assert.ok(runtime.includes("rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])])"));
   assert.match(runtime,/readCodeCandidateEndpoints/);
-  assert.match(runtime,/rememberValidatedExternalEndpoints\(env,\[e\]\)/);
+  assert.match(runtime,/const provenEndpoint=\{\.\.\.e,/);\n  assert.match(runtime,/rememberValidatedExternalEndpoints\(env,\[provenEndpoint\]\)/);
   assert.match(runtime,/NO_READY_VALIDATED_CODE_TARGETS/);
   assert.doesNotMatch(runtime,/state\.failed_endpoint_ids=\[\]/);
   assert.doesNotMatch(runtime,/assignDistinctExternalTargets\(replicas,candidates/);
