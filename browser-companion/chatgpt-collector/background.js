@@ -1,10 +1,10 @@
 const api = globalThis.browser;
 const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},partial:{},failed:{},unavailable:{},deferred:{},discovered:0,deepDiscoveryDone:false,deepDiscoveryAt:null,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,lastProgressAt:null,lastHeartbeatAt:null,currentMessageCount:0,captureProcessed:0,stalledCount:0,autoRecoveries:0,lastRecoveryAt:null,lastRecoveryReason:null,updatedAt:null};
-const WATCHDOG_IDLE_MS=8*60*1000;
-const NETWORK_TIMEOUT_MS=6*60*1000;
-const MESSAGE_TIMEOUT_MS=60000;
-const PROBE_TIMEOUT_MS=15000;
-const DOM_STABLE_MAX_MS=3*60*1000;
+const WATCHDOG_IDLE_MS=30*1000;
+const NETWORK_TIMEOUT_MS=30*1000;
+const MESSAGE_TIMEOUT_MS=15000;
+const PROBE_TIMEOUT_MS=7000;
+const DOM_STABLE_MAX_MS=25*1000;
 const RECOVERY_BLANK_MS=1500;
 const ECO_HEAVY_MESSAGES=250;
 const ECO_BLANK_EVERY=5;
@@ -125,7 +125,7 @@ async function mergeDiscovery(tabId,deep=false){
   return save({queue,discovered:new Set([...queue,...Object.values(done).map(x=>x.url).filter(Boolean),...Object.values(partial).map(x=>x.url).filter(Boolean),...Object.values(deferred).map(x=>x.url).filter(Boolean),...Object.values(failed).map(x=>x.url).filter(Boolean),...Object.values(unavailable).map(x=>x.url).filter(Boolean)]).size,deepDiscoveryDone:deep&&page.ok?true:s.deepDiscoveryDone,deepDiscoveryAt:deep&&page.ok?Date.now():s.deepDiscoveryAt});
 }
 
-function waitComplete(tabId,timeout=30000){
+function waitComplete(tabId,timeout=15000){
   return new Promise(resolve=>{
     let done=false;
     const finish=v=>{if(done)return;done=true;clearTimeout(timer);api.tabs.onUpdated.removeListener(listener);resolve(v)};
@@ -134,7 +134,7 @@ function waitComplete(tabId,timeout=30000){
     api.tabs.onUpdated.addListener(listener);
   });
 }
-async function waitForExpectedConversation(tabId,sourceId,timeout=15000){
+async function waitForExpectedConversation(tabId,sourceId,timeout=8000){
   const started=Date.now();
   while(Date.now()-started<timeout){
     try{
@@ -285,21 +285,21 @@ async function process(tabId,generation){
     const startedAt=Date.now();
     await save({queue,currentUrl:url,currentStage:'navigation',currentStartedAt:startedAt,lastProgressAt:startedAt,currentMessageCount:0});
     try{
-      await withTimeout(api.tabs.update(tabId,{url}),30000,'TAB_UPDATE_TIMEOUT');
+      await withTimeout(api.tabs.update(tabId,{url}),15000,'TAB_UPDATE_TIMEOUT');
       if(!isCurrentRun(generation))return;
       await save({currentStage:'page_load',lastProgressAt:Date.now()});
       await waitComplete(tabId);
       await save({currentStage:'conversation_check',lastProgressAt:Date.now()});
-      const reached=await waitForExpectedConversation(tabId,sourceId,15000);
+      const reached=await waitForExpectedConversation(tabId,sourceId,8000);
       if(!reached)throw Object.assign(new Error('CONVERSATION_REDIRECTED_OR_UNAVAILABLE'),{code:'CONVERSATION_REDIRECTED_OR_UNAVAILABLE'});
       const cfg=await config();
       await save({currentStage:'settling',lastProgressAt:Date.now()});
-      await wait(cfg.ecoMode?4000:1200);
+      await wait(cfg.ecoMode?1800:900);
       await save({currentStage:'dom_stabilize',lastProgressAt:Date.now()});
       const probe=await waitForDomStable(tabId,cfg.ecoMode,generation);
       itemMessageCount=Number(probe?.messageCount||0);
       await save({currentStage:'capture',lastProgressAt:Date.now(),currentMessageCount:itemMessageCount,captureProcessed:0});
-      const cap=await captureStable(tabId,cfg.ecoMode?3:6);
+      const cap=await captureStable(tabId,cfg.ecoMode?1:2);
       if(!cap?.ok||!cap.conversation) throw Object.assign(new Error(cap?.code||'CAPTURE_FAILED'),{code:cap?.code||'CAPTURE_FAILED'});
       if(String(cap.conversation.id||'')!==sourceId) throw codedError('CAPTURE_ID_MISMATCH');
       const messageCount=Number(cap.conversation.messages?.length||0);
