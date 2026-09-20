@@ -227,6 +227,30 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   });
 
   bus.discover({
+    id: 'chatgpt.history.search', name: 'Rechercher dans l’historique ChatGPT collecté', category: 'memory', version: '1.0.0', provider: 'core',
+    description: 'Searches messages ingested by the ChatGPT Collector/export with conversation title, role, provenance and completeness metadata.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 12000 },
+        limit: { type: 'integer', minimum: 1, maximum: 50 },
+        roles: { type: 'array', items: { type: 'string', enum: ['user','assistant','system','tool'] }, minItems: 1, maxItems: 4 }
+      },
+      required: ['query'],
+      additionalProperties: false
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: runtimeEnv.DB ? 'HEALTHY' : 'DEGRADED', enabled: true
+  }, async input => {
+    if (!runtimeEnv.DB) throw capabilityError('DB_BINDING_MISSING');
+    if (!runtimeEnv.MELITURGOS_USER) throw capabilityError('MELITURGOS_USER_MISSING');
+    return RAGService.searchCollector(runtimeEnv.DB, runtimeEnv.MELITURGOS_USER, input.query, {
+      limit: input.limit,
+      roles: input.roles,
+    });
+  });
+
+  bus.discover({
     id: 'conversation.list', name: 'Lister les conversations', category: 'conversation', version: '1.0.0', provider: 'core',
     description: 'Lists the owner conversations archived by ConversationService.',
     input_schema: { type: 'object', additionalProperties: false },
