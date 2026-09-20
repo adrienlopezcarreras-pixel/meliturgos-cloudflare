@@ -120,7 +120,7 @@ export const WORK_TRUTH_PATCH = `<script id="mel-work-truth-runtime">
     const refreshButton=document.getElementById('workRefresh');if(refreshButton)refreshButton.onclick=refresh;
     const createButton=document.getElementById('workCreate');if(createButton)createButton.onclick=createJob;
     const nav=document.querySelector('#nav button[data-view="work"]');if(nav)nav.addEventListener('click',()=>setTimeout(refresh,0));
-    refresh();
+    if(panel.classList.contains('active'))refresh();
     timer=setInterval(()=>{if(panel.classList.contains('active'))refresh()},REFRESH_MS);
   }
 
