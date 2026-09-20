@@ -5,6 +5,7 @@ import { chooseBestSettings, proposeNeighborSettings, sanitizeInferenceSettings 
 import { assertAdapterActivationEvidence, assertAdapterArtifact, createLoraTrainingPlan } from './lora-plan.js';
 import { BOOTSTRAP_CORRECTIONS } from './bootstrap-corrections.js';
 import { expertPlusSummary, searchExpertPlusCycles } from './expert-plus-corpus.js';
+import { sourceIntelligenceSummary } from './source-intelligence.js';
 
 function evidenceObject(row) {
   const value = row?.evidence;
@@ -73,6 +74,7 @@ export class LearningEngine {
       curriculum: expertPlusSummary(),
       query: String(query || ''),
       cycles: searchExpertPlusCycles(query, { limit }),
+      source_intelligence: sourceIntelligenceSummary(),
     };
   }
 
@@ -80,7 +82,7 @@ export class LearningEngine {
     const corrections = await this.corrections({ limit });
     const corpus = buildTrainingCorpus(corrections, { validatedOnly: true, minQuality });
     const dataset = { sft: corpus.sft, preference: corpus.preference };
-    return { ...corpus, digest: digest(dataset), dataset, expert_plus: expertPlusSummary(), generated_at: Date.now() };
+    return { ...corpus, digest: digest(dataset), dataset, expert_plus: expertPlusSummary(), source_intelligence: sourceIntelligenceSummary(), generated_at: Date.now() };
   }
 
   async recordBenchmark({ cases, kind = 'candidate', model_id = '', adapter_id = null, source_sha = null, metadata = {} } = {}) {
