@@ -13,7 +13,7 @@ function render(s){$('status').textContent=[
 `À retenter plus tard : ${Object.keys(s.deferred||{}).length}`,
 `Mode : PC très lent / protection mémoire`,
 s.deepDiscoveryDone?'Exploration profonde ChatGPT : faite':'Exploration profonde ChatGPT : à faire',
-`Watchdog : strict (sonde 15 s / stabilisation max 3 min)`,
+`Watchdog : anti-blocage (sonde 7 s / stabilisation 25 s / capture 30 s)`,
 `Blocages évités : ${s.stalledCount||0}`,
 `Relances automatiques : ${s.autoRecoveries||0}`,
 s.lastRecoveryAt?`Dernière relance auto : ${new Date(s.lastRecoveryAt).toLocaleTimeString('fr-FR')} (${s.lastRecoveryReason||'raison inconnue'})`:'',
