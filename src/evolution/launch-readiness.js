@@ -307,6 +307,29 @@ export async function getAutonomyLaunchReadiness(env, {
 export async function prepareAutonomyLaunch(env, {
   repository = null,
 } = {}) {
+  let codeSync = null;
+  const summarizeCodeSync = value => {
+    if (!value) return null;
+    const external = value?.external || {};
+    return {
+      ok: value?.ok === true,
+      status: value?.status || external?.status || null,
+      target_count: Number(external?.target_count || value?.target_count || 7),
+      endpoints: Array.isArray(external?.endpoints) ? external.endpoints.slice(0, 14) : [],
+      successful_endpoints: Array.isArray(external?.successful_endpoints) ? external.successful_endpoints.slice(0, 14) : [],
+      attempted_endpoints: Array.isArray(external?.attempted_endpoints) ? external.attempted_endpoints.slice(0, 28) : [],
+      failures: Array.isArray(external?.failures)
+        ? external.failures.slice(0, 24).map(row => ({
+            shard_index: Number(row?.shard_index),
+            endpoint_id: row?.endpoint_id || null,
+            error: String(row?.error || '').slice(0, 160),
+          }))
+        : [],
+      verified_roundtrip: external?.verified_roundtrip === true,
+      critical_status: value?.critical_status || null,
+    };
+  };
+
   if (!isPreview(env)) {
     try {
       await runScheduledSystemBackup(env, { intervalMs: 15 * 60 * 1000, force: true });
@@ -320,15 +343,12 @@ export async function prepareAutonomyLaunch(env, {
     }
 
     try {
-      const codeSync = await syncShardVaultCodeExternally(env);
+      codeSync = await syncShardVaultCodeExternally(env);
       if (codeSync?.ok !== true) {
         return {
           ok: false,
           status: 'LAUNCH_EXTERNAL_CODE_SYNC_FAILED',
-          code_sync: {
-            status: codeSync?.status || null,
-            target_count: codeSync?.external?.target_count || codeSync?.target_count || 7,
-          },
+          code_sync: summarizeCodeSync(codeSync),
           readiness: await getAutonomyLaunchReadiness(env, { repository }),
         };
       }
@@ -337,6 +357,7 @@ export async function prepareAutonomyLaunch(env, {
         ok: false,
         status: 'LAUNCH_EXTERNAL_CODE_SYNC_FAILED',
         code: String(error?.code || error?.message || error),
+        code_sync: summarizeCodeSync(codeSync),
         readiness: await getAutonomyLaunchReadiness(env, { repository }),
       };
     }
@@ -346,6 +367,7 @@ export async function prepareAutonomyLaunch(env, {
   return {
     ok: readiness.launch_ready === true,
     status: readiness.launch_ready ? 'LAUNCH_EVIDENCE_READY' : 'LAUNCH_EVIDENCE_INCOMPLETE',
+    code_sync: summarizeCodeSync(codeSync),
     readiness,
   };
 }

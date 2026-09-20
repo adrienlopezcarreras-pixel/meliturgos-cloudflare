@@ -63,4 +63,33 @@ const proven = __shardvaultTest.externalEndpointsFromSnapshot({},provenConfig,{
 });
 assert.deepEqual(proven.map(x=>x.id),['p1','p2','p3']);
 
+
+const rankedCodeTargets = __shardvaultTest.rankExternalCodeCandidates({}, [
+  { id:'slow-small', operatorDomain:'slow.test', providerId:'slow', expectedRetentionDays:365, maxBytes:4096, probeLatencyMs:900, score:100 },
+  { id:'fast-large', operatorDomain:'fast.test', providerId:'fast', expectedRetentionDays:365, maxBytes:1024*1024, probeLatencyMs:25, score:80 },
+  { id:'fast-large-2', operatorDomain:'fast2.test', providerId:'fast2', expectedRetentionDays:365, maxBytes:1024*1024, probeLatencyMs:30, score:79 },
+], 128*1024);
+assert.deepEqual(rankedCodeTargets.slice(0,2).map(x=>x.id), ['fast-large','fast-large-2']);
+
+const failoverItems = [new Uint8Array([1]), new Uint8Array([2]), new Uint8Array([3])];
+const failoverCandidates = ['e1','e2','e3','e4'].map(id => ({
+  id,
+  operatorDomain:id+'.test',
+  providerId:id,
+  expectedRetentionDays:365,
+}));
+const failoverResult = await __shardvaultTest.assignDistinctExternalTargets(
+  failoverItems,
+  failoverCandidates,
+  async (index, endpoint) => {
+    if (endpoint.id === 'e2') throw new Error('SIMULATED_TARGET_FAILURE');
+    return { index, endpointId:endpoint.id };
+  },
+);
+assert.equal(failoverResult.ok, true);
+assert.deepEqual(failoverResult.assignments.map(x=>x.endpointId), ['e1','e4','e3']);
+assert.deepEqual(failoverResult.pending_indices, []);
+assert.ok(failoverResult.failures.some(x=>x.endpoint_id==='e2'));
+assert.deepEqual(failoverResult.attempted_endpoints, ['e1','e2','e3','e4']);
+
 console.log('ShardVault continuity tests: OK');

@@ -84,6 +84,17 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     ok: prepared?.ok === true && readiness.launch_ready === true,
     status: prepared?.status || (readiness.launch_ready ? 'LAUNCH_EVIDENCE_READY' : 'LAUNCH_EVIDENCE_INCOMPLETE'),
     readiness,
+    code_sync: prepared?.code_sync ? {
+      ok: prepared.code_sync.ok === true,
+      status: prepared.code_sync.status || null,
+      target_count: Number(prepared.code_sync.target_count || 7),
+      endpoints: Array.isArray(prepared.code_sync.endpoints) ? prepared.code_sync.endpoints.slice(0, 14) : [],
+      successful_endpoints: Array.isArray(prepared.code_sync.successful_endpoints) ? prepared.code_sync.successful_endpoints.slice(0, 14) : [],
+      attempted_endpoints: Array.isArray(prepared.code_sync.attempted_endpoints) ? prepared.code_sync.attempted_endpoints.slice(0, 28) : [],
+      failures: Array.isArray(prepared.code_sync.failures) ? prepared.code_sync.failures.slice(0, 24) : [],
+      verified_roundtrip: prepared.code_sync.verified_roundtrip === true,
+      critical_status: prepared.code_sync.critical_status || null,
+    } : null,
     autonomy_started: false,
     owner_launch_required: true,
   }, {

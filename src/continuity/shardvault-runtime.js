@@ -626,13 +626,75 @@ async function ensureCodeArchive(env){
   await env.MEDIA_BUCKET.put(id.key,bytes,{httpMetadata:{contentType:'application/gzip'},customMetadata:{repository:id.repository,git_sha:id.sha,sha256}});
   return {ok:true,status:'COPIED',repository:id.repository,sha:id.sha,bucket:'meliturgos-private-media',key:id.key,bytes:bytes.length,sha256};
 }
+function byteArraysEqual(a,b){
+  const left=bytes(a),right=bytes(b);
+  if(left.length!==right.length)return false;
+  let diff=0;
+  for(let i=0;i<left.length;i++)diff|=left[i]^right[i];
+  return diff===0;
+}
+function uniqueExternalCandidates(env,...groups){
+  const by=new Map();
+  for(const group of groups){
+    for(const e of group||[]){
+      if(!e?.id||e?.backend||!endpointMeetsDurability(env,e)||by.has(e.id))continue;
+      by.set(e.id,e);
+    }
+  }
+  return [...by.values()];
+}
+function rankExternalCodeCandidates(env,endpoints,requiredBytes){
+  const candidates=uniqueExternalCandidates(env,endpoints);
+  const parts=e=>Math.max(1,Math.ceil(Math.max(1,Number(requiredBytes)||1)/fragmentChunkLimit(e)));
+  const latency=e=>Number(e?.probeLatencyMs)>0?Number(e.probeLatencyMs):Number.MAX_SAFE_INTEGER;
+  return candidates.sort((a,b)=>
+    parts(a)-parts(b)||
+    latency(a)-latency(b)||
+    (Number(b?.score)||0)-(Number(a?.score)||0)||
+    String(a.id).localeCompare(String(b.id))
+  );
+}
+async function assignDistinctExternalTargets(items,candidates,copyFn){
+  const assignments=Array(items.length).fill(null),failures=[],attempted=[];
+  let pending=items.map((_,index)=>index),cursor=0;
+  while(pending.length&&cursor<candidates.length){
+    const batchSize=Math.min(pending.length,candidates.length-cursor);
+    const batchIndices=pending.slice(0,batchSize);
+    const restPending=pending.slice(batchSize);
+    const batchCandidates=candidates.slice(cursor,cursor+batchSize);
+    cursor+=batchSize;
+    const results=await Promise.all(batchIndices.map(async(index,offset)=>{
+      const endpoint=batchCandidates[offset];
+      attempted.push(endpoint.id);
+      try{
+        return {ok:true,index,value:await copyFn(index,endpoint,items[index])};
+      }catch(error){
+        return {ok:false,index,endpoint_id:endpoint.id,error:String(error?.message||error)};
+      }
+    }));
+    const failed=[];
+    for(const result of results){
+      if(result.ok)assignments[result.index]=result.value;
+      else{
+        failures.push({shard_index:result.index,endpoint_id:result.endpoint_id,error:result.error});
+        failed.push(result.index);
+      }
+    }
+    pending=[...failed,...restPending];
+  }
+  return {
+    ok:pending.length===0,
+    assignments,
+    failures,
+    attempted_endpoints:[...new Set(attempted)],
+    pending_indices:pending,
+  };
+}
 async function ensureExternalCodeArchive(env,c,codeBackup){
   if(!codeBackup?.ok||!env?.MEDIA_BUCKET?.get||!env?.MEDIA_BUCKET?.put)return codeBackup;
   const id=deployedCodeIdentity(env);
   if(!id)return codeBackup;
-  const externalEndpoints=(c.endpoints||[]).filter(e=>!e.backend);
   const goal=Math.min(7,c.n);
-  if(externalEndpoints.length<goal)return {...codeBackup,external:{status:'WAITING_TARGETS',endpoints:externalEndpoints.map(e=>e.id),target_count:goal}};
   const existing=await inspectCodeArchive(env,c);
   if(existing?.external?.status==='COPIED'&&existing.external.endpoints?.length>=goal)return existing;
   const object=await env.MEDIA_BUCKET.get(id.criticalKey);
@@ -643,17 +705,36 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
   const snapshotId='code-'+id.sha.slice(0,16)+'-'+rid(6),iv=new Uint8Array(12);crypto.getRandomValues(iv);
   const cipher=await encrypt(c.master,snapshotId,plain,iv),size=Math.max(1,Math.ceil(cipher.length/c.k)),padded=new Uint8Array(size*c.k);padded.set(cipher);
   const data=Array.from({length:c.k},(_,i)=>padded.slice(i*size,(i+1)*size)),shards=encode(data,c.n);
-  const shardKey=await hkdf(c.master,utf8(snapshotId),utf8('MEL-ShardVault/v1/code-shard-mac')),descriptors=[];
-  for(let i=0;i<shards.length;i++){
-    const e=externalEndpoints[i%externalEndpoints.length],objectId='code-'+id.sha.slice(0,12)+'-'+String(i).padStart(2,'0')+'-'+rid(6);
-    const locator=await uploadFragment(env,e,objectId,shards[i]);
-    descriptors.push({index:i,endpointId:e.id,endpoint:endpointSnapshot(e),objectId:locator.objectId,remoteUrl:locator.remoteUrl||null,parts:locator.parts||null,byteLength:size,mac:b64u(await hmac(shardKey,concat(utf8(`${snapshotId}:${i}:`),shards[i])))});
+  let validated=[];
+  try{validated=await readValidatedExternalEndpoints(env);}catch{}
+  const candidates=rankExternalCodeCandidates(env,[...(c.endpoints||[]),...(c.allEndpoints||[]),...validated],size).slice(0,Math.max(goal*2,goal));
+  if(candidates.length<goal)return {...codeBackup,external:{status:'WAITING_TARGETS',endpoints:candidates.map(e=>e.id),target_count:goal}};
+  const shardKey=await hkdf(c.master,utf8(snapshotId),utf8('MEL-ShardVault/v1/code-shard-mac'));
+  const copied=await assignDistinctExternalTargets(shards,candidates,async(i,e,shard)=>{
+    const objectId='code-'+id.sha.slice(0,12)+'-'+String(i).padStart(2,'0')+'-'+rid(6);
+    const locator=await uploadFragment(env,e,objectId,shard);
+    const descriptor={index:i,endpointId:e.id,endpoint:endpointSnapshot(e),objectId:locator.objectId,remoteUrl:locator.remoteUrl||null,parts:locator.parts||null,byteLength:size,mac:b64u(await hmac(shardKey,concat(utf8(`${snapshotId}:${i}:`),shard)))};
+    const roundtrip=await downloadFragment(env,e,descriptor);
+    if(!byteArraysEqual(roundtrip,shard))throw new Error('CODE_FRAGMENT_ROUNDTRIP_MISMATCH');
+    return descriptor;
+  });
+  const descriptors=copied.assignments.filter(Boolean);
+  const successfulEndpoints=[...new Set(descriptors.map(x=>x.endpointId))];
+  if(!copied.ok||descriptors.length<goal||successfulEndpoints.length<goal){
+    return {...codeBackup,external:{
+      status:'INSUFFICIENT_WRITABLE_TARGETS',
+      target_count:goal,
+      successful_endpoints:successfulEndpoints,
+      attempted_endpoints:copied.attempted_endpoints,
+      failures:copied.failures.slice(0,24),
+      pending_shards:copied.pending_indices,
+    }};
   }
-  const manifest={format:'MEL-ShardVault-Code',formatVersion:2,repository:id.repository,git_sha:id.sha,archive_key:id.criticalKey,snapshotId,createdAt:new Date().toISOString(),dataShards:c.k,totalShards:c.n,shardSize:size,ciphertextLength:cipher.length,iv:b64u(iv),archiveBytes:plain.length,sha256:archiveSha256,shards:descriptors,diversity:diversity(externalEndpoints)};
+  const manifest={format:'MEL-ShardVault-Code',formatVersion:2,repository:id.repository,git_sha:id.sha,archive_key:id.criticalKey,snapshotId,createdAt:new Date().toISOString(),dataShards:c.k,totalShards:c.n,shardSize:size,ciphertextLength:cipher.length,iv:b64u(iv),archiveBytes:plain.length,sha256:archiveSha256,shards:descriptors,diversity:diversity(descriptors.map(d=>candidates.find(e=>e.id===d.endpointId)).filter(Boolean)),roundtripVerified:true};
   const unsigned={...manifest},key=await hkdf(c.master,utf8(id.sha),utf8('MEL-ShardVault/v1/code-manifest-mac'));
   manifest.manifestMac=b64u(await hmac(key,utf8(stable(unsigned))));
   await env.MEDIA_BUCKET.put(id.manifestKey,JSON.stringify(manifest),{httpMetadata:{contentType:'application/json'}});
-  return {...codeBackup,external:{status:'COPIED',manifest_key:id.manifestKey,snapshot_id:snapshotId,shards:c.n,data_shards:c.k,endpoints:[...new Set(descriptors.map(x=>x.endpointId))],created_at:manifest.createdAt}};
+  return {...codeBackup,external:{status:'COPIED',manifest_key:id.manifestKey,snapshot_id:snapshotId,shards:c.n,data_shards:c.k,endpoints:successfulEndpoints,attempted_endpoints:copied.attempted_endpoints,failures:copied.failures.slice(0,24),verified_roundtrip:true,created_at:manifest.createdAt}};
 }
 
 export async function runShardVaultCycle(env,{force=false,skipExternalCode=false}={}){
@@ -697,19 +778,35 @@ export async function syncShardVaultCodeExternally(env){
   let codeBackup;
   try{codeBackup=await ensureCodeArchive(env);}catch(error){return {ok:false,status:'CODE_ARCHIVE_FAILED',error:String(error?.message||error)};}
   try{
-    const enriched=await enrichAutonomous(env,c,32*1024);
-    c=enriched.config;
-    const external=(c.endpoints||[]).filter(e=>!e.backend);
     const goal=Math.min(7,c.n);
-    if(external.length<goal)return {ok:false,status:'WAITING_TARGETS',selected:external.map(e=>e.id),target_count:goal,code_backup:codeBackup};
-    const result=await ensureExternalCodeArchive(env,c,codeBackup);
-    return {ok:result?.external?.status==='COPIED',status:result?.external?.status||'UNKNOWN',external:result?.external||null,repository:result?.repository||codeBackup.repository,sha:result?.sha||codeBackup.sha,critical_status:result?.critical_status||codeBackup.critical_status||null};
+    let active=[],validated=[];
+    try{active=await readActiveExternalEndpoints(env);}catch{}
+    try{validated=await readValidatedExternalEndpoints(env);}catch{}
+    const known=uniqueExternalCandidates(env,active,validated,c.allEndpoints);
+    if(known.length>=goal)c=mergeAutonomous(c,{selected:known},env);
+    else c=(await enrichAutonomous(env,c,32*1024)).config;
+
+    let result=await ensureExternalCodeArchive(env,c,codeBackup);
+    if(result?.external?.status!=='COPIED'){
+      const enriched=await enrichAutonomous(env,c,32*1024);
+      c=enriched.config;
+      result=await ensureExternalCodeArchive(env,c,codeBackup);
+    }
+    const external=result?.external||null;
+    return {
+      ok:external?.status==='COPIED'&&Array.isArray(external?.endpoints)&&external.endpoints.length>=goal,
+      status:external?.status||'UNKNOWN',
+      external,
+      repository:result?.repository||codeBackup.repository,
+      sha:result?.sha||codeBackup.sha,
+      critical_status:result?.critical_status||codeBackup.critical_status||null,
+    };
   }catch(error){
     return {ok:false,status:'COPY_FAILED',error:String(error?.message||error),code_backup:codeBackup};
   }
 }
 
-export const __shardvaultTest = Object.freeze({ encode, decode, selectEndpoints, diversity, extendActiveEndpoints, externalEndpointsFromSnapshot });
+export const __shardvaultTest = Object.freeze({ encode, decode, selectEndpoints, diversity, extendActiveEndpoints, externalEndpointsFromSnapshot, rankExternalCodeCandidates, assignDistinctExternalTargets, byteArraysEqual });
 
 
 function publicEndpointView(e){return {id:e.id,backend:e.backend||'http',bucket:e.bucketName||null,key_prefix:e.keyPrefix||null,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:Number(e.score)||0,confidence:Number(e.confidence)||0,autonomous:e.autonomous===true,authMode:e.authMode||null,maxBytes:Number(e.maxBytes)||0,preferred:e.preferred===true,adapter:e.adapter||null,expectedRetentionDays:Number(e.expectedRetentionDays)||0,retentionModel:e.retentionModel||'fixed',baseRetentionDays:Number(e.baseRetentionDays)||Number(e.expectedRetentionDays)||0,refreshEveryDays:Number(e.refreshEveryDays)||0,fullReadRenewsRetention:e.fullReadRenewsRetention===true,evidenceVerification:e.evidenceVerification||null,verifiedAt:e.verifiedAt||null,probeLatencyMs:Number(e.probeLatencyMs)||0};}

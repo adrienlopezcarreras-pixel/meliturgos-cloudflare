@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload sanitized deploy diagnostic
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: preview-deploy-diagnostic-${{ github.sha }}
           path: ${{ runner.temp }}/wrangler-preview.sanitized.log
@@ -146,7 +146,7 @@ jobs:
 
       - name: Upload sanitized D1 migration diagnostic
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: preview-d1-migration-diagnostic-${{ github.sha }}
           path: ${{ runner.temp }}/wrangler-d1-preview.sanitized.log
@@ -307,7 +307,7 @@ jobs:
 
       - name: Upload preview HTTP diagnostic
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: preview-http-diagnostic-${{ github.sha }}
           path: preview-http-diagnostic.txt
@@ -478,7 +478,7 @@ jobs:
 
       - name: Upload GEN2-42 preview proof
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: gen2-42-preview-proof-${{ github.sha }}
           path: capability-watch-run.json
@@ -509,7 +509,7 @@ jobs:
 
       - name: Upload GEN2-42 Teacher rebase proof
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: gen2-42-teacher-rebase-${{ github.sha }}
           path: gen2-42-teacher-rebase.json
@@ -538,8 +538,12 @@ jobs:
               raise SystemExit('SHARDVAULT_SEARCH_FAILED: '+str(data.get('error') or data.get('status')))
           if discovered < 7:
               raise SystemExit(f'SHARDVAULT_DISCOVERY_TOO_SMALL: {discovered}')
-          if probed < 1:
-              raise SystemExit(f'SHARDVAULT_NO_LIVE_PROBE: discovered={discovered} probed={probed}')
+          if probed < 7:
+              raise SystemExit(f'SHARDVAULT_LIVE_PROBES_LT_7: discovered={discovered} probed={probed}')
+          if selected < 7:
+              raise SystemExit(f'SHARDVAULT_SELECTED_LT_7: selected={selected}')
+          if data.get('target_reached') is not True:
+              raise SystemExit('SHARDVAULT_TARGET_NOT_REACHED')
           summary=os.environ.get('GITHUB_STEP_SUMMARY')
           if summary:
               with open(summary,'a',encoding='utf-8') as h:
@@ -560,7 +564,7 @@ jobs:
 
       - name: Upload ShardVault live probe evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: shardvault-live-probe-${{ github.sha }}
           path: shardvault-live-probe.json
@@ -639,7 +643,7 @@ jobs:
 
       - name: Upload autonomy launch readiness evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: autonomy-launch-readiness-${{ github.sha }}
           path: preview-launch-readiness.json
@@ -703,7 +707,7 @@ jobs:
 
       - name: Upload learning refresh evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: preview-learning-refresh-${{ github.sha }}
           path: |
