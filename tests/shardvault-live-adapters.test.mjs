@@ -76,6 +76,8 @@ test('Telegraph account state is privately reused and code replica deadlines sca
   assert.match(autonomous,/TELEGRAPH_ACCOUNT_KEY/);
   assert.match(autonomous,/readTelegraphAccessToken/);
   assert.match(autonomous,/writeTelegraphAccessToken/);
+  assert.match(autonomous,/async function probe\(c, requiredBytes, policyMaxAgeDays=180, env=null\)/);
+  assert.match(autonomous,/probe\(c,requiredBytes,policyMaxAgeDays,env\)/);
   assert.match(runtime,/TELEGRAPH_ACCOUNT_KEY/);
   assert.match(runtime,/telegraphAccessToken\(env,objectId\)/);
   assert.match(runtime,/codeFragmentDeadlineMs/);
