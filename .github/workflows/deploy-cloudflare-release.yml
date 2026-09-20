@@ -96,7 +96,13 @@ jobs:
             --exclude='src/assets' \
             src shardvault worker.js wrangler.jsonc package.json package-lock.json
           test -s mel-critical-code.tar.gz
-          echo "Critical code bundle bytes: $(wc -c < mel-critical-code.tar.gz)"
+          BUNDLE_BYTES="$(wc -c < mel-critical-code.tar.gz)"
+          SHARD_BYTES=$(( (BUNDLE_BYTES + 32 + 3) / 4 ))
+          if [ "$SHARD_BYTES" -lt 65536 ]; then SHARD_BYTES=65536; fi
+          echo "MEL_CRITICAL_CODE_BUNDLE_BYTES=$BUNDLE_BYTES" >> "$GITHUB_ENV"
+          echo "MEL_CRITICAL_CODE_SHARD_BYTES=$SHARD_BYTES" >> "$GITHUB_ENV"
+          echo "Critical code bundle bytes: $BUNDLE_BYTES"
+          echo "Representative code shard bytes: $SHARD_BYTES"
 
       - name: Upload critical MEL code bundle to R2
         shell: bash
@@ -118,7 +124,8 @@ jobs:
           set -euo pipefail
           npx wrangler deploy \
             --define "MEL_DEPLOYED_GIT_SHA:'${EXPECTED_SHA}'" \
-            --define "MEL_DEPLOYED_GIT_BRANCH:'${RELEASE_BRANCH}'"
+            --define "MEL_DEPLOYED_GIT_BRANCH:'${RELEASE_BRANCH}'" \
+            --define "MEL_CRITICAL_CODE_BUNDLE_BYTES:${MEL_CRITICAL_CODE_BUNDLE_BYTES}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
