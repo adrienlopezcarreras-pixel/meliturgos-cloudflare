@@ -185,3 +185,65 @@ test('declared STUB and NOT_IMPLEMENTED capabilities cannot masquerade as health
   assert.equal(partial.auto_execution_blocked, null);
   assert.deepEqual(calls, ['partial']);
 });
+
+
+test('CapabilityBus contract proof is non-executing and validates guarded structure', async () => {
+  let executions = 0;
+  const bus = new CapabilityBus();
+  bus.discover({
+    id:'high.contract',
+    name:'High contract',
+    category:'test',
+    version:'1.0.0',
+    provider:'test',
+    description:'contract only',
+    input_schema:{type:'object',properties:{},additionalProperties:false},
+    output_schema:{type:'object',additionalProperties:true},
+    risk:'HIGH',
+    permissions:['danger.execute'],
+    health:'HEALTHY',
+    enabled:true,
+  }, async () => { executions += 1; return { ok:true }; });
+
+  const contract = bus.contract('high.contract');
+  assert.equal(contract.valid, true);
+  assert.equal(contract.handler_registered, true);
+  assert.equal(contract.authorization_gate, true);
+  assert.equal(contract.input_validation_gate, true);
+  assert.equal(contract.output_validation_gate, true);
+  assert.equal(executions, 0, 'contract inspection must never execute the capability');
+});
+
+test('deep audit proves contract of MEDIUM/HIGH capabilities without executing side effects', async () => {
+  let executions = 0;
+  const bus = new CapabilityBus();
+  for (const risk of ['MEDIUM','HIGH']) {
+    bus.discover({
+      id:'guarded.'+risk.toLowerCase(),
+      name:'Guarded '+risk,
+      category:'test',
+      version:'1.0.0',
+      provider:'test',
+      description:'guarded contract',
+      input_schema:{type:'object',properties:{},additionalProperties:false},
+      output_schema:{type:'object',additionalProperties:true},
+      risk,
+      permissions:['guarded.execute'],
+      health:'HEALTHY',
+      enabled:true,
+    }, async () => { executions += 1; return { ok:true }; });
+  }
+  const report = await auditRuntimeCapabilities({ bus }, {
+    deep:true,
+    samples:{ 'guarded.medium':{}, 'guarded.high':{} },
+  });
+  assert.deepEqual(report.contracts, { inspected:2, valid:2, invalid:0 });
+  for (const row of report.capabilities) {
+    assert.equal(row.contract_valid, true);
+    assert.equal(row.contract.handler_registered, true);
+    assert.equal(row.tested_now, false);
+    assert.equal(row.auto_execution_blocked, 'RISK_NOT_LOW');
+    assert.equal(row.truth_status, 'EXISTANT_NON_TESTE');
+  }
+  assert.equal(executions, 0);
+});
