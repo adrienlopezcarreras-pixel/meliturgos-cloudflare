@@ -32,6 +32,7 @@ test('collector batch path verifies conversation identity and remains resumable'
   assert.match(background, /activeAbortController\?\.abort\(\)/);
   assert.match(background, /WATCHDOG_IDLE_MS=8\*60\*1000/);
   assert.match(background, /NETWORK_TIMEOUT_MS=6\*60\*1000/);
+  assert.match(background, /PROBE_TIMEOUT_MS=15000/);
   assert.match(background, /DOM_STABLE_MAX_MS=3\*60\*1000/);
 });
 
@@ -71,4 +72,22 @@ test('collector performs bounded deep sidebar discovery and includes partials in
   assert.match(background, /deepDiscoveryDone:deep&&page\.ok\?true:s\.deepDiscoveryDone/);
   assert.match(content, /DEEP_DISCOVERY_MAX_ROUNDS = 60/);
   assert.match(content, /for \(let i = 0; i < DEEP_DISCOVERY_MAX_ROUNDS; i\+\+\)/);
+});
+
+
+test('collector self-recovers a stalled large conversation without manual pause/resume', async () => {
+  const background = await readFile(new URL('../browser-companion/chatgpt-collector/background.js', import.meta.url), 'utf8');
+  const popup = await readFile(new URL('../browser-companion/chatgpt-collector/popup.js', import.meta.url), 'utf8');
+  const manifest = JSON.parse(await readFile(new URL('../browser-companion/chatgpt-collector/manifest.json', import.meta.url), 'utf8'));
+
+  assert.match(background, /async function tabMessage\(tabId,payload,attempts=8,timeoutMs=MESSAGE_TIMEOUT_MS\)/);
+  assert.match(background, /waitForDomStable\(tabId,ecoMode=true,generation=null\)/);
+  assert.match(background, /Math\.min\(PROBE_TIMEOUT_MS,remaining\)/);
+  assert.match(background, /throw codedError\('DOM_NOT_STABLE'\)/);
+  assert.match(background, /const autoRecoverable=\[[^\]]*'DOM_NOT_STABLE'[^\]]*\]\.includes\(code\)/s);
+  assert.match(background, /if\(attempts<maxAttempts\)\{\s*if\(!nextQueue\.includes\(url\)\)nextQueue\.push\(url\);/s);
+  assert.match(background, /await recoverTab\(tabId,code\);\s*continue;/s);
+  assert.match(background, /await api\.tabs\.update\(tabId,\{url:'about:blank'\}\)/);
+  assert.match(popup, /Relances automatiques/);
+  assert.equal(manifest.version, '0.5.2');
 });
