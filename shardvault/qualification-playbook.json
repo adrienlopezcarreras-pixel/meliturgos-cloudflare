@@ -1,11 +1,11 @@
 {
   "format": "MEL-ShardVault-QualificationPlaybook",
-  "version": 3,
-  "updated_at": "2026-09-19T18:42:00Z",
+  "version": 4,
+  "updated_at": "2026-09-20T20:01:12.186Z",
   "objective": {
     "external_targets": 7,
     "independent_operators_preferred": true,
-    "rule": "A candidate is never VALIDATED from documentation alone. It becomes VALIDATED only after a live write -> read -> byte-compare round-trip from MEL's deployed infrastructure."
+    "rule": "A candidate is never VALIDATED from documentation or a tiny probe alone. It becomes VALIDATED only after a live small availability probe plus a representative full-fragment write -> read -> reassembly -> exact-length -> SHA-256 round-trip using the same chunking rules as code replication."
   },
   "hard_gates": [
     "HTTPS public endpoint only; reject private/local networks and credential-bearing URLs.",
@@ -13,6 +13,7 @@
     "Free use and automation must be explicitly documented or otherwise clearly permitted; never infer permission from technical reachability.",
     "Synthetic probe only. Never upload user memory during qualification.",
     "Round-trip must preserve the exact original bytes after the adapter decoder.",
+    "Representative-load gate is mandatory before VALIDATED: test at least the current real code-shard size (or the configured safety floor), write every chunk through the actual adapter, read every chunk back, reassemble, compare exact length and SHA-256. Cached proof is reusable only while fresh and only for payloads no larger than the proven representative size.",
     "Persist the provider-returned read locator in the shard manifest when upload and read URLs differ.",
     "A fixed retention target must be >= 90 days. A renewable target is a distinct model and is eligible only after renewal behavior is documented and a live renewal proof succeeds.",
     "On 4xx/5xx, content mismatch, redirect anomaly, policy change, expiry regression or repeated timeout: quarantine the target and continue searching instead of retrying the same candidate forever.",
@@ -250,9 +251,13 @@
     "LEAD",
     "DOC_REVIEWED",
     "ELIGIBLE",
-    "PROBE_WRITING",
-    "PROBE_READING",
-    "BYTE_MATCHED",
+    "SMALL_PROBE_WRITING",
+    "SMALL_PROBE_READING",
+    "SMALL_PROBE_BYTE_MATCHED",
+    "REPRESENTATIVE_WRITING",
+    "REPRESENTATIVE_READING",
+    "REPRESENTATIVE_REASSEMBLED",
+    "REPRESENTATIVE_HASH_MATCHED",
     "RETENTION_CONFIRMED",
     "VALIDATED",
     "ACTIVE",
@@ -352,7 +357,9 @@
       "Re-run live probes periodically and after any provider error burst.",
       "Keep seven or more independent validated external targets when possible.",
       "Replace failed targets; never lower retention or integrity gates just to keep the count at seven.",
-      "Keep R2/D1 internal fallbacks separate from external diversity."
+      "Keep R2/D1 internal fallbacks separate from external diversity.",
+      "Revalidate the representative full-fragment proof when it expires or when MEL's required code-shard size increases.",
+      "A target with only a historical small probe may remain visible for diagnostics but must not count toward the validated 7-code-target goal."
     ]
   },
   "discovery_method": {
@@ -364,9 +371,12 @@
       "Reject immediately if user login, payment, private-network access, permanent user API key, prohibited automation, or retention below the gate is required.",
       "For provider-issued anonymous tokens, verify the token can be created programmatically from an unauthenticated documented endpoint and that public reads need no user secret.",
       "Translate documentation into a bounded adapter profile: write method+URL, payload transform, form/JSON field names, response locator extraction, read URL, read transform, timeout and retention model.",
-      "Run only a synthetic 256-1024 byte probe from MEL's deployed Cloudflare environment.",
-      "Require write success, read success, exact byte equality and retention evidence before VALIDATED.",
-      "Persist failures and rejection reasons so the next cycle changes query/provider family instead of retrying the same dead target forever."
+      "Persist failures and rejection reasons so the next cycle changes query/provider family instead of retrying the same dead target forever.",
+      "Run a small synthetic availability probe from MEL's deployed Cloudflare environment to reject dead or blocked endpoints cheaply.",
+      "For every candidate that could be promoted, run a representative proof using the current real code-shard size (minimum safety floor when code size is unavailable) and the exact runtime chunking rules.",
+      "The representative proof must write all chunks, read all chunks, reassemble them, compare exact byte length, and match SHA-256 before the target can become VALIDATED.",
+      "Persist representative_bytes, representative_sha256, representative_parts and representative_verified_at. Re-run the proof when it expires or when the required fragment grows beyond the proven size.",
+      "Only after retention evidence plus small-probe success plus representative proof may the target enter VALIDATED/selected sets."
     ],
     "query_families": [
       "anonymous paste API no auth 1 year retention",
