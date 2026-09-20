@@ -1,4 +1,5 @@
 import InternetService from '../services/internet-service.js';
+import { rankSourceCandidates } from '../learning/source-intelligence.js';
 
 const txt=(v,n=4000)=>String(v||'').replace(/\s+/g,' ').trim().slice(0,n);
 const norm=v=>txt(v,8000).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
@@ -87,6 +88,7 @@ function researchMarkdown(query,title,classification,verification,research,creat
     a.push('### '+(i+1)+'. '+txt(s?.title||s?.url||'Source',300));
     a.push('- URL : '+txt(s?.url,800));
     a.push('- Type : '+txt(s?.source_kind||'UNKNOWN',120));
+    if(s?.source_quality)a.push('- Qualité source : '+Number(s.source_quality.score||0).toFixed(3)+' — '+txt(s.source_quality.role||'',80));
     a.push('- Extrait : '+txt(s?.snippet||'',1200));
     if(s?.provenance?.fetched_at)a.push('- Récupéré : '+txt(s.provenance.fetched_at,120));
     a.push('');
@@ -126,6 +128,8 @@ async function researchAndSave(env,input){
   const service=new InternetService(env);
   service.minInterval=Math.max(0,Math.min(5000,Number(env.MEL_WEB_MIN_INTERVAL_MS??1000)||0));
   const research=await service.research(query,Array.isArray(input?.domains)?input.domains.slice(0,3):null,Math.max(1,Math.min(3,Number(input?.depth)||2)),Array.isArray(input?.seed_urls)?input.seed_urls.slice(0,6):null);
+  const rankedSources=rankSourceCandidates(research.sources||[]);
+  research.sources=rankedSources;
   const classification=classifyKnowledgeQuery(query);
   if(txt(input?.category,80))classification.category=txt(input.category,80);
   if(Array.isArray(input?.tags)&&input.tags.length)classification.tags=[...new Set([...classification.tags,...input.tags.map(x=>txt(x,80)).filter(Boolean)])].slice(0,24);
