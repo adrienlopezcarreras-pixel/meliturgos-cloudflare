@@ -944,10 +944,14 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     const candidates=rankExternalCodeCandidates(env,[...(c.endpoints||[]),...(c.allEndpoints||[]),...validated],shard.length)
       .filter(e=>!used.has(e.id)&&!failed.has(e.id));
     if(!candidates.length){
-      state.failed_endpoint_ids=[];
+      state.code_pool_exhaustions=(Number(state.code_pool_exhaustions)||0)+1;
       state.updatedAt=new Date().toISOString();
       await writeCodeSyncState(env,id,state);
-      return {...codeBackup,external:codeSyncExternalView(state,goal,'RETRY_TARGETS',{reason:'EXHAUSTED_CURRENT_CANDIDATES'})};
+      return {...codeBackup,external:codeSyncExternalView(state,goal,'RETRY_TARGETS',{
+        reason:'NO_UNTRIED_VALIDATED_CODE_TARGETS',
+        quarantined_endpoints:[...(state.failed_endpoint_ids||[])],
+        code_pool_exhaustions:state.code_pool_exhaustions
+      })};
     }
     const e=candidates[0];
     state.attempted_endpoints=[...new Set([...(state.attempted_endpoints||[]),e.id])];
@@ -1329,7 +1333,7 @@ export async function searchAutonomousShardVaultRepositories(env){
     try{const rows=await inventoryRows(env,c);last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
     const activeBefore=await reconcileActiveExternalEndpoints(env,c,last);
     const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
-    await rememberValidatedExternalEndpoints(env,report.selected||[]);
+    await rememberValidatedExternalEndpoints(env,report.qualified||report.selected||[]);
     const staged=await stageActiveExternalEndpoints(env,c,last,report.selected||[]);
     let activation_cycle=null,active=activeBefore;
     if(staged.length>activeBefore.length){
