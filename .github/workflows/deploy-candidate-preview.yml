@@ -528,6 +528,85 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
+      - name: Prove autonomy launch readiness on isolated preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          curl --fail-with-body --show-error --silent --max-time 120 \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            "${BASE_URL}/api/gen2/autonomy/launch-readiness" \
+            --output preview-launch-readiness.json
+
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          data=json.loads(Path('preview-launch-readiness.json').read_text(encoding='utf-8'))
+          gates=data.get('gates') or {}
+          if data.get('ok') is not True:
+              raise SystemExit('LAUNCH_READINESS_API_FAILED')
+          if data.get('launch_ready') is not True or data.get('status') != 'GO_FOR_SUPERVISED_AUTONOMY':
+              raise SystemExit('AUTONOMY_LAUNCH_NO_GO: '+json.dumps(data.get('blockers') or []))
+          required=[
+              'canonical_candidate_boundary',
+              'bounded_failure_history',
+              'no_unbounded_active_work',
+              'verified_restore_dry_run',
+              'shardvault_critical_survival',
+              'production_release_separately_gated',
+              'owner_halt_invariant',
+              'zero_added_cost_fail_closed',
+          ]
+          failed=[key for key in required if gates.get(key) is not True]
+          if failed:
+              raise SystemExit('AUTONOMY_LAUNCH_GATE_FAILED: '+','.join(failed))
+          restore=data.get('restore') or {}
+          if restore.get('ok') is not True or restore.get('status') != 'SYNTHETIC_PREVIEW_RESTORE_VERIFIED':
+              raise SystemExit('RESTORE_DRY_RUN_NOT_PROVEN')
+          shard=data.get('shardvault') or {}
+          if shard.get('ok') is not True or shard.get('preview_only') is not True:
+              raise SystemExit('PREVIEW_SHARDVAULT_GATE_NOT_BOUND_TO_LIVE_PROBE')
+          failure=data.get('failure_hygiene') or {}
+          if failure.get('ok') is not True or int(failure.get('retry_cap') or 0) != 3:
+              raise SystemExit('FAILURE_HYGIENE_NOT_PROVEN')
+          digest=str(data.get('gate_digest') or '')
+          if len(digest) != 64:
+              raise SystemExit('LAUNCH_GATE_DIGEST_INVALID')
+
+          summary=os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary:
+              with open(summary,'a',encoding='utf-8') as h:
+                  h.write('### MEL autonomous launch gate\n\n')
+                  h.write('- Verdict: **GO_FOR_SUPERVISED_AUTONOMY**\n')
+                  h.write('- Candidate boundary: verified\n')
+                  h.write('- Failure retry cap: 3\n')
+                  h.write('- Restore dry-run: verified\n')
+                  h.write('- ShardVault: separate live 7-target probe passed immediately before this gate\n')
+                  h.write('- Production release: remains separately gated\n')
+                  h.write('- Owner halt: invariant preserved\n')
+          print(json.dumps({
+              'status':data.get('status'),
+              'launch_ready':data.get('launch_ready'),
+              'gates':gates,
+              'blockers':data.get('blockers'),
+              'retry_cap':failure.get('retry_cap'),
+              'historical_failed_count':failure.get('historical_failed_count'),
+              'restore_status':restore.get('status'),
+              'shardvault_status':shard.get('status'),
+              'gate_digest':digest,
+          },indent=2))
+          PY
+
+      - name: Upload autonomy launch readiness evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: autonomy-launch-readiness-${{ github.sha }}
+          path: preview-launch-readiness.json
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Refresh zero-cost Benchmark and LoRA readiness
         shell: bash
         run: |
