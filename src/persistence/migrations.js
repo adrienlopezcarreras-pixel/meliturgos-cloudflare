@@ -144,6 +144,29 @@ export const MIGRATIONS = [
       updated_at INTEGER NOT NULL
     )`).run();
   }},
+  { version: 8, name: 'conversation_focus_and_response_quality', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS conversation_focus_state (
+      conversation_id TEXT PRIMARY KEY,
+      anchor TEXT NOT NULL DEFAULT '',
+      constraints_json TEXT NOT NULL DEFAULT '[]',
+      excluded_topics_json TEXT NOT NULL DEFAULT '[]',
+      updated_at INTEGER NOT NULL
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_conversation_focus_updated
+      ON conversation_focus_state(updated_at DESC)`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS mel_response_quality_events (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      user_excerpt TEXT NOT NULL,
+      response_excerpt TEXT NOT NULL,
+      focus_json TEXT NOT NULL DEFAULT '{}',
+      issues_json TEXT NOT NULL DEFAULT '[]',
+      relevance_json TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mel_response_quality_events_conversation
+      ON mel_response_quality_events(conversation_id, created_at)`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
