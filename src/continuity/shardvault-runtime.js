@@ -371,7 +371,7 @@ async function upload(env,e,objectId,payload){
   }
   if(e.adapter==='pastegg_b64'){
     const endpoint=fixedApiUrl(u);
-    const body={name:objectId,visibility:'unlisted',files:[{name:'shard.bin',content:{format:'base64',content:b64(payload)}}]};
+    const body={name:objectId,visibility:'unlisted',files:[{name:'shard.txt',content:{format:'text',value:b64u(payload)}}]};
     const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify(body)},15000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     const data=await r.json().catch(()=>null),id=String(data?.result?.id||data?.id||'').trim();
