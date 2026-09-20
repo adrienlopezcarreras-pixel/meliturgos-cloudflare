@@ -663,6 +663,53 @@ function rankExternalCodeCandidates(env,endpoints,requiredBytes){
     String(a.id).localeCompare(String(b.id))
   );
 }
+function codeTargetFailureClass(error){
+  const message=String(error?.message||error||'').toUpperCase();
+  const retryable=/(?:DEADLINE|TIMEOUT|ABORT|FETCH|NETWORK|_408\b|_425\b|_429\b|_500\b|_502\b|_503\b|_504\b)/.test(message);
+  return {message,retryable,permanent:!retryable};
+}
+function codeTargetRetryDelayMs(count){
+  const attempt=Math.max(1,Number(count)||1);
+  return Math.min(120000,5000*(2**Math.min(4,attempt-1)));
+}
+function codeTargetAvailableNow(state,endpoint,now=Date.now()){
+  const failure=state?.endpoint_failures?.[endpoint?.id];
+  if(!failure)return true;
+  if(failure.permanent===true)return false;
+  const retryAt=Date.parse(String(failure.retry_after_at||''));
+  return !Number.isFinite(retryAt)||retryAt<=now;
+}
+function prioritizeExternalCodeCandidates(candidates,state){
+  const attempted=new Set(Array.isArray(state?.attempted_endpoints)?state.attempted_endpoints:[]);
+  return [...candidates].sort((a,b)=>
+    Number(attempted.has(a.id))-Number(attempted.has(b.id))||
+    String(a.id).localeCompare(String(b.id))
+  );
+}
+function recordCodeTargetFailure(state,endpoint,error,now=Date.now()){
+  const id=String(endpoint?.id||'').trim();
+  if(!id)throw new Error('CODE_TARGET_ID_REQUIRED');
+  const classification=codeTargetFailureClass(error);
+  const current=state?.endpoint_failures?.[id]||{};
+  const count=Math.max(0,Number(current.count)||0)+1;
+  const retryAfter=classification.retryable?new Date(now+codeTargetRetryDelayMs(count)).toISOString():null;
+  state.endpoint_failures={...(state.endpoint_failures||{}),[id]:{
+    count,last_error:classification.message,last_at:new Date(now).toISOString(),
+    retryable:classification.retryable,permanent:classification.permanent,retry_after_at:retryAfter
+  }};
+  if(classification.permanent){
+    state.failed_endpoint_ids=[...new Set([...(state.failed_endpoint_ids||[]),id])];
+  }
+  return state.endpoint_failures[id];
+}
+function clearCodeTargetFailure(state,endpointId){
+  const id=String(endpointId||'').trim();
+  if(!id)return;
+  if(state?.endpoint_failures&&Object.prototype.hasOwnProperty.call(state.endpoint_failures,id)){
+    const next={...state.endpoint_failures};delete next[id];state.endpoint_failures=next;
+  }
+  state.failed_endpoint_ids=(state.failed_endpoint_ids||[]).filter(value=>value!==id);
+}
 async function assignDistinctExternalTargets(items,candidates,copyFn,{maxConcurrency=items.length}={}){
   const assignments=Array(items.length).fill(null),failures=[],attempted=[];
   const concurrency=Math.max(1,Math.min(items.length||1,Number(maxConcurrency)||1));
@@ -908,7 +955,8 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),
       totalShards:n,dataShards:k,shardSize:size,iv:b64u(iv),archiveBytes:plain.length,sha256:archiveSha256,
       ciphertextLength:cipher.length,shards:[],temp_shard_keys:tempShardKeys,
-      failures:[],attempted_endpoints:[],failed_endpoint_ids:[]
+      failures:[],attempted_endpoints:[],failed_endpoint_ids:[],endpoint_failures:{},
+      code_pool_exhaustions:0,code_pool_refreshes:0,last_code_pool_refresh_at:null
     };
     await writeCodeSyncState(env,id,state);
     return {...codeBackup,external:codeSyncExternalView(state,goal,'COPYING',{
@@ -941,18 +989,55 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     try{validated=await readValidatedExternalEndpoints(env);}catch{}
     try{codeCandidates=await readCodeCandidateEndpoints(env);}catch{}
     const used=new Set(descriptors.map(x=>x.endpointId));
-    const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
-    const candidates=rankExternalCodeCandidates(env,[...(c.endpoints||[]),...(c.allEndpoints||[]),...validated,...codeCandidates],shard.length)
-      .filter(e=>!used.has(e.id)&&!failed.has(e.id));
+    const buildCandidates=(extra=[])=>{
+      const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
+      const ranked=rankExternalCodeCandidates(env,[...(c.endpoints||[]),...(c.allEndpoints||[]),...validated,...codeCandidates,...extra],shard.length)
+        .filter(e=>!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e));
+      return prioritizeExternalCodeCandidates(ranked,state);
+    };
+    let candidates=buildCandidates();
     if(!candidates.length){
       state.code_pool_exhaustions=(Number(state.code_pool_exhaustions)||0)+1;
-      state.updatedAt=new Date().toISOString();
-      await writeCodeSyncState(env,id,state);
-      return {...codeBackup,external:codeSyncExternalView(state,goal,'RETRY_TARGETS',{
-        reason:'NO_UNTRIED_VALIDATED_CODE_TARGETS',
-        quarantined_endpoints:[...(state.failed_endpoint_ids||[])],
-        code_pool_exhaustions:state.code_pool_exhaustions
-      })};
+      const now=Date.now(),lastRefresh=Date.parse(String(state.last_code_pool_refresh_at||''));
+      const refreshDue=!Number.isFinite(lastRefresh)||now-lastRefresh>=60000;
+      let discoveryRefresh=null;
+      if(refreshDue&&String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')==='true'){
+        state.last_code_pool_refresh_at=new Date(now).toISOString();
+        state.code_pool_refreshes=(Number(state.code_pool_refreshes)||0)+1;
+        try{
+          discoveryRefresh=await discoverAutonomousRepositories(env,{
+            masterKey:c.master,vaultId:c.vaultId,requiredBytes:shard.length,selectionCount:goal
+          });
+          const fresh=[...(discoveryRefresh?.qualified||[]),...(discoveryRefresh?.selected||[])];
+          if(fresh.length){
+            await rememberValidatedExternalEndpoints(env,fresh).catch(()=>[]);
+            await rememberCodeCandidateEndpoints(env,[...fresh,...(discoveryRefresh?.eligible||[])]).catch(()=>[]);
+            try{validated=await readValidatedExternalEndpoints(env);}catch{}
+            try{codeCandidates=await readCodeCandidateEndpoints(env);}catch{}
+            candidates=buildCandidates(fresh);
+          }
+        }catch(error){
+          discoveryRefresh={error:String(error?.message||error),qualified:[],selected:[]};
+        }
+      }
+      if(!candidates.length){
+        const retryTimes=Object.values(state.endpoint_failures||{})
+          .filter(x=>x?.retryable===true&&x?.retry_after_at)
+          .map(x=>Date.parse(String(x.retry_after_at)))
+          .filter(Number.isFinite)
+          .sort((a,b)=>a-b);
+        state.updatedAt=new Date().toISOString();
+        await writeCodeSyncState(env,id,state);
+        return {...codeBackup,external:codeSyncExternalView(state,goal,'RETRY_TARGETS',{
+          reason:'NO_READY_VALIDATED_CODE_TARGETS',
+          quarantined_endpoints:[...(state.failed_endpoint_ids||[])],
+          retryable_endpoints:Object.entries(state.endpoint_failures||{}).filter(([,x])=>x?.retryable===true).map(([endpoint_id,x])=>({endpoint_id,retry_after_at:x.retry_after_at,count:x.count})),
+          next_retry_at:retryTimes.length?new Date(retryTimes[0]).toISOString():null,
+          code_pool_exhaustions:state.code_pool_exhaustions,
+          code_pool_refreshes:Number(state.code_pool_refreshes)||0,
+          refreshed_candidates:Number(discoveryRefresh?.qualified?.length||0)
+        })};
+      }
     }
     const e=candidates[0];
     state.attempted_endpoints=[...new Set([...(state.attempted_endpoints||[]),e.id])];
@@ -971,14 +1056,21 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
         return d;
       },Number(env?.MEL_SHARDVAULT_CODE_FRAGMENT_DEADLINE_MS)||45000);
       state.shards.push(descriptor);
-      state.failed_endpoint_ids=(state.failed_endpoint_ids||[]).filter(value=>value!==e.id);
+      clearCodeTargetFailure(state,e.id);
       try{await rememberValidatedExternalEndpoints(env,[e]);}catch{}
     }catch(error){
-      state.failures=[...(state.failures||[]),{shard_index:i,endpoint_id:e.id,error:String(error?.message||error),at:new Date().toISOString()}].slice(-24);
-      state.failed_endpoint_ids=[...new Set([...(state.failed_endpoint_ids||[]),e.id])];
+      const failureState=recordCodeTargetFailure(state,e,error,Date.now());
+      state.failures=[...(state.failures||[]),{
+        shard_index:i,endpoint_id:e.id,error:String(error?.message||error),at:new Date().toISOString(),
+        retryable:failureState.retryable===true,permanent:failureState.permanent===true,retry_after_at:failureState.retry_after_at||null,
+        failure_count:Number(failureState.count)||1
+      }].slice(-24);
       state.updatedAt=new Date().toISOString();
       await writeCodeSyncState(env,id,state);
-      return {...codeBackup,external:codeSyncExternalView(state,goal,'COPYING',{last_error:state.failures.at(-1),failover_pending:true})};
+      return {...codeBackup,external:codeSyncExternalView(state,goal,'COPYING',{
+        last_error:state.failures.at(-1),failover_pending:true,
+        retry_policy:failureState.retryable===true?'BOUNDED_BACKOFF':'QUARANTINED_PERMANENT'
+      })};
     }
     state.updatedAt=new Date().toISOString();
     if(state.shards.length<goal){
@@ -1077,7 +1169,12 @@ export async function syncShardVaultCodeExternally(env){
   }
 }
 
-export const __shardvaultTest = Object.freeze({ encode, decode, selectEndpoints, diversity, extendActiveEndpoints, externalEndpointsFromSnapshot, rankExternalCodeCandidates, assignDistinctExternalTargets, byteArraysEqual, reconstructExternalCodeArchive });
+export const __shardvaultTest = Object.freeze({
+  encode, decode, selectEndpoints, diversity, extendActiveEndpoints, externalEndpointsFromSnapshot,
+  rankExternalCodeCandidates, assignDistinctExternalTargets, byteArraysEqual, reconstructExternalCodeArchive,
+  codeTargetFailureClass, codeTargetRetryDelayMs, codeTargetAvailableNow, prioritizeExternalCodeCandidates,
+  recordCodeTargetFailure, clearCodeTargetFailure
+});
 
 
 function publicEndpointView(e){return {id:e.id,backend:e.backend||'http',bucket:e.bucketName||null,key_prefix:e.keyPrefix||null,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:Number(e.score)||0,confidence:Number(e.confidence)||0,autonomous:e.autonomous===true,authMode:e.authMode||null,maxBytes:Number(e.maxBytes)||0,preferred:e.preferred===true,adapter:e.adapter||null,expectedRetentionDays:Number(e.expectedRetentionDays)||0,retentionModel:e.retentionModel||'fixed',baseRetentionDays:Number(e.baseRetentionDays)||Number(e.expectedRetentionDays)||0,refreshEveryDays:Number(e.refreshEveryDays)||0,fullReadRenewsRetention:e.fullReadRenewsRetention===true,evidenceVerification:e.evidenceVerification||null,verifiedAt:e.verifiedAt||null,probeLatencyMs:Number(e.probeLatencyMs)||0};}
@@ -1364,8 +1461,8 @@ export async function searchAutonomousShardVaultRepositories(env){
     try{const rows=await inventoryRows(env,c);last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
     const activeBefore=await reconcileActiveExternalEndpoints(env,c,last);
     const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
-    await rememberValidatedExternalEndpoints(env,report.qualified||report.selected||[]);
-    await rememberCodeCandidateEndpoints(env,report.eligible||report.qualified||report.selected||[]);
+    await rememberValidatedExternalEndpoints(env,[...(report.qualified||[]),...(report.selected||[])]);
+    await rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])]);
     const staged=await stageActiveExternalEndpoints(env,c,last,report.selected||[]);
     let activation_cycle=null,active=activeBefore;
     if(staged.length>activeBefore.length){

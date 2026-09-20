@@ -93,3 +93,46 @@ assert.ok(failoverResult.failures.some(x=>x.endpoint_id==='e2'));
 assert.deepEqual(failoverResult.attempted_endpoints, ['e1','e2','e3','e4']);
 
 console.log('ShardVault continuity tests: OK');
+
+
+const retryable503 = __shardvaultTest.codeTargetFailureClass(new Error('WRITE_target_503'));
+assert.equal(retryable503.retryable, true);
+assert.equal(retryable503.permanent, false);
+const permanentShape = __shardvaultTest.codeTargetFailureClass(new Error('WRITE_target_REMOTE_URL_MISSING'));
+assert.equal(permanentShape.retryable, false);
+assert.equal(permanentShape.permanent, true);
+
+const retryState = { attempted_endpoints:[], failed_endpoint_ids:[], endpoint_failures:{} };
+const firstRetry = __shardvaultTest.recordCodeTargetFailure(
+  retryState,
+  {id:'retry-a'},
+  new Error('CODE_FRAGMENT_DEADLINE_EXCEEDED'),
+  1000
+);
+assert.equal(firstRetry.retryable, true);
+assert.equal(retryState.failed_endpoint_ids.includes('retry-a'), false);
+assert.equal(__shardvaultTest.codeTargetAvailableNow(retryState,{id:'retry-a'},1001), false);
+assert.equal(__shardvaultTest.codeTargetAvailableNow(retryState,{id:'retry-a'},7000), true);
+assert.equal(__shardvaultTest.codeTargetRetryDelayMs(1), 5000);
+assert.equal(__shardvaultTest.codeTargetRetryDelayMs(8), 120000);
+
+const permanentState = { attempted_endpoints:[], failed_endpoint_ids:[], endpoint_failures:{} };
+const permanentFailure = __shardvaultTest.recordCodeTargetFailure(
+  permanentState,
+  {id:'bad-shape'},
+  new Error('CODE_FRAGMENT_ROUNDTRIP_MISMATCH'),
+  1000
+);
+assert.equal(permanentFailure.permanent, true);
+assert.deepEqual(permanentState.failed_endpoint_ids,['bad-shape']);
+
+const priorityState={attempted_endpoints:['old-a']};
+const prioritized=__shardvaultTest.prioritizeExternalCodeCandidates(
+  [{id:'old-a'},{id:'fresh-b'},{id:'fresh-c'}],
+  priorityState
+);
+assert.deepEqual(prioritized.map(x=>x.id),['fresh-b','fresh-c','old-a']);
+
+__shardvaultTest.clearCodeTargetFailure(permanentState,'bad-shape');
+assert.deepEqual(permanentState.failed_endpoint_ids,[]);
+assert.equal(permanentState.endpoint_failures['bad-shape'],undefined);
