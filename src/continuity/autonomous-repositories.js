@@ -1150,10 +1150,11 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
   const probed=[];
   for(const c of eligibleRows.slice(0,probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
   const selected=choose(probed,selectionCount,maxPerOperator,maxPerProvider);
-  const endpointView=c=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:c.score,confidence:c.confidence,autonomous:true,authMode:c.authMode||'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:'reviewed_documentation_plus_live_roundtrip',expectedRetentionDays:c.expectedRetentionDays||0,retentionModel:c.retentionModel||'fixed',baseRetentionDays:c.baseRetentionDays||c.expectedRetentionDays||0,refreshEveryDays:c.refreshEveryDays||0,fullReadRenewsRetention:c.fullReadRenewsRetention===true,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0)});
+  const endpointView=(c,verification='reviewed_documentation_plus_live_roundtrip')=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:Number(c.score)||0,confidence:Number(c.confidence)||0,autonomous:true,authMode:c.authMode||'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:verification,expectedRetentionDays:c.expectedRetentionDays||0,retentionModel:c.retentionModel||'fixed',baseRetentionDays:c.baseRetentionDays||c.expectedRetentionDays||0,refreshEveryDays:c.refreshEveryDays||0,fullReadRenewsRetention:c.fullReadRenewsRetention===true,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0)});
   return {
     selected:selected.map(endpointView),
     qualified:probed.map(endpointView),
+    eligible:eligibleRows.map(c=>endpointView(c,'reviewed_documentation_candidate')),
     rejected,
     discovered:loaded.candidates.length,
     probed:probed.length,

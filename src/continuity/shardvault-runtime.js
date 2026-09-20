@@ -937,11 +937,12 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       await clearCodeSyncState(env,id,state);
       return {...codeBackup,external:{status:'CODE_SYNC_SHARD_INVALID',target_count:goal,restart_required:true,shard_index:i}};
     }
-    let validated=[];
+    let validated=[],codeCandidates=[];
     try{validated=await readValidatedExternalEndpoints(env);}catch{}
+    try{codeCandidates=await readCodeCandidateEndpoints(env);}catch{}
     const used=new Set(descriptors.map(x=>x.endpointId));
     const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
-    const candidates=rankExternalCodeCandidates(env,[...(c.endpoints||[]),...(c.allEndpoints||[]),...validated],shard.length)
+    const candidates=rankExternalCodeCandidates(env,[...(c.endpoints||[]),...(c.allEndpoints||[]),...validated,...codeCandidates],shard.length)
       .filter(e=>!used.has(e.id)&&!failed.has(e.id));
     if(!candidates.length){
       state.code_pool_exhaustions=(Number(state.code_pool_exhaustions)||0)+1;
@@ -971,6 +972,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       },Number(env?.MEL_SHARDVAULT_CODE_FRAGMENT_DEADLINE_MS)||45000);
       state.shards.push(descriptor);
       state.failed_endpoint_ids=(state.failed_endpoint_ids||[]).filter(value=>value!==e.id);
+      try{await rememberValidatedExternalEndpoints(env,[e]);}catch{}
     }catch(error){
       state.failures=[...(state.failures||[]),{shard_index:i,endpoint_id:e.id,error:String(error?.message||error),at:new Date().toISOString()}].slice(-24);
       state.failed_endpoint_ids=[...new Set([...(state.failed_endpoint_ids||[]),e.id])];
@@ -1083,6 +1085,7 @@ const DISCOVERY_STATUS_KEY='shardvault/discovery/latest.json';
 const PREFERRED_ENDPOINT_KEY='shardvault/discovery/preferred-endpoint.json';
 const ACTIVE_ENDPOINTS_KEY='shardvault/discovery/active-external-endpoints.json';
 const VALIDATED_ENDPOINTS_KEY='shardvault/discovery/validated-external-endpoints.json';
+const CODE_CANDIDATES_KEY='shardvault/discovery/code-candidate-endpoints.json';
 async function readPreferredEndpoint(env){
   if(!env?.MEDIA_BUCKET?.get)return null;
   try{
@@ -1155,6 +1158,34 @@ async function rememberValidatedExternalEndpoints(env,candidates=[]){
   }
   const rows=[...by.values()].slice(0,25);
   await env.MEDIA_BUCKET.put(VALIDATED_ENDPOINTS_KEY,JSON.stringify({version:1,updated_at:new Date().toISOString(),endpoints:rows.map(e=>({id:e.id,...endpointSnapshot(e)}))}),{httpMetadata:{contentType:'application/json'}});
+  return rows;
+}
+async function readCodeCandidateEndpoints(env){
+  if(!env?.MEDIA_BUCKET?.get)return [];
+  try{
+    const body=await env.MEDIA_BUCKET.get(CODE_CANDIDATES_KEY);
+    if(!body)return [];
+    const parsed=JSON.parse(await body.text()),rows=Array.isArray(parsed)?parsed:(Array.isArray(parsed?.endpoints)?parsed.endpoints:[]);
+    const out=[];
+    for(let i=0;i<rows.length&&out.length<25;i++){
+      try{
+        const e=normalizeEndpoint(rows[i],i);
+        if(!e.backend&&endpointMeetsDurability(env,e)&&!out.some(x=>x.id===e.id))out.push(e);
+      }catch{}
+    }
+    return out;
+  }catch{return []}
+}
+async function rememberCodeCandidateEndpoints(env,candidates=[]){
+  if(!env?.MEDIA_BUCKET?.put)return [];
+  const current=await readCodeCandidateEndpoints(env);
+  const by=new Map(current.map(e=>[e.id,e]));
+  for(const e of candidates||[]){
+    if(!e?.id||e?.backend||!endpointMeetsDurability(env,e))continue;
+    by.set(e.id,e);
+  }
+  const rows=[...by.values()].slice(0,25);
+  await env.MEDIA_BUCKET.put(CODE_CANDIDATES_KEY,JSON.stringify({version:1,updated_at:new Date().toISOString(),endpoints:rows.map(e=>({id:e.id,...endpointSnapshot(e)}))}),{httpMetadata:{contentType:'application/json'}});
   return rows;
 }
 function externalEndpointsFromSnapshot(env,c,last){
@@ -1334,6 +1365,7 @@ export async function searchAutonomousShardVaultRepositories(env){
     const activeBefore=await reconcileActiveExternalEndpoints(env,c,last);
     const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
     await rememberValidatedExternalEndpoints(env,report.qualified||report.selected||[]);
+    await rememberCodeCandidateEndpoints(env,report.eligible||report.qualified||report.selected||[]);
     const staged=await stageActiveExternalEndpoints(env,c,last,report.selected||[]);
     let activation_cycle=null,active=activeBefore;
     if(staged.length>activeBefore.length){
