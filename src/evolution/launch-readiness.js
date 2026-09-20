@@ -46,7 +46,7 @@ export function evaluateFailureHygiene(jobs = []) {
   const groups = new Map();
 
   for (const job of failed) {
-    const id = roadmapId(job) || 'UNSCOPED';
+    const id = roadmapId(job) || (job?.requested_by === 'mel-autonomy' ? 'UNSCOPED_AUTONOMY' : 'UNSCOPED_OWNER');
     const row = groups.get(id) || {
       roadmap_id: id,
       failed_attempts: 0,
@@ -68,20 +68,20 @@ export function evaluateFailureHygiene(jobs = []) {
   const summary = [...groups.values()]
     .map(row => ({
       ...row,
-      auto_quarantined: row.roadmap_id !== 'UNSCOPED' && row.failed_attempts >= MAX_AUTONOMOUS_ROADMAP_ATTEMPTS,
+      auto_quarantined: !String(row.roadmap_id).startsWith('UNSCOPED_') && row.failed_attempts >= MAX_AUTONOMOUS_ROADMAP_ATTEMPTS,
     }))
     .sort((a, b) => b.failed_attempts - a.failed_attempts || String(a.roadmap_id).localeCompare(String(b.roadmap_id)));
 
   // The launch blocker is not "old failures exist". Historical failures are
   // evidence, not active work. A launch is unsafe only if failed work is
   // unscoped and therefore cannot be bounded by the roadmap retry cap.
-  const unbounded = summary.filter(row => row.roadmap_id === 'UNSCOPED' && row.failed_attempts > 0);
+  const unbounded = summary.filter(row => row.roadmap_id === 'UNSCOPED_AUTONOMY' && row.failed_attempts > 0);
 
   return {
     ok: unbounded.length === 0,
     historical_failed_count: failed.length,
     roadmap_failure_groups: summary.slice(0, MAX_PUBLIC_FAILURE_GROUPS),
-    quarantined_roadmap_ids: summary.filter(row => row.auto_quarantined || row.explicit_blocked > 0).map(row => row.roadmap_id).filter(id => id !== 'UNSCOPED'),
+    quarantined_roadmap_ids: summary.filter(row => row.auto_quarantined || row.explicit_blocked > 0).map(row => row.roadmap_id).filter(id => !String(id).startsWith('UNSCOPED_')),
     retry_cap: MAX_AUTONOMOUS_ROADMAP_ATTEMPTS,
     unbounded_failed_count: unbounded.reduce((sum, row) => sum + row.failed_attempts, 0),
     code: unbounded.length ? 'UNSCOPED_FAILED_WORK_REQUIRES_REVIEW' : 'FAILURE_HISTORY_BOUNDED',
