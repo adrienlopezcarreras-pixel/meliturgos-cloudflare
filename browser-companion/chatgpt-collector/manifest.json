@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MEL ChatGPT Collector",
-  "version": "0.5.1",
-  "description": "Collecte progressivement les conversations ChatGPT visibles dans Firefox et les archive dans MEL.",
+  "version": "0.5.2",
+  "description": "Collecte progressivement les conversations ChatGPT dans MEL avec reprise automatique des grosses conversations bloquées.",
   "permissions": [
     "storage",
     "tabs",
