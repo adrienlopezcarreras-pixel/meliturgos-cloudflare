@@ -4,6 +4,7 @@ import { CANONICAL_LEARNING_BENCHMARK_SUITE, compareBenchmarkScores, runLearning
 import { chooseBestSettings, proposeNeighborSettings, sanitizeInferenceSettings } from './inference-adaptation.js';
 import { assertAdapterActivationEvidence, assertAdapterArtifact, createLoraTrainingPlan } from './lora-plan.js';
 import { BOOTSTRAP_CORRECTIONS } from './bootstrap-corrections.js';
+import { expertPlusSummary, searchExpertPlusCycles } from './expert-plus-corpus.js';
 
 function evidenceObject(row) {
   const value = row?.evidence;
@@ -67,11 +68,19 @@ export class LearningEngine {
     return requested === null ? merged : merged.slice(0, requested);
   }
 
+  expertGuidance(query = '', { limit = 24 } = {}) {
+    return {
+      curriculum: expertPlusSummary(),
+      query: String(query || ''),
+      cycles: searchExpertPlusCycles(query, { limit }),
+    };
+  }
+
   async trainingBundle({ minQuality = 0.65, limit = null } = {}) {
     const corrections = await this.corrections({ limit });
     const corpus = buildTrainingCorpus(corrections, { validatedOnly: true, minQuality });
     const dataset = { sft: corpus.sft, preference: corpus.preference };
-    return { ...corpus, digest: digest(dataset), dataset, generated_at: Date.now() };
+    return { ...corpus, digest: digest(dataset), dataset, expert_plus: expertPlusSummary(), generated_at: Date.now() };
   }
 
   async recordBenchmark({ cases, kind = 'candidate', model_id = '', adapter_id = null, source_sha = null, metadata = {} } = {}) {
