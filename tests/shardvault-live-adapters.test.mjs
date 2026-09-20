@@ -120,7 +120,7 @@ test('code replication uses seven resumable full replicas instead of CPU-heavy R
   assert.match(body,/const e=candidates\[0\],i=replicas\.length/);
   assert.match(body,/state\.replicas\.push\(descriptor\)/);
   assert.match(body,/writeCodeSyncState\(env,id,state\)/);
-  assert.match(body,/CALL_CODE_SYNC_AGAIN/);
+  assert.match(runtime,/CALL_CODE_SYNC_AGAIN/);
   assert.match(body,/CODE_REPLICA_ROUNDTRIP_HASH_MISMATCH/);
   assert.doesNotMatch(body,/assignDistinctExternalTargets\(replicas,candidates/);
   assert.doesNotMatch(body,/shards=encode\(data,c\.n\)/);
