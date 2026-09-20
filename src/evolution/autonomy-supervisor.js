@@ -7,6 +7,7 @@ const DONE_ROADMAP = new Set([ROADMAP_STATUSES.DONE, ROADMAP_STATUSES.VERIFIED, 
 const PRIORITY_WEIGHT = Object.freeze({ P0: 0, P1: 10, P2: 20, P3: 30 });
 const STATUS_WEIGHT = Object.freeze({ IN_PROGRESS: 0, PARTIAL: 1, PLANNED: 2 });
 const SUPERVISED_REQUESTERS = new Set(['owner-chat', 'mel-autonomy']);
+export const MAX_AUTONOMOUS_ROADMAP_ATTEMPTS = 3;
 
 // Autonomy-first ordering: finish the ability to keep working before cosmetics or devices.
 const AUTONOMY_ORDER = [
@@ -162,16 +163,37 @@ export class AutonomySupervisor {
       .filter((job) => ['COMPLETED', 'COMMITTED'].includes(String(job.status || '').toUpperCase()))
       .map(roadmapIdFromJob)
       .filter(Boolean);
-    const blockedIds = supervisedJobs
+    const explicitlyBlockedIds = supervisedJobs
       .filter((job) => String(job.status || '').toUpperCase() === 'FAILED' && job?.result_json?.autonomy_blocked === true)
       .map(roadmapIdFromJob)
       .filter(Boolean);
+    const failedAttemptsByRoadmap = new Map();
+    for (const job of supervisedJobs) {
+      if (String(job?.status || '').toUpperCase() !== 'FAILED') continue;
+      const roadmapId = roadmapIdFromJob(job);
+      if (!roadmapId) continue;
+      failedAttemptsByRoadmap.set(roadmapId, (failedAttemptsByRoadmap.get(roadmapId) || 0) + 1);
+    }
+    const retryExhaustedIds = [...failedAttemptsByRoadmap.entries()]
+      .filter(([, attempts]) => attempts >= MAX_AUTONOMOUS_ROADMAP_ATTEMPTS)
+      .map(([roadmapId]) => roadmapId);
+    const blockedIds = [...new Set([...explicitlyBlockedIds, ...retryExhaustedIds])];
     const next = selectNextAutonomyItem({
       roadmap: this.roadmap,
       completedIds,
       blockedIds: [...blockedIds, ...activeIds],
     });
-    return { jobs, supervisedJobs, active, activeIds, completedIds, blockedIds, next };
+    return {
+      jobs,
+      supervisedJobs,
+      active,
+      activeIds,
+      completedIds,
+      blockedIds,
+      retryExhaustedIds,
+      failedAttemptsByRoadmap: Object.fromEntries(failedAttemptsByRoadmap),
+      next,
+    };
   }
 
   async ensureNextJob() {
