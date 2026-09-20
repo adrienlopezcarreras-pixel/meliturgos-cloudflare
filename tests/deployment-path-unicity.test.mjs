@@ -38,3 +38,19 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /MEL_DEPLOYED_GIT_SHA/);
   assert.match(source, /MEL_DEPLOYED_GIT_BRANCH/);
 });
+
+
+test('candidate preview materializes an exact-SHA critical code bundle before ShardVault reconstruction', async () => {
+  const source = await readFile(path.join(WORKFLOWS, 'deploy-candidate-preview.yml'), 'utf8');
+  assert.match(source, /Build exact-SHA critical MEL code bundle/);
+  assert.match(source, /mel-critical-code\.tar\.gz/);
+  assert.match(source, /shardvault\/code-critical\/\$\{REPO_KEY\}\/\$\{GITHUB_SHA\}\.tar\.gz/);
+  assert.match(source, /wrangler r2 object put/);
+  assert.match(source, /--file mel-critical-code\.tar\.gz/);
+  assert.match(source, /Prove ShardVault external code reconstruction/);
+  assert.ok(
+    source.indexOf('Upload exact-SHA critical MEL code bundle to preview R2') <
+      source.indexOf('Prove ShardVault external code reconstruction'),
+    'critical code bundle must exist before live reconstruction proof',
+  );
+});
