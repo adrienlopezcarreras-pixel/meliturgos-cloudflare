@@ -334,16 +334,53 @@ jobs:
           if(!control?.source) throw new Error('PREVIEW_PAUSE_SOURCE_MISSING');
           NODE
 
-          curl --fail-with-body --show-error --silent --max-time 45 \
+          curl --show-error --silent --max-time 45 \
             --header "$AUTH" \
-            --header "content-type: application/json" \
-            --data '{}' \
-            "$BASE_URL/api/gen2/autonomy/resume" \
-            > preview-autonomy-resume.json
+            "$BASE_URL/api/gen2/autonomy/launch-readiness" \
+            > preview-launch-before-resume.json
 
           node - <<'NODE'
           const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('preview-launch-before-resume.json','utf8'));
+          console.log(JSON.stringify({
+            status:d?.status,
+            launch_ready:d?.launch_ready,
+            blockers:d?.blockers||[],
+            gates:d?.gates||{},
+            failure_code:d?.failure_hygiene?.code||null,
+            historical_failed_count:Number(d?.failure_hygiene?.historical_failed_count||0),
+            unbounded_failed_count:Number(d?.failure_hygiene?.unbounded_failed_count||0),
+            restore_status:d?.restore?.status||null,
+            shardvault_status:d?.shardvault?.status||null,
+            candidate_branch:d?.candidate_branch||null,
+            candidate_sha:d?.candidate_sha||null
+          },null,2));
+          NODE
+
+          HTTP_CODE=$(curl --show-error --silent --max-time 45 \
+            --header "$AUTH" \
+            --header "content-type: application/json" \
+            --data '{}' \
+            --output preview-autonomy-resume.json \
+            --write-out '%{http_code}' \
+            "$BASE_URL/api/gen2/autonomy/resume")
+
+          export HTTP_CODE
+          node - <<'NODE'
+          const fs=require('fs');
           const payload=JSON.parse(fs.readFileSync('preview-autonomy-resume.json','utf8'));
+          const status=Number(process.env.HTTP_CODE||0);
+          if(status!==200){
+            console.error(JSON.stringify({
+              code:payload?.code||payload?.status||'PREVIEW_AUTONOMY_RESUME_HTTP_'+status,
+              blockers:payload?.readiness?.blockers||[],
+              gates:payload?.readiness?.gates||{},
+              failure_code:payload?.readiness?.failure_hygiene?.code||null,
+              restore_status:payload?.readiness?.restore?.status||null,
+              shardvault_status:payload?.readiness?.shardvault?.status||null
+            },null,2));
+            process.exit(22);
+          }
           const control=payload?.control||payload?.state?.control||payload?.state||payload;
           if(control?.paused===true) throw new Error('PREVIEW_AUTONOMY_RESUME_FAILED');
           NODE
