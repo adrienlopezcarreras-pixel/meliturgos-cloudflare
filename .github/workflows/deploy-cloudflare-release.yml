@@ -133,8 +133,10 @@ jobs:
 
           cleanup_secret() {
             set +e
-            yes | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN >/tmp/mel-launch-secret-delete.log 2>&1
-            rc=$?
+            set +o pipefail
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN >/tmp/mel-launch-secret-delete.log 2>&1
+            rc=${PIPESTATUS[1]}
+            set -o pipefail
             set -e
             return "$rc"
           }
