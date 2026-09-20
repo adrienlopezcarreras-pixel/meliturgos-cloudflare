@@ -117,3 +117,26 @@ test('requires explicit adapters and rejects malformed catalogs', async () => {
 
   await assert.rejects(() => watch.discover(), /must return an array or \{ models: \[\] \}/);
 });
+
+test('external benchmark intelligence can rerank close passed models without bypassing local thresholds', async () => {
+  const watch = makeWatch({
+    models: [
+      { provider: 'alpha', id: 'local-edge' },
+      { provider: 'beta', id: 'externally-proven' }
+    ],
+    allow: async () => true,
+    run: async (model) => model.id === 'local-edge'
+      ? { score: 0.90, latencyMs: 100, costUsd: 0, externalMetrics: { lmarena_score: 1300, artificial_analysis_score: 45, swe_bench_verified_pct: 40 } }
+      : { score: 0.88, latencyMs: 110, costUsd: 0, externalMetrics: { lmarena_score: 1700, artificial_analysis_score: 90, swe_bench_verified_pct: 90 } }
+  });
+
+  const report = await watch.run({
+    suite: 'coding',
+    thresholds: { minScore: 0.8, maxLatencyMs: 500, maxCostUsd: 0 }
+  });
+
+  assert.equal(report.results.every(item => item.status === 'passed'), true);
+  assert.equal(report.ranked[0].model.id, 'externally-proven');
+  assert.ok(report.ranked[0].metrics.rankingScore > report.ranked[1].metrics.rankingScore);
+  assert.equal(report.ranked[0].source_intelligence.rule, 'NO_SINGLE_GLOBAL_BEST_MODEL');
+});
