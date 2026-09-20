@@ -127,6 +127,11 @@ export async function auditRuntimeCapabilities(runtime, {
   const rows = [];
   for (const record of records) {
     let execution = null;
+    let contract = null;
+    if (typeof runtime.bus.contract === 'function') {
+      try { contract = runtime.bus.contract(record.id); }
+      catch { contract = { valid:false, inspection_error:true }; }
+    }
     const sample = samples?.[record.id];
     const declared = declaredImplementationStatus(record);
     const declaredNonExecutable = declared === 'STUB' || declared === 'NOT_IMPLEMENTED';
@@ -167,6 +172,8 @@ export async function auditRuntimeCapabilities(runtime, {
       enabled: record.enabled,
       health: record.health,
       implementation_status: declared,
+      contract_valid: contract?.valid ?? null,
+      contract,
       tested_now: Boolean(execution),
       auto_execution_blocked: blockedReason,
       execution,
@@ -178,7 +185,12 @@ export async function auditRuntimeCapabilities(runtime, {
     acc[row.truth_status] = (acc[row.truth_status] || 0) + 1;
     return acc;
   }, {});
-  return { ok: true, total: rows.length, deep: Boolean(deep), counts, capabilities: rows };
+  const contracts = {
+    inspected: rows.filter(row => row.contract_valid !== null).length,
+    valid: rows.filter(row => row.contract_valid === true).length,
+    invalid: rows.filter(row => row.contract_valid === false).length,
+  };
+  return { ok: true, total: rows.length, deep: Boolean(deep), counts, contracts, capabilities: rows };
 }
 
 export { SAFE_SAMPLES, COST_SENSITIVE_CAPABILITIES, DECLARED_IMPLEMENTATION_STATUSES };
