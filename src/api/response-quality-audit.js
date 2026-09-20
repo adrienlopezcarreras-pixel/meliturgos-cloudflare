@@ -1,3 +1,5 @@
+import { isEllipticalFollowUp } from './conversation-focus.js';
+
 const STOP = new Set([
   'alors','avec','avant','avoir','cela','cette','comme','dans','depuis','elle','elles','encore','entre','etre','faire','faut','mais','meme',
   'nous','pour','plus','quand','sans','sera','sont','tout','toute','toutes','tous','vous','votre','vos','quel','quelle','quoi','comment',
@@ -98,7 +100,8 @@ export function assessResponseQuality({
   }
   if (formalAddress(response)) issues.push({ code:'FORMAL_ADDRESS', severity:'low' });
 
-  const operationalFollowUp = /^(?:ok|go|maj|avance|continue|reprends?|fais[- ]?le|vas[- ]?y|poursuis|termine|finis|corrige|am[ée]liore)\b/i.test(clean(userText));
+  const operationalFollowUp = isEllipticalFollowUp(userText)
+    || /^(?:corrige|am[ée]liore)\b/i.test(clean(userText));
   const offTopicCandidate = operationalFollowUp
     ? response.length >= 24 && relevance.anchor_tokens.length >= 2
     : response.length >= 90 && relevance.anchor_tokens.length >= 4;

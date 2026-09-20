@@ -25,7 +25,7 @@ function clip(value, limit = 700) {
   return text.length <= limit ? text : text.slice(0, Math.max(0, limit - 1)) + '…';
 }
 
-const SHORT_FOLLOW_UP = /^(?:ok|oui|non|go|maj|avance|continue|continues?|reprends?|reprendre|fais[- ]?le|fait[- ]?le|vas[- ]?y|et\s+maintenant|et\s+l[àa]|maintenant|celle[- ]?l[àa]|celui[- ]?l[àa]|comme\s+ça|comme\s+ca|ça|ca|encore|poursuis|termine|finis)[ ?.!,…]*$/i;
+const SHORT_FOLLOW_UP = /^(?:ok|oui|non|go|maj|avance|continue|continues?|reprends?|reprendre|fais[- ]?le|fait[- ]?le|vas[- ]?y|et\s+maintenant|et\s+l[àa]|maintenant|celle[- ]?l[àa]|celui[- ]?l[àa]|comme\s+ça|comme\s+ca|ça|ca|encore|poursuis|termine|finis|ça\s+avance|ca\s+avance|c['’]?est\s+bon|c['’]?est\s+fait|c['’]?est\s+fini|fini|termin[ée]|ça\s+marche|ca\s+marche|ça\s+fonctionne|ca\s+fonctionne|o[uù]\s+en\s+es[- ]?tu|tu\s+as\s+fini|tu\s+as\s+termin[ée])[ ?.!,…]*$/i;
 const BOUNDED_FOLLOW_UP = /^(?:avance|continue|continues?|reprends?|poursuis|corrige|am[ée]liore|termine|finis)(?:\s+(?:encore|ça|ca|cela|ceci|l[àa][- ]?dessus|la[- ]?dessus|dessus|comme\s+ça|comme\s+ca|le|la|les))?[ ?.!,…]*$/i;
 
 export function isEllipticalFollowUp(text) {

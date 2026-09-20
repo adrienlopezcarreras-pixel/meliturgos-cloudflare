@@ -98,3 +98,17 @@ test('permission reset can release a multiword excluded subject without dropping
   assert.equal(focus.excluded_topics.includes('memoire longue'), false);
   assert.equal(focus.excluded_topics.includes('module hardware'), true);
 });
+
+
+test('status-only follow-ups stay attached to the active subject', () => {
+  const recent=[
+    {role:'user',content:'améliore la communication de MEL et sa cohérence'},
+    {role:'assistant',content:'Je travaille dessus.'},
+  ];
+  for (const text of ['ça avance ?', "c'est bon ?", 'fini ?', 'ça fonctionne ?', 'où en es-tu ?']) {
+    const focus=deriveConversationFocus(recent,text);
+    assert.equal(focus.elliptical,true,text);
+    assert.match(focus.anchor,/communication de MEL/i,text);
+    assert.equal(focus.anchor_source,'recent',text);
+  }
+});

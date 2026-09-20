@@ -94,3 +94,17 @@ test('topic-family match avoids blocking a relevant paraphrase with different wo
   });
   assert.equal(assessment.issues.some(row => row.code === 'POSSIBLE_OFF_TOPIC'), false);
 });
+
+
+test('status-only follow-up uses the strict drift threshold from the resolved active subject', () => {
+  const assessment=assessResponseQuality({
+    userText:'ça avance ?',
+    responseText:'Les abeilles vivent dans des ruches.',
+    focus:{
+      anchor:'améliore la communication de MEL et sa cohérence',
+      excluded_topics:[],
+      needs_clarification:false,
+    },
+  });
+  assert.ok(assessment.issues.some(row=>row.code==='POSSIBLE_OFF_TOPIC'));
+});
