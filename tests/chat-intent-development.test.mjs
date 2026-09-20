@@ -79,6 +79,34 @@ test('chat injector routes an explicit web lookup through web.research', async (
   assert.equal(body.intent_routing?.intent, 'WEB_RESEARCH');
 });
 
+test('compound durable research keeps knowledge workflow priority without stealing plain web research', async () => {
+  const durable = new Request('https://mel.example/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      text: 'Cherche sur internet l’histoire de Guadix, vérifie les sources, crée un dossier, classe les informations et mémorise-les',
+      conversation_id: 'conv-knowledge-1',
+    }),
+  });
+  const durableBody = await (await injectEvolutionPreflightCapability(durable)).json();
+  assert.equal(durableBody.capability?.id, 'knowledge.research');
+  assert.equal(durableBody.capability?.input?.save_file, true);
+  assert.equal(durableBody.capability?.input?.remember, true);
+  assert.equal(durableBody.intent_routing?.intent, 'KNOWLEDGE');
+
+  const plainWeb = new Request('https://mel.example/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      text: 'Cherche sur internet les dernières infos sur les Workers Cloudflare',
+      conversation_id: 'conv-web-regression',
+    }),
+  });
+  const plainWebBody = await (await injectEvolutionPreflightCapability(plainWeb)).json();
+  assert.equal(plainWebBody.capability?.id, 'web.research');
+  assert.equal(plainWebBody.intent_routing?.intent, 'WEB_RESEARCH');
+});
+
 test('semantic gate recognizes elliptical formulations when recent context is MEL development', () => {
   const context = 'USER: Je veux modifier l’interface de MEL et son thème médiéval.\nMEL: Nous pouvons rendre le cadre plus riche.';
   for (const text of ['fais-le', 'oui', 'plus doré', 'comme ça mais moins sombre', 'je préfère sans ce bouton']) {
