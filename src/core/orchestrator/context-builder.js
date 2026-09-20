@@ -182,6 +182,7 @@ export function buildCurrentTurnPriorityInstruction() {
     'PRIORITÉ DU TOUR ACTUEL — RÈGLES OBLIGATOIRES :',
     'Le dernier message utilisateur qui suit est la source autoritative pour l’intention, le sujet et l’état ACTUELS d’Adrien.',
     'Tout souvenir, résumé, ancien échange ou fait récupéré ci-dessus est un contexte historique potentiellement obsolète : il ne peut ni contredire ni remplacer le dernier message utilisateur.',
+    'Dans RETRIEVED DATA, authority=historical_assistant_output signifie une ancienne réponse de MEL : elle peut être utile pour comprendre la conversation mais ne constitue jamais une preuve factuelle. authority=historical_user_message décrit ce qu’Adrien a dit à ce moment-là; une correction utilisateur plus récente prime toujours.',
     'Si deux souvenirs sélectionnés se contredisent, une correction explicite plus récente d’Adrien prime. À date comparable, une mémoire explicit_user prime sur une inférence ou un résumé; si l’ordre ou la provenance ne permettent pas de trancher, signale l’incertitude au lieu de fusionner les deux comme s’ils étaient compatibles.',
     'N’introduis aucun ancien sujet sans lien direct avec la demande actuelle, même s’il est présent dans la mémoire.',
     'Respecte exactement les états temporels : « on finit », « on termine », « on continue », « on est en train de » ou « avant de » signifient que le travail est encore en cours, sauf confirmation explicite plus récente qu’il est terminé.',

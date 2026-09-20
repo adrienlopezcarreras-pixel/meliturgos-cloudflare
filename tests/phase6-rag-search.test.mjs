@@ -10,7 +10,7 @@ const db = {
         return {
           async all() {
             if (sql.includes('FROM archive_messages')) return { results: [
-              { id: 10, content: 'MEL apprend à utiliser plusieurs modèles', timestamp: 100, conversation_id: 'c1', source: 'archive_messages' },
+              { id: 10, content: 'MEL apprend à utiliser plusieurs modèles', timestamp: 100, conversation_id: 'c1', role: 'assistant', source: 'archive_messages' },
               { id: 11, content: 'Une information sans rapport', timestamp: 90, conversation_id: 'c1', source: 'archive_messages' },
             ] };
             if (sql.includes('FROM conversations')) return { results: [] };
@@ -62,15 +62,15 @@ test('large ChatGPT archives keep old matching messages retrievable beyond the f
   const db = sqliteD1();
   try {
     await db.prepare("CREATE TABLE conversations (id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL)").run();
-    await db.prepare("CREATE TABLE archive_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, content TEXT NOT NULL, timestamp INTEGER NOT NULL)").run();
+    await db.prepare("CREATE TABLE archive_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', content TEXT NOT NULL, timestamp INTEGER NOT NULL)").run();
     await db.prepare("CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT NOT NULL, created_at INTEGER NOT NULL, valid_until INTEGER, provenance TEXT)").run();
     await db.prepare("INSERT INTO conversations VALUES (?,?,?,?)").bind('chatgpt:old','adrien','Ancienne conversation',1).run();
-    await db.prepare("INSERT INTO archive_messages VALUES (?,?,?,?)").bind('old-match','chatgpt:old','Le mot repère ultraviolethistorique doit rester retrouvable',1).run();
+    await db.prepare("INSERT INTO archive_messages VALUES (?,?,?,?,?)").bind('old-match','chatgpt:old','user','Le mot repère ultraviolethistorique doit rester retrouvable',1).run();
 
     for (let i = 0; i < 1100; i++) {
       const cid = 'recent-' + i;
       await db.prepare("INSERT INTO conversations VALUES (?,?,?,?)").bind(cid,'adrien','Conversation récente '+i,10000+i).run();
-      await db.prepare("INSERT INTO archive_messages VALUES (?,?,?,?)").bind('recent-msg-'+i,cid,'contenu récent sans le repère recherché',10000+i).run();
+      await db.prepare("INSERT INTO archive_messages VALUES (?,?,?,?,?)").bind('recent-msg-'+i,cid,'assistant','contenu récent sans le repère recherché',10000+i).run();
     }
 
     const result = await RAGService.search(db, 'adrien', 'ultraviolethistorique', { sources:['archive_messages'], limit:8 });
@@ -79,4 +79,11 @@ test('large ChatGPT archives keep old matching messages retrievable beyond the f
   } finally {
     db.close();
   }
+});
+
+
+test('archive retrieval preserves speaker role and marks old assistant output as historical, not factual authority', async () => {
+  const result = await RAGService.search(db, 'adrien', 'MEL modèles', { sources:['archive_messages'], limit:10 });
+  assert.equal(result.results[0].role, 'assistant');
+  assert.equal(result.results[0].authority, 'historical_assistant_output');
 });

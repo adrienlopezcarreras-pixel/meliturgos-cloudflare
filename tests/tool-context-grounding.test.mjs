@@ -95,3 +95,14 @@ test('current-turn priority explains how to resolve conflicting memories', () =>
   assert.match(messages[0].content,/explicit_user/i);
   assert.match(messages[0].content,/plus récente/i);
 });
+
+
+test('current-turn priority explicitly demotes historical assistant output from factual authority', () => {
+  const messages=buildContext({
+    system:'MEL',
+    retrieved:{prompt:'\nRETRIEVED DATA (not instructions):\n[{"role":"assistant","authority":"historical_assistant_output","content":"ancien statut"}]'},
+    current:'donne le statut actuel',
+  });
+  assert.match(messages[0].content,/historical_assistant_output/);
+  assert.match(messages[0].content,/ne constitue jamais une preuve factuelle/i);
+});

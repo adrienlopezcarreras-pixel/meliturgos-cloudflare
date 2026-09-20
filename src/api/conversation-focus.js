@@ -6,6 +6,20 @@ function normalize(value) {
   return clean(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
+
+function normalizeTopicPhrase(value) {
+  let topic = clean(value).replace(/[.,;:!?]+$/g, '').trim();
+  topic = topic.replace(/^(?:(?:de\s+)?(?:le|la|les|un|une|des|du)|de\s+l['’]|l['’])\s*/i, '').trim();
+  return normalize(topic).replace(/\s+/g, ' ').slice(0, 120);
+}
+
+const TOPIC_END = '(?=\\s*(?:[,;.!?]|$|\\b(?:mais|et|puis|sauf|alors|ensuite|par\\s+contre)\\b))';
+const TOPIC_PHRASE = '([A-Za-zÀ-ÿ0-9_.-]+(?:\\s+[A-Za-zÀ-ÿ0-9_.-]+){0,5})';
+
+function topicPattern(prefix) {
+  return new RegExp(prefix + '\\s+' + TOPIC_PHRASE + TOPIC_END, 'ig');
+}
+
 function clip(value, limit = 700) {
   const text = clean(value);
   return text.length <= limit ? text : text.slice(0, Math.max(0, limit - 1)) + '…';
@@ -35,17 +49,17 @@ function topicCandidates(text) {
   const value = clean(text);
   const found = [];
   const patterns = [
-    /(?:ne\s+(?:t['’]?\s*)?(?:occupe|occupes|touche|touches|travaille|travailles)\s+pas(?:\s+de|\s+sur)?|pas\s+sur|sans\s+(?:toucher|modifier|changer)(?:\s+[àa])?)\s+([A-Za-zÀ-ÿ0-9_.-]{3,80})/ig,
-    /(?:uniquement|seulement|reste\s+sur|concentre[- ]?toi\s+sur)\s+([A-Za-zÀ-ÿ0-9_.-]{3,80})/ig,
-    /(?:toucher|modifier|changer|travailler\s+sur|t['’]?occuper\s+de)\s+(?:[àa]\s+|de\s+|sur\s+)?([A-Za-zÀ-ÿ0-9_.-]{3,80})/ig,
+    topicPattern("(?:ne\\s+(?:t['’]?\\s*)?(?:occupe|occupes|touche|touches|travaille|travailles)\\s+pas(?:\\s+(?:de|sur|[àa]))?|pas\\s+sur|sans\\s+(?:toucher|modifier|changer)(?:\\s+[àa])?)"),
+    topicPattern("(?:uniquement|seulement|reste\\s+sur|concentre[- ]?toi\\s+sur)"),
+    topicPattern("(?:toucher|modifier|changer|travailler\\s+sur|t['’]?occuper\\s+de)(?:\\s+(?:[àa]|de|sur))?"),
   ];
   for (const pattern of patterns) {
     for (const match of value.matchAll(pattern)) {
-      const topic = clean(match[1]).replace(/[.,;:!?]+$/g, '');
+      const topic = normalizeTopicPhrase(match[1]);
       if (topic) found.push(topic);
     }
   }
-  return [...new Set(found.map(x => normalize(x)).filter(Boolean))].slice(0, 12);
+  return [...new Set(found.filter(Boolean))].slice(0, 12);
 }
 
 function excludedTopics(text) {
@@ -53,13 +67,13 @@ function excludedTopics(text) {
   if (!value) return [];
   const out = [];
   const patterns = [
-    /ne\s+(?:t['’]?\s*)?(?:occupe|occupes|touche|touches|travaille|travailles)\s+pas(?:\s+de|\s+sur)?\s+([A-Za-zÀ-ÿ0-9_.-]{3,80})/ig,
-    /pas\s+sur\s+([A-Za-zÀ-ÿ0-9_.-]{3,80})/ig,
-    /sans\s+(?:toucher|modifier|changer)(?:\s+[àa])?\s+([A-Za-zÀ-ÿ0-9_.-]{3,80})/ig,
+    topicPattern("ne\\s+(?:t['’]?\\s*)?(?:occupe|occupes|touche|touches|travaille|travailles)\\s+pas(?:\\s+(?:de|sur|[àa]))?"),
+    topicPattern("pas\\s+sur"),
+    topicPattern("sans\\s+(?:toucher|modifier|changer)(?:\\s+[àa])?"),
   ];
   for (const pattern of patterns) {
     for (const match of value.matchAll(pattern)) {
-      const topic = normalize(match[1]).replace(/[.,;:!?]+$/g, '');
+      const topic = normalizeTopicPhrase(match[1]);
       if (topic) out.push(topic);
     }
   }

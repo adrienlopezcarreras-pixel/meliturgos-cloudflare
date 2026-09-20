@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RAGService } from '../src/search/rag-service.js';
+import { retrieveContext } from '../src/core/orchestrator/conversation-context.js';
 
 function mockDB() {
   return {
@@ -10,7 +11,7 @@ function mockDB() {
           return {
             async all() {
               if (sql.includes('FROM archive_messages')) return { results: [
-                { id: 1, content: 'Projet jardin solaire avec capteurs', timestamp: 30, conversation_id: 'c1', source: 'archive_messages' },
+                { id: 1, content: 'Projet jardin solaire avec capteurs', timestamp: 30, conversation_id: 'c1', role: 'assistant', source: 'archive_messages' },
                 { id: 2, content: 'Recette de cuisine sans rapport', timestamp: 20, conversation_id: 'c1', source: 'archive_messages' },
               ] };
               if (sql.includes('FROM conversations')) return { results: [
@@ -58,4 +59,12 @@ test('cosine similarity remains available as a pure utility for future explicit 
   assert.ok(Math.abs(RAGService.cosineSimilarity(new Float32Array([1, 2, 3]), new Float32Array([2, 4, 6])) - 1) < 1e-6);
   assert.equal(RAGService.cosineSimilarity(new Float32Array([0, 0]), new Float32Array([0, 0])), 0);
   assert.equal(RAGService.cosineSimilarity([1], [1, 2]), 0);
+});
+
+
+test('active retrieved context exposes historical assistant role so it cannot silently become a user fact', async () => {
+  const out = await retrieveContext(mockDB(), 'adrien', 'jardin solaire');
+  assert.match(out.prompt, /historical assistant output is not a fact/i);
+  assert.match(out.prompt, /"role":"assistant"/);
+  assert.match(out.prompt, /"authority":"historical_assistant_output"/);
 });

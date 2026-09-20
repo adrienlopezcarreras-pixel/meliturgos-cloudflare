@@ -81,3 +81,20 @@ test('permission reset releases only the named excluded topic when several are p
   assert.equal(focus.excluded_topics.includes('shardvault'), false);
   assert.equal(focus.excluded_topics.includes('hardware'), true);
 });
+
+
+test('multiword exclusions preserve the real excluded subject instead of only one token', () => {
+  const focus=deriveConversationFocus([], "ne touche pas à la mémoire longue, reste uniquement sur la communication de MEL");
+  assert.ok(focus.excluded_topics.includes('memoire longue'));
+  assert.equal(focus.excluded_topics.includes('memoire'), false);
+});
+
+test('permission reset can release a multiword excluded subject without dropping unrelated exclusions', () => {
+  const focus=deriveConversationFocus([], "tu peux maintenant toucher à la mémoire longue", {
+    anchor:'communication MEL',
+    constraints:["ne touche pas à la mémoire longue","ne touche pas au module hardware"],
+    excluded_topics:['memoire longue','module hardware'],
+  });
+  assert.equal(focus.excluded_topics.includes('memoire longue'), false);
+  assert.equal(focus.excluded_topics.includes('module hardware'), true);
+});

@@ -33,7 +33,7 @@ export class RAGService {
     if (sources.includes('archive_messages')) {
       const where = lexicalSql('a.content', tokens);
       rows.push(...(await db.prepare(`
-        SELECT a.id,a.content,a.timestamp,a.conversation_id,'archive_messages' source
+        SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,'archive_messages' source
         FROM archive_messages a
         JOIN conversations c ON c.id=a.conversation_id
         WHERE (c.owner=? OR c.owner='') AND (${where})
@@ -69,6 +69,10 @@ export class RAGService {
         ...row,
         similarity: tokens.filter(t => String(row.content).toLowerCase().includes(t)).length/tokens.length,
         provenance:{table:row.source,id:row.id},
+        role: row.source === 'archive_messages' ? String(row.role || 'unknown') : null,
+        authority: row.source === 'archive_messages'
+          ? (String(row.role || '').toLowerCase() === 'user' ? 'historical_user_message' : 'historical_assistant_output')
+          : (row.source === 'memories' ? 'memory_record' : 'conversation_title'),
         retrieval:'lexical'
       }))
       .filter(r => r.similarity > 0 && r.similarity >= minSimilarity)
