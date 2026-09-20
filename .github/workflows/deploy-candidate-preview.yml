@@ -834,16 +834,16 @@ jobs:
               --data "{\"simulate_missing\":${pattern}}" \
               "$BASE_URL/api/gen2/shardvault/code-reconstruct" \
               > stress-reconstruct.json
-            PATTERN="$pattern" node - <<'NODE'
-            const fs=require('fs');
-            const d=JSON.parse(fs.readFileSync('stress-reconstruct.json','utf8'));
-            if(d?.ok!==true||d?.status!=='CODE_RECONSTRUCTION_VERIFIED') throw new Error('STRESS_RECONSTRUCTION_FAILED:'+process.env.PATTERN+':'+String(d?.status||d?.error));
-            if((d?.dropped_indexes||[]).length!==3) throw new Error('STRESS_RECONSTRUCTION_LOSS_PATTERN_MISSING');
-            if(Number(d?.healthy_shards||0)<Number(d?.required_shards||0)) throw new Error('STRESS_RECONSTRUCTION_UNRECOVERABLE');
-            if(String(d?.sha||d?.git_sha||'')!==String(process.env.GITHUB_SHA||'')) throw new Error('STRESS_RECONSTRUCTION_SHA_MISMATCH:'+process.env.PATTERN);
-            if(d?.independent_of_local_archive!==true) throw new Error('STRESS_RECONSTRUCTION_NOT_INDEPENDENT:'+process.env.PATTERN);
-            if(!/^[0-9a-f]{64}$/i.test(String(d?.sha256||''))) throw new Error('STRESS_RECONSTRUCTION_HASH_INVALID:'+process.env.PATTERN);
-            NODE
+            PATTERN="$pattern" node -e '
+              const fs=require("fs");
+              const d=JSON.parse(fs.readFileSync("stress-reconstruct.json","utf8"));
+              if(d?.ok!==true||d?.status!=="CODE_RECONSTRUCTION_VERIFIED") throw new Error("STRESS_RECONSTRUCTION_FAILED:"+process.env.PATTERN+":"+String(d?.status||d?.error));
+              if((d?.dropped_indexes||[]).length!==3) throw new Error("STRESS_RECONSTRUCTION_LOSS_PATTERN_MISSING");
+              if(Number(d?.healthy_shards||0)<Number(d?.required_shards||0)) throw new Error("STRESS_RECONSTRUCTION_UNRECOVERABLE");
+              if(String(d?.sha||d?.git_sha||"")!==String(process.env.GITHUB_SHA||"")) throw new Error("STRESS_RECONSTRUCTION_SHA_MISMATCH:"+process.env.PATTERN);
+              if(d?.independent_of_local_archive!==true) throw new Error("STRESS_RECONSTRUCTION_NOT_INDEPENDENT:"+process.env.PATTERN);
+              if(!/^[0-9a-f]{64}$/i.test(String(d?.sha256||""))) throw new Error("STRESS_RECONSTRUCTION_HASH_INVALID:"+process.env.PATTERN);
+            '
           done
 
           curl --fail --show-error --silent --max-time 45 \
