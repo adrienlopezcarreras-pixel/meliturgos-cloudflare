@@ -150,22 +150,6 @@ export function withChatAiDefaults(env) {
   };
 }
 
-async function safeCount(db, table) {
-  if (!db) return 0;
-  try {
-    const row = await db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).first();
-    return Number(row?.count || 0);
-  } catch { return 0; }
-}
-
-async function safeRows(db, table, limit = 10000) {
-  if (!db) return [];
-  try {
-    const rows = await db.prepare(`SELECT * FROM ${table} LIMIT ?`).bind(Math.max(1, Math.min(25000, Number(limit) || 10000))).all();
-    return rows?.results || [];
-  } catch { return []; }
-}
-
 async function maybeHandleMemoryCompatibility(request, env) {
   const url = new URL(request.url);
   if (request.method !== 'GET' || (url.pathname !== '/api/memory/status' && url.pathname !== '/api/export')) return null;
