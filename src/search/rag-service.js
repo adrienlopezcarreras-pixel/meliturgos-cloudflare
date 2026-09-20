@@ -84,7 +84,9 @@ export class RAGService {
       .map(row => ({
         ...row,
         similarity: tokens.filter(t => String(row.content).toLowerCase().includes(t)).length/tokens.length,
-        provenance:{table:row.source,id:row.id,filename:row.filename||null,sha256:row.content_sha256||null},
+        provenance:row.source === 'knowledge_artifacts'
+          ? {table:row.source,id:row.id,filename:row.filename||null,sha256:row.content_sha256||null}
+          : {table:row.source,id:row.id},
         role: row.source === 'archive_messages' ? String(row.role || 'unknown') : null,
         authority: row.source === 'archive_messages'
           ? (String(row.role || '').toLowerCase() === 'user' ? 'historical_user_message' : 'historical_assistant_output')

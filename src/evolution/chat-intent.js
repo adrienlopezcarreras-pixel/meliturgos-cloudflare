@@ -1,5 +1,6 @@
 import { classifySemanticOwnerIntent } from './semantic-intent.js';
 import { createConversationService } from '../conversations/conversation-service.js';
+import { inferKnowledgeCapability } from '../api/knowledge-intent.js';
 
 export function isEvolutionDevelopmentIntent(text) {
   const value = String(text || '').trim();
@@ -173,9 +174,12 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
   const requestKey = body.client_message_id ?? body.message_id ?? body.request_id ?? body.id ?? '';
 
   const selfState = inferSelfStateIntent(text);
+  const knowledge = selfState ? null : inferKnowledgeCapability(text);
 
   if (selfState) {
     routeDeterministic(body, selfState, 'SELF_STATE');
+  } else if (knowledge) {
+    routeDeterministic(body, knowledge, 'KNOWLEDGE');
   } else if (isEvolutionDevelopmentIntent(text)) {
     body.capability = enqueueCapability(text, body, requestKey);
   } else {
