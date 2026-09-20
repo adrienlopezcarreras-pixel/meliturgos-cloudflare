@@ -4,6 +4,28 @@ import { APP_VERSION, DB_SCHEMA_VERSION } from '../core/config.js';
 import { migrate } from '../persistence/migrations.js';
 import { stableStringify } from '../resilience/recovery-bundle.js';
 
+function deployedGitSha(env = {}) {
+  const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim();
+  if (/^[a-f0-9]{40}$/i.test(direct)) return direct.toLowerCase();
+  try {
+    const built = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '').trim() : '';
+    return /^[a-f0-9]{40}$/i.test(built) ? built.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+function deployedGitBranch(env = {}) {
+  const direct = String(env?.MEL_DEPLOYED_GIT_BRANCH || '').trim();
+  if (direct) return direct;
+  try {
+    const built = typeof MEL_DEPLOYED_GIT_BRANCH !== 'undefined' ? String(MEL_DEPLOYED_GIT_BRANCH || '').trim() : '';
+    return built || null;
+  } catch {
+    return null;
+  }
+}
+
 export const SYSTEM_BACKUP_PREFIX = 'backups/system/';
 export const DEFAULT_SYSTEM_BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const MIN_SYSTEM_BACKUP_INTERVAL_MS = 15 * 60 * 1000;
@@ -179,6 +201,8 @@ export function createSystemBackupService(env, { now = () => new Date().toISOStr
         dbSchemaVersion: DB_SCHEMA_VERSION,
         worker: 'meliturgos',
         candidateBranch: env.MEL_GITHUB_BRANCH || null,
+        deployedGitSha: deployedGitSha(env),
+        deployedGitBranch: deployedGitBranch(env),
         runtimeEnvironment: env.MEL_RUNTIME_ENV || 'production',
       }),
     },
@@ -198,6 +222,7 @@ function snapshotId(iso) {
 export async function runScheduledSystemBackup(env, {
   now = () => new Date().toISOString(),
   intervalMs,
+  force = false,
   service: injectedService = null,
 } = {}) {
   if (String(env?.MEL_PREVIEW_ISOLATED || '').toLowerCase() === 'true' || String(env?.MEL_RUNTIME_ENV || '').toLowerCase() === 'preview') {
@@ -218,7 +243,7 @@ export async function runScheduledSystemBackup(env, {
   const interval = resolvedInterval(env, intervalMs);
   const latest = (await service.list({ limit: 1 }))[0] || null;
 
-  if (latest?.id) {
+  if (latest?.id && force !== true) {
     const verification = await service.verify({ id: latest.id });
     const latestMs = Date.parse(latest.createdAt || '');
     if (verification?.ok && Number.isFinite(latestMs) && currentMs - latestMs < interval) {
