@@ -637,12 +637,34 @@ jobs:
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
           AUTH="Authorization: Bearer ${MEL_PREVIEW_PASSWORD}"
 
-          curl --fail-with-body --show-error --silent --max-time 300 \
-            --header "$AUTH" \
-            --header "content-type: application/json" \
-            --data '{}' \
-            "$BASE_URL/api/gen2/shardvault/code-sync" \
-            --output shardvault-code-sync.json
+          SYNC_DONE=0
+          for attempt in $(seq 1 24); do
+            HTTP_CODE="$(curl --show-error --silent --max-time 120 \
+              --header "$AUTH" \
+              --header "content-type: application/json" \
+              --data '{}' \
+              --output shardvault-code-sync.json \
+              --write-out '%{http_code}' \
+              "$BASE_URL/api/gen2/shardvault/code-sync" || true)"
+            echo "ShardVault code-sync attempt ${attempt}: HTTP ${HTTP_CODE}"
+            if [ "$HTTP_CODE" != "200" ]; then
+              cat shardvault-code-sync.json || true
+              exit 22
+            fi
+            SYNC_STATUS="$(node -e "const d=require('./shardvault-code-sync.json');process.stdout.write(String(d.status||''))")"
+            SYNC_ENDPOINTS="$(node -e "const d=require('./shardvault-code-sync.json');process.stdout.write(String((d.external?.endpoints||[]).length))")"
+            echo "ShardVault code-sync status=${SYNC_STATUS} endpoints=${SYNC_ENDPOINTS}/7"
+            if [ "$SYNC_STATUS" = "COPIED" ] && [ "$SYNC_ENDPOINTS" -ge 7 ]; then
+              SYNC_DONE=1
+              break
+            fi
+            case "$SYNC_STATUS" in
+              COPYING|RETRY_TARGETS) ;;
+              *) cat shardvault-code-sync.json; exit 23 ;;
+            esac
+            sleep 1
+          done
+          test "$SYNC_DONE" -eq 1
 
           curl --fail-with-body --show-error --silent --max-time 240 \
             --header "$AUTH" \

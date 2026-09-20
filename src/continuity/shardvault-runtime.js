@@ -568,7 +568,7 @@ function deployedCodeIdentity(env){
   const sha=typeof MEL_DEPLOYED_GIT_SHA!=='undefined'?String(MEL_DEPLOYED_GIT_SHA||'').trim():'';
   if(!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)||!/^[0-9a-f]{40}$/i.test(sha))return null;
   const stem=repository.replace('/','__')+'/'+sha;
-  return {repository,sha,key:'shardvault/code/'+stem+'.tar.gz',criticalKey:'shardvault/code-critical/'+stem+'.tar.gz',manifestKey:'shardvault/code-manifests/'+stem+'.json'};
+  return {repository,sha,key:'shardvault/code/'+stem+'.tar.gz',criticalKey:'shardvault/code-critical/'+stem+'.tar.gz',manifestKey:'shardvault/code-manifests/'+stem+'.json',syncStateKey:'shardvault/code-sync-state/'+stem+'.json',syncCipherKey:'shardvault/code-sync-cipher/'+stem+'.bin'};
 }
 async function inspectCodeArchive(env,c=null){
   const id=deployedCodeIdentity(env);
@@ -816,6 +816,41 @@ export async function verifyShardVaultCodeReconstruction(env,{dropIndexes=[]}={}
   return {...result,repository:read.id.repository,sha:read.id.sha,manifest_key:read.id.manifestKey};
 }
 
+async function readCodeSyncState(env,id){
+  if(!env?.MEDIA_BUCKET?.get)return null;
+  try{
+    const body=await env.MEDIA_BUCKET.get(id.syncStateKey);
+    if(!body)return null;
+    const state=JSON.parse(await body.text());
+    if(state?.git_sha!==id.sha||state?.format!=='MEL-ShardVault-Code-Sync')return null;
+    return state;
+  }catch{return null;}
+}
+async function writeCodeSyncState(env,id,state){
+  await env.MEDIA_BUCKET.put(id.syncStateKey,JSON.stringify(state),{httpMetadata:{contentType:'application/json'}});
+}
+async function clearCodeSyncState(env,id){
+  if(!env?.MEDIA_BUCKET?.delete)return;
+  await Promise.all([
+    env.MEDIA_BUCKET.delete(id.syncStateKey).catch(()=>{}),
+    env.MEDIA_BUCKET.delete(id.syncCipherKey).catch(()=>{})
+  ]);
+}
+function codeSyncExternalView(state,goal,status='COPYING',extra={}){
+  const replicas=Array.isArray(state?.replicas)?state.replicas:[];
+  const endpoints=[...new Set(replicas.map(x=>x.endpointId).filter(Boolean))];
+  return {
+    status,replication_mode:'FULL_COPY_7',target_count:goal,
+    successful_endpoints:endpoints,endpoints,
+    completed_replicas:replicas.length,pending_replicas:Math.max(0,goal-replicas.length),
+    attempted_endpoints:Array.isArray(state?.attempted_endpoints)?state.attempted_endpoints:[],
+    failures:Array.isArray(state?.failures)?state.failures.slice(-24):[],
+    progress:{completed:replicas.length,target:goal},
+    snapshot_id:state?.snapshotId||null,
+    next_action:status==='COPIED'?null:'CALL_CODE_SYNC_AGAIN',
+    ...extra
+  };
+}
 async function ensureExternalCodeArchive(env,c,codeBackup){
   if(!codeBackup?.ok||!env?.MEDIA_BUCKET?.get||!env?.MEDIA_BUCKET?.put)return codeBackup;
   const id=deployedCodeIdentity(env);
@@ -826,63 +861,108 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     const verified=await verifyShardVaultCodeReconstruction(env).catch(error=>({ok:false,status:'CODE_RECONSTRUCTION_CHECK_FAILED',error:String(error?.message||error)}));
     if(verified?.ok)return {...existing,external:{...existing.external,reconstruction_status:verified.status,reconstruction_sha256:verified.sha256,reconstruction_verified:true}};
   }
-  let archiveKey=id.criticalKey;
-  let object=await env.MEDIA_BUCKET.get(archiveKey);
-  if(!object){
-    archiveKey=id.key;
-    object=await env.MEDIA_BUCKET.get(archiveKey);
-  }
-  if(!object)return {...codeBackup,external:{status:'CODE_ARCHIVE_SOURCE_MISSING',target_count:goal,critical_key:id.criticalKey,fallback_key:id.key}};
-  const plain=new Uint8Array(await object.arrayBuffer());
-  const archiveSha256=await sha256Hex(plain);
-  const snapshotId='code-'+id.sha.slice(0,16)+'-'+rid(6),iv=new Uint8Array(12);crypto.getRandomValues(iv);
-  const cipher=await encrypt(c.master,snapshotId,plain,iv);
-  const cipherSha256=await sha256Hex(cipher);
-  let validated=[];
-  try{validated=await readValidatedExternalEndpoints(env);}catch{}
-  const candidates=rankExternalCodeCandidates(env,[...(c.endpoints||[]),...(c.allEndpoints||[]),...validated],cipher.length).slice(0,Math.max(goal*2,goal));
-  if(candidates.length<goal)return {...codeBackup,external:{status:'WAITING_TARGETS',endpoints:candidates.map(e=>e.id),target_count:goal}};
-  const replicas=Array.from({length:goal},(_,index)=>index);
-  const copied=await assignDistinctExternalTargets(replicas,candidates,async(i,e)=>{
-    const objectId='code-'+id.sha.slice(0,12)+'-replica-'+String(i).padStart(2,'0')+'-'+rid(6);
-    const locator=await uploadFragment(env,e,objectId,cipher);
-    const descriptor={
-      index:i,endpointId:e.id,endpoint:endpointSnapshot(e),
-      objectId:locator.objectId,remoteUrl:locator.remoteUrl||null,parts:locator.parts||null,
-      byteLength:cipher.length,cipherSha256
+
+  let state=await readCodeSyncState(env,id);
+  if(!state){
+    let archiveKey=id.criticalKey;
+    let object=await env.MEDIA_BUCKET.get(archiveKey);
+    if(!object){
+      archiveKey=id.key;
+      object=await env.MEDIA_BUCKET.get(archiveKey);
+    }
+    if(!object)return {...codeBackup,external:{status:'CODE_ARCHIVE_SOURCE_MISSING',target_count:goal,critical_key:id.criticalKey,fallback_key:id.key}};
+    const plain=new Uint8Array(await object.arrayBuffer());
+    const archiveSha256=await sha256Hex(plain);
+    const snapshotId='code-'+id.sha.slice(0,16)+'-'+rid(6),iv=new Uint8Array(12);crypto.getRandomValues(iv);
+    const cipher=await encrypt(c.master,snapshotId,plain,iv);
+    const cipherSha256=await sha256Hex(cipher);
+    await env.MEDIA_BUCKET.put(id.syncCipherKey,cipher,{httpMetadata:{contentType:'application/octet-stream'},customMetadata:{git_sha:id.sha,cipher_sha256:cipherSha256}});
+    state={
+      format:'MEL-ShardVault-Code-Sync',formatVersion:1,repository:id.repository,git_sha:id.sha,
+      archive_key:archiveKey,snapshotId,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),
+      totalReplicas:goal,iv:b64u(iv),archiveBytes:plain.length,sha256:archiveSha256,
+      ciphertextLength:cipher.length,cipherSha256,replicas:[],failures:[],attempted_endpoints:[],failed_endpoint_ids:[]
     };
-    const roundtrip=await downloadFragment(env,e,descriptor);
-    const roundtripSha256=await sha256Hex(roundtrip);
-    if(roundtripSha256!==cipherSha256)throw new Error('CODE_REPLICA_ROUNDTRIP_HASH_MISMATCH');
-    return descriptor;
-  },{maxConcurrency:2});
-  const descriptors=copied.assignments.filter(Boolean);
+    await writeCodeSyncState(env,id,state);
+    return {...codeBackup,external:codeSyncExternalView(state,goal,'COPYING',{prepared:true,critical_key:id.criticalKey,cipher_key:id.syncCipherKey})};
+  }
+
+  const cipherObject=await env.MEDIA_BUCKET.get(id.syncCipherKey);
+  if(!cipherObject){
+    await clearCodeSyncState(env,id);
+    return {...codeBackup,external:{status:'CODE_SYNC_CIPHER_MISSING',target_count:goal,restart_required:true}};
+  }
+  const cipher=new Uint8Array(await cipherObject.arrayBuffer());
+  if(cipher.length!==Number(state.ciphertextLength)||await sha256Hex(cipher)!==String(state.cipherSha256||'')){
+    await clearCodeSyncState(env,id);
+    return {...codeBackup,external:{status:'CODE_SYNC_CIPHER_INVALID',target_count:goal,restart_required:true}};
+  }
+
+  const replicas=Array.isArray(state.replicas)?state.replicas:[];
+  if(replicas.length<goal){
+    let validated=[];
+    try{validated=await readValidatedExternalEndpoints(env);}catch{}
+    const used=new Set(replicas.map(x=>x.endpointId));
+    const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
+    const candidates=rankExternalCodeCandidates(env,[...(c.endpoints||[]),...(c.allEndpoints||[]),...validated],cipher.length)
+      .filter(e=>!used.has(e.id)&&!failed.has(e.id));
+    if(!candidates.length){
+      state.failed_endpoint_ids=[];
+      state.updatedAt=new Date().toISOString();
+      await writeCodeSyncState(env,id,state);
+      return {...codeBackup,external:codeSyncExternalView(state,goal,'RETRY_TARGETS',{reason:'EXHAUSTED_CURRENT_CANDIDATES'})};
+    }
+    const e=candidates[0],i=replicas.length;
+    state.attempted_endpoints=[...new Set([...(state.attempted_endpoints||[]),e.id])];
+    try{
+      const objectId='code-'+id.sha.slice(0,12)+'-replica-'+String(i).padStart(2,'0')+'-'+rid(6);
+      const locator=await uploadFragment(env,e,objectId,cipher);
+      const descriptor={
+        index:i,endpointId:e.id,endpoint:endpointSnapshot(e),
+        objectId:locator.objectId,remoteUrl:locator.remoteUrl||null,parts:locator.parts||null,
+        byteLength:cipher.length,cipherSha256:state.cipherSha256
+      };
+      const roundtrip=await downloadFragment(env,e,descriptor);
+      const roundtripSha256=await sha256Hex(roundtrip);
+      if(roundtripSha256!==state.cipherSha256)throw new Error('CODE_REPLICA_ROUNDTRIP_HASH_MISMATCH');
+      state.replicas.push(descriptor);
+      state.failed_endpoint_ids=(state.failed_endpoint_ids||[]).filter(value=>value!==e.id);
+    }catch(error){
+      state.failures=[...(state.failures||[]),{replica_index:i,endpoint_id:e.id,error:String(error?.message||error),at:new Date().toISOString()}].slice(-24);
+      state.failed_endpoint_ids=[...new Set([...(state.failed_endpoint_ids||[]),e.id])];
+      state.updatedAt=new Date().toISOString();
+      await writeCodeSyncState(env,id,state);
+      return {...codeBackup,external:codeSyncExternalView(state,goal,'COPYING',{last_error:state.failures.at(-1),failover_pending:true})};
+    }
+    state.updatedAt=new Date().toISOString();
+    if(state.replicas.length<goal){
+      await writeCodeSyncState(env,id,state);
+      return {...codeBackup,external:codeSyncExternalView(state,goal,'COPYING',{last_replica_index:i,last_endpoint_id:e.id,verified_roundtrip:true})};
+    }
+  }
+
+  const descriptors=state.replicas.slice(0,goal);
   const successfulEndpoints=[...new Set(descriptors.map(x=>x.endpointId))];
-  if(!copied.ok||descriptors.length<goal||successfulEndpoints.length<goal){
-    return {...codeBackup,external:{
-      status:'INSUFFICIENT_WRITABLE_TARGETS',replication_mode:'FULL_COPY_7',
-      target_count:goal,successful_endpoints:successfulEndpoints,
-      attempted_endpoints:copied.attempted_endpoints,failures:copied.failures.slice(0,24),
-      pending_replicas:copied.pending_indices,
-    }};
+  if(descriptors.length<goal||successfulEndpoints.length<goal){
+    await writeCodeSyncState(env,id,state);
+    return {...codeBackup,external:codeSyncExternalView(state,goal,'COPYING',{reason:'DISTINCT_TARGETS_INCOMPLETE'})};
   }
   const manifest={
-    format:'MEL-ShardVault-Code',formatVersion:3,replicationMode:'FULL_COPY_7',
-    repository:id.repository,git_sha:id.sha,archive_key:archiveKey,snapshotId,createdAt:new Date().toISOString(),
-    totalReplicas:goal,requiredReplicas:1,totalShards:goal,dataShards:1,shardSize:cipher.length,
-    ciphertextLength:cipher.length,iv:b64u(iv),archiveBytes:plain.length,sha256:archiveSha256,
-    cipherSha256,replicas:descriptors,
-    diversity:diversity(descriptors.map(d=>candidates.find(e=>e.id===d.endpointId)).filter(Boolean)),
-    roundtripVerified:true
+    format:'MEL-ShardVault-Code',formatVersion:4,replicationMode:'FULL_COPY_7',
+    repository:id.repository,git_sha:id.sha,archive_key:state.archive_key,snapshotId:state.snapshotId,createdAt:state.createdAt,
+    totalReplicas:goal,requiredReplicas:1,totalShards:goal,dataShards:1,shardSize:Number(state.ciphertextLength),
+    ciphertextLength:Number(state.ciphertextLength),iv:state.iv,archiveBytes:Number(state.archiveBytes),sha256:state.sha256,
+    cipherSha256:state.cipherSha256,replicas:descriptors,
+    diversity:diversity(descriptors.map(d=>d.endpoint||{})),roundtripVerified:true
   };
   const unsigned={...manifest},key=await hkdf(c.master,utf8(id.sha),utf8('MEL-ShardVault/v1/code-manifest-mac'));
   manifest.manifestMac=b64u(await hmac(key,utf8(stable(unsigned))));
   await env.MEDIA_BUCKET.put(id.manifestKey,JSON.stringify(manifest),{httpMetadata:{contentType:'application/json'}});
+  await clearCodeSyncState(env,id);
   return {...codeBackup,external:{
-    status:'COPIED',replication_mode:'FULL_COPY_7',manifest_key:id.manifestKey,snapshot_id:snapshotId,
-    shards:goal,data_shards:1,total_replicas:goal,required_replicas:1,
-    endpoints:successfulEndpoints,attempted_endpoints:copied.attempted_endpoints,
-    failures:copied.failures.slice(0,24),verified_roundtrip:true,created_at:manifest.createdAt
+    ...codeSyncExternalView(state,goal,'COPIED'),
+    manifest_key:id.manifestKey,shards:goal,data_shards:1,total_replicas:goal,required_replicas:1,
+    verified_roundtrip:true,created_at:manifest.createdAt
   }};
 }
 export async function runShardVaultCycle(env,{force=false,skipExternalCode=false}={}){
@@ -934,15 +1014,13 @@ export async function syncShardVaultCodeExternally(env){
     if(known.length>=goal)c=mergeAutonomous(c,{selected:known},env);
     else c=(await enrichAutonomous(env,c,32*1024)).config;
 
-    let result=await ensureExternalCodeArchive(env,c,codeBackup);
-    if(result?.external?.status!=='COPIED'){
-      const enriched=await enrichAutonomous(env,c,32*1024);
-      c=enriched.config;
-      result=await ensureExternalCodeArchive(env,c,codeBackup);
-    }
+    const result=await ensureExternalCodeArchive(env,c,codeBackup);
     const external=result?.external||null;
+    const progressStatus=['COPYING','RETRY_TARGETS'].includes(String(external?.status||''));
+    const copied=external?.status==='COPIED'&&Array.isArray(external?.endpoints)&&external.endpoints.length>=goal;
     return {
-      ok:external?.status==='COPIED'&&Array.isArray(external?.endpoints)&&external.endpoints.length>=goal,
+      ok:copied||progressStatus,
+      complete:copied,
       status:external?.status||'UNKNOWN',
       external,
       repository:result?.repository||codeBackup.repository,

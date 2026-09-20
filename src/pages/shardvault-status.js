@@ -159,11 +159,21 @@ async function syncCodeExternal({quiet=false}={}){
  const b=$('search');
  if(!quiet){b.disabled=true;b.textContent='Synchronisation du code…';}
  try{
-  const cr=await fetch('/api/gen2/shardvault/code-sync',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
-  const cd=await cr.json();
-  if(!cr.ok||cd.ok===false)throw new Error(cd.status||cd.error||('HTTP '+cr.status));
-  $('searchStatus').className='ok';$('searchStatus').textContent='Code critique copié sur '+fmt((cd.external?.endpoints||[]).length)+' dépôts externes.';
-  return cd;
+  let last=null;
+  for(let attempt=1;attempt<=16;attempt++){
+   const cr=await fetch('/api/gen2/shardvault/code-sync',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+   const cd=await cr.json();last=cd;
+   if(!cr.ok||cd.ok===false)throw new Error(cd.status||cd.error||('HTTP '+cr.status));
+   const done=fmt((cd.external?.endpoints||[]).length),target=fmt(cd.external?.target_count||7);
+   if(cd.status==='COPIED'){
+    $('searchStatus').className='ok';$('searchStatus').textContent='Code critique copié et relu sur '+done+' dépôts externes.';
+    return cd;
+   }
+   if(!['COPYING','RETRY_TARGETS'].includes(cd.status))throw new Error(cd.status||'CODE_SYNC_UNKNOWN');
+   $('searchStatus').className='muted pulse';$('searchStatus').textContent='Synchronisation progressive du code : '+done+'/'+target+' copies vérifiées.';
+   await new Promise(resolve=>setTimeout(resolve,250));
+  }
+  throw new Error('CODE_SYNC_PROGRESS_TIMEOUT:'+String(last?.status||'UNKNOWN'));
  }catch(e){
   $('searchStatus').className='warn';$('searchStatus').textContent='Synchronisation du code externe à reprendre : '+e.message;
   return null;

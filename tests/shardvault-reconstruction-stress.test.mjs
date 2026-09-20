@@ -82,3 +82,20 @@ test('ShardVault UI and API expose an explicit code reconstruction proof', async
   assert.match(runtime,/CODE_RECONSTRUCTION_HASH_MISMATCH/);
   assert.match(runtime,/CODE_RECONSTRUCTION_SHARDS_INSUFFICIENT/);
 });
+
+
+test('external code sync is resumable and bounded to one verified replica per request', async () => {
+  const [runtime,workflow]=await Promise.all([
+    readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8'),
+    readFile(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8'),
+  ]);
+  assert.match(runtime,/syncStateKey:'shardvault\/code-sync-state\//);
+  assert.match(runtime,/syncCipherKey:'shardvault\/code-sync-cipher\//);
+  assert.match(runtime,/next_action:status==='COPIED'\?null:'CALL_CODE_SYNC_AGAIN'/);
+  assert.match(runtime,/const e=candidates\[0\],i=replicas\.length/);
+  assert.match(runtime,/state\.replicas\.push\(descriptor\)/);
+  assert.doesNotMatch(runtime,/assignDistinctExternalTargets\(replicas,candidates/);
+  assert.match(workflow,/for attempt in \$\(seq 1 24\)/);
+  assert.match(workflow,/COPYING\|RETRY_TARGETS/);
+  assert.match(workflow,/SYNC_STATUS.*COPIED/);
+});
