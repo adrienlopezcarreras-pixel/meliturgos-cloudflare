@@ -63,6 +63,8 @@ function validateRuntimeDescriptor(value) {
     appVersion: value.appVersion,
     dbSchemaVersion: value.dbSchemaVersion ?? null,
     candidateBranch: value.candidateBranch || null,
+    deployedGitSha: /^[a-f0-9]{40}$/i.test(String(value.deployedGitSha || '')) ? String(value.deployedGitSha).toLowerCase() : null,
+    deployedGitBranch: value.deployedGitBranch || null,
   };
 }
 
