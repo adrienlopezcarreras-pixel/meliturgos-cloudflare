@@ -1197,8 +1197,10 @@ export async function searchAutonomousShardVaultRepositories(env){
       activation_cycle
     };
     if(result.target_reached){
-      try{result.code_sync=await syncShardVaultCodeExternally(env);}
-      catch(error){result.code_sync={ok:false,status:'COPY_FAILED',error:String(error?.message||error)};}
+      // Keep discovery/activation CPU-bounded. External code replication and
+      // reconstruction are separate operations so a large exact-SHA archive
+      // cannot exhaust the request that is proving the seven live targets.
+      result.code_sync={ok:true,deferred:true,status:'DEFERRED_SEPARATE_OPERATION',reason:'SEARCH_REQUEST_CPU_ISOLATION'};
     }
     await writeDiscoveryStatus(env,result);
     return result;
