@@ -1589,6 +1589,8 @@ export async function searchAutonomousShardVaultRepositories(env){
       required_bytes:requiredBytes,
       discovered:report.discovered||0,
       probed:report.probed||0,
+      representative_probed:Number(report?.representative_probed||0),
+      representative_qualified:Number(report?.representative_qualified||0),
       selected:selectedViews,
       preferred_endpoint:preferred,
       rejected:report.rejected||[],
