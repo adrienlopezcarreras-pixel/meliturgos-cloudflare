@@ -64,6 +64,14 @@ Cette leçon est matérialisée dans `src/learning/runtime-operating-experience.
 
 - `shardvault-proven-active-source-of-truth-20260919` — distinguer QUALIFIÉ/STAGED/ACTIF, ne compter ACTIF qu’après preuve runtime persistée et relue, et dériver toute l’UI de la même source backend.
 
+## Formation technique avancée — 1000 cycles IA/développement (2026-09-20)
+
+- Corpus : `.agents/AI_ENGINEERING_1000_CYCLES.md`.
+- Compteur : **AI_ENGINEERING_LEARNING_cycle_1000/1000 — COMPLETED**.
+- Portée : architecture agents, tool use, MCP, RAG, mémoire, context engineering, evals, grounding, planification, multi-agent, sécurité, observabilité, Cloudflare, D1/SQLite, Queues/Workflows, API, TypeScript/Node, tests/fuzz/stress, Git/CI, supply chain, release, systèmes distribués, concurrence/idempotence, performance, auth/secrets, jobs persistants, LoRA, datasets, embeddings, multimodal, computer use, hardware, UX conversationnelle et incident response.
+- Statut : **corpus de formation, pas 1000 XP validées**. Une règle n’entre dans le pack XP canonique qu’après application prouvée, testée et dédupliquée conformément à `.agents/XP_PROTOCOL.md`.
+- Après ce cycle 1000, les runs MEL reviennent à l’audit/réparation/tests ; la veille ultérieure met à jour le corpus sans fabriquer de nouveaux cycles si aucun acquis nouveau n’existe.
+
 ## Règle de déduplication
 
 Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le corpus. Une différence de vocabulaire ne justifie pas une nouvelle leçon si la préférence comportementale est déjà couverte.
