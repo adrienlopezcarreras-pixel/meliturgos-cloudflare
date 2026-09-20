@@ -176,7 +176,8 @@ test('code replication uses resumable RS 4-of-7 shards with one external shard p
   assert.ok(runtime.includes("rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])])"));
   assert.match(runtime,/CODE_CANDIDATES_KEY/);
   assert.match(body,/readCodeCandidateEndpoints/);
-  assert.match(body,/const provenEndpoint=\{\.\.\.e,/);\n  assert.match(body,/rememberValidatedExternalEndpoints\(env,\[provenEndpoint\]\)/);
+  assert.match(body,/const provenEndpoint=\{\.\.\.e,/);
+  assert.match(body,/rememberValidatedExternalEndpoints\(env,\[provenEndpoint\]\)/);
   assert.match(body,/NO_READY_VALIDATED_CODE_TARGETS/);
   assert.doesNotMatch(body,/state\.failed_endpoint_ids=\[\]/);
   assert.match(runtime,/CALL_CODE_SYNC_AGAIN/);
@@ -197,8 +198,10 @@ test('new durable providers remain candidates until representative full-fragment
   assert.match(autonomous,/id:'dpaste-org-public'[\s\S]*evidenceMode:'documented_api'/);
   assert.match(autonomous,/reviewed_documentation_candidate/);
   assert.match(autonomous,/representative_full_fragment_roundtrip/);
-  assert.match(autonomous,/probed\.push\(await probe\(c,requiredBytes,policyMaxAgeDays,env\)\)/);\n  assert.match(autonomous,/representativeProbe\(c,requiredBytes,env,representativeProofs\)/);
-  assert.match(runtime,/const provenEndpoint=\{\.\.\.e,/);\n  assert.match(runtime,/rememberValidatedExternalEndpoints\(env,\[provenEndpoint\]\)/);
+  assert.match(autonomous,/probed\.push\(await probe\(c,requiredBytes,policyMaxAgeDays,env\)\)/);
+  assert.match(autonomous,/representativeProbe\(c,requiredBytes,env,representativeProofs\)/);
+  assert.match(runtime,/const provenEndpoint=\{\.\.\.e,/);
+  assert.match(runtime,/rememberValidatedExternalEndpoints\(env,\[provenEndpoint\]\)/);
 });
 
 
