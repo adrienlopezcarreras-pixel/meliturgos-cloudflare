@@ -226,6 +226,39 @@ function responseRemoteUrl(raw,headers,base){
   if(!candidates.length)throw new Error('WRITE_REMOTE_URL_MISSING');
   return publicUrl(new URL(String(candidates[0]),base).toString(),'WRITE_REMOTE_URL').toString();
 }
+const TELEGRAPH_ACCOUNT_KEY='shardvault/provider-state/telegraph-account.json';
+async function readTelegraphAccessToken(env){
+  if(!env?.MEDIA_BUCKET?.get)return null;
+  try{
+    const body=await env.MEDIA_BUCKET.get(TELEGRAPH_ACCOUNT_KEY);
+    if(!body)return null;
+    const data=JSON.parse(await body.text());
+    const token=String(data?.access_token||'').trim();
+    return token||null;
+  }catch{return null;}
+}
+async function writeTelegraphAccessToken(env,token){
+  if(!env?.MEDIA_BUCKET?.put||!token)return;
+  await env.MEDIA_BUCKET.put(TELEGRAPH_ACCOUNT_KEY,JSON.stringify({access_token:String(token),updated_at:new Date().toISOString()}),{httpMetadata:{contentType:'application/json'}});
+}
+function safeProviderError(value){
+  return String(value||'UNKNOWN').toUpperCase().replace(/[^A-Z0-9_-]+/g,'_').slice(0,96)||'UNKNOWN';
+}
+async function telegraphAccessToken(env,seed='melshardvault'){
+  const cached=await readTelegraphAccessToken(env);
+  if(cached)return cached;
+  const accountBody=new URLSearchParams({
+    short_name:('mel'+String(seed||'').replace(/[^a-zA-Z0-9]/g,'')).slice(0,32)||'melshardvault',
+    author_name:'MEL ShardVault'
+  });
+  const response=await fetchTimed('https://api.telegra.ph/createAccount',{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:accountBody.toString()},15000);
+  if(!response.ok)throw new Error('TELEGRAPH_ACCOUNT_HTTP_'+response.status);
+  const data=await response.json().catch(()=>null);
+  const token=String(data?.result?.access_token||'').trim();
+  if(data?.ok!==true||!token)throw new Error('TELEGRAPH_ACCOUNT_'+safeProviderError(data?.error||'TOKEN_MISSING'));
+  await writeTelegraphAccessToken(env,token);
+  return token;
+}
 async function upload(env,e,objectId,payload){
   if(payload.length>e.maxBytes)throw new Error(`ENDPOINT_${e.id}_MAX_BYTES`);
   if(e.backend==='r2'){
@@ -299,7 +332,7 @@ async function upload(env,e,objectId,payload){
   }
   if(e.adapter==='pastebox_b64'){
     const endpoint=fixedApiUrl(u);
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({content:b64u(payload),title:objectId,language:'plaintext',content_type:'memory',expiration:'3M',exposure:'unlisted',source:'agent',agent_name:'MEL-ShardVault'})},15000);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({content:b64u(payload),title:objectId,language:'plaintext',content_type:'memory',expiration:'3M',exposure:'unlisted',source:'agent',agent_name:'MEL-ShardVault'})},30000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
@@ -323,7 +356,7 @@ async function upload(env,e,objectId,payload){
   }
   if(e.adapter==='markdownpaste_b64'){
     const endpoint=fixedApiUrl(u);
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify({content:b64u(payload),expires_in:0})},15000);
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify({content:b64u(payload)})},15000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     const data=await r.json().catch(()=>null),id=String(data?.id||'').trim();
     if(!id)throw new Error(`WRITE_${e.id}_REMOTE_ID_MISSING`);
@@ -345,16 +378,7 @@ async function upload(env,e,objectId,payload){
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
   if(e.adapter==='telegraph_b64'){
-    const accountEndpoint='https://api.telegra.ph/createAccount';
-    const accountBody=new URLSearchParams({
-      short_name:('mel'+objectId.replace(/[^a-zA-Z0-9]/g,'')).slice(0,32)||'melshardvault',
-      author_name:'MEL ShardVault'
-    });
-    const accountResp=await fetchTimed(accountEndpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:accountBody.toString()},15000);
-    if(!accountResp.ok)throw new Error(`WRITE_${e.id}_ACCOUNT_${accountResp.status}`);
-    const account=await accountResp.json().catch(()=>null);
-    const token=String(account?.result?.access_token||'').trim();
-    if(account?.ok!==true||!token)throw new Error(`WRITE_${e.id}_ACCOUNT_TOKEN_MISSING`);
+    const token=await telegraphAccessToken(env,objectId);
     const endpoint=fixedApiUrl(u);
     const content=JSON.stringify([{tag:'pre',children:[b64u(payload)]}]);
     const pageBody=new URLSearchParams({
@@ -367,7 +391,8 @@ async function upload(env,e,objectId,payload){
     const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:pageBody.toString()},15000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     const data=await r.json().catch(()=>null),path=String(data?.result?.path||'').trim();
-    if(data?.ok!==true||!path)throw new Error(`WRITE_${e.id}_REMOTE_PATH_MISSING`);
+    if(data?.ok!==true)throw new Error(`WRITE_${e.id}_TELEGRAPH_${safeProviderError(data?.error)}`);
+    if(!path)throw new Error(`WRITE_${e.id}_REMOTE_PATH_MISSING`);
     return {remoteUrl:'https://api.telegra.ph/getPage/'+encodeURIComponent(path)+'?return_content=true'};
   }
   if(e.adapter==='paste_c_net'){
@@ -431,7 +456,8 @@ async function download(env,e,objectId,descriptor=null){
   }
   if(['pastebin_ai_b64','dpaste_b64','onec3_b64','msk_paste_b64','pastebox_b64','fileditch_b64'].includes(e.adapter)){
     if(!remote)throw new Error(`READ_${e.id}_REMOTE_URL_MISSING`);
-    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'text/plain,application/json','user-agent':'MEL-ShardVault/1.0'}},15000);
+    const readTimeout=e.adapter==='pastebox_b64'?30000:15000;
+    const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'text/plain,application/json','user-agent':'MEL-ShardVault/1.0'}},readTimeout);
     if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
     const text=String(await r.text()).trim();
     if(!text)throw new Error(`READ_${e.id}_CONTENT_MISSING`);
@@ -523,6 +549,13 @@ function fragmentChunkLimit(e){
   if(e?.backend==='r2'||e?.backend==='d1')return max;
   const ratio=BASE64_WRAPPED_ADAPTERS.has(String(e?.adapter||''))?0.70:0.90;
   return Math.max(256,Math.floor(max*ratio));
+}
+function codeFragmentDeadlineMs(env,e,byteLength){
+  const configured=Math.max(15000,Number(env?.MEL_SHARDVAULT_CODE_FRAGMENT_DEADLINE_MS)||45000);
+  const parts=Math.max(1,Math.ceil(Math.max(1,Number(byteLength)||1)/fragmentChunkLimit(e)));
+  const providerFloor=['pastebox_b64','msk_paste_b64'].includes(String(e?.adapter||''))?65000:45000;
+  const adaptive=Math.max(configured,providerFloor,45000+Math.max(0,parts-1)*9000);
+  return Math.min(82000,adaptive);
 }
 async function uploadFragment(env,e,objectId,payload){
   const data=bytes(payload),limit=fragmentChunkLimit(e);
@@ -665,7 +698,7 @@ function rankExternalCodeCandidates(env,endpoints,requiredBytes){
 }
 function codeTargetFailureClass(error){
   const message=String(error?.message||error||'').toUpperCase();
-  const retryable=/(?:DEADLINE|TIMEOUT|ABORT|FETCH|NETWORK|_408\b|_425\b|_429\b|_500\b|_502\b|_503\b|_504\b)/.test(message);
+  const retryable=/(?:DEADLINE|TIMEOUT|ABORT|FETCH|NETWORK|FLOOD|RATE[_ -]?LIMIT|_408\b|_425\b|_429\b|_500\b|_502\b|_503\b|_504\b)/.test(message);
   return {message,retryable,permanent:!retryable};
 }
 function codeTargetRetryDelayMs(count){
@@ -1054,7 +1087,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
         const roundtrip=await downloadFragment(env,e,d);
         if(!byteArraysEqual(roundtrip,shard))throw new Error('CODE_FRAGMENT_ROUNDTRIP_MISMATCH');
         return d;
-      },Number(env?.MEL_SHARDVAULT_CODE_FRAGMENT_DEADLINE_MS)||45000);
+      },codeFragmentDeadlineMs(env,e,shard.length));
       state.shards.push(descriptor);
       clearCodeTargetFailure(state,e.id);
       try{await rememberValidatedExternalEndpoints(env,[e]);}catch{}
@@ -1173,7 +1206,7 @@ export const __shardvaultTest = Object.freeze({
   encode, decode, selectEndpoints, diversity, extendActiveEndpoints, externalEndpointsFromSnapshot,
   rankExternalCodeCandidates, assignDistinctExternalTargets, byteArraysEqual, reconstructExternalCodeArchive,
   codeTargetFailureClass, codeTargetRetryDelayMs, codeTargetAvailableNow, prioritizeExternalCodeCandidates,
-  recordCodeTargetFailure, clearCodeTargetFailure
+  recordCodeTargetFailure, clearCodeTargetFailure, codeFragmentDeadlineMs
 });
 
 
