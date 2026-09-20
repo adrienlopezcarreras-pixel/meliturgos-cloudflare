@@ -1,4 +1,4 @@
-import { DomainError, requireValue } from '../core/contracts.js';
+import { DomainError, port, requireValue } from '../core/contracts.js';
 import { verifySnapshot } from './backup-service.js';
 
 export const methods = ['plan', 'verify', 'restore'];
@@ -115,6 +115,7 @@ export function buildRestorePlan(snapshot, verification) {
 }
 
 export function createRestoreService({ storage, target = null, audit = async () => {} } = {}) {
+  if (!storage) return port('backup/restore-service', methods, {});
   async function resolve(input = {}, context = {}) {
     requireValue(storage && typeof storage.get === 'function', 'RESTORE_STORAGE_GET_REQUIRED');
     const snapshot = input.snapshot || (input.id ? await storage.get(String(input.id), context) : null);
