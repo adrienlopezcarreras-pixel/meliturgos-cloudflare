@@ -288,6 +288,7 @@ jobs:
           check_surface "/" 'id="send"'
           check_surface "/professor" 'id="chatSend"'
           check_surface "/veille" 'id="testAll"'
+          check_surface "/shardvault" 'id="reconstructCode"'
           check_surface "/normal-runtime.js?v=5" "send.addEventListener('click'"
 
           check_json "/api/gen2/roadmap"
@@ -296,8 +297,14 @@ jobs:
           check_json "/api/gen2/autonomy/state"
           check_json "/api/work/health"
           check_json "/api/memory/status"
+          check_json "/api/gen2/shardvault/status"
+          check_json "/api/gen2/code/self-check"
+          check_json "/api/gen2/import/chatgpt-status"
+          check_json "/api/learning/lora/free-status"
+          check_json "/api/computer/v1/status"
+          check_json "/api/device/v1/status"
 
-          echo "Canonical UI surface smoke passed."
+          echo "Canonical UI surface and read-only control smoke passed."
 
       - name: Deep-audit runtime capabilities on isolated preview
         shell: bash
@@ -324,9 +331,13 @@ jobs:
           if(failed.length) throw new Error('SAFE_CAPABILITY_FAILURE:'+failed.map(x=>x.id).join(','));
           const unsafeAuto=rows.filter(x=>x.risk!=='LOW' && x.tested_now===true);
           if(unsafeAuto.length) throw new Error('UNSAFE_CAPABILITY_AUTO_EXECUTED:'+unsafeAuto.map(x=>x.id).join(','));
+          const invalidContracts=rows.filter(x=>x.contract_valid!==true);
+          if(invalidContracts.length) throw new Error('CAPABILITY_CONTRACT_INVALID:'+invalidContracts.map(x=>x.id).join(','));
+          if(Number(report?.contracts?.inspected||0)!==Number(report.total||0)) throw new Error('CAPABILITY_CONTRACT_INVENTORY_MISMATCH');
           console.log(JSON.stringify({
             total:report.total,
             counts:report.counts,
+            contracts:report.contracts,
             tested_now:attempted.length,
             gated:rows.filter(x=>!x.tested_now).length
           },null,2));
@@ -741,23 +752,25 @@ jobs:
 
           stress_one() {
             i="$1"
-            case $((i % 7)) in
+            case $((i % 9)) in
               0) path="/" ;;
               1) path="/professor" ;;
               2) path="/veille" ;;
-              3) path="/api/gen2/autonomy/state" ;;
-              4) path="/api/work/health" ;;
-              5) path="/api/memory/status" ;;
-              6) path="/api/learning/progress" ;;
+              3) path="/shardvault" ;;
+              4) path="/api/gen2/autonomy/state" ;;
+              5) path="/api/work/health" ;;
+              6) path="/api/memory/status" ;;
+              7) path="/api/learning/progress" ;;
+              8) path="/api/gen2/shardvault/status" ;;
             esac
             curl --fail --show-error --silent --max-time 30 \
               --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
               "${BASE_URL}${path}" >/dev/null
           }
           export -f stress_one
-          seq 1 140 | xargs -P 14 -n 1 bash -c 'stress_one "$1"' _
+          seq 1 180 | xargs -P 18 -n 1 bash -c 'stress_one "$1"' _
 
-          for pattern in '[0,1,2]' '[1,3,6]' '[0,4,6]' '[2,4,5]' '[1,2,5]'; do
+          for pattern in '[0,1,2]' '[1,3,6]' '[0,4,6]' '[2,4,5]' '[1,2,5]' '[3,4,5]' '[0,3,6]'; do
             curl --fail-with-body --show-error --silent --max-time 240 \
               --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
               --header "content-type: application/json" \
@@ -770,6 +783,9 @@ jobs:
             if(d?.ok!==true||d?.status!=='CODE_RECONSTRUCTION_VERIFIED') throw new Error('STRESS_RECONSTRUCTION_FAILED:'+process.env.PATTERN+':'+String(d?.status||d?.error));
             if((d?.dropped_indexes||[]).length!==3) throw new Error('STRESS_RECONSTRUCTION_LOSS_PATTERN_MISSING');
             if(Number(d?.healthy_shards||0)<Number(d?.required_shards||0)) throw new Error('STRESS_RECONSTRUCTION_UNRECOVERABLE');
+            if(String(d?.sha||d?.git_sha||'')!==String(process.env.GITHUB_SHA||'')) throw new Error('STRESS_RECONSTRUCTION_SHA_MISMATCH:'+process.env.PATTERN);
+            if(d?.independent_of_local_archive!==true) throw new Error('STRESS_RECONSTRUCTION_NOT_INDEPENDENT:'+process.env.PATTERN);
+            if(!/^[0-9a-f]{64}$/i.test(String(d?.sha256||''))) throw new Error('STRESS_RECONSTRUCTION_HASH_INVALID:'+process.env.PATTERN);
             NODE
           done
 
