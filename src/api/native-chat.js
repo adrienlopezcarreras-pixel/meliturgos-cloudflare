@@ -14,6 +14,7 @@ import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-
 import { stripInternalCounters } from './chat-sanitization.js';
 import { retrieveContext } from '../core/orchestrator/conversation-context.js';
 import { formatVerifiedSelfStateResponse } from './response-grounding.js';
+import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
 
 function extractCodePath(value) {
   return String(value || '').match(/((?:src|tests|\.github)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)|worker\.js|package\.json|wrangler\.jsonc)/i)?.[1] || null;
@@ -473,7 +474,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if (env.DB) {
     try {
       service = createConversationService(env);
-      recent = (await service.getMessages(conversationId, { limit: 20 })).slice(-20).map(m => ({ role: m.role, content: m.content }));
+      recent = (await service.getMessages(conversationId, { limit: 40 })).slice(-40).map(m => ({ role: m.role, content: m.content }));
     } catch { recent = []; }
   }
 
@@ -517,6 +518,7 @@ export async function handleNativeChat(request, env, options = {}) {
 
   const system = [
     buildMelIdentityPrompt(),
+    buildResponseQualityInstruction(text),
     operatingManual,
     themeInstruction,
     'Réponds en français sauf demande contraire.',
@@ -568,9 +570,16 @@ export async function handleNativeChat(request, env, options = {}) {
   });
 
   const modelResponseText = stripInternalCounters(ai.text);
-  const responseText = selfStateObserved
+  const groundedResponseText = selfStateObserved
     ? formatVerifiedSelfStateResponse(selfStateObserved, text, { fallback: modelResponseText })
     : modelResponseText;
+  const responseText = finalizeEvidenceAlignedResponse({
+    text: groundedResponseText,
+    userText: text,
+    codeAccess,
+    toolResults,
+    developmentQueued,
+  });
 
   let archiveSaved = false;
   if (service) {
@@ -594,6 +603,7 @@ export async function handleNativeChat(request, env, options = {}) {
     finish_reason: ai.finish_reason || null,
     response_truncated: ai.truncated === true,
     response_grounding: selfStateObserved ? { mode: 'deterministic-self-state', source: 'self.state', observed_at: selfStateObserved.observed_at || null } : null,
+    response_mode: inferResponseMode(text),
     memory_count: retrieved?.count || 0,
     memory_stored: memoryWrite.stored === true,
     memory_reason: memoryWrite.reason || null,
