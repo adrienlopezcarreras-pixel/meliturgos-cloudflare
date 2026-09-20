@@ -157,19 +157,7 @@ jobs:
             fi
             echo "Launch bootstrap attempt ${attempt} returned HTTP ${HTTP_CODE}."
             if [ -s production-launch-bootstrap.json ]; then
-              node - <<'NODE'
-              const fs=require('fs');
-              const d=JSON.parse(fs.readFileSync('production-launch-bootstrap.json','utf8'));
-              console.log(JSON.stringify({
-                status:d?.status||null,
-                blockers:d?.readiness?.blockers||[],
-                restore_status:d?.readiness?.restore?.status||null,
-                shardvault_status:d?.readiness?.shardvault?.status||null,
-                active_external_count:Number(d?.readiness?.shardvault?.active_external_count||0),
-                external_code_status:d?.readiness?.shardvault?.external_code_status||null,
-                external_code_endpoints:Number(d?.readiness?.shardvault?.external_code_endpoints||0)
-              },null,2));
-              NODE
+              node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("production-launch-bootstrap.json","utf8")); console.log(JSON.stringify({status:d?.status||null,blockers:d?.readiness?.blockers||[],restore_status:d?.readiness?.restore?.status||null,shardvault_status:d?.readiness?.shardvault?.status||null,active_external_count:Number(d?.readiness?.shardvault?.active_external_count||0),external_code_status:d?.readiness?.shardvault?.external_code_status||null,external_code_endpoints:Number(d?.readiness?.shardvault?.external_code_endpoints||0)},null,2));'
             fi
             sleep 5
           done
