@@ -62,7 +62,9 @@ test('code archive replication is separately gated after seven live targets are 
   assert.match(runtime,/async function ensureExternalCodeArchive\(/);
   assert.match(runtime,/MEL-ShardVault-Code/);
   assert.match(runtime,/shardvault\/code-manifests\//);
-  assert.match(runtime,/status:'COPIED',replication_mode:'FULL_COPY_7'/);
+  assert.match(runtime,/syncStateKey:'shardvault\/code-sync-state\//);
+  assert.match(runtime,/syncCipherKey:'shardvault\/code-sync-cipher\//);
+  assert.match(runtime,/codeSyncExternalView\(state,goal,'COPIED'\)/);
   assert.match(runtime,/if\(result\.target_reached\)/);
   assert.match(runtime,/DEFERRED_SEPARATE_OPERATION/);
   assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true\}\)/);
@@ -109,14 +111,18 @@ test('discovery defers heavy code replication into its own bounded request', () 
 });
 
 
-test('code replication uses seven bounded full replicas instead of CPU-heavy Reed-Solomon encoding', () => {
+test('code replication uses seven resumable full replicas instead of CPU-heavy Reed-Solomon encoding', () => {
   const start=runtime.indexOf('async function ensureExternalCodeArchive');
   const end=runtime.indexOf('export async function runShardVaultCycle',start);
   const body=runtime.slice(start,end);
   assert.match(body,/replicationMode:'FULL_COPY_7'/);
   assert.match(body,/requiredReplicas:1/);
-  assert.match(body,/maxConcurrency:2/);
+  assert.match(body,/const e=candidates\[0\],i=replicas\.length/);
+  assert.match(body,/state\.replicas\.push\(descriptor\)/);
+  assert.match(body,/writeCodeSyncState\(env,id,state\)/);
+  assert.match(body,/CALL_CODE_SYNC_AGAIN/);
   assert.match(body,/CODE_REPLICA_ROUNDTRIP_HASH_MISMATCH/);
+  assert.doesNotMatch(body,/assignDistinctExternalTargets\(replicas,candidates/);
   assert.doesNotMatch(body,/shards=encode\(data,c\.n\)/);
 });
 
