@@ -48,7 +48,7 @@ jobs:
           set -euo pipefail
           tar -czf mel-critical-code.tar.gz \
             --exclude='src/assets' \
-            src shardvault scripts tests worker.js wrangler.jsonc package.json package-lock.json .github/workflows
+            src shardvault worker.js wrangler.jsonc package.json package-lock.json
           test -s mel-critical-code.tar.gz
           BUNDLE_BYTES="$(wc -c < mel-critical-code.tar.gz)"
           test "$BUNDLE_BYTES" -lt $((16 * 1024 * 1024))
@@ -638,19 +638,37 @@ jobs:
           AUTH="Authorization: Bearer ${MEL_PREVIEW_PASSWORD}"
 
           SYNC_DONE=0
-          for attempt in $(seq 1 24); do
-            HTTP_CODE="$(curl --show-error --silent --max-time 120 \
+          TRANSIENT_FAILURES=0
+          for attempt in $(seq 1 32); do
+            rm -f shardvault-code-sync.attempt.json
+            HTTP_CODE="$(curl --show-error --silent --max-time 90 \
               --header "$AUTH" \
               --header "content-type: application/json" \
               --data '{}' \
-              --output shardvault-code-sync.json \
+              --output shardvault-code-sync.attempt.json \
               --write-out '%{http_code}' \
               "$BASE_URL/api/gen2/shardvault/code-sync" || true)"
             echo "ShardVault code-sync attempt ${attempt}: HTTP ${HTTP_CODE}"
             if [ "$HTTP_CODE" != "200" ]; then
-              cat shardvault-code-sync.json || true
-              exit 22
+              case "$HTTP_CODE" in
+                000|502|503|504)
+                  TRANSIENT_FAILURES=$((TRANSIENT_FAILURES + 1))
+                  echo "Transient code-sync transport failure; durable state will be resumed."
+                  if [ "$TRANSIENT_FAILURES" -ge 6 ]; then
+                    echo "Too many consecutive transient code-sync failures."
+                    exit 22
+                  fi
+                  sleep 2
+                  continue
+                  ;;
+                *)
+                  cat shardvault-code-sync.attempt.json 2>/dev/null || true
+                  exit 22
+                  ;;
+              esac
             fi
+            TRANSIENT_FAILURES=0
+            mv shardvault-code-sync.attempt.json shardvault-code-sync.json
             SYNC_STATUS="$(node -e "const d=require('./shardvault-code-sync.json');process.stdout.write(String(d.status||''))")"
             SYNC_ENDPOINTS="$(node -e "const d=require('./shardvault-code-sync.json');process.stdout.write(String((d.external?.endpoints||[]).length))")"
             echo "ShardVault code-sync status=${SYNC_STATUS} endpoints=${SYNC_ENDPOINTS}/7"

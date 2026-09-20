@@ -44,6 +44,8 @@ test('candidate preview materializes an exact-SHA critical code bundle before Sh
   const source = await readFile(path.join(WORKFLOWS, 'deploy-candidate-preview.yml'), 'utf8');
   assert.match(source, /Build exact-SHA critical MEL code bundle/);
   assert.match(source, /mel-critical-code\.tar\.gz/);
+  assert.match(source, /src shardvault worker\.js wrangler\.jsonc package\.json package-lock\.json/);
+  assert.doesNotMatch(source, /src shardvault scripts tests worker\.js/);
   assert.match(source, /shardvault\/code-critical\/\$\{REPO_KEY\}\/\$\{GITHUB_SHA\}\.tar\.gz/);
   assert.match(source, /wrangler r2 object put/);
   assert.match(source, /--file mel-critical-code\.tar\.gz/);

@@ -94,7 +94,7 @@ jobs:
           set -euo pipefail
           tar -czf mel-critical-code.tar.gz \
             --exclude='src/assets' \
-            src shardvault scripts tests worker.js wrangler.jsonc package.json package-lock.json .github/workflows
+            src shardvault worker.js wrangler.jsonc package.json package-lock.json
           test -s mel-critical-code.tar.gz
           echo "Critical code bundle bytes: $(wc -c < mel-critical-code.tar.gz)"
 
