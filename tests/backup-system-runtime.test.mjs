@@ -44,6 +44,41 @@ test('GEN2-47 exports all discovered D1 tables deterministically', async () => {
   assert.equal(out.tableCount, 2);
 });
 
+
+test('GEN2-47 skips Cloudflare internal D1 tables that are visible but unreadable', async () => {
+  const reads = [];
+  const db = {
+    prepare(sql) {
+      if (sql.includes('sqlite_master')) {
+        return { async all(){ return { results:[
+          {name:'_cf_KV',sql:'CREATE TABLE _cf_KV'},
+          {name:'mel_state',sql:'CREATE TABLE mel_state'},
+        ]}; } };
+      }
+      const match = sql.match(/FROM "([^"]+)" LIMIT (\?|1)/);
+      if (!match) throw new Error('unexpected sql '+sql);
+      const table = match[1];
+      reads.push(table);
+      if (table === '_cf_KV') throw new Error('D1_ERROR: access to _cf_KV.key is prohibited: SQLITE_AUTH');
+      return {
+        bind(...args) {
+          return {
+            async all() {
+              const source=[{id:'ok'}];
+              if (sql.includes('LIMIT 1 OFFSET')) return { results: source.slice(args[0], args[0] + 1) };
+              const [limit, offset] = args;
+              return { results: source.slice(offset, offset + limit) };
+            }
+          };
+        }
+      };
+    }
+  };
+  const out = await exportD1SystemState(db);
+  assert.deepEqual(out.tables.map(row => row.name), ['mel_state']);
+  assert.deepEqual(reads, ['mel_state']);
+});
+
 test('GEN2-47 fails closed instead of silently truncating a D1 table', async () => {
   await assert.rejects(
     () => exportD1SystemState(d1ExportMock(), { pageSize: 1, maxRowsPerTable: 1 }),
