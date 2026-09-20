@@ -169,6 +169,7 @@ export class AutonomySupervisor {
       .filter(Boolean);
     const failedAttemptsByRoadmap = new Map();
     for (const job of supervisedJobs) {
+      if (job?.requested_by !== 'mel-autonomy') continue;
       if (String(job?.status || '').toUpperCase() !== 'FAILED') continue;
       const roadmapId = roadmapIdFromJob(job);
       if (!roadmapId) continue;
