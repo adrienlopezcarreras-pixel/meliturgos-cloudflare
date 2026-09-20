@@ -58,13 +58,14 @@ test('chunkable providers are accepted for large shard sizes and runtime splits/
   assert.match(runtime,/SHARD_PART_LENGTH_INVALID/);
 });
 
-test('code archive is copied to external ShardVault targets after seven live targets are available', () => {
+test('code archive replication is separately gated after seven live targets are available', () => {
   assert.match(runtime,/async function ensureExternalCodeArchive\(/);
   assert.match(runtime,/MEL-ShardVault-Code/);
   assert.match(runtime,/shardvault\/code-manifests\//);
-  assert.match(runtime,/external:\{status:'COPIED'/);
+  assert.match(runtime,/status:'COPIED',replication_mode:'FULL_COPY_7'/);
   assert.match(runtime,/if\(result\.target_reached\)/);
-  assert.match(runtime,/runShardVaultCycle\(env,\{force:true\}\)/);
+  assert.match(runtime,/DEFERRED_SEPARATE_OPERATION/);
+  assert.match(runtime,/runShardVaultCycle\(env,\{force:true,skipExternalCode:true\}\)/);
 });
 
 
