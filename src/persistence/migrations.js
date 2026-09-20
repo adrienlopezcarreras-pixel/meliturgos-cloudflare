@@ -167,6 +167,55 @@ export const MIGRATIONS = [
     await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mel_response_quality_events_conversation
       ON mel_response_quality_events(conversation_id, created_at)`).run();
   }},
+  { version: 9, name: 'device_runtime_state', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS computer_devices (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL,
+      name TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      capabilities TEXT NOT NULL,
+      allowed_apps TEXT NOT NULL,
+      halted INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL,
+      metadata TEXT NOT NULL DEFAULT '{}'
+    )`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS computer_commands (
+      id TEXT PRIMARY KEY,
+      device_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      plan_json TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      claimed_at INTEGER,
+      finished_at INTEGER,
+      result_json TEXT,
+      error_code TEXT
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_computer_commands_device_status
+      ON computer_commands(device_id, status, created_at)`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS device_tokens (
+      device_id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL,
+      model TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL,
+      revoked_at INTEGER
+    )`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS device_pair_codes (
+      code_hash TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      used_at INTEGER
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_device_pair_codes_expiry
+      ON device_pair_codes(expires_at)`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS device_status (
+      device_id TEXT PRIMARY KEY,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      updated_at INTEGER NOT NULL
+    )`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
