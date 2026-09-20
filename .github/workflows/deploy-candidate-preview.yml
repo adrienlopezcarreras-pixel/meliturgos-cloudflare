@@ -706,11 +706,16 @@ jobs:
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
           AUTH="Authorization: Bearer ${MEL_PREVIEW_PASSWORD}"
 
+          # code-sync has a bounded per-fragment runtime budget of up to 150 s.
+          # Keep the client timeout above that ceiling so the workflow does not
+          # kill a valid slow-provider attempt before the Worker can persist
+          # its resumable state. The 40-minute job timeout remains the hard cap.
+          CODE_SYNC_HTTP_TIMEOUT_SECONDS=170
           SYNC_DONE=0
           TRANSIENT_FAILURES=0
           for attempt in $(seq 1 32); do
             rm -f shardvault-code-sync.attempt.json
-            HTTP_CODE="$(curl --show-error --silent --max-time 90 \
+            HTTP_CODE="$(curl --show-error --silent --max-time "${CODE_SYNC_HTTP_TIMEOUT_SECONDS}" \
               --header "$AUTH" \
               --header "content-type: application/json" \
               --data '{}' \
