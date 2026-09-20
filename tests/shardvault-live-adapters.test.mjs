@@ -84,10 +84,15 @@ test('seven validated external targets replace internal fallbacks for active sna
 });
 
 
-test('critical code bundle is the external code payload and search snapshots stay lightweight', () => {
+test('critical code bundle is preferred while exact-SHA archive remains a preview reconstruction fallback', () => {
   assert.match(runtime,/criticalKey:'shardvault\/code-critical\//);
-  assert.match(runtime,/CRITICAL_ARCHIVE_MISSING/);
+  assert.match(runtime,/archiveKey=id\.criticalKey/);
+  assert.match(runtime,/archiveKey=id\.key/);
+  assert.match(runtime,/CODE_ARCHIVE_SOURCE_MISSING/);
+  assert.match(runtime,/archive_key:archiveKey/);
   assert.match(runtime,/archiveSha256/);
+  assert.match(runtime,/verifyShardVaultCodeReconstruction/);
+  assert.match(runtime,/independent_of_local_archive:true/);
   assert.match(runtime,/syncShardVaultCodeExternally/);
   assert.match(runtime,/skipExternalCode:true/);
 });
