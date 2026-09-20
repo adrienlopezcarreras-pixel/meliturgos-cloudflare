@@ -81,6 +81,51 @@ function latestFailure(toolResults=[]) {
   return null;
 }
 
+function successfulKnowledgeEvidence(toolResults=[]){
+  const rows=Array.isArray(toolResults)?toolResults:[];
+  for(let i=rows.length-1;i>=0;i--){
+    const row=rows[i];
+    if(row?.status!=='SUCCEEDED') continue;
+    const id=String(row?.capability||'');
+    if(!id.startsWith('knowledge.')) continue;
+    return {capability:id,result:row.result||{}};
+  }
+  return null;
+}
+
+function deniesKnowledgeAction(text){
+  return /(?:jes+nes+peuxs+pas|jes+n['’]?ais+pass+las+possibilit[ée]|jes+n['’]?ais+pass+acc[eè]s)[^.!?]{0,140}(?:recherch|internet|web|fichier|dossier|m[ée]moire|m[ée]mor|sauvegard|class|retrouv|v[ée]rifi)/i.test(String(text||''));
+}
+
+function knowledgeEvidenceFallback(evidence){
+  if(!evidence)return '';
+  const id=evidence.capability,r=evidence.result||{};
+  if(id==='knowledge.research'){
+    const bits=['J’ai effectué la recherche'];
+    if(r.verification?.status) bits.push('statut de vérification '+r.verification.status);
+    if(Number.isFinite(Number(r.verification?.source_count))) bits.push(String(r.verification.source_count)+' source(s)');
+    if(r.artifact?.filename) bits.push('fichier '+r.artifact.filename);
+    if(r.artifact?.storage) bits.push('stockage '+r.artifact.storage);
+    if(r.memory?.stored===true) bits.push('référence mémorisée');
+    const summary=String(r.research?.summary||'').trim();
+    return bits.join(' ; ')+'.'+(summary?' '+summary:'');
+  }
+  if(id==='knowledge.search'){
+    const rows=Array.isArray(r.artifacts)?r.artifacts:[];
+    const names=rows.slice(0,5).map(x=>x.filename||x.title||x.id).filter(Boolean);
+    return 'J’ai recherché dans mes dossiers durables : '+Number(r.count||rows.length)+' résultat(s)'+(names.length?' — '+names.join(', '):'')+'.';
+  }
+  if(id==='knowledge.file.read'){
+    const a=r.artifact||{};
+    return 'J’ai relu le fichier '+String(a.filename||a.id||'demandé')+' ; intégrité SHA-256 '+(a.integrity_ok===true?'valide':'non confirmée')+'.';
+  }
+  if(id==='knowledge.file.create'){
+    const a=r.artifact||{};
+    return 'J’ai créé le fichier '+String(a.filename||a.id||'demandé')+(a.storage?' ('+a.storage+')':'')+'.';
+  }
+  return '';
+}
+
 function stripMetaPreamble(text) {
   return cleanText(text)
     .replace(/^En\s+tant\s+qu['’](?:IA|intelligence\s+artificielle)[^.!?]*[.!?]\s*/i,'')
@@ -109,6 +154,12 @@ export function finalizeEvidenceAlignedResponse({
     const job=String(developmentQueued.job_id||'').trim();
     const status=String(developmentQueued.status||'QUEUED').trim();
     out=`Le développement est enregistré${job?` sous le job ${job}`:''} (statut ${status}). Il n’est pas encore prouvé terminé ni déployé : je le considérerai terminé seulement après une preuve de completion/CI correspondant au niveau annoncé.`;
+  }
+
+  const knowledgeEvidence=successfulKnowledgeEvidence(toolResults);
+  if(knowledgeEvidence && deniesKnowledgeAction(out)){
+    const replacement=knowledgeEvidenceFallback(knowledgeEvidence);
+    if(replacement) out=replacement;
   }
 
   const failure=latestFailure(toolResults);

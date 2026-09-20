@@ -544,7 +544,10 @@ export async function handleNativeChat(request, env, options = {}) {
   }
 
   capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
-  const memoryWrite = await rememberExplicit(env, text);
+  const knowledgeMemory = toolResults.find(row => row.capability === 'knowledge.research' && row.status === 'SUCCEEDED')?.result?.memory || null;
+  const memoryWrite = knowledgeMemory?.stored === true
+    ? { stored:true, reason:'RESEARCH_REFERENCE', content:null }
+    : await rememberExplicit(env, text);
   const [activeInferenceSettings, activeAdapter] = await Promise.all([
     activePromotedInferenceSettings(env),
     activePromotedAdapter(env),

@@ -67,3 +67,21 @@ test('meta AI preambles are removed from otherwise useful answers', () => {
   assert.doesNotMatch(out,/^En tant qu/i);
   assert.match(out,/Voici le point essentiel/);
 });
+
+
+test('successful knowledge research prevents a false global incapacity answer', () => {
+  const out=finalizeEvidenceAlignedResponse({
+    text:"Je ne peux pas faire de recherche sur internet ni créer de fichier.",
+    userText:"cherche ceci et enregistre-le",
+    toolResults:[{capability:'knowledge.research',status:'SUCCEEDED',result:{
+      verification:{status:'VERIFIED_MULTI_SOURCE',source_count:2},
+      artifact:{filename:'dossier.md',storage:'D1+R2'},
+      memory:{stored:true},
+      research:{summary:'Found 2 relevant sources.'},
+    }}],
+  });
+  assert.match(out,/J’ai effectué la recherche/i);
+  assert.match(out,/dossier\.md/);
+  assert.match(out,/référence mémorisée/i);
+  assert.doesNotMatch(out,/je ne peux pas/i);
+});

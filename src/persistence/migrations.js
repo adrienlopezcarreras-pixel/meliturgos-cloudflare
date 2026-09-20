@@ -216,6 +216,30 @@ export const MIGRATIONS = [
       updated_at INTEGER NOT NULL
     )`).run();
   }},
+  { version: 10, name: 'knowledge_workspace', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS knowledge_artifacts (
+      id TEXT PRIMARY KEY,
+      owner TEXT NOT NULL DEFAULT '',
+      filename TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT 'research',
+      category TEXT NOT NULL DEFAULT 'general',
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      query TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL,
+      content_sha256 TEXT NOT NULL,
+      verification_status TEXT NOT NULL DEFAULT 'UNVERIFIED',
+      sources_json TEXT NOT NULL DEFAULT '[]',
+      r2_key TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}'
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_knowledge_artifacts_owner_updated
+      ON knowledge_artifacts(owner, updated_at DESC)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_knowledge_artifacts_filename
+      ON knowledge_artifacts(filename)`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
