@@ -114,8 +114,14 @@ export function buildRestorePlan(snapshot, verification) {
   };
 }
 
-export function createRestoreService({ storage, target = null, audit = async () => {} } = {}) {
-  if (!storage) return port('backup/restore-service', methods, {});
+export function createRestoreService(options = {}) {
+  const { storage, target = null, audit = async () => {} } = options || {};
+  if (!storage) {
+    const legacyAdapters = Object.fromEntries(
+      methods.filter(method => typeof options?.[method] === 'function').map(method => [method, options[method]])
+    );
+    return port('backup/restore-service', methods, legacyAdapters);
+  }
   async function resolve(input = {}, context = {}) {
     requireValue(storage && typeof storage.get === 'function', 'RESTORE_STORAGE_GET_REQUIRED');
     const snapshot = input.snapshot || (input.id ? await storage.get(String(input.id), context) : null);
