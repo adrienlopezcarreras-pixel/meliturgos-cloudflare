@@ -4,6 +4,7 @@ import fs from 'node:fs';
 
 const autonomous=fs.readFileSync(new URL('../src/continuity/autonomous-repositories.js',import.meta.url),'utf8');
 const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+const previewWorkflow=fs.readFileSync(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
 
 test('ShardVault provider adapters reflect current official API contracts', () => {
   assert.match(autonomous,/https:\/\/paste\.myst\.rs\/api\/v2\/paste\?mel_object=/);
@@ -87,6 +88,14 @@ test('Telegraph account state is privately reused and code replica deadlines sca
   assert.match(runtime,/fetchRateAware\(endpoint,\{method:'POST'.*\},15000,4,10000,30000\)/s);
   assert.match(runtime,/markdownpaste_b64'\)return Math\.max\(256,Math\.min\(24000/);
   assert.match(runtime,/FLOOD\|RATE\[_ -\]\?LIMIT/);
+});
+
+test('preview lets the stronger seven-fragment proof run when one fresh probe is rate-limited', () => {
+  assert.match(previewWorkflow,/int\(d\.get\('probed'\) or 0\) >= 6/);
+  assert.match(previewWorkflow,/int\(d\.get\('active_external_count'\) or 0\) >= 7/);
+  assert.match(previewWorkflow,/SHARDVAULT_FRESH_LIVE_PROBES_LT_6/);
+  assert.match(previewWorkflow,/SHARDVAULT_ACTIVE_EXTERNAL_LT_7/);
+  assert.match(previewWorkflow,/stronger gate must prove 7\/7 write\/read before reconstruction/);
 });
 
 test('rate-limited providers respect Retry-After before quarantine', () => {
