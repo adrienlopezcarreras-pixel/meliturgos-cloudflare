@@ -1,5 +1,5 @@
 // deployment trigger: ShardVault dashboard
-import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint, syncShardVaultCodeExternally, verifyShardVaultCodeReconstruction } from '../continuity/shardvault-runtime.js';
+import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint, syncShardVaultCodeExternally, verifyShardVaultCodeReconstruction, storeCriticalCodeBundle } from '../continuity/shardvault-runtime.js';
 
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
@@ -225,6 +225,13 @@ export async function handleShardVaultStatus(request,env){
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/search'){
     const result=await searchAutonomousShardVaultRepositories(env);
     return Response.json(result,{status:result.ok?200:503,headers:{'cache-control':'no-store'}});
+  }
+  if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/code-source'){
+    const type=String(request.headers.get('content-type')||'').toLowerCase();
+    if(!type.includes('application/octet-stream')&&!type.includes('application/gzip'))return Response.json({ok:false,status:'CRITICAL_BUNDLE_CONTENT_TYPE_INVALID'},{status:415,headers:{'cache-control':'no-store'}});
+    const payload=new Uint8Array(await request.arrayBuffer());
+    const result=await storeCriticalCodeBundle(env,payload);
+    return Response.json(result,{status:result.ok?200:409,headers:{'cache-control':'no-store'}});
   }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/code-sync'){
     const result=await syncShardVaultCodeExternally(env);
