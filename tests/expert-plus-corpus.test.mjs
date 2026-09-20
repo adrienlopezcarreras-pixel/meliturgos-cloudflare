@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   EXPERT_PLUS_CYCLE_COUNT,
-  EXPERT_PLUS_DISTILLED_LESSONS,
+  EXPERT_PLUS_DISTILLED_XP_IDS,
   EXPERT_PLUS_DOMAIN_COUNT,
   EXPERT_PLUS_LENS_COUNT,
   buildExpertPlusCycles,
@@ -10,6 +10,7 @@ import {
   searchExpertPlusCycles,
 } from '../src/learning/expert-plus-corpus.js';
 import { BOOTSTRAP_CORRECTIONS } from '../src/learning/bootstrap-corrections.js';
+import { DEVELOPMENT_EXPERIENCE_PACK } from '../src/learning/development-experience-pack.js';
 import { LearningEngine } from '../src/learning/learning-engine.js';
 
 class MemoryStub {
@@ -48,12 +49,18 @@ test('expert-plus search returns targeted guidance without changing validation s
 });
 
 test('only proven distilled expert lessons enter canonical MEL training', async () => {
-  assert.equal(EXPERT_PLUS_DISTILLED_LESSONS.length, 10);
-  assert.equal(new Set(EXPERT_PLUS_DISTILLED_LESSONS.map(row => row.id)).size, 10);
-  assert.equal(EXPERT_PLUS_DISTILLED_LESSONS.every(row => row.validated === true && Number(row.quality) >= 0.95), true);
+  assert.equal(EXPERT_PLUS_DISTILLED_XP_IDS.length, 10);
+  assert.equal(new Set(EXPERT_PLUS_DISTILLED_XP_IDS).size, 10);
+  const byId = new Map(DEVELOPMENT_EXPERIENCE_PACK.map(row => [row.id, row]));
+  for (const id of EXPERT_PLUS_DISTILLED_XP_IDS) {
+    const row = byId.get(id);
+    assert.ok(row, 'distilled XP missing from canonical development pack: ' + id);
+    assert.equal(row.validated, true);
+    assert.ok(Number(row.quality) >= 0.95);
+  }
 
   const bootstrapIds = new Set(BOOTSTRAP_CORRECTIONS.map(row => row.id));
-  for (const row of EXPERT_PLUS_DISTILLED_LESSONS) assert.equal(bootstrapIds.has(row.id), true, 'missing distilled XP: ' + row.id);
+  for (const id of EXPERT_PLUS_DISTILLED_XP_IDS) assert.equal(bootstrapIds.has(id), true, 'missing distilled XP: ' + id);
 
   const engine = new LearningEngine({ memory: new MemoryStub() });
   const guidance = engine.expertGuidance('knowledge provenance integrity', { limit: 8 });
@@ -62,7 +69,7 @@ test('only proven distilled expert lessons enter canonical MEL training', async 
 
   const bundle = await engine.trainingBundle({ minQuality: 0.65 });
   const preferenceIds = new Set(bundle.preference.map(row => row.id));
-  for (const row of EXPERT_PLUS_DISTILLED_LESSONS) assert.equal(preferenceIds.has(row.id), true, 'distilled XP absent from trainingBundle: ' + row.id);
+  for (const id of EXPERT_PLUS_DISTILLED_XP_IDS) assert.equal(preferenceIds.has(id), true, 'distilled XP absent from trainingBundle: ' + id);
   assert.equal(bundle.expert_plus.cycles, 10000);
   assert.equal(bundle.expert_plus.runtime_policy, 'ON_DEMAND_GUIDANCE_PLUS_VALIDATED_DISTILLATION');
 });
