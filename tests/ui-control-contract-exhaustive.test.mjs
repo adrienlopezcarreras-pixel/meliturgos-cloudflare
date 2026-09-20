@@ -27,10 +27,7 @@ function delegatedButtonAttrs(html) {
 }
 
 function escapeRe(value) {
-  return String(value).replace(/[-/\\^$*+?.()|[\]{}]/g, '\\function expectAll(source, patterns, label) {
-  for (const pattern of patterns) assert.match(source, pattern, label + ' missing ' + pattern);
-}
-');
+  return String(value).replace(/[-/\\^$*+?.()|[\]{}]/g, match => '\\' + match);
 }
 
 function assertIdButtonsWired(html, source, label) {
