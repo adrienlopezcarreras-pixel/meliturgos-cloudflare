@@ -83,6 +83,7 @@ test('collector self-recovers a stalled large conversation without manual pause/
   assert.match(background, /async function tabMessage\(tabId,payload,attempts=8,timeoutMs=MESSAGE_TIMEOUT_MS\)/);
   assert.match(background, /waitForDomStable\(tabId,ecoMode=true,generation=null\)/);
   assert.match(background, /Math\.min\(PROBE_TIMEOUT_MS,remaining\)/);
+  assert.match(background, /probeFailures>=2/);
   assert.match(background, /throw codedError\('DOM_NOT_STABLE'\)/);
   assert.match(background, /const autoRecoverable=\[[^\]]*'DOM_NOT_STABLE'[^\]]*\]\.includes\(code\)/s);
   assert.match(background, /if\(attempts<maxAttempts\)\{\s*if\(!nextQueue\.includes\(url\)\)nextQueue\.push\(url\);/s);
