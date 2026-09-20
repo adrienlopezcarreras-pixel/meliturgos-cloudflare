@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { importChatGPTArchive } from '../src/persistence/chatgpt-archive-importer.js';
 
 const auth = 'Basic ' + btoa('test:test-only');
 function request(text, conversation_id='memory-test') {
@@ -45,5 +46,30 @@ test('secret-like explicit memory is rejected from durable memory', async () => 
     assert.equal(response.status, 200);
     assert.equal((await response.json()).memory_stored, false);
     assert.equal((await DB.prepare('SELECT COUNT(*) n FROM memories').first()).n, 0);
+  } finally { DB.close(); }
+});
+
+
+test('collector history reaches native model context with user authority and title', async () => {
+  const DB = sqliteD1();
+  const calls = [];
+  const env = makeEnv(DB, calls);
+  try {
+    await importChatGPTArchive({DB,MELITURGOS_USER:'test'}, [{
+      id:'collector-native-context',
+      title:'Projet Orion',
+      collector:{source:'firefox_dom',version:'0.2.0',partial:false,totalMessages:2},
+      messages:[
+        {id:'u1',role:'user',content:'Pour Orion, je veux conserver la station lunaire comme décor central.',timestamp:100},
+        {id:'a1',role:'assistant',content:'Je suggère plutôt une station martienne.',timestamp:101},
+      ],
+    }], {preview:false});
+    const response = await worker.fetch(request('Rappelle-moi ce qu’on avait décidé pour Orion', 'native-collector-recall'), env);
+    assert.equal(response.status, 200);
+    const system = calls.at(-1)?.[0]?.content || '';
+    assert.match(system, /station lunaire/);
+    assert.match(system, /Projet Orion/);
+    assert.match(system, /historical_user_message/);
+    assert.match(system, /historical assistant messages are only prior assistant output/i);
   } finally { DB.close(); }
 });
