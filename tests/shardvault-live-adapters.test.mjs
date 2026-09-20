@@ -5,6 +5,8 @@ import fs from 'node:fs';
 const autonomous=fs.readFileSync(new URL('../src/continuity/autonomous-repositories.js',import.meta.url),'utf8');
 const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
 const previewWorkflow=fs.readFileSync(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
+const releaseWorkflow=fs.readFileSync(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+const wrangler=fs.readFileSync(new URL('../wrangler.jsonc',import.meta.url),'utf8');
 
 test('ShardVault provider adapters reflect current official API contracts', () => {
   assert.match(autonomous,/id:'0x0-st-public'/);
@@ -222,4 +224,18 @@ test('autonomous qualification caches heavy representative proofs and reruns the
   assert.match(autonomous,/representative_bytes:target/);
   assert.match(autonomous,/representative_full_fragment_roundtrip_cached/);
   assert.match(autonomous,/representative_qualified:qualified\.length/);
+});
+
+
+test('representative load is sized from the exact critical code bundle and enforced by CI', () => {
+  assert.match(runtime,/typeof MEL_CRITICAL_CODE_BUNDLE_BYTES!=='undefined'/);
+  assert.match(runtime,/declared_critical_bundle_bytes:/);
+  assert.match(runtime,/Math\.ceil\(\(archiveBytes\+32\)\/Math\.max\(2,Number\(c\.k\)\|\|4\)\)/);
+  assert.match(previewWorkflow,/MEL_CRITICAL_CODE_BUNDLE_BYTES=\$BUNDLE_BYTES/);
+  assert.match(previewWorkflow,/MEL_CRITICAL_CODE_SHARD_BYTES=\$SHARD_BYTES/);
+  assert.match(previewWorkflow,/--define "MEL_CRITICAL_CODE_BUNDLE_BYTES:\$\{MEL_CRITICAL_CODE_BUNDLE_BYTES\}"/);
+  assert.match(previewWorkflow,/SHARDVAULT_REPRESENTATIVE_SIZE_UNDERSIZED/);
+  assert.match(releaseWorkflow,/MEL_CRITICAL_CODE_BUNDLE_BYTES=\$BUNDLE_BYTES/);
+  assert.match(releaseWorkflow,/--define "MEL_CRITICAL_CODE_BUNDLE_BYTES:\$\{MEL_CRITICAL_CODE_BUNDLE_BYTES\}"/);
+  assert.equal((wrangler.match(/"MEL_AUTONOMOUS_PROBE_LIMIT": "20"/g)||[]).length,2);
 });
