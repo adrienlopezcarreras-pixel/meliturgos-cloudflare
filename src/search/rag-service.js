@@ -19,6 +19,67 @@ function parseJson(value, fallback = {}) {
   try { return JSON.parse(value); } catch { return fallback; }
 }
 
+async function archiveSearchRows(db, owner, where, patterns) {
+  try {
+    return (await db.prepare(`
+      SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
+             a.provenance archive_provenance,a.metadata message_metadata,
+             c.title conversation_title,c.metadata conversation_metadata,
+             'archive_messages' source
+      FROM archive_messages a
+      JOIN conversations c ON c.id=a.conversation_id
+      WHERE (c.owner=? OR c.owner='') AND (${where})
+      ORDER BY a.timestamp DESC
+      LIMIT ?
+    `).bind(owner, ...patterns, ARCHIVE_SCAN_LIMIT).all()).results || [];
+  } catch {
+    return (await db.prepare(`
+      SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
+             NULL archive_provenance,NULL message_metadata,
+             c.title conversation_title,NULL conversation_metadata,
+             'archive_messages' source
+      FROM archive_messages a
+      JOIN conversations c ON c.id=a.conversation_id
+      WHERE (c.owner=? OR c.owner='') AND (${where})
+      ORDER BY a.timestamp DESC
+      LIMIT ?
+    `).bind(owner, ...patterns, ARCHIVE_SCAN_LIMIT).all()).results || [];
+  }
+}
+
+async function collectorSearchRows(db, owner, roles, where, patterns) {
+  const rolePlaceholders = roles.map(() => '?').join(',');
+  try {
+    return (await db.prepare(`
+      SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
+             a.provenance archive_provenance,a.metadata message_metadata,
+             c.title conversation_title,c.metadata conversation_metadata
+      FROM archive_messages a
+      JOIN conversations c ON c.id=a.conversation_id
+      WHERE (c.owner=? OR c.owner='')
+        AND (a.provenance='chatgpt_export' OR a.conversation_id LIKE 'chatgpt:%')
+        AND a.role IN (${rolePlaceholders})
+        AND (${where})
+      ORDER BY a.timestamp DESC
+      LIMIT ?
+    `).bind(owner, ...roles, ...patterns, ARCHIVE_SCAN_LIMIT).all()).results || [];
+  } catch {
+    return (await db.prepare(`
+      SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
+             NULL archive_provenance,NULL message_metadata,
+             c.title conversation_title,NULL conversation_metadata
+      FROM archive_messages a
+      JOIN conversations c ON c.id=a.conversation_id
+      WHERE (c.owner=? OR c.owner='')
+        AND a.conversation_id LIKE 'chatgpt:%'
+        AND a.role IN (${rolePlaceholders})
+        AND (${where})
+      ORDER BY a.timestamp DESC
+      LIMIT ?
+    `).bind(owner, ...roles, ...patterns, ARCHIVE_SCAN_LIMIT).all()).results || [];
+  }
+}
+
 function archiveMetadata(row) {
   const messageMetadata = parseJson(row?.message_metadata, {});
   const conversationMetadata = parseJson(row?.conversation_metadata, {});
@@ -56,17 +117,7 @@ export class RAGService {
 
     if (sources.includes('archive_messages')) {
       const where = lexicalSql('a.content', tokens);
-      rows.push(...(await db.prepare(`
-        SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
-               a.provenance archive_provenance,a.metadata message_metadata,
-               c.title conversation_title,c.metadata conversation_metadata,
-               'archive_messages' source
-        FROM archive_messages a
-        JOIN conversations c ON c.id=a.conversation_id
-        WHERE (c.owner=? OR c.owner='') AND (${where})
-        ORDER BY a.timestamp DESC
-        LIMIT ?
-      `).bind(owner, ...patterns, ARCHIVE_SCAN_LIMIT).all()).results);
+      rows.push(...await archiveSearchRows(db, owner, where, patterns));
     }
 
     if (sources.includes('conversations')) {
@@ -151,20 +202,7 @@ export class RAGService {
     if (!tokens.length) return { results: [], total: 0, retrieval: 'collector-lexical' };
     const where = lexicalSql('a.content', tokens);
     const patterns = lexicalBindings(tokens);
-    const rolePlaceholders = roles.map(() => '?').join(',');
-    const rows = (await db.prepare(`
-      SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
-             a.provenance archive_provenance,a.metadata message_metadata,
-             c.title conversation_title,c.metadata conversation_metadata
-      FROM archive_messages a
-      JOIN conversations c ON c.id=a.conversation_id
-      WHERE (c.owner=? OR c.owner='')
-        AND (a.provenance='chatgpt_export' OR a.conversation_id LIKE 'chatgpt:%')
-        AND a.role IN (${rolePlaceholders})
-        AND (${where})
-      ORDER BY a.timestamp DESC
-      LIMIT ?
-    `).bind(owner, ...roles, ...patterns, ARCHIVE_SCAN_LIMIT).all()).results || [];
+    const rows = await collectorSearchRows(db, owner, roles, where, patterns);
 
     const results = rows.map(row => {
       const similarity = tokens.filter(t => String(row.content || '').toLowerCase().includes(t)).length / tokens.length;
