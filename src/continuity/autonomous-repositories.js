@@ -1308,8 +1308,8 @@ async function representativeProbe(c,requiredBytes,env,proofs){
   const [expectedSha,actualSha]=await Promise.all([sha256Hex(payload),sha256Hex(rebuilt)]);
   if(expectedSha!==actualSha)throw new Error('REPRESENTATIVE_HASH_MISMATCH');
   const proof={ok:true,checked_at:new Date().toISOString(),representative_bytes:target,sha256:actualSha,parts,latency_ms:Date.now()-started,adapter:c.adapter||null};
-  const next={...(proofs||{}),[c.id]:proof};
-  await writeRepresentativeProofs(env,next);
+  if(proofs&&typeof proofs==='object')proofs[c.id]=proof;
+  await writeRepresentativeProofs(env,proofs&&typeof proofs==='object'?proofs:{[c.id]:proof});
   return {...c,
     representativeVerifiedAt:proof.checked_at,
     representativeBytes:target,
