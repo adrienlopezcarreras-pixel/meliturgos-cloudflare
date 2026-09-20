@@ -1303,7 +1303,7 @@ async function readActiveExternalEndpoints(env){
     for(let i=0;i<rows.length&&out.length<7;i++){
       try{
         const e=normalizeEndpoint(rows[i],i);
-        if(endpointMeetsDurability(env,e)&&endpointRepresentativeProofValid(env,e,requiredBytes)&&!out.some(x=>x.id===e.id))out.push(e);
+        if(endpointMeetsDurability(env,e)&&!out.some(x=>x.id===e.id))out.push(e);
       }catch{}
     }
     return out;
@@ -1325,7 +1325,7 @@ async function readValidatedExternalEndpoints(env,requiredBytes=0){
     for(let i=0;i<rows.length&&out.length<25;i++){
       try{
         const e=normalizeEndpoint(rows[i],i);
-        if(endpointMeetsDurability(env,e)&&!out.some(x=>x.id===e.id))out.push(e);
+        if(endpointMeetsDurability(env,e)&&endpointRepresentativeProofValid(env,e,requiredBytes)&&!out.some(x=>x.id===e.id))out.push(e);
       }catch{}
     }
     return out;
