@@ -95,7 +95,9 @@ test('external code sync is resumable and bounded to one verified replica per re
   assert.match(runtime,/const e=candidates\[0\],i=replicas\.length/);
   assert.match(runtime,/state\.replicas\.push\(descriptor\)/);
   assert.doesNotMatch(runtime,/assignDistinctExternalTargets\(replicas,candidates/);
-  assert.match(workflow,/for attempt in \$\(seq 1 24\)/);
+  assert.match(workflow,/for attempt in \$\(seq 1 32\)/);
   assert.match(workflow,/COPYING\|RETRY_TARGETS/);
+  assert.match(workflow,/000\|502\|503\|504/);
+  assert.match(workflow,/durable state will be resumed/);
   assert.match(workflow,/SYNC_STATUS.*COPIED/);
 });
