@@ -11,6 +11,9 @@ function defaultControl({ paused = false, source = 'default', reason = null } = 
     updated_at: null,
     source,
     reason,
+    launch_approved_sha: null,
+    launch_approved_at: null,
+    launch_gate_digest: null,
   };
 }
 
@@ -49,6 +52,9 @@ export async function getAutonomyControl(db, { memoryState = null } = {}) {
     updated_at: metadata.updated_at ?? row.last_seen ?? null,
     source: metadata.source || 'runtime',
     reason: metadata.reason || null,
+    launch_approved_sha: /^[a-f0-9]{40}$/i.test(String(metadata.launch_approved_sha || '')) ? String(metadata.launch_approved_sha).toLowerCase() : null,
+    launch_approved_at: metadata.launch_approved_at || null,
+    launch_gate_digest: /^[a-f0-9]{64}$/i.test(String(metadata.launch_gate_digest || '')) ? String(metadata.launch_gate_digest).toLowerCase() : null,
   };
 }
 
@@ -58,6 +64,9 @@ export async function setAutonomyControl(db, {
   owner_override,
   source = 'owner-ui',
   reason,
+  launch_approved_sha,
+  launch_approved_at,
+  launch_gate_digest,
   memoryState = null,
 } = {}) {
   if (!db && !memoryState) {
@@ -80,6 +89,13 @@ export async function setAutonomyControl(db, {
     updated_at: Date.now(),
     source: String(source || 'owner-ui').slice(0, 100),
     reason: reason === undefined ? (current.reason || null) : (reason ? String(reason).slice(0, 500) : null),
+    launch_approved_sha: launch_approved_sha === undefined
+      ? (current.launch_approved_sha || null)
+      : (/^[a-f0-9]{40}$/i.test(String(launch_approved_sha || '')) ? String(launch_approved_sha).toLowerCase() : null),
+    launch_approved_at: launch_approved_at === undefined ? (current.launch_approved_at || null) : (launch_approved_at || null),
+    launch_gate_digest: launch_gate_digest === undefined
+      ? (current.launch_gate_digest || null)
+      : (/^[a-f0-9]{64}$/i.test(String(launch_gate_digest || '')) ? String(launch_gate_digest).toLowerCase() : null),
   };
 
   if (!db) {
@@ -102,12 +118,18 @@ export async function setOwnerMaxAutonomy(db, {
   enabled = true,
   source = 'owner-ui',
   reason = null,
+  launch_approved_sha,
+  launch_approved_at,
+  launch_gate_digest,
   memoryState = null,
 } = {}) {
   return setAutonomyControl(db, {
     max_autonomy: enabled === true,
     source,
     reason: reason ?? (enabled ? 'owner-max-autonomy' : null),
+    launch_approved_sha,
+    launch_approved_at,
+    launch_gate_digest,
     memoryState,
   });
 }
