@@ -1,9 +1,11 @@
 const api = globalThis.browser;
-const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},partial:{},failed:{},unavailable:{},deferred:{},discovered:0,deepDiscoveryDone:false,deepDiscoveryAt:null,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,lastProgressAt:null,currentMessageCount:0,captureProcessed:0,stalledCount:0,updatedAt:null};
+const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},partial:{},failed:{},unavailable:{},deferred:{},discovered:0,deepDiscoveryDone:false,deepDiscoveryAt:null,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,lastProgressAt:null,lastHeartbeatAt:null,currentMessageCount:0,captureProcessed:0,stalledCount:0,autoRecoveries:0,lastRecoveryAt:null,lastRecoveryReason:null,updatedAt:null};
 const WATCHDOG_IDLE_MS=8*60*1000;
 const NETWORK_TIMEOUT_MS=6*60*1000;
 const MESSAGE_TIMEOUT_MS=60000;
+const PROBE_TIMEOUT_MS=15000;
 const DOM_STABLE_MAX_MS=3*60*1000;
+const RECOVERY_BLANK_MS=1500;
 const ECO_HEAVY_MESSAGES=250;
 const ECO_BLANK_EVERY=5;
 const STOP_WAIT_MS=3000;
@@ -82,9 +84,12 @@ async function historyUrls(){
   return [...new Set(out)];
 }
 
-async function tabMessage(tabId,payload,attempts=8){
+async function tabMessage(tabId,payload,attempts=8,timeoutMs=MESSAGE_TIMEOUT_MS){
   let err;
-  for(let i=0;i<attempts;i++){try{return await withTimeout(api.tabs.sendMessage(tabId,payload),MESSAGE_TIMEOUT_MS,'CONTENT_SCRIPT_TIMEOUT')}catch(e){err=e;await wait(500+i*250)}}
+  for(let i=0;i<attempts;i++){
+    try{return await withTimeout(api.tabs.sendMessage(tabId,payload),timeoutMs,'CONTENT_SCRIPT_TIMEOUT')}
+    catch(e){err=e;if(i+1<attempts)await wait(500+i*250)}
+  }
   throw err||new Error('CONTENT_SCRIPT_UNAVAILABLE');
 }
 async function pageUrls(tabId,deep=false){
@@ -140,24 +145,39 @@ async function waitForExpectedConversation(tabId,sourceId,timeout=15000){
   }
   return false;
 }
-async function waitForDomStable(tabId,ecoMode=true){
-  const started=Date.now();
-  let lastCount=-1,stable=0,lastProbe=null;
+async function waitForDomStable(tabId,ecoMode=true,generation=null){
+  const started=Date.now(),deadline=started+DOM_STABLE_MAX_MS;
+  let lastCount=-1,stable=0,lastProbe=null,lastHeartbeatSave=0;
   const interval=ecoMode?2500:1200;
-  while(Date.now()-started<DOM_STABLE_MAX_MS){
+  while(Date.now()<deadline){
+    if(generation!=null&&!isCurrentRun(generation))throw codedError('COLLECTOR_RUN_CANCELLED');
     try{
-      const probe=await tabMessage(tabId,{type:'mel.collector.probe'},1);
+      const remaining=Math.max(1000,deadline-Date.now());
+      const probe=await tabMessage(tabId,{type:'mel.collector.probe'},1,Math.min(PROBE_TIMEOUT_MS,remaining));
+      if(generation!=null&&!isCurrentRun(generation))throw codedError('COLLECTOR_RUN_CANCELLED');
       lastProbe=probe;
-      if(probe?.generating){stable=0;await wait(interval);continue}
+      const now=Date.now();
       const count=Number(probe?.messageCount||0);
-      if(count>0&&count===lastCount)stable++;
-      else stable=0;
+      if(count!==lastCount||now-lastHeartbeatSave>=15000){
+        lastHeartbeatSave=now;
+        await save({lastHeartbeatAt:now,currentMessageCount:count});
+      }
+      if(probe?.generating){
+        stable=0;
+      }else if(count>0&&count===lastCount){
+        stable++;
+      }else{
+        stable=0;
+      }
       lastCount=count;
-      if(stable>=(ecoMode?3:2))return probe;
-    }catch{}
-    await wait(interval);
+      if(!probe?.generating&&stable>=(ecoMode?3:2))return probe;
+    }catch(e){
+      if(e?.code==='COLLECTOR_RUN_CANCELLED')throw e;
+    }
+    const remaining=deadline-Date.now();
+    if(remaining<=0)break;
+    await wait(Math.min(interval,remaining));
   }
-  if(Number(lastProbe?.messageCount||0)>0&&!lastProbe?.generating)return lastProbe;
   throw codedError('DOM_NOT_STABLE');
 }
 
@@ -210,6 +230,21 @@ async function ecoCooldown(tabId,cfg,messageCount=0){
   if(messageCount>=600)delay=Math.max(delay,60000);
   await wait(delay);
 }
+async function recoverTab(tabId,reason){
+  try{
+    await api.tabs.update(tabId,{url:'about:blank'});
+    await waitComplete(tabId,15000);
+    await wait(RECOVERY_BLANK_MS);
+  }catch{}
+  const s=await state(),now=Date.now();
+  return save({
+    autoRecoveries:Number(s.autoRecoveries||0)+1,
+    lastRecoveryAt:now,
+    lastRecoveryReason:String(reason||'UNKNOWN_STALL'),
+    lastHeartbeatAt:now,
+    lastProgressAt:now
+  });
+}
 async function collectorTab(preferred){
   if(preferred!=null){
     try{
@@ -258,7 +293,7 @@ async function process(tabId,generation){
       await save({currentStage:'settling',lastProgressAt:Date.now()});
       await wait(cfg.ecoMode?4000:1200);
       await save({currentStage:'dom_stabilize',lastProgressAt:Date.now()});
-      const probe=await waitForDomStable(tabId,cfg.ecoMode);
+      const probe=await waitForDomStable(tabId,cfg.ecoMode,generation);
       itemMessageCount=Number(probe?.messageCount||0);
       await save({currentStage:'capture',lastProgressAt:Date.now(),currentMessageCount:itemMessageCount,captureProcessed:0});
       const cap=await captureStable(tabId,cfg.ecoMode?3:6);
@@ -289,8 +324,9 @@ async function process(tabId,generation){
       const unavailable={...(s.unavailable||{})};
       const deferred={...(s.deferred||{})};
       const transient=['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND','NOT_A_CONVERSATION','CONTENT_SCRIPT_UNAVAILABLE','CONTENT_SCRIPT_TIMEOUT','TAB_UPDATE_TIMEOUT','MEL_IMPORT_TIMEOUT','MEL_IMPORT_ABORTED','CONVERSATION_NO_PROGRESS_TIMEOUT','CAPTURE_NO_PROGRESS_TIMEOUT','DOM_NOT_STABLE'].includes(code);
-      const deferImmediately=['CONTENT_SCRIPT_TIMEOUT','TAB_UPDATE_TIMEOUT','MEL_IMPORT_TIMEOUT','MEL_IMPORT_ABORTED','CONVERSATION_NO_PROGRESS_TIMEOUT','CAPTURE_NO_PROGRESS_TIMEOUT','DOM_NOT_STABLE'].includes(code);
-      const maxAttempts=code==='CONVERSATION_REDIRECTED_OR_UNAVAILABLE'?2:(deferImmediately?1:(transient?2:3));
+      const autoRecoverable=['CONTENT_SCRIPT_UNAVAILABLE','CONTENT_SCRIPT_TIMEOUT','TAB_UPDATE_TIMEOUT','CAPTURE_NO_PROGRESS_TIMEOUT','DOM_NOT_STABLE'].includes(code);
+      const timedOut=['MEL_IMPORT_TIMEOUT','MEL_IMPORT_ABORTED','CONVERSATION_NO_PROGRESS_TIMEOUT'].includes(code);
+      const maxAttempts=code==='CONVERSATION_REDIRECTED_OR_UNAVAILABLE'?2:(transient?2:3);
       const nextQueue=[...(s.queue||[])];
       if(attempts<maxAttempts){
         if(!nextQueue.includes(url))nextQueue.push(url);
@@ -299,8 +335,12 @@ async function process(tabId,generation){
       }else if(transient){
         deferred[key]={url,code,attempts,deferredAt:Date.now()};
       }
-      const stalledCount=Number(s.stalledCount||0)+(deferImmediately?1:0);
+      const stalledCount=Number(s.stalledCount||0)+((autoRecoverable||timedOut)?1:0);
       await save({failed,unavailable,deferred,queue:nextQueue,lastError:code,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now(),stalledCount});
+      if(autoRecoverable){
+        await recoverTab(tabId,code);
+        continue;
+      }
     }
     const cooldownCfg=await config();
     await ecoCooldown(tabId,cooldownCfg,itemMessageCount);
