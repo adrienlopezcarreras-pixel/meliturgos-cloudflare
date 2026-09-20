@@ -13,7 +13,7 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/expectedRetentionDays:180/);
   assert.match(autonomous,/id:'dpaste-org-public'/);
   assert.match(autonomous,/adapter:'dpaste_org_b64'/);
-  assert.match(autonomous,/https:\/\/text\.dpaste\.org\/api\///);
+  assert.match(autonomous,/https:\/\/text\.dpaste\.org\/api\//);
   assert.match(autonomous,/form\.append\('expires','never'\)/);
   assert.match(autonomous,/page\+'\/raw\/'/);
   assert.match(autonomous,/https:\/\/paste\.myst\.rs\/api\/v2\/paste\?mel_object=/);
