@@ -86,6 +86,48 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
     evidenceUrls:['https://temp.sh/']
   },
   {
+    id:'0x0-st-public',
+    adapter:'zero_x0_binary',
+    urlTemplate:'https://0x0.st/?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:524288,
+    operatorDomain:'0x0.st',
+    providerId:'0x0-st',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:180,
+    retentionModel:'size_formula',
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-20T19:05:00.000Z',
+    evidenceUrls:['https://github.com/Reboot-Codes/0x0','https://github.com/Reboot-Codes/0x0/blob/master/instance/config.example.py']
+  },
+  {
+    id:'dpaste-org-public',
+    adapter:'dpaste_org_b64',
+    urlTemplate:'https://dpaste.org/api/?mel_object={objectId}',
+    method:'POST',
+    maxObjectBytes:1048576,
+    operatorDomain:'dpaste.org',
+    providerId:'dpaste-org',
+    jurisdiction:'UNKNOWN',
+    expectedRetentionDays:3650,
+    retentionModel:'declared_never',
+    authMode:'none',
+    anonymousWriteDeclared:true,
+    publicReadDeclared:true,
+    automationAllowedDeclared:true,
+    freeDeclared:true,
+    writeProbeAllowed:true,
+    evidenceMode:'documented_api',
+    evidenceReviewedAt:'2026-09-20T19:05:00.000Z',
+    evidenceUrls:['https://docs.dpaste.org/api/','https://docs.dpaste.org/settings/','https://github.com/DarrenOfficial/dpaste']
+  },
+  {
     id:'pastebin-ai-public',
     adapter:'pastebin_ai_b64',
     urlTemplate:'https://pastebin.ai/api/v1/pastes?mel_object={objectId}',
@@ -881,6 +923,25 @@ async function candidateWrite(c,url,payload,objectId,env){
     const remote=String(await r.text()).trim();
     return {readUrl:publicHttps(remote,'TEMP_SH_READ').toString()};
   }
+  if(c.adapter==='zero_x0_binary'){
+    const endpoint=fixedApiUrl(url),form=new FormData();
+    form.append('file',new Blob([payload],{type:'application/octet-stream'}),objectId+'.bin');
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'accept':'text/plain','user-agent':'MEL-ShardVault/1.0'},body:form},20000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const remote=String(await r.text()).trim();
+    return {readUrl:publicHttps(remote,'ZERO_X0_READ').toString()};
+  }
+  if(c.adapter==='dpaste_org_b64'){
+    const endpoint=fixedApiUrl(url),form=new FormData();
+    form.append('format','url');
+    form.append('content',b64u(payload));
+    form.append('lexer','_text');
+    form.append('expires','never');
+    const r=await fetchTimed(endpoint,{method:'POST',headers:{'accept':'text/plain','user-agent':'MEL-ShardVault/1.0'},body:form},20000);
+    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+    const page=publicHttps(String(await r.text()).trim(),'DPASTE_ORG_PAGE').toString().replace(/\/$/,'');
+    return {readUrl:publicHttps(page+'/raw/','DPASTE_ORG_READ').toString()};
+  }
   if(c.adapter==='pastebin_ai_b64'){
     const endpoint=fixedApiUrl(url);
     const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({title:objectId,content:b64u(payload),language:'plaintext',visibility:'unlisted',expiration:'1y'})},12000);
@@ -1045,7 +1106,7 @@ async function candidateReadBytes(c,url){
     if(!code)throw new Error('READ_CONTENT_MISSING');
     return unb64u(code);
   }
-  if(['pastebin_ai_b64','dpaste_b64','onec3_b64','msk_paste_b64','pastebox_b64','fileditch_b64'].includes(c.adapter)){
+  if(['pastebin_ai_b64','dpaste_b64','dpaste_org_b64','onec3_b64','msk_paste_b64','pastebox_b64','fileditch_b64'].includes(c.adapter)){
     const r=await fetchTimed(url,{method:'GET',headers:{'accept':'text/plain,application/json','user-agent':'MEL-ShardVault/1.0'}},12000);
     if(!r.ok)throw new Error('READ_HTTP_'+r.status);
     const text=String(await r.text()).trim();
