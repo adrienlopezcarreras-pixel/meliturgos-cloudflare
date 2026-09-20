@@ -416,17 +416,17 @@ async function fetchTimed(url,options={},ms=10000){
     throw new Error('REDIRECT_LIMIT');
   }finally{clearTimeout(t);}
 }
-async function fetchRateAware(url,options={},ms=12000,attempts=3){
+async function fetchRateAware(url,options={},ms=12000,attempts=3,baseDelayMs=1500,maxDelayMs=20000){
   let last=null;
   for(let attempt=0;attempt<attempts;attempt++){
     last=await fetchTimed(url,options,ms);
     if(last.status!==429)return last;
     if(attempt===attempts-1)return last;
     const raw=String(last.headers.get('retry-after')||'').trim();
-    let delay=1500*(attempt+1);
+    let delay=Math.max(500,Number(baseDelayMs)||1500)*(attempt+1);
     if(/^\d+$/.test(raw))delay=Math.max(delay,Number(raw)*1000);
     else if(raw){const at=Date.parse(raw);if(Number.isFinite(at))delay=Math.max(delay,at-Date.now());}
-    await new Promise(resolve=>setTimeout(resolve,Math.max(500,Math.min(20000,delay))));
+    await new Promise(resolve=>setTimeout(resolve,Math.max(500,Math.min(Math.max(500,Number(maxDelayMs)||20000),delay))));
   }
   return last;
 }
@@ -843,6 +843,11 @@ async function writeTelegraphAccessToken(env,token){
 function safeProviderError(value){
   return String(value||'UNKNOWN').toUpperCase().replace(/[^A-Z0-9_-]+/g,'_').slice(0,96)||'UNKNOWN';
 }
+function telegraphFloodWaitMs(value){
+  const match=/FLOOD[_ -]?WAIT[_ -]?(\d+)/i.exec(String(value||''));
+  if(!match)return 0;
+  return Math.min(30000,(Math.max(1,Number(match[1])||1)+1)*1000);
+}
 async function telegraphAccessToken(env,seed='melshardvault'){
   const cached=await readTelegraphAccessToken(env);
   if(cached)return cached;
@@ -914,7 +919,7 @@ async function candidateWrite(c,url,payload,objectId,env){
   }
   if(c.adapter==='msk_paste_b64'){
     const endpoint=fixedApiUrl(url);
-    const r=await fetchRateAware(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({content:b64u(payload),title:objectId,language:'plaintext',expiresIn:'1y',burnAfterRead:false})},12000,3);
+    const r=await fetchRateAware(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({content:b64u(payload),title:objectId,language:'plaintext',expiresIn:'1y',burnAfterRead:false})},12000,4,10000,30000);
     if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
     const raw=await r.text();
     return {readUrl:responseRemoteUrl(raw,r.headers,endpoint)};
@@ -983,12 +988,21 @@ async function candidateWrite(c,url,payload,objectId,env){
       content,
       return_content:'false'
     });
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:pageBody.toString()},15000);
-    if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
-    const data=await r.json().catch(()=>null),path=String(data?.result?.path||'').trim();
-    if(data?.ok!==true)throw new Error('WRITE_TELEGRAPH_'+safeProviderError(data?.error));
-    if(!path)throw new Error('WRITE_REMOTE_PATH_MISSING');
-    return {readUrl:publicHttps('https://api.telegra.ph/getPage/'+encodeURIComponent(path)+'?return_content=true','TELEGRAPH_READ').toString()};
+    let lastError='UNKNOWN';
+    for(let attempt=0;attempt<3;attempt++){
+      const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:pageBody.toString()},15000);
+      if(!r.ok)throw new Error('WRITE_HTTP_'+r.status);
+      const data=await r.json().catch(()=>null),path=String(data?.result?.path||'').trim();
+      if(data?.ok===true&&path)return {readUrl:publicHttps('https://api.telegra.ph/getPage/'+encodeURIComponent(path)+'?return_content=true','TELEGRAPH_READ').toString()};
+      lastError=String(data?.error||'UNKNOWN');
+      const waitMs=telegraphFloodWaitMs(lastError);
+      if(waitMs>0&&attempt<2){
+        await new Promise(resolve=>setTimeout(resolve,waitMs));
+        continue;
+      }
+      break;
+    }
+    throw new Error('WRITE_TELEGRAPH_'+safeProviderError(lastError));
   }
   if(c.adapter==='paste_c_net'){
     const endpoint=fixedApiUrl(url);
