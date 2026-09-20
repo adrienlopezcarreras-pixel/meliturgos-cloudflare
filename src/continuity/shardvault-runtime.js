@@ -33,17 +33,17 @@ async function fetchTimed(url,options={},ms=12000){
     throw new Error('REDIRECT_LIMIT');
   }finally{clearTimeout(t);}
 }
-async function fetchRateAware(url,options={},ms=12000,attempts=3){
+async function fetchRateAware(url,options={},ms=12000,attempts=3,baseDelayMs=1500,maxDelayMs=20000){
   let last=null;
   for(let attempt=0;attempt<attempts;attempt++){
     last=await fetchTimed(url,options,ms);
     if(last.status!==429)return last;
     if(attempt===attempts-1)return last;
     const raw=String(last.headers.get('retry-after')||'').trim();
-    let delay=1500*(attempt+1);
+    let delay=Math.max(500,Number(baseDelayMs)||1500)*(attempt+1);
     if(/^\d+$/.test(raw))delay=Math.max(delay,Number(raw)*1000);
     else if(raw){const at=Date.parse(raw);if(Number.isFinite(at))delay=Math.max(delay,at-Date.now());}
-    await new Promise(resolve=>setTimeout(resolve,Math.max(500,Math.min(20000,delay))));
+    await new Promise(resolve=>setTimeout(resolve,Math.max(500,Math.min(Math.max(500,Number(maxDelayMs)||20000),delay))));
   }
   return last;
 }
@@ -244,6 +244,11 @@ async function writeTelegraphAccessToken(env,token){
 function safeProviderError(value){
   return String(value||'UNKNOWN').toUpperCase().replace(/[^A-Z0-9_-]+/g,'_').slice(0,96)||'UNKNOWN';
 }
+function telegraphFloodWaitMs(value){
+  const match=/FLOOD[_ -]?WAIT[_ -]?(\d+)/i.exec(String(value||''));
+  if(!match)return 0;
+  return Math.min(30000,(Math.max(1,Number(match[1])||1)+1)*1000);
+}
 async function telegraphAccessToken(env,seed='melshardvault'){
   const cached=await readTelegraphAccessToken(env);
   if(cached)return cached;
@@ -326,7 +331,7 @@ async function upload(env,e,objectId,payload){
   }
   if(e.adapter==='msk_paste_b64'){
     const endpoint=fixedApiUrl(u);
-    const r=await fetchRateAware(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({content:b64u(payload),title:objectId,language:'plaintext',expiresIn:'1y',burnAfterRead:false})},15000,3);
+    const r=await fetchRateAware(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({content:b64u(payload),title:objectId,language:'plaintext',expiresIn:'1y',burnAfterRead:false})},15000,4,10000,30000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     return {remoteUrl:responseRemoteUrl(await r.text(),r.headers,endpoint)};
   }
@@ -388,12 +393,21 @@ async function upload(env,e,objectId,payload){
       content,
       return_content:'false'
     });
-    const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:pageBody.toString()},15000);
-    if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
-    const data=await r.json().catch(()=>null),path=String(data?.result?.path||'').trim();
-    if(data?.ok!==true)throw new Error(`WRITE_${e.id}_TELEGRAPH_${safeProviderError(data?.error)}`);
-    if(!path)throw new Error(`WRITE_${e.id}_REMOTE_PATH_MISSING`);
-    return {remoteUrl:'https://api.telegra.ph/getPage/'+encodeURIComponent(path)+'?return_content=true'};
+    let lastError='UNKNOWN';
+    for(let attempt=0;attempt<3;attempt++){
+      const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:pageBody.toString()},15000);
+      if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
+      const data=await r.json().catch(()=>null),path=String(data?.result?.path||'').trim();
+      if(data?.ok===true&&path)return {remoteUrl:'https://api.telegra.ph/getPage/'+encodeURIComponent(path)+'?return_content=true'};
+      lastError=String(data?.error||'UNKNOWN');
+      const waitMs=telegraphFloodWaitMs(lastError);
+      if(waitMs>0&&attempt<2){
+        await new Promise(resolve=>setTimeout(resolve,waitMs));
+        continue;
+      }
+      break;
+    }
+    throw new Error(`WRITE_${e.id}_TELEGRAPH_${safeProviderError(lastError)}`);
   }
   if(e.adapter==='paste_c_net'){
     const endpoint=fixedApiUrl(u);
@@ -547,15 +561,17 @@ const BASE64_WRAPPED_ADAPTERS=new Set(['pastebin_ai_b64','dpaste_b64','pastemyst
 function fragmentChunkLimit(e){
   const max=Math.max(256,Number(e?.maxBytes)||256);
   if(e?.backend==='r2'||e?.backend==='d1')return max;
+  if(String(e?.adapter||'')==='markdownpaste_b64')return Math.max(256,Math.min(24000,Math.floor(max*0.32)));
   const ratio=BASE64_WRAPPED_ADAPTERS.has(String(e?.adapter||''))?0.70:0.90;
   return Math.max(256,Math.floor(max*ratio));
 }
 function codeFragmentDeadlineMs(env,e,byteLength){
   const configured=Math.max(15000,Number(env?.MEL_SHARDVAULT_CODE_FRAGMENT_DEADLINE_MS)||45000);
   const parts=Math.max(1,Math.ceil(Math.max(1,Number(byteLength)||1)/fragmentChunkLimit(e)));
-  const providerFloor=['pastebox_b64','msk_paste_b64'].includes(String(e?.adapter||''))?65000:45000;
+  const adapter=String(e?.adapter||'');
+  const providerFloor=['msk_paste_b64','telegraph_b64','markdownpaste_b64'].includes(adapter)?82000:(adapter==='pastebox_b64'?65000:45000);
   const adaptive=Math.max(configured,providerFloor,45000+Math.max(0,parts-1)*9000);
-  return Math.min(82000,adaptive);
+  return Math.min(85000,adaptive);
 }
 async function uploadFragment(env,e,objectId,payload){
   const data=bytes(payload),limit=fragmentChunkLimit(e);
@@ -701,9 +717,10 @@ function codeTargetFailureClass(error){
   const retryable=/(?:DEADLINE|TIMEOUT|ABORT|FETCH|NETWORK|FLOOD|RATE[_ -]?LIMIT|_408\b|_425\b|_429\b|_500\b|_502\b|_503\b|_504\b)/.test(message);
   return {message,retryable,permanent:!retryable};
 }
-function codeTargetRetryDelayMs(count){
+function codeTargetRetryDelayMs(count,error=null){
   const attempt=Math.max(1,Number(count)||1);
-  return Math.min(120000,5000*(2**Math.min(5,attempt-1)));
+  const exponential=Math.min(120000,5000*(2**Math.min(5,attempt-1)));
+  return Math.max(exponential,telegraphFloodWaitMs(error));
 }
 function codeTargetAvailableNow(state,endpoint,now=Date.now()){
   const failure=state?.endpoint_failures?.[endpoint?.id];
@@ -725,7 +742,7 @@ function recordCodeTargetFailure(state,endpoint,error,now=Date.now()){
   const classification=codeTargetFailureClass(error);
   const current=state?.endpoint_failures?.[id]||{};
   const count=Math.max(0,Number(current.count)||0)+1;
-  const retryAfter=classification.retryable?new Date(now+codeTargetRetryDelayMs(count)).toISOString():null;
+  const retryAfter=classification.retryable?new Date(now+codeTargetRetryDelayMs(count,classification.message)).toISOString():null;
   state.endpoint_failures={...(state.endpoint_failures||{}),[id]:{
     count,last_error:classification.message,last_at:new Date(now).toISOString(),
     retryable:classification.retryable,permanent:classification.permanent,retry_after_at:retryAfter
