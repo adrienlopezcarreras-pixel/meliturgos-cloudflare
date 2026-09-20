@@ -118,6 +118,8 @@ async function syntheticPreviewRestoreProof(env) {
         dbSchemaVersion: 0,
         worker: 'meliturgos-preview',
         candidateBranch: env.MEL_GITHUB_BRANCH || 'candidate/mel-clean-autonomy',
+        deployedGitSha: runtimeCandidateSha(env) || null,
+        deployedGitBranch: env.MEL_DEPLOYED_GIT_BRANCH || 'candidate/mel-clean-autonomy',
         runtimeEnvironment: 'preview',
       }),
     },
@@ -157,12 +159,21 @@ export async function evaluateRestoreReadiness(env) {
     const integrity = await verifySnapshot(snapshot);
     if (!integrity?.ok) return { ok: false, status: 'SYSTEM_BACKUP_INTEGRITY_FAILED', code: integrity?.code || null, snapshot_id: latest.id };
     const restore = await verifyRestoreCandidate(snapshot);
+    const deployedSha = runtimeCandidateSha(env);
+    const backupSha = String(restore?.runtime?.deployedGitSha || '').toLowerCase();
+    const shaMatches = Boolean(deployedSha) && backupSha === deployedSha;
+    const ok = restore.ok === true && shaMatches;
     return {
-      ok: restore.ok === true,
-      status: restore.ok ? 'LATEST_SYSTEM_BACKUP_RESTORE_VERIFIED' : 'LATEST_SYSTEM_BACKUP_RESTORE_FAILED',
+      ok,
+      status: ok
+        ? 'LATEST_SYSTEM_BACKUP_RESTORE_VERIFIED'
+        : (restore.ok === true ? 'SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH' : 'LATEST_SYSTEM_BACKUP_RESTORE_FAILED'),
       snapshot_id: latest.id,
       created_at: latest.createdAt || null,
       integritySha256: latest.integritySha256 || snapshot?.integritySha256 || null,
+      deployed_sha: deployedSha || null,
+      backup_deployed_sha: backupSha || null,
+      sha_matches: shaMatches,
       restore,
     };
   } catch (error) {
@@ -298,7 +309,7 @@ export async function prepareAutonomyLaunch(env, {
 } = {}) {
   if (!isPreview(env)) {
     try {
-      await runScheduledSystemBackup(env, { intervalMs: 15 * 60 * 1000 });
+      await runScheduledSystemBackup(env, { intervalMs: 15 * 60 * 1000, force: true });
     } catch (error) {
       return {
         ok: false,
