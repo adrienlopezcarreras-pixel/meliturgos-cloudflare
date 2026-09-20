@@ -38,6 +38,11 @@ export async function exportD1SystemState(db, {
   for (const descriptor of discovered) {
     const name = String(descriptor?.name || '').trim();
     if (!name) continue;
+    // Cloudflare D1 exposes internal bookkeeping tables (for example _cf_KV)
+    // through sqlite_master but rejects direct reads with SQLITE_AUTH. They are
+    // platform state, not MEL-owned recoverable data, so a logical MEL backup
+    // must never attempt to export them.
+    if (name.startsWith('_cf_')) continue;
     const tableRows = [];
     let offset = 0;
     while (true) {
