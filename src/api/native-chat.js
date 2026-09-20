@@ -15,6 +15,7 @@ import { stripInternalCounters } from './chat-sanitization.js';
 import { retrieveContext } from '../core/orchestrator/conversation-context.js';
 import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
+import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
 
 export function shouldRetrieveArchiveRecall(text) {
   const value = String(text || '').trim();
@@ -523,6 +524,8 @@ export async function handleNativeChat(request, env, options = {}) {
   const operationalExperience = await loadOperationalExperience(env, text);
   const codeAccess = codeAccessTruth(capabilityManifest);
   const operatingManual = buildMelOperatingManualPrompt({ capabilityManifest, experience: operationalExperience });
+  const conversationFocus = deriveConversationFocus(recent, text);
+  const conversationFocusInstruction = buildConversationFocusInstruction(recent, text);
   const developmentQueued = toolResults.find((row) => row.capability === 'evolution.enqueue' && row.status === 'SUCCEEDED')?.result || null;
   const selfStateObserved = toolResults.find((row) => row.capability === 'self.state' && row.status === 'SUCCEEDED')?.result || null;
   const capabilityAuditObserved = toolResults.find((row) => row.capability === 'capability.audit' && row.status === 'SUCCEEDED')?.result || null;
@@ -531,6 +534,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const system = [
     buildMelIdentityPrompt(),
     buildResponseQualityInstruction(text),
+    conversationFocusInstruction,
     operatingManual,
     themeInstruction,
     'Réponds en français sauf demande contraire.',
@@ -626,6 +630,11 @@ export async function handleNativeChat(request, env, options = {}) {
           ? { mode: 'deterministic-self-state', source: 'self.state', observed_at: selfStateObserved.observed_at || null }
           : null,
     response_mode: inferResponseMode(text),
+    response_focus: {
+      elliptical: conversationFocus.elliptical === true,
+      anchor_from_recent: conversationFocus.elliptical === true && Boolean(conversationFocus.anchor) && conversationFocus.anchor !== conversationFocus.current,
+      constraint_count: Array.isArray(conversationFocus.constraints) ? conversationFocus.constraints.length : 0,
+    },
     memory_count: retrieved?.count || 0,
     memory_stored: memoryWrite.stored === true,
     memory_reason: memoryWrite.reason || null,

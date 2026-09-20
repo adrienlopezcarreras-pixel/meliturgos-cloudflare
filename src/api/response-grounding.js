@@ -169,6 +169,23 @@ export function formatVerifiedCapabilityAuditResponse(audit, { fallback = '' } =
   const partial = rows.filter(r => r?.truth_status === 'PARTIEL' || r?.truth_status === 'EXISTANT_MAIS_ECHEC_RUNTIME');
   const blocked = rows.filter(r => ['BLOCKED', 'BLOCKED_EXTERNAL', 'STUB', 'NOT_IMPLEMENTED'].includes(String(r?.truth_status || '')));
   const untested = rows.filter(r => r?.truth_status === 'EXISTANT_NON_TESTE');
+  const byCategory = new Map();
+  for (const row of rows) {
+    const category = String(row?.category || 'other');
+    if (!byCategory.has(category)) byCategory.set(category, []);
+    byCategory.get(category).push(row);
+  }
+  const categoryLines = [...byCategory.entries()]
+    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+    .slice(0, 10)
+    .map(([category, members]) => {
+      const ids = members.slice(0, 10).map(row => {
+        const status = String(row?.truth_status || 'UNKNOWN');
+        return String(row?.id || 'unknown') + '[' + status + ']';
+      });
+      const extra = members.length > ids.length ? ' +' + (members.length - ids.length) : '';
+      return '- ' + category + ' : ' + ids.join(', ') + extra + '.';
+    });
   const lines = [
     'Je viens d’inventorier ' + Number(audit.total || rows.length) + ' capacités runtime. Je distingue ce qui existe de ce qui a réellement été testé.',
     '- Testées maintenant : ' + tested.length + (tested.length ? ' — ' + tested.slice(0, 12).map(r => r.id).join(', ') : '') + '.',
@@ -176,6 +193,10 @@ export function formatVerifiedCapabilityAuditResponse(audit, { fallback = '' } =
     '- Partielles ou en échec runtime : ' + partial.length + (partial.length ? ' — ' + partial.slice(0, 12).map(r => r.id + ' (' + r.truth_status + ')').join(', ') : '') + '.',
     '- Bloquées / stubs / non implémentées : ' + blocked.length + (blocked.length ? ' — ' + blocked.slice(0, 12).map(r => r.id + ' (' + r.truth_status + ')').join(', ') : '') + '.',
   ];
+  if (categoryLines.length) {
+    lines.push('Carte de mes capacités par domaine :');
+    lines.push(...categoryLines);
+  }
   if (audit.deep !== true) lines.push('Cet inventaire n’est pas un test de bout en bout : les capacités non exécutées restent explicitement non testées.');
   if (Object.keys(counts).length) lines.push('Comptage vérité : ' + Object.entries(counts).map(([k,v]) => k + '=' + v).join(', ') + '.');
   return lines.join('\n');

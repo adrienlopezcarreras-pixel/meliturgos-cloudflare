@@ -57,7 +57,10 @@ test('capability audit formatter distinguishes tested from merely registered', (
   assert.match(text, /Testées maintenant : 1/);
   assert.match(text, /Existantes mais non testées maintenant : 1/);
   assert.match(text, /inventaire n’est pas un test de bout en bout/i);
+  assert.match(text, /Carte de mes capacités par domaine/);
+  assert.match(text, /code : code\.read\[EXISTANT_ET_TESTE\]/);
 });
+
 
 test('communication audit formatter reports concrete detected patterns', () => {
   const text = formatCommunicationAuditResponse({
