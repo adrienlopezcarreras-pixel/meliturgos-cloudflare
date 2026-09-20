@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-09-19T07:26:00Z",
+  "updated_at": "2026-09-20T11:55:00Z",
   "status_values": [
     "NOT_STARTED",
     "PARTIAL",
@@ -24,7 +24,16 @@
       "evidence": [
         "tests/mvp-product.test.mjs",
         "tests/native-chat-augmentio.test.mjs",
-        "tests/native-chat-capability-awareness.test.mjs"
+        "tests/native-chat-capability-awareness.test.mjs",
+        "tests/conversation-focus.test.mjs",
+        "tests/native-chat-quality-guard.test.mjs",
+        "tests/response-quality-audit.test.mjs",
+        "tests/capability-chat-routing.test.mjs"
+      ],
+      "verified_subcapabilities": [
+        "Short and status-only follow-ups resolve against the latest substantive conversation focus instead of silently changing subject.",
+        "Explicit scope exclusions persist across turns and are enforced by a post-generation response-quality guard.",
+        "Recent communication-quality incidents are persisted for later self-audit."
       ]
     },
     "memory": {
@@ -36,11 +45,16 @@
         "tests/learning-personalization.test.mjs",
         "tests/chatgpt-archive-importer.test.mjs",
         "tests/chatgpt-collector-integrity.test.mjs",
-        "tests/phase6-rag-search.test.mjs"
+        "tests/phase6-rag-search.test.mjs",
+        "tests/tool-context-grounding.test.mjs",
+        "tests/phase6-rag-api.test.mjs",
+        "tests/conversation-quality-migrations.test.mjs"
       ],
       "verified_subcapabilities": [
         "ChatGPT archive imports are deduplicated, synchronized to memory candidates, and expose server-side partial/full completeness receipts.",
-        "Native lexical retrieval can recover matching old ChatGPT archive messages beyond the former 1000-most-recent-message window."
+        "Native lexical retrieval can recover matching old ChatGPT archive messages beyond the former 1000-most-recent-message window.",
+        "Retrieved archive messages preserve speaker role and distinguish historical assistant output from user-authored context.",
+        "Conversation focus and response-quality state are part of the canonical D1 schema rather than relying only on lazy table creation."
       ]
     },
     "coding": {
@@ -158,9 +172,28 @@
       ]
     },
     "pc_local_agent": {
-      "status": "NOT_STARTED",
-      "truth_status": "NOT_IMPLEMENTED",
-      "evidence": []
+      "status": "PARTIAL",
+      "truth_status": "PARTIEL",
+      "evidence": [
+        "src/devices/computer-companion-api.js",
+        "src/capabilities/computer-runtime-capabilities.js",
+        "assets/MEL-Computer-Setup.ps1",
+        "assets/MEL-Computer-Companion.ps1",
+        "tests/computer-companion-api.test.mjs",
+        "tests/gen2/computer-use.test.mjs",
+        "tests/full-interface-computer.test.mjs",
+        "tests/native-chat-computer-intent.test.mjs",
+        "production-hardware-probe on candidate"
+      ],
+      "verified_subcapabilities": [
+        "Owner-authenticated pairing/status/control API exists for a Windows companion.",
+        "Computer-use policy rejects raw shell/file-write actions and requires step-scoped approval for sensitive visual actions.",
+        "Full-mode Computer UI and installer/companion assets are present."
+      ],
+      "unknowns": [
+        "A currently online paired Windows companion is runtime state and must be observed before MEL claims that the PC is connected.",
+        "Real physical end-to-end execution on Adrien's PC is not proven merely by repository tests or the server-side API."
+      ]
     },
     "android": {
       "status": "PARTIAL",
@@ -189,7 +222,15 @@
       "truth_status": "PARTIEL",
       "evidence": [
         "tests/phase3-device-bus.test.mjs",
-        "tests/sync-endpoint.test.mjs"
+        "tests/sync-endpoint.test.mjs",
+        "tests/computer-companion-api.test.mjs",
+        "tests/gen2/computer-use.test.mjs",
+        "tests/full-interface-computer.test.mjs",
+        "tests/waveshare-terminal-api.test.mjs",
+        "tests/waveshare-terminal-owner-routes.test.mjs"
+      ],
+      "verified_subcapabilities": [
+        "Computer and Waveshare terminal persistent state tables are provisioned by the canonical D1 migration chain."
       ]
     },
     "resilience": {
