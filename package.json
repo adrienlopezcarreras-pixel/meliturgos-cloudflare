@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "jsdom": "^30.0.1",
-    "wrangler": "^4.0.0"
+    "wrangler": "^4.135.0"
   },
   "dependencies": {
     "tsx": "^4.23.13"
