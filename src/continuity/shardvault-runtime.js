@@ -59,10 +59,10 @@ function generator(k,n){if(!Number.isInteger(k)||!Number.isInteger(n)||k<1||n<=k
 function encode(data,n){const k=data.length,size=data[0]?.length||0;if(!k||!size)throw new Error('RS_DATA_EMPTY');const g=generator(k,n),out=data.map(x=>new Uint8Array(x));for(let r=k;r<n;r++){const p=new Uint8Array(size);for(let s=0;s<k;s++){const c=g[r][s];if(!c)continue;for(let i=0;i<size;i++)p[i]^=mul(c,data[s][i]);}out.push(p);}return out;}
 function decode(available,k,n,size){const idx=available.map((x,i)=>x?i:-1).filter(i=>i>=0);if(idx.length<k)throw new Error(`SHARDS_INSUFFICIENT_${idx.length}_${k}`);const g=generator(k,n),sel=idx.slice(0,k),inverse=invert(sel.map(i=>g[i].slice())),data=[];for(let d=0;d<k;d++){const out=new Uint8Array(size);for(let s=0;s<k;s++){const c=inverse[d][s];if(!c)continue;const src=available[sel[s]];for(let i=0;i<size;i++)out[i]^=mul(c,src[i]);}data.push(out);}return encode(data,n);}
 
-function normalizeEndpoint(e,i){ if(!e?.id||!String(e.urlTemplate||'').includes('{objectId}'))throw new Error(`ENDPOINT_${i}_INVALID`);const probe=publicUrl(e.urlTemplate,`ENDPOINT_${e.id}`,true),method=String(e.method||'PUT').toUpperCase();if(!['PUT','POST'].includes(method))throw new Error(`ENDPOINT_${e.id}_METHOD`);return {id:String(e.id),urlTemplate:String(e.urlTemplate),method,maxBytes:Number(e.maxBytes)||8*1024*1024,operatorDomain:String(e.operatorDomain||probe.hostname).toLowerCase(),providerId:String(e.providerId||e.operatorDomain||probe.hostname).toLowerCase(),jurisdiction:String(e.jurisdiction||'UNKNOWN').toUpperCase(),score:Number.isFinite(Number(e.score))?Number(e.score):0,confidence:Number.isFinite(Number(e.confidence))?Number(e.confidence):0,adapter:e.adapter||null,evidenceMode:e.evidenceMode||null,evidenceVerification:e.evidenceVerification||null,verifiedAt:e.verifiedAt||null,probeLatencyMs:Number(e.probeLatencyMs)||0,representativeVerifiedAt:e.representativeVerifiedAt||null,representativeBytes:Number(e.representativeBytes)||0,representativeSha256:e.representativeSha256||null,representativeParts:Number(e.representativeParts)||0,expectedRetentionDays:Number(e.expectedRetentionDays)||0,retentionModel:e.retentionModel||'fixed',baseRetentionDays:Number(e.baseRetentionDays)||Number(e.expectedRetentionDays)||0,refreshEveryDays:Number(e.refreshEveryDays)||0,fullReadRenewsRetention:e.fullReadRenewsRetention===true,autonomous:e.autonomous===true,authMode:e.authMode||null}; }
+function normalizeEndpoint(e,i){ if(!e?.id||!String(e.urlTemplate||'').includes('{objectId}'))throw new Error(`ENDPOINT_${i}_INVALID`);const probe=publicUrl(e.urlTemplate,`ENDPOINT_${e.id}`,true),method=String(e.method||'PUT').toUpperCase();if(!['PUT','POST'].includes(method))throw new Error(`ENDPOINT_${e.id}_METHOD`);return {id:String(e.id),urlTemplate:String(e.urlTemplate),method,maxBytes:Number(e.maxBytes)||8*1024*1024,operatorDomain:String(e.operatorDomain||probe.hostname).toLowerCase(),providerId:String(e.providerId||e.operatorDomain||probe.hostname).toLowerCase(),jurisdiction:String(e.jurisdiction||'UNKNOWN').toUpperCase(),score:Number.isFinite(Number(e.score))?Number(e.score):0,confidence:Number.isFinite(Number(e.confidence))?Number(e.confidence):0,adapter:e.adapter||null,evidenceMode:e.evidenceMode||null,evidenceVerification:e.evidenceVerification||null,verifiedAt:e.verifiedAt||null,probeLatencyMs:Number(e.probeLatencyMs)||0,representativeVerifiedAt:e.representativeVerifiedAt||null,representativeBytes:Number(e.representativeBytes)||0,representativeSha256:e.representativeSha256||null,representativeParts:Number(e.representativeParts)||0,representativeLatencyMs:Number(e.representativeLatencyMs)||0,representativeDeadlineMs:Number(e.representativeDeadlineMs)||0,expectedRetentionDays:Number(e.expectedRetentionDays)||0,retentionModel:e.retentionModel||'fixed',baseRetentionDays:Number(e.baseRetentionDays)||Number(e.expectedRetentionDays)||0,refreshEveryDays:Number(e.refreshEveryDays)||0,fullReadRenewsRetention:e.fullReadRenewsRetention===true,autonomous:e.autonomous===true,authMode:e.authMode||null}; }
 function selectEndpoints(endpoints,count,maxPerOperator=2,maxPerProvider=2){const ranked=[...endpoints].sort((a,b)=>b.score-a.score||b.confidence-a.confidence||a.id.localeCompare(b.id)),selected=[],ids=new Set(),op=new Map(),prov=new Map();const can=(e,uo=false,up=false)=>!ids.has(e.id)&&(op.get(e.operatorDomain)||0)<maxPerOperator&&(prov.get(e.providerId)||0)<maxPerProvider&&(!uo||(op.get(e.operatorDomain)||0)===0)&&(!up||(prov.get(e.providerId)||0)===0);const add=e=>{selected.push(e);ids.add(e.id);op.set(e.operatorDomain,(op.get(e.operatorDomain)||0)+1);prov.set(e.providerId,(prov.get(e.providerId)||0)+1);};for(const e of ranked){if(can(e,true,true))add(e);if(selected.length>=count)return selected;}for(const e of ranked){if(can(e,true,false))add(e);if(selected.length>=count)return selected;}for(const e of ranked){if(can(e,false,false))add(e);if(selected.length>=count)break;}return selected;}
 function diversity(endpoints){return {selected:endpoints.length,uniqueOperators:new Set(endpoints.map(e=>e.operatorDomain)).size,uniqueProviders:new Set(endpoints.map(e=>e.providerId)).size,uniqueJurisdictions:new Set(endpoints.map(e=>e.jurisdiction).filter(x=>x&&x!=='UNKNOWN')).size,fallbackUsed:new Set(endpoints.map(e=>e.operatorDomain)).size<endpoints.length};}
-function endpointSnapshot(e){return {backend:e.backend||'http',urlTemplate:e.urlTemplate||null,keyPrefix:e.keyPrefix||null,bucketName:e.bucketName||null,method:e.method||'PUT',maxBytes:e.maxBytes,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:e.score,confidence:e.confidence,autonomous:e.autonomous===true,authMode:e.authMode||null,adapter:e.adapter||null,evidenceMode:e.evidenceMode||null,evidenceVerification:e.evidenceVerification||null,verifiedAt:e.verifiedAt||null,probeLatencyMs:Number(e.probeLatencyMs)||0,representativeVerifiedAt:e.representativeVerifiedAt||null,representativeBytes:Number(e.representativeBytes)||0,representativeSha256:e.representativeSha256||null,representativeParts:Number(e.representativeParts)||0,expectedRetentionDays:Number(e.expectedRetentionDays)||0,retentionModel:e.retentionModel||'fixed',baseRetentionDays:Number(e.baseRetentionDays)||Number(e.expectedRetentionDays)||0,refreshEveryDays:Number(e.refreshEveryDays)||0,fullReadRenewsRetention:e.fullReadRenewsRetention===true};}
+function endpointSnapshot(e){return {backend:e.backend||'http',urlTemplate:e.urlTemplate||null,keyPrefix:e.keyPrefix||null,bucketName:e.bucketName||null,method:e.method||'PUT',maxBytes:e.maxBytes,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:e.score,confidence:e.confidence,autonomous:e.autonomous===true,authMode:e.authMode||null,adapter:e.adapter||null,evidenceMode:e.evidenceMode||null,evidenceVerification:e.evidenceVerification||null,verifiedAt:e.verifiedAt||null,probeLatencyMs:Number(e.probeLatencyMs)||0,representativeVerifiedAt:e.representativeVerifiedAt||null,representativeBytes:Number(e.representativeBytes)||0,representativeSha256:e.representativeSha256||null,representativeParts:Number(e.representativeParts)||0,representativeLatencyMs:Number(e.representativeLatencyMs)||0,representativeDeadlineMs:Number(e.representativeDeadlineMs)||0,expectedRetentionDays:Number(e.expectedRetentionDays)||0,retentionModel:e.retentionModel||'fixed',baseRetentionDays:Number(e.baseRetentionDays)||Number(e.expectedRetentionDays)||0,refreshEveryDays:Number(e.refreshEveryDays)||0,fullReadRenewsRetention:e.fullReadRenewsRetention===true};}
 function mergeAutonomous(c,report,env){
   if(!report?.selected?.length)return c;
   const by=new Map(c.allEndpoints.map(e=>[e.id,e]));
@@ -588,9 +588,11 @@ function codeFragmentDeadlineMs(env,e,byteLength){
   const configured=Math.max(15000,Number(env?.MEL_SHARDVAULT_CODE_FRAGMENT_DEADLINE_MS)||45000);
   const parts=Math.max(1,Math.ceil(Math.max(1,Number(byteLength)||1)/fragmentChunkLimit(e)));
   const adapter=String(e?.adapter||'');
-  const providerFloor=['msk_paste_b64','telegraph_b64','markdownpaste_b64'].includes(adapter)?82000:(adapter==='pastebox_b64'?65000:45000);
-  const adaptive=Math.max(configured,providerFloor,45000+Math.max(0,parts-1)*9000);
-  return Math.min(85000,adaptive);
+  const providerFloor=['msk_paste_b64','pastegg_b64','telegraph_b64','markdownpaste_b64'].includes(adapter)?120000:(adapter==='pastebox_b64'?65000:45000);
+  const representativeLatency=Math.max(0,Number(e?.representativeLatencyMs)||0);
+  const proofBudget=representativeLatency>0?Math.ceil(representativeLatency*1.35+10000):0;
+  const adaptive=Math.max(configured,providerFloor,45000+Math.max(0,parts-1)*12000,proofBudget);
+  return Math.min(150000,adaptive);
 }
 async function uploadFragment(env,e,objectId,payload){
   const data=bytes(payload),limit=fragmentChunkLimit(e);
@@ -678,6 +680,23 @@ async function inspectCodeArchive(env,c=null){
   }
   return {ok:true,status:'COPIED',repository:id.repository,sha:id.sha,bucket:'meliturgos-private-media',key:preferredKey,bytes:Number(preferred?.size)||null,source:critical?'CRITICAL_BUNDLE':'FULL_ARCHIVE',critical_key:id.criticalKey,critical_bytes:Number(critical?.size)||null,critical_status:critical?'COPIED':'MISSING',fallback_key:id.key,fallback_bytes:Number(object?.size)||null,external};
 }
+export async function storeCriticalCodeBundle(env,input){
+  const id=deployedCodeIdentity(env);
+  if(!id)return {ok:false,status:'IDENTITY_UNAVAILABLE'};
+  if(!env?.MEDIA_BUCKET?.put||!env?.MEDIA_BUCKET?.get)return {ok:false,status:'R2_UNAVAILABLE',repository:id.repository,sha:id.sha};
+  const payload=bytes(input);
+  if(!payload.length||payload.length>16*1024*1024)return {ok:false,status:'CRITICAL_BUNDLE_SIZE_INVALID',bytes:payload.length};
+  const declared=typeof MEL_CRITICAL_CODE_BUNDLE_BYTES!=='undefined'?Math.max(0,Number(MEL_CRITICAL_CODE_BUNDLE_BYTES)||0):0;
+  if(declared>0&&payload.length!==declared)return {ok:false,status:'CRITICAL_BUNDLE_DECLARED_SIZE_MISMATCH',bytes:payload.length,declared_bytes:declared};
+  const sha256=await sha256Hex(payload);
+  await env.MEDIA_BUCKET.put(id.criticalKey,payload,{httpMetadata:{contentType:'application/gzip'},customMetadata:{repository:id.repository,git_sha:id.sha,sha256,kind:'critical-bundle'}});
+  const roundtrip=await env.MEDIA_BUCKET.get(id.criticalKey);
+  if(!roundtrip)return {ok:false,status:'CRITICAL_BUNDLE_ROUNDTRIP_MISSING',repository:id.repository,sha:id.sha};
+  const got=new Uint8Array(await roundtrip.arrayBuffer()),gotSha=await sha256Hex(got);
+  if(!byteArraysEqual(got,payload)||gotSha!==sha256)return {ok:false,status:'CRITICAL_BUNDLE_ROUNDTRIP_MISMATCH',repository:id.repository,sha:id.sha};
+  return {ok:true,status:'COPIED',repository:id.repository,sha:id.sha,key:id.criticalKey,bytes:payload.length,sha256,verified_roundtrip:true};
+}
+
 async function ensureCodeArchive(env){
   const existing=await inspectCodeArchive(env);
   if(existing.ok)return existing;
@@ -712,10 +731,21 @@ async function sha256Hex(value){
 }
 function uniqueExternalCandidates(env,...groups){
   const by=new Map();
+  const proofWeight=e=>[
+    Number(e?.representativeBytes)||0,
+    /^[0-9a-f]{64}$/i.test(String(e?.representativeSha256||''))?1:0,
+    Date.parse(String(e?.representativeVerifiedAt||''))||0
+  ];
+  const better=(next,current)=>{
+    const a=proofWeight(next),b=proofWeight(current);
+    for(let i=0;i<a.length;i++){if(a[i]!==b[i])return a[i]>b[i];}
+    return Number(next?.score||0)>Number(current?.score||0);
+  };
   for(const group of groups){
     for(const e of group||[]){
-      if(!e?.id||e?.backend||!endpointMeetsDurability(env,e)||by.has(e.id))continue;
-      by.set(e.id,e);
+      if(!e?.id||e?.backend||!endpointMeetsDurability(env,e))continue;
+      const current=by.get(e.id);
+      if(!current||better(e,current))by.set(e.id,e);
     }
   }
   return [...by.values()];
@@ -1061,7 +1091,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     const used=new Set(descriptors.map(x=>x.endpointId));
     const buildCandidates=(extra=[])=>{
       const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
-      const ranked=rankExternalCodeCandidates(env,[...(c.endpoints||[]),...(c.allEndpoints||[]),...validated,...codeCandidates,...extra],shard.length)
+      const ranked=rankExternalCodeCandidates(env,[...validated,...extra,...(c.endpoints||[]),...(c.allEndpoints||[]),...codeCandidates],shard.length)
         .filter(e=>!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e));
       return prioritizeExternalCodeCandidates(ranked,state);
     };
@@ -1254,7 +1284,7 @@ export const __shardvaultTest = Object.freeze({
 });
 
 
-function publicEndpointView(e){return {id:e.id,backend:e.backend||'http',bucket:e.bucketName||null,key_prefix:e.keyPrefix||null,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:Number(e.score)||0,confidence:Number(e.confidence)||0,autonomous:e.autonomous===true,authMode:e.authMode||null,maxBytes:Number(e.maxBytes)||0,preferred:e.preferred===true,adapter:e.adapter||null,expectedRetentionDays:Number(e.expectedRetentionDays)||0,retentionModel:e.retentionModel||'fixed',baseRetentionDays:Number(e.baseRetentionDays)||Number(e.expectedRetentionDays)||0,refreshEveryDays:Number(e.refreshEveryDays)||0,fullReadRenewsRetention:e.fullReadRenewsRetention===true,evidenceVerification:e.evidenceVerification||null,verifiedAt:e.verifiedAt||null,probeLatencyMs:Number(e.probeLatencyMs)||0};}
+function publicEndpointView(e){return {id:e.id,backend:e.backend||'http',bucket:e.bucketName||null,key_prefix:e.keyPrefix||null,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:Number(e.score)||0,confidence:Number(e.confidence)||0,autonomous:e.autonomous===true,authMode:e.authMode||null,maxBytes:Number(e.maxBytes)||0,preferred:e.preferred===true,adapter:e.adapter||null,expectedRetentionDays:Number(e.expectedRetentionDays)||0,retentionModel:e.retentionModel||'fixed',baseRetentionDays:Number(e.baseRetentionDays)||Number(e.expectedRetentionDays)||0,refreshEveryDays:Number(e.refreshEveryDays)||0,fullReadRenewsRetention:e.fullReadRenewsRetention===true,evidenceVerification:e.evidenceVerification||null,verifiedAt:e.verifiedAt||null,probeLatencyMs:Number(e.probeLatencyMs)||0,representativeVerifiedAt:e.representativeVerifiedAt||null,representativeBytes:Number(e.representativeBytes)||0,representativeSha256:e.representativeSha256||null,representativeParts:Number(e.representativeParts)||0,representativeLatencyMs:Number(e.representativeLatencyMs)||0,representativeDeadlineMs:Number(e.representativeDeadlineMs)||0};}
 const DISCOVERY_STATUS_KEY='shardvault/discovery/latest.json';
 const PREFERRED_ENDPOINT_KEY='shardvault/discovery/preferred-endpoint.json';
 const ACTIVE_ENDPOINTS_KEY='shardvault/discovery/active-external-endpoints.json';
@@ -1550,14 +1580,15 @@ export async function searchAutonomousShardVaultRepositories(env){
     let requiredBytes=256,last=null;
     try{const rows=await inventoryRows(env,c);last=latestSnapshot(rows);requiredBytes=Math.max(256,Number(last?.shardSize)||256);}catch{}
     try{
-      const code=await inspectCodeArchive(env,c);
+      const code=await ensureCodeArchive(env);
       const declaredBundleBytes=typeof MEL_CRITICAL_CODE_BUNDLE_BYTES!=='undefined'
         ? Math.max(0,Number(MEL_CRITICAL_CODE_BUNDLE_BYTES)||0)
         : 0;
       const archiveBytes=Math.max(
-        declaredBundleBytes,
-        Math.max(0,Number(code?.critical_bytes||code?.bytes||0))
+        Math.max(0,Number(code?.bytes||code?.critical_bytes||0)),
+        code?.source==='CRITICAL_BUNDLE'?declaredBundleBytes:0
       );
+      last={...(last||{}),code_archive_probe:code};
       if(archiveBytes>0){
         const codeShardBytes=Math.max(64*1024,Math.ceil((archiveBytes+32)/Math.max(2,Number(c.k)||4)));
         requiredBytes=Math.max(requiredBytes,codeShardBytes);
@@ -1594,6 +1625,10 @@ export async function searchAutonomousShardVaultRepositories(env){
       searched_at:new Date().toISOString(),
       required_bytes:requiredBytes,
       declared_critical_bundle_bytes:typeof MEL_CRITICAL_CODE_BUNDLE_BYTES!=='undefined'?Math.max(0,Number(MEL_CRITICAL_CODE_BUNDLE_BYTES)||0):0,
+      representative_archive_source:last?.code_archive_probe?.source||null,
+      representative_archive_key:last?.code_archive_probe?.key||null,
+      representative_archive_bytes:Math.max(0,Number(last?.code_archive_probe?.bytes||0)),
+      representative_critical_status:last?.code_archive_probe?.critical_status||null,
       discovered:report.discovered||0,
       probed:report.probed||0,
       representative_probed:Number(report?.representative_probed||0),
