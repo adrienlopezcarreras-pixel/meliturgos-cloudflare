@@ -10,8 +10,8 @@ Collecteur local et progressif des conversations ChatGPT vers la mémoire persis
 - envoie chaque conversation vers `/api/gen2/import/chatgpt-archive` ;
 - s'appuie sur la déduplication MEL par identifiant de conversation + identifiant de message ;
 - garde localement la file, les réussites, les échecs et les compteurs ;
-- surveille la progression de chaque conversation : après 8 minutes sans progression exploitable, l'opération bloquée est interrompue, classée « à retenter plus tard » et la file continue ;
-- les appels au contenu et l'import réseau ont leurs propres délais maximum afin qu'une promesse bloquée ne puisse plus immobiliser toute la collecte ;
+- impose une sonde DOM courte (15 s) et une stabilisation strictement bornée à 3 minutes ; si une grosse conversation se bloque, l'onglet de collecte est automatiquement vidé puis la conversation est remise une fois en file, sans nécessiter `Pause` / `Démarrer` ;
+- les appels au contenu et l'import réseau ont leurs propres délais maximum afin qu'une promesse bloquée ne puisse plus immobiliser toute la collecte ; après deux tentatives d'un blocage transitoire, l'élément est différé et la file passe automatiquement au suivant ;
 - reprend après interruption et permet de remettre explicitement les conversations différées en file ;
 - capture également les nouvelles conversations stables pendant l'utilisation normale de ChatGPT, mais seulement par petits incréments et jamais pendant le traitement massif ;
 - une capture passive partielle reste marquée `partial` et ne peut jamais empêcher le passage massif de récupérer la conversation complète ;
