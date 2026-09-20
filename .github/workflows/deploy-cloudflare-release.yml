@@ -29,7 +29,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.ref_name }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
@@ -119,6 +119,133 @@ jobs:
           npx wrangler deploy \
             --define "MEL_DEPLOYED_GIT_SHA:'${EXPECTED_SHA}'" \
             --define "MEL_DEPLOYED_GIT_BRANCH:'${RELEASE_BRANCH}'"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Prepare and prove production autonomy launch evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${BOOTSTRAP_TOKEN}"
+
+          cleanup_secret() {
+            set +e
+            yes | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN >/tmp/mel-launch-secret-delete.log 2>&1
+            rc=$?
+            set -e
+            return "$rc"
+          }
+          trap 'cleanup_secret || true' EXIT
+
+          printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN
+
+          ready=0
+          for attempt in 1 2 3 4 5 6 7 8; do
+            HTTP_CODE="$(curl --silent --show-error --max-time 180 \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{}' \
+              --output production-launch-bootstrap.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "$HTTP_CODE" = "200" ]; then
+              ready=1
+              break
+            fi
+            echo "Launch bootstrap attempt ${attempt} returned HTTP ${HTTP_CODE}."
+            if [ -s production-launch-bootstrap.json ]; then
+              node - <<'NODE'
+              const fs=require('fs');
+              const d=JSON.parse(fs.readFileSync('production-launch-bootstrap.json','utf8'));
+              console.log(JSON.stringify({
+                status:d?.status||null,
+                blockers:d?.readiness?.blockers||[],
+                restore_status:d?.readiness?.restore?.status||null,
+                shardvault_status:d?.readiness?.shardvault?.status||null,
+                active_external_count:Number(d?.readiness?.shardvault?.active_external_count||0),
+                external_code_status:d?.readiness?.shardvault?.external_code_status||null,
+                external_code_endpoints:Number(d?.readiness?.shardvault?.external_code_endpoints||0)
+              },null,2));
+              NODE
+            fi
+            sleep 5
+          done
+          test "$ready" -eq 1
+
+          EXPECTED_SHA="$EXPECTED_SHA" node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('production-launch-bootstrap.json','utf8'));
+          const r=d?.readiness||{};
+          const shard=r.shardvault||{};
+          const restore=r.restore||{};
+          if(d?.ok!==true) throw new Error('PRODUCTION_LAUNCH_BOOTSTRAP_NOT_OK');
+          if(d?.autonomy_started!==false || d?.owner_launch_required!==true) throw new Error('BOOTSTRAP_MUST_NOT_START_AUTONOMY');
+          if(r?.launch_ready!==true || r?.status!=='GO_FOR_SUPERVISED_AUTONOMY') throw new Error('PRODUCTION_LAUNCH_NO_GO');
+          if(String(r?.candidate_sha||'')!==String(process.env.EXPECTED_SHA||'')) throw new Error('PRODUCTION_LAUNCH_SHA_MISMATCH');
+          for(const [key,value] of Object.entries(r?.gates||{})){
+            if(value!==true) throw new Error('PRODUCTION_LAUNCH_GATE_FALSE:'+key);
+          }
+          if(restore?.ok!==true || restore?.sha_matches!==true) throw new Error('PRODUCTION_RESTORE_SHA_NOT_VERIFIED');
+          if(String(restore?.deployed_sha||'')!==String(process.env.EXPECTED_SHA||'')) throw new Error('PRODUCTION_RESTORE_DEPLOYED_SHA_MISMATCH');
+          if(String(restore?.backup_deployed_sha||'')!==String(process.env.EXPECTED_SHA||'')) throw new Error('PRODUCTION_BACKUP_SHA_MISMATCH');
+          if(shard?.ok!==true || shard?.recoverable!==true) throw new Error('PRODUCTION_SHARDVAULT_NOT_RECOVERABLE');
+          if(Number(shard?.active_external_count||0)<7) throw new Error('PRODUCTION_SHARDVAULT_EXTERNAL_LT_7');
+          if(shard?.external_code_status!=='COPIED') throw new Error('PRODUCTION_EXTERNAL_CODE_NOT_COPIED');
+          if(Number(shard?.external_code_endpoints||0)<7) throw new Error('PRODUCTION_EXTERNAL_CODE_ENDPOINTS_LT_7');
+          console.log(JSON.stringify({
+            status:r.status,
+            candidate_sha:r.candidate_sha,
+            gates:r.gates,
+            retry_cap:r?.failure_hygiene?.retry_cap,
+            historical_failed_count:r?.failure_hygiene?.historical_failed_count,
+            restore,
+            shardvault:shard,
+            autonomy_started:d.autonomy_started,
+            owner_launch_required:d.owner_launch_required,
+          },null,2));
+          NODE
+
+          PUBLIC_CODE="$(curl --silent --show-error --max-time 60 \
+            --output production-launch-readiness.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/teacher/launch-readiness")"
+          test "$PUBLIC_CODE" = "200"
+
+          EXPECTED_SHA="$EXPECTED_SHA" node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('production-launch-readiness.json','utf8'));
+          if(d?.launch_ready!==true || d?.status!=='GO_FOR_SUPERVISED_AUTONOMY') throw new Error('PUBLIC_PRODUCTION_LAUNCH_NO_GO');
+          if(String(d?.candidate_sha||'')!==String(process.env.EXPECTED_SHA||'')) throw new Error('PUBLIC_PRODUCTION_SHA_MISMATCH');
+          if(d?.restore?.ok!==true) throw new Error('PUBLIC_PRODUCTION_RESTORE_NOT_OK');
+          if(d?.shardvault?.ok!==true) throw new Error('PUBLIC_PRODUCTION_SHARDVAULT_NOT_OK');
+          if(Number(d?.shardvault?.active_external_count||0)<7) throw new Error('PUBLIC_PRODUCTION_EXTERNAL_LT_7');
+          if(d?.shardvault?.external_code_status!=='COPIED') throw new Error('PUBLIC_PRODUCTION_CODE_NOT_COPIED');
+          if(Number(d?.shardvault?.external_code_endpoints||0)<7) throw new Error('PUBLIC_PRODUCTION_CODE_ENDPOINTS_LT_7');
+          console.log('Public production launch-readiness proof is GO.');
+          NODE
+
+          cleanup_secret
+          trap - EXIT
+          echo "Temporary launch bootstrap secret deleted."
+
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              echo '### MEL production launch readiness'
+              echo
+              echo '- Verdict: **GO_FOR_SUPERVISED_AUTONOMY**'
+              echo "- Exact SHA: \`${EXPECTED_SHA}\`"
+              echo '- Fresh SHA-bound system backup: verified'
+              echo '- ShardVault recovery: verified'
+              echo '- External critical-code copies: >= 7'
+              echo '- Historical failure retries: bounded'
+              echo '- Autonomy started by deployment: **no**'
+              echo '- Owner Resume/MAX remains required to start the SHA'
+              echo '- Temporary bootstrap secret: deleted'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
