@@ -8,6 +8,7 @@ import {
   sourceIntelligenceSummary,
 } from '../src/learning/source-intelligence.js';
 import { getEcosystemWatchCatalog } from '../src/evaluation/ecosystem-watch-catalog.js';
+import { LearningEngine } from '../src/learning/learning-engine.js';
 
 test('source intelligence keeps popularity separate from factual authority', () => {
   const ranked=rankSourceCandidates([
@@ -56,4 +57,20 @@ test('website and AI watch feeds cover traffic, consensus, backlinks and indepen
   const knowledge=await readFile(new URL('../src/capabilities/knowledge-workspace-capabilities.js',import.meta.url),'utf8');
   assert.match(knowledge,/rankSourceCandidates/);
   assert.match(knowledge,/Qualité source/);
+});
+
+class MemoryStub {
+  async remember(row){ return structuredClone(row); }
+  async recent(){ return []; }
+  async all(){ return []; }
+}
+
+test('LearningEngine exposes source intelligence to guidance and training metadata', async () => {
+  const engine=new LearningEngine({memory:new MemoryStub()});
+  const guidance=engine.expertGuidance('source provenance benchmark',{limit:3});
+  assert.equal(guidance.source_intelligence.website_feeds,3);
+  assert.equal(guidance.source_intelligence.ai_feeds,4);
+  const bundle=await engine.trainingBundle({minQuality:.65});
+  assert.equal(bundle.source_intelligence.schema,'mel.source-intelligence/v1');
+  assert.ok(bundle.source_intelligence.policies.includes('PRIMARY_SOURCES_FOR_FACTS'));
 });
