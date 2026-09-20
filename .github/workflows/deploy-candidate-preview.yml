@@ -52,7 +52,12 @@ jobs:
           test -s mel-critical-code.tar.gz
           BUNDLE_BYTES="$(wc -c < mel-critical-code.tar.gz)"
           test "$BUNDLE_BYTES" -lt $((16 * 1024 * 1024))
+          SHARD_BYTES=$(( (BUNDLE_BYTES + 32 + 3) / 4 ))
+          if [ "$SHARD_BYTES" -lt 65536 ]; then SHARD_BYTES=65536; fi
+          echo "MEL_CRITICAL_CODE_BUNDLE_BYTES=$BUNDLE_BYTES" >> "$GITHUB_ENV"
+          echo "MEL_CRITICAL_CODE_SHARD_BYTES=$SHARD_BYTES" >> "$GITHUB_ENV"
           echo "Critical candidate code bundle bytes: $BUNDLE_BYTES"
+          echo "Representative code shard bytes: $SHARD_BYTES"
 
       - name: Upload exact-SHA critical MEL code bundle to preview R2
         shell: bash
@@ -77,6 +82,7 @@ jobs:
           npx wrangler deploy --env preview \
             --define "MEL_DEPLOYED_GIT_SHA:'${GITHUB_SHA}'" \
             --define "MEL_DEPLOYED_GIT_BRANCH:'${GITHUB_REF_NAME}'" \
+            --define "MEL_CRITICAL_CODE_BUNDLE_BYTES:${MEL_CRITICAL_CODE_BUNDLE_BYTES}" \
             2>&1 | tee "$RAW_LOG"
           STATUS=${PIPESTATUS[0]}
           exit "$STATUS"
@@ -569,14 +575,16 @@ jobs:
               "${BASE_URL}/api/gen2/shardvault/search" || true)"
             echo "ShardVault discovery attempt ${attempt}: HTTP ${HTTP_CODE}"
             if [ "${HTTP_CODE}" = "200" ] && python - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
           try:
               d=json.loads(Path('shardvault-live-probe.json').read_text(encoding='utf-8'))
           except Exception:
               raise SystemExit(1)
+          expected=int(os.environ.get('MEL_CRITICAL_CODE_SHARD_BYTES') or 0)
           raise SystemExit(0 if (
               d.get('ok') is True
+              and int(d.get('required_bytes') or 0) >= expected
               and int(d.get('probed') or 0) >= 6
               and int(d.get('representative_validated_count') or 0) >= 7
               and len(d.get('representative_validated_endpoint_ids') or []) >= 7
@@ -601,6 +609,8 @@ jobs:
           discovered=int(data.get('discovered') or 0)
           probed=int(data.get('probed') or 0)
           active=int(data.get('active_external_count') or 0)
+          required_bytes=int(data.get('required_bytes') or 0)
+          expected_required_bytes=int(os.environ.get('MEL_CRITICAL_CODE_SHARD_BYTES') or 0)
           representative_probed=int(data.get('representative_probed') or 0)
           representative_qualified=int(data.get('representative_qualified') or 0)
           representative_validated=int(data.get('representative_validated_count') or 0)
@@ -610,6 +620,8 @@ jobs:
               raise SystemExit('SHARDVAULT_SEARCH_FAILED: '+str(data.get('error') or data.get('status')))
           if discovered < 7:
               raise SystemExit(f'SHARDVAULT_DISCOVERY_TOO_SMALL: {discovered}')
+          if required_bytes < expected_required_bytes:
+              raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_SIZE_UNDERSIZED: required={required_bytes} expected={expected_required_bytes}')
           if probed < 6:
               raise SystemExit(f'SHARDVAULT_FRESH_LIVE_PROBES_LT_6: discovered={discovered} probed={probed}')
           if representative_validated < 7:
@@ -625,6 +637,7 @@ jobs:
               with open(summary,'a',encoding='utf-8') as h:
                   h.write('### ShardVault live external probe\n\n')
                   h.write(f'- Candidates discovered: {discovered}\n')
+                  h.write(f'- Required representative bytes: {required_bytes} (expected >= {expected_required_bytes})\n')
                   h.write(f'- Fresh small live probes passed: {probed}\n')
                   h.write(f'- Representative probes attempted: {representative_probed}\n')
                   h.write(f'- Representative full-fragment qualifications: {representative_qualified}\n')
