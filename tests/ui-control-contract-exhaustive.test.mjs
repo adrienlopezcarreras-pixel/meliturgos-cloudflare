@@ -6,9 +6,47 @@ import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 import { onRequestGet as renderFull } from '../src/pages/full-interface-v2.js';
 import { FULL_MODE_CONTROL_PATCH } from '../src/pages/full-mode-control-enhancer.js';
 import { onRequestGet as renderWatch } from '../src/pages/watch-interface.js';
+import { handleShardVaultStatus } from '../src/pages/shardvault-status.js';
 
 function expectAll(source, patterns, label) {
   for (const pattern of patterns) assert.match(source, pattern, label + ' missing ' + pattern);
+}
+
+function idButtonIds(html) {
+  return [...new Set([...String(html).matchAll(/<button\b[^>]*\bid=["']([^"']+)["']/gi)].map(match => match[1]))];
+}
+
+function delegatedButtonAttrs(html) {
+  return [...String(html).matchAll(/<button\b([^>]*)>/gi)]
+    .map(match => match[1])
+    .filter(attrs => !/\bid=["']/.test(attrs))
+    .map(attrs => {
+      const match = attrs.match(/\b(data-(?:jump|pc-app|pc-key|view))=["'][^"']+["']/);
+      return match?.[1] || null;
+    });
+}
+
+function escapeRe(value) {
+  return String(value).replace(/[-/\\^$*+?.()|[\]{}]/g, '\\function expectAll(source, patterns, label) {
+  for (const pattern of patterns) assert.match(source, pattern, label + ' missing ' + pattern);
+}
+');
+}
+
+function assertIdButtonsWired(html, source, label) {
+  const ids = idButtonIds(html);
+  const aliases = new Map();
+  for (const match of String(source).matchAll(/\b([A-Za-z_$][\w$]*)=(?:qs|q)\(["']#([^"']+)["']\)/g)) {
+    aliases.set(match[2], match[1]);
+  }
+  for (const id of ids) {
+    const escaped = escapeRe(id);
+    const direct = new RegExp("(?:qs\\([\"']#" + escaped + "[\"']\\)|q\\([\"']#" + escaped + "[\"']\\)|getElementById\\([\"']" + escaped + "[\"']\\)|\\$\\([\"']" + escaped + "[\"']\\))(?:\\.onclick\\s*=|\\.addEventListener\\()");
+    const alias = aliases.get(id);
+    const aliasBound = alias ? new RegExp("\\b" + escapeRe(alias) + "\\.(?:onclick\\s*=|addEventListener\\()").test(source) : false;
+    assert.ok(direct.test(source) || aliasBound, label + ' missing handler for #' + id);
+  }
+  return ids;
 }
 
 test('normal page exposes only controls that are wired by the canonical normal runtime', async () => {
@@ -109,4 +147,41 @@ test('learning controls are wired and LoRA validation is not mislabeled as runti
     /aucun adaptateur actif en runtime/,
   ], 'learning meter');
   assert.doesNotMatch(learning, /inchangés · LoRA inactif/);
+});
+
+test('every canonical id button is automatically inventoried and wired', async () => {
+  const fullHtml = await (await renderFull()).text();
+  const fullSource = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+  const fullIds = assertIdButtonsWired(fullHtml, fullSource, 'full interface');
+  assert.ok(fullIds.length >= 30, 'full interface button inventory unexpectedly small');
+
+  const enhancerIds = assertIdButtonsWired(FULL_MODE_CONTROL_PATCH, FULL_MODE_CONTROL_PATCH, 'full-mode enhancer');
+  assert.ok(enhancerIds.length >= 6, 'full-mode enhancer inventory unexpectedly small');
+
+  const watchHtml = await (await renderWatch()).text();
+  const watchIds = assertIdButtonsWired(watchHtml, watchHtml, 'watch interface');
+  assert.ok(watchIds.length >= 3, 'watch interface inventory unexpectedly small');
+
+  const shardResponse = await handleShardVaultStatus(new Request('https://mel.test/shardvault'), {});
+  assert.ok(shardResponse instanceof Response);
+  const shardHtml = await shardResponse.text();
+  const shardSource = await readFile(new URL('../src/pages/shardvault-status.js', import.meta.url), 'utf8');
+  const shardIds = assertIdButtonsWired(shardHtml, shardSource, 'ShardVault interface');
+  assert.ok(shardIds.length >= 4, 'ShardVault button inventory unexpectedly small');
+});
+
+test('all anonymous canonical buttons use a declared delegated control family', async () => {
+  const html = await (await renderFull()).text();
+  const source = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
+  const delegated = delegatedButtonAttrs(html);
+  assert.equal(delegated.every(Boolean), true, 'anonymous button without recognized delegated selector');
+  const families = new Set(delegated);
+  assert.ok(families.has('data-view'));
+  assert.ok(families.has('data-jump'));
+  assert.ok(families.has('data-pc-app'));
+  assert.ok(families.has('data-pc-key'));
+  assert.match(source, /qsa\('#nav button'\)\.forEach\(b=>b\.onclick=/);
+  assert.match(source, /qsa\('\[data-jump\]'\)\.forEach\(b=>b\.onclick=/);
+  assert.match(source, /qsa\('\[data-pc-app\]'\)\.forEach\(b=>b\.onclick=/);
+  assert.match(source, /qsa\('\[data-pc-key\]'\)\.forEach\(b=>b\.onclick=/);
 });
