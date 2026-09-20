@@ -115,9 +115,8 @@ export function buildRestorePlan(snapshot, verification) {
 }
 
 export function createRestoreService({ storage, target = null, audit = async () => {} } = {}) {
-  requireValue(storage && typeof storage.get === 'function', 'RESTORE_STORAGE_GET_REQUIRED');
-
   async function resolve(input = {}, context = {}) {
+    requireValue(storage && typeof storage.get === 'function', 'RESTORE_STORAGE_GET_REQUIRED');
     const snapshot = input.snapshot || (input.id ? await storage.get(String(input.id), context) : null);
     if (!snapshot) throw new DomainError('SNAPSHOT_NOT_FOUND', 404);
     return snapshot;
