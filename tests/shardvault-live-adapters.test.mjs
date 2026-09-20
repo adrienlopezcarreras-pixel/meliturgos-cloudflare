@@ -63,7 +63,7 @@ test('code archive replication is separately gated after seven live targets are 
   assert.match(runtime,/MEL-ShardVault-Code/);
   assert.match(runtime,/shardvault\/code-manifests\//);
   assert.match(runtime,/syncStateKey:'shardvault\/code-sync-state\//);
-  assert.match(runtime,/syncCipherKey:'shardvault\/code-sync-cipher\//);
+  assert.match(runtime,/syncShardPrefix:'shardvault\/code-sync-shards\//);
   assert.match(runtime,/codeSyncExternalView\(state,goal,'COPIED'\)/);
   assert.match(runtime,/if\(result\.target_reached\)/);
   assert.match(runtime,/DEFERRED_SEPARATE_OPERATION/);
@@ -114,19 +114,20 @@ test('discovery defers heavy code replication into its own bounded request', () 
 });
 
 
-test('code replication uses seven resumable full replicas instead of CPU-heavy Reed-Solomon encoding', () => {
+test('code replication uses resumable RS 4-of-7 shards with one external shard per request', () => {
   const start=runtime.indexOf('async function ensureExternalCodeArchive');
   const end=runtime.indexOf('export async function runShardVaultCycle',start);
   const body=runtime.slice(start,end);
-  assert.match(body,/replicationMode:'FULL_COPY_7'/);
-  assert.match(body,/requiredReplicas:1/);
-  assert.match(body,/const e=candidates\[0\],i=replicas\.length/);
-  assert.match(body,/state\.replicas\.push\(descriptor\)/);
+  assert.match(body,/replicationMode:'RS_4_OF_7'/);
+  assert.match(body,/const prepared=encode\(data,n\)/);
+  assert.match(body,/temp_shard_keys:tempShardKeys/);
+  assert.match(body,/const i=descriptors\.length,tempKey=state\.temp_shard_keys\?\.\[i\]/);
+  assert.match(body,/state\.shards\.push\(descriptor\)/);
   assert.match(body,/writeCodeSyncState\(env,id,state\)/);
   assert.match(runtime,/CALL_CODE_SYNC_AGAIN/);
-  assert.match(body,/CODE_REPLICA_ROUNDTRIP_HASH_MISMATCH/);
+  assert.match(body,/CODE_FRAGMENT_DEADLINE_EXCEEDED/);
+  assert.match(body,/CODE_FRAGMENT_ROUNDTRIP_MISMATCH/);
   assert.doesNotMatch(body,/assignDistinctExternalTargets\(replicas,candidates/);
-  assert.doesNotMatch(body,/shards=encode\(data,c\.n\)/);
 });
 
 

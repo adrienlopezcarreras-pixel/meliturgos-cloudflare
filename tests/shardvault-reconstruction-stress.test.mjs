@@ -84,16 +84,20 @@ test('ShardVault UI and API expose an explicit code reconstruction proof', async
 });
 
 
-test('external code sync is resumable and bounded to one verified replica per request', async () => {
+test('external code sync is resumable and bounded to one verified RS shard per request', async () => {
   const [runtime,workflow]=await Promise.all([
     readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8'),
     readFile(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8'),
   ]);
   assert.match(runtime,/syncStateKey:'shardvault\/code-sync-state\//);
-  assert.match(runtime,/syncCipherKey:'shardvault\/code-sync-cipher\//);
+  assert.match(runtime,/syncShardPrefix:'shardvault\/code-sync-shards\//);
+  assert.match(runtime,/replicationMode:'RS_4_OF_7'/);
   assert.match(runtime,/next_action:status==='COPIED'\?null:'CALL_CODE_SYNC_AGAIN'/);
-  assert.match(runtime,/const e=candidates\[0\],i=replicas\.length/);
-  assert.match(runtime,/state\.replicas\.push\(descriptor\)/);
+  assert.match(runtime,/const i=descriptors\.length,tempKey=state\.temp_shard_keys\?\.\[i\]/);
+  assert.match(runtime,/state\.shards\.push\(descriptor\)/);
+  assert.match(runtime,/withCodeReplicaDeadline/);
+  assert.match(runtime,/CODE_FRAGMENT_DEADLINE_EXCEEDED/);
+  assert.match(runtime,/CODE_FRAGMENT_ROUNDTRIP_MISMATCH/);
   assert.doesNotMatch(runtime,/assignDistinctExternalTargets\(replicas,candidates/);
   assert.match(workflow,/for attempt in \$\(seq 1 32\)/);
   assert.match(workflow,/COPYING\|RETRY_TARGETS/);
