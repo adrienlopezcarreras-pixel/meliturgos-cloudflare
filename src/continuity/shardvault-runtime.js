@@ -594,9 +594,10 @@ async function inspectCodeArchive(env,c=null){
             status:'COPIED',
             manifest_key:id.manifestKey,
             snapshot_id:manifest.snapshotId||null,
-            shards:Number(manifest.totalShards)||0,
-            data_shards:Number(manifest.dataShards)||0,
-            endpoints:[...new Set((manifest.shards||[]).map(x=>x.endpointId).filter(Boolean))],
+            shards:Number(manifest.totalShards||manifest.totalReplicas)||0,
+            data_shards:Number(manifest.dataShards||manifest.requiredReplicas)||0,
+            replication_mode:manifest.replicationMode||'RS_4_OF_7',
+            endpoints:[...new Set((manifest.replicas||manifest.shards||[]).map(x=>x.endpointId).filter(Boolean))],
             created_at:manifest.createdAt||null
           };
         }
@@ -633,6 +634,10 @@ function byteArraysEqual(a,b){
   for(let i=0;i<left.length;i++)diff|=left[i]^right[i];
   return diff===0;
 }
+async function sha256Hex(value){
+  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes(value)));
+  return [...digest].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
 function uniqueExternalCandidates(env,...groups){
   const by=new Map();
   for(const group of groups){
@@ -654,11 +659,12 @@ function rankExternalCodeCandidates(env,endpoints,requiredBytes){
     String(a.id).localeCompare(String(b.id))
   );
 }
-async function assignDistinctExternalTargets(items,candidates,copyFn){
+async function assignDistinctExternalTargets(items,candidates,copyFn,{maxConcurrency=items.length}={}){
   const assignments=Array(items.length).fill(null),failures=[],attempted=[];
+  const concurrency=Math.max(1,Math.min(items.length||1,Number(maxConcurrency)||1));
   let pending=items.map((_,index)=>index),cursor=0;
   while(pending.length&&cursor<candidates.length){
-    const batchSize=Math.min(pending.length,candidates.length-cursor);
+    const batchSize=Math.min(pending.length,candidates.length-cursor,concurrency);
     const batchIndices=pending.slice(0,batchSize);
     const restPending=pending.slice(batchSize);
     const batchCandidates=candidates.slice(cursor,cursor+batchSize);
@@ -710,6 +716,51 @@ async function readExternalCodeManifest(env,c){
   return {ok:true,status:'CODE_MANIFEST_VERIFIED',id,manifest};
 }
 async function reconstructExternalCodeArchive(env,c,manifest,{dropIndexes=[]}={}){
+  const mode=String(manifest?.replicationMode||'RS_4_OF_7');
+  if(mode==='FULL_COPY_7'){
+    const replicas=Array.isArray(manifest?.replicas)?manifest.replicas:[];
+    const n=Number(manifest?.totalReplicas)||replicas.length;
+    const dropped=new Set((Array.isArray(dropIndexes)?dropIndexes:[]).map(Number).filter(i=>Number.isInteger(i)&&i>=0&&i<n));
+    if(!replicas.length||n<1)return {ok:false,status:'CODE_RECONSTRUCTION_REPLICAS_MISSING'};
+    if(dropped.size>=n)return {ok:false,status:'CODE_RECONSTRUCTION_FAULT_BUDGET_EXCEEDED',dropped_indexes:[...dropped],tolerated_losses:Math.max(0,n-1)};
+    const errors=[];
+    for(const d of replicas){
+      const index=Number(d?.index);
+      if(!Number.isInteger(index)||index<0||index>=n)continue;
+      if(dropped.has(index)){errors.push({index,endpoint_id:d.endpointId||null,error:'SIMULATED_MISSING'});continue;}
+      try{
+        const e=endpointById(c,d.endpointId,d);
+        if(!e)throw new Error('ENDPOINT_UNKNOWN');
+        const cipher=await downloadFragment(env,e,d);
+        if(Number(manifest.ciphertextLength)>0&&cipher.length!==Number(manifest.ciphertextLength))throw new Error('CODE_REPLICA_LENGTH_INVALID');
+        const cipherSha256=await sha256Hex(cipher);
+        if(String(d.cipherSha256||'')!==cipherSha256)throw new Error('CODE_REPLICA_HASH_INVALID');
+        const plain=await decrypt(c.master,manifest.snapshotId,cipher,unb64u(manifest.iv));
+        const sha256=await sha256Hex(plain);
+        if(Number(manifest.archiveBytes)>0&&plain.length!==Number(manifest.archiveBytes))throw new Error('CODE_RECONSTRUCTION_SIZE_MISMATCH');
+        if(String(manifest.sha256||'')!==sha256)throw new Error('CODE_RECONSTRUCTION_HASH_MISMATCH');
+        if(plain.length<2||plain[0]!==0x1f||plain[1]!==0x8b)throw new Error('CODE_RECONSTRUCTION_ARCHIVE_FORMAT_INVALID');
+        return {
+          ok:true,status:'CODE_RECONSTRUCTION_VERIFIED',git_sha:manifest.git_sha,archive_key:manifest.archive_key||null,
+          snapshot_id:manifest.snapshotId,sha256,reconstructed_bytes:plain.length,
+          replication_mode:mode,total_replicas:n,required_replicas:1,
+          total_shards:n,required_shards:1,healthy_shards:Math.max(1,n-dropped.size-errors.filter(x=>x.error!=='SIMULATED_MISSING').length),
+          recovered_replica_index:index,recovered_endpoint_id:d.endpointId||null,
+          used_endpoints:[d.endpointId].filter(Boolean),used_shards:[index],
+          dropped_indexes:[...dropped],download_errors:errors.filter(x=>x.error!=='SIMULATED_MISSING').slice(0,24),
+          tolerated_losses:Math.max(0,n-1),independent_of_local_archive:true
+        };
+      }catch(error){
+        errors.push({index,endpoint_id:d?.endpointId||null,error:String(error?.message||error)});
+      }
+    }
+    return {
+      ok:false,status:'CODE_RECONSTRUCTION_REPLICAS_UNAVAILABLE',
+      total_replicas:n,required_replicas:1,dropped_indexes:[...dropped],
+      tolerated_losses:Math.max(0,n-1),errors:errors.slice(0,24)
+    };
+  }
+
   const n=Number(manifest?.totalShards)||0,k=Number(manifest?.dataShards)||0,size=Number(manifest?.shardSize)||0;
   if(k<1||n<=k||size<1)return {ok:false,status:'CODE_RECONSTRUCTION_PARAMS_INVALID'};
   const dropped=new Set((Array.isArray(dropIndexes)?dropIndexes:[]).map(Number).filter(i=>Number.isInteger(i)&&i>=0&&i<n));
@@ -740,19 +791,18 @@ async function reconstructExternalCodeArchive(env,c,manifest,{dropIndexes=[]}={}
   let plain;
   try{plain=await decrypt(c.master,manifest.snapshotId,cipher,unb64u(manifest.iv));}
   catch(error){return {ok:false,status:'CODE_RECONSTRUCTION_DECRYPT_FAILED',error:String(error?.message||error)};}
-  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',plain));
-  const sha256=[...digest].map(x=>x.toString(16).padStart(2,'0')).join('');
+  const sha256=await sha256Hex(plain);
   if(Number(manifest.archiveBytes)>0&&plain.length!==Number(manifest.archiveBytes))return {ok:false,status:'CODE_RECONSTRUCTION_SIZE_MISMATCH',expected_bytes:Number(manifest.archiveBytes),actual_bytes:plain.length};
   if(String(manifest.sha256||'')!==sha256)return {ok:false,status:'CODE_RECONSTRUCTION_HASH_MISMATCH',expected_sha256:manifest.sha256||null,actual_sha256:sha256};
   if(plain.length<2||plain[0]!==0x1f||plain[1]!==0x8b)return {ok:false,status:'CODE_RECONSTRUCTION_ARCHIVE_FORMAT_INVALID',sha256};
   return {
     ok:true,status:'CODE_RECONSTRUCTION_VERIFIED',git_sha:manifest.git_sha,archive_key:manifest.archive_key||null,
     snapshot_id:manifest.snapshotId,sha256,reconstructed_bytes:plain.length,
-    total_shards:n,required_shards:k,healthy_shards:healthy,
+    replication_mode:mode,total_shards:n,required_shards:k,healthy_shards:healthy,
     used_endpoints:[...new Set(used.map(x=>x.endpoint_id).filter(Boolean))],
     used_shards:used.map(x=>x.index),dropped_indexes:[...dropped],
     download_errors:errors.filter(x=>x.error!=='SIMULATED_MISSING').slice(0,24),
-    independent_of_local_archive:true
+    tolerated_losses:n-k,independent_of_local_archive:true
   };
 }
 export async function verifyShardVaultCodeReconstruction(env,{dropIndexes=[]}={}){
@@ -784,43 +834,57 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
   }
   if(!object)return {...codeBackup,external:{status:'CODE_ARCHIVE_SOURCE_MISSING',target_count:goal,critical_key:id.criticalKey,fallback_key:id.key}};
   const plain=new Uint8Array(await object.arrayBuffer());
-  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',plain));
-  const archiveSha256=[...digest].map(x=>x.toString(16).padStart(2,'0')).join('');
+  const archiveSha256=await sha256Hex(plain);
   const snapshotId='code-'+id.sha.slice(0,16)+'-'+rid(6),iv=new Uint8Array(12);crypto.getRandomValues(iv);
-  const cipher=await encrypt(c.master,snapshotId,plain,iv),size=Math.max(1,Math.ceil(cipher.length/c.k)),padded=new Uint8Array(size*c.k);padded.set(cipher);
-  const data=Array.from({length:c.k},(_,i)=>padded.slice(i*size,(i+1)*size)),shards=encode(data,c.n);
+  const cipher=await encrypt(c.master,snapshotId,plain,iv);
+  const cipherSha256=await sha256Hex(cipher);
   let validated=[];
   try{validated=await readValidatedExternalEndpoints(env);}catch{}
-  const candidates=rankExternalCodeCandidates(env,[...(c.endpoints||[]),...(c.allEndpoints||[]),...validated],size).slice(0,Math.max(goal*2,goal));
+  const candidates=rankExternalCodeCandidates(env,[...(c.endpoints||[]),...(c.allEndpoints||[]),...validated],cipher.length).slice(0,Math.max(goal*2,goal));
   if(candidates.length<goal)return {...codeBackup,external:{status:'WAITING_TARGETS',endpoints:candidates.map(e=>e.id),target_count:goal}};
-  const shardKey=await hkdf(c.master,utf8(snapshotId),utf8('MEL-ShardVault/v1/code-shard-mac'));
-  const copied=await assignDistinctExternalTargets(shards,candidates,async(i,e,shard)=>{
-    const objectId='code-'+id.sha.slice(0,12)+'-'+String(i).padStart(2,'0')+'-'+rid(6);
-    const locator=await uploadFragment(env,e,objectId,shard);
-    const descriptor={index:i,endpointId:e.id,endpoint:endpointSnapshot(e),objectId:locator.objectId,remoteUrl:locator.remoteUrl||null,parts:locator.parts||null,byteLength:size,mac:b64u(await hmac(shardKey,concat(utf8(`${snapshotId}:${i}:`),shard)))};
+  const replicas=Array.from({length:goal},(_,index)=>index);
+  const copied=await assignDistinctExternalTargets(replicas,candidates,async(i,e)=>{
+    const objectId='code-'+id.sha.slice(0,12)+'-replica-'+String(i).padStart(2,'0')+'-'+rid(6);
+    const locator=await uploadFragment(env,e,objectId,cipher);
+    const descriptor={
+      index:i,endpointId:e.id,endpoint:endpointSnapshot(e),
+      objectId:locator.objectId,remoteUrl:locator.remoteUrl||null,parts:locator.parts||null,
+      byteLength:cipher.length,cipherSha256
+    };
     const roundtrip=await downloadFragment(env,e,descriptor);
-    if(!byteArraysEqual(roundtrip,shard))throw new Error('CODE_FRAGMENT_ROUNDTRIP_MISMATCH');
+    const roundtripSha256=await sha256Hex(roundtrip);
+    if(roundtripSha256!==cipherSha256)throw new Error('CODE_REPLICA_ROUNDTRIP_HASH_MISMATCH');
     return descriptor;
-  });
+  },{maxConcurrency:2});
   const descriptors=copied.assignments.filter(Boolean);
   const successfulEndpoints=[...new Set(descriptors.map(x=>x.endpointId))];
   if(!copied.ok||descriptors.length<goal||successfulEndpoints.length<goal){
     return {...codeBackup,external:{
-      status:'INSUFFICIENT_WRITABLE_TARGETS',
-      target_count:goal,
-      successful_endpoints:successfulEndpoints,
-      attempted_endpoints:copied.attempted_endpoints,
-      failures:copied.failures.slice(0,24),
-      pending_shards:copied.pending_indices,
+      status:'INSUFFICIENT_WRITABLE_TARGETS',replication_mode:'FULL_COPY_7',
+      target_count:goal,successful_endpoints:successfulEndpoints,
+      attempted_endpoints:copied.attempted_endpoints,failures:copied.failures.slice(0,24),
+      pending_replicas:copied.pending_indices,
     }};
   }
-  const manifest={format:'MEL-ShardVault-Code',formatVersion:2,repository:id.repository,git_sha:id.sha,archive_key:archiveKey,snapshotId,createdAt:new Date().toISOString(),dataShards:c.k,totalShards:c.n,shardSize:size,ciphertextLength:cipher.length,iv:b64u(iv),archiveBytes:plain.length,sha256:archiveSha256,shards:descriptors,diversity:diversity(descriptors.map(d=>candidates.find(e=>e.id===d.endpointId)).filter(Boolean)),roundtripVerified:true};
+  const manifest={
+    format:'MEL-ShardVault-Code',formatVersion:3,replicationMode:'FULL_COPY_7',
+    repository:id.repository,git_sha:id.sha,archive_key:archiveKey,snapshotId,createdAt:new Date().toISOString(),
+    totalReplicas:goal,requiredReplicas:1,totalShards:goal,dataShards:1,shardSize:cipher.length,
+    ciphertextLength:cipher.length,iv:b64u(iv),archiveBytes:plain.length,sha256:archiveSha256,
+    cipherSha256,replicas:descriptors,
+    diversity:diversity(descriptors.map(d=>candidates.find(e=>e.id===d.endpointId)).filter(Boolean)),
+    roundtripVerified:true
+  };
   const unsigned={...manifest},key=await hkdf(c.master,utf8(id.sha),utf8('MEL-ShardVault/v1/code-manifest-mac'));
   manifest.manifestMac=b64u(await hmac(key,utf8(stable(unsigned))));
   await env.MEDIA_BUCKET.put(id.manifestKey,JSON.stringify(manifest),{httpMetadata:{contentType:'application/json'}});
-  return {...codeBackup,external:{status:'COPIED',manifest_key:id.manifestKey,snapshot_id:snapshotId,shards:c.n,data_shards:c.k,endpoints:successfulEndpoints,attempted_endpoints:copied.attempted_endpoints,failures:copied.failures.slice(0,24),verified_roundtrip:true,created_at:manifest.createdAt}};
+  return {...codeBackup,external:{
+    status:'COPIED',replication_mode:'FULL_COPY_7',manifest_key:id.manifestKey,snapshot_id:snapshotId,
+    shards:goal,data_shards:1,total_replicas:goal,required_replicas:1,
+    endpoints:successfulEndpoints,attempted_endpoints:copied.attempted_endpoints,
+    failures:copied.failures.slice(0,24),verified_roundtrip:true,created_at:manifest.createdAt
+  }};
 }
-
 export async function runShardVaultCycle(env,{force=false,skipExternalCode=false}={}){
   if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:true,enabled:false,skipped:true,reason:'DISABLED'};
   let c;

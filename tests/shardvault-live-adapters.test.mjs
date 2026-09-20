@@ -108,6 +108,18 @@ test('discovery defers heavy code replication into its own bounded request', () 
 });
 
 
+test('code replication uses seven bounded full replicas instead of CPU-heavy Reed-Solomon encoding', () => {
+  const start=runtime.indexOf('async function ensureExternalCodeArchive');
+  const end=runtime.indexOf('export async function runShardVaultCycle',start);
+  const body=runtime.slice(start,end);
+  assert.match(body,/replicationMode:'FULL_COPY_7'/);
+  assert.match(body,/requiredReplicas:1/);
+  assert.match(body,/maxConcurrency:2/);
+  assert.match(body,/CODE_REPLICA_ROUNDTRIP_HASH_MISMATCH/);
+  assert.doesNotMatch(body,/shards=encode\(data,c\.n\)/);
+});
+
+
 test('external data mode still persists manifests through the internal R2 inventory', () => {
   assert.match(runtime,/c\.storageMode==='CLOUDFLARE_FALLBACK'\|\|c\.storageMode==='EXTERNAL_DISTRIBUTED'/);
   assert.match(runtime,/external_only:c\.endpoints\.length>=c\.n&&c\.endpoints\.every\(e=>!e\.backend\)/);
