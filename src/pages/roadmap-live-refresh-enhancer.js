@@ -47,11 +47,15 @@ export const ROADMAP_LIVE_REFRESH_PATCH = `<script id="mel-roadmap-live-refresh-
     const button=document.querySelector('#nav button[data-view="roadmap"]');
     if(button)button.addEventListener('click',()=>setTimeout(refreshRoadmap,0));
     timer=setInterval(()=>{
+      if(document.hidden)return;
       const panel=document.querySelector('[data-panel="roadmap"]');
       if(panel?.classList.contains('active'))refreshRoadmap();
     },REFRESH_MS);
     const panel=document.querySelector('[data-panel="roadmap"]');
     if(panel?.classList.contains('active'))refreshRoadmap();
+    document.addEventListener('visibilitychange',()=>{
+      if(!document.hidden&&document.querySelector('[data-panel="roadmap"]')?.classList.contains('active'))refreshRoadmap();
+    });
   }
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
