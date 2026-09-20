@@ -13,7 +13,7 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/expectedRetentionDays:180/);
   assert.match(autonomous,/id:'dpaste-org-public'/);
   assert.match(autonomous,/adapter:'dpaste_org_b64'/);
-  assert.match(autonomous,/https:\/\/dpaste\.org\/api\//);
+  assert.match(autonomous,/https:\/\/text\.dpaste\.org\/api\///);
   assert.match(autonomous,/form\.append\('expires','never'\)/);
   assert.match(autonomous,/page\+'\/raw\/'/);
   assert.match(autonomous,/https:\/\/paste\.myst\.rs\/api\/v2\/paste\?mel_object=/);
@@ -26,7 +26,7 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/x-uuid':'1'/);
   assert.match(autonomous,/adapter:'pastegg_b64'/);
   assert.match(autonomous,/api\.paste\.gg\/v1\/pastes/);
-  assert.match(autonomous,/format:'base64'/);
+  assert.match(autonomous,/format:'text',value:b64u\(payload\)/);
   assert.match(autonomous,/adapter:'markdownpaste_b64'/);
   assert.match(autonomous,/markdownpasteit\.vercel\.app\/api\/paste/);
   assert.doesNotMatch(autonomous,/expires_in:0/);
@@ -67,7 +67,11 @@ test('snapshot runtime can write and read every repaired adapter selected by dis
 
 
 test('chunkable providers are accepted for large shard sizes and runtime splits/reassembles fragments', () => {
-  assert.match(autonomous,/requiredObjectBytes=Math\.max\(256,Math\.min\(Math\.max\(256,requiredBytes\),32\*1024\)\)/);
+  assert.match(autonomous,/async function representativeProbe\(/);
+  assert.match(autonomous,/representativeTargetBytes\(requiredBytes\)/);
+  assert.match(autonomous,/representativeChunkLimit\(c\)/);
+  assert.match(autonomous,/REPRESENTATIVE_REASSEMBLY_MISMATCH/);
+  assert.match(autonomous,/REPRESENTATIVE_HASH_MISMATCH/);
   assert.match(runtime,/async function uploadFragment\(/);
   assert.match(runtime,/async function downloadFragment\(/);
   assert.match(runtime,/parts:locator\.parts\|\|null/);
@@ -104,12 +108,12 @@ test('Telegraph account state is privately reused and code replica deadlines sca
   assert.match(runtime,/FLOOD\|RATE\[_ -\]\?LIMIT/);
 });
 
-test('preview lets the stronger seven-fragment proof run when one fresh probe is rate-limited', () => {
+test('preview requires seven representative provider proofs before reconstruction', () => {
   assert.match(previewWorkflow,/int\(d\.get\('probed'\) or 0\) >= 6/);
-  assert.match(previewWorkflow,/int\(d\.get\('active_external_count'\) or 0\) >= 7/);
+  assert.match(previewWorkflow,/int\(d\.get\('representative_validated_count'\) or 0\) >= 7/);
   assert.match(previewWorkflow,/SHARDVAULT_FRESH_LIVE_PROBES_LT_6/);
-  assert.match(previewWorkflow,/SHARDVAULT_ACTIVE_EXTERNAL_LT_7/);
-  assert.match(previewWorkflow,/stronger gate must prove 7\/7 write\/read before reconstruction/);
+  assert.match(previewWorkflow,/SHARDVAULT_REPRESENTATIVE_VALIDATED_LT_7/);
+  assert.match(previewWorkflow,/full representative chunk\/write\/read\/reassembly\/hash proof/);
 });
 
 test('rate-limited providers respect Retry-After before quarantine', () => {
@@ -195,4 +199,24 @@ test('new durable providers remain candidates until live roundtrip qualification
   assert.match(autonomous,/reviewed_documentation_plus_live_roundtrip/);
   assert.match(autonomous,/probed\.push\(await probe\(c,requiredBytes,policyMaxAgeDays,env\)\)/);
   assert.match(runtime,/rememberValidatedExternalEndpoints\(env,\[e\]\)/);
+});
+
+
+test('validated registry rejects legacy small-probe-only endpoints and preserves representative proof metadata', () => {
+  assert.match(runtime,/function endpointRepresentativeProofValid\(/);
+  assert.match(runtime,/representativeBytes:Number\(e\.representativeBytes\)\|\|0/);
+  assert.match(runtime,/representativeSha256:e\.representativeSha256\|\|null/);
+  assert.match(runtime,/readValidatedExternalEndpoints\(env,requiredBytes=0\)/);
+  assert.match(runtime,/endpointMeetsDurability\(env,e\)&&endpointRepresentativeProofValid\(env,e,requiredBytes\)/);
+  assert.match(runtime,/representativeVerifiedAt:new Date\(\)\.toISOString\(\)/);
+  assert.match(runtime,/evidenceVerification:'representative_full_fragment_roundtrip'/);
+});
+
+test('autonomous qualification caches heavy representative proofs and reruns them when stale or undersized', () => {
+  assert.match(autonomous,/REPRESENTATIVE_PROOF_KEY/);
+  assert.match(autonomous,/representativeProofFresh\(/);
+  assert.match(autonomous,/MEL_SHARDVAULT_REPRESENTATIVE_PROOF_HOURS/);
+  assert.match(autonomous,/representative_bytes:target/);
+  assert.match(autonomous,/representative_full_fragment_roundtrip_cached/);
+  assert.match(autonomous,/representative_qualified:qualified\.length/);
 });
