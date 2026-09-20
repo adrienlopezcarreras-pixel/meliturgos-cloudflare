@@ -98,8 +98,11 @@ export function assessResponseQuality({
   }
   if (formalAddress(response)) issues.push({ code:'FORMAL_ADDRESS', severity:'low' });
 
+  const minimumOffTopicLength = /^(?:ok|go|maj|avance|continue|reprends?|fais[- ]?le|vas[- ]?y|poursuis|termine|finis|corrige|am[ée]liore)/i.test(clean(userText))
+    ? 45
+    : 90;
   if (
-    response.length >= 100
+    response.length >= minimumOffTopicLength
     && relevance.anchor_tokens.length >= 4
     && relevance.shared.length === 0
     && relevance.family_match !== true
