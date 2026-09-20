@@ -209,13 +209,12 @@ export async function evaluateShardVaultLaunchReadiness(env) {
 export async function getAutonomyLaunchReadiness(env, {
   repository = null,
 } = {}) {
+  if (env?.DB?.prepare) await migrate(env.DB);
   const repo = repository || new D1DevJobRepository(env?.DB);
   const supervisor = new AutonomySupervisor({ repository: repo });
-  const [state, restore, shardvault] = await Promise.all([
-    supervisor.state(),
-    evaluateRestoreReadiness(env),
-    evaluateShardVaultLaunchReadiness(env),
-  ]);
+  const state = await supervisor.state();
+  const restore = await evaluateRestoreReadiness(env);
+  const shardvault = await evaluateShardVaultLaunchReadiness(env);
 
   const branch = String(env?.MEL_GITHUB_BRANCH || 'candidate/mel-clean-autonomy').trim();
   const teacherBranch = String(env?.MEL_TEACHER_BRANCH || branch).trim();
