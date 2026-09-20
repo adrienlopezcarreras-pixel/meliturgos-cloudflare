@@ -574,9 +574,13 @@ async function inspectCodeArchive(env,c=null){
   const id=deployedCodeIdentity(env);
   if(!id)return {ok:false,status:'IDENTITY_UNAVAILABLE'};
   if(!env?.MEDIA_BUCKET?.head)return {ok:false,status:'R2_UNAVAILABLE',repository:id.repository,sha:id.sha};
-  const object=await env.MEDIA_BUCKET.head(id.key);
-  if(!object)return {ok:false,status:'MISSING',repository:id.repository,sha:id.sha,bucket:'meliturgos-private-media',key:id.key};
-  const critical=await env.MEDIA_BUCKET.head(id.criticalKey).catch(()=>null);
+  const [critical,object]=await Promise.all([
+    env.MEDIA_BUCKET.head(id.criticalKey).catch(()=>null),
+    env.MEDIA_BUCKET.head(id.key).catch(()=>null)
+  ]);
+  if(!critical&&!object)return {ok:false,status:'MISSING',repository:id.repository,sha:id.sha,bucket:'meliturgos-private-media',key:id.criticalKey,fallback_key:id.key};
+  const preferred=critical||object;
+  const preferredKey=critical?id.criticalKey:id.key;
   let external=null;
   if(env?.MEDIA_BUCKET?.get){
     try{
@@ -604,7 +608,7 @@ async function inspectCodeArchive(env,c=null){
       }
     }catch{}
   }
-  return {ok:true,status:'COPIED',repository:id.repository,sha:id.sha,bucket:'meliturgos-private-media',key:id.key,bytes:Number(object.size)||null,critical_key:id.criticalKey,critical_bytes:Number(critical?.size)||null,critical_status:critical?'COPIED':'MISSING',external};
+  return {ok:true,status:'COPIED',repository:id.repository,sha:id.sha,bucket:'meliturgos-private-media',key:preferredKey,bytes:Number(preferred?.size)||null,source:critical?'CRITICAL_BUNDLE':'FULL_ARCHIVE',critical_key:id.criticalKey,critical_bytes:Number(critical?.size)||null,critical_status:critical?'COPIED':'MISSING',fallback_key:id.key,fallback_bytes:Number(object?.size)||null,external};
 }
 async function ensureCodeArchive(env){
   const existing=await inspectCodeArchive(env);

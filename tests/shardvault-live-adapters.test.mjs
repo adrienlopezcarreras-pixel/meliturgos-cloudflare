@@ -89,6 +89,9 @@ test('seven validated external targets replace internal fallbacks for active sna
 
 test('critical code bundle is preferred while exact-SHA archive remains a preview reconstruction fallback', () => {
   assert.match(runtime,/criticalKey:'shardvault\/code-critical\//);
+  assert.match(runtime,/const preferred=critical\|\|object/);
+  assert.match(runtime,/const preferredKey=critical\?id\.criticalKey:id\.key/);
+  assert.match(runtime,/source:critical\?'CRITICAL_BUNDLE':'FULL_ARCHIVE'/);
   assert.match(runtime,/archiveKey=id\.criticalKey/);
   assert.match(runtime,/archiveKey=id\.key/);
   assert.match(runtime,/CODE_ARCHIVE_SOURCE_MISSING/);
