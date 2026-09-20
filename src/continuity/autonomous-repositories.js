@@ -8,6 +8,9 @@ const MAX_CATALOG_LEADS = 120;
 const MAX_EXPERIENCE_PLAYBOOKS = 5;
 const DISCOVERY_HISTORY_KEY='shardvault/discovery/history.json';
 const DISCOVERY_LATEST_KEY='shardvault/discovery/latest.json';
+const REPRESENTATIVE_PROOF_KEY='shardvault/discovery/representative-proofs.json';
+const REPRESENTATIVE_MIN_BYTES=64*1024;
+const REPRESENTATIVE_MAX_BYTES=8*1024*1024;
 const QUERY_SETS = Object.freeze([
   ['anonymous file hosting api in:name,description,readme','temporary file upload api in:name,description,readme','free file hosting api in:name,description,readme'],
   ['guest upload rest api in:name,description,readme','no signup file upload api in:name,description,readme','free object storage api in:name,description,readme'],
@@ -109,7 +112,7 @@ const DOCUMENTED_CANDIDATES = Object.freeze([
   {
     id:'dpaste-org-public',
     adapter:'dpaste_org_b64',
-    urlTemplate:'https://dpaste.org/api/?mel_object={objectId}',
+    urlTemplate:'https://text.dpaste.org/api/?mel_object={objectId}',
     method:'POST',
     maxObjectBytes:1048576,
     operatorDomain:'dpaste.org',
@@ -438,6 +441,53 @@ function unb64u(v){ const n=String(v||'').trim().replaceAll('-','+').replaceAll(
 function parseJson(v,fallback){ try{return JSON.parse(v??JSON.stringify(fallback));}catch{return fallback;} }
 function stable(v){ if(v===null||typeof v!=='object')return JSON.stringify(v);if(Array.isArray(v))return `[${v.map(stable).join(',')}]`;return `{${Object.keys(v).sort().map(k=>`${JSON.stringify(k)}:${stable(v[k])}`).join(',')}}`; }
 function rid(n=18){ const a=new Uint8Array(n);crypto.getRandomValues(a);return b64u(a); }
+function randomBytes(n){
+  const out=new Uint8Array(Math.max(0,Number(n)||0));
+  for(let offset=0;offset<out.length;offset+=65536)crypto.getRandomValues(out.subarray(offset,Math.min(out.length,offset+65536)));
+  return out;
+}
+function byteArraysEqual(a,b){
+  const left=bytes(a),right=bytes(b);
+  if(left.length!==right.length)return false;
+  let diff=0;for(let i=0;i<left.length;i++)diff|=left[i]^right[i];
+  return diff===0;
+}
+async function sha256Hex(value){
+  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes(value)));
+  return [...digest].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+const REPRESENTATIVE_BASE64_ADAPTERS=new Set(['pastebin_ai_b64','dpaste_b64','dpaste_org_b64','pastemyst_b64','onec3_b64','msk_paste_b64','pastebox_b64','pastehtml_b64','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64']);
+function representativeChunkLimit(c){
+  const max=Math.max(256,Number(c?.maxBytes)||256);
+  if(String(c?.adapter||'')==='markdownpaste_b64')return Math.max(256,Math.min(24000,Math.floor(max*0.32)));
+  const ratio=REPRESENTATIVE_BASE64_ADAPTERS.has(String(c?.adapter||''))?0.70:0.90;
+  return Math.max(256,Math.floor(max*ratio));
+}
+function representativeTargetBytes(requiredBytes){
+  const requested=Math.max(REPRESENTATIVE_MIN_BYTES,Number(requiredBytes)||0);
+  if(requested>REPRESENTATIVE_MAX_BYTES)throw new Error('REPRESENTATIVE_TEST_TOO_LARGE_'+requested);
+  return requested;
+}
+function representativeProofHours(env){return Math.max(1,Math.min(168,Number(env?.MEL_SHARDVAULT_REPRESENTATIVE_PROOF_HOURS)||24));}
+async function readRepresentativeProofs(env){
+  if(!env?.MEDIA_BUCKET?.get)return {};
+  try{
+    const body=await env.MEDIA_BUCKET.get(REPRESENTATIVE_PROOF_KEY);
+    if(!body)return {};
+    const data=JSON.parse(await body.text());
+    return data&&typeof data==='object'&&!Array.isArray(data)?data:{};
+  }catch{return {}}
+}
+async function writeRepresentativeProofs(env,proofs){
+  if(!env?.MEDIA_BUCKET?.put)return;
+  await env.MEDIA_BUCKET.put(REPRESENTATIVE_PROOF_KEY,JSON.stringify(proofs),{httpMetadata:{contentType:'application/json'}});
+}
+function representativeProofFresh(proof,requiredBytes,env){
+  if(!proof?.ok)return false;
+  if(Number(proof.representative_bytes||0)<representativeTargetBytes(requiredBytes))return false;
+  const checked=Date.parse(String(proof.checked_at||''));
+  return Number.isFinite(checked)&&Date.now()-checked<=representativeProofHours(env)*60*60*1000;
+}
 function isPrivate4(h){ const m=/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);if(!m)return false;const o=m.slice(1).map(Number);return o.some(x=>x>255)||o[0]===10||o[0]===127||o[0]===0||(o[0]===169&&o[1]===254)||(o[0]===172&&o[1]>=16&&o[1]<=31)||(o[0]===192&&o[1]===168); }
 function publicHttps(value,label,{template=false}={}){ let u;try{u=new URL(template?String(value).replaceAll('{objectId}','probe'):String(value));}catch{throw new Error(`${label}_INVALID`)}const h=u.hostname.toLowerCase();if(u.protocol!=='https:')throw new Error(`${label}_HTTPS_REQUIRED`);if(u.username||u.password)throw new Error(`${label}_CREDENTIALS_FORBIDDEN`);if(h==='localhost'||h.endsWith('.local')||isPrivate4(h)||(h.includes(':')&&(h==='::1'||h.startsWith('fc')||h.startsWith('fd')||h.startsWith('fe80'))))throw new Error(`${label}_PRIVATE_NETWORK_FORBIDDEN`);return u; }
 async function fetchTimed(url,options={},ms=10000){
@@ -509,6 +559,10 @@ function normalize(raw, source){
     evidenceMode:source==='builtin-documented'&&raw.evidenceMode==='documented_api'?'documented_api':'mel_policy',
     evidenceReviewedAt:source==='builtin-documented'&&raw.evidenceReviewedAt?String(raw.evidenceReviewedAt):null,
     evidenceUrls:source==='builtin-documented'&&Array.isArray(raw.evidenceUrls)?raw.evidenceUrls.filter(x=>typeof x==='string').slice(0,5):[],
+    representativeVerifiedAt:raw.representativeVerifiedAt?String(raw.representativeVerifiedAt):null,
+    representativeBytes:Math.max(0,Number(raw.representativeBytes||0)||0),
+    representativeSha256:raw.representativeSha256?String(raw.representativeSha256):null,
+    representativeParts:Math.max(0,Number(raw.representativeParts||0)||0),
     source,
   };
 }
@@ -529,8 +583,7 @@ function eligible(c,{requiredBytes=0,policyMaxAgeDays=180,minRetentionDays=90}={
     if(!c.policyUrl||!c.policyReviewedAt)reasons.push('POLICY_EVIDENCE_MISSING');
     else if(Date.now()-Date.parse(c.policyReviewedAt)>policyMaxAgeDays*DAY)reasons.push('POLICY_EVIDENCE_STALE');
   }
-  const requiredObjectBytes=Math.max(256,Math.min(Math.max(256,requiredBytes),32*1024));
-  if(c.maxBytes<requiredObjectBytes)reasons.push('CAPACITY_TOO_SMALL');
+  if(c.maxBytes<256)reasons.push('CAPACITY_TOO_SMALL');
   const renewable=c.retentionModel==='renewable'&&c.fullReadRenewsRetention===true&&c.baseRetentionDays>=30&&c.refreshEveryDays>0&&c.refreshEveryDays<c.baseRetentionDays;
   if(c.expectedRetentionDays<minRetentionDays&&!renewable)reasons.push('RETENTION_TOO_SHORT_'+c.expectedRetentionDays+'D_MIN_'+minRetentionDays+'D');
   return {ok:reasons.length===0,reasons};
@@ -1227,6 +1280,45 @@ async function probe(c, requiredBytes, policyMaxAgeDays=180, env=null){
   return {...c,maxBytes:authority.maxBytes,expectedRetentionDays:authority.expectedRetentionDays,score,confidence:80,probe:{ok:true,objectId,policyLatencyMs:policyLatency,writeLatencyMs:writeLatency,readLatencyMs:readLatency,checkedAt:new Date().toISOString()}};
 }
 
+async function representativeProbe(c,requiredBytes,env,proofs){
+  const target=representativeTargetBytes(requiredBytes);
+  const cached=proofs?.[c.id];
+  if(representativeProofFresh(cached,target,env)){
+    return {...c,
+      representativeVerifiedAt:cached.checked_at,
+      representativeBytes:Number(cached.representative_bytes)||target,
+      representativeSha256:String(cached.sha256||''),
+      representativeParts:Number(cached.parts)||1,
+      evidenceVerification:'representative_full_fragment_roundtrip_cached'
+    };
+  }
+  const payload=randomBytes(target),rebuilt=new Uint8Array(target),limit=representativeChunkLimit(c);
+  const parts=Math.max(1,Math.ceil(target/limit));
+  const started=Date.now();
+  for(let offset=0,index=0;offset<target;offset+=limit,index++){
+    const chunk=payload.slice(offset,Math.min(target,offset+limit));
+    const objectId='mel-representative-'+rid(10)+'-p'+String(index).padStart(4,'0');
+    const url=publicHttps(c.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),'REPRESENTATIVE_TARGET').toString();
+    const write=await candidateWrite(c,url,chunk,objectId,env);
+    const got=await candidateReadBytes(c,write.readUrl);
+    if(!byteArraysEqual(got,chunk))throw new Error('REPRESENTATIVE_CHUNK_MISMATCH_'+index);
+    rebuilt.set(got,offset);
+  }
+  if(!byteArraysEqual(rebuilt,payload))throw new Error('REPRESENTATIVE_REASSEMBLY_MISMATCH');
+  const [expectedSha,actualSha]=await Promise.all([sha256Hex(payload),sha256Hex(rebuilt)]);
+  if(expectedSha!==actualSha)throw new Error('REPRESENTATIVE_HASH_MISMATCH');
+  const proof={ok:true,checked_at:new Date().toISOString(),representative_bytes:target,sha256:actualSha,parts,latency_ms:Date.now()-started,adapter:c.adapter||null};
+  const next={...(proofs||{}),[c.id]:proof};
+  await writeRepresentativeProofs(env,next);
+  return {...c,
+    representativeVerifiedAt:proof.checked_at,
+    representativeBytes:target,
+    representativeSha256:actualSha,
+    representativeParts:parts,
+    evidenceVerification:'representative_full_fragment_roundtrip'
+  };
+}
+
 function choose(candidates,count,maxPerOperator,maxPerProvider){
   const ranked=[...candidates].sort((a,b)=>b.score-a.score||b.confidence-a.confidence||a.id.localeCompare(b.id)),selected=[],ids=new Set(),ops=new Map(),provs=new Map();
   const can=(c,uniqueOp=false,uniqueProv=false)=>!ids.has(c.id)&&(ops.get(c.operatorDomain)||0)<maxPerOperator&&(provs.get(c.providerId)||0)<maxPerProvider&&(!uniqueOp||(ops.get(c.operatorDomain)||0)===0)&&(!uniqueProv||(provs.get(c.providerId)||0)===0);
@@ -1249,15 +1341,29 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
   for(const c of loaded.candidates){const e=eligible(c,{requiredBytes,policyMaxAgeDays,minRetentionDays});if(e.ok)eligibleRows.push(c);else rejected.push({source:c.source,id:c.id,reason:e.reasons.join(',')});}
   const probed=[];
   for(const c of eligibleRows.slice(0,probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays,env));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
-  const selected=choose(probed,selectionCount,maxPerOperator,maxPerProvider);
-  const endpointView=(c,verification='reviewed_documentation_plus_live_roundtrip')=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:Number(c.score)||0,confidence:Number(c.confidence)||0,autonomous:true,authMode:c.authMode||'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:verification,expectedRetentionDays:c.expectedRetentionDays||0,retentionModel:c.retentionModel||'fixed',baseRetentionDays:c.baseRetentionDays||c.expectedRetentionDays||0,refreshEveryDays:c.refreshEveryDays||0,fullReadRenewsRetention:c.fullReadRenewsRetention===true,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0)});
+  const representativeProofs=await readRepresentativeProofs(env);
+  const qualified=[];
+  let representativeProbed=0;
+  for(const c of probed){
+    try{
+      representativeProbed++;
+      qualified.push(await representativeProbe(c,requiredBytes,env,representativeProofs));
+      if(qualified.length>=selectionCount)break;
+    }catch(error){
+      rejected.push({source:c.source,id:c.id,reason:'REPRESENTATIVE_'+String(error?.message||error)});
+    }
+  }
+  const selected=choose(qualified,selectionCount,maxPerOperator,maxPerProvider);
+  const endpointView=(c,verification=c.representativeVerifiedAt?'representative_full_fragment_roundtrip':'reviewed_documentation_candidate')=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:Number(c.score)||0,confidence:Number(c.confidence)||0,autonomous:true,authMode:c.authMode||'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:verification,expectedRetentionDays:c.expectedRetentionDays||0,retentionModel:c.retentionModel||'fixed',baseRetentionDays:c.baseRetentionDays||c.expectedRetentionDays||0,refreshEveryDays:c.refreshEveryDays||0,fullReadRenewsRetention:c.fullReadRenewsRetention===true,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0),representativeVerifiedAt:c.representativeVerifiedAt||null,representativeBytes:Number(c.representativeBytes)||0,representativeSha256:c.representativeSha256||null,representativeParts:Number(c.representativeParts)||0});
   return {
     selected:selected.map(endpointView),
-    qualified:probed.map(endpointView),
+    qualified:qualified.map(endpointView),
     eligible:eligibleRows.map(c=>endpointView(c,'reviewed_documentation_candidate')),
     rejected,
     discovered:loaded.candidates.length,
     probed:probed.length,
+    representative_probed:representativeProbed,
+    representative_qualified:qualified.length,
     internet_sources:loaded.sources||[],
     leads:loaded.leads||[],
     generation:loaded.generation||1,
