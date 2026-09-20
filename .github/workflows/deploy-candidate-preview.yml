@@ -213,6 +213,28 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Bind exact critical bundle through preview Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          curl --fail-with-body --show-error --silent --max-time 120 \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            --header "content-type: application/gzip" \
+            --data-binary @mel-critical-code.tar.gz \
+            "${BASE_URL}/api/gen2/shardvault/code-source" \
+            --output shardvault-code-source.json
+
+          EXPECTED_BYTES="${MEL_CRITICAL_CODE_BUNDLE_BYTES}" GITHUB_SHA="${GITHUB_SHA}" node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('shardvault-code-source.json','utf8'));
+          if(d?.ok!==true||d?.status!=='COPIED'||d?.verified_roundtrip!==true) throw new Error('CRITICAL_BUNDLE_RUNTIME_BIND_FAILED:'+String(d?.status||d?.error));
+          if(Number(d?.bytes||0)!==Number(process.env.EXPECTED_BYTES||0)) throw new Error('CRITICAL_BUNDLE_RUNTIME_SIZE_MISMATCH');
+          if(String(d?.sha||'')!==String(process.env.GITHUB_SHA||'')) throw new Error('CRITICAL_BUNDLE_RUNTIME_SHA_MISMATCH');
+          if(!/^[0-9a-f]{64}$/i.test(String(d?.sha256||''))) throw new Error('CRITICAL_BUNDLE_RUNTIME_HASH_INVALID');
+          console.log(JSON.stringify({status:d.status,bytes:d.bytes,sha:d.sha,sha256:d.sha256,verified_roundtrip:d.verified_roundtrip},null,2));
+          NODE
+
       - name: Smoke test isolated preview HTTP
         shell: bash
         run: |
@@ -317,7 +339,7 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
-          curl --fail-with-body --show-error --silent --max-time 90 \
+          curl --fail-with-body --show-error --silent --max-time 165 \
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --header "content-type: application/json" \
             --data '{"id":"capability.audit","input":{"deep":true}}' \
@@ -611,6 +633,9 @@ jobs:
           active=int(data.get('active_external_count') or 0)
           required_bytes=int(data.get('required_bytes') or 0)
           expected_required_bytes=int(os.environ.get('MEL_CRITICAL_CODE_SHARD_BYTES') or 0)
+          archive_source=str(data.get('representative_archive_source') or '')
+          archive_bytes=int(data.get('representative_archive_bytes') or 0)
+          critical_status=str(data.get('representative_critical_status') or '')
           representative_probed=int(data.get('representative_probed') or 0)
           representative_qualified=int(data.get('representative_qualified') or 0)
           representative_validated=int(data.get('representative_validated_count') or 0)
@@ -622,6 +647,10 @@ jobs:
               raise SystemExit(f'SHARDVAULT_DISCOVERY_TOO_SMALL: {discovered}')
           if required_bytes < expected_required_bytes:
               raise SystemExit(f'SHARDVAULT_REPRESENTATIVE_SIZE_UNDERSIZED: required={required_bytes} expected={expected_required_bytes}')
+          if archive_source != 'CRITICAL_BUNDLE' or critical_status != 'COPIED':
+              raise SystemExit(f'SHARDVAULT_CRITICAL_SOURCE_NOT_BOUND: source={archive_source} critical_status={critical_status} bytes={archive_bytes}')
+          if archive_bytes != int(os.environ.get('MEL_CRITICAL_CODE_BUNDLE_BYTES') or 0):
+              raise SystemExit(f'SHARDVAULT_CRITICAL_SOURCE_SIZE_MISMATCH: archive={archive_bytes}')
           if probed < 6:
               raise SystemExit(f'SHARDVAULT_FRESH_LIVE_PROBES_LT_6: discovered={discovered} probed={probed}')
           if representative_validated < 7:
