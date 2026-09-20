@@ -512,6 +512,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const codeAccess = codeAccessTruth(capabilityManifest);
   const operatingManual = buildMelOperatingManualPrompt({ capabilityManifest, experience: operationalExperience });
   const developmentQueued = toolResults.find((row) => row.capability === 'evolution.enqueue' && row.status === 'SUCCEEDED')?.result || null;
+  const selfStateObserved = toolResults.find((row) => row.capability === 'self.state' && row.status === 'SUCCEEDED')?.result || null;
 
   const system = [
     buildMelIdentityPrompt(),
@@ -535,6 +536,9 @@ export async function handleNativeChat(request, env, options = {}) {
     'Lorsqu’un résultat d’outil prouve que tu as lu ou recherché ton dépôt, dis clairement que tu as accès à ce code et cite le fichier ou la branche observée.',
     'Ne prétends jamais ne pas avoir accès au code si un TOOL_RESULT SUCCEEDED de cette requête démontre le contraire.',
     'Si un TOOL_RESULT FAILED existe, donne son code d’échec exact au lieu d’inventer une incapacité générale.',
+    selfStateObserved
+      ? 'AUTO-OBSERVATION RUNTIME : self.state a réellement été exécuté pendant cette requête. Réponds directement à partir de ses sections code, work, mémoire, import ChatGPT et système. Pour chaque section ok=true, parle de ce que tu as effectivement observé maintenant; pour ok=false, nomme uniquement la source indisponible. N’emploie pas une formule globale comme « je ne vois pas » ou « je n’ai pas accès » si les observations prouvent le contraire. Distingue toutefois cette observation structurée d’une vision directe des autres onglets du navigateur. Pour les changements en cours, cite seulement les travaux persistants et le HEAD/identité code réellement observés; n’invente jamais les modifications non encore commitées d’une autre page.'
+      : '',
     'CONTRÔLE ORDINATEUR : les capacités computer.status, computer.quick et computer.execute désignent le compagnon Windows explicitement appairé. Une commande computer.quick SUCCEEDED signifie que l’action a été mise en file ; ne prétends pas qu’elle est déjà terminée tant que le résultat du compagnon ne le prouve pas. Les actions sensibles ne sont approuvées que lorsqu’elles proviennent explicitement de la demande courante ou de l’onglet Ordinateur.',
     memoryWrite.stored
       ? 'Une demande explicite de mémoire de cette requête vient d’être enregistrée. Tu peux le confirmer brièvement et continuer la tâche demandée.'

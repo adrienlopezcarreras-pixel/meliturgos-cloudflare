@@ -11,6 +11,7 @@ import { registerWorkIntrospectionCapabilities } from '../../capabilities/work-i
 import { registerConversationRuntimeCapabilities } from '../../capabilities/conversation-runtime-capabilities.js';
 import { registerChatGPTArchiveImportCapability } from '../../capabilities/chatgpt-archive-import-capability.js';
 import { registerMemoryCompatibilityCapabilities } from '../../capabilities/memory-compat-capabilities.js';
+import { registerSelfStateCapability } from '../../capabilities/self-state-capability.js';
 import { validateManifest } from '../../plugins/validator.js';
 import { transition } from '../lifecycle/extension.js';
 import { requireValue } from '../contracts.js';
@@ -34,6 +35,7 @@ export function createGen2Runtime({ audit = async () => {}, env = {} } = {}) {
   registerConversationRuntimeCapabilities(bus, env);
   registerChatGPTArchiveImportCapability(bus, env);
   registerMemoryCompatibilityCapabilities(bus, env);
+  registerSelfStateCapability(bus, env);
   const plugins = new Map();
   const modules = new Map();
   const agents = new Map();

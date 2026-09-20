@@ -41,6 +41,20 @@ export function inferCapabilityInspectionIntent(text) {
   return { id: 'capability.audit', input: { deep } };
 }
 
+export function inferSelfStateIntent(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+
+  const self = /\b(?:mel|tu|toi|ton|ta|tes|chez\s+toi)\b/i.test(value);
+  const asksObservation = /\b(?:vois|voir|montre|affiche|sais|connais|quel(?:le|les|s)?|[ée]tat|statut|o[uù]\s+en\s+es|qu['’]est[- ]?ce)\b/i.test(value);
+  const broadSelfState = /\b(?:[ée]tat\s+(?:r[ée]el|interne|actuel)|self[- ]?state|ce\s+qui\s+(?:change|tourne)\s+chez\s+toi)\b/i.test(value);
+  const internalDomain = /\b(?:m[ée]moires?|chat\s*gpt|travaux?|jobs?|processus|code|repo|repository|d[ée]p[ôo]t|branche|branch|commit|d[ée]ploiement|runtime|changements?|modifications?|impl[ée]ment(?:ation|e|er|[ée]e?s?))\b/i.test(value);
+  const currentState = /\b(?:en\s+cours|actuel(?:le|les|s)?|actuellement|maintenant|r[ée]cup[eè]r(?:e|es|[ée]e?s?)?|import(?:e|[ée]e?s?|ation)|synchronis(?:e|[ée]e?s?|ation)|impl[ée]ment(?:e|er|[ée]e?s?)?|changements?|statut|[ée]tat)\b/i.test(value);
+
+  if (!(self && asksObservation && (broadSelfState || (internalDomain && currentState)))) return null;
+  return { id: 'self.state', input: {} };
+}
+
 export function inferWebResearchIntent(text) {
   const value = String(text || '').trim();
   if (!value) return null;
@@ -118,7 +132,11 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
 
   const requestKey = body.client_message_id ?? body.message_id ?? body.request_id ?? body.id ?? '';
 
-  if (isEvolutionDevelopmentIntent(text)) {
+  const selfState = inferSelfStateIntent(text);
+
+  if (selfState) {
+    routeDeterministic(body, selfState, 'SELF_STATE');
+  } else if (isEvolutionDevelopmentIntent(text)) {
     body.capability = enqueueCapability(text, body, requestKey);
   } else {
     const autonomy = inferAutonomyControlIntent(text);
