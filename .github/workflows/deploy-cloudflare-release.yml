@@ -134,7 +134,7 @@ jobs:
           cleanup_secret() {
             set +e
             set +o pipefail
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN >/tmp/mel-launch-secret-delete.log 2>&1
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-launch-secret-delete.log 2>&1
             rc=${PIPESTATUS[1]}
             set -o pipefail
             set -e
@@ -142,7 +142,7 @@ jobs:
           }
           trap 'cleanup_secret || true' EXIT
 
-          printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN
+          printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
           ready=0
           for attempt in 1 2 3 4 5 6 7 8; do
