@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatVerifiedSelfStateResponse } from '../src/api/response-grounding.js';
+import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse } from '../src/api/response-grounding.js';
 
 test('verified self-state response states evidence and preserves observation boundaries', () => {
   const text = formatVerifiedSelfStateResponse({
@@ -38,4 +38,38 @@ test('self-state formatter reports a local observation failure without claiming 
   assert.match(text, /Code indisponible pour cette vérification \(CODE_HEAD_READ_FAILED\)/);
   assert.match(text, /Mémoire persistante : ONLINE/);
   assert.doesNotMatch(text, /je n['’]ai accès à rien/i);
+});
+
+
+test('capability audit formatter distinguishes tested from merely registered', () => {
+  const text = formatVerifiedCapabilityAuditResponse({
+    total:4,
+    deep:false,
+    counts:{ EXISTANT_ET_TESTE:1, EXISTANT_NON_TESTE:1, PARTIEL:1, BLOCKED:1 },
+    capabilities:[
+      { id:'code.read', truth_status:'EXISTANT_ET_TESTE' },
+      { id:'web.research', truth_status:'EXISTANT_NON_TESTE' },
+      { id:'computer.status', truth_status:'PARTIEL' },
+      { id:'future', truth_status:'BLOCKED' },
+    ],
+  });
+  assert.match(text, /4 capacités runtime/);
+  assert.match(text, /Testées maintenant : 1/);
+  assert.match(text, /Existantes mais non testées maintenant : 1/);
+  assert.match(text, /inventaire n’est pas un test de bout en bout/i);
+});
+
+test('communication audit formatter reports concrete detected patterns', () => {
+  const text = formatCommunicationAuditResponse({
+    scanned_messages:120,
+    scanned_conversations:3,
+    total_messages:150,
+    truncated:true,
+    issue_counts:{ POSSIBLE_OFF_TOPIC:4, POSSIBLE_SELF_CONTRADICTION:2 },
+    issues:[{ type:'POSSIBLE_OFF_TOPIC', conversation_id:'c1', summary:'Réponse sans rapport avec la question.' }],
+  });
+  assert.match(text, /120 message\(s\)/);
+  assert.match(text, /POSSIBLE_OFF_TOPIC=4/);
+  assert.match(text, /Réponse sans rapport/);
+  assert.match(text, /borné/i);
 });

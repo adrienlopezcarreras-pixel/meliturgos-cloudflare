@@ -154,3 +154,46 @@ export function formatVerifiedSelfStateResponse(state, question = '', { fallback
     ...(limits.length ? ['', ...limits] : []),
   ].join('\n').trim();
 }
+
+
+function clip(value, limit = 220) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length <= limit ? text : text.slice(0, Math.max(0, limit - 1)) + '…';
+}
+
+export function formatVerifiedCapabilityAuditResponse(audit, { fallback = '' } = {}) {
+  if (!audit || typeof audit !== 'object') return String(fallback || '').trim();
+  const rows = Array.isArray(audit.capabilities) ? audit.capabilities : [];
+  const counts = audit.counts && typeof audit.counts === 'object' ? audit.counts : {};
+  const tested = rows.filter(r => r?.truth_status === 'EXISTANT_ET_TESTE');
+  const partial = rows.filter(r => r?.truth_status === 'PARTIEL' || r?.truth_status === 'EXISTANT_MAIS_ECHEC_RUNTIME');
+  const blocked = rows.filter(r => ['BLOCKED', 'BLOCKED_EXTERNAL', 'STUB', 'NOT_IMPLEMENTED'].includes(String(r?.truth_status || '')));
+  const untested = rows.filter(r => r?.truth_status === 'EXISTANT_NON_TESTE');
+  const lines = [
+    'Je viens d’inventorier ' + Number(audit.total || rows.length) + ' capacités runtime. Je distingue ce qui existe de ce qui a réellement été testé.',
+    '- Testées maintenant : ' + tested.length + (tested.length ? ' — ' + tested.slice(0, 12).map(r => r.id).join(', ') : '') + '.',
+    '- Existantes mais non testées maintenant : ' + untested.length + '.',
+    '- Partielles ou en échec runtime : ' + partial.length + (partial.length ? ' — ' + partial.slice(0, 12).map(r => r.id + ' (' + r.truth_status + ')').join(', ') : '') + '.',
+    '- Bloquées / stubs / non implémentées : ' + blocked.length + (blocked.length ? ' — ' + blocked.slice(0, 12).map(r => r.id + ' (' + r.truth_status + ')').join(', ') : '') + '.',
+  ];
+  if (audit.deep !== true) lines.push('Cet inventaire n’est pas un test de bout en bout : les capacités non exécutées restent explicitement non testées.');
+  if (Object.keys(counts).length) lines.push('Comptage vérité : ' + Object.entries(counts).map(([k,v]) => k + '=' + v).join(', ') + '.');
+  return lines.join('\n');
+}
+
+export function formatCommunicationAuditResponse(audit, { fallback = '' } = {}) {
+  if (!audit || typeof audit !== 'object') return String(fallback || '').trim();
+  const issues = Array.isArray(audit.issues) ? audit.issues : [];
+  const counts = audit.issue_counts && typeof audit.issue_counts === 'object' ? audit.issue_counts : {};
+  const lines = [
+    'J’ai audité ' + Number(audit.scanned_messages || 0) + ' message(s) de ' + Number(audit.scanned_conversations || 0) + ' conversation(s) sur ' + Number(audit.total_messages || 0) + ' message(s) disponibles dans le périmètre.',
+    'J’ai relevé ' + issues.length + ' signalement(s) à examiner : ' + (Object.keys(counts).length ? Object.entries(counts).map(([k,v]) => k + '=' + v).join(', ') : 'aucun signal heuristique') + '.',
+  ];
+  for (const issue of issues.slice(0, 8)) {
+    const where = issue.conversation_id ? ' [' + issue.conversation_id + ']' : '';
+    lines.push('- ' + String(issue.type || 'ISSUE') + where + ' : ' + clip(issue.summary || issue.assistant_excerpt || issue.user_excerpt || '', 260));
+  }
+  if (audit.truncated === true) lines.push('L’audit est borné : les messages plus anciens n’ont pas tous été relus dans ce passage.');
+  lines.push('Ces signalements sont des indices déterministes à corriger, pas des verdicts : une contradiction apparente peut parfois correspondre à un état qui a réellement changé.');
+  return lines.join('\n');
+}

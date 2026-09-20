@@ -13,8 +13,18 @@ import { MentorMemoryRepository } from '../learning/mentor-memory.js';
 import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
 import { stripInternalCounters } from './chat-sanitization.js';
 import { retrieveContext } from '../core/orchestrator/conversation-context.js';
-import { formatVerifiedSelfStateResponse } from './response-grounding.js';
+import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
+
+export function shouldRetrieveArchiveRecall(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  if (/\b(?:souviens[- ]?toi|rappelle[- ]?moi|m[ée]moire|historique|anciennes?\s+conversations?|qu['’]est[- ]?ce\s+que\s+tu\s+sais)\b/i.test(value)) return true;
+  if (value.length <= 100 && /^(?:ok|oui|non|go|maj|avance|continue|reprends?|fais[- ]?le|vas[- ]?y|et\s+maintenant|et\s+l[àa]|comme\s+ça|celle[- ]?l[àa]|celui[- ]?l[àa]|ça|ca|ceci|cela)[ ?.!,…]*$/i.test(value)) return false;
+  const tokens = (value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().match(/[a-z0-9]{4,}/g) || [])
+    .filter(x => !/^(?:avec|pour|dans|cette|cela|comme|mais|plus|faire|peux|veux|dois|tout|tous|toute|toutes|quoi|comment|alors|encore)$/.test(x));
+  return new Set(tokens).size >= 2;
+}
 
 function extractCodePath(value) {
   return String(value || '').match(/((?:src|tests|\.github)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)|worker\.js|package\.json|wrangler\.jsonc)/i)?.[1] || null;
@@ -501,7 +511,7 @@ export async function handleNativeChat(request, env, options = {}) {
   ]);
   const [cognitiveMemory, archiveRecall] = await Promise.all([
     loadCognitiveMemory(env, activeInferenceSettings?.memory_results ?? 12),
-    env?.DB
+    env?.DB && shouldRetrieveArchiveRecall(text)
       ? retrieveContext(env.DB, env.MELITURGOS_USER || 'owner', text).catch(() => null)
       : Promise.resolve(null),
   ]);
@@ -515,6 +525,8 @@ export async function handleNativeChat(request, env, options = {}) {
   const operatingManual = buildMelOperatingManualPrompt({ capabilityManifest, experience: operationalExperience });
   const developmentQueued = toolResults.find((row) => row.capability === 'evolution.enqueue' && row.status === 'SUCCEEDED')?.result || null;
   const selfStateObserved = toolResults.find((row) => row.capability === 'self.state' && row.status === 'SUCCEEDED')?.result || null;
+  const capabilityAuditObserved = toolResults.find((row) => row.capability === 'capability.audit' && row.status === 'SUCCEEDED')?.result || null;
+  const communicationAuditObserved = toolResults.find((row) => row.capability === 'conversation.audit' && row.status === 'SUCCEEDED')?.result || null;
 
   const system = [
     buildMelIdentityPrompt(),
@@ -570,9 +582,13 @@ export async function handleNativeChat(request, env, options = {}) {
   });
 
   const modelResponseText = stripInternalCounters(ai.text);
-  const groundedResponseText = selfStateObserved
-    ? formatVerifiedSelfStateResponse(selfStateObserved, text, { fallback: modelResponseText })
-    : modelResponseText;
+  const groundedResponseText = communicationAuditObserved
+    ? formatCommunicationAuditResponse(communicationAuditObserved, { fallback: modelResponseText })
+    : capabilityAuditObserved
+      ? formatVerifiedCapabilityAuditResponse(capabilityAuditObserved, { fallback: modelResponseText })
+      : selfStateObserved
+        ? formatVerifiedSelfStateResponse(selfStateObserved, text, { fallback: modelResponseText })
+        : modelResponseText;
   const responseText = finalizeEvidenceAlignedResponse({
     text: groundedResponseText,
     userText: text,
@@ -602,7 +618,13 @@ export async function handleNativeChat(request, env, options = {}) {
     cache_hit: ai.cache_hit === true,
     finish_reason: ai.finish_reason || null,
     response_truncated: ai.truncated === true,
-    response_grounding: selfStateObserved ? { mode: 'deterministic-self-state', source: 'self.state', observed_at: selfStateObserved.observed_at || null } : null,
+    response_grounding: communicationAuditObserved
+      ? { mode: 'deterministic-communication-audit', source: 'conversation.audit', observed_at: communicationAuditObserved.audited_at || null }
+      : capabilityAuditObserved
+        ? { mode: 'deterministic-capability-audit', source: 'capability.audit', observed_at: null }
+        : selfStateObserved
+          ? { mode: 'deterministic-self-state', source: 'self.state', observed_at: selfStateObserved.observed_at || null }
+          : null,
     response_mode: inferResponseMode(text),
     memory_count: retrieved?.count || 0,
     memory_stored: memoryWrite.stored === true,

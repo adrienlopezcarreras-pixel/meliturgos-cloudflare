@@ -1,4 +1,5 @@
 import { classifySemanticOwnerIntent } from './semantic-intent.js';
+import { createConversationService } from '../conversations/conversation-service.js';
 
 export function isEvolutionDevelopmentIntent(text) {
   const value = String(text || '').trim();
@@ -53,6 +54,43 @@ export function inferSelfStateIntent(text) {
 
   if (!(self && asksObservation && (broadSelfState || (internalDomain && currentState)))) return null;
   return { id: 'self.state', input: {} };
+}
+
+export function inferCommunicationAuditIntent(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  const historyDomain = /\b(?:logs?|historique|conversations?|[ée]changes?|messages?|r[ée]ponses?\s+pass[ée]es?|communication)\b/i.test(value);
+  const qualityDomain = /\b(?:contradic|coh[ée]ren|oubli|hors\s+sujet|mauvais\s+sujet|mauvais\s+plan|r[ée]ponses?\s+(?:fausses?|incoh[ée]rentes?)|audit|analyse|regarde|inspecte|v[ée]rifie)\b/i.test(value);
+  const relation = /\b(?:avec\s+moi|nos|notre|tes|ta|ton|mel|toi)\b/i.test(value);
+  if (!(historyDomain && qualityDomain && relation)) return null;
+  return { id: 'conversation.audit', input: {} };
+}
+
+function uiIntentContext(value) {
+  if (typeof value === 'string') return value.slice(-2500);
+  if (!value || typeof value !== 'object') return '';
+  try { return JSON.stringify(value).slice(-1500); } catch { return ''; }
+}
+
+export async function buildIntentRoutingContext(body = {}, env = {}) {
+  const parts = [];
+  const conversationId = String(body.conversation_id ?? body.conversationId ?? '').trim();
+  if (env?.DB && conversationId) {
+    try {
+      const service = createConversationService(env);
+      const rows = await service.getMessages(conversationId, { limit: 24 });
+      const recent = (Array.isArray(rows) ? rows : []).slice(-18);
+      if (recent.length) {
+        parts.push(recent.map(row => {
+          const role = String(row?.role || '').toLowerCase() === 'assistant' ? 'MEL' : 'USER';
+          return role + ': ' + String(row?.content || '').slice(0, 1000);
+        }).join('\n'));
+      }
+    } catch {}
+  }
+  const ui = uiIntentContext(body.intent_context);
+  if (ui) parts.push('UI_CONTEXT: ' + ui);
+  return parts.join('\n').slice(-8000);
 }
 
 export function inferWebResearchIntent(text) {
@@ -141,21 +179,27 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
   } else {
     const autonomy = inferAutonomyControlIntent(text);
     const capabilityInspection = autonomy ? null : inferCapabilityInspectionIntent(text);
-    const codeIntegrity = autonomy || capabilityInspection ? null : inferCodeIntegrityIntent(text);
-    const openWork = autonomy || capabilityInspection || codeIntegrity ? null : inferOpenWorkIntent(text);
-    const moduleProposal = autonomy || capabilityInspection || codeIntegrity || openWork ? null : inferModuleProposalIntent(text);
-    const webResearch = autonomy || capabilityInspection || codeIntegrity || openWork || moduleProposal ? null : inferWebResearchIntent(text);
+    const communicationAudit = autonomy || capabilityInspection ? null : inferCommunicationAuditIntent(text);
+    const codeIntegrity = autonomy || capabilityInspection || communicationAudit ? null : inferCodeIntegrityIntent(text);
+    const openWork = autonomy || capabilityInspection || communicationAudit || codeIntegrity ? null : inferOpenWorkIntent(text);
+    const moduleProposal = autonomy || capabilityInspection || communicationAudit || codeIntegrity || openWork ? null : inferModuleProposalIntent(text);
+    const webResearch = autonomy || capabilityInspection || communicationAudit || codeIntegrity || openWork || moduleProposal ? null : inferWebResearchIntent(text);
 
     if (autonomy) routeDeterministic(body, autonomy, 'AUTONOMY_CONTROL');
     else if (capabilityInspection) routeDeterministic(body, capabilityInspection, 'CAPABILITY_STATUS');
+    else if (communicationAudit) {
+      communicationAudit.input.conversationId = String(body.conversation_id ?? body.conversationId ?? '').slice(0, 200);
+      routeDeterministic(body, communicationAudit, 'COMMUNICATION_AUDIT');
+    }
     else if (codeIntegrity) routeDeterministic(body, codeIntegrity, 'CODE_INTEGRITY');
     else if (openWork) routeDeterministic(body, openWork, 'OPEN_WORK');
     else if (moduleProposal) routeDeterministic(body, moduleProposal, 'MODULE_PROPOSAL');
     else if (webResearch) routeDeterministic(body, webResearch, 'WEB_RESEARCH');
     else {
+      const semanticContext = await buildIntentRoutingContext(body, env);
       const semantic = await classifySemanticOwnerIntent({
         text,
-        context: String(body.intent_context || '').slice(-8000),
+        context: semanticContext,
         env,
         AI: env?.AI,
       });

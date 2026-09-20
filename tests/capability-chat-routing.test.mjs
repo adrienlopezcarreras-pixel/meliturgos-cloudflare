@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { injectEvolutionPreflightCapability, inferCapabilityInspectionIntent } from '../src/evolution/chat-intent.js';
+import { injectEvolutionPreflightCapability, inferCapabilityInspectionIntent, inferCommunicationAuditIntent, buildIntentRoutingContext } from '../src/evolution/chat-intent.js';
+import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { createConversationService } from '../src/conversations/conversation-service.js';
 import { classifySemanticOwnerIntent } from '../src/evolution/semantic-intent.js';
 
 test('deterministic capability inspection understands natural French formulations', () => {
@@ -56,4 +58,32 @@ test('semantic router can classify an elliptical capability-status follow-up', a
   });
   assert.equal(result?.intent, 'CAPABILITY_STATUS');
   assert.equal(result?.resolvedGoal, '');
+});
+
+
+test('communication log audit routes to conversation.audit', async () => {
+  assert.deepEqual(inferCommunicationAuditIntent('regarde tes logs de communication avec moi et analyse tes contradictions'), { id:'conversation.audit', input:{} });
+  const request = new Request('https://mel.example/api/chat', {
+    method:'POST',
+    headers:{'content-type':'application/json'},
+    body:JSON.stringify({ text:'audite nos échanges et tes réponses incohérentes', conversation_id:'conv-audit' }),
+  });
+  const body = await (await injectEvolutionPreflightCapability(request)).json();
+  assert.equal(body.capability?.id, 'conversation.audit');
+  assert.equal(body.capability?.input?.conversationId, 'conv-audit');
+  assert.equal(body.intent_routing?.intent, 'COMMUNICATION_AUDIT');
+});
+
+test('semantic routing context is rebuilt from real recent conversation history', async () => {
+  const DB = sqliteD1();
+  try {
+    const service = createConversationService({ DB });
+    await service.archiveMessage({ conversationId:'ctx-1', role:'user', content:'Modifie uniquement la communication de MEL, pas ShardVault.', timestamp:1 });
+    await service.archiveMessage({ conversationId:'ctx-1', role:'assistant', content:'Je reste sur les réponses et la cohérence.', timestamp:2 });
+    const context = await buildIntentRoutingContext({ conversation_id:'ctx-1', intent_context:{ surface:'mel-normal' } }, { DB });
+    assert.match(context, /communication de MEL/i);
+    assert.match(context, /pas ShardVault/i);
+    assert.match(context, /UI_CONTEXT/);
+    assert.doesNotMatch(context, /\[object Object\]/);
+  } finally { DB.close(); }
 });
