@@ -1,5 +1,5 @@
 // deployment trigger: ShardVault dashboard
-import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint, syncShardVaultCodeExternally } from '../continuity/shardvault-runtime.js';
+import { getShardVaultStatus, searchAutonomousShardVaultRepositories, runShardVaultCycle, setPreferredShardVaultEndpoint, activateValidatedShardVaultEndpoint, syncShardVaultCodeExternally, verifyShardVaultCodeReconstruction } from '../continuity/shardvault-runtime.js';
 
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
@@ -54,7 +54,7 @@ pre{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;background
 <div class="toolbar">
 <button id="refresh">Actualiser</button>
 <button id="snapshotNow">Sauvegarder maintenant</button>
-<button id="search">Nouvelle recherche Internet</button>
+<button id="search">Nouvelle recherche Internet</button>\n<button id="reconstructCode">Tester reconstruction du code</button>
 <a href="/" style="align-self:center">← Retour à MEL</a>
 </div>
 <div id="summary" class="grid"></div>
@@ -171,6 +171,17 @@ async function syncCodeExternal({quiet=false}={}){
   if(!quiet){b.disabled=false;b.textContent='Nouvelle recherche Internet';}
  }
 }
+async function reconstructCode(){
+ const b=$('reconstructCode');b.disabled=true;b.textContent='Reconstruction en cours…';
+ try{
+  const r=await fetch('/api/gen2/shardvault/code-reconstruct',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({simulate_missing:[0,2,5]})});
+  const d=await r.json();
+  if(!r.ok||d.ok===false)throw new Error(d.status||d.error||('HTTP '+r.status));
+  $('searchStatus').className='ok';
+  $('searchStatus').textContent='Reconstruction code vérifiée · SHA '+safe(String(d.sha||d.git_sha||'').slice(0,12))+' · '+fmt(d.healthy_shards)+' fragments sains / '+fmt(d.required_shards)+' requis · 3 pertes simulées tolérées.';
+ }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Reconstruction du code échouée : '+e.message}
+ finally{b.disabled=false;b.textContent='Tester reconstruction du code'}
+}
 async function search(){
  const b=$('search');b.disabled=true;b.textContent='Recherche en cours…';$('searchStatus').className='muted pulse';$('searchStatus').textContent='MEL vérifie les politiques puis effectue des tests d’écriture/lecture sur les candidats autorisés.';
  $('results').innerHTML='';
@@ -189,7 +200,7 @@ async function search(){
  }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Erreur : '+e.message}
  finally{b.disabled=false;b.textContent='Nouvelle recherche Internet'}
 }
-$('refresh').onclick=load;$('snapshotNow').onclick=snapshot;$('search').onclick=search;load();setInterval(load,30000);
+$('refresh').onclick=load;$('snapshotNow').onclick=snapshot;$('search').onclick=search;$('reconstructCode').onclick=reconstructCode;load();setInterval(load,30000);
 </script></body></html>`,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
 }
 
@@ -207,6 +218,11 @@ export async function handleShardVaultStatus(request,env){
   }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/code-sync'){
     const result=await syncShardVaultCodeExternally(env);
+    return Response.json(result,{status:result.ok?200:409,headers:{'cache-control':'no-store'}});
+  }
+  if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/code-reconstruct'){
+    const body=await request.json().catch(()=>({}));
+    const result=await verifyShardVaultCodeReconstruction(env,{dropIndexes:Array.isArray(body?.simulate_missing)?body.simulate_missing:[]});
     return Response.json(result,{status:result.ok?200:409,headers:{'cache-control':'no-store'}});
   }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/preference'){

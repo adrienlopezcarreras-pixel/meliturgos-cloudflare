@@ -690,15 +690,99 @@ async function assignDistinctExternalTargets(items,candidates,copyFn){
     pending_indices:pending,
   };
 }
+
+async function readExternalCodeManifest(env,c){
+  const id=deployedCodeIdentity(env);
+  if(!id)return {ok:false,status:'IDENTITY_UNAVAILABLE'};
+  if(!env?.MEDIA_BUCKET?.get)return {ok:false,status:'R2_UNAVAILABLE',repository:id.repository,sha:id.sha};
+  const body=await env.MEDIA_BUCKET.get(id.manifestKey);
+  if(!body)return {ok:false,status:'CODE_MANIFEST_MISSING',repository:id.repository,sha:id.sha,manifest_key:id.manifestKey};
+  let manifest;
+  try{manifest=JSON.parse(await body.text());}
+  catch{return {ok:false,status:'CODE_MANIFEST_INVALID_JSON',repository:id.repository,sha:id.sha,manifest_key:id.manifestKey};}
+  if(manifest?.format!=='MEL-ShardVault-Code'||Number(manifest?.formatVersion)<2)return {ok:false,status:'CODE_MANIFEST_FORMAT_INVALID',repository:id.repository,sha:id.sha};
+  if(String(manifest?.git_sha||'')!==id.sha)return {ok:false,status:'CODE_MANIFEST_SHA_MISMATCH',repository:id.repository,sha:id.sha,manifest_sha:manifest?.git_sha||null};
+  if(!manifest?.manifestMac)return {ok:false,status:'CODE_MANIFEST_MAC_MISSING',repository:id.repository,sha:id.sha};
+  const unsigned={...manifest};delete unsigned.manifestMac;
+  const key=await hkdf(c.master,utf8(id.sha),utf8('MEL-ShardVault/v1/code-manifest-mac'));
+  const expected=b64u(await hmac(key,utf8(stable(unsigned))));
+  if(expected!==manifest.manifestMac)return {ok:false,status:'CODE_MANIFEST_MAC_INVALID',repository:id.repository,sha:id.sha};
+  return {ok:true,status:'CODE_MANIFEST_VERIFIED',id,manifest};
+}
+async function reconstructExternalCodeArchive(env,c,manifest,{dropIndexes=[]}={}){
+  const n=Number(manifest?.totalShards)||0,k=Number(manifest?.dataShards)||0,size=Number(manifest?.shardSize)||0;
+  if(k<1||n<=k||size<1)return {ok:false,status:'CODE_RECONSTRUCTION_PARAMS_INVALID'};
+  const dropped=new Set((Array.isArray(dropIndexes)?dropIndexes:[]).map(Number).filter(i=>Number.isInteger(i)&&i>=0&&i<n));
+  if(dropped.size>n-k)return {ok:false,status:'CODE_RECONSTRUCTION_FAULT_BUDGET_EXCEEDED',dropped_indexes:[...dropped],tolerated_losses:n-k};
+  const available=Array(n).fill(null),errors=[],used=[];
+  const shardKey=await hkdf(c.master,utf8(manifest.snapshotId),utf8('MEL-ShardVault/v1/code-shard-mac'));
+  await Promise.all((manifest.shards||[]).map(async d=>{
+    const index=Number(d?.index);
+    if(!Number.isInteger(index)||index<0||index>=n)return;
+    if(dropped.has(index)){errors.push({index,endpoint_id:d.endpointId||null,error:'SIMULATED_MISSING'});return;}
+    try{
+      const e=endpointById(c,d.endpointId,d);
+      if(!e)throw new Error('ENDPOINT_UNKNOWN');
+      const b=await downloadFragment(env,e,d);
+      const mac=b64u(await hmac(shardKey,concat(utf8(`${manifest.snapshotId}:${index}:`),b)));
+      if(b.length!==size)throw new Error('CODE_SHARD_LENGTH_INVALID');
+      if(mac!==d.mac)throw new Error('CODE_SHARD_MAC_INVALID');
+      available[index]=b;
+      used.push({index,endpoint_id:d.endpointId});
+    }catch(error){errors.push({index,endpoint_id:d?.endpointId||null,error:String(error?.message||error)});}
+  }));
+  const healthy=available.filter(Boolean).length;
+  if(healthy<k)return {ok:false,status:'CODE_RECONSTRUCTION_SHARDS_INSUFFICIENT',healthy_shards:healthy,required_shards:k,total_shards:n,dropped_indexes:[...dropped],errors:errors.slice(0,24)};
+  let reconstructed;
+  try{reconstructed=decode(available,k,n,size);}
+  catch(error){return {ok:false,status:'CODE_RECONSTRUCTION_RS_FAILED',error:String(error?.message||error),healthy_shards:healthy,required_shards:k};}
+  const padded=concat(...reconstructed.slice(0,k)),cipher=padded.slice(0,Number(manifest.ciphertextLength)||0);
+  let plain;
+  try{plain=await decrypt(c.master,manifest.snapshotId,cipher,unb64u(manifest.iv));}
+  catch(error){return {ok:false,status:'CODE_RECONSTRUCTION_DECRYPT_FAILED',error:String(error?.message||error)};}
+  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',plain));
+  const sha256=[...digest].map(x=>x.toString(16).padStart(2,'0')).join('');
+  if(Number(manifest.archiveBytes)>0&&plain.length!==Number(manifest.archiveBytes))return {ok:false,status:'CODE_RECONSTRUCTION_SIZE_MISMATCH',expected_bytes:Number(manifest.archiveBytes),actual_bytes:plain.length};
+  if(String(manifest.sha256||'')!==sha256)return {ok:false,status:'CODE_RECONSTRUCTION_HASH_MISMATCH',expected_sha256:manifest.sha256||null,actual_sha256:sha256};
+  if(plain.length<2||plain[0]!==0x1f||plain[1]!==0x8b)return {ok:false,status:'CODE_RECONSTRUCTION_ARCHIVE_FORMAT_INVALID',sha256};
+  return {
+    ok:true,status:'CODE_RECONSTRUCTION_VERIFIED',git_sha:manifest.git_sha,archive_key:manifest.archive_key||null,
+    snapshot_id:manifest.snapshotId,sha256,reconstructed_bytes:plain.length,
+    total_shards:n,required_shards:k,healthy_shards:healthy,
+    used_endpoints:[...new Set(used.map(x=>x.endpoint_id).filter(Boolean))],
+    used_shards:used.map(x=>x.index),dropped_indexes:[...dropped],
+    download_errors:errors.filter(x=>x.error!=='SIMULATED_MISSING').slice(0,24),
+    independent_of_local_archive:true
+  };
+}
+export async function verifyShardVaultCodeReconstruction(env,{dropIndexes=[]}={}){
+  if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:true,enabled:false,skipped:true,reason:'DISABLED'};
+  let c;
+  try{c=await config(env);}catch(error){return {ok:false,status:'CONFIG_INVALID',error:String(error?.message||error)};}
+  if(!c.ok)return {ok:false,status:'CONFIG_MISSING',missing:c.missing};
+  const read=await readExternalCodeManifest(env,c);
+  if(!read.ok)return read;
+  const result=await reconstructExternalCodeArchive(env,c,read.manifest,{dropIndexes});
+  return {...result,repository:read.id.repository,sha:read.id.sha,manifest_key:read.id.manifestKey};
+}
+
 async function ensureExternalCodeArchive(env,c,codeBackup){
   if(!codeBackup?.ok||!env?.MEDIA_BUCKET?.get||!env?.MEDIA_BUCKET?.put)return codeBackup;
   const id=deployedCodeIdentity(env);
   if(!id)return codeBackup;
   const goal=Math.min(7,c.n);
   const existing=await inspectCodeArchive(env,c);
-  if(existing?.external?.status==='COPIED'&&existing.external.endpoints?.length>=goal)return existing;
-  const object=await env.MEDIA_BUCKET.get(id.criticalKey);
-  if(!object)return {...codeBackup,external:{status:'CRITICAL_ARCHIVE_MISSING',target_count:goal,critical_key:id.criticalKey}};
+  if(existing?.external?.status==='COPIED'&&existing.external.endpoints?.length>=goal){
+    const verified=await verifyShardVaultCodeReconstruction(env).catch(error=>({ok:false,status:'CODE_RECONSTRUCTION_CHECK_FAILED',error:String(error?.message||error)}));
+    if(verified?.ok)return {...existing,external:{...existing.external,reconstruction_status:verified.status,reconstruction_sha256:verified.sha256,reconstruction_verified:true}};
+  }
+  let archiveKey=id.criticalKey;
+  let object=await env.MEDIA_BUCKET.get(archiveKey);
+  if(!object){
+    archiveKey=id.key;
+    object=await env.MEDIA_BUCKET.get(archiveKey);
+  }
+  if(!object)return {...codeBackup,external:{status:'CODE_ARCHIVE_SOURCE_MISSING',target_count:goal,critical_key:id.criticalKey,fallback_key:id.key}};
   const plain=new Uint8Array(await object.arrayBuffer());
   const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',plain));
   const archiveSha256=[...digest].map(x=>x.toString(16).padStart(2,'0')).join('');
@@ -730,7 +814,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       pending_shards:copied.pending_indices,
     }};
   }
-  const manifest={format:'MEL-ShardVault-Code',formatVersion:2,repository:id.repository,git_sha:id.sha,archive_key:id.criticalKey,snapshotId,createdAt:new Date().toISOString(),dataShards:c.k,totalShards:c.n,shardSize:size,ciphertextLength:cipher.length,iv:b64u(iv),archiveBytes:plain.length,sha256:archiveSha256,shards:descriptors,diversity:diversity(descriptors.map(d=>candidates.find(e=>e.id===d.endpointId)).filter(Boolean)),roundtripVerified:true};
+  const manifest={format:'MEL-ShardVault-Code',formatVersion:2,repository:id.repository,git_sha:id.sha,archive_key:archiveKey,snapshotId,createdAt:new Date().toISOString(),dataShards:c.k,totalShards:c.n,shardSize:size,ciphertextLength:cipher.length,iv:b64u(iv),archiveBytes:plain.length,sha256:archiveSha256,shards:descriptors,diversity:diversity(descriptors.map(d=>candidates.find(e=>e.id===d.endpointId)).filter(Boolean)),roundtripVerified:true};
   const unsigned={...manifest},key=await hkdf(c.master,utf8(id.sha),utf8('MEL-ShardVault/v1/code-manifest-mac'));
   manifest.manifestMac=b64u(await hmac(key,utf8(stable(unsigned))));
   await env.MEDIA_BUCKET.put(id.manifestKey,JSON.stringify(manifest),{httpMetadata:{contentType:'application/json'}});
@@ -806,7 +890,7 @@ export async function syncShardVaultCodeExternally(env){
   }
 }
 
-export const __shardvaultTest = Object.freeze({ encode, decode, selectEndpoints, diversity, extendActiveEndpoints, externalEndpointsFromSnapshot, rankExternalCodeCandidates, assignDistinctExternalTargets, byteArraysEqual });
+export const __shardvaultTest = Object.freeze({ encode, decode, selectEndpoints, diversity, extendActiveEndpoints, externalEndpointsFromSnapshot, rankExternalCodeCandidates, assignDistinctExternalTargets, byteArraysEqual, reconstructExternalCodeArchive });
 
 
 function publicEndpointView(e){return {id:e.id,backend:e.backend||'http',bucket:e.bucketName||null,key_prefix:e.keyPrefix||null,operatorDomain:e.operatorDomain,providerId:e.providerId,jurisdiction:e.jurisdiction,score:Number(e.score)||0,confidence:Number(e.confidence)||0,autonomous:e.autonomous===true,authMode:e.authMode||null,maxBytes:Number(e.maxBytes)||0,preferred:e.preferred===true,adapter:e.adapter||null,expectedRetentionDays:Number(e.expectedRetentionDays)||0,retentionModel:e.retentionModel||'fixed',baseRetentionDays:Number(e.baseRetentionDays)||Number(e.expectedRetentionDays)||0,refreshEveryDays:Number(e.refreshEveryDays)||0,fullReadRenewsRetention:e.fullReadRenewsRetention===true,evidenceVerification:e.evidenceVerification||null,verifiedAt:e.verifiedAt||null,probeLatencyMs:Number(e.probeLatencyMs)||0};}

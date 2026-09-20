@@ -571,6 +571,122 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
+      - name: Prove ShardVault external code reconstruction
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          AUTH="Authorization: Bearer ${MEL_PREVIEW_PASSWORD}"
+
+          curl --fail-with-body --show-error --silent --max-time 300 \
+            --header "$AUTH" \
+            --header "content-type: application/json" \
+            --data '{}' \
+            "$BASE_URL/api/gen2/shardvault/code-sync" \
+            --output shardvault-code-sync.json
+
+          curl --fail-with-body --show-error --silent --max-time 240 \
+            --header "$AUTH" \
+            --header "content-type: application/json" \
+            --data '{}' \
+            "$BASE_URL/api/gen2/shardvault/code-reconstruct" \
+            --output shardvault-code-reconstruct.json
+
+          curl --fail-with-body --show-error --silent --max-time 240 \
+            --header "$AUTH" \
+            --header "content-type: application/json" \
+            --data '{"simulate_missing":[0,2,5]}' \
+            "$BASE_URL/api/gen2/shardvault/code-reconstruct" \
+            --output shardvault-code-reconstruct-loss3.json
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const sync=JSON.parse(fs.readFileSync('shardvault-code-sync.json','utf8'));
+          const normal=JSON.parse(fs.readFileSync('shardvault-code-reconstruct.json','utf8'));
+          const loss3=JSON.parse(fs.readFileSync('shardvault-code-reconstruct-loss3.json','utf8'));
+          const sha=process.env.GITHUB_SHA;
+          if(sync?.ok!==true||sync?.status!=='COPIED') throw new Error('SHARDVAULT_CODE_SYNC_NOT_COPIED');
+          if((sync?.external?.endpoints||[]).length<7) throw new Error('SHARDVAULT_CODE_SYNC_EXTERNAL_LT_7');
+          for(const [label,d] of [['normal',normal],['loss3',loss3]]){
+            if(d?.ok!==true||d?.status!=='CODE_RECONSTRUCTION_VERIFIED') throw new Error('SHARDVAULT_CODE_RECONSTRUCTION_FAILED:'+label+':'+String(d?.status||d?.error));
+            if(String(d?.sha||d?.git_sha||'')!==String(sha||'')) throw new Error('SHARDVAULT_CODE_RECONSTRUCTION_SHA_MISMATCH:'+label);
+            if(d?.independent_of_local_archive!==true) throw new Error('SHARDVAULT_CODE_RECONSTRUCTION_NOT_INDEPENDENT:'+label);
+            if(Number(d?.healthy_shards||0)<Number(d?.required_shards||0)) throw new Error('SHARDVAULT_CODE_RECONSTRUCTION_INSUFFICIENT:'+label);
+            if(!/^[0-9a-f]{64}$/i.test(String(d?.sha256||''))) throw new Error('SHARDVAULT_CODE_RECONSTRUCTION_HASH_INVALID:'+label);
+          }
+          if((loss3?.dropped_indexes||[]).length!==3) throw new Error('SHARDVAULT_LOSS3_NOT_EXERCISED');
+          console.log(JSON.stringify({
+            sha,
+            external_code_endpoints:sync.external.endpoints.length,
+            reconstruction_status:normal.status,
+            reconstruction_sha256:normal.sha256,
+            loss3_status:loss3.status,
+            loss3_healthy_shards:loss3.healthy_shards,
+            loss3_required_shards:loss3.required_shards,
+            independent_of_local_archive:normal.independent_of_local_archive
+          },null,2));
+          NODE
+
+      - name: Stress preview UI API and recovery paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          export BASE_URL MEL_PREVIEW_PASSWORD
+
+          stress_one() {
+            i="$1"
+            case $((i % 7)) in
+              0) path="/" ;;
+              1) path="/professor" ;;
+              2) path="/veille" ;;
+              3) path="/api/gen2/autonomy/state" ;;
+              4) path="/api/work/health" ;;
+              5) path="/api/memory/status" ;;
+              6) path="/api/learning/progress" ;;
+            esac
+            curl --fail --show-error --silent --max-time 30 \
+              --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+              "${BASE_URL}${path}" >/dev/null
+          }
+          export -f stress_one
+          seq 1 140 | xargs -P 14 -n 1 bash -c 'stress_one "$1"' _
+
+          for pattern in '[0,1,2]' '[1,3,6]' '[0,4,6]' '[2,4,5]' '[1,2,5]'; do
+            curl --fail-with-body --show-error --silent --max-time 240 \
+              --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+              --header "content-type: application/json" \
+              --data "{\"simulate_missing\":${pattern}}" \
+              "$BASE_URL/api/gen2/shardvault/code-reconstruct" \
+              > stress-reconstruct.json
+            PATTERN="$pattern" node - <<'NODE'
+            const fs=require('fs');
+            const d=JSON.parse(fs.readFileSync('stress-reconstruct.json','utf8'));
+            if(d?.ok!==true||d?.status!=='CODE_RECONSTRUCTION_VERIFIED') throw new Error('STRESS_RECONSTRUCTION_FAILED:'+process.env.PATTERN+':'+String(d?.status||d?.error));
+            if((d?.dropped_indexes||[]).length!==3) throw new Error('STRESS_RECONSTRUCTION_LOSS_PATTERN_MISSING');
+            if(Number(d?.healthy_shards||0)<Number(d?.required_shards||0)) throw new Error('STRESS_RECONSTRUCTION_UNRECOVERABLE');
+            NODE
+          done
+
+          curl --fail --show-error --silent --max-time 45 \
+            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+            "$BASE_URL/api/gen2/autonomy/state" > stress-final-state.json
+          node -e "JSON.parse(require('fs').readFileSync('stress-final-state.json','utf8'))"
+          echo "Bounded preview stress and recovery tests passed."
+
+      - name: Upload ShardVault reconstruction and stress evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: shardvault-reconstruction-stress-${{ github.sha }}
+          path: |
+            shardvault-code-sync.json
+            shardvault-code-reconstruct.json
+            shardvault-code-reconstruct-loss3.json
+            stress-final-state.json
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Prove autonomy launch readiness on isolated preview
         shell: bash
         run: |

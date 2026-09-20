@@ -19,7 +19,8 @@
     "test:mvp": "node --test tests/mvp-product.test.mjs",
     "test:routes": "node --test tests/gen2/route-integration.test.mjs",
     "test:connections": "node scripts/test-connections.mjs",
-    "test:bindings": "node scripts/test-bindings.mjs"
+    "test:bindings": "node scripts/test-bindings.mjs",
+    "test:stress": "node --test tests/shardvault-reconstruction-stress.test.mjs"
   },
   "devDependencies": {
     "jsdom": "^30.0.1",
