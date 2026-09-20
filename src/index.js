@@ -352,54 +352,84 @@ export default {
   async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
-      const avatarResponse = serveMelAvatar(url.pathname);
+      const path = url.pathname;
+      const avatarResponse = serveMelAvatar(path);
       if (avatarResponse) return avatarResponse;
 
-      const terminalResponse = await maybeHandleWaveshareTerminalApi(request, env);
-      if (terminalResponse) return terminalResponse;
+      if (path.startsWith('/api/device/v1/')) {
+        const terminalResponse = await maybeHandleWaveshareTerminalApi(request, env);
+        if (terminalResponse) return terminalResponse;
+      }
 
-      const computerResponse = await maybeHandleComputerApi(request, env);
-      if (computerResponse) return computerResponse;
+      if (path.startsWith('/api/computer/v1/')) {
+        const computerResponse = await maybeHandleComputerApi(request, env);
+        if (computerResponse) return computerResponse;
+      }
 
-      const voiceResponse = await handleVoiceTranscription(request, env);
-      if (voiceResponse) return voiceResponse;
+      if (path === '/api/voice/transcribe') {
+        const voiceResponse = await handleVoiceTranscription(request, env);
+        if (voiceResponse) return voiceResponse;
+      }
 
-      const fileResponse = await handleFileUpload(request, env);
-      if (fileResponse) return fileResponse;
+      if (path === '/api/files/upload') {
+        const fileResponse = await handleFileUpload(request, env);
+        if (fileResponse) return fileResponse;
+      }
 
-      const releaseBootstrapResponse = await maybeHandleReleaseLaunchBootstrap(request, env);
-      if (releaseBootstrapResponse) return releaseBootstrapResponse;
+      if (path === '/api/internal/release-launch-bootstrap') {
+        const releaseBootstrapResponse = await maybeHandleReleaseLaunchBootstrap(request, env);
+        if (releaseBootstrapResponse) return releaseBootstrapResponse;
+      }
 
-      const publicTeacherResponse = await maybeHandlePublicTeacherBridge(request, env);
-      if (publicTeacherResponse) return publicTeacherResponse;
+      if (path.startsWith('/api/teacher/')) {
+        const publicTeacherResponse = await maybeHandlePublicTeacherBridge(request, env);
+        if (publicTeacherResponse) return publicTeacherResponse;
+      }
 
-      const memoryResponse = await maybeHandleMemoryCompatibility(request, env);
-      if (memoryResponse) return memoryResponse;
+      if (path === '/api/memory/status' || path === '/api/export') {
+        const memoryResponse = await maybeHandleMemoryCompatibility(request, env);
+        if (memoryResponse) return memoryResponse;
+      }
 
-      const safeWorkResponse = await maybeHandleWorkPreflight(request, env);
-      if (safeWorkResponse) return safeWorkResponse;
+      if (path.startsWith('/api/work/')) {
+        const safeWorkResponse = await maybeHandleWorkPreflight(request, env);
+        if (safeWorkResponse) return safeWorkResponse;
+      }
 
-      const autonomyResponse = await maybeHandleAutonomyApi(request, env);
-      if (autonomyResponse) return autonomyResponse;
+      if (path.startsWith('/api/gen2/autonomy/')) {
+        const autonomyResponse = await maybeHandleAutonomyApi(request, env);
+        if (autonomyResponse) return autonomyResponse;
+      }
 
-      const readinessResponse = await maybeHandleReadiness(request, env);
-      if (readinessResponse) return readinessResponse;
+      if (path === '/api/gen2/readiness') {
+        const readinessResponse = await maybeHandleReadiness(request, env);
+        if (readinessResponse) return readinessResponse;
+      }
 
-      const councilResponse = await maybeHandleCouncilAndEvolution(request, env);
-      if (councilResponse) return councilResponse;
+      if (path === '/api/gen2/council/state-of-play' || path === '/api/gen2/evolution/preflight') {
+        const councilResponse = await maybeHandleCouncilAndEvolution(request, env);
+        if (councilResponse) return councilResponse;
+      }
 
-      const archiveResponse = await maybeHandleChatGPTArchive(request, env);
-      if (archiveResponse) return archiveResponse;
+      if (
+        path === '/api/gen2/import/chatgpt-status'
+        || path === '/api/gen2/import/chatgpt-archive'
+        || path === '/api/import/chatgpt-context'
+      ) {
+        const archiveResponse = await maybeHandleChatGPTArchive(request, env);
+        if (archiveResponse) return archiveResponse;
+      }
 
-      const preparedRequest = await injectEvolutionPreflightCapability(request, env);
-      if (new URL(preparedRequest.url).pathname === '/api/chat') {
+      const preparedRequest = path === '/api/chat' && request.method === 'POST'
+        ? await injectEvolutionPreflightCapability(request, env)
+        : request;
+      if (path === '/api/chat') {
         return await handleNativeChat(preparedRequest, withChatAiDefaults(env));
       }
 
       const response = await router.fetch(preparedRequest, env, ctx);
       if (response) {
-        const pathname = new URL(preparedRequest.url).pathname;
-        return pathname === '/professor' ? await enhanceMvpBehavior(response) : response;
+        return path === '/professor' ? await enhanceMvpBehavior(response) : response;
       }
       throw new Error("Router returned null");
     } catch (error) {
