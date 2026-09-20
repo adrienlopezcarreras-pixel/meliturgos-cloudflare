@@ -1,9 +1,10 @@
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { listPendingRuntimeTeacherRequests, teacherBridgePublicView } from './runtime-teacher-bridge.js';
 import { isSupervisedAutonomyJob } from '../evolution/autonomy-supervisor.js';
+import { getAutonomyLaunchReadiness } from '../evolution/launch-readiness.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
-const PUBLIC_PATHS = new Set(['/api/teacher/pending', '/api/teacher/status', '/api/teacher/work', '/api/teacher/bridge.txt']);
+const PUBLIC_PATHS = new Set(['/api/teacher/pending', '/api/teacher/status', '/api/teacher/work', '/api/teacher/bridge.txt', '/api/teacher/launch-readiness']);
 const SECRET_VALUE = /(bearer\s+[a-z0-9._~+/=-]{8,}|\bsk-[a-z0-9_-]{8,}|\bgh[pousr]_[a-z0-9]{12,}|(?:api[_ -]?key|token|password|secret|cookie|otp)\s*[:=]\s*[^\s,;]{6,})/gi;
 const SHA40 = /^[0-9a-f]{40}$/i;
 const SAFE_DIAGNOSTIC_CODE = /^[A-Z0-9_]{1,80}$/;
@@ -204,6 +205,47 @@ function safeInternalWorkPackage(jobs = []) {
   };
 }
 
+function safeLaunchReadiness(readiness) {
+  return {
+    ok: readiness?.ok === true,
+    status: readiness?.status || 'NO_GO',
+    launch_ready: readiness?.launch_ready === true,
+    candidate_branch: readiness?.candidate_branch || null,
+    candidate_sha: readiness?.candidate_sha || null,
+    gates: readiness?.gates || {},
+    blockers: Array.isArray(readiness?.blockers) ? readiness.blockers.slice(0, 20) : [],
+    failure_hygiene: {
+      ok: readiness?.failure_hygiene?.ok === true,
+      historical_failed_count: Number(readiness?.failure_hygiene?.historical_failed_count || 0),
+      retry_cap: Number(readiness?.failure_hygiene?.retry_cap || 0),
+      quarantined_roadmap_ids: Array.isArray(readiness?.failure_hygiene?.quarantined_roadmap_ids)
+        ? readiness.failure_hygiene.quarantined_roadmap_ids.slice(0, 30)
+        : [],
+      unbounded_failed_count: Number(readiness?.failure_hygiene?.unbounded_failed_count || 0),
+      code: readiness?.failure_hygiene?.code || null,
+    },
+    restore: {
+      ok: readiness?.restore?.ok === true,
+      status: readiness?.restore?.status || null,
+      snapshot_id: readiness?.restore?.snapshot_id || null,
+    },
+    shardvault: {
+      ok: readiness?.shardvault?.ok === true,
+      status: readiness?.shardvault?.status || null,
+      recoverable: readiness?.shardvault?.recoverable === true,
+      active_external_count: Number(readiness?.shardvault?.active_external_count || 0),
+      external_code_status: readiness?.shardvault?.external_code_status || null,
+      external_code_endpoints: Number(readiness?.shardvault?.external_code_endpoints || 0),
+      target_count: Number(readiness?.shardvault?.target_count || 7),
+    },
+    invariants: readiness?.invariants || {},
+    evaluated_at: readiness?.evaluated_at || null,
+    exposes_secrets: false,
+    exposes_memory: false,
+    mutation_allowed: false,
+  };
+}
+
 function bridgeSnapshot(pending, jobs) {
   const work = safeInternalWorkPackage(jobs);
   return {
@@ -267,6 +309,14 @@ export async function maybeHandlePublicTeacherBridge(request, env, { repository 
         'content-type': 'text/plain; charset=utf-8',
         'x-content-type-options': 'nosniff',
       },
+    });
+  }
+
+  if (url.pathname === '/api/teacher/launch-readiness') {
+    const readiness = await getAutonomyLaunchReadiness(env, { repository: repo });
+    return new Response(JSON.stringify(safeLaunchReadiness(readiness)), {
+      status: 200,
+      headers: jsonHeaders,
     });
   }
 
