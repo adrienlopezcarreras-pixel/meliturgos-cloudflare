@@ -60,10 +60,11 @@ export function inferCommunicationAuditIntent(text) {
   const value = String(text || '').trim();
   if (!value) return null;
   const historyDomain = /\b(?:logs?|historique|conversations?|[ée]changes?|messages?|r[ée]ponses?\s+pass[ée]es?|communication)\b/i.test(value);
-  const qualityDomain = /\b(?:contradic|coh[ée]ren|oubli|hors\s+sujet|mauvais\s+sujet|mauvais\s+plan|r[ée]ponses?\s+(?:fausses?|incoh[ée]rentes?)|audit|analyse|regarde|inspecte|v[ée]rifie)\b/i.test(value);
+  const qualityDomain = /\b(?:contradic|coh[ée]ren|oubli|hors\s+sujet|mauvais\s+sujet|mauvais\s+plan|r[ée]ponses?\s+(?:fausses?|incoh[ée]rentes?)|audit(?:e|er)?|analyse|regarde|inspecte|v[ée]rifie)\b/i.test(value);
   const relation = /\b(?:avec\s+moi|nos|notre|tes|ta|ton|mel|toi)\b/i.test(value);
   if (!(historyDomain && qualityDomain && relation)) return null;
-  return { id: 'conversation.audit', input: {} };
+  const allConversations = /\b(?:tout|tous|toutes|global|g[ée]n[ée]ral|ensemble|historique\s+complet)\b/i.test(value);
+  return { id: 'conversation.audit', input: { allConversations } };
 }
 
 function uiIntentContext(value) {
@@ -78,7 +79,7 @@ export async function buildIntentRoutingContext(body = {}, env = {}) {
   if (env?.DB && conversationId) {
     try {
       const service = createConversationService(env);
-      const rows = await service.getMessages(conversationId, { limit: 24 });
+      const rows = await service.getMessages(conversationId, { limit: 24, latest: true });
       const recent = (Array.isArray(rows) ? rows : []).slice(-18);
       if (recent.length) {
         parts.push(recent.map(row => {
@@ -188,7 +189,9 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
     if (autonomy) routeDeterministic(body, autonomy, 'AUTONOMY_CONTROL');
     else if (capabilityInspection) routeDeterministic(body, capabilityInspection, 'CAPABILITY_STATUS');
     else if (communicationAudit) {
-      communicationAudit.input.conversationId = String(body.conversation_id ?? body.conversationId ?? '').slice(0, 200);
+      if (communicationAudit.input.allConversations !== true) {
+        communicationAudit.input.conversationId = String(body.conversation_id ?? body.conversationId ?? '').slice(0, 200);
+      }
       routeDeterministic(body, communicationAudit, 'COMMUNICATION_AUDIT');
     }
     else if (codeIntegrity) routeDeterministic(body, codeIntegrity, 'CODE_INTEGRITY');

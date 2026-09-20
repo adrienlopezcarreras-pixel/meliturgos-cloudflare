@@ -62,7 +62,7 @@ test('semantic router can classify an elliptical capability-status follow-up', a
 
 
 test('communication log audit routes to conversation.audit', async () => {
-  assert.deepEqual(inferCommunicationAuditIntent('regarde tes logs de communication avec moi et analyse tes contradictions'), { id:'conversation.audit', input:{} });
+  assert.deepEqual(inferCommunicationAuditIntent('regarde tes logs de communication avec moi et analyse tes contradictions'), { id:'conversation.audit', input:{ allConversations:false } });
   const request = new Request('https://mel.example/api/chat', {
     method:'POST',
     headers:{'content-type':'application/json'},
@@ -71,6 +71,7 @@ test('communication log audit routes to conversation.audit', async () => {
   const body = await (await injectEvolutionPreflightCapability(request)).json();
   assert.equal(body.capability?.id, 'conversation.audit');
   assert.equal(body.capability?.input?.conversationId, 'conv-audit');
+  assert.equal(body.capability?.input?.allConversations, false);
   assert.equal(body.intent_routing?.intent, 'COMMUNICATION_AUDIT');
 });
 
@@ -86,4 +87,17 @@ test('semantic routing context is rebuilt from real recent conversation history'
     assert.match(context, /UI_CONTEXT/);
     assert.doesNotMatch(context, /\[object Object\]/);
   } finally { DB.close(); }
+});
+
+
+test('global communication audit does not get trapped in the current conversation', async () => {
+  const request = new Request('https://mel.example/api/chat', {
+    method:'POST',
+    headers:{'content-type':'application/json'},
+    body:JSON.stringify({ text:"fais un audit général de tout ce qu'on a échangé ensemble", conversation_id:'current-only' }),
+  });
+  const body = await (await injectEvolutionPreflightCapability(request)).json();
+  assert.equal(body.capability?.id, 'conversation.audit');
+  assert.equal(body.capability?.input?.allConversations, true);
+  assert.equal(body.capability?.input?.conversationId, undefined);
 });

@@ -19,6 +19,8 @@ test('quality instruction forces answer-first evidence-oriented communication', 
   assert.match(prompt,/première phrase/i);
   assert.match(prompt,/vérifié maintenant/i);
   assert.match(prompt,/ne dis jamais « c’est fait »/i);
+  assert.match(prompt,/VERROU DE SUJET/);
+  assert.match(prompt,/échanges récents de la même conversation/i);
 });
 
 test('code-access contradiction is repaired when runtime proves access', () => {

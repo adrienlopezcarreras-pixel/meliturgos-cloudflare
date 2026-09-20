@@ -484,7 +484,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if (env.DB) {
     try {
       service = createConversationService(env);
-      recent = (await service.getMessages(conversationId, { limit: 40 })).slice(-40).map(m => ({ role: m.role, content: m.content }));
+      recent = (await service.getMessages(conversationId, { limit: 40, latest: true })).slice(-40).map(m => ({ role: m.role, content: m.content }));
     } catch { recent = []; }
   }
 

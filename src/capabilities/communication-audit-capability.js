@@ -3,7 +3,12 @@ import { createConversationService } from '../conversations/conversation-service
 const STOPWORDS = new Set(['alors','avec','avant','avoir','cela','cette','comme','dans','depuis','elle','elles','encore','entre','etre','faire','faut','mais','meme','nous','pour','plus','quand','sans','sera','sont','tout','toute','toutes','tous','vous','votre','vos','quel','quelle','quoi','comment','peux','peut','dois','doit','vais','fait','dire','moi','mon','mes','ton','tes','notre','leur','leurs','une','des','les','aux','sur','est','pas']);
 
 function normalize(value) {
-  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 function tokens(value) {
   return [...new Set((normalize(value).match(/[a-z0-9]{4,}/g) || []).filter(x => !STOPWORDS.has(x)))];
@@ -43,7 +48,8 @@ export async function auditOwnerCommunication(env = {}, input = {}) {
   await service.migrate();
 
   const owner = String(env.MELITURGOS_USER || 'owner');
-  const conversationId = String(input.conversationId || '').trim();
+  const allConversations = input.allConversations === true;
+  const conversationId = allConversations ? '' : String(input.conversationId || '').trim();
   const maxMessages = Math.max(100, Math.min(5000, Number(input.maxMessages) || 2500));
   let totalRow;
   let rows;
@@ -154,6 +160,7 @@ export function registerCommunicationAuditCapability(bus, env = {}) {
       properties:{
         conversationId:{ type:'string', minLength:0, maxLength:200 },
         maxMessages:{ type:'integer', minimum:100, maximum:5000 },
+        allConversations:{ type:'boolean' },
       },
       additionalProperties:false,
     },

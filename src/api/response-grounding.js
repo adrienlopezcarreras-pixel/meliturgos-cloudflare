@@ -172,7 +172,7 @@ export function formatVerifiedCapabilityAuditResponse(audit, { fallback = '' } =
   const lines = [
     'Je viens d’inventorier ' + Number(audit.total || rows.length) + ' capacités runtime. Je distingue ce qui existe de ce qui a réellement été testé.',
     '- Testées maintenant : ' + tested.length + (tested.length ? ' — ' + tested.slice(0, 12).map(r => r.id).join(', ') : '') + '.',
-    '- Existantes mais non testées maintenant : ' + untested.length + '.',
+    '- Existantes mais non testées maintenant : ' + untested.length + (untested.length ? ' — ' + untested.slice(0, 12).map(r => r.id).join(', ') : '') + '.',
     '- Partielles ou en échec runtime : ' + partial.length + (partial.length ? ' — ' + partial.slice(0, 12).map(r => r.id + ' (' + r.truth_status + ')').join(', ') : '') + '.',
     '- Bloquées / stubs / non implémentées : ' + blocked.length + (blocked.length ? ' — ' + blocked.slice(0, 12).map(r => r.id + ' (' + r.truth_status + ')').join(', ') : '') + '.',
   ];

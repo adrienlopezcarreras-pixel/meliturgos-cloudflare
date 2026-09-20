@@ -116,18 +116,21 @@ export class ConversationService {
   /**
    * Fetch messages for a conversation, optionally since a timestamp.
    */
-  async getMessages(conversationId, { since = 0, limit = 1000 } = {}) {
+  async getMessages(conversationId, { since = 0, limit = 1000, latest = false } = {}) {
     await this.migrate();
+    const boundedLimit = Math.max(1, Math.min(10000, Number(limit) || 1000));
+    const order = latest ? 'DESC' : 'ASC';
     const rows = await this.db
       .prepare(
         `SELECT * FROM archive_messages
          WHERE conversation_id = ? AND timestamp >= ?
-         ORDER BY timestamp ASC, id ASC
+         ORDER BY timestamp ${order}, id ${order}
          LIMIT ?`
       )
-      .bind(conversationId, since, limit)
+      .bind(conversationId, since, boundedLimit)
       .all();
-    return (rows.results || []).map(this._rowToMessage);
+    const messages = (rows.results || []).map(this._rowToMessage);
+    return latest ? messages.reverse() : messages;
   }
 
   /**

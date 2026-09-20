@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractExplicitMemoryRequest, inferNativeCodeCapability } from '../src/api/native-chat.js';
+import { extractExplicitMemoryRequest, inferNativeCodeCapability, shouldRetrieveArchiveRecall } from '../src/api/native-chat.js';
 
 test('explicit memory parser recognizes natural French memory verbs', () => {
   assert.equal(extractExplicitMemoryRequest('mémorise que mon format préféré est court').content, 'mon format préféré est court');
@@ -30,4 +30,13 @@ test('memory parser ignores ordinary text without an explicit memory request', (
 test('native code intent routes code health checks to code.integrity', () => {
   assert.deepEqual(inferNativeCodeCapability('vérifie que ton code est propre'), { id: 'code.integrity', input: {} });
   assert.deepEqual(inferNativeCodeCapability('contrôle l’intégrité du dépôt GitHub'), { id: 'code.integrity', input: {} });
+});
+
+
+test('ambiguous short follow-ups stay anchored to recent conversation instead of old archive recall', () => {
+  for (const text of ['continue', 'go', 'et maintenant ?', 'fais-le', 'comme ça']) {
+    assert.equal(shouldRetrieveArchiveRecall(text), false, text);
+  }
+  assert.equal(shouldRetrieveArchiveRecall('rappelle-moi ce que je t’ai dit sur la mémoire de MEL'), true);
+  assert.equal(shouldRetrieveArchiveRecall('explique le fonctionnement précis du routeur conversationnel actuel'), true);
 });
