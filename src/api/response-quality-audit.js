@@ -98,12 +98,12 @@ export function assessResponseQuality({
   }
   if (formalAddress(response)) issues.push({ code:'FORMAL_ADDRESS', severity:'low' });
 
-  const minimumOffTopicLength = /^(?:ok|go|maj|avance|continue|reprends?|fais[- ]?le|vas[- ]?y|poursuis|termine|finis|corrige|am[ée]liore)/i.test(clean(userText))
-    ? 45
-    : 90;
+  const operationalFollowUp = /^(?:ok|go|maj|avance|continue|reprends?|fais[- ]?le|vas[- ]?y|poursuis|termine|finis|corrige|am[ée]liore)\b/i.test(clean(userText));
+  const offTopicCandidate = operationalFollowUp
+    ? response.length >= 24 && relevance.anchor_tokens.length >= 2
+    : response.length >= 90 && relevance.anchor_tokens.length >= 4;
   if (
-    response.length >= minimumOffTopicLength
-    && relevance.anchor_tokens.length >= 4
+    offTopicCandidate
     && relevance.shared.length === 0
     && relevance.family_match !== true
     && !focus?.needs_clarification
