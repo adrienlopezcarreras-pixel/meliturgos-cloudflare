@@ -30,10 +30,10 @@ test('collector batch path verifies conversation identity and remains resumable'
   assert.match(background, /processPromise=process\(tab\.id,generation\)/);
   assert.match(background, /generation!==processGeneration/);
   assert.match(background, /activeAbortController\?\.abort\(\)/);
-  assert.match(background, /WATCHDOG_IDLE_MS=8\*60\*1000/);
-  assert.match(background, /NETWORK_TIMEOUT_MS=6\*60\*1000/);
-  assert.match(background, /PROBE_TIMEOUT_MS=15000/);
-  assert.match(background, /DOM_STABLE_MAX_MS=3\*60\*1000/);
+  assert.match(background, /WATCHDOG_IDLE_MS=30\*1000/);
+  assert.match(background, /NETWORK_TIMEOUT_MS=30\*1000/);
+  assert.match(background, /PROBE_TIMEOUT_MS=7000/);
+  assert.match(background, /DOM_STABLE_MAX_MS=25\*1000/);
 });
 
 test('collector can retry every unresolved recoverable item and counts them in discovery truth', async () => {
@@ -84,11 +84,13 @@ test('collector self-recovers a stalled large conversation without manual pause/
   assert.match(background, /waitForDomStable\(tabId,ecoMode=true,generation=null\)/);
   assert.match(background, /Math\.min\(PROBE_TIMEOUT_MS,remaining\)/);
   assert.match(background, /probeFailures>=2/);
+  assert.match(background, /captureStable\(tabId,cfg\.ecoMode\?1:2\)/);
+  assert.match(background, /waitForExpectedConversation\(tabId,sourceId,8000\)/);
   assert.match(background, /throw codedError\('DOM_NOT_STABLE'\)/);
   assert.match(background, /const autoRecoverable=\[[^\]]*'DOM_NOT_STABLE'[^\]]*\]\.includes\(code\)/s);
   assert.match(background, /if\(attempts<maxAttempts\)\{\s*if\(!nextQueue\.includes\(url\)\)nextQueue\.push\(url\);/s);
   assert.match(background, /await recoverTab\(tabId,code\);\s*continue;/s);
   assert.match(background, /await api\.tabs\.update\(tabId,\{url:'about:blank'\}\)/);
   assert.match(popup, /Relances automatiques/);
-  assert.equal(manifest.version, '0.5.2');
+  assert.equal(manifest.version, '0.5.3');
 });
