@@ -7,6 +7,15 @@ const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',
 const previewWorkflow=fs.readFileSync(new URL('../.github/workflows/deploy-candidate-preview.yml',import.meta.url),'utf8');
 
 test('ShardVault provider adapters reflect current official API contracts', () => {
+  assert.match(autonomous,/id:'0x0-st-public'/);
+  assert.match(autonomous,/adapter:'zero_x0_binary'/);
+  assert.match(autonomous,/https:\/\/0x0\.st\//);
+  assert.match(autonomous,/expectedRetentionDays:180/);
+  assert.match(autonomous,/id:'dpaste-org-public'/);
+  assert.match(autonomous,/adapter:'dpaste_org_b64'/);
+  assert.match(autonomous,/https:\/\/dpaste\.org\/api\//);
+  assert.match(autonomous,/form\.append\('expires','never'\)/);
+  assert.match(autonomous,/page\+'\/raw\/'/);
   assert.match(autonomous,/https:\/\/paste\.myst\.rs\/api\/v2\/paste\?mel_object=/);
   assert.match(autonomous,/language:'Plain Text'/);
   assert.match(autonomous,/expiry_days:'365'/);
@@ -34,9 +43,14 @@ test('ShardVault provider adapters reflect current official API contracts', () =
 });
 
 test('snapshot runtime can write and read every repaired adapter selected by discovery', () => {
-  for (const adapter of ['dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64','pastehtml_b64']) {
+  for (const adapter of ['zero_x0_binary','dpaste_org_b64','dpaste_b64','pastemyst_b64','onec3_b64','paste_c_net','fileditch_b64','pastegg_b64','markdownpaste_b64','udrop_dev_b64','waifuvault_b64','telegraph_b64','pastehtml_b64']) {
     assert.ok(runtime.includes(`e.adapter==='${adapter}'`) || runtime.includes(`'${adapter}'`), adapter);
   }
+  assert.match(runtime,/zero_x0_binary/);
+  assert.match(runtime,/form\.append\('file',new Blob\(\[payload\]/);
+  assert.match(runtime,/dpaste_org_b64/);
+  assert.match(runtime,/form\.append\('expires','never'\)/);
+  assert.match(runtime,/page\+'\/raw\/'/);
   assert.match(runtime,/paste\.myst\.rs\/api\/v2\/paste\//);
   assert.match(runtime,/user-agent':'curl\/8\.0 MEL-ShardVault\/1\.0'/);
   assert.match(runtime,/fileditch_b64/);
@@ -171,4 +185,14 @@ test('code replication uses resumable RS 4-of-7 shards with one external shard p
 test('external data mode still persists manifests through the internal R2 inventory', () => {
   assert.match(runtime,/c\.storageMode==='CLOUDFLARE_FALLBACK'\|\|c\.storageMode==='EXTERNAL_DISTRIBUTED'/);
   assert.match(runtime,/external_only:c\.endpoints\.length>=c\.n&&c\.endpoints\.every\(e=>!e\.backend\)/);
+});
+
+
+test('new durable providers remain candidates until live roundtrip qualification', () => {
+  assert.match(autonomous,/id:'0x0-st-public'[\s\S]*evidenceMode:'documented_api'/);
+  assert.match(autonomous,/id:'dpaste-org-public'[\s\S]*evidenceMode:'documented_api'/);
+  assert.match(autonomous,/reviewed_documentation_candidate/);
+  assert.match(autonomous,/reviewed_documentation_plus_live_roundtrip/);
+  assert.match(autonomous,/probed\.push\(await probe\(c,requiredBytes,policyMaxAgeDays,env\)\)/);
+  assert.match(runtime,/rememberValidatedExternalEndpoints\(env,\[e\]\)/);
 });
