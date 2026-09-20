@@ -468,6 +468,13 @@ function representativeTargetBytes(requiredBytes){
   if(requested>REPRESENTATIVE_MAX_BYTES)throw new Error('REPRESENTATIVE_TEST_TOO_LARGE_'+requested);
   return requested;
 }
+function representativeDeadlineMs(c,requiredBytes,env){
+  const configured=Math.max(60000,Number(env?.MEL_SHARDVAULT_REPRESENTATIVE_DEADLINE_MS)||120000);
+  const parts=Math.max(1,Math.ceil(Math.max(1,Number(requiredBytes)||1)/representativeChunkLimit(c)));
+  const adapter=String(c?.adapter||'');
+  const providerFloor=['msk_paste_b64','pastegg_b64','telegraph_b64','markdownpaste_b64'].includes(adapter)?120000:90000;
+  return Math.min(150000,Math.max(configured,providerFloor,60000+Math.max(0,parts-1)*15000));
+}
 function representativeProofHours(env){return Math.max(1,Math.min(168,Number(env?.MEL_SHARDVAULT_REPRESENTATIVE_PROOF_HOURS)||24));}
 async function readRepresentativeProofs(env){
   if(!env?.MEDIA_BUCKET?.get)return {};
@@ -482,9 +489,12 @@ async function writeRepresentativeProofs(env,proofs){
   if(!env?.MEDIA_BUCKET?.put)return;
   await env.MEDIA_BUCKET.put(REPRESENTATIVE_PROOF_KEY,JSON.stringify(proofs),{httpMetadata:{contentType:'application/json'}});
 }
-function representativeProofFresh(proof,requiredBytes,env){
+function representativeProofFresh(proof,requiredBytes,env,c=null){
   if(!proof?.ok)return false;
-  if(Number(proof.representative_bytes||0)<representativeTargetBytes(requiredBytes))return false;
+  const target=representativeTargetBytes(requiredBytes);
+  if(Number(proof.representative_bytes||0)<target)return false;
+  if(!(Number(proof.deadline_ms)>0)&&c)return false;
+  if(c&&Number(proof.latency_ms||0)>representativeDeadlineMs(c,target,env))return false;
   const checked=Date.parse(String(proof.checked_at||''));
   return Number.isFinite(checked)&&Date.now()-checked<=representativeProofHours(env)*60*60*1000;
 }
@@ -563,6 +573,8 @@ function normalize(raw, source){
     representativeBytes:Math.max(0,Number(raw.representativeBytes||0)||0),
     representativeSha256:raw.representativeSha256?String(raw.representativeSha256):null,
     representativeParts:Math.max(0,Number(raw.representativeParts||0)||0),
+    representativeLatencyMs:Math.max(0,Number(raw.representativeLatencyMs||0)||0),
+    representativeDeadlineMs:Math.max(0,Number(raw.representativeDeadlineMs||0)||0),
     source,
   };
 }
@@ -1283,31 +1295,41 @@ async function probe(c, requiredBytes, policyMaxAgeDays=180, env=null){
 async function representativeProbe(c,requiredBytes,env,proofs){
   const target=representativeTargetBytes(requiredBytes);
   const cached=proofs?.[c.id];
-  if(representativeProofFresh(cached,target,env)){
+  if(representativeProofFresh(cached,target,env,c)){
     return {...c,
       representativeVerifiedAt:cached.checked_at,
       representativeBytes:Number(cached.representative_bytes)||target,
       representativeSha256:String(cached.sha256||''),
       representativeParts:Number(cached.parts)||1,
+      representativeLatencyMs:Number(cached.latency_ms)||0,
+      representativeDeadlineMs:Number(cached.deadline_ms)||representativeDeadlineMs(c,target,env),
       evidenceVerification:'representative_full_fragment_roundtrip_cached'
     };
   }
   const payload=randomBytes(target),rebuilt=new Uint8Array(target),limit=representativeChunkLimit(c);
   const parts=Math.max(1,Math.ceil(target/limit));
-  const started=Date.now();
-  for(let offset=0,index=0;offset<target;offset+=limit,index++){
-    const chunk=payload.slice(offset,Math.min(target,offset+limit));
-    const objectId='mel-representative-'+rid(10)+'-p'+String(index).padStart(4,'0');
-    const url=publicHttps(c.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),'REPRESENTATIVE_TARGET').toString();
-    const write=await candidateWrite(c,url,chunk,objectId,env);
-    const got=await candidateReadBytes(c,write.readUrl);
-    if(!byteArraysEqual(got,chunk))throw new Error('REPRESENTATIVE_CHUNK_MISMATCH_'+index);
-    rebuilt.set(got,offset);
-  }
+  const started=Date.now(),deadline=representativeDeadlineMs(c,target,env);
+  let timer=null;
+  try{
+    await Promise.race([
+      (async()=>{
+        for(let offset=0,index=0;offset<target;offset+=limit,index++){
+          const chunk=payload.slice(offset,Math.min(target,offset+limit));
+          const objectId='mel-representative-'+rid(10)+'-p'+String(index).padStart(4,'0');
+          const url=publicHttps(c.urlTemplate.replaceAll('{objectId}',encodeURIComponent(objectId)),'REPRESENTATIVE_TARGET').toString();
+          const write=await candidateWrite(c,url,chunk,objectId,env);
+          const got=await candidateReadBytes(c,write.readUrl);
+          if(!byteArraysEqual(got,chunk))throw new Error('REPRESENTATIVE_CHUNK_MISMATCH_'+index);
+          rebuilt.set(got,offset);
+        }
+      })(),
+      new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('REPRESENTATIVE_DEADLINE_EXCEEDED')),deadline);})
+    ]);
+  }finally{if(timer!==null)clearTimeout(timer);}
   if(!byteArraysEqual(rebuilt,payload))throw new Error('REPRESENTATIVE_REASSEMBLY_MISMATCH');
   const [expectedSha,actualSha]=await Promise.all([sha256Hex(payload),sha256Hex(rebuilt)]);
   if(expectedSha!==actualSha)throw new Error('REPRESENTATIVE_HASH_MISMATCH');
-  const proof={ok:true,checked_at:new Date().toISOString(),representative_bytes:target,sha256:actualSha,parts,latency_ms:Date.now()-started,adapter:c.adapter||null};
+  const proof={ok:true,checked_at:new Date().toISOString(),representative_bytes:target,sha256:actualSha,parts,latency_ms:Date.now()-started,deadline_ms:deadline,adapter:c.adapter||null};
   if(proofs&&typeof proofs==='object')proofs[c.id]=proof;
   await writeRepresentativeProofs(env,proofs&&typeof proofs==='object'?proofs:{[c.id]:proof});
   return {...c,
@@ -1315,6 +1337,8 @@ async function representativeProbe(c,requiredBytes,env,proofs){
     representativeBytes:target,
     representativeSha256:actualSha,
     representativeParts:parts,
+    representativeLatencyMs:proof.latency_ms,
+    representativeDeadlineMs:proof.deadline_ms,
     evidenceVerification:'representative_full_fragment_roundtrip'
   };
 }
@@ -1354,7 +1378,7 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
     }
   }
   const selected=choose(qualified,selectionCount,maxPerOperator,maxPerProvider);
-  const endpointView=(c,verification=c.representativeVerifiedAt?'representative_full_fragment_roundtrip':'reviewed_documentation_candidate')=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:Number(c.score)||0,confidence:Number(c.confidence)||0,autonomous:true,authMode:c.authMode||'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:verification,expectedRetentionDays:c.expectedRetentionDays||0,retentionModel:c.retentionModel||'fixed',baseRetentionDays:c.baseRetentionDays||c.expectedRetentionDays||0,refreshEveryDays:c.refreshEveryDays||0,fullReadRenewsRetention:c.fullReadRenewsRetention===true,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0),representativeVerifiedAt:c.representativeVerifiedAt||null,representativeBytes:Number(c.representativeBytes)||0,representativeSha256:c.representativeSha256||null,representativeParts:Number(c.representativeParts)||0});
+  const endpointView=(c,verification=c.representativeVerifiedAt?'representative_full_fragment_roundtrip':'reviewed_documentation_candidate')=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:Number(c.score)||0,confidence:Number(c.confidence)||0,autonomous:true,authMode:c.authMode||'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:verification,expectedRetentionDays:c.expectedRetentionDays||0,retentionModel:c.retentionModel||'fixed',baseRetentionDays:c.baseRetentionDays||c.expectedRetentionDays||0,refreshEveryDays:c.refreshEveryDays||0,fullReadRenewsRetention:c.fullReadRenewsRetention===true,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0),representativeVerifiedAt:c.representativeVerifiedAt||null,representativeBytes:Number(c.representativeBytes)||0,representativeSha256:c.representativeSha256||null,representativeParts:Number(c.representativeParts)||0,representativeLatencyMs:Number(c.representativeLatencyMs)||0,representativeDeadlineMs:Number(c.representativeDeadlineMs)||0});
   return {
     selected:selected.map(endpointView),
     qualified:qualified.map(endpointView),
