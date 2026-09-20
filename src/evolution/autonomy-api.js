@@ -5,6 +5,7 @@ import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 import { getAutonomyReadiness } from './autonomy-readiness.js';
 import { getAutonomyControl, setAutonomyControl, setOwnerMaxAutonomy } from './autonomy-control.js';
 import { AUTONOMY_RUNTIME_CRON } from './autonomy-schedule.js';
+import { getAutonomyLaunchReadiness, prepareAutonomyLaunch } from './launch-readiness.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
@@ -110,7 +111,9 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   const isPause = url.pathname === '/api/gen2/autonomy/pause';
   const isResume = url.pathname === '/api/gen2/autonomy/resume';
   const isMax = url.pathname === '/api/gen2/autonomy/max' || url.pathname === '/api/gen2/autonomy/owner-max';
-  if (!isPublicControl && !isState && !isTick && !isPause && !isResume && !isMax) return null;
+  const isLaunchReadiness = url.pathname === '/api/gen2/autonomy/launch-readiness';
+  const isLaunchPrepare = url.pathname === '/api/gen2/autonomy/launch-prepare';
+  if (!isPublicControl && !isState && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare) return null;
 
   if (isPublicControl) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
@@ -133,40 +136,87 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     return Response.json(await getAutonomyState(env, { repository, autonomyControlState }), { headers: { 'cache-control': 'no-store' } });
   }
 
+  if (isLaunchReadiness) {
+    if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
+    const repo = repository || new D1DevJobRepository(env.DB);
+    return Response.json(await getAutonomyLaunchReadiness(env, { repository: repo }), { headers: { 'cache-control': 'no-store' } });
+  }
+
   if (request.method !== 'POST') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'POST' } });
   const repo = repository || new D1DevJobRepository(env.DB);
 
-  if (isPause || isResume) {
+  if (isLaunchPrepare) {
+    const prepared = await prepareAutonomyLaunch(env, { repository: repo });
+    return Response.json(prepared, {
+      status: prepared.ok ? 200 : 409,
+      headers: { 'cache-control': 'no-store' },
+    });
+  }
+
+  if (isPause) {
     const body = await request.clone().json().catch(() => ({}));
     const control = await setAutonomyControl(env.DB, {
-      paused: isPause,
+      paused: true,
       source: 'owner-ui',
-      reason: isPause ? (body?.reason || 'owner-emergency-stop') : null,
+      reason: body?.reason || 'owner-emergency-stop',
       memoryState: autonomyControlState,
     });
     const state = await getAutonomyState(env, { repository: repo, autonomyControlState });
     return Response.json({ ok: true, control, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
+  if (isResume) {
+    const prepared = await prepareAutonomyLaunch(env, { repository: repo });
+    if (!prepared.ok || prepared.readiness?.launch_ready !== true) {
+      return Response.json({
+        ok: false,
+        code: 'AUTONOMY_LAUNCH_GATE_BLOCKED',
+        readiness: prepared.readiness || null,
+      }, { status: 409, headers: { 'cache-control': 'no-store' } });
+    }
+    const control = await setAutonomyControl(env.DB, {
+      paused: false,
+      source: 'owner-ui-launch-gate',
+      reason: null,
+      launch_approved_sha: prepared.readiness.candidate_sha,
+      launch_approved_at: prepared.readiness.evaluated_at,
+      launch_gate_digest: prepared.readiness.gate_digest,
+      memoryState: autonomyControlState,
+    });
+    const state = await getAutonomyState(env, { repository: repo, autonomyControlState });
+    return Response.json({ ok: true, launch: prepared, control, state }, { headers: { 'cache-control': 'no-store' } });
+  }
+
   if (isMax) {
     const body = await request.clone().json().catch(() => ({}));
     const enabled = body?.enabled !== false;
+    let prepared = null;
+    if (enabled) {
+      prepared = await prepareAutonomyLaunch(env, { repository: repo });
+      if (!prepared.ok || prepared.readiness?.launch_ready !== true) {
+        return Response.json({
+          ok: false,
+          code: 'AUTONOMY_LAUNCH_GATE_BLOCKED',
+          readiness: prepared.readiness || null,
+        }, { status: 409, headers: { 'cache-control': 'no-store' } });
+      }
+    }
     const control = await setOwnerMaxAutonomy(env.DB, {
       enabled,
-      source: 'owner-ui',
+      paused: enabled ? false : undefined,
+      source: enabled ? 'owner-ui-launch-gate' : 'owner-ui',
       reason: enabled ? 'owner-max-autonomy' : null,
+      launch_approved_sha: prepared?.readiness?.candidate_sha,
+      launch_approved_at: prepared?.readiness?.evaluated_at,
+      launch_gate_digest: prepared?.readiness?.gate_digest,
       memoryState: autonomyControlState,
     });
-    // MAX must not merely set a flag and then leave owner jobs parked until the
-    // next cron. Run one bounded autonomy heartbeat immediately. The runtime
-    // itself keeps the Council/candidate evidence gates and production release
-    // lock, while OWNER MAX can advance valid WAITING_TEACHER work internally.
     let tick = null;
     if (enabled) {
       tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState });
     }
     const state = await getAutonomyState(env, { repository: repo, autonomyControlState });
-    return Response.json({ ok: true, control, tick, state }, { headers: { 'cache-control': 'no-store' } });
+    return Response.json({ ok: true, launch: prepared, control, tick, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
   const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState });
