@@ -93,6 +93,9 @@ test('rate-limited providers respect Retry-After before quarantine', () => {
   assert.match(autonomous,/async function fetchRateAware\(/);
   assert.match(autonomous,/retry-after/);
   assert.match(autonomous,/fetchRateAware\(endpoint/);
+  assert.match(autonomous,/fetchRateAware\(endpoint,\{method:'POST'.*\},12000,4,10000,30000\)/s);
+  assert.match(autonomous,/telegraphFloodWaitMs/);
+  assert.match(autonomous,/for\(let attempt=0;attempt<3;attempt\+\+\)/);
   assert.match(runtime,/async function fetchRateAware\(/);
   assert.match(runtime,/retry-after/);
 });
