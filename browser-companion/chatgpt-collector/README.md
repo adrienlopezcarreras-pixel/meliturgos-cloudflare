@@ -39,3 +39,7 @@ Le mode temporaire disparaît après redémarrage de Firefox. Pour une installat
 Le collecteur ne peut récupérer que les conversations que Firefox peut ouvrir ou découvrir dans l'interface ChatGPT. L'historique du navigateur et l'exploration profonde de la barre latérale augmentent fortement la couverture, mais l'export officiel ChatGPT reste la seule référence externe permettant de contrôler une exhaustivité absolue du compte et de récupérer certaines pièces jointes.
 
 Le DOM ChatGPT peut évoluer. Le collecteur échoue sans valider la conversation lorsqu'il ne trouve aucun message. Les conversations différées et les échecs non résolus ne sont plus redécouverts automatiquement pendant le passage courant : ils restent isolés jusqu'à l'action « Réessayer échecs / différées », ce qui évite une boucle infinie tout en permettant une reprise volontaire.
+
+## Version 0.6.3 — backfill des pièces jointes
+
+Après la collecte primaire, le Collector prépare une relecture unique et progressive des conversations déjà marquées comme archivées afin de récupérer les métadonnées de pièces jointes visibles dans le DOM. Le serveur enrichit les messages existants de façon idempotente : il complète seulement les champs absents et ne remplace pas un contenu déjà plus riche. Le contenu binaire d'un fichier n'est jamais déclaré indexé tant que ses octets ne sont pas réellement disponibles.
