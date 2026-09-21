@@ -35,6 +35,22 @@ body{font:14px system-ui,sans-serif;width:360px;padding:14px;background:#0b1220;
   <button id="retry">Réessayer échecs / différées</button>
   <button id="capture">Capturer cette conversation</button>
 </div>
+
+<div class="cfg">
+  <strong>Runner GPT asynchrone</strong>
+  <p class="muted">Le runner agit uniquement sur les conversations ChatGPT actuellement ouvertes. Une page fermée ou quittée est retirée immédiatement. Une seule relance est envoyée à la fois.</p>
+  <div class="row">
+    <button id="runnerCycle">Cette page : cycle</button>
+    <button id="runnerGo">Cette page : go</button>
+    <button id="runnerStop">Arrêter cette page</button>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <button id="runnerPause">Pause runner</button>
+    <button id="runnerResume">Reprendre runner</button>
+  </div>
+  <pre id="runnerStatus">Runner : chargement…</pre>
+</div>
+
 <p class="muted">Laisse un onglet ChatGPT ouvert et connecté. En mode PC très lent, la capture est découpée en petits lots, la collecte passive est fortement ralentie, les grosses conversations déclenchent une pause plus longue et l’onglet de collecte est régulièrement vidé pour libérer de la mémoire. Une capture passive partielle ne valide jamais une conversation comme entièrement archivée. Si une conversation ne progresse plus, le watchdog la met de côté et passe à la suivante.</p>
 <pre id="status">Chargement…</pre>
 <script src="popup.js"></script></body></html>
