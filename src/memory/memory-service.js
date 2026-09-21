@@ -5,20 +5,35 @@ import { RAGService } from '../search/rag-service.js';
 export const methods = ['create','confirm','search','retrieve','update','supersede','findConflicts','consolidate','getProvenance'];
 
 /** Existing memories table. New inferred facts enter memory_candidates, never confirmed directly. */
-export function createMemoryService(db) {
+export function createMemoryService(db, { semanticProvider = null } = {}) {
   return port('memory',methods,{
     async search({query,limit=12}) {
       requireValue(typeof query === 'string' && Number.isInteger(limit) && limit>0 && limit<=100);
       return (await db.prepare("SELECT * FROM memories WHERE content LIKE ? AND (valid_until IS NULL OR valid_until>?) ORDER BY importance DESC LIMIT ?").bind('%'+query+'%',Date.now(),limit).all()).results;
     },
 
-    async retrieve({ owner, query, limit = 12, sources = ['archive_messages','conversations','memories','knowledge_artifacts'] }) {
+    async retrieve({
+      owner,
+      query,
+      limit = 12,
+      sources = ['archive_messages','conversations','memories','knowledge_artifacts'],
+      exact = false,
+      filters = {},
+      semanticCandidateLimit = 400,
+    }) {
       requireValue(typeof owner === 'string' && owner.trim().length > 0, 'AUTH_REQUIRED', 401);
       requireValue(typeof query === 'string' && query.trim().length > 0 && query.length <= 12000, 'INVALID_QUERY', 400);
       requireValue(Number.isInteger(limit) && limit > 0 && limit <= 100, 'INVALID_LIMIT', 400);
       requireValue(Array.isArray(sources) && sources.length > 0, 'INVALID_SOURCES', 400);
 
-      const ragPromise = RAGService.search(db, owner, query, { sources, limit: Math.min(100, Math.max(limit * 2, limit)) });
+      const ragPromise = RAGService.search(db, owner, query, {
+        sources,
+        limit: Math.min(100, Math.max(limit * 2, limit)),
+        exact,
+        filters,
+        semanticProvider,
+        semanticCandidateLimit,
+      });
       const collectorPromise = sources.includes('archive_messages')
         ? RAGService.searchCollector(db, owner, query, { limit: Math.min(100, Math.max(limit * 2, limit)) })
             .catch(() => ({ results: [], total: 0, retrieval: 'collector-lexical' }))
@@ -42,7 +57,9 @@ export function createMemoryService(db) {
       return {
         results,
         total: results.length,
-        retrieval: 'unified-operational-memory',
+        retrieval: rag.semantic_used ? 'unified-operational-memory-hybrid' : 'unified-operational-memory',
+        semantic_used: rag.semantic_used === true,
+        filters_applied: rag.filters_applied || filters,
         sources_consulted: [...sources],
         evidence_counts: {
           archive: results.filter(row => (row?.source || row?.provenance?.table) === 'archive_messages').length,
