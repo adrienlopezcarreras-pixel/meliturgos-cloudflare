@@ -26,3 +26,11 @@ test('natural deployed-code verification routes to code.integrity', () => {
 test('ordinary conversation does not trigger code tools', () => {
   assert.equal(inferNativeCodeCapability('bonjour, comment vas-tu ?'), null);
 });
+
+
+test('natural source search routes to code.search with extracted symbol', () => {
+  assert.deepEqual(
+    inferNativeCodeCapability('cherche dans ton code où est utilisée createDefaultCapabilityBus'),
+    { id: 'code.search', input: { query: 'createDefaultCapabilityBus' } }
+  );
+});

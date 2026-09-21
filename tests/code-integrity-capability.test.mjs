@@ -125,3 +125,41 @@ test('Gen2 runtime exposes code.integrity as a low-risk capability', () => {
   assert.equal(row.risk, 'LOW');
   assert.equal(row.enabled, true);
 });
+
+
+test('registered code.integrity pins reads to the exact deployed branch and commit', async () => {
+  const deployedSha = '7'.repeat(40);
+  const seen = [];
+  const runtime = createGen2Runtime({
+    env: {
+      MEL_GITHUB_REPOSITORY: 'owner/repo',
+      MEL_GITHUB_BRANCH: 'candidate/other',
+      MEL_DEPLOYED_GIT_BRANCH: 'release/live',
+      MEL_DEPLOYED_GIT_SHA: deployedSha,
+      MEL_GITHUB_FETCH: async url => {
+        const value = String(url);
+        seen.push(value);
+        if (value.includes('/git/ref/heads/release/live')) {
+          return Response.json({ object: { sha: deployedSha } });
+        }
+        if (value.includes('/contents/src%2Findex.js') || value.includes('/contents/src/index.js')) {
+          const source = 'export const live = true;\n';
+          return Response.json({ type:'file', size:source.length, sha:'8'.repeat(40), content:btoa(source) });
+        }
+        return new Response('{}', { status:404 });
+      },
+    },
+  });
+
+  const result = await runtime.bus.execute('code.integrity', { paths:['src/index.js'] }, {
+    owner:'owner', permissions:[], requestId:'code-deployment-pin',
+  });
+  assert.equal(result.status, 'PASS');
+  assert.equal(result.branch, 'release/live');
+  assert.equal(result.head, deployedSha);
+  assert.equal(result.self_code.branch, 'release/live');
+  assert.equal(result.self_code.commit, deployedSha);
+  assert.equal(result.self_code.inspected_branch_matches_deployment, true);
+  assert.equal(result.self_code.inspected_head_matches_deployment, true);
+  assert.ok(seen.some(url => url.includes('release/live')));
+});

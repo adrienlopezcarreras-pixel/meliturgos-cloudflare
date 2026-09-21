@@ -139,13 +139,14 @@ export async function inspectCodeIntegrity({ reader, paths, expectedHead, deploy
 }
 
 export function registerCodeIntegrityCapability(bus, env = {}, { reader } = {}) {
+  const deploymentIdentity = resolveDeploymentIdentity(env);
   const codeReader = reader || createGitHubCodeReader({
     repository: env.MEL_GITHUB_REPOSITORY || 'adrienlopezcarreras-pixel/meliturgos-cloudflare',
-    branch: env.MEL_GITHUB_BRANCH || 'candidate/mel-clean-autonomy',
+    branch: deploymentIdentity.branch || env.MEL_GITHUB_BRANCH || 'candidate/mel-clean-autonomy',
+    pinnedSha: deploymentIdentity.commit || '',
     token: env.MEL_GITHUB_TOKEN || '',
     fetchImpl: env.MEL_GITHUB_FETCH || fetch,
   });
-  const deploymentIdentity = resolveDeploymentIdentity(env);
 
   bus.discover({
     id: 'code.integrity',

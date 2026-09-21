@@ -95,12 +95,15 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   }, async input => ({ value: input.value }));
 
   const githubRepository = repository || runtimeEnv.MEL_GITHUB_REPOSITORY || DEFAULT_REPOSITORY;
-  const githubBranch = branch || runtimeEnv.MEL_GITHUB_BRANCH || DEFAULT_BRANCH;
+  const deployedBranch = String(runtimeEnv.MEL_DEPLOYED_GIT_BRANCH || '').trim();
+  const deployedSha = String(runtimeEnv.MEL_DEPLOYED_GIT_SHA || '').trim();
+  const githubBranch = branch || deployedBranch || runtimeEnv.MEL_GITHUB_BRANCH || DEFAULT_BRANCH;
   const githubToken = token ?? runtimeEnv.MEL_GITHUB_TOKEN ?? '';
   const githubFetch = fetchImpl || runtimeEnv.MEL_GITHUB_FETCH || fetch;
   registerGitHubCodeCapabilities(bus, {
     repository: githubRepository,
     branch: githubBranch,
+    pinnedSha: /^[0-9a-f]{40}$/i.test(deployedSha) ? deployedSha : '',
     token: githubToken,
     fetchImpl: githubFetch,
   });

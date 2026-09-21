@@ -71,9 +71,9 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P04', 'Capability Bus, outils et accès au code', [
     item('GEN2-14', 'Capability Bus central', 'DONE_VERIFIED', 'Maintenir l’invariant : tous les outils utilisateur passent par le bus', 'P0'),
-    item('MEL-CODE-01', 'Lecture sécurisée du propre code de MEL', 'IN_PROGRESS', 'Valider le chat de bout en bout en production', 'P0'),
-    item('MEL-CODE-02', 'Recherche sécurisée dans le dépôt', 'IN_PROGRESS', 'Valider recherche naturelle depuis le chat', 'P0'),
-    item('MEL-CODE-03', 'Diagnostic self-code et branche réellement déployée', 'IN_PROGRESS', 'Exposer et valider branche + commit déployés dans le self-check', 'P0'),
+    item('MEL-CODE-01', 'Lecture sécurisée du propre code de MEL', 'IN_PROGRESS', 'Lecture bornée/paths sensibles interdits + routage chat + pin du SHA déployé validés en CI 35640215437; reste un smoke authentifié sur le Worker réellement déployé avant DONE_VERIFIED', 'P0'),
+    item('MEL-CODE-02', 'Recherche sécurisée dans le dépôt', 'IN_PROGRESS', 'Recherche bornée + extraction de symbole et routage naturel du chat validés en CI 35640215437; reste un smoke authentifié sur le Worker réellement déployé avant DONE_VERIFIED', 'P0'),
+    item('MEL-CODE-03', 'Diagnostic self-code et branche réellement déployée', 'DONE_VERIFIED', 'Le self-check expose branche + commit déployés et inspecte désormais le SHA exact comme snapshot immuable; mismatch de branche/HEAD fail-closed. Syntaxe et suites code/self-state validées par Actions 35640215437.', 'P0'),
     item('GEN2-15', 'Plugin SDK', 'PLANNED', 'Stabiliser contrat manifest + permissions', 'P1'),
     item('GEN2-50', 'Compatibilité MCP', 'PLANNED', 'Mapper CapabilityBus vers MCP', 'P2')
   ]),
