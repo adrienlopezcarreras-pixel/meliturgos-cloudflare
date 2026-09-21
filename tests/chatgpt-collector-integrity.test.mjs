@@ -92,7 +92,7 @@ test('collector self-recovers a stalled large conversation without manual pause/
   assert.match(background, /await recoverTab\(tabId,code\);\s*continue;/s);
   assert.match(background, /await api\.tabs\.update\(tabId,\{url:'about:blank'\}\)/);
   assert.match(popup, /Relances automatiques/);
-  assert.equal(manifest.version, '0.6.0');
+  assert.equal(manifest.version, '0.6.1');
 });
 
 
@@ -134,6 +134,20 @@ test('collector runner only controls currently open explicitly armed tabs', asyn
 
   assert.match(popup, /uniquement sur les conversations ChatGPT actuellement ouvertes/i);
   assert.match(popupJs, /mel\.runner\.mark-current/);
-  assert.match(popupJs, /command:'cycle'/);
-  assert.match(popupJs, /command:'go'/);
+  assert.match(popupJs, /armRunner\('cycle'\)/);
+  assert.match(popupJs, /armRunner\('go'\)/);
+});
+
+
+test('collector runner injects itself into already-open ChatGPT tabs and exposes visible arm feedback', async () => {
+  const background = await readFile(new URL('../browser-companion/chatgpt-collector/background.js', import.meta.url), 'utf8');
+  const popupJs = await readFile(new URL('../browser-companion/chatgpt-collector/popup.js', import.meta.url), 'utf8');
+  const manifest = JSON.parse(await readFile(new URL('../browser-companion/chatgpt-collector/manifest.json', import.meta.url), 'utf8'));
+
+  assert.ok(manifest.permissions.includes('scripting'));
+  assert.match(background, /async function ensureRunnerContent\(tabId\)/);
+  assert.match(background, /api\.scripting\.executeScript\(\{target:\{tabId\},files:\['content\.js'\]\}\)/);
+  assert.match(background, /const probe=await ensureRunnerContent\(tab\.id\)/);
+  assert.match(popupJs, /Armement de cette page en mode/);
+  assert.match(popupJs, /ajoutée à la file asynchrone/);
 });

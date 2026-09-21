@@ -107,8 +107,28 @@ $('start').onclick=async()=>{try{await saveConfig();await api.runtime.sendMessag
 $('pause').onclick=async()=>{await api.runtime.sendMessage({type:'mel.collector.pause'});refresh()};
 $('retry').onclick=async()=>{try{const s=await api.runtime.sendMessage({type:'mel.collector.retry-deferred'});$('configStatus').className='ok';$('configStatus').textContent=(s.retryDeferredAdded||0)+' conversation(s) en échec/différée(s) remise(s) en file.'}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}refresh()};
 $('capture').onclick=async()=>{try{await saveConfig();await api.runtime.sendMessage({type:'mel.collector.capture-current'})}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}refresh()};
-$('runnerCycle').onclick=async()=>{try{await api.runtime.sendMessage({type:'mel.runner.mark-current',command:'cycle'});$('configStatus').className='ok';$('configStatus').textContent='Page ouverte armée en mode cycle.'}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec runner : '+e.message}refresh()};
-$('runnerGo').onclick=async()=>{try{await api.runtime.sendMessage({type:'mel.runner.mark-current',command:'go'});$('configStatus').className='ok';$('configStatus').textContent='Page ouverte armée en mode go.'}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec runner : '+e.message}refresh()};
+async function armRunner(command){
+  const label=command==='cycle'?'cycle':'go';
+  $('configStatus').className='muted';
+  $('configStatus').textContent='Armement de cette page en mode '+label+'…';
+  $('runnerCycle').disabled=true;
+  $('runnerGo').disabled=true;
+  try{
+    const s=await api.runtime.sendMessage({type:'mel.runner.mark-current',command});
+    const target=Object.values(s.targets||{}).find(t=>t?.command===command&&t?.enabled!==false);
+    $('configStatus').className='ok';
+    $('configStatus').textContent='Page armée en mode '+label+' et ajoutée à la file asynchrone'+(target?.status?' ('+target.status+')':'')+'.';
+  }catch(e){
+    $('configStatus').className='bad';
+    $('configStatus').textContent='Échec runner : '+(e?.message||String(e));
+  }finally{
+    $('runnerCycle').disabled=false;
+    $('runnerGo').disabled=false;
+    refresh();
+  }
+}
+$('runnerCycle').onclick=()=>armRunner('cycle');
+$('runnerGo').onclick=()=>armRunner('go');
 $('runnerStop').onclick=async()=>{try{await api.runtime.sendMessage({type:'mel.runner.unmark-current'});$('configStatus').className='ok';$('configStatus').textContent='Page retirée du runner.'}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec runner : '+e.message}refresh()};
 $('runnerPause').onclick=async()=>{try{await api.runtime.sendMessage({type:'mel.runner.pause'})}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec runner : '+e.message}refresh()};
 $('runnerResume').onclick=async()=>{try{await api.runtime.sendMessage({type:'mel.runner.resume'})}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec runner : '+e.message}refresh()};

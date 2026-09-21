@@ -102,6 +102,29 @@ async function tabMessage(tabId,payload,attempts=8,timeoutMs=MESSAGE_TIMEOUT_MS)
   }
   throw err||new Error('CONTENT_SCRIPT_UNAVAILABLE');
 }
+function isChatGptTabUrl(value){
+  try{
+    const u=new URL(String(value||''));
+    return ['chatgpt.com','chat.openai.com'].includes(u.hostname);
+  }catch{return false}
+}
+async function ensureRunnerContent(tabId){
+  try{
+    const probe=await tabMessage(tabId,{type:'mel.runner.probe'},1,1500);
+    if(probe?.ok)return probe;
+  }catch{}
+  const tab=await api.tabs.get(tabId).catch(()=>null);
+  if(!tab?.id||!isChatGptTabUrl(tab.url))throw codedError('CHATGPT_TAB_REQUIRED');
+  if(!api.scripting?.executeScript)throw codedError('SCRIPTING_API_UNAVAILABLE');
+  try{
+    await api.scripting.executeScript({target:{tabId},files:['content.js']});
+  }catch(e){
+    const message=String(e?.message||'');
+    if(!/already|duplicate|injected/i.test(message))throw codedError('CONTENT_SCRIPT_INJECTION_FAILED');
+  }
+  await wait(350);
+  return tabMessage(tabId,{type:'mel.runner.probe'},2,PROBE_TIMEOUT_MS);
+}
 async function pageUrls(tabId,deep=false){
   try{
     const r=await tabMessage(tabId,{type:'mel.collector.discover',deep},2);
@@ -466,7 +489,7 @@ async function runnerTick(){
       if(collectorTabId!=null&&Number(tab.id)===collectorTabId)continue;
 
       let probe;
-      try{probe=await tabMessage(tab.id,{type:'mel.runner.probe'},1,PROBE_TIMEOUT_MS)}
+      try{probe=await ensureRunnerContent(tab.id)}
       catch{
         targets[sourceId]={...target,tabId:tab.id,status:'unreachable',lastSeenAt:Date.now(),nextEligibleAt:Date.now()+RUNNER_ERROR_BACKOFF_MS};
         continue;
@@ -550,7 +573,7 @@ async function markCurrentRunner(command){
   if(!sourceId)throw codedError('CHATGPT_CONVERSATION_REQUIRED');
   const collector=await state();
   if(collector.collectorOwnedTab&&Number(collector.tabId)===Number(tab.id))throw codedError('COLLECTOR_TAB_RESERVED');
-  const probe=await tabMessage(tab.id,{type:'mel.runner.probe'},2,PROBE_TIMEOUT_MS);
+  const probe=await ensureRunnerContent(tab.id);
   if(!probe?.ok)throw codedError('RUNNER_PROBE_FAILED');
   let rs=await runnerState();
   const targets={...(rs.targets||{})};
