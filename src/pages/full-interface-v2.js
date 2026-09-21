@@ -38,7 +38,7 @@ async function jfetch(url,opts={}){
 }
 async function loadCapabilitiesData(force=false){
   if(!force&&capabilityCache&&Date.now()-capabilityCacheAt<PANEL_TTL_MS)return capabilityCache;
-  capabilityCache=await jfetch('/api/gen2/capabilities');
+  capabilityCache=await jfetch('/api/gen2/capabilities?refresh='+(force?'1':'0'));
   capabilityCacheAt=Date.now();
   return capabilityCache;
 }
@@ -99,7 +99,7 @@ function renderRoadmap(){if(!roadmapCache)return;const sf=qs('#rmStatus').value,
 qs('#rmStatus').onchange=renderRoadmap;qs('#rmPriority').onchange=renderRoadmap;
 async function codeCheck(){const btn=qs('#codeSelfCheck');btn.disabled=true;qs('#codeProof').textContent='Test en cours…';try{const d=await jfetch('/api/gen2/code/self-check');const ok=!!d.ok;qs('#codeProof').textContent=ok?'Lecture OK · '+d.repository+' · '+d.branch+' · '+d.path+' · '+String(d.sha||'').slice(0,10):'Échec : '+(d.error||d.code||'inconnu');qs('#codeMetric').textContent=ok?'OK':'ERREUR';qs('#codeSummary').textContent=qs('#codeProof').textContent;return ok}catch(e){qs('#codeProof').textContent='Échec : '+e.message;qs('#codeMetric').textContent='ERREUR';qs('#codeSummary').textContent=e.message;return false}finally{btn.disabled=false}}
 qs('#codeSelfCheck').onclick=codeCheck;
-qs('#diagCaps').onclick=async()=>{try{const c=await loadSkills();qs('#diagCapsOut').textContent='OK · '+c.length+' capacité(s)'}catch(e){qs('#diagCapsOut').textContent='Échec · '+e.message}};
+qs('#diagCaps').onclick=async()=>{try{const c=await loadSkills(true);qs('#diagCapsOut').textContent='OK · '+c.length+' capacité(s)'}catch(e){qs('#diagCapsOut').textContent='Échec · '+e.message}};
 qs('#diagRoadmap').onclick=async()=>{try{roadmapCache=null;await loadRoadmap();qs('#diagRoadmapOut').textContent='OK · '+roadmapCache.summary.total+' étapes'}catch(e){qs('#diagRoadmapOut').textContent='Échec · '+e.message}};
 qs('#diagAug').onclick=async()=>{try{const d=await jfetch('/api/gen2/capabilities');const a=(d.capabilities||[]).find(x=>x.id==='augmentio.fanout');qs('#diagAugOut').textContent=a?'Présent · '+a.health:'Non enregistré'}catch(e){qs('#diagAugOut').textContent='Échec · '+e.message}};
 qs('#multiRun').onclick=async()=>{const input=qs('#multiInput').value.trim();if(!input)return;qs('#multiRun').disabled=true;qs('#multiOut').textContent='Consultation des IA…';try{const d=await jfetch('/api/gen2/augmentio/fanout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({input,maxCandidates:Number(qs('#multiN').value),teacherReview:qs('#multiTeacher').value==='true'})});qs('#multiOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#multiOut').textContent='Erreur : '+e.message}finally{qs('#multiRun').disabled=false}};
