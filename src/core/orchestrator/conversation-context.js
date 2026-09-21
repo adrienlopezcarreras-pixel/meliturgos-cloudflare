@@ -122,25 +122,57 @@ function personalFactScore(row) {
   return score;
 }
 
-async function personalProfileRows(db, owner, scanLimit = 900) {
-  try {
-    return (await db.prepare(`
-      SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
-             a.provenance archive_provenance,a.metadata message_metadata,
-             c.title conversation_title,c.metadata conversation_metadata,
-             'archive_messages' source
-      FROM archive_messages a
-      JOIN conversations c ON c.id=a.conversation_id
-      WHERE (c.owner=? OR c.owner='')
-        AND (a.provenance='chatgpt_export' OR a.conversation_id LIKE 'chatgpt:%')
-        AND a.role='user'
-        AND LENGTH(TRIM(COALESCE(a.content,'')))>=12
-      ORDER BY a.timestamp DESC
-      LIMIT ?
-    `).bind(owner, Math.max(100, Math.min(2000, Number(scanLimit) || 900))).all()).results || [];
-  } catch {
-    return [];
+async function personalProfileRows(db, owner) {
+  const select = `
+    SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
+           a.provenance archive_provenance,a.metadata message_metadata,
+           c.title conversation_title,c.metadata conversation_metadata,
+           'archive_messages' source
+    FROM archive_messages a
+    JOIN conversations c ON c.id=a.conversation_id
+    WHERE (c.owner=? OR c.owner='')
+      AND (a.provenance='chatgpt_export' OR a.conversation_id LIKE 'chatgpt:%')
+      AND a.role='user'
+      AND LENGTH(TRIM(COALESCE(a.content,'')))>=12
+  `;
+
+  async function query(where, limit, direction = 'DESC') {
+    try {
+      const order = direction === 'ASC' ? 'ASC' : 'DESC';
+      return (await db.prepare(`${select}
+        AND (${where})
+        ORDER BY a.timestamp ${order}
+        LIMIT ?`).bind(owner, Math.max(20, Math.min(500, Number(limit) || 120))).all()).results || [];
+    } catch {
+      return [];
+    }
   }
+
+  // Do not approximate a whole-person profile from only the newest messages.
+  // Each thematic query scans the entire archive and returns recent evidence
+  // inside that theme; a small oldest slice preserves long-lived identity facts.
+  const thematic = [
+    "a.content LIKE '%je suis%' OR a.content LIKE '%je travaille%' OR a.content LIKE '%mon métier%' OR a.content LIKE '%mon metier%' OR a.content LIKE '%ma profession%' OR a.content LIKE '%mon entreprise%' OR a.content LIKE '%ma société%' OR a.content LIKE '%ma societe%'",
+    "a.content LIKE '%ma femme%' OR a.content LIKE '%mon épouse%' OR a.content LIKE '%mon epouse%' OR a.content LIKE '%mes enfants%' OR a.content LIKE '%ma fille%' OR a.content LIKE '%mon fils%' OR a.content LIKE '%ma famille%'",
+    "a.content LIKE '%mon projet%' OR a.content LIKE '%mes projets%' OR a.content LIKE '%roman%' OR a.content LIKE '%apiculture%' OR a.content LIKE '%ruches%' OR a.content LIKE '%boutique%' OR a.content LIKE '%MELITURGOS%'",
+    "a.content LIKE '%je veux%' OR a.content LIKE '%je souhaite%' OR a.content LIKE '%je préfère%' OR a.content LIKE '%je prefere%' OR a.content LIKE '%objectif%'",
+    "a.content LIKE '%j''habite%' OR a.content LIKE '%je vis%' OR a.content LIKE '%voiture%' OR a.content LIKE '%véhicule%' OR a.content LIKE '%vehicule%' OR a.content LIKE '%voyage%'"
+  ];
+
+  const batches = [];
+  for (const where of thematic) batches.push(...await query(where, 160, 'DESC'));
+  batches.push(...await query("1=1", 320, 'DESC'));
+  batches.push(...await query("a.content LIKE '%je suis%' OR a.content LIKE '%mon projet%' OR a.content LIKE '%ma famille%'", 100, 'ASC'));
+
+  const seen = new Set();
+  const rows = [];
+  for (const row of batches) {
+    const key = String(row?.id || '');
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    rows.push(row);
+  }
+  return rows;
 }
 
 export async function retrievePersonalProfileContext(db, owner, { limit = 28 } = {}) {
