@@ -266,8 +266,9 @@ async function exactCandidateRows(db, owner, query, sources, limit = 80) {
   return rows;
 }
 
-async function semanticCandidateRows(db, owner, sources, filters = {}, limit = 96) {
-  const bounded = Math.max(8, Math.min(200, Number(limit) || 96));
+async function semanticCandidateRows(db, owner, sources, filters = {}, limit = 24) {
+  const bounded = Math.max(8, Math.min(64, Number(limit) || 24));
+  const perSource = Math.max(4, Math.ceil(bounded / Math.max(1, sources.length)));
   const rows = [];
   if (sources.includes('archive_messages')) {
     try {
@@ -281,7 +282,7 @@ async function semanticCandidateRows(db, owner, sources, filters = {}, limit = 9
         WHERE (c.owner=? OR c.owner='')
         ORDER BY a.timestamp DESC
         LIMIT ?
-      `).bind(owner,bounded).all()).results || []));
+      `).bind(owner,perSource).all()).results || []));
     } catch {}
   }
   if (sources.includes('memories')) {
@@ -292,7 +293,7 @@ async function semanticCandidateRows(db, owner, sources, filters = {}, limit = 9
         WHERE valid_until IS NULL OR valid_until>?
         ORDER BY created_at DESC
         LIMIT ?
-      `).bind(Date.now(),bounded).all()).results || []));
+      `).bind(Date.now(),perSource).all()).results || []));
     } catch {}
   }
   if (sources.includes('conversations')) {
@@ -303,7 +304,7 @@ async function semanticCandidateRows(db, owner, sources, filters = {}, limit = 9
         WHERE owner=? OR owner=''
         ORDER BY updated_at DESC
         LIMIT ?
-      `).bind(owner,bounded).all()).results || []));
+      `).bind(owner,perSource).all()).results || []));
     } catch {}
   }
   if (sources.includes('knowledge_artifacts')) {
@@ -314,7 +315,7 @@ async function semanticCandidateRows(db, owner, sources, filters = {}, limit = 9
         WHERE owner=?
         ORDER BY updated_at DESC
         LIMIT ?
-      `).bind(owner,bounded).all()).results || []));
+      `).bind(owner,perSource).all()).results || []));
     } catch {}
   }
   return rows.filter(row => rowPassesFilters(row, filters)).slice(0, bounded);
@@ -536,7 +537,8 @@ export class RAGService {
     minSimilarity = 0,
     filters = {},
     semanticProvider = null,
-    semanticCandidateLimit = 96,
+    semanticCandidateLimit = 24,
+    semanticMinScore = 0.45,
   } = {}) {
     requireValue(typeof owner === 'string' && owner.length > 0, 'AUTH_REQUIRED',401);
     requireValue(typeof query === 'string' && query.trim().length > 0 && query.length <= 12000, 'INVALID_QUERY');
@@ -586,11 +588,14 @@ export class RAGService {
     let semanticStatus = semanticProvider ? 'AVAILABLE' : 'DISABLED';
     if (semanticProvider && merged.length) {
       try {
-        const docs = merged.map(row => rowSearchText(row).slice(0, 2200));
+        const novel = merged.filter(row => Number(row.exact_score||0) === 0 && Number(row.lexical_score||0) === 0);
+        const known = merged.filter(row => Number(row.exact_score||0) > 0 || Number(row.lexical_score||0) > 0);
+        const semanticTargets = [...novel.slice(0,12), ...known.slice(0,12)].slice(0,24);
+        const docs = semanticTargets.map(row => rowSearchText(row).slice(0, 2200));
         const scores = await semanticProvider({ query, documents: docs });
-        for (let index = 0; index < merged.length; index += 1) {
+        for (let index = 0; index < semanticTargets.length; index += 1) {
           const score = Number(scores?.[index] ?? 0);
-          merged[index].semantic_score = Number.isFinite(score) ? Math.max(-1, Math.min(1, score)) : 0;
+          semanticTargets[index].semantic_score = Number.isFinite(score) ? Math.max(-1, Math.min(1, score)) : 0;
         }
         semanticStatus = 'SUCCEEDED';
       } catch (error) {
@@ -616,7 +621,7 @@ export class RAGService {
           retrieval: semanticStatus === 'SUCCEEDED' ? 'hybrid-exact-lexical-semantic' : 'hybrid-exact-lexical',
         };
       })
-      .filter(row => row.exact_score > 0 || (row.lexical_score > 0 && row.lexical_score >= minSimilarity) || row.semantic_score > 0.2)
+      .filter(row => row.exact_score > 0 || (row.lexical_score > 0 && row.lexical_score >= minSimilarity) || row.semantic_score >= semanticMinScore)
       .sort((a,b) => b.rank_score-a.rank_score || Number(b.timestamp||0)-Number(a.timestamp||0))
       .slice(0, limit);
 
@@ -628,6 +633,7 @@ export class RAGService {
       filters: normalizedFilterSet,
       lexical_total: Number(lexical.total || 0),
       candidate_total: merged.length,
+      semantic_min_score: semanticMinScore,
     };
   }
 
