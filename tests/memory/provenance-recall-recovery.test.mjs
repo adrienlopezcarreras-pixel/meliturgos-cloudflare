@@ -5,11 +5,13 @@ import { importChatGPTArchive } from '../../src/persistence/chatgpt-archive-impo
 import { createMemoryService } from '../../src/memory/memory-service.js';
 import { createSyncService } from '../../src/conversations/sync-service.js';
 import { createGen2Runtime } from '../../src/core/orchestrator/gen2-runtime.js';
+import { prepareGen2 } from '../../src/persistence/gen2-schema.js';
 
 test('MEL-MEM-08 confirms archive-derived learning with full provenance and contradiction snapshot', async () => {
   const DB = sqliteD1();
   try {
     const env = { DB, MELITURGOS_USER: 'adrien' };
+    await prepareGen2(DB);
     const fact = 'Le projet Atlas conserve le moteur local pour préserver la provenance.';
     await importChatGPTArchive(env, [
       { id:'learn-a', title:'Atlas décision', messages:[{id:'u1',role:'user',content:fact,timestamp:100}] },
@@ -106,6 +108,7 @@ test('MEL-MEM-10 rebuild after index loss reproduces candidates, proposals and r
   const DB = sqliteD1();
   try {
     const env = { DB, MELITURGOS_USER:'adrien' };
+    await prepareGen2(DB);
     const archive = [
       { id:'rebuild-a', title:'Rebuild A', messages:[{id:'m1',role:'user',content:'Le code reconstructible zephyr-741 reste attaché au projet Nova.',timestamp:111}] },
       { id:'rebuild-b', title:'Rebuild B', messages:[{id:'m2',role:'user',content:'La décision zephyr-741 exige de conserver la provenance Nova.',timestamp:222}] },
