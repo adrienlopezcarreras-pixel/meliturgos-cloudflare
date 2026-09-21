@@ -92,7 +92,7 @@ test('collector self-recovers a stalled large conversation without manual pause/
   assert.match(background, /await recoverTab\(tabId,code\);\s*continue;/s);
   assert.match(background, /await api\.tabs\.update\(tabId,\{url:'about:blank'\}\)/);
   assert.match(popup, /Relances automatiques/);
-  assert.equal(manifest.version, '0.6.2');
+  assert.equal(manifest.version, '0.6.3');
 });
 
 
@@ -153,10 +153,28 @@ test('collector runner injects itself into already-open ChatGPT tabs and exposes
 });
 
 
-test('collector 0.6.2 reports deep discovery coverage to MEL server and keeps unresolved states explicit', async () => {
+test('collector 0.6.3 reports deep discovery coverage to MEL server and keeps unresolved states explicit', async () => {
   const background=await readFile(new URL('../browser-companion/chatgpt-collector/background.js',import.meta.url),'utf8');
   const content=await readFile(new URL('../browser-companion/chatgpt-collector/content.js',import.meta.url),'utf8');
   const manifest=JSON.parse(await readFile(new URL('../browser-companion/chatgpt-collector/manifest.json',import.meta.url),'utf8'));
-  assert.equal(manifest.version,'0.6.2');assert.match(content,/version:'0\.6\.2'/);assert.match(background,/api\/gen2\/import\/chatgpt-coverage/);assert.match(background,/deep_discovery_done:s\.deepDiscoveryDone===true/);assert.match(background,/coverageItemsFromState/);
+  assert.equal(manifest.version,'0.6.3');assert.match(content,/version:'0\.6\.2'/);assert.match(background,/api\/gen2\/import\/chatgpt-coverage/);assert.match(background,/deep_discovery_done:s\.deepDiscoveryDone===true/);assert.match(background,/coverageItemsFromState/);
   for(const state of ['DONE','PARTIAL','FAILED','UNAVAILABLE','DEFERRED','QUEUED'])assert.match(background,new RegExp("'"+state+"'"));
+});
+
+
+test('collector 0.6.3 performs one-time attachment metadata backfill for already completed conversations', async () => {
+  const background=await readFile(new URL('../browser-companion/chatgpt-collector/background.js',import.meta.url),'utf8');
+  const content=await readFile(new URL('../browser-companion/chatgpt-collector/content.js',import.meta.url),'utf8');
+  const popup=await readFile(new URL('../browser-companion/chatgpt-collector/popup.js',import.meta.url),'utf8');
+  const manifest=JSON.parse(await readFile(new URL('../browser-companion/chatgpt-collector/manifest.json',import.meta.url),'utf8'));
+  assert.equal(manifest.version,'0.6.3');
+  assert.match(background,/ATTACHMENT_BACKFILL_VERSION='chatgpt-attachments-v1'/);
+  assert.match(background,/async function ensureAttachmentBackfillQueue/);
+  assert.match(background,/forcedAttachmentBackfill=Boolean\(s\.attachmentBackfillPending\?\.\[sourceId\]\)/);
+  assert.match(background,/attachmentBackfillVersion:attachmentBackfillComplete\?ATTACHMENT_BACKFILL_VERSION/);
+  assert.match(background,/const isAttachmentBackfill=Boolean\(s\.attachmentBackfillPending\?\.\[key\]\)/);
+  assert.match(content,/function attachmentDescriptors\(node\)/);
+  assert.match(content,/if \(!text && !attachments\.length\) continue/);
+  assert.match(content,/attachments,/);
+  assert.match(popup,/Backfill pièces jointes/);
 });
