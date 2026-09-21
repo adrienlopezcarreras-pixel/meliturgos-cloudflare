@@ -189,7 +189,11 @@ test('collector 0.6.4 captures safe attachment bytes privately before archive im
   assert.match(content,/download_url:\s*downloadUrl/);
   assert.match(background,/async function fetchAttachmentBlob/);
   assert.match(background,/async function uploadAttachmentBytes/);
-  assert.match(background,/await enrichConversationAttachments\(conversation\)/);
+  assert.match(background,/cap\.conversation=await enrichConversationAttachments\(cap\.conversation\)/);
+  const sendStart=background.indexOf('async function sendConversation');
+  const sendEnd=background.indexOf('async function historyUrls',sendStart);
+  assert.ok(sendStart>=0&&sendEnd>sendStart);
+  assert.doesNotMatch(background.slice(sendStart,sendEnd),/enrichConversationAttachments/);
   assert.match(background,/\/api\/files\/upload/);
   assert.match(background,/ATTACHMENT_BACKFILL_VERSION='chatgpt-attachments-v2-bytes'/);
   assert.match(background,/binary_content_indexed:extracted!==null/);
