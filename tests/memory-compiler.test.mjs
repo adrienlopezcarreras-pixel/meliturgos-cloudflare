@@ -132,3 +132,42 @@ test('MemoryService.consolidate runs the real D1 candidate path without persisti
     db.close();
   }
 });
+
+
+test('memory compiler carries structured archive evidence, fragments, observed dates and contradictions into proposals', () => {
+  const result = compileMemoryCandidates({
+    candidates: [{
+      id:'prov-1',
+      conversation_id:'chatgpt:conv-42',
+      message_id:'chatgpt:conv-42:m1',
+      content:'Je préfère travailler avec peu d’interactions.',
+      confidence:0.72,
+      source:'conversation:chatgpt_export:user',
+      created_at:1700000000000,
+      observed_at:1700000000000,
+      fragment:'Je préfère travailler avec peu d’interactions.',
+      provenance_json:JSON.stringify({
+        version:1,
+        source:'chatgpt_export',
+        conversation_id:'chatgpt:conv-42',
+        message_id:'chatgpt:conv-42:m1',
+        role:'user',
+        observed_at:1700000000000,
+        chatgpt_conversation_title:'Préférences travail'
+      }),
+      metadata_json:JSON.stringify({collector_source:'firefox_dom'}),
+      contradictions_json:JSON.stringify([{with:'mem-old',reason:'newer user correction'}])
+    }]
+  });
+
+  const proposal=result.proposals[0];
+  assert.equal(proposal.confidence,0.72);
+  assert.deepEqual(proposal.provenance.conversation_ids,['chatgpt:conv-42']);
+  assert.deepEqual(proposal.provenance.message_ids,['chatgpt:conv-42:m1']);
+  assert.deepEqual(proposal.provenance.fragments,['Je préfère travailler avec peu d’interactions.']);
+  assert.deepEqual(proposal.provenance.observed_at,['1700000000000']);
+  assert.deepEqual(proposal.provenance.roles,['user']);
+  assert.deepEqual(proposal.provenance.archive_sources,['chatgpt_export']);
+  assert.ok(proposal.provenance.contradictions.some(value => value.includes('mem-old')));
+  assert.equal(proposal.provenance.evidence[0].chatgpt_conversation_title,'Préférences travail');
+});
