@@ -134,8 +134,8 @@ test('collector runner only controls currently open explicitly armed tabs', asyn
 
   assert.match(popup, /uniquement sur les conversations ChatGPT actuellement ouvertes/i);
   assert.match(popupJs, /mel\.runner\.mark-current/);
-  assert.match(popupJs, /command:'cycle'/);
-  assert.match(popupJs, /command:'go'/);
+  assert.match(popupJs, /armRunner\('cycle'\)/);
+  assert.match(popupJs, /armRunner\('go'\)/);
 });
 
 
