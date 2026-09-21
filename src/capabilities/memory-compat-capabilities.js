@@ -78,8 +78,8 @@ export function registerMemoryCompatibilityCapabilities(bus, env = {}) {
         filters: {
           type: 'object',
           properties: {
-            from: { type: ['number','string'] },
-            to: { type: ['number','string'] },
+            from: { type: 'number' },
+            to: { type: 'number' },
             conversation_id: { type: 'string' },
             project: { type: 'string' },
             file_type: { type: 'string' },
