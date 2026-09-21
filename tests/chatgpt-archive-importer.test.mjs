@@ -305,3 +305,44 @@ test('attachment byte provenance and extracted text survive import and are searc
     assert.match(search.results[0].attachments[0].content_text,/zebracactus/);
   } finally { DB.close(); }
 });
+
+
+test('normalizer merges duplicate attachment descriptors with the same identity', () => {
+  const archive=[{
+    id:'attachment-merge',
+    title:'Fusion pièce jointe',
+    messages:[{
+      id:'m-merge',
+      role:'user',
+      content:'voir fichier',
+      timestamp:1700000300000,
+      attachments:[{
+        id:'asset-merge-1',
+        name:'fusion.txt',
+        mime_type:'text/plain'
+      }],
+      metadata:{
+        attachments:[{
+          id:'asset-merge-1',
+          name:'fusion.txt',
+          mime_type:'text/plain',
+          storage_id:'stored-merge',
+          storage_key:'uploads/chatgpt/asset-merge-1-fusion.txt',
+          sha256:'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          content_text:'contenu enrichi unique',
+          content_index_status:'TEXT_EXTRACTED',
+          byte_capture_status:'STORED_PRIVATE',
+          binary_content_indexed:true
+        }]
+      }
+    }]
+  }];
+
+  const normalized=normalizeChatGPTArchive(archive);
+  const attachments=normalized.conversations[0].messages[0].attachments;
+  assert.equal(attachments.length,1);
+  assert.equal(attachments[0].id,'asset-merge-1');
+  assert.equal(attachments[0].storage_id,'stored-merge');
+  assert.equal(attachments[0].binary_content_indexed,true);
+  assert.equal(attachments[0].content_text,'contenu enrichi unique');
+});
