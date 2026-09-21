@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-21.6';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-21.7';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -64,9 +64,9 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-MEM-05', 'Indexation complète messages et pièces jointes', 'IN_PROGRESS', 'Collector 0.6.3 + importeur: messages fichier-seul, descripteurs recherchables et backfill historique idempotent des doublons validés par CI. Reste l’indexation du contenu binaire uniquement pour les pièces jointes dont les octets réels peuvent être récupérés, puis une exécution complète du backfill sur l’archive réelle.', 'P0'),
     item('MEL-MEM-06', 'Pont archives vers mémoire opérationnelle unifiée', 'DONE_VERIFIED', 'MemoryService.retrieve unifie mémoire cognitive, archives ChatGPT, titres de conversations et knowledge artifacts avec provenance, déduplication et top-k borné; conversation-context utilise ce pont. Syntaxe globale + 28/28 tests ciblés validés sur l’intégration actuelle.', 'P0'),
     item('MEL-MEM-07', 'Recherche mémoire hybride sémantique, exacte et filtrable', 'DONE_VERIFIED', 'Recherche exacte + lexicale + sémantique opt-in, filtres date/projet/conversation/source/type de fichier/rôle, fusion et reranking, provenance conservée et fallback lexical si le provider sémantique échoue; validation 28/28 tests ciblés.', 'P0'),
-    item('MEL-MEM-08', 'Apprentissage mémoire avec provenance conservée', 'PLANNED', 'Permettre à MEL d’enregistrer de nouvelles connaissances issues des archives tout en conservant source, date, conversation, fragment, confiance et contradictions', 'P0'),
-    item('MEL-MEM-09', 'Validation de rappel historique difficile', 'PLANNED', 'Tester des questions anciennes et multi-conversations difficiles à retrouver, vérifier citations d’origine, croisement de sources et absence d’invention', 'P0'),
-    item('MEL-MEM-10', 'Reconstruction mémoire identique après panne', 'PLANNED', 'Tester redémarrage, restauration et reconstruction de l’index puis vérifier que MEL retrouve les mêmes informations et la même provenance', 'P0')
+    item('MEL-MEM-08', 'Apprentissage mémoire avec provenance conservée', 'DONE_VERIFIED', 'memory.learn confirme un fait canonique depuis les candidats d’archive en conservant conversation, message, source, date, fragment, confiance et snapshot explicite des contradictions; rejeu idempotent validé.', 'P0'),
+    item('MEL-MEM-09', 'Validation de rappel historique difficile', 'DONE_VERIFIED', 'Test multi-conversations avec repère rare: croisement de deux messages utilisateur, rôles/autorité et provenance d’origine conservés; aucun résultat synthétique absent de l’archive n’est accepté.', 'P0'),
+    item('MEL-MEM-10', 'Reconstruction mémoire identique après panne', 'DONE_VERIFIED', 'Suppression puis reconstruction de memory_candidates et restauration dans une base Gen2 neuve reproduisent à l’identique candidats, propositions compilées, résultats de rappel et provenance; CI dédiée verte.', 'P0')
   ]),
 
   phase('P04', 'Capability Bus, outils et accès au code', [
