@@ -1,0 +1,41 @@
+name: production gate hotfix CI
+
+on:
+  push:
+    branches:
+      - 'hotfix/production-gate-tests-20260921'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Mimic production release test branch
+        run: git checkout -B candidate/release-ci-head "$GITHUB_SHA"
+      - name: Syntax
+        run: npm run check
+      - name: Previously failing production gates
+        run: >
+          node --test
+          tests/autonomy-api.test.mjs
+          tests/autonomy-runtime.test.mjs
+          tests/deployment-path-unicity.test.mjs
+          tests/dev-runtime-autonomy.test.mjs
+          tests/integration/dev-bridge.test.mjs
+          tests/integration/gen2-flow.test.mjs
+          tests/native-chat-web-research.test.mjs
+          tests/roadmap-runtime-truth.test.mjs
+          tests/runtime-loop-topology-exhaustive.test.mjs
+          tests/system-readiness.test.mjs
