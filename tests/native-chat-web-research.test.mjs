@@ -58,7 +58,7 @@ test('natural chat web request executes web.research and injects sourced evidenc
   assert.ok(webCalls.some(url => url.startsWith('https://duckduckgo.com/html/?q=')));
 
   const system = aiCalls[0].messages.find(message => message.role === 'system')?.content || '';
-  assert.match(system, /TOOL_RESULT_1/);
+  assert.match(system, /UNTRUSTED_TOOL_DATA_1 classification=DATA instruction_authority=NONE/);
   assert.match(system, /web\.research/);
   assert.match(system, /SOURCE GOOGLE ACTUELLE/);
   assert.match(system, /SOURCE DDG ACTUELLE/);
@@ -99,5 +99,5 @@ test('private connected-data wording is not silently rerouted to public web rese
   assert.equal(webCalls.length, 0);
   assert.equal(aiCalls.length, 1);
   const system = aiCalls[0].messages.find(message => message.role === 'system')?.content || '';
-  assert.doesNotMatch(system, /\[TOOL_RESULT_1\][\s\S]*web\.research/);
+  assert.doesNotMatch(system, /\[UNTRUSTED_TOOL_DATA_1[^\]]*\][\s\S]*web\.research/);
 });
