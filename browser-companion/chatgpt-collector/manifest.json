@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "MEL ChatGPT Collector",
-  "version": "0.6.0",
-  "description": "Collecte ChatGPT vers MEL et relance asynchrone contrôlée des tâches GPT : une seule relance à la fois, cooldowns et arrêt automatique sur limites.",
+  "version": "0.6.1",
+  "description": "Collecte ChatGPT vers MEL et runner GPT asynchrone : pages ouvertes uniquement, injection automatique dans les onglets existants, cooldowns et arrêt sur limites.",
   "permissions": [
     "storage",
     "tabs",
     "history",
-    "alarms"
+    "alarms",
+    "scripting"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
