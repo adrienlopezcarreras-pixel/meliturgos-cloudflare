@@ -222,13 +222,16 @@ export async function retrievePersonalProfileContext(db, owner, { limit = 28 } =
  * historical messages outrank assistant output; assistant output remains trace
  * evidence only and is never promoted to a user fact.
  */
-export async function retrieveContext(db, owner, query) {
-  const memory = createMemoryService(db);
+export async function retrieveContext(db, owner, query, { semanticProvider = null, filters = {}, exact = false } = {}) {
+  const memory = createMemoryService(db, { semanticProvider });
   const unified = await memory.retrieve({
     owner,
     query,
     limit: 12,
     sources: ['archive_messages','conversations','memories','knowledge_artifacts'],
+    semanticCandidateLimit: 400,
+    filters,
+    exact,
   });
   const combined = dedupeRows(unified.results || []).slice(0, 12);
   const prompt = combined.length
