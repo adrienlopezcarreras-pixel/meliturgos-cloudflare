@@ -19,6 +19,7 @@ import { buildConversationFocusInstruction, deriveConversationFocus } from './co
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
+import { createWorkersAiSemanticProvider } from '../search/embeddings.js';
 
 export function inferChatGPTHistoryCapability(text) {
   const value = String(text || '').trim();
@@ -587,10 +588,11 @@ export async function handleNativeChat(request, env, options = {}) {
   ]);
   const archiveRecallQuery = conversationFocus.elliptical && conversationFocus.anchor ? conversationFocus.anchor : text;
   const shouldRecallArchive = shouldRetrieveArchiveRecall(text) || conversationFocus.anchor_source === 'persisted';
+  const semanticProvider = createWorkersAiSemanticProvider(env?.AI, { model: env?.MEL_MEMORY_EMBEDDING_MODEL });
   const [cognitiveMemory, archiveRecall, personalProfile] = await Promise.all([
     loadCognitiveMemory(env, activeInferenceSettings?.memory_results ?? 12),
     env?.DB && shouldRecallArchive && !personalProfileIntent
-      ? retrieveContext(env.DB, env.MELITURGOS_USER || 'owner', archiveRecallQuery).catch(() => null)
+      ? retrieveContext(env.DB, env.MELITURGOS_USER || 'owner', archiveRecallQuery, { semanticProvider }).catch(() => null)
       : Promise.resolve(null),
     env?.DB && personalProfileIntent
       ? retrievePersonalProfileContext(env.DB, env.MELITURGOS_USER || 'owner', { limit: 28 }).catch(() => null)
