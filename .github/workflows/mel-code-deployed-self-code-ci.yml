@@ -1,0 +1,26 @@
+name: MEL-CODE deployed self-code CI
+
+on:
+  push:
+    branches:
+      - 'roadmap/mel-code-pinned-deployment-20260921'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Syntax gate
+        run: npm run check
+      - name: Code and self-state targeted tests
+        run: node --test tests/native-chat-code.test.mjs tests/ui-and-code-capabilities.test.mjs tests/code-integrity-capability.test.mjs tests/code-integrity-head-shape.test.mjs tests/github-code-head-fallback.test.mjs tests/self-state-introspection.test.mjs
