@@ -1,0 +1,26 @@
+name: ChatGPT Collector CI
+
+on:
+  push:
+    paths:
+      - "browser-companion/chatgpt-collector/**"
+      - "tests/chatgpt-collector-integrity.test.mjs"
+      - ".github/workflows/chatgpt-collector-ci.yml"
+  pull_request:
+    paths:
+      - "browser-companion/chatgpt-collector/**"
+      - "tests/chatgpt-collector-integrity.test.mjs"
+      - ".github/workflows/chatgpt-collector-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  collector-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run collector integrity tests
+        run: node --test tests/chatgpt-collector-integrity.test.mjs
