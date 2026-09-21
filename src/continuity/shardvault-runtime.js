@@ -1,5 +1,5 @@
 import { buildShardVaultMemoryPayload } from './shardvault-memory-export.js';
-import { discoverAutonomousRepositories } from './autonomous-repositories.js';
+import { discoverAutonomousRepositories, invalidateRepresentativeProof } from './autonomous-repositories.js';
 
 const te = new TextEncoder();
 const HOUR = 60 * 60 * 1000;
@@ -752,7 +752,8 @@ function uniqueExternalCandidates(env,...groups){
   return [...by.values()];
 }
 function rankExternalCodeCandidates(env,endpoints,requiredBytes){
-  const candidates=uniqueExternalCandidates(env,endpoints);
+  const candidates=uniqueExternalCandidates(env,endpoints)
+    .filter(e=>endpointRepresentativeProofValid(env,e,requiredBytes));
   const parts=e=>Math.max(1,Math.ceil(Math.max(1,Number(requiredBytes)||1)/fragmentChunkLimit(e)));
   const latency=e=>Number(e?.probeLatencyMs)>0?Number(e.probeLatencyMs):Number.MAX_SAFE_INTEGER;
   return candidates.sort((a,b)=>
@@ -1092,7 +1093,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     const used=new Set(descriptors.map(x=>x.endpointId));
     const buildCandidates=(extra=[])=>{
       const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
-      const ranked=rankExternalCodeCandidates(env,[...validated,...extra,...(c.endpoints||[]),...(c.allEndpoints||[]),...codeCandidates],shard.length)
+      const ranked=rankExternalCodeCandidates(env,[...validated,...extra,...codeCandidates],shard.length)
         .filter(e=>!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e));
       return prioritizeExternalCodeCandidates(ranked,state);
     };
@@ -1168,6 +1169,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       try{await rememberValidatedExternalEndpoints(env,[provenEndpoint]);}catch{}
     }catch(error){
       const failureState=recordCodeTargetFailure(state,e,error,Date.now());
+      await invalidateCodeTargetQualification(env,e.id).catch(()=>false);
       state.failures=[...(state.failures||[]),{
         shard_index:i,endpoint_id:e.id,error:String(error?.message||error),at:new Date().toISOString(),
         retryable:failureState.retryable===true,permanent:failureState.permanent===true,retry_after_at:failureState.retry_after_at||null,
@@ -1373,6 +1375,29 @@ async function rememberValidatedExternalEndpoints(env,candidates=[]){
   const rows=[...by.values()].slice(0,25);
   await env.MEDIA_BUCKET.put(VALIDATED_ENDPOINTS_KEY,JSON.stringify({version:1,updated_at:new Date().toISOString(),endpoints:rows.map(e=>({id:e.id,...endpointSnapshot(e)}))}),{httpMetadata:{contentType:'application/json'}});
   return rows;
+}
+
+async function removeEndpointFromRegistry(env,key,endpointId){
+  const id=String(endpointId||'').trim();
+  if(!id||!env?.MEDIA_BUCKET?.get||!env?.MEDIA_BUCKET?.put)return false;
+  try{
+    const body=await env.MEDIA_BUCKET.get(key);
+    if(!body)return false;
+    const parsed=JSON.parse(await body.text());
+    const rows=Array.isArray(parsed)?parsed:(Array.isArray(parsed?.endpoints)?parsed.endpoints:[]);
+    const next=rows.filter(row=>String(row?.id||'')!==id);
+    if(next.length===rows.length)return false;
+    await env.MEDIA_BUCKET.put(key,JSON.stringify({version:1,updated_at:new Date().toISOString(),endpoints:next}),{httpMetadata:{contentType:'application/json'}});
+    return true;
+  }catch{return false;}
+}
+async function invalidateCodeTargetQualification(env,endpointId){
+  const [validated,candidate,representative]=await Promise.all([
+    removeEndpointFromRegistry(env,VALIDATED_ENDPOINTS_KEY,endpointId),
+    removeEndpointFromRegistry(env,CODE_CANDIDATES_KEY,endpointId),
+    invalidateRepresentativeProof(env,endpointId),
+  ]);
+  return validated||candidate||representative;
 }
 async function readCodeCandidateEndpoints(env){
   if(!env?.MEDIA_BUCKET?.get)return [];
