@@ -1,5 +1,5 @@
 name: Godot private five-game test
-# unified gamedev runtime run 27 c608-world-highlight
+# unified gamedev runtime run 28 c609-action-context
 
 on:
   push:
@@ -190,14 +190,17 @@ jobs:
             input_rc=$?
             "$GODOT" --headless --path "$proj" --script "res://tests/command_router_v56_test.gd" > "/tmp/${name}-command-test.log" 2>&1
             command_rc=$?
+            "$GODOT" --headless --path "$proj" --script "res://tests/action_context_c609_test.gd" > "/tmp/${name}-c609-test.log" 2>&1
+            c609_rc=$?
             cat "/tmp/${name}-save-test.log"
             cat "/tmp/${name}-input-test.log"
             cat "/tmp/${name}-command-test.log"
-            if [ "$save_rc" -ne 0 ] || [ "$input_rc" -ne 0 ] || [ "$command_rc" -ne 0 ]; then
-              echo "$name INFRA_TEST=FAIL save_rc=$save_rc input_rc=$input_rc command_rc=$command_rc"
+            cat "/tmp/${name}-c609-test.log"
+            if [ "$save_rc" -ne 0 ] || [ "$input_rc" -ne 0 ] || [ "$command_rc" -ne 0 ] || [ "$c609_rc" -ne 0 ]; then
+              echo "$name INFRA_TEST=FAIL save_rc=$save_rc input_rc=$input_rc command_rc=$command_rc c609_rc=$c609_rc"
               overall=1
             else
-              echo "$name INFRA_TEST=PASS save_rc=$save_rc input_rc=$input_rc command_rc=$command_rc"
+              echo "$name INFRA_TEST=PASS save_rc=$save_rc input_rc=$input_rc command_rc=$command_rc c609_rc=$c609_rc"
             fi
           done
           if [ "$overall" -eq 0 ]; then echo "INFRA_OVERALL=PASS"; else echo "INFRA_OVERALL=FAIL"; fi
