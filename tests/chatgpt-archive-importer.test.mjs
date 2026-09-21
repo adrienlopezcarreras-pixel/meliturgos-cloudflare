@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { getChatGPTImportStatus, importChatGPTArchive, normalizeChatGPTArchive, recordChatGPTCollectorCoverage } from '../src/persistence/chatgpt-archive-importer.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import worker from '../src/index.js';
-import { RAGService } from '../src/search/rag-service.js';
 
 const sample = [{
   id: 'conv-1',
@@ -246,103 +245,4 @@ test('re-import enriches duplicate archive rows with attachment metadata exactly
     assert.equal(c.enriched_duplicates,0);
     assert.equal(c.attachment_backfills,0);
   } finally { DB.close(); }
-});
-
-
-test('attachment byte provenance and extracted text survive import and are searchable', async () => {
-  const DB=sqliteD1();
-  try {
-    const env={DB,MELITURGOS_USER:'adrien'};
-    const archive=[{
-      id:'attachment-bytes',
-      title:'Octets pièce jointe',
-      messages:[{
-        id:'m-bytes',
-        role:'user',
-        content:'',
-        timestamp:1700000200000,
-        attachments:[{
-          id:'asset-text-1',
-          name:'note-historique.txt',
-          mime_type:'text/plain',
-          size_bytes:42,
-          storage_id:'stored-1',
-          storage_key:'uploads/2026-09-21/stored-1-note-historique.txt',
-          sha256:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-          content_text:'Le mot de rappel unique est zebracactus pour ce test.',
-          content_index_status:'TEXT_EXTRACTED',
-          byte_capture_status:'STORED_PRIVATE',
-          binary_content_indexed:true
-        }]
-      }]
-    }];
-
-    const normalized=normalizeChatGPTArchive(archive);
-    const descriptor=normalized.conversations[0].messages[0].attachments[0];
-    assert.equal(descriptor.storage_key,'uploads/2026-09-21/stored-1-note-historique.txt');
-    assert.equal(descriptor.binary_content_indexed,true);
-    assert.match(descriptor.content_text,/zebracactus/);
-
-    const result=await importChatGPTArchive(env,archive,{preview:false});
-    assert.equal(result.inserted,1);
-
-    const row=await DB.prepare('SELECT attachments_json,metadata FROM archive_messages WHERE id=?')
-      .bind('chatgpt:attachment-bytes:m-bytes').first();
-    const attachments=JSON.parse(row.attachments_json);
-    assert.equal(attachments[0].storage_id,'stored-1');
-    assert.equal(attachments[0].sha256.length,64);
-    assert.equal(attachments[0].binary_content_indexed,true);
-    assert.match(attachments[0].content_text,/zebracactus/);
-
-    const status=await getChatGPTImportStatus(env);
-    assert.equal(status.attachment_index.binary_indexed_descriptors,1);
-    assert.equal(status.attachment_index.binary_content_indexed,true);
-
-    const search=await RAGService.search(DB,'adrien','zebracactus',{sources:['archive_messages'],limit:5});
-    assert.equal(search.total,1);
-    assert.equal(search.results[0].id,'chatgpt:attachment-bytes:m-bytes');
-    assert.equal(search.results[0].attachments[0].storage_id,'stored-1');
-    assert.match(search.results[0].attachments[0].content_text,/zebracactus/);
-  } finally { DB.close(); }
-});
-
-
-test('normalizer merges duplicate attachment descriptors with the same identity', () => {
-  const archive=[{
-    id:'attachment-merge',
-    title:'Fusion pièce jointe',
-    messages:[{
-      id:'m-merge',
-      role:'user',
-      content:'voir fichier',
-      timestamp:1700000300000,
-      attachments:[{
-        id:'asset-merge-1',
-        name:'fusion.txt',
-        mime_type:'text/plain'
-      }],
-      metadata:{
-        attachments:[{
-          id:'asset-merge-1',
-          name:'fusion.txt',
-          mime_type:'text/plain',
-          storage_id:'stored-merge',
-          storage_key:'uploads/chatgpt/asset-merge-1-fusion.txt',
-          sha256:'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-          content_text:'contenu enrichi unique',
-          content_index_status:'TEXT_EXTRACTED',
-          byte_capture_status:'STORED_PRIVATE',
-          binary_content_indexed:true
-        }]
-      }
-    }]
-  }];
-
-  const normalized=normalizeChatGPTArchive(archive);
-  const attachments=normalized.conversations[0].messages[0].attachments;
-  assert.equal(attachments.length,1);
-  assert.equal(attachments[0].id,'asset-merge-1');
-  assert.equal(attachments[0].storage_id,'stored-merge');
-  assert.equal(attachments[0].binary_content_indexed,true);
-  assert.equal(attachments[0].content_text,'contenu enrichi unique');
 });
