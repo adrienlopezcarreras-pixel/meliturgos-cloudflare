@@ -25,6 +25,33 @@ async function sha256Hex(value) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+
+function bounded(value, max = 500) {
+  return value == null ? null : String(value).slice(0, max);
+}
+
+function safeExchangeMetadata(input = {}) {
+  const metadata = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const allowed = [
+    'source_type',
+    'chatgpt_conversation_id',
+    'chatgpt_conversation_title',
+    'collector_source',
+    'collector_version',
+    'collector_partial',
+    'attachment_count',
+    'truncated',
+  ];
+  const out = {};
+  for (const key of allowed) {
+    if (!(key in metadata)) continue;
+    const value = metadata[key];
+    if (typeof value === 'boolean' || typeof value === 'number') out[key] = value;
+    else if (value != null) out[key] = bounded(value, 500);
+  }
+  return out;
+}
+
 export function normalizeExchange(input, { maxContentLength = DEFAULT_MAX_CONTENT_LENGTH } = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     const error = new Error('MEMORY_EXCHANGE_INVALID');
@@ -55,6 +82,8 @@ export function normalizeExchange(input, { maxContentLength = DEFAULT_MAX_CONTEN
   const provenance = typeof input.provenance === 'string' && input.provenance.trim()
     ? input.provenance.trim().slice(0, 80)
     : 'conversation';
+  const metadata = safeExchangeMetadata(input.metadata);
+  metadata.truncated = rawContent.length > content.length;
 
   return Object.freeze({
     conversationId: conversationId.slice(0, 240),
@@ -63,6 +92,7 @@ export function normalizeExchange(input, { maxContentLength = DEFAULT_MAX_CONTEN
     content,
     timestamp,
     provenance,
+    metadata: Object.freeze(metadata),
     truncated: rawContent.length > content.length,
   });
 }
@@ -72,6 +102,19 @@ export async function exchangeToMemoryCandidate(exchange) {
   if (!normalized) return null;
   const digest = await sha256Hex(`${normalized.conversationId}\u0000${normalized.messageId}`);
   const confidence = normalized.role === 'user' ? 0.72 : normalized.role === 'assistant' ? 0.45 : 0.3;
+  const provenance = Object.freeze({
+    version: 1,
+    source: normalized.provenance,
+    conversation_id: normalized.conversationId,
+    message_id: normalized.messageId,
+    role: normalized.role,
+    observed_at: normalized.timestamp,
+    source_type: normalized.metadata?.source_type || null,
+    chatgpt_conversation_id: normalized.metadata?.chatgpt_conversation_id || null,
+    chatgpt_conversation_title: normalized.metadata?.chatgpt_conversation_title || null,
+    collector_source: normalized.metadata?.collector_source || null,
+    collector_version: normalized.metadata?.collector_version || null,
+  });
   return Object.freeze({
     id: `memcand_${digest}`,
     conversationId: normalized.conversationId,
@@ -81,6 +124,11 @@ export async function exchangeToMemoryCandidate(exchange) {
     source: `conversation:${normalized.provenance}:${normalized.role}`,
     status: 'PENDING',
     createdAt: normalized.timestamp,
+    observedAt: normalized.timestamp,
+    fragment: normalized.content.slice(0, 1000),
+    provenance,
+    metadata: normalized.metadata,
+    contradictions: [],
     truncated: normalized.truncated,
   });
 }
@@ -166,8 +214,9 @@ export function createD1MemoryCandidateSink(db) {
   return async (candidate) => {
     const result = await db.prepare(`
       INSERT OR IGNORE INTO memory_candidates(
-        id, conversation_id, message_id, content, confidence, source, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        id, conversation_id, message_id, content, confidence, source, status, created_at,
+        provenance_json, metadata_json, observed_at, fragment, contradictions_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       candidate.id,
       candidate.conversationId,
@@ -177,6 +226,11 @@ export function createD1MemoryCandidateSink(db) {
       candidate.source,
       candidate.status,
       candidate.createdAt,
+      JSON.stringify(candidate.provenance || {}),
+      JSON.stringify(candidate.metadata || {}),
+      candidate.observedAt ?? candidate.createdAt,
+      candidate.fragment || '',
+      JSON.stringify(candidate.contradictions || []),
     ).run();
     const changes = Number(result?.meta?.changes ?? result?.changes ?? 0);
     return { inserted: changes > 0 };
