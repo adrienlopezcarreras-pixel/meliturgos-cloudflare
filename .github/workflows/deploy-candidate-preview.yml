@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - candidate/mel-clean-autonomy
+      - optimization/mel-runtime-lightweight-v2-20260921
   workflow_dispatch:
 
 permissions:
@@ -33,7 +34,10 @@ jobs:
       - name: Verify canonical candidate branch
         shell: bash
         run: |
-          test "${GITHUB_REF_NAME}" = "candidate/mel-clean-autonomy"
+          case "${GITHUB_REF_NAME}" in
+            candidate/mel-clean-autonomy|optimization/mel-runtime-lightweight-v2-20260921) ;;
+            *) echo "Unsupported preview branch: ${GITHUB_REF_NAME}" >&2; exit 1 ;;
+          esac
           echo "Preparing isolated preview for ${GITHUB_SHA} from ${GITHUB_REF_NAME}"
 
       - name: Syntax gate
