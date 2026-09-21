@@ -73,13 +73,13 @@ export function registerMemoryCompatibilityCapabilities(bus, env = {}) {
       properties: {
         query: { type: 'string', minLength: 1, maxLength: 12000 },
         limit: { type: 'integer', minimum: 1, maximum: 100 },
-        sources: { type: 'array', items: { enum: ['archive_messages','conversations','memories','knowledge_artifacts'] } },
+        sources: { type: 'array', items: { type: 'string', enum: ['archive_messages','conversations','memories','knowledge_artifacts'] } },
         semantic: { type: 'boolean' },
         filters: {
           type: 'object',
           properties: {
-            from: { type: ['number','string'] },
-            to: { type: ['number','string'] },
+            from: { type: 'number' },
+            to: { type: 'number' },
             conversation_id: { type: 'string' },
             project: { type: 'string' },
             file_type: { type: 'string' },
