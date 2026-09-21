@@ -56,8 +56,8 @@ async function runnerState(){const x=await api.storage.local.get('melRunnerState
 async function saveRunner(p){const n={...(await runnerState()),...p,updatedAt:Date.now()};await api.storage.local.set({melRunnerState:n});return n}
 async function config(){const x=await api.storage.local.get('melCollectorConfig'),c=x.melCollectorConfig||{};return{endpoint:String(c.endpoint||'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/,''),username:String(c.username||''),password:String(c.password||''),continuous:c.continuous!==false,ecoMode:c.ecoMode!==false,delayMs:Math.max(8000,Math.min(60000,Number(c.delayMs)||30000))}}
 function auth(u,p){return 'Basic '+btoa(unescape(encodeURIComponent(`${u}:${p}`)))}
-const COLLECTOR_VERSION='0.6.3';
-const ATTACHMENT_BACKFILL_VERSION='chatgpt-attachments-v1';
+const COLLECTOR_VERSION='0.6.4';
+const ATTACHMENT_BACKFILL_VERSION='chatgpt-attachments-v2-bytes';
 function coverageItemsFromState(s){
   const byId=new Map();
   const add=(id,status,messages=0)=>{id=String(id||'').trim();if(!id)return;byId.set(id,{id,status,messages:Math.max(0,Number(messages)||0)})};
@@ -122,6 +122,115 @@ async function ensureAttachmentBackfillQueue(snapshot=null){
     attachmentBackfillVersion:completed?ATTACHMENT_BACKFILL_VERSION:s.attachmentBackfillVersion,
     attachmentBackfillCompletedAt:completed?(s.attachmentBackfillCompletedAt||Date.now()):s.attachmentBackfillCompletedAt
   });
+}
+
+const ATTACHMENT_MAX_BYTES=25_000_000;
+const ATTACHMENT_FETCH_TIMEOUT_MS=20_000;
+const ATTACHMENT_UPLOAD_TIMEOUT_MS=30_000;
+
+function safeAttachmentUrl(value){
+  try{
+    const u=new URL(String(value||''));
+    const host=u.hostname.toLowerCase();
+    if(u.protocol!=='https:')return null;
+    if(host==='chatgpt.com'||host==='chat.openai.com'||host==='files.oaiusercontent.com'||host.endsWith('.oaiusercontent.com'))return u.toString();
+  }catch{}
+  return null;
+}
+function withoutDownloadUrl(value){
+  const source=value&&typeof value==='object'&&!Array.isArray(value)?value:{};
+  const {download_url,...rest}=source;
+  return rest;
+}
+async function fetchAttachmentBlob(value){
+  const url=safeAttachmentUrl(value);
+  if(!url)throw codedError(value?'ATTACHMENT_SOURCE_BLOCKED':'ATTACHMENT_SOURCE_UNAVAILABLE');
+  const controller=new AbortController();
+  const task=(async()=>{
+    const r=await fetch(url,{credentials:'include',redirect:'follow',cache:'no-store',signal:controller.signal});
+    if(!r.ok)throw codedError('ATTACHMENT_FETCH_HTTP_'+r.status);
+    const declared=Number(r.headers.get('content-length')||0);
+    if(Number.isFinite(declared)&&declared>ATTACHMENT_MAX_BYTES)throw codedError('ATTACHMENT_TOO_LARGE');
+    const blob=await r.blob();
+    if(Number(blob.size||0)>ATTACHMENT_MAX_BYTES)throw codedError('ATTACHMENT_TOO_LARGE');
+    return blob;
+  })();
+  try{return await withTimeout(task,ATTACHMENT_FETCH_TIMEOUT_MS,'ATTACHMENT_FETCH_TIMEOUT',()=>controller.abort())}
+  catch(e){if(e?.name==='AbortError')throw codedError('ATTACHMENT_FETCH_TIMEOUT');throw e}
+}
+async function uploadAttachmentBytes(cfg,descriptor,context){
+  const clean=withoutDownloadUrl(descriptor);
+  const sourceUrl=descriptor?.download_url;
+  if(!sourceUrl)return{...clean,byte_capture_status:'SOURCE_URL_UNAVAILABLE'};
+  let blob;
+  try{blob=await fetchAttachmentBlob(sourceUrl)}
+  catch(e){return{...clean,byte_capture_status:e?.code||e?.message||'ATTACHMENT_FETCH_FAILED'}}
+
+  const form=new FormData();
+  const filename=String(clean.name||'attachment').slice(0,180)||'attachment';
+  form.append('file',blob,filename);
+  form.append('source','chatgpt_attachment');
+  if(context?.conversationId)form.append('conversation_id',String(context.conversationId).slice(0,500));
+  if(context?.messageId)form.append('message_id',String(context.messageId).slice(0,500));
+  if(clean.id)form.append('attachment_id',String(clean.id).slice(0,500));
+
+  const controller=new AbortController();
+  const request=(async()=>{
+    const r=await fetch(cfg.endpoint+'/api/files/upload',{
+      method:'POST',
+      headers:{'authorization':auth(cfg.username,cfg.password)},
+      body:form,
+      signal:controller.signal
+    });
+    const t=await r.text();let body={};try{body=t?JSON.parse(t):{}}catch{}
+    if(!r.ok)throw codedError(body.code||'ATTACHMENT_UPLOAD_HTTP_'+r.status);
+    return body;
+  })();
+  try{
+    const body=await withTimeout(request,ATTACHMENT_UPLOAD_TIMEOUT_MS,'ATTACHMENT_UPLOAD_TIMEOUT',()=>controller.abort());
+    const extracted=typeof body.preview_text==='string'?body.preview_text.slice(0,120000):null;
+    return{
+      ...clean,
+      mime_type:body.type||clean.mime_type||blob.type||null,
+      size_bytes:Number.isFinite(Number(body.size))?Number(body.size):Number(blob.size||0),
+      storage_id:body.id||null,
+      storage_key:body.key||null,
+      sha256:body.sha256||null,
+      content_text:extracted,
+      content_index_status:body.analysis_status||null,
+      binary_content_indexed:extracted!==null,
+      byte_capture_status:body.stored===true?'STORED_PRIVATE':'RECEIVED_NOT_PERSISTED'
+    };
+  }catch(e){
+    return{...clean,size_bytes:Number(blob.size||clean.size_bytes||0)||clean.size_bytes||null,byte_capture_status:e?.code||e?.message||'ATTACHMENT_UPLOAD_FAILED'};
+  }
+}
+async function enrichConversationAttachments(conversation){
+  if(!conversation||!Array.isArray(conversation.messages))return conversation;
+  const cfg=await config();
+  if(!cfg.username||!cfg.password)return conversation;
+  let attempted=0,stored=0,indexed=0,failed=0;
+  const messages=[];
+  for(const message of conversation.messages){
+    const attachments=[];
+    for(const descriptor of Array.isArray(message?.attachments)?message.attachments:[]){
+      if(descriptor?.download_url)attempted++;
+      const enriched=await uploadAttachmentBytes(cfg,descriptor,{conversationId:conversation.id||conversation.conversation_id,messageId:message.id});
+      if(enriched?.storage_key)stored++;
+      if(enriched?.binary_content_indexed===true)indexed++;
+      if(enriched?.byte_capture_status&&!['STORED_PRIVATE','RECEIVED_NOT_PERSISTED','SOURCE_URL_UNAVAILABLE'].includes(enriched.byte_capture_status))failed++;
+      attachments.push(enriched);
+    }
+    messages.push({...message,attachments});
+  }
+  return{
+    ...conversation,
+    messages,
+    collector:{
+      ...(conversation.collector||{}),
+      attachment_bytes:{attempted,stored,indexed,failed,version:ATTACHMENT_BACKFILL_VERSION}
+    }
+  };
 }
 
 async function sendConversation(conversation,trackActive=false){
@@ -414,6 +523,8 @@ async function process(tabId,generation){
       if(String(cap.conversation.id||'')!==sourceId) throw codedError('CAPTURE_ID_MISMATCH');
       const messageCount=Number(cap.conversation.messages?.length||0);
       itemMessageCount=Math.max(itemMessageCount,messageCount);
+      await save({currentStage:'attachments',lastProgressAt:Date.now(),currentMessageCount:messageCount,captureProcessed:messageCount});
+      cap.conversation=await enrichConversationAttachments(cap.conversation);
       await save({currentStage:'import',lastProgressAt:Date.now(),currentMessageCount:messageCount,captureProcessed:messageCount});
       const result=await withTimeout(sendConversation(cap.conversation,true),WATCHDOG_IDLE_MS,'CONVERSATION_NO_PROGRESS_TIMEOUT',()=>{try{activeAbortController?.abort()}catch{}});
       if(!isCurrentRun(generation))return;
@@ -778,6 +889,7 @@ api.runtime.onMessage.addListener(async (msg,sender)=>{
     const [tab]=await api.tabs.query({active:true,currentWindow:true});
     if(!tab?.id)throw new Error('ACTIVE_TAB_REQUIRED');
     const cap=await captureStable(tab.id);if(!cap?.ok)throw new Error(cap?.code||'CAPTURE_FAILED');
+    cap.conversation=await enrichConversationAttachments(cap.conversation);
     const result=await sendConversation(cap.conversation),s=await state(),sourceId=cap.conversation.id;
     const done={...(s.done||{}),[sourceId]:{url:norm(tab.url),title:cap.conversation.title,messages:cap.conversation.messages.length,importedAt:Date.now()}};
     const partial={...(s.partial||{})};delete partial[sourceId];
@@ -793,7 +905,8 @@ api.runtime.onMessage.addListener(async (msg,sender)=>{
     if(s.done?.[sourceId]&&Number(s.done[sourceId].messages||0)>=count)return{ok:true,skipped:'ALREADY_CAPTURED'};
     if(partialCapture&&s.partial?.[sourceId]&&Number(s.partial[sourceId].messages||0)>=count)return{ok:true,skipped:'ALREADY_CAPTURED_PARTIAL'};
     try{
-      const result=await sendConversation(msg.conversation);s=await state();
+      const enrichedConversation=await enrichConversationAttachments(msg.conversation);
+      const result=await sendConversation(enrichedConversation);s=await state();
       const done={...(s.done||{})};
       const partial={...(s.partial||{})};
       const record={url:msg.conversation.collector?.url||null,title:msg.conversation.title,messages:count,importedAt:Date.now()};
