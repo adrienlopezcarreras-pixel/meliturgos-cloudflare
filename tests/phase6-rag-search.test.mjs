@@ -242,3 +242,29 @@ test('hybrid retrieval rejects inverted date ranges', async () => {
     );
   } finally { db.close(); }
 });
+
+
+test('semantic candidate budget remains source-diverse when archives are large', async () => {
+  const db = await makeHybridDb();
+  try {
+    for (let i=0;i<20;i++) {
+      const cid='c-bulk-'+i;
+      await db.prepare("INSERT INTO conversations VALUES (?,?,?,?,?)").bind(cid,'adrien','Archive '+i,'{}',1000+i).run();
+      await db.prepare("INSERT INTO archive_messages VALUES (?,?,?,?,?,?,?,?)")
+        .bind('m-bulk-'+i,cid,'user','Texte ancien sans relation '+i,null,1000+i,'chatgpt_export','{}').run();
+    }
+    await db.prepare("INSERT INTO memories VALUES (?,?,?,?,?,?)")
+      .bind('mem-semantic','La colonie apicole hiverne dans une ruche Dadant',2000,null,'manual','{}').run();
+
+    const semanticProvider=async({documents})=>documents.map(text => text.includes('colonie apicole') ? 0.94 : 0.02);
+    const result=await RAGService.searchHybrid(db,'adrien','abeilles hivernage',{
+      sources:['archive_messages','memories'],
+      semanticProvider,
+      semanticCandidateLimit:12,
+      limit:5
+    });
+
+    assert.ok(result.results.some(row => row.id==='mem-semantic'));
+    assert.equal(result.results.find(row=>row.id==='mem-semantic')?.authority,'memory_record');
+  } finally { db.close(); }
+});
