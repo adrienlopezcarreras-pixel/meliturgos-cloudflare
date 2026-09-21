@@ -26,19 +26,53 @@ function uniqueValues(rows, key) {
   return [...new Set(rows.map(row => String(row?.[key] ?? '').trim()).filter(Boolean))].slice(0, MAX_PROVENANCE_VALUES);
 }
 
+
+function parseJson(value, fallback) {
+  if (value == null || value === '') return fallback;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(String(value)); } catch { return fallback; }
+}
+
+function uniqueNestedValues(rows, selector) {
+  const values = [];
+  for (const row of rows) {
+    const selected = selector(row);
+    for (const value of (Array.isArray(selected) ? selected : [selected])) {
+      if (value == null || value === '') continue;
+      const text = typeof value === 'string' ? value.trim() : JSON.stringify(value);
+      if (!text || values.includes(text)) continue;
+      values.push(text);
+      if (values.length >= MAX_PROVENANCE_VALUES) return values;
+    }
+  }
+  return values;
+}
+
 function candidateKind(row) {
   return String(row?.kind || row?.role || 'fact').trim() || 'fact';
 }
 
 function candidateProvenance(rows) {
+  const structured = rows.map(row => parseJson(row?.provenance_json ?? row?.provenance, {}));
+  const contradictions = uniqueNestedValues(rows, row => parseJson(row?.contradictions_json, []));
+  const fragments = uniqueNestedValues(rows, row => row?.fragment || normalizeMemoryContent(row?.content || '').slice(0, 1000));
+  const observedAt = uniqueNestedValues(rows, row => row?.observed_at ?? parseJson(row?.provenance_json, {})?.observed_at ?? row?.created_at);
+  const roles = uniqueNestedValues(rows, row => parseJson(row?.provenance_json, {})?.role);
+  const archiveSources = uniqueNestedValues(rows, row => parseJson(row?.provenance_json, {})?.source);
   return Object.freeze({
-    version: 1,
+    version: 2,
     compiler: 'mel-memory-compiler',
     candidate_ids: uniqueValues(rows, 'id'),
     conversation_ids: uniqueValues(rows, 'conversation_id'),
     message_ids: uniqueValues(rows, 'message_id'),
     sources: uniqueValues(rows, 'source'),
     observations: rows.length,
+    fragments,
+    observed_at: observedAt,
+    roles,
+    archive_sources: archiveSources,
+    contradictions,
+    evidence: structured.slice(0, MAX_PROVENANCE_VALUES),
   });
 }
 
