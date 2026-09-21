@@ -89,8 +89,10 @@ jobs:
           RAW_LOG="${RUNNER_TEMP}/wrangler-preview.raw.log"
           npx wrangler deploy --env preview \
             --define "MEL_DEPLOYED_GIT_SHA:'${GITHUB_SHA}'" \
-            --define "MEL_DEPLOYED_GIT_BRANCH:'${GITHUB_REF_NAME}'" \
+            --define "MEL_DEPLOYED_GIT_BRANCH:'candidate/optimization-lightweight-preview'" \
             --define "MEL_CRITICAL_CODE_BUNDLE_BYTES:${MEL_CRITICAL_CODE_BUNDLE_BYTES}" \
+            --var "MEL_GITHUB_BRANCH:candidate/optimization-lightweight-preview" \
+            --var "MEL_TEACHER_BRANCH:candidate/optimization-lightweight-preview" \
             2>&1 | tee "$RAW_LOG"
           STATUS=${PIPESTATUS[0]}
           exit "$STATUS"
