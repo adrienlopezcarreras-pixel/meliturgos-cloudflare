@@ -157,7 +157,7 @@ test('collector 0.6.3 reports deep discovery coverage to MEL server and keeps un
   const background=await readFile(new URL('../browser-companion/chatgpt-collector/background.js',import.meta.url),'utf8');
   const content=await readFile(new URL('../browser-companion/chatgpt-collector/content.js',import.meta.url),'utf8');
   const manifest=JSON.parse(await readFile(new URL('../browser-companion/chatgpt-collector/manifest.json',import.meta.url),'utf8'));
-  assert.equal(manifest.version,'0.6.3');assert.match(content,/version:'0\.6\.2'/);assert.match(background,/api\/gen2\/import\/chatgpt-coverage/);assert.match(background,/deep_discovery_done:s\.deepDiscoveryDone===true/);assert.match(background,/coverageItemsFromState/);
+  assert.equal(manifest.version,'0.6.3');assert.match(content,/version:'0\.6\.3'/);assert.match(background,/api\/gen2\/import\/chatgpt-coverage/);assert.match(background,/deep_discovery_done:s\.deepDiscoveryDone===true/);assert.match(background,/coverageItemsFromState/);
   for(const state of ['DONE','PARTIAL','FAILED','UNAVAILABLE','DEFERRED','QUEUED'])assert.match(background,new RegExp("'"+state+"'"));
 });
 
