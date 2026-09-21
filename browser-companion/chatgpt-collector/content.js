@@ -355,19 +355,26 @@
       }
     }
 
+    const confirmSent = async method => {
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        await wait(250);
+        if (isGenerating() || !composerText().trim()) return {ok:true,method};
+      }
+      return {ok:false,code:'SEND_NOT_CONFIRMED'};
+    };
+
     await wait(180);
     const button = findSendButton();
     if (button && !button.disabled && button.getAttribute('aria-disabled') !== 'true') {
       button.click();
-      await wait(300);
-      return {ok:true,method:'button'};
+      return confirmSent('button');
     }
 
     try {
       el.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',code:'Enter',bubbles:true,cancelable:true}));
       el.dispatchEvent(new KeyboardEvent('keyup', {key:'Enter',code:'Enter',bubbles:true,cancelable:true}));
-      await wait(300);
-      return {ok:true,method:'enter'};
+      return confirmSent('enter');
     } catch {
       return {ok:false,code:'SEND_BUTTON_UNAVAILABLE'};
     }
