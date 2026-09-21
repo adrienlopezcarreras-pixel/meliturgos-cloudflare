@@ -253,10 +253,15 @@ test('critical bundle is bound through the runtime before qualification', () => 
   assert.match(previewWorkflow,/SHARDVAULT_CRITICAL_SOURCE_SIZE_MISMATCH/);
 });
 
-test('code sync prefers representative proof metadata and timing over legacy registry entries', () => {
+test('code sync requires fresh representative proof and invalidates a target after critical-copy failure', () => {
   assert.match(runtime,/const proofWeight=e=>\[/);
   assert.match(runtime,/if\(!current\|\|better\(e,current\)\)by\.set\(e\.id,e\)/);
-  assert.match(runtime,/rankExternalCodeCandidates\(env,\[\.\.\.validated,\.\.\.extra/);
+  assert.match(runtime,/uniqueExternalCandidates\(env,endpoints\)[\s\S]*filter\(e=>endpointRepresentativeProofValid\(env,e,requiredBytes\)\)/);
+  assert.match(runtime,/rankExternalCodeCandidates\(env,\[\.\.\.validated,\.\.\.extra,\.\.\.codeCandidates\],shard\.length\)/);
+  assert.doesNotMatch(runtime,/rankExternalCodeCandidates\(env,\[\.\.\.validated,\.\.\.extra,\.\.\.\(c\.endpoints/);
+  assert.match(runtime,/invalidateCodeTargetQualification\(env,e\.id\)/);
+  assert.match(runtime,/removeEndpointFromRegistry\(env,VALIDATED_ENDPOINTS_KEY,endpointId\)/);
+  assert.match(runtime,/removeEndpointFromRegistry\(env,CODE_CANDIDATES_KEY,endpointId\)/);
   assert.match(runtime,/representativeLatencyMs/);
   assert.match(runtime,/const proofBudget=representativeLatency>0\?Math\.ceil\(representativeLatency\*1\.35\+10000\):0/);
   assert.match(autonomous,/REPRESENTATIVE_DEADLINE_EXCEEDED/);
