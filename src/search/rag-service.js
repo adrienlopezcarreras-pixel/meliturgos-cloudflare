@@ -207,6 +207,65 @@ function exactMatchScore(row, query) {
   return 0;
 }
 
+
+async function exactCandidateRows(db, owner, query, sources, limit = 80) {
+  const phrase = String(query || '').trim();
+  if (!phrase) return [];
+  const bounded = Math.max(8, Math.min(200, Number(limit) || 80));
+  const pattern = '%' + phrase + '%';
+  const rows = [];
+  if (sources.includes('archive_messages')) {
+    try {
+      rows.push(...((await db.prepare(`
+        SELECT a.id,a.content,a.attachments_json,a.timestamp,a.conversation_id,a.role,
+               a.provenance archive_provenance,a.metadata message_metadata,
+               c.title conversation_title,c.metadata conversation_metadata,
+               'archive_messages' source
+        FROM archive_messages a
+        JOIN conversations c ON c.id=a.conversation_id
+        WHERE (c.owner=? OR c.owner='')
+          AND ((COALESCE(a.content,'') || ' ' || COALESCE(a.attachments_json,'')) LIKE ? COLLATE NOCASE)
+        ORDER BY a.timestamp DESC
+        LIMIT ?
+      `).bind(owner,pattern,bounded).all()).results || []));
+    } catch {}
+  }
+  if (sources.includes('conversations')) {
+    try {
+      rows.push(...((await db.prepare(`
+        SELECT id,title content,updated_at timestamp,title conversation_title,'conversations' source
+        FROM conversations
+        WHERE (owner=? OR owner='') AND title LIKE ? COLLATE NOCASE
+        ORDER BY updated_at DESC
+        LIMIT ?
+      `).bind(owner,pattern,bounded).all()).results || []));
+    } catch {}
+  }
+  if (sources.includes('memories')) {
+    try {
+      rows.push(...((await db.prepare(`
+        SELECT id,content,created_at timestamp,provenance,metadata,'memories' source
+        FROM memories
+        WHERE (valid_until IS NULL OR valid_until>?) AND content LIKE ? COLLATE NOCASE
+        ORDER BY created_at DESC
+        LIMIT ?
+      `).bind(Date.now(),pattern,bounded).all()).results || []));
+    } catch {}
+  }
+  if (sources.includes('knowledge_artifacts')) {
+    try {
+      rows.push(...((await db.prepare(`
+        SELECT id,content,updated_at timestamp,filename,title,verification_status,content_sha256,'knowledge_artifacts' source
+        FROM knowledge_artifacts
+        WHERE owner=? AND (content LIKE ? COLLATE NOCASE OR title LIKE ? COLLATE NOCASE OR filename LIKE ? COLLATE NOCASE)
+        ORDER BY updated_at DESC
+        LIMIT ?
+      `).bind(owner,pattern,pattern,pattern,bounded).all()).results || []));
+    } catch {}
+  }
+  return rows;
+}
+
 async function semanticCandidateRows(db, owner, sources, filters = {}, limit = 96) {
   const bounded = Math.max(8, Math.min(200, Number(limit) || 96));
   const rows = [];
@@ -484,11 +543,20 @@ export class RAGService {
     requireValue(Array.isArray(sources) && sources.length > 0, 'INVALID_SOURCES');
     requireValue(Number.isInteger(limit) && limit > 0 && limit <= 100, 'INVALID_LIMIT');
 
-    const lexical = await this.search(db, owner, query, {
-      sources,
-      limit: Math.min(100, Math.max(limit * 5, 30)),
-      minSimilarity: 0,
-    });
+    requireValue(sources.every(source => ['archive_messages','conversations','memories','knowledge_artifacts'].includes(source)), 'INVALID_SOURCES');
+    const normalizedFilterSet = normalizeFilters(filters);
+    if (normalizedFilterSet.from != null && normalizedFilterSet.to != null) {
+      requireValue(normalizedFilterSet.from <= normalizedFilterSet.to, 'INVALID_DATE_RANGE');
+    }
+
+    const [lexical, exactRows] = await Promise.all([
+      this.search(db, owner, query, {
+        sources,
+        limit: Math.min(100, Math.max(limit * 5, 30)),
+        minSimilarity: 0,
+      }),
+      exactCandidateRows(db, owner, query, sources, Math.min(100, Math.max(limit * 4, 24))),
+    ]);
 
     const broad = semanticProvider
       ? await semanticCandidateRows(db, owner, sources, filters, semanticCandidateLimit)
@@ -496,7 +564,7 @@ export class RAGService {
 
     const merged = [];
     const seen = new Set();
-    for (const rawRow of [...(lexical.results || []), ...broad]) {
+    for (const rawRow of [...exactRows, ...(lexical.results || []), ...broad]) {
       const row = decorateHybridRow(rawRow);
       if (!rowPassesFilters(row, filters)) continue;
       const source = rowSource(row);
@@ -518,7 +586,7 @@ export class RAGService {
     let semanticStatus = semanticProvider ? 'AVAILABLE' : 'DISABLED';
     if (semanticProvider && merged.length) {
       try {
-        const docs = merged.map(row => rowSearchText(row).slice(0, 8000));
+        const docs = merged.map(row => rowSearchText(row).slice(0, 2200));
         const scores = await semanticProvider({ query, documents: docs });
         for (let index = 0; index < merged.length; index += 1) {
           const score = Number(scores?.[index] ?? 0);
@@ -548,7 +616,7 @@ export class RAGService {
           retrieval: semanticStatus === 'SUCCEEDED' ? 'hybrid-exact-lexical-semantic' : 'hybrid-exact-lexical',
         };
       })
-      .filter(row => row.exact_score > 0 || row.lexical_score >= minSimilarity || row.semantic_score > 0.2)
+      .filter(row => row.exact_score > 0 || (row.lexical_score > 0 && row.lexical_score >= minSimilarity) || row.semantic_score > 0.2)
       .sort((a,b) => b.rank_score-a.rank_score || Number(b.timestamp||0)-Number(a.timestamp||0))
       .slice(0, limit);
 
@@ -557,7 +625,7 @@ export class RAGService {
       total: reranked.length,
       retrieval: semanticStatus === 'SUCCEEDED' ? 'hybrid-exact-lexical-semantic' : 'hybrid-exact-lexical',
       semantic_status: semanticStatus,
-      filters: normalizeFilters(filters),
+      filters: normalizedFilterSet,
       lexical_total: Number(lexical.total || 0),
       candidate_total: merged.length,
     };
