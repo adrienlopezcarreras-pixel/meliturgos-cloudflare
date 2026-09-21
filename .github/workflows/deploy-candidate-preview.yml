@@ -851,21 +851,20 @@ jobs:
               "$BASE_URL/api/gen2/shardvault/code-reconstruct" \
               > stress-baseline.json
 
-            pattern="$(SEED_PATTERN="$seed_pattern" node - <<'NODE'
-            const fs=require('fs');
-            const d=JSON.parse(fs.readFileSync('stress-baseline.json','utf8'));
-            if(d?.ok!==true||d?.status!=='CODE_RECONSTRUCTION_VERIFIED') process.exit(32);
-            const seed=JSON.parse(process.env.SEED_PATTERN||'[]');
-            const real=(d?.download_errors||[]).map(x=>Number(x?.index)).filter(Number.isInteger);
-            const out=[];
-            for(const x of [...real,...seed,0,1,2,3,4,5,6]){
-              if(x>=0&&x<7&&!out.includes(x)) out.push(x);
-              if(out.length===3) break;
-            }
-            if(out.length!==3) process.exit(33);
-            process.stdout.write(JSON.stringify(out));
-            NODE
-            )"
+            pattern="$(SEED_PATTERN="$seed_pattern" node -e '
+              const fs=require("fs");
+              const d=JSON.parse(fs.readFileSync("stress-baseline.json","utf8"));
+              if(d?.ok!==true||d?.status!=="CODE_RECONSTRUCTION_VERIFIED") process.exit(32);
+              const seed=JSON.parse(process.env.SEED_PATTERN||"[]");
+              const real=(d?.download_errors||[]).map(x=>Number(x?.index)).filter(Number.isInteger);
+              const out=[];
+              for(const x of [...real,...seed,0,1,2,3,4,5,6]){
+                if(x>=0&&x<7&&!out.includes(x)) out.push(x);
+                if(out.length===3) break;
+              }
+              if(out.length!==3) process.exit(33);
+              process.stdout.write(JSON.stringify(out));
+            ')"
             echo "ShardVault stress seed=${seed_pattern} effective=${pattern}"
 
             STRESS_OK=0
