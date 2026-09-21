@@ -219,15 +219,11 @@ function messageAttachments(message) {
   for (const part of Array.isArray(content?.parts) ? content.parts : []) {
     if (part && typeof part === 'object' && !Array.isArray(part)) candidates.push(part);
   }
-  const out = [];
-  const seen = new Set();
+  let out = [];
   for (const candidate of candidates) {
     const normalized = normalizeAttachmentDescriptor(candidate);
     if (!normalized) continue;
-    const key = JSON.stringify(normalized);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(normalized);
+    out = mergeAttachmentDescriptors(out, [normalized]);
     if (out.length >= MAX_ATTACHMENTS_PER_MESSAGE) break;
   }
   return out;
