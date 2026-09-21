@@ -236,13 +236,14 @@ async function enrichConversationAttachments(conversation){
 async function sendConversation(conversation,trackActive=false){
   const c=await config();
   if(!c.username||!c.password) throw Object.assign(new Error('MEL_CREDENTIALS_REQUIRED'),{code:'MEL_CREDENTIALS_REQUIRED'});
+  const enrichedConversation=await enrichConversationAttachments(conversation);
   const controller=new AbortController();
   if(trackActive)activeAbortController=controller;
   const request=(async()=>{
     const r=await fetch(c.endpoint+'/api/gen2/import/chatgpt-archive',{
       method:'POST',
       headers:{'content-type':'application/json','authorization':auth(c.username,c.password)},
-      body:JSON.stringify({archive:[conversation],preview:false}),
+      body:JSON.stringify({archive:[enrichedConversation],preview:false}),
       signal:controller.signal
     });
     const t=await r.text();let b={};try{b=t?JSON.parse(t):{}}catch{}
