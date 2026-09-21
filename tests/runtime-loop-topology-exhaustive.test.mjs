@@ -88,7 +88,7 @@ test('production deployment remains a single explicit exact-SHA release path', a
 
   assert.match(release, /workflow_dispatch/);
   assert.match(release, /DEPLOY_APPROVED/);
-  assert.match(release, /Prove release pointer equals the current canonical candidate/);
+  assert.match(release, /Prove release pointer equals the current production source/);\n  assert.match(release, /git fetch origin main --depth=1/);
   assert.match(release, /wrangler deploy/);
   assert.match(release, /MEL_DEPLOYED_GIT_SHA/);
   assert.match(canary, /All production mutations go through deploy-cloudflare-release\.yml/);
