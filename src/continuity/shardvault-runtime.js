@@ -1,5 +1,5 @@
 import { buildShardVaultMemoryPayload } from './shardvault-memory-export.js';
-import { discoverAutonomousRepositories } from './autonomous-repositories.js';
+import { discoverAutonomousRepositories, invalidateRepresentativeProof } from './autonomous-repositories.js';
 
 const te = new TextEncoder();
 const HOUR = 60 * 60 * 1000;
@@ -1392,11 +1392,12 @@ async function removeEndpointFromRegistry(env,key,endpointId){
   }catch{return false;}
 }
 async function invalidateCodeTargetQualification(env,endpointId){
-  const [validated,candidate]=await Promise.all([
+  const [validated,candidate,representative]=await Promise.all([
     removeEndpointFromRegistry(env,VALIDATED_ENDPOINTS_KEY,endpointId),
     removeEndpointFromRegistry(env,CODE_CANDIDATES_KEY,endpointId),
+    invalidateRepresentativeProof(env,endpointId),
   ]);
-  return validated||candidate;
+  return validated||candidate||representative;
 }
 async function readCodeCandidateEndpoints(env){
   if(!env?.MEDIA_BUCKET?.get)return [];
