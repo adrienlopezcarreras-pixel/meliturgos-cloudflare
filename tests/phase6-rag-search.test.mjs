@@ -174,9 +174,22 @@ test('semantic provider failure falls back to exact and lexical retrieval withou
   } finally { db.close(); }
 });
 
-test('Workers AI semantic adapter uses BGE-M3 and converts embeddings to cosine scores', async () => {
+test('Workers AI semantic adapter uses BGE-M3 only with exact zero-euro provenance and converts embeddings to cosine scores', async () => {
   const calls=[];
   const provider=createWorkersAiSemanticProvider({
+    MEL_MEMORY_SEMANTIC_COST_PROVENANCE:{
+      verified:true,
+      source:'test-fixture',
+      addedCost:0,
+      authorization:{
+        approved:true,
+        policy:'MEL_ZERO_EURO_V1',
+        authority:'test-suite',
+        adapter_id:'memory-semantic-workers-ai',
+        provider:'cloudflare-workers-ai',
+        model:'@cf/baai/bge-m3'
+      }
+    },
     AI:{
       async run(model,input){
         calls.push({model,input});
@@ -184,6 +197,7 @@ test('Workers AI semantic adapter uses BGE-M3 and converts embeddings to cosine 
       }
     }
   },{maxDocuments:2,enabled:true});
+  assert.equal(typeof provider,'function');
   const scores=await provider({query:'automobile',documents:['voiture','abeille']});
   assert.equal(calls[0].model,'@cf/baai/bge-m3');
   assert.deepEqual(calls[0].input.text,['automobile','voiture','abeille']);
@@ -195,6 +209,16 @@ test('Workers AI semantic adapter uses BGE-M3 and converts embeddings to cosine 
 test('Workers AI semantic adapter is disabled by default without explicit opt-in', () => {
   const provider=createWorkersAiSemanticProvider({AI:{run:async()=>({data:[]})}});
   assert.equal(provider,null);
+});
+
+test('Workers AI semantic adapter stays fail-closed when enabled without verified zero-euro provenance', () => {
+  let aiCalls=0;
+  const provider=createWorkersAiSemanticProvider({
+    MEL_MEMORY_SEMANTIC_ENABLED:'true',
+    AI:{run:async()=>{ aiCalls++; return {data:[]}; }}
+  });
+  assert.equal(provider,null);
+  assert.equal(aiCalls,0);
 });
 
 
