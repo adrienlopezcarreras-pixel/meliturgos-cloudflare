@@ -206,6 +206,8 @@ jobs:
             c615_rc=$?
             "$GODOT" --headless --path "$proj" --script "res://tests/wallclock_soak_c616_test.gd" > "/tmp/${name}-c616-test.log" 2>&1
             c616_rc=$?
+            "$GODOT" --headless --path "$proj" --script "res://tests/wallclock_soak_c616_test.gd" > "/tmp/${name}-c616-test.log" 2>&1
+            c616_rc=$?
             cat "/tmp/${name}-save-test.log"
             cat "/tmp/${name}-input-test.log"
             cat "/tmp/${name}-command-test.log"
