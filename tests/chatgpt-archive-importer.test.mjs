@@ -246,3 +246,47 @@ test('re-import enriches duplicate archive rows with attachment metadata exactly
     assert.equal(c.attachment_backfills,0);
   } finally { DB.close(); }
 });
+
+
+test('attachment byte extraction metadata and text are preserved and counted as indexed', async () => {
+  const DB=sqliteD1();
+  try {
+    const env={DB,MELITURGOS_USER:'adrien'};
+    const archive=[{
+      id:'attachment-bytes',
+      title:'Octets pièce jointe',
+      messages:[{
+        id:'m1',
+        role:'user',
+        content:'voir fichier',
+        timestamp:1,
+        attachments:[{
+          id:'asset-text-1',
+          name:'notes-mel.txt',
+          mime_type:'text/plain',
+          size_bytes:42,
+          storage_id:'chatgpt-asset-text-1-deadbeef',
+          storage_key:'uploads/chatgpt/asset-text-1-deadbeef-notes-mel.txt',
+          sha256:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          content_text:'mot-secret-ultraviolet contenu récupéré depuis les octets',
+          content_index_status:'TEXT_EXTRACTED',
+          byte_capture_status:'STORED_PRIVATE',
+          binary_content_indexed:true
+        }]
+      }]
+    }];
+    const result=await importChatGPTArchive(env,archive,{preview:false});
+    assert.equal(result.inserted,1);
+    const row=await DB.prepare('SELECT attachments_json,metadata FROM archive_messages WHERE id=?').bind('chatgpt:attachment-bytes:m1').first();
+    const attachments=JSON.parse(row.attachments_json);
+    assert.equal(attachments[0].storage_key,'uploads/chatgpt/asset-text-1-deadbeef-notes-mel.txt');
+    assert.match(attachments[0].content_text,/mot-secret-ultraviolet/);
+    assert.equal(attachments[0].binary_content_indexed,true);
+    assert.equal(JSON.parse(row.metadata).attachment_binary_content_indexed,true);
+    const status=await getChatGPTImportStatus(env);
+    assert.equal(status.attachment_index.descriptors,1);
+    assert.equal(status.attachment_index.indexed_descriptors,1);
+    assert.equal(status.attachment_index.binary_content_indexed,true);
+    assert.equal(status.attachment_index.binary_content_complete,true);
+  } finally { DB.close(); }
+});
