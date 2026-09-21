@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractExplicitMemoryRequest, inferNativeCodeCapability, shouldRetrieveArchiveRecall } from '../src/api/native-chat.js';
+import { extractExplicitMemoryRequest, inferNativeCodeCapability, isPersonalProfileRecall, shouldRetrieveArchiveRecall } from '../src/api/native-chat.js';
 
 test('explicit memory parser recognizes natural French memory verbs', () => {
   assert.equal(extractExplicitMemoryRequest('mémorise que mon format préféré est court').content, 'mon format préféré est court');
@@ -39,4 +39,14 @@ test('ambiguous short follow-ups stay anchored to recent conversation instead of
   }
   assert.equal(shouldRetrieveArchiveRecall('rappelle-moi ce que je t’ai dit sur la mémoire de MEL'), true);
   assert.equal(shouldRetrieveArchiveRecall('explique le fonctionnement précis du routeur conversationnel actuel'), true);
+});
+
+
+test('personal profile recall recognizes natural creator/about-me questions including the observed wording', () => {
+  const observed='tu as reçu tous les messages du collecteur, tu sais maintenant qui je suis ce que je fais, tu peux me dire quoi sur moi ton créateur ?';
+  assert.equal(isPersonalProfileRecall(observed), true);
+  assert.equal(isPersonalProfileRecall('Que sais-tu de moi ?'), true);
+  assert.equal(isPersonalProfileRecall('Tu me connais maintenant ?'), true);
+  assert.equal(isPersonalProfileRecall('Fais-moi mon profil complet'), true);
+  assert.equal(isPersonalProfileRecall('Vérifie ton code source'), false);
 });
