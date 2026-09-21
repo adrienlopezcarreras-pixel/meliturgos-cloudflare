@@ -154,7 +154,7 @@ jobs:
           ready=0
           # External ShardVault code replication is deliberately progressive; allow
           # enough bounded passes to finish all seven targets after secret propagation.
-          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+          for attempt in $(seq 1 20); do
             HTTP_CODE="$(curl --silent --show-error --max-time 180 \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
               --header "content-type: application/json" \
