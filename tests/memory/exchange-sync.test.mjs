@@ -103,3 +103,30 @@ test('batch size limit rejects runaway synchronization', async () => {
   );
   assert.equal(sink.store.size, 0);
 });
+
+
+test('memory candidate preserves bounded archive provenance, observed date and evidence fragment', async () => {
+  const candidate = await exchangeToMemoryCandidate(sample({
+    provenance: 'chatgpt_export',
+    metadata: {
+      source_type: 'chatgpt_export',
+      chatgpt_conversation_id: 'original-conv',
+      chatgpt_conversation_title: 'Historique important',
+      collector_source: 'firefox_dom',
+      collector_version: '0.6.4',
+      collector_partial: false,
+      attachment_count: 2,
+      secret: 'must-not-be-copied'
+    }
+  }));
+  assert.equal(candidate.provenance.conversation_id,'conv-1');
+  assert.equal(candidate.provenance.message_id,'msg-1');
+  assert.equal(candidate.provenance.role,'user');
+  assert.equal(candidate.provenance.observed_at,1700000000000);
+  assert.equal(candidate.provenance.source,'chatgpt_export');
+  assert.equal(candidate.provenance.chatgpt_conversation_id,'original-conv');
+  assert.equal(candidate.metadata.collector_source,'firefox_dom');
+  assert.equal(candidate.metadata.secret,undefined);
+  assert.match(candidate.fragment,/réponses courtes/);
+  assert.deepEqual(candidate.contradictions,[]);
+});
