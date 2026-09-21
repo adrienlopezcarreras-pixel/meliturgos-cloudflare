@@ -1,0 +1,26 @@
+name: MEL-MEM-04 completeness proof CI
+
+on:
+  push:
+    branches:
+      - 'fix/mel-mem04-completeness-proof-20260921'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Syntax gate
+        run: npm run check
+      - name: MEL-MEM-04 targeted regression suite
+        run: node --test tests/chatgpt-archive-importer.test.mjs
