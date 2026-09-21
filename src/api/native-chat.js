@@ -1,6 +1,7 @@
 import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { buildContext } from '../core/orchestrator/context-builder.js';
 import { createConversationService } from '../conversations/conversation-service.js';
+import { createSyncService } from '../conversations/sync-service.js';
 import { requireAuth } from '../core/security.js';
 import { ModelRouter, classifyTask, extractFinishReason, isTruncationFinishReason } from '../models/ModelRouter.js';
 import { ModelRegistry, standardRegistry } from '../models/ModelRegistry.js';
@@ -19,6 +20,17 @@ import { buildConversationFocusInstruction, deriveConversationFocus } from './co
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
+
+async function syncConversationMemoryBestEffort(env, conversationId) {
+  if (!env?.DB || !conversationId) return { ok:false, status:'UNAVAILABLE' };
+  try {
+    const sync=createSyncService(env);
+    const result=await sync.syncToMemory({ conversationId, limit:1000 });
+    return { ok:true, status:'SYNCED', ...result };
+  } catch (error) {
+    return { ok:false, status:'FAILED', code:String(error?.code || error?.message || 'MEMORY_SYNC_FAILED') };
+  }
+}
 
 export function inferChatGPTHistoryCapability(text) {
   const value = String(text || '').trim();
@@ -731,11 +743,13 @@ export async function handleNativeChat(request, env, options = {}) {
   });
 
   let archiveSaved = false;
+  let memorySync = { ok:false, status:'NOT_RUN' };
   if (service) {
     try {
       await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now(), provenance: 'native-chat' });
       await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat' });
       archiveSaved = true;
+      memorySync = await syncConversationMemoryBestEffort(env, conversationId);
     } catch { archiveSaved = false; }
   }
 
@@ -781,6 +795,7 @@ export async function handleNativeChat(request, env, options = {}) {
     memory_count: retrieved?.count || 0,
     memory_stored: memoryWrite.stored === true,
     memory_reason: memoryWrite.reason || null,
+    memory_sync: memorySync,
     active_inference_settings: activeInferenceSettings,
     active_lora: activeAdapter ? {
       plan_id: activeAdapter.plan_id || null,
