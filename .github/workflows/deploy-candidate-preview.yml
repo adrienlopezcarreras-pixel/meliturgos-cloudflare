@@ -303,6 +303,7 @@ jobs:
 
           check_surface() {
             path="$1"; marker="$2"
+            echo "CHECK SURFACE $path"
             body="$(mktemp)"
             status="$(curl --fail-with-body --show-error --silent --max-time 45 \
               --header "$AUTH" --output "$body" --write-out '%{http_code}' "$BASE_URL$path")"
@@ -314,6 +315,7 @@ jobs:
 
           check_json() {
             path="$1"
+            echo "CHECK JSON $path"
             body="$(mktemp)"
             status="$(curl --fail-with-body --show-error --silent --max-time 45 \
               --header "$AUTH" --output "$body" --write-out '%{http_code}' "$BASE_URL$path")"
