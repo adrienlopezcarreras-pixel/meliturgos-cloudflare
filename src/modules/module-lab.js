@@ -28,3 +28,5 @@ export function authorizeModuleDevelopment(councilReport) {
 
 export const methods = ['need','spec','manifest','generate','validate','test','sandbox','securityReview','candidate','activate','monitor','rollback'];
 export const createModuleLab = adapters => port('module-lab',methods,adapters);
+
+export { runModuleLabPipeline } from './module-development-pipeline.js';
