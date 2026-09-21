@@ -93,10 +93,15 @@
     for (const el of holder.querySelectorAll(selector)) {
       const href = el.tagName === 'A' ? String(el.getAttribute('href') || '') : '';
       let hrefName = '';
+      let downloadUrl = null;
       if (href) {
         try {
-          const pathname = new URL(href, location.href).pathname;
+          const resolved = new URL(href, location.href);
+          const pathname = resolved.pathname;
           hrefName = decodeURIComponent(pathname.split('/').filter(Boolean).at(-1) || '');
+          if (['http:', 'https:'].includes(resolved.protocol)) {
+            downloadUrl = resolved.toString().slice(0, 4000);
+          }
         } catch {}
       }
       const name = cleanAttachmentName(
@@ -123,7 +128,8 @@
         mime_type: null,
         kind: testId || 'dom_attachment',
         size_bytes: null,
-        binary_content_indexed: false
+        binary_content_indexed: false,
+        download_url: downloadUrl
       };
       const key = id ? 'id:'+id : JSON.stringify(item);
       if (seen.has(key)) continue;
@@ -205,7 +211,7 @@
         messages,
         collector:{
           source:'firefox_dom',
-          version:'0.6.3',
+          version:'0.6.4',
           url:convUrl(),
           totalMessages,
           partial:tailLimit > 0
