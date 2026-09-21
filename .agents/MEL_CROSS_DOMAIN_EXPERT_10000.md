@@ -1,79 +1,73 @@
 # MEL — Cross-domain Expert +10 000
 
-**MEL_CROSS_DOMAIN_EXPERT_PLUS_cycle_250/10000 — IN_PROGRESS**  
+**MEL_CROSS_DOMAIN_EXPERT_PLUS_cycle_300/10000 — IN_PROGRESS**  
 Started: 2026-09-20. Additive to the two completed 1000-cycle AI-engineering tracks. This corpus is knowledge, not model-weight training and not validated implementation XP. A lesson becomes validated XP only after real application, tests and runtime proof per `.agents/XP_PROTOCOL.md`.
 
-## Provenance — blocks 001–100
-Cycles 001–100 are preserved in Git history through commit `aca6fc4e42bf8720da99f9a8917566af23ba03fe`. They cover observable postconditions, deadlines/retries/idempotency, Cloudflare state/concurrency, frontend performance/accessibility, supply-chain provenance, grounded communication/RAG, ShardVault recovery, game/audio/publishing/narrative/BD/e-commerce/archival methods. This compacted checkpoint avoids repeatedly expanding old material while retaining immutable provenance in Git.
+## Provenance — compacted blocks 001–250
+Cycles 001–100 are preserved through commit `aca6fc4e42bf8720da99f9a8917566af23ba03fe`; 101–150 through `00b01ed910d2696af6bddb1e81c0b5029359bfcc`; 151–200 through blob `fc1aa12197cf7e8817086121f5db30c84310149c`; 201–250 through the immediately preceding version of this file (blob `86bd97c80557a46a65dfaa27f0febcb5d09a3cd5`). Those blocks cover observable postconditions, deadlines/retries/idempotency, Cloudflare state/concurrency, frontend performance/accessibility, supply-chain provenance, grounded communication/RAG, ShardVault recovery, game/audio/publishing/narrative/BD/e-commerce/archival methods, MCP, Queues, Durable Objects, D1 Sessions/bookmarks and GitHub artifact provenance. Git history is the immutable detailed record.
 
-## Provenance — block 101–150
-Cycles 101–150 are preserved in Git history through commit `00b01ed910d2696af6bddb1e81c0b5029359bfcc`. Primary references: Cloudflare Browser Run/Playwright/Live View docs, OWASP API Security Top 10 2023, WordPress REST API Handbook, HTTP conditional-request principles and browser hardware API documentation.
+## Provenance — block 251–300
+Primary/recent references reviewed 2026-09-21: Cloudflare R2 Workers API reference and S3 compatibility documentation; Cloudflare Workflows overview, Rules of Workflows, Sleeping and retrying, durable-agent guide, Agents/Workflows durability guidance, metrics/analytics and 2026 changelog. Repository search again found no `MEL_TRANSFER_*_10000.md`; none ingested. These lessons remain knowledge hypotheses until code-linked proof per XP protocol.
 
-## Provenance — block 151–200
-Cycles 151–200 are preserved in Git history through the immediately preceding version of this file (blob `fc1aa12197cf7e8817086121f5db30c84310149c`). Primary references reviewed 2026-09-21: MCP 2026-07-28 specification/release and SDK conformance material; Cloudflare Queues batching/retries/DLQ docs; Durable Objects Alarms/Rules docs. They specialize protocol negotiation, tool provenance/replay safety, queue redelivery/DLQ, DO alarms/state, autonomy leases/fencing/checkpoints, status/capability truth and bounded stress/recovery evidence.
-
-## Provenance — block 201–250
-Primary/recent references reviewed 2026-09-21: Cloudflare D1 Global Read Replication / Sessions API / D1Database official docs and release notes; GitHub official Artifact Attestations, build provenance, SBOM and verification documentation. Repository search found no `MEL_TRANSFER_*_10000.md`; none ingested. The lessons remain knowledge hypotheses until code-linked proof per XP protocol.
-
-## Cycles 201–250
+## Cycles 251–300
 Each cycle records theme → principle → limit/counterexample → falsifiable gate → MEL implication.
 
-201. D1 session boundary → group causally related reads/writes in a Sessions API session → unrelated traffic need not share one → write/read fixture → MEL preserves logical operation boundaries.
-202. D1 sequential consistency → session reads never regress behind an earlier session observation → this is not arbitrary global linearizability → concurrent-writer fixture → MEL states consistency guarantees precisely.
-203. D1 read-your-writes → keep dependent post-write reads in session/bookmark lineage → fresh unconstrained session may see older replica → immediate reread fixture → MEL verifies persisted effects causally.
-204. D1 monotonic reads → propagate bookmark across a user workflow → dropping bookmark can weaken continuity → replica-lag fixture → status refresh cannot move backward silently.
-205. D1 bookmark handoff → persist/return bookmark when later request depends on prior state → bookmark is not business authorization → cross-request fixture → MEL transports causality separately from identity.
-206. D1 first-primary → request primary-current start only when freshness requires it → always-primary sacrifices replica latency benefit → stale-sensitive/non-sensitive matrix → MEL chooses freshness intentionally.
-207. D1 first-unconstrained → use for latency-tolerant initial reads → unsuitable for immediately dependent state → fresh-write fixture → catalogue/static views may differ from job status.
-208. D1 replica transparency → application correctness cannot depend on replica geography → routing can change → region matrix → MEL tests semantics, not assumed topology.
-209. D1 bookmark opacity → treat bookmarks as opaque tokens → parsing/comparing internal form is unsupported → format-change fixture → MEL stores without interpretation.
-210. D1 missing bookmark → define explicit fallback semantics → silently treating missing as current can lie → header-loss fixture → MEL marks freshness boundary.
-211. D1 status projection → status endpoint uses causal bookmark after mutation → independent stale GET can show false rollback → mutation/status test → Activity follows authoritative progression.
-212. D1 API pagination state → cursor/bookmark purposes stay distinct → pagination cursor is not consistency token → multi-page mutation fixture → MEL labels tokens by semantics.
-213. D1 transaction scope → keep atomic invariants within supported DB transaction/batch semantics → external API side effects are not made atomic → fail-between-systems fixture → MEL reconciles cross-system effects.
-214. D1 optimistic versioning → business rows carry version where lost updates matter → session consistency alone does not prevent semantic overwrite → two-editor fixture → MEL rejects stale update.
-215. D1 idempotency record → operation key and result stored durably with effect → key without atomic coupling can duplicate → crash-window fixture → autonomy retries return prior authoritative result.
-216. D1 migration expand/contract → deploy additive schema before consumers depend on it → destructive one-step migration breaks mixed versions → old/new worker fixture → candidate gate rehearses compatibility.
-217. D1 migration observability → record schema/version evidence → successful deploy does not prove migration → cold-instance query fixture → Launch Gate checks actual schema.
-218. D1 query budget → bound rows/columns and paginate large reads → replicas do not remove CPU/result costs → oversized dataset fixture → MEL avoids hidden unbounded status/history reads.
-219. D1 prepared parameters → bind untrusted values rather than concatenate SQL → binding does not validate business authorization → injection+auth fixture → MEL keeps both controls.
-220. D1 replica failure → retry/fallback bounded by request deadline → endless freshness wait is not resilience → impaired-replica fixture → MEL surfaces timeout/unknown.
-221. Build provenance → release artifact binds to source repo/workflow/commit identity → provenance does not prove secure code → verify+vulnerability fixture → MEL distinguishes origin from quality.
-222. Attestation verification → verification is required for security value → merely generating attestation is inert → tampered artifact fixture → release gate verifies candidate artifact.
-223. SHA binding → deployment evidence names exact commit SHA → branch name can move → head-move fixture → preview proof remains immutable.
-224. Artifact subject digest → attest exact distributed artifact → attesting neighboring manifest alone may miss replacement → byte-tamper fixture → MEL release proof binds payload digest.
-225. Least workflow permissions → grant only contents/id-token/attestation scopes needed → broad token expands compromise blast radius → permission-denial fixture → MEL CI scopes each job.
-226. OIDC provenance → ephemeral identity ties build to workflow claims → OIDC identity does not validate runtime behavior → claim-policy fixture → provenance complements tests.
-227. SBOM attestation → bind dependency inventory to artifact → SBOM can be incomplete/inaccurate → known-dependency fixture → MEL verifies generation coverage.
-228. Dependency pinning → critical Actions/dependencies use immutable revision where practical → tags can move → tag-retarget threat model → MEL supply-chain audit flags mutable trust anchors.
-229. Third-party Action isolation → minimize secrets/permissions exposed to external Actions → popular action is not automatically trustworthy → malicious-step fixture → MEL separates privileged jobs.
-230. Build/release separation → test build and releasable artifact have explicit promotion identity → rebuilding later can change bytes → rebuild-difference fixture → MEL promotes verified artifact, not assumption.
-231. Attestation policy → define accepted repository/workflow/ref/environment claims → cryptographic validity alone accepts wrong producer → wrong-workflow fixture → MEL gate checks expected identity.
-232. Private/public attestation context → verification model depends on repository/plan infrastructure → do not assume public transparency semantics everywhere → environment fixture → MEL records attestation backend.
-233. Attestation retention → provenance availability must match artifact lifecycle → deleted evidence can make later verification impossible → retention fixture → MEL backup plan includes verification metadata.
-234. Release artifact immutability → once approved, bytes are content-addressed/frozen → mutable upload invalidates prior proof → replacement fixture → MEL refuses silent artifact mutation.
-235. CI event trust → fork/untrusted events receive reduced privileges → same workflow text under different trigger has different risk → PR-from-fork fixture → MEL audits trigger+permissions together.
-236. Secretless validation → most candidate tests should run without deployment secrets → requiring prod credentials widens risk → revoked-secret fixture → MEL preview gate degrades safely.
-237. Reusable workflow trust → caller pins trusted reusable workflow revision → central workflow update can otherwise alter build semantics → revision-change fixture → MEL provenance records reusable workflow ref.
-238. Generated-code provenance → generated bundles retain source/tool/version relation → generated output alone obscures inputs → regenerate fixture → MEL can reproduce candidate assets.
-239. Lockfile authority → deterministic dependency resolution uses committed lockfile → lockfile does not prevent compromised registry artifact → clean-install fixture → MEL combines lock + integrity/provenance.
-240. Cache poisoning → caches are optimization, never unverified authority → cross-branch cache can inject stale/wrong outputs → poisoned-cache fixture → MEL validates restored cache artifacts.
-241. CI concurrency → superseded candidate runs cancel where safe → cancellation after external effect needs reconciliation → rapid-push fixture → MEL avoids reporting cancelled run as latest PASS.
-242. Gate freshness → green checks belong to current exact SHA → prior SHA success cannot transfer automatically → one-line-change fixture → MEL recomputes required gates.
-243. Partial gate semantics → skipped/not-run is distinct from PASS → conditional workflow can create false green → skipped-job fixture → Launch Gate requires explicit evidence set.
-244. Flake handling → retry may diagnose transient infrastructure but cannot erase deterministic failure → repeated rerun until green biases evidence → seeded-failure fixture → MEL records attempts and cause.
-245. Test artifact provenance → logs/reports identify SHA, environment and test version → detached screenshot is weak evidence → mismatched-report fixture → MEL evidence chain is machine-correlatable.
-246. Preview identity → UI exposes exact candidate SHA/runtime build id → hostname alone may point to newer deployment → redeploy fixture → MEL status can prove what code is exercised.
-247. Rollback identity → rollback selects previously verified immutable artifact → branch rewind/rebuild is not equivalent → rollback drill → MEL recovery records selected digest/SHA.
-248. Supply-chain incident → invalidate compromised producer/dependency and rebuild from trusted boundary → restoring old artifact may retain compromise → compromised-action fixture → MEL incident runbook includes provenance review.
-249. Provenance UX → operator sees source SHA, verification status and observation time → raw attestation JSON is insufficient operationally → stale/mismatch UI fixture → Diagnostics summarizes truth without hiding detail.
-250. Cross-layer release proof → launch requires code tests + artifact provenance + exact preview runtime evidence → no single layer proves readiness → intentionally wrong-artifact fixture → MEL Launch Gate composes independent evidence.
+251. R2 conditional write → use ETag preconditions for compare-and-swap style replacement → ETag is object-version evidence, not business authorization → two-writer fixture → MEL prevents silent overwrite.
+252. R2 failed precondition → treat null/412 as conflict requiring refetch/reconcile → blind retry repeats stale intent → competing-update fixture → MEL reports conflict rather than false success.
+253. R2 HTTP ETag → return `httpEtag` in HTTP headers because it is correctly quoted → raw `etag` is not header-ready → conditional browser fixture → MEL preserves protocol syntax.
+254. R2 object version → record version/ETag after write when later proof depends on exact bytes → key name alone is mutable → replace-same-key fixture → diagnostics identify exact stored generation.
+255. R2 checksums → provide/verify strong checksum for integrity-critical payloads → ETag semantics alone are not a universal content hash → corrupted-upload fixture → ShardVault verifies payload integrity independently.
+256. R2 checksum mismatch → fail closed on BadDigest/invalid checksum → retrying unchanged corrupt bytes is useless → deliberate bit-flip fixture → MEL distinguishes transport corruption from transient failure.
+257. R2 ranged read → validate returned range and expected length → partial response is not full-object proof → truncated-range fixture → reconstruction reads prove exact fragment boundaries.
+258. R2 invalid range → 416 is deterministic input/state error unless object changed → generic retry loop wastes deadline → beyond-EOF fixture → MEL refetches metadata or fails explicitly.
+259. R2 conditional read → If-Match binds read to expected object generation → unconditional read can race replacement → concurrent-replace fixture → ShardVault recovery consumes intended fragment.
+260. R2 If-None-Match → exploit conditional retrieval/cache validation where freshness permits → 304-style semantics do not prove body availability → cache-loss fixture → UI cache separates validation from payload possession.
+261. R2 metadata/body coupling → verify metadata and body refer to same returned object → separate HEAD then GET can race mutation → replace-between fixture → MEL prefers atomic returned-object evidence.
+262. R2 custom metadata → metadata may carry provenance hints but not replace cryptographic verification → metadata is mutable with object → forged-metadata fixture → MEL treats claims as hints until verified.
+263. R2 listing pagination → consume continuation state until completion → first page is not inventory → >page-size fixture → backup/audit counts cannot silently truncate.
+264. R2 prefix isolation → namespace candidate/test artifacts explicitly → shared prefix risks cleanup collisions → concurrent-run fixture → MEL stress cleanup cannot delete unrelated evidence.
+265. R2 delete verification → deletion success requires subsequent absence observation when cleanup matters → accepted request alone is weak proof → cleanup fixture → tests leave bounded residue.
+266. R2 multipart overwrite → same part number replaces prior part and failed replacement can lose it → retry assumptions differ from immutable part append → injected-failure fixture → MEL multipart recovery tracks completed parts explicitly.
+267. R2 multipart completion → completion manifest must bind intended part numbers/ETags → upload existence alone does not prove assembled object → swapped-part fixture → large backup proof includes final digest.
+268. R2 storage class → choose class by access pattern, not as correctness mechanism → storage class does not change integrity contract → restore-latency fixture → MEL recovery SLO measured separately.
+269. R2 bounded retries → classify 412/416/checksum errors apart from transient 5xx/network failures → retry-all creates loops → fault matrix → ShardVault retry policy is error-aware.
+270. R2 deadline budget → each target attempt consumes bounded share of operation deadline → sequential slow targets can exhaust caller → latency-injection fixture → 7-target failover remains finite.
+271. Workflow durable boundary → isolate operations that should not repeat into separate `step.do` checkpoints → code outside durable steps may repeat → crash-after-side-effect fixture → MEL autonomy checkpoints side effects.
+272. Workflow idempotent step → design retryable external effects with idempotency keys/state checks → durable orchestration does not make arbitrary API calls idempotent → duplicate-delivery fixture → MEL tools survive retries.
+273. Workflow checkpoint granularity → split where later failure must not replay earlier expensive/side-effecting work → excessive tiny steps add complexity → fault-at-each-boundary fixture → MEL balances durability and overhead.
+274. Workflow serializable output → persist only supported/intentional step results → hidden process-local state vanishes on resume → isolate-recycle fixture → MEL resumes from explicit data.
+275. Workflow retry limit → every retry policy has finite limit → infinite retry hides terminal faults → permanent-error fixture → Activity reaches actionable failed state.
+276. Workflow backoff → use constant/linear/exponential or dynamic delay according to failure class → one policy does not fit rate limits and network blips → mixed-error fixture → MEL honors bounded provider-aware pacing.
+277. Workflow Retry-After → dynamic delay may incorporate downstream guidance → untrusted/extreme delay must still respect policy bounds → absurd-header fixture → MEL clamps retry timing.
+278. Workflow sleep → use durable sleep rather than holding request/isolate → sleep is not polling → long-wait fixture → MEL removes hidden busy waiting.
+279. Workflow waitForEvent → external approval/input has named event and timeout → waiting forever creates zombie instances → missing-event fixture → MEL exposes waiting reason/deadline.
+280. Workflow event identity → correlate event to exact instance/action → generic approval can hit wrong job → concurrent-approval fixture → Professor/Teacher handoff is instance-scoped.
+281. Workflow progress → non-durable progress broadcasts may repeat and are observational → never infer side-effect uniqueness from UI progress → replay fixture → MEL Activity deduplicates display without lying about durable state.
+282. Workflow completion → durable completion/error reporting is authoritative over transient broadcasts → socket disconnect does not mean job failed → disconnect fixture → UI reconciles against durable status.
+283. Workflow pause/resume → verify state transition and resumed continuation, not button HTTP 200 → control endpoint acceptance is insufficient → pause-mid-step fixture → MEL deep capability gate observes effect.
+284. Workflow terminate → termination requires terminal instance observation and no later side effects → request success alone can race work → terminate-under-load fixture → Stop semantics are proven end-to-end.
+285. Workflow restart → define whether restart means new instance or replay semantics and expose lineage → ambiguous restart can duplicate effects → restart-after-side-effect fixture → MEL shows parent/restart identity.
+286. Workflow version evolution → long-lived instances may outlive code deployment, so compatibility/version assumptions must be explicit → latest source is not automatically safe for old checkpoints → deploy-during-sleep fixture → MEL migrations test resumed old instances.
+287. Dynamic workflow source persistence → runtime-loaded workflow must retain source identity across sleep/recycle → mutable external source can change semantics mid-instance → source-change fixture → MEL binds automation to source digest/version.
+288. Workflow LLM checkpoint → persist model response before tool execution when replay cost/variation matters → checkpoint does not make response factually correct → crash-between-LLM-tool fixture → MEL avoids needless regenerated plans.
+289. Workflow tool checkpoint → persist successful tool result before subsequent tools → earlier side effect should not rerun after later failure → fail-second-tool fixture → MEL resumes at precise boundary.
+290. Workflow max-turn bound → agentic loops require explicit turn/step ceiling → durable execution can otherwise preserve an unproductive loop for a long time → adversarial-loop fixture → MEL exits with bounded status.
+291. Workflow compensation → cross-system operations need explicit compensating/reconciliation path → compensation is not true transaction rollback → fail-after-external-write fixture → MEL records partial state and repair action.
+292. Compensation failure → observe rollback failure separately from forward failure → hiding it under original error loses recovery truth → injected-compensation-fault fixture → diagnostics distinguish both.
+293. Workflow metrics → track execution/error/step/duration trends → aggregate metrics do not replace per-instance proof → known-failing-instance fixture → MEL uses telemetry for detection, instance evidence for gates.
+294. Workflow observability retention → retained analytics window is finite → historical launch proof needs separately retained artifacts → older-than-window fixture → MEL archives critical evidence.
+295. Workflow priority after sleep → resumed sleepers may be prioritized over newly queued instances → fairness assumptions must match platform behavior → backlog fixture → MEL capacity tests include resumed jobs.
+296. Workflow status freshness → status UI rereads durable instance state after control mutation → optimistic button state can lie → delayed-transition fixture → controls show pending until observed.
+297. Workflow timeout semantics → distinguish step retry exhaustion, wait timeout, caller timeout and whole-job state → generic timeout obscures repair path → timeout matrix → MEL communicates exact layer.
+298. Workflow cleanup → test instances/artifacts have deterministic cleanup and ownership tags → broad cleanup risks active jobs → overlapping-run fixture → stress tests remain isolated.
+299. Workflow exact-SHA proof → preview tests bind workflow definition/runtime to candidate SHA/build identity → branch label can move during long execution → head-move fixture → Launch Gate preserves immutable provenance.
+300. R2+Workflow recovery composition → durable orchestration plus conditional/checksummed storage still requires end-to-end readback/reconstruction proof → individually green components do not prove recovery → corrupt-one-fragment/retry/resume fixture → ShardVault gate validates composed system.
 
 ## Deduplication notes
-201–220 specialize prior consistency/idempotency lessons into D1 Sessions/bookmark semantics. 221–250 specialize prior generic supply-chain provenance into verifiable GitHub build-artifact identity and exact-SHA release gates. Repeated principles are retained only where a distinct platform failure mode or falsifiable gate is added.
+251–270 specialize existing storage/integrity/retry principles into R2-specific ETag, checksum, range, multipart and error semantics. 271–300 specialize existing autonomy/idempotency principles into Cloudflare Workflows checkpoint, retry, control, observability, evolution and compensation semantics. Repeated ideas are retained only where a distinct platform behavior or falsifiable gate is added.
 
 ## Transfer ingestion
 No `MEL_TRANSFER_*_10000.md` package was discoverable at this checkpoint. Continue periodic search and ingest only generalized, provenance-bearing methods; never raw private autobiographical material.
 
 ## Next block
-Continue at `MEL_CROSS_DOMAIN_EXPERT_PLUS_cycle_251/10000`. Prioritize R2 conditional operations/checksums/range semantics, Workflows durability/versioning/retries, then model routing/evals/grounding and code-linked open defects. Before every write reread candidate HEAD and abort/reconcile if moved.
+Continue at `MEL_CROSS_DOMAIN_EXPERT_PLUS_cycle_301/10000`. Prioritize model routing/evals/grounding/self-knowledge and frontend performance measurement, then use those lessons to inspect open code-linked defects. Before every write reread candidate HEAD and abort/reconcile if moved.
