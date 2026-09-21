@@ -183,10 +183,16 @@ test('Workers AI semantic adapter uses BGE-M3 and converts embeddings to cosine 
         return {data:[[1,0],[0.9,0.1],[0,1]]};
       }
     }
-  },{maxDocuments:2});
+  },{maxDocuments:2,enabled:true});
   const scores=await provider({query:'automobile',documents:['voiture','abeille']});
   assert.equal(calls[0].model,'@cf/baai/bge-m3');
   assert.deepEqual(calls[0].input.text,['automobile','voiture','abeille']);
   assert.ok(scores[0]>0.99);
   assert.equal(scores[1],0);
+});
+
+
+test('Workers AI semantic adapter is disabled by default without explicit opt-in', () => {
+  const provider=createWorkersAiSemanticProvider({AI:{run:async()=>({data:[]})}});
+  assert.equal(provider,null);
 });
