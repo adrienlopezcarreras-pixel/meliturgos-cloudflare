@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-21.7';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-21.8';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -66,7 +66,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-MEM-07', 'Recherche mémoire hybride sémantique, exacte et filtrable', 'IN_PROGRESS', 'Recherche exacte + lexicale, filtres date/projet/conversation/source/rôle/type de fichier, fusion/déduplication et reranking hybrides implémentés et exposés via memory.retrieve; provider BGE-M3 optionnel branché mais fail-closed derrière une provenance zéro-euro vérifiée. Reste à fournir cette preuve gratuite puis valider le chemin sémantique réel en preview/production avant DONE_VERIFIED', 'P0'),
     item('MEL-MEM-08', 'Apprentissage mémoire avec provenance conservée', 'IN_PROGRESS', 'Pipeline archive -> memory_candidates enrichi en v12 avec provenance structurée, conversation/message, rôle, date observée, fragment, métadonnées bornées et champ contradictions; le compilateur conserve ces preuves dans les propositions sans auto-confirmer la mémoire. Reste à produire/relier automatiquement les contradictions puis valider preview/production avant DONE_VERIFIED', 'P0'),
     item('MEL-MEM-09', 'Validation de rappel historique difficile', 'IN_PROGRESS', 'Suite dédiée ajoutée: rappel multi-conversations, provenance d’origine, correction utilisateur plus récente priorisée face à une ancienne sortie assistant, et filtres conversationnels sans fuite de source. Reste à valider ces cas sur le corpus historique réel puis en preview/production avant DONE_VERIFIED', 'P0'),
-    item('MEL-MEM-10', 'Reconstruction mémoire identique après panne', 'PLANNED', 'Tester redémarrage, restauration et reconstruction de l’index puis vérifier que MEL retrouve les mêmes informations et la même provenance', 'P0')
+    item('MEL-MEM-10', 'Reconstruction mémoire identique après panne', 'IN_PROGRESS', 'Test de parité ajouté: même archive reconstruite dans une base neuve -> mêmes résultats de rappel, mêmes IDs/provenances de memory_candidates et mêmes propositions de consolidation. Reste à exécuter le drill sur snapshot/restauration D1 réel et à valider preview/production avant DONE_VERIFIED', 'P0')
   ]),
 
   phase('P04', 'Capability Bus, outils et accès au code', [
