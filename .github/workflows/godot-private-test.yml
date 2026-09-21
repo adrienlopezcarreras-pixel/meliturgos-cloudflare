@@ -1,5 +1,5 @@
 name: Godot private five-game test
-# unified gamedev runtime run 40 c616-wallclock-soak-fix1-parallel
+# unified gamedev runtime run 41 c617-wallclock-5min
 
 on:
   push:
@@ -232,14 +232,34 @@ jobs:
           done
           idx=0
           for name in "${projects[@]}"; do
-            wait "${c616_pids[$idx]}"
-            c616_rc=$?
+            if wait "${c616_pids[$idx]}"; then c616_rc=0; else c616_rc=$?; fi
             cat "/tmp/${name}-c616-test.log"
             if [ "$c616_rc" -ne 0 ]; then
               echo "$name C616_TEST=FAIL c616_rc=$c616_rc"
               overall=1
             else
               echo "$name C616_TEST=PASS c616_rc=$c616_rc"
+            fi
+            idx=$((idx + 1))
+          done
+
+          # C617 five-minute wall-clock soak: all five games concurrently.
+          # Each process independently measures >=300 real seconds.
+          c617_pids=()
+          for name in "${projects[@]}"; do
+            proj="$GAMES_ROOT/$name"
+            "$GODOT" --headless --path "$proj" --script "res://tests/wallclock_soak_c617_test.gd" > "/tmp/${name}-c617-test.log" 2>&1 &
+            c617_pids+=("$!")
+          done
+          idx=0
+          for name in "${projects[@]}"; do
+            if wait "${c617_pids[$idx]}"; then c617_rc=0; else c617_rc=$?; fi
+            cat "/tmp/${name}-c617-test.log"
+            if [ "$c617_rc" -ne 0 ]; then
+              echo "$name C617_TEST=FAIL c617_rc=$c617_rc"
+              overall=1
+            else
+              echo "$name C617_TEST=PASS c617_rc=$c617_rc"
             fi
             idx=$((idx + 1))
           done
