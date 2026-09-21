@@ -11,7 +11,6 @@ import { runAutonomyMaintenance, runAutonomyRuntimeTick } from "./evolution/auto
 import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
-import { serveMelAvatar } from "./pages/mel-avatar-assets.js";
 import { enhanceMvpBehavior } from "./pages/mvp-behavior-enhancer.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
 import { handleVoiceTranscription } from "./api/voice-transcribe.js";
@@ -337,9 +336,6 @@ export default {
     try {
       const url = new URL(request.url);
       const path = url.pathname;
-      const avatarResponse = serveMelAvatar(path);
-      if (avatarResponse) return avatarResponse;
-
       if (path.startsWith('/api/device/v1/')) {
         const terminalResponse = await maybeHandleWaveshareTerminalApi(request, env);
         if (terminalResponse) return terminalResponse;

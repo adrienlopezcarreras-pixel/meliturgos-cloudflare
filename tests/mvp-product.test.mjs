@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { stat, readFile } from 'node:fs/promises';
 import { onRequestGet as normalMvp } from '../src/pages/mvp-interface.js';
 import { onRequestGet as professorPage } from '../src/pages/full-interface-v2.js';
 import { withConversationArchive } from '../src/conversations/intercept.js';
@@ -16,6 +17,24 @@ async function canonicalProfessorHtml() {
   assert.match(response.headers.get('content-type') || '', /text\/html/);
   return response.text();
 }
+
+
+test('static MEL visuals stay outside the Worker JavaScript bundle', async () => {
+  const indexSource = await readFile(new URL('../src/index.js', import.meta.url), 'utf8');
+  const assetSource = await readFile(new URL('../src/pages/mel-avatar-assets.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(indexSource, /serveMelAvatar/);
+  assert.doesNotMatch(assetSource, /mel-themes-20260917\/generated|data:image|base64,/);
+  const required = [
+    '../dist/assets/avatars/mel-classic.webp',
+    '../dist/assets/avatars/mel-full.webp',
+    '../dist/assets/backgrounds/mel-bg-library-hd.jpg',
+    '../dist/assets/backgrounds/mel-bg-futuristic-hd.jpg',
+  ];
+  for (const relative of required) {
+    const info = await stat(new URL(relative, import.meta.url));
+    assert.ok(info.size > 10000, relative);
+  }
+});
 
 test('normal MEL surface remains available and loads the external canonical controls runtime', async () => {
   const response = await normalMvp({});
