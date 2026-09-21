@@ -2,11 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
+import { selectNextAutonomyItem } from '../src/evolution/autonomy-supervisor.js';
 
 process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
 
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const NEW_CANDIDATE_HEAD_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const FIRST_AUTONOMY_ID = selectNextAutonomyItem()?.id;
+const SECOND_AUTONOMY_ID = selectNextAutonomyItem({ completedIds: [FIRST_AUTONOMY_ID] })?.id;
 
 function runtimeFixture() {
   let replies = '';
@@ -64,7 +67,7 @@ test('cloud autonomy heartbeat creates P0 work, runs live Council, inspects cand
   const first = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
   assert.equal(first.ok, true);
   assert.equal(first.ensured.created, true);
-  assert.equal(first.job.roadmap_id, 'MEL-WORK-01');
+  assert.equal(first.job.roadmap_id, FIRST_AUTONOMY_ID);
   assert.equal(first.job.status, 'WAITING_TEACHER');
   assert.equal(first.teacher.status, 'WAITING_TEACHER');
   assert.ok(first.teacher.request_id);
@@ -78,7 +81,7 @@ test('cloud autonomy heartbeat creates P0 work, runs live Council, inspects cand
   const second = await runAutonomyRuntimeTick(fixture.env, { fetchImpl: fixture.fetchImpl, repository: fixture.repository });
   assert.equal(second.ensured.created, true, 'normal mode must create compatible follow-up work instead of freezing behind Teacher');
   assert.notEqual(second.job.id, first.job.id);
-  assert.equal(second.job.roadmap_id, 'MEL-WORK-02');
+  assert.equal(second.job.roadmap_id, SECOND_AUTONOMY_ID);
   assert.equal(second.job.status, 'WAITING_TEACHER');
   assert.ok(second.teacher?.request_id);
   assert.ok(fixture.aiCalls.length >= aiCallCount + 2, 'the next compatible work item must run its own Council');
@@ -216,7 +219,7 @@ test('Teacher REJECT terminates only the rejected item and immediately moves aut
   assert.equal(rejected.status, 'FAILED');
   assert.equal(rejected.result_json.autonomy_blocked, true);
   assert.notEqual(advanced.job.id, first.job.id);
-  assert.equal(advanced.job.roadmap_id, 'MEL-WORK-02');
+  assert.equal(advanced.job.roadmap_id, SECOND_AUTONOMY_ID);
   assert.equal(advanced.job.status, 'WAITING_TEACHER');
 });
 
@@ -256,7 +259,7 @@ test('verified completion closes the approved job and releases the next roadmap 
   assert.equal(advanced.completions.completed.length, 1);
   assert.equal(advanced.completions.completed[0].job_id, first.job.id);
   assert.notEqual(advanced.job.id, first.job.id, 'the supervisor must not idle on the completed job');
-  assert.equal(advanced.job.roadmap_id, 'MEL-WORK-02');
+  assert.equal(advanced.job.roadmap_id, SECOND_AUTONOMY_ID);
   assert.equal(advanced.job.status, 'WAITING_TEACHER');
   assert.ok(advanced.teacher?.request_id, 'the next job should reach Teacher review in the same heartbeat');
 
