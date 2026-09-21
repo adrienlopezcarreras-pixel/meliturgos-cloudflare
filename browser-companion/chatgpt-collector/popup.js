@@ -25,9 +25,38 @@ s.currentUrl?`En cours : ${s.currentUrl}`:'',
 s.lastError?`Dernière erreur : ${s.lastError}`:''
 ].filter(Boolean).join('\n')}
 
+
+function renderRunner(s){
+  const targets=Object.values(s.targets||{});
+  const active=targets.filter(t=>t?.enabled!==false);
+  const lines=[
+    `Runner : ${s.paused?'PAUSE':s.enabled?'ACTIF':'INACTIF'}`,
+    `Pages ouvertes surveillées : ${active.length}`,
+    `Mode : asynchrone / une seule relance à la fois`,
+    `Écart global minimum : 60 s`,
+    `Cooldown par page : 90 s`,
+    s.lastSendAt?`Dernière relance : ${new Date(s.lastSendAt).toLocaleTimeString('fr-FR')}`:'',
+    s.blockedReason?`Blocage : ${s.blockedReason.code||'inconnu'} — runner mis en pause`:'',
+    s.lastError?`Dernière erreur runner : ${s.lastError}`:''
+  ];
+  for(const t of active.slice(0,12)){
+    lines.push(`• ${t.command||'?'} · ${t.status||'inconnu'} · cycles ${t.cycles||0} · ${t.title||t.conversationId||'conversation'}`);
+  }
+  $('runnerStatus').textContent=lines.filter(Boolean).join('\n');
+}
+
 async function refresh(){
-  try{render(await api.runtime.sendMessage({type:'mel.collector.status'}))}
-  catch(e){$('status').textContent='Erreur : '+e.message}
+  try{
+    const [collector,runner]=await Promise.all([
+      api.runtime.sendMessage({type:'mel.collector.status'}),
+      api.runtime.sendMessage({type:'mel.runner.status'})
+    ]);
+    render(collector);
+    renderRunner(runner);
+  }catch(e){
+    $('status').textContent='Erreur : '+e.message;
+    if($('runnerStatus'))$('runnerStatus').textContent='Erreur runner : '+e.message;
+  }
 }
 
 async function loadConfig(){
@@ -78,6 +107,11 @@ $('start').onclick=async()=>{try{await saveConfig();await api.runtime.sendMessag
 $('pause').onclick=async()=>{await api.runtime.sendMessage({type:'mel.collector.pause'});refresh()};
 $('retry').onclick=async()=>{try{const s=await api.runtime.sendMessage({type:'mel.collector.retry-deferred'});$('configStatus').className='ok';$('configStatus').textContent=(s.retryDeferredAdded||0)+' conversation(s) en échec/différée(s) remise(s) en file.'}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}refresh()};
 $('capture').onclick=async()=>{try{await saveConfig();await api.runtime.sendMessage({type:'mel.collector.capture-current'})}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec : '+e.message}refresh()};
+$('runnerCycle').onclick=async()=>{try{await api.runtime.sendMessage({type:'mel.runner.mark-current',command:'cycle'});$('configStatus').className='ok';$('configStatus').textContent='Page ouverte armée en mode cycle.'}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec runner : '+e.message}refresh()};
+$('runnerGo').onclick=async()=>{try{await api.runtime.sendMessage({type:'mel.runner.mark-current',command:'go'});$('configStatus').className='ok';$('configStatus').textContent='Page ouverte armée en mode go.'}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec runner : '+e.message}refresh()};
+$('runnerStop').onclick=async()=>{try{await api.runtime.sendMessage({type:'mel.runner.unmark-current'});$('configStatus').className='ok';$('configStatus').textContent='Page retirée du runner.'}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec runner : '+e.message}refresh()};
+$('runnerPause').onclick=async()=>{try{await api.runtime.sendMessage({type:'mel.runner.pause'})}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec runner : '+e.message}refresh()};
+$('runnerResume').onclick=async()=>{try{await api.runtime.sendMessage({type:'mel.runner.resume'})}catch(e){$('configStatus').className='bad';$('configStatus').textContent='Échec runner : '+e.message}refresh()};
 
 loadConfig();
 refresh();
