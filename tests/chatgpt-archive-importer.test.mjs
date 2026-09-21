@@ -224,3 +224,25 @@ test('attachment-only ChatGPT messages are preserved with bounded searchable des
     assert.equal(status.attachment_index.binary_content_indexed,false);
   } finally { DB.close(); }
 });
+
+
+test('re-import enriches duplicate archive rows with attachment metadata exactly once', async () => {
+  const DB=sqliteD1();
+  try {
+    const env={DB,MELITURGOS_USER:'adrien'};
+    const first=[{id:'backfill-dup',title:'Backfill',messages:[{id:'m1',role:'user',content:'document historique',timestamp:1}]}];
+    const richer=[{id:'backfill-dup',title:'Backfill',messages:[{id:'m1',role:'user',content:'document historique',timestamp:1,attachments:[{id:'asset-bf',name:'preuve-backfill.pdf',mime_type:'application/pdf'}]}]}];
+    const a=await importChatGPTArchive(env,first,{preview:false});
+    assert.equal(a.inserted,1);
+    const b=await importChatGPTArchive(env,richer,{preview:false});
+    assert.equal(b.duplicates,1);
+    assert.equal(b.enriched_duplicates,1);
+    assert.equal(b.attachment_backfills,1);
+    let row=await DB.prepare('SELECT attachments_json FROM archive_messages WHERE id=?').bind('chatgpt:backfill-dup:m1').first();
+    assert.equal(JSON.parse(row.attachments_json)[0].name,'preuve-backfill.pdf');
+    const c=await importChatGPTArchive(env,richer,{preview:false});
+    assert.equal(c.duplicates,1);
+    assert.equal(c.enriched_duplicates,0);
+    assert.equal(c.attachment_backfills,0);
+  } finally { DB.close(); }
+});
