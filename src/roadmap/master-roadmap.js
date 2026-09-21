@@ -176,7 +176,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-42', 'Capability Watch + veille multi-IA/plugins/arts', 'IN_PROGRESS', 'Veille 6 h multi-source (officiel, Kaggle, GitHub, forums/communautés) + conseil multi-IA + comparaison automatique à la roadmap et aux capacités existantes; les alternatives REUSE_EXISTING peuvent désormais ouvrir un job supervisé d’optimisation sans créer de module en doublon. Prochaine étape: preuve isolée preview d’un cycle réel complet avant toute activation production automatique', 'P1'),
     item('GEN2-43', 'Model Watch / découverte', 'DONE_VERIFIED', 'Preuves: PR #28; merge ceec81a6edb11d378dcb686c9495c0a01d86baea; 5/5 tests ciblés; autorisation fail-closed, seuils score/latence/coût et isolation des erreurs par modèle', 'P1'),
     item('MEL-EVAL-01', 'Suites de benchmark conversation / code / recherche / mémoire', 'PARTIAL', 'Maintenir une suite de score stable réutilisée par les watches', 'P1'),
-    item('MEL-EVAL-03', 'Qualité mesurée avant/après évolution', 'PLANNED', 'Bloquer toute régression significative', 'P0')
+    item('MEL-EVAL-03', 'Qualité mesurée avant/après évolution', 'DONE_VERIFIED', 'Gate fail-closed avant/après déjà intégré: seuil global et par domaine, erreurs répétées, identité/digest/couverture du benchmark, provenance SHA et artefacts obligatoires. Revalidé sur main actuel: syntaxe globale + tests ciblés Actions 35639804455.', 'P0')
   ]),
 
   phase('P14', 'Interface et expérience', [
