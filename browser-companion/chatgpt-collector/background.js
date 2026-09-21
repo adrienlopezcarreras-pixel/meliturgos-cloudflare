@@ -420,14 +420,12 @@ function scheduleRunnerTick(delayMs=1500){
   },Math.max(500,Number(delayMs)||1500));
 }
 async function resolveRunnerTab(target,sourceId){
-  if(target?.tabId!=null){
-    try{
-      const tab=await api.tabs.get(Number(target.tabId));
-      if(idFromUrl(tab?.url)===sourceId)return tab;
-    }catch{}
-  }
-  const tabs=await api.tabs.query({});
-  return tabs.find(tab=>idFromUrl(tab?.url)===sourceId)||null;
+  if(target?.tabId==null)return null;
+  try{
+    const tab=await api.tabs.get(Number(target.tabId));
+    if(idFromUrl(tab?.url)===sourceId)return tab;
+  }catch{}
+  return null;
 }
 function isHardRunnerBlock(code){
   return ['USAGE_LIMIT','RATE_LIMIT'].includes(String(code||''));
@@ -462,7 +460,7 @@ async function runnerTick(){
       if(Number(target.nextEligibleAt||0)>Date.now())continue;
       const tab=await resolveRunnerTab(target,sourceId);
       if(!tab?.id){
-        targets[sourceId]={...target,status:'waiting_tab',tabId:null,lastSeenAt:Date.now()};
+        delete targets[sourceId];
         continue;
       }
       if(collectorTabId!=null&&Number(tab.id)===collectorTabId)continue;
@@ -695,9 +693,39 @@ api.runtime.onMessage.addListener(async (msg,sender)=>{
   }
 });
 
+async function pruneClosedRunnerTabs(){
+  const rs=await runnerState(),targets={...(rs.targets||{})};
+  for(const [sourceId,target] of Object.entries(targets)){
+    if(target?.tabId==null){delete targets[sourceId];continue}
+    try{
+      const tab=await api.tabs.get(Number(target.tabId));
+      if(idFromUrl(tab?.url)!==sourceId)delete targets[sourceId];
+    }catch{delete targets[sourceId]}
+  }
+  return saveRunner({targets});
+}
+api.tabs.onRemoved.addListener(async tabId=>{
+  const rs=await runnerState(),targets={...(rs.targets||{})};
+  let changed=false;
+  for(const [sourceId,target] of Object.entries(targets)){
+    if(Number(target?.tabId)===Number(tabId)){delete targets[sourceId];changed=true}
+  }
+  if(changed)await saveRunner({targets});
+});
+api.tabs.onUpdated.addListener(async (tabId,changeInfo,tab)=>{
+  if(!changeInfo.url)return;
+  const rs=await runnerState(),targets={...(rs.targets||{})};
+  let changed=false;
+  for(const [sourceId,target] of Object.entries(targets)){
+    if(Number(target?.tabId)!==Number(tabId))continue;
+    if(idFromUrl(tab?.url)!==sourceId){delete targets[sourceId];changed=true}
+  }
+  if(changed)await saveRunner({targets});
+});
 api.runtime.onStartup.addListener(async()=>{
   const s=await state();
   if(s.running&&!s.paused)start().catch(()=>{});
+  await pruneClosedRunnerTabs();
   await ensureRunnerAlarm();
   scheduleRunnerTick(3000);
 });
