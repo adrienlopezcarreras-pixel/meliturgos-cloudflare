@@ -19,7 +19,6 @@ import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-stat
 import { getChatGPTImportStatus } from "./persistence/chatgpt-archive-importer.js";
 import { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-api.js";
 import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
-import { runShardVaultCycle, searchAutonomousShardVaultRepositories } from "./continuity/shardvault-runtime.js";
 
 function deployedWatchSourceSha() {
   return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') || null : null;
@@ -429,6 +428,7 @@ export default {
   async scheduled(controller, env, ctx) {
     const cron = String(controller?.cron || '');
     const maintenanceCron = cron === '17 * * * *';
+    const shardVaultRuntime = maintenanceCron ? import('./continuity/shardvault-runtime.js') : null;
 
     const tasks = maintenanceCron
       ? [
@@ -440,14 +440,14 @@ export default {
             console.error('[MEL watch] hourly ecosystem watch failed:', error?.code || error?.message || error);
             return null;
           }),
-          runShardVaultCycle(env).then((result) => {
+          shardVaultRuntime.then(({ runShardVaultCycle }) => runShardVaultCycle(env)).then((result) => {
             if (result?.ok === false) console.error('[MEL ShardVault] cycle reported:', result.reason || result.error || 'NOT_OK');
             return result;
           }).catch((error) => {
             console.error('[MEL ShardVault] scheduled continuity cycle failed:', error?.code || error?.message || error);
             return null;
           }),
-          searchAutonomousShardVaultRepositories(env).then((result) => {
+          shardVaultRuntime.then(({ searchAutonomousShardVaultRepositories }) => searchAutonomousShardVaultRepositories(env)).then((result) => {
             if (result?.ok === false) console.error('[MEL ShardVault] hourly Internet discovery reported:', result.status || result.error || 'NOT_OK');
             return result;
           }).catch((error) => {
