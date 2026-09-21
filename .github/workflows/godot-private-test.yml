@@ -1,5 +1,5 @@
 name: Godot private five-game test
-# unified gamedev runtime run 39 c616-wallclock-soak
+# unified gamedev runtime run 40 c616-wallclock-soak-fix1-parallel
 
 on:
   push:
@@ -204,10 +204,6 @@ jobs:
             c614_rc=$?
             "$GODOT" --headless --path "$proj" --script "res://tests/resume_stress_c615_test.gd" > "/tmp/${name}-c615-test.log" 2>&1
             c615_rc=$?
-            "$GODOT" --headless --path "$proj" --script "res://tests/wallclock_soak_c616_test.gd" > "/tmp/${name}-c616-test.log" 2>&1
-            c616_rc=$?
-            "$GODOT" --headless --path "$proj" --script "res://tests/wallclock_soak_c616_test.gd" > "/tmp/${name}-c616-test.log" 2>&1
-            c616_rc=$?
             cat "/tmp/${name}-save-test.log"
             cat "/tmp/${name}-input-test.log"
             cat "/tmp/${name}-command-test.log"
@@ -218,14 +214,36 @@ jobs:
             cat "/tmp/${name}-c613-test.log"
             cat "/tmp/${name}-c614-test.log"
             cat "/tmp/${name}-c615-test.log"
-            cat "/tmp/${name}-c616-test.log"
-            if [ "$save_rc" -ne 0 ] || [ "$input_rc" -ne 0 ] || [ "$command_rc" -ne 0 ] || [ "$c609_rc" -ne 0 ] || [ "$c610_rc" -ne 0 ] || [ "$c611_rc" -ne 0 ] || [ "$c612_rc" -ne 0 ] || [ "$c613_rc" -ne 0 ] || [ "$c614_rc" -ne 0 ] || [ "$c615_rc" -ne 0 ] || [ "$c616_rc" -ne 0 ]; then
-              echo "$name INFRA_TEST=FAIL save_rc=$save_rc input_rc=$input_rc command_rc=$command_rc c609_rc=$c609_rc c610_rc=$c610_rc c611_rc=$c611_rc c612_rc=$c612_rc c613_rc=$c613_rc c614_rc=$c614_rc c615_rc=$c615_rc c616_rc=$c616_rc"
+            if [ "$save_rc" -ne 0 ] || [ "$input_rc" -ne 0 ] || [ "$command_rc" -ne 0 ] || [ "$c609_rc" -ne 0 ] || [ "$c610_rc" -ne 0 ] || [ "$c611_rc" -ne 0 ] || [ "$c612_rc" -ne 0 ] || [ "$c613_rc" -ne 0 ] || [ "$c614_rc" -ne 0 ] || [ "$c615_rc" -ne 0 ]; then
+              echo "$name INFRA_TEST=FAIL save_rc=$save_rc input_rc=$input_rc command_rc=$command_rc c609_rc=$c609_rc c610_rc=$c610_rc c611_rc=$c611_rc c612_rc=$c612_rc c613_rc=$c613_rc c614_rc=$c614_rc c615_rc=$c615_rc"
               overall=1
             else
-              echo "$name INFRA_TEST=PASS save_rc=$save_rc input_rc=$input_rc command_rc=$command_rc c609_rc=$c609_rc c610_rc=$c610_rc c611_rc=$c611_rc c612_rc=$c612_rc c613_rc=$c613_rc c614_rc=$c614_rc c615_rc=$c615_rc c616_rc=$c616_rc"
+              echo "$name INFRA_TEST=PASS save_rc=$save_rc input_rc=$input_rc command_rc=$command_rc c609_rc=$c609_rc c610_rc=$c610_rc c611_rc=$c611_rc c612_rc=$c612_rc c613_rc=$c613_rc c614_rc=$c614_rc c615_rc=$c615_rc"
             fi
           done
+
+          # C616 wall-clock soak: run all five games concurrently.
+          # Each process still measures >=60 real seconds independently.
+          c616_pids=()
+          for name in "${projects[@]}"; do
+            proj="$GAMES_ROOT/$name"
+            "$GODOT" --headless --path "$proj" --script "res://tests/wallclock_soak_c616_test.gd" > "/tmp/${name}-c616-test.log" 2>&1 &
+            c616_pids+=("$!")
+          done
+          idx=0
+          for name in "${projects[@]}"; do
+            wait "${c616_pids[$idx]}"
+            c616_rc=$?
+            cat "/tmp/${name}-c616-test.log"
+            if [ "$c616_rc" -ne 0 ]; then
+              echo "$name C616_TEST=FAIL c616_rc=$c616_rc"
+              overall=1
+            else
+              echo "$name C616_TEST=PASS c616_rc=$c616_rc"
+            fi
+            idx=$((idx + 1))
+          done
+
           if [ "$overall" -eq 0 ]; then echo "INFRA_OVERALL=PASS"; else echo "INFRA_OVERALL=FAIL"; fi
           exit "$overall"
 
