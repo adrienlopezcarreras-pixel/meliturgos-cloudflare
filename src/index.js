@@ -16,7 +16,7 @@ import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js"
 import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
 import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-state-store.js";
-import { getChatGPTImportStatus } from "./persistence/chatgpt-archive-importer.js";
+import { getChatGPTImportStatus, recordChatGPTCollectorCoverage } from "./persistence/chatgpt-archive-importer.js";
 import { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-api.js";
 import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
 import { runShardVaultCycle, searchAutonomousShardVaultRepositories } from "./continuity/shardvault-runtime.js";
@@ -293,6 +293,7 @@ async function maybeHandleCouncilAndEvolution(request, env) {
 async function maybeHandleChatGPTArchive(request, env) {
   const url = new URL(request.url);
   const statusPath = url.pathname === '/api/gen2/import/chatgpt-status';
+  const coveragePath = url.pathname === '/api/gen2/import/chatgpt-coverage';
 
   if (request.method === 'GET' && statusPath) {
     const auth = requireAuth(request, env);
@@ -305,6 +306,14 @@ async function maybeHandleChatGPTArchive(request, env) {
   }
 
   if (request.method !== 'POST') return null;
+  if (coveragePath) {
+    const auth = requireAuth(request, env);
+    if (!auth.ok) return auth.response;
+    try {
+      const body = await readJsonObject(request);
+      return Response.json(await recordChatGPTCollectorCoverage(env, body.coverage ?? body), { headers: { 'cache-control': 'no-store' } });
+    } catch (error) { return apiError(error, 'CHATGPT_COVERAGE_IMPORT_FAILED'); }
+  }
   const explicit = url.pathname === '/api/gen2/import/chatgpt-archive';
   const compatibility = url.pathname === '/api/import/chatgpt-context';
   if (!explicit && !compatibility) return null;
@@ -403,6 +412,7 @@ export default {
 
       if (
         path === '/api/gen2/import/chatgpt-status'
+        || path === '/api/gen2/import/chatgpt-coverage'
         || path === '/api/gen2/import/chatgpt-archive'
         || path === '/api/import/chatgpt-context'
       ) {

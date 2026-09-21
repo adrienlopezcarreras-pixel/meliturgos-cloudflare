@@ -138,7 +138,7 @@
         messages,
         collector:{
           source:'firefox_dom',
-          version:'0.2.0',
+          version:'0.6.2',
           url:convUrl(),
           totalMessages,
           partial:tailLimit > 0

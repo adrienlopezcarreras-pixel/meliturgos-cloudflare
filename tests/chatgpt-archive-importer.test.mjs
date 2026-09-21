@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getChatGPTImportStatus, importChatGPTArchive, normalizeChatGPTArchive } from '../src/persistence/chatgpt-archive-importer.js';
+import { getChatGPTImportStatus, importChatGPTArchive, normalizeChatGPTArchive, recordChatGPTCollectorCoverage } from '../src/persistence/chatgpt-archive-importer.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import worker from '../src/index.js';
 
@@ -102,7 +102,9 @@ test('server status distinguishes partial Collector receipts from a later comple
     assert.equal(status.complete_conversations, 1);
     assert.equal(status.partial_conversations, 0);
     assert.equal(status.unknown_completeness, 0);
-    assert.equal(status.full_archive_confirmed, true);
+    assert.equal(status.server_archive_complete, true);
+    assert.equal(status.collector_inventory_confirmed, false);
+    assert.equal(status.full_archive_confirmed, false);
     assert.equal(status.expected_messages, 4);
   } finally {
     DB.close();
@@ -143,4 +145,39 @@ test('a smaller later DOM snapshot cannot falsely downgrade expected Collector c
   } finally {
     DB.close();
   }
+});
+
+
+test('collector coverage manifest is required before full archive completeness can be confirmed', async () => {
+  const DB = sqliteD1();
+  try {
+    const env = { DB, MELITURGOS_USER: 'adrien' };
+    await importChatGPTArchive(env, [{ id:'coverage-a',title:'A',collector:{source:'firefox_dom',version:'0.6.2',partial:false,totalMessages:2},messages:[{id:'m1',role:'user',content:'un',timestamp:1},{id:'m2',role:'assistant',content:'deux',timestamp:2}] }], { preview:false });
+    let status=await getChatGPTImportStatus(env);
+    assert.equal(status.server_archive_complete,true);
+    assert.equal(status.collector_inventory_confirmed,false);
+    assert.equal(status.full_archive_confirmed,false);
+    const receipt=await recordChatGPTCollectorCoverage(env,{collector_version:'0.6.2',deep_discovery_done:true,discovered_count:1,captured_at:123,items:[{id:'coverage-a',status:'DONE',messages:2}]});
+    assert.equal(receipt.ok,true);assert.match(receipt.manifest_sha256,/^[0-9a-f]{64}$/);
+    status=await getChatGPTImportStatus(env);
+    assert.equal(status.collector_inventory_confirmed,true);
+    assert.equal(status.collector_inventory.missing_done_from_archive,0);
+    assert.equal(status.collector_inventory.unresolved_recoverable,0);
+    assert.equal(status.full_archive_confirmed,true);
+    await recordChatGPTCollectorCoverage(env,{collector_version:'0.6.2',deep_discovery_done:true,discovered_count:2,items:[{id:'coverage-a',status:'DONE',messages:2},{id:'coverage-b',status:'QUEUED',messages:0}]});
+    status=await getChatGPTImportStatus(env);
+    assert.equal(status.collector_inventory_confirmed,false);
+    assert.equal(status.collector_inventory.unresolved_recoverable,1);
+    assert.equal(status.full_archive_confirmed,false);
+  } finally { DB.close(); }
+});
+
+test('authenticated collector coverage endpoint persists a bounded coverage proof', async () => {
+  const DB=sqliteD1();
+  try {
+    const auth='Basic '+Buffer.from('adrien:test').toString('base64');
+    const request=new Request('https://mel.test/api/gen2/import/chatgpt-coverage',{method:'POST',headers:{authorization:auth,'content-type':'application/json'},body:JSON.stringify({coverage:{collector_version:'0.6.2',deep_discovery_done:true,discovered_count:1,items:[{id:'abc',status:'UNAVAILABLE',messages:0}]}})});
+    const response=await worker.fetch(request,{DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'},{});
+    assert.equal(response.status,200);const body=await response.json();assert.equal(body.ok,true);assert.equal(body.deep_discovery_done,true);assert.equal(body.discovered_count,1);
+  } finally { DB.close(); }
 });

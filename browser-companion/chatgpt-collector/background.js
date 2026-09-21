@@ -56,6 +56,30 @@ async function runnerState(){const x=await api.storage.local.get('melRunnerState
 async function saveRunner(p){const n={...(await runnerState()),...p,updatedAt:Date.now()};await api.storage.local.set({melRunnerState:n});return n}
 async function config(){const x=await api.storage.local.get('melCollectorConfig'),c=x.melCollectorConfig||{};return{endpoint:String(c.endpoint||'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/,''),username:String(c.username||''),password:String(c.password||''),continuous:c.continuous!==false,ecoMode:c.ecoMode!==false,delayMs:Math.max(8000,Math.min(60000,Number(c.delayMs)||30000))}}
 function auth(u,p){return 'Basic '+btoa(unescape(encodeURIComponent(`${u}:${p}`)))}
+const COLLECTOR_VERSION='0.6.2';
+function coverageItemsFromState(s){
+  const byId=new Map();
+  const add=(id,status,messages=0)=>{id=String(id||'').trim();if(!id)return;byId.set(id,{id,status,messages:Math.max(0,Number(messages)||0)})};
+  for(const [id,row] of Object.entries(s.done||{}))add(id,'DONE',row?.messages);
+  for(const [id,row] of Object.entries(s.partial||{}))if(!byId.has(id))add(id,'PARTIAL',row?.messages);
+  for(const [id] of Object.entries(s.unavailable||{}))if(!byId.has(id))add(id,'UNAVAILABLE',0);
+  for(const [id] of Object.entries(s.deferred||{}))if(!byId.has(id))add(id,'DEFERRED',0);
+  for(const [id] of Object.entries(s.failed||{}))if(!byId.has(id))add(id,'FAILED',0);
+  for(const url of s.queue||[]){const id=idFromUrl(url);if(id&&!byId.has(id))add(id,'QUEUED',0)}
+  return [...byId.values()].sort((a,b)=>a.id.localeCompare(b.id));
+}
+async function sendCoverageManifest(snapshot=null){
+  const s=snapshot||await state(),c=await config();
+  if(!c.username||!c.password)return{ok:false,skipped:'MEL_CREDENTIALS_REQUIRED'};
+  const items=coverageItemsFromState(s);
+  const coverage={collector_version:COLLECTOR_VERSION,deep_discovery_done:s.deepDiscoveryDone===true,discovered_count:Math.max(Number(s.discovered||0),items.length),captured_at:Date.now(),items};
+  try{
+    const r=await fetch(c.endpoint+'/api/gen2/import/chatgpt-coverage',{method:'POST',headers:{'content-type':'application/json','authorization':auth(c.username,c.password)},body:JSON.stringify({coverage})});
+    const t=await r.text();let body={};try{body=t?JSON.parse(t):{}}catch{}
+    if(!r.ok)throw codedError(body.code||`MEL_COVERAGE_HTTP_${r.status}`);
+    return body;
+  }catch(e){return{ok:false,error:e?.code||e?.message||'MEL_COVERAGE_FAILED'}}
+}
 
 async function sendConversation(conversation,trackActive=false){
   const c=await config();
@@ -155,7 +179,9 @@ async function mergeDiscovery(tabId,deep=false){
     return id && needsFullCapture && !unavailable[id] && !deferred[id] && attempts<3 && !queued.has(u);
   });
   const queue=[...(s.queue||[]),...add];
-  return save({queue,discovered:new Set([...queue,...Object.values(done).map(x=>x.url).filter(Boolean),...Object.values(partial).map(x=>x.url).filter(Boolean),...Object.values(deferred).map(x=>x.url).filter(Boolean),...Object.values(failed).map(x=>x.url).filter(Boolean),...Object.values(unavailable).map(x=>x.url).filter(Boolean)]).size,deepDiscoveryDone:deep&&page.ok?true:s.deepDiscoveryDone,deepDiscoveryAt:deep&&page.ok?Date.now():s.deepDiscoveryAt});
+  const next=await save({queue,discovered:new Set([...queue,...Object.values(done).map(x=>x.url).filter(Boolean),...Object.values(partial).map(x=>x.url).filter(Boolean),...Object.values(deferred).map(x=>x.url).filter(Boolean),...Object.values(failed).map(x=>x.url).filter(Boolean),...Object.values(unavailable).map(x=>x.url).filter(Boolean)]).size,deepDiscoveryDone:deep&&page.ok?true:s.deepDiscoveryDone,deepDiscoveryAt:deep&&page.ok?Date.now():s.deepDiscoveryAt});
+  if(deep&&page.ok)await sendCoverageManifest(next);
+  return next;
 }
 
 function waitComplete(tabId,timeout=15000){
@@ -311,7 +337,7 @@ async function process(tabId,generation){
       const deep=s.deepDiscoveryDone!==true;
       await withTimeout(mergeDiscovery(tabId,deep),deep?120000:60000,'DISCOVERY_TIMEOUT');
       s=await state();queue=[...(s.queue||[])];
-      if(!queue.length){await save({running:false,paused:false,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,lastProgressAt:Date.now()});return}
+      if(!queue.length){const finalState=await save({running:false,paused:false,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,lastProgressAt:Date.now()});await sendCoverageManifest(finalState);return}
     }
     const url=queue.shift(),sourceId=idFromUrl(url);
     const completedMessages=Number(s.done?.[sourceId]?.messages||0);
@@ -351,7 +377,8 @@ async function process(tabId,generation){
       const unavailable={...(s.unavailable||{})};delete unavailable[sourceId];
       const deferred={...(s.deferred||{})};delete deferred[sourceId];
       const partial={...(s.partial||{})};delete partial[sourceId];
-      await save({done,partial,failed,unavailable,deferred,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now()});
+      const saved=await save({done,partial,failed,unavailable,deferred,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now()});
+      await sendCoverageManifest(saved);
     }catch(e){
       s=await state();
       if(!isCurrentRun(generation)||s.paused||!s.running)return;
@@ -375,7 +402,8 @@ async function process(tabId,generation){
         deferred[key]={url,code,attempts,deferredAt:Date.now()};
       }
       const stalledCount=Number(s.stalledCount||0)+((autoRecoverable||timedOut)?1:0);
-      await save({failed,unavailable,deferred,queue:nextQueue,lastError:code,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now(),stalledCount});
+      const failedState=await save({failed,unavailable,deferred,queue:nextQueue,lastError:code,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now(),stalledCount});
+      await sendCoverageManifest(failedState);
       if(autoRecoverable){
         await recoverTab(tabId,code);
         continue;

@@ -240,6 +240,18 @@ export const MIGRATIONS = [
     await db.prepare(`CREATE INDEX IF NOT EXISTS idx_knowledge_artifacts_filename
       ON knowledge_artifacts(filename)`).run();
   }},
+  { version: 11, name: 'chatgpt_collector_coverage', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS chatgpt_collector_coverage (
+      id TEXT PRIMARY KEY,
+      collector_version TEXT,
+      deep_discovery_done INTEGER NOT NULL DEFAULT 0,
+      discovered_count INTEGER NOT NULL DEFAULT 0,
+      manifest_json TEXT NOT NULL DEFAULT '{}',
+      manifest_sha256 TEXT NOT NULL DEFAULT '',
+      captured_at INTEGER,
+      received_at INTEGER NOT NULL
+    )`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {

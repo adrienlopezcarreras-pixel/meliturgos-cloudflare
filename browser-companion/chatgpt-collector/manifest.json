@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MEL ChatGPT Collector",
-  "version": "0.6.1",
-  "description": "Collecte ChatGPT vers MEL et runner GPT asynchrone : pages ouvertes uniquement, injection automatique dans les onglets existants, cooldowns et arrêt sur limites.",
+  "version": "0.6.2",
+  "description": "Collecte ChatGPT vers MEL avec preuve serveur de couverture, reprise robuste et runner GPT asynchrone sur pages ouvertes.",
   "permissions": [
     "storage",
     "tabs",

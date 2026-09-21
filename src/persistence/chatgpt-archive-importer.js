@@ -4,6 +4,134 @@ import { createSyncService } from '../conversations/sync-service.js';
 const MAX_CONVERSATIONS = 1000;
 const MAX_MESSAGES = 100000;
 const MAX_MESSAGE_CHARS = 200000;
+const MAX_COVERAGE_ITEMS = 25000;
+const COVERAGE_STATUSES = new Set(['DONE','PARTIAL','FAILED','UNAVAILABLE','DEFERRED','QUEUED']);
+
+function normalizeCoverageId(value) {
+  return String(value || '').trim().replace(/^chatgpt:/, '').slice(0, 240);
+}
+
+function normalizeCoverageStatus(value) {
+  const status = String(value || '').trim().toUpperCase();
+  if (!COVERAGE_STATUSES.has(status)) {
+    throw Object.assign(new Error('CHATGPT_COVERAGE_STATUS_INVALID'), { code: 'CHATGPT_COVERAGE_STATUS_INVALID', status: 400 });
+  }
+  return status;
+}
+
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value)));
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export function normalizeChatGPTCollectorCoverage(payload = {}) {
+  const rawItems = Array.isArray(payload.items) ? payload.items : [];
+  if (rawItems.length > MAX_COVERAGE_ITEMS) {
+    throw Object.assign(new Error('CHATGPT_COVERAGE_TOO_LARGE'), { code: 'CHATGPT_COVERAGE_TOO_LARGE', status: 413 });
+  }
+  const byId = new Map();
+  for (const raw of rawItems) {
+    const id = normalizeCoverageId(raw?.id);
+    if (!id) continue;
+    const status = normalizeCoverageStatus(raw?.status);
+    const messages = Math.max(0, Math.trunc(Number(raw?.messages) || 0));
+    byId.set(id, { id, status, messages });
+  }
+  const items = [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  const discoveredRaw = Number(payload.discovered_count ?? payload.discovered ?? items.length);
+  const discoveredCount = Number.isFinite(discoveredRaw) && discoveredRaw >= 0
+    ? Math.max(items.length, Math.trunc(discoveredRaw))
+    : items.length;
+  const capturedRaw = Number(payload.captured_at);
+  return {
+    collector_version: payload.collector_version ? String(payload.collector_version).slice(0, 40) : null,
+    deep_discovery_done: payload.deep_discovery_done === true,
+    discovered_count: discoveredCount,
+    captured_at: Number.isFinite(capturedRaw) && capturedRaw > 0 ? Math.trunc(capturedRaw) : null,
+    items,
+  };
+}
+
+export async function recordChatGPTCollectorCoverage(env, payload = {}) {
+  if (!env?.DB) throw Object.assign(new Error('DB_BINDING_REQUIRED'), { code: 'DB_BINDING_REQUIRED', status: 503 });
+  const service = createConversationService(env);
+  await service.migrate();
+  const normalized = normalizeChatGPTCollectorCoverage(payload);
+  const manifestJson = JSON.stringify(normalized);
+  const manifestSha256 = await sha256Hex(manifestJson);
+  const receivedAt = Date.now();
+  await env.DB.prepare(`INSERT INTO chatgpt_collector_coverage
+    (id,collector_version,deep_discovery_done,discovered_count,manifest_json,manifest_sha256,captured_at,received_at)
+    VALUES ('latest',?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET
+      collector_version=excluded.collector_version,
+      deep_discovery_done=excluded.deep_discovery_done,
+      discovered_count=excluded.discovered_count,
+      manifest_json=excluded.manifest_json,
+      manifest_sha256=excluded.manifest_sha256,
+      captured_at=excluded.captured_at,
+      received_at=excluded.received_at`)
+    .bind(normalized.collector_version, normalized.deep_discovery_done ? 1 : 0, normalized.discovered_count, manifestJson, manifestSha256, normalized.captured_at, receivedAt)
+    .run();
+  return { ok: true, received_at: receivedAt, manifest_sha256: manifestSha256, ...normalized };
+}
+
+async function loadChatGPTCollectorCoverage(db) {
+  try {
+    const row = await db.prepare("SELECT collector_version,deep_discovery_done,discovered_count,manifest_json,manifest_sha256,captured_at,received_at FROM chatgpt_collector_coverage WHERE id='latest'").first();
+    if (!row) return null;
+    const parsed = row.manifest_json ? JSON.parse(row.manifest_json) : {};
+    return {
+      collector_version: row.collector_version || parsed.collector_version || null,
+      deep_discovery_done: Number(row.deep_discovery_done || 0) === 1,
+      discovered_count: Number(row.discovered_count || parsed.discovered_count || 0),
+      items: Array.isArray(parsed.items) ? parsed.items : [],
+      manifest_sha256: row.manifest_sha256 || null,
+      captured_at: row.captured_at == null ? null : Number(row.captured_at),
+      received_at: Number(row.received_at || 0) || null,
+    };
+  } catch { return null; }
+}
+
+async function archiveConversationRows(db) {
+  try {
+    const result = await db.prepare(`SELECT conversation_id, COUNT(*) AS stored_messages
+      FROM archive_messages WHERE provenance='chatgpt_export' GROUP BY conversation_id`).all();
+    return result?.results || [];
+  } catch { return []; }
+}
+
+async function archiveReceiptAggregate(db) {
+  try {
+    const row = await db.prepare(`WITH archived AS (
+        SELECT conversation_id, COUNT(*) AS stored_messages
+        FROM archive_messages WHERE provenance='chatgpt_export' GROUP BY conversation_id
+      ), normalized AS (
+        SELECT a.conversation_id, a.stored_messages,
+          CASE WHEN json_valid(c.metadata) AND json_type(c.metadata,'$.chatgpt_import')='object' THEN 1 ELSE 0 END AS has_receipt,
+          CASE WHEN json_valid(c.metadata) THEN COALESCE(json_extract(c.metadata,'$.chatgpt_import.complete'),0) ELSE 0 END AS receipt_complete,
+          CASE WHEN json_valid(c.metadata) THEN COALESCE(json_extract(c.metadata,'$.chatgpt_import.expected_messages'),0) ELSE 0 END AS expected_messages
+        FROM archived a LEFT JOIN conversations c ON c.id=a.conversation_id
+      )
+      SELECT COUNT(*) AS archived_conversations,
+        COALESCE(SUM(has_receipt),0) AS tracked_conversations,
+        COALESCE(SUM(CASE WHEN has_receipt=0 THEN 1 ELSE 0 END),0) AS unknown_completeness,
+        COALESCE(SUM(CASE WHEN has_receipt=1 AND receipt_complete=1 AND stored_messages>=expected_messages THEN 1 ELSE 0 END),0) AS complete_conversations,
+        COALESCE(SUM(CASE WHEN has_receipt=1 AND NOT(receipt_complete=1 AND stored_messages>=expected_messages) THEN 1 ELSE 0 END),0) AS partial_conversations,
+        COALESCE(SUM(CASE WHEN has_receipt=1 THEN expected_messages ELSE 0 END),0) AS expected_messages,
+        COALESCE(SUM(CASE WHEN has_receipt=1 AND stored_messages<expected_messages THEN 1 ELSE 0 END),0) AS underfilled_conversations,
+        COALESCE(SUM(CASE WHEN has_receipt=1 AND stored_messages<expected_messages THEN expected_messages-stored_messages ELSE 0 END),0) AS missing_expected_messages
+      FROM normalized`).first();
+    return {
+      archived_conversations: Number(row?.archived_conversations || 0), tracked_conversations: Number(row?.tracked_conversations || 0),
+      unknown_completeness: Number(row?.unknown_completeness || 0), complete_conversations: Number(row?.complete_conversations || 0),
+      partial_conversations: Number(row?.partial_conversations || 0), expected_messages: Number(row?.expected_messages || 0),
+      underfilled_conversations: Number(row?.underfilled_conversations || 0), missing_expected_messages: Number(row?.missing_expected_messages || 0),
+    };
+  } catch {
+    return { archived_conversations:0,tracked_conversations:0,unknown_completeness:0,complete_conversations:0,partial_conversations:0,expected_messages:0,underfilled_conversations:0,missing_expected_messages:0 };
+  }
+}
 
 function asArray(payload) {
   if (Array.isArray(payload)) return payload;
@@ -277,6 +405,9 @@ export async function getChatGPTImportStatus(env) {
       complete_conversations: 0,
       partial_conversations: 0,
       unknown_completeness: 0,
+      server_archive_complete: false,
+      collector_inventory_confirmed: false,
+      collector_inventory: null,
       full_archive_confirmed: false,
       last_received: null
     };
@@ -301,33 +432,38 @@ export async function getChatGPTImportStatus(env) {
         )`)
   ]);
 
-  let completionRows = [];
-  try {
-    const rows = await env.DB.prepare("SELECT id,metadata FROM conversations WHERE id LIKE 'chatgpt:%' ORDER BY updated_at DESC LIMIT 2000").all();
-    completionRows = rows?.results || [];
-  } catch {}
+  const [receiptAggregate, coverageManifest, storedConversationRows] = await Promise.all([
+    archiveReceiptAggregate(env.DB), loadChatGPTCollectorCoverage(env.DB), archiveConversationRows(env.DB),
+  ]);
+  const trackedConversations = receiptAggregate.tracked_conversations;
+  const completeConversations = receiptAggregate.complete_conversations;
+  const partialConversations = receiptAggregate.partial_conversations;
+  const unknownCompleteness = Math.max(0, receiptAggregate.archived_conversations - trackedConversations);
+  const expectedMessages = receiptAggregate.expected_messages;
+  const serverArchiveComplete = receiptAggregate.archived_conversations > 0
+    && trackedConversations === receiptAggregate.archived_conversations
+    && completeConversations === receiptAggregate.archived_conversations
+    && partialConversations === 0 && unknownCompleteness === 0 && receiptAggregate.underfilled_conversations === 0;
 
-  let completeConversations = 0;
-  let partialConversations = 0;
-  let unknownCompleteness = 0;
-  let expectedMessages = 0;
-  for (const row of completionRows) {
-    let metadata = {};
-    try { metadata = row?.metadata ? JSON.parse(row.metadata) : {}; } catch {}
-    const receipt = metadata?.chatgpt_import;
-    if (!receipt || typeof receipt !== 'object') {
-      unknownCompleteness++;
-      continue;
+  const storedById = new Map(storedConversationRows.map(row => [String(row.conversation_id || '').replace(/^chatgpt:/, ''), Number(row.stored_messages || 0)]));
+  const coverageItems = coverageManifest?.items || [];
+  const coverageCounts = { DONE:0, PARTIAL:0, FAILED:0, UNAVAILABLE:0, DEFERRED:0, QUEUED:0 };
+  let missingDoneFromArchive = 0, underfilledDone = 0;
+  for (const item of coverageItems) {
+    const itemStatus = String(item?.status || '').toUpperCase();
+    if (Object.prototype.hasOwnProperty.call(coverageCounts, itemStatus)) coverageCounts[itemStatus]++;
+    if (itemStatus === 'DONE') {
+      const stored = storedById.get(String(item.id || ''));
+      if (stored == null) missingDoneFromArchive++;
+      else if (stored < Math.max(0, Number(item.messages || 0))) underfilledDone++;
     }
-    expectedMessages += Math.max(0, Number(receipt.expected_messages || 0));
-    if (receipt.complete === true) completeConversations++;
-    else partialConversations++;
   }
-  const trackedConversations = completionRows.length;
-  const fullArchiveConfirmed = trackedConversations > 0
-    && completeConversations === trackedConversations
-    && partialConversations === 0
-    && unknownCompleteness === 0;
+  const unresolvedRecoverable = coverageCounts.PARTIAL + coverageCounts.FAILED + coverageCounts.DEFERRED + coverageCounts.QUEUED;
+  const inventoryReported = coverageManifest != null;
+  const inventoryConfirmed = Boolean(coverageManifest?.deep_discovery_done === true
+    && coverageManifest.discovered_count === coverageItems.length
+    && unresolvedRecoverable === 0 && missingDoneFromArchive === 0 && underfilledDone === 0);
+  const fullArchiveConfirmed = serverArchiveComplete && inventoryConfirmed;
 
   let lastReceived = null;
   try {
@@ -357,6 +493,24 @@ export async function getChatGPTImportStatus(env) {
     partial_conversations: partialConversations,
     unknown_completeness: unknownCompleteness,
     expected_messages: expectedMessages,
+    underfilled_conversations: receiptAggregate.underfilled_conversations,
+    missing_expected_messages: receiptAggregate.missing_expected_messages,
+    server_archive_complete: serverArchiveComplete,
+    collector_inventory_confirmed: inventoryConfirmed,
+    collector_inventory: inventoryReported ? {
+      collector_version: coverageManifest.collector_version,
+      deep_discovery_done: coverageManifest.deep_discovery_done,
+      discovered_count: coverageManifest.discovered_count,
+      reported_items: coverageItems.length,
+      recoverable_count: Math.max(0, coverageItems.length - coverageCounts.UNAVAILABLE),
+      unresolved_recoverable: unresolvedRecoverable,
+      missing_done_from_archive: missingDoneFromArchive,
+      underfilled_done: underfilledDone,
+      counts: coverageCounts,
+      manifest_sha256: coverageManifest.manifest_sha256,
+      captured_at: coverageManifest.captured_at,
+      received_at: coverageManifest.received_at,
+    } : null,
     full_archive_confirmed: fullArchiveConfirmed,
     last_received: lastReceived ? {
       conversation_id: lastReceived.conversation_id,
@@ -370,7 +524,7 @@ export async function getChatGPTImportStatus(env) {
       memory_candidate_extraction: unsyncedMessages === 0 && messages > 0 ? 'UP_TO_DATE' : 'IN_PROGRESS',
       archive_retrieval: messages > 0 ? 'AVAILABLE' : 'EMPTY',
       semantic_memory: 'CANDIDATES_AVAILABLE_FOR_CONSOLIDATION',
-      completeness: fullArchiveConfirmed ? 'CONFIRMED_FULL' : 'NOT_CONFIRMED'
+      completeness: fullArchiveConfirmed ? 'CONFIRMED_FULL' : (serverArchiveComplete ? 'SERVER_COMPLETE_AWAITING_COLLECTOR_INVENTORY' : 'NOT_CONFIRMED')
     }
   };
 }
