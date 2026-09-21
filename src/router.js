@@ -35,8 +35,7 @@ async function codeSelfCheck(env) {
   };
 }
 
-async function handleConversationApi(request, env) {
-  const url = new URL(request.url);
+async function handleConversationApi(request, env, url = new URL(request.url)) {
   const path = url.pathname;
 
   if (path === "/api/gen2/roadmap" && request.method === "GET") {
@@ -146,19 +145,21 @@ async function handleConversationApi(request, env) {
 
 export default {
   async fetch(request, env, ctx) {
-    const earlyUrl = new URL(request.url);
-    if (earlyUrl.pathname.startsWith('/api/dev-bridge/')) {
+    const url = new URL(request.url);
+    const isDevBridge = url.pathname.startsWith('/api/dev-bridge/');
+    if (isDevBridge) {
       const bridgeResponse = devRuntime(request, env);
       if (bridgeResponse) return await bridgeResponse;
     }
 
     const auth = requireAuth(request, env);
     if (!auth.ok) return auth.response;
-
-    const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/sw.js") return new Response(SERVICE_WORKER_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" } });
     if (request.method === "GET" && url.pathname === "/normal-runtime.js") return new Response(NORMAL_RUNTIME_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-store, no-cache, must-revalidate" } });
-    const devResponse = devRuntime(request, env); if (devResponse) return await devResponse;
+    if (!isDevBridge) {
+      const devResponse = devRuntime(request, env);
+      if (devResponse) return await devResponse;
+    }
 
     if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/mvp")) {
       return handleMvp({ env, request, params: {} }).catch(e => html(`Error loading MVP: ${e.message}`, 500));
@@ -187,7 +188,7 @@ export default {
 
     if (url.pathname.startsWith("/api/gen2/")) {
       try {
-        const response = await handleConversationApi(request, env);
+        const response = await handleConversationApi(request, env, url);
         if (response) return response;
       } catch (e) {
         return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500);
