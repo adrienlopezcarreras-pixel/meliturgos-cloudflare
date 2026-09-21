@@ -8,6 +8,8 @@ function render(s){$('status').textContent=[
 `Captures partielles : ${Object.keys(s.partial||{}).length}`,
 `Messages nouveaux : ${s.importedMessages||0}`,
 `Doublons ignorés : ${s.duplicates||0}`,
+`Doublons enrichis : ${s.enrichedDuplicates||0}`,
+s.attachmentBackfillVersion?`Backfill pièces jointes : TERMINÉ (${s.attachmentBackfillVersion})`:s.attachmentBackfillTarget?`Backfill pièces jointes : ${Object.keys(s.attachmentBackfillPending||{}).length} restante(s), ${s.attachmentBackfillMissingUrl||0} URL manquante(s)`:'Backfill pièces jointes : à initialiser',
 `Échecs : ${Object.keys(s.failed||{}).length}`,
 `Inaccessibles : ${Object.keys(s.unavailable||{}).length}`,
 `À retenter plus tard : ${Object.keys(s.deferred||{}).length}`,

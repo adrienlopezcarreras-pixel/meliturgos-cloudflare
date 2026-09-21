@@ -1,5 +1,5 @@
 const api = globalThis.browser;
-const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},partial:{},failed:{},unavailable:{},deferred:{},discovered:0,deepDiscoveryDone:false,deepDiscoveryAt:null,importedConversations:0,importedMessages:0,duplicates:0,lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,lastProgressAt:null,lastHeartbeatAt:null,currentMessageCount:0,captureProcessed:0,stalledCount:0,autoRecoveries:0,lastRecoveryAt:null,lastRecoveryReason:null,updatedAt:null};
+const DEFAULT={running:false,paused:true,tabId:null,collectorOwnedTab:false,queue:[],done:{},partial:{},failed:{},unavailable:{},deferred:{},discovered:0,deepDiscoveryDone:false,deepDiscoveryAt:null,importedConversations:0,importedMessages:0,duplicates:0,enrichedDuplicates:0,attachmentBackfillTarget:null,attachmentBackfillVersion:null,attachmentBackfillPending:{},attachmentBackfillQueued:0,attachmentBackfillMissingUrl:0,attachmentBackfillStartedAt:null,attachmentBackfillCompletedAt:null,lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,lastProgressAt:null,lastHeartbeatAt:null,currentMessageCount:0,captureProcessed:0,stalledCount:0,autoRecoveries:0,lastRecoveryAt:null,lastRecoveryReason:null,updatedAt:null};
 const WATCHDOG_IDLE_MS=30*1000;
 const NETWORK_TIMEOUT_MS=30*1000;
 const MESSAGE_TIMEOUT_MS=15000;
@@ -56,7 +56,8 @@ async function runnerState(){const x=await api.storage.local.get('melRunnerState
 async function saveRunner(p){const n={...(await runnerState()),...p,updatedAt:Date.now()};await api.storage.local.set({melRunnerState:n});return n}
 async function config(){const x=await api.storage.local.get('melCollectorConfig'),c=x.melCollectorConfig||{};return{endpoint:String(c.endpoint||'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/,''),username:String(c.username||''),password:String(c.password||''),continuous:c.continuous!==false,ecoMode:c.ecoMode!==false,delayMs:Math.max(8000,Math.min(60000,Number(c.delayMs)||30000))}}
 function auth(u,p){return 'Basic '+btoa(unescape(encodeURIComponent(`${u}:${p}`)))}
-const COLLECTOR_VERSION='0.6.2';
+const COLLECTOR_VERSION='0.6.3';
+const ATTACHMENT_BACKFILL_VERSION='chatgpt-attachments-v1';
 function coverageItemsFromState(s){
   const byId=new Map();
   const add=(id,status,messages=0)=>{id=String(id||'').trim();if(!id)return;byId.set(id,{id,status,messages:Math.max(0,Number(messages)||0)})};
@@ -79,6 +80,48 @@ async function sendCoverageManifest(snapshot=null){
     if(!r.ok)throw codedError(body.code||`MEL_COVERAGE_HTTP_${r.status}`);
     return body;
   }catch(e){return{ok:false,error:e?.code||e?.message||'MEL_COVERAGE_FAILED'}}
+}
+
+async function ensureAttachmentBackfillQueue(snapshot=null){
+  const s=snapshot||await state();
+  if(s.deepDiscoveryDone!==true||s.attachmentBackfillVersion===ATTACHMENT_BACKFILL_VERSION)return s;
+  const queue=[...(s.queue||[])];
+  let pending={...(s.attachmentBackfillPending||{})};
+  let missingUrl=Number(s.attachmentBackfillMissingUrl||0);
+  const initializing=s.attachmentBackfillTarget!==ATTACHMENT_BACKFILL_VERSION;
+  if(initializing){
+    pending={};missingUrl=0;
+    for(const [id,row] of Object.entries(s.done||{})){
+      const url=norm(row?.url);
+      if(!url){missingUrl++;continue}
+      pending[id]=url;
+      if(!queue.includes(url))queue.push(url);
+    }
+    const completed=Object.keys(pending).length===0&&missingUrl===0;
+    return save({
+      queue,
+      attachmentBackfillTarget:ATTACHMENT_BACKFILL_VERSION,
+      attachmentBackfillVersion:completed?ATTACHMENT_BACKFILL_VERSION:null,
+      attachmentBackfillPending:pending,
+      attachmentBackfillQueued:Object.keys(pending).length,
+      attachmentBackfillMissingUrl:missingUrl,
+      attachmentBackfillStartedAt:Date.now(),
+      attachmentBackfillCompletedAt:completed?Date.now():null
+    });
+  }
+  const failed=s.failed||{},deferred=s.deferred||{},unavailable=s.unavailable||{};
+  for(const [id,urlRaw] of Object.entries(pending)){
+    const url=norm(urlRaw);
+    if(!url)continue;
+    if(failed[id]||deferred[id]||unavailable[id])continue;
+    if(!queue.includes(url))queue.push(url);
+  }
+  const completed=Object.keys(pending).length===0&&missingUrl===0;
+  return save({
+    queue,
+    attachmentBackfillVersion:completed?ATTACHMENT_BACKFILL_VERSION:s.attachmentBackfillVersion,
+    attachmentBackfillCompletedAt:completed?(s.attachmentBackfillCompletedAt||Date.now()):s.attachmentBackfillCompletedAt
+  });
 }
 
 async function sendConversation(conversation,trackActive=false){
@@ -337,12 +380,17 @@ async function process(tabId,generation){
       const deep=s.deepDiscoveryDone!==true;
       await withTimeout(mergeDiscovery(tabId,deep),deep?120000:60000,'DISCOVERY_TIMEOUT');
       s=await state();queue=[...(s.queue||[])];
+      if(!queue.length&&s.deepDiscoveryDone===true){
+        s=await ensureAttachmentBackfillQueue(s);
+        queue=[...(s.queue||[])];
+      }
       if(!queue.length){const finalState=await save({running:false,paused:false,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,lastProgressAt:Date.now()});await sendCoverageManifest(finalState);return}
     }
     const url=queue.shift(),sourceId=idFromUrl(url);
     const completedMessages=Number(s.done?.[sourceId]?.messages||0);
     const partialMessages=Number(s.partial?.[sourceId]?.messages||0);
-    if(!sourceId||(s.done?.[sourceId]&&partialMessages<=completedMessages)){await save({queue});continue}
+    const forcedAttachmentBackfill=Boolean(s.attachmentBackfillPending?.[sourceId]);
+    if(!sourceId||(s.done?.[sourceId]&&partialMessages<=completedMessages&&!forcedAttachmentBackfill)){await save({queue});continue}
     let itemMessageCount=0;
     const startedAt=Date.now();
     await save({queue,currentUrl:url,currentStage:'navigation',currentStartedAt:startedAt,lastProgressAt:startedAt,currentMessageCount:0});
@@ -377,7 +425,23 @@ async function process(tabId,generation){
       const unavailable={...(s.unavailable||{})};delete unavailable[sourceId];
       const deferred={...(s.deferred||{})};delete deferred[sourceId];
       const partial={...(s.partial||{})};delete partial[sourceId];
-      const saved=await save({done,partial,failed,unavailable,deferred,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now()});
+      const attachmentBackfillPending={...(s.attachmentBackfillPending||{})};
+      const wasAttachmentBackfill=Boolean(attachmentBackfillPending[sourceId]);
+      if(wasAttachmentBackfill)delete attachmentBackfillPending[sourceId];
+      const attachmentBackfillComplete=wasAttachmentBackfill
+        && Object.keys(attachmentBackfillPending).length===0
+        && Number(s.attachmentBackfillMissingUrl||0)===0;
+      const saved=await save({
+        done,partial,failed,unavailable,deferred,
+        attachmentBackfillPending,
+        attachmentBackfillVersion:attachmentBackfillComplete?ATTACHMENT_BACKFILL_VERSION:s.attachmentBackfillVersion,
+        attachmentBackfillCompletedAt:attachmentBackfillComplete?Date.now():s.attachmentBackfillCompletedAt,
+        importedConversations:Object.keys(done).length,
+        importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),
+        duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),
+        enrichedDuplicates:Number(s.enrichedDuplicates||0)+Number(result.enriched_duplicates||0),
+        lastError:null,currentUrl:null,currentStage:null,currentStartedAt:null,currentMessageCount:0,captureProcessed:0,lastProgressAt:Date.now()
+      });
       await sendCoverageManifest(saved);
     }catch(e){
       s=await state();
@@ -450,7 +514,8 @@ async function retryDeferred(){
   const unresolved={...failed,...deferred};
   for(const [key,item] of Object.entries(unresolved)){
     const url=norm(item?.url);
-    if(!url||s.done?.[key]||s.unavailable?.[key])continue;
+    const isAttachmentBackfill=Boolean(s.attachmentBackfillPending?.[key]);
+    if(!url||(s.done?.[key]&&!isAttachmentBackfill)||s.unavailable?.[key])continue;
     if(!queue.includes(url)){queue.push(url);added++}
     delete deferred[key];
     delete failed[key];
@@ -716,7 +781,7 @@ api.runtime.onMessage.addListener(async (msg,sender)=>{
     const result=await sendConversation(cap.conversation),s=await state(),sourceId=cap.conversation.id;
     const done={...(s.done||{}),[sourceId]:{url:norm(tab.url),title:cap.conversation.title,messages:cap.conversation.messages.length,importedAt:Date.now()}};
     const partial={...(s.partial||{})};delete partial[sourceId];
-    return save({done,partial,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0)});
+    return save({done,partial,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),enrichedDuplicates:Number(s.enrichedDuplicates||0)+Number(result.enriched_duplicates||0)});
   }
   if(msg?.type==='mel.collector.auto-capture'&&msg.conversation){
     const c=await config();if(!c.continuous)return{ok:false,skipped:'CONTINUOUS_DISABLED'};
@@ -738,7 +803,7 @@ api.runtime.onMessage.addListener(async (msg,sender)=>{
         done[sourceId]=record;
         delete partial[sourceId];
       }
-      await save({done,partial,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0)});
+      await save({done,partial,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),enrichedDuplicates:Number(s.enrichedDuplicates||0)+Number(result.enriched_duplicates||0)});
       return{ok:true,partial:partialCapture};
     }catch(e){await save({lastError:e?.code||e?.message||'AUTO_CAPTURE_FAILED'});return{ok:false,code:e?.code||e?.message||'AUTO_CAPTURE_FAILED'}}
   }
