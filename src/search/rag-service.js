@@ -272,8 +272,9 @@ function semanticVectorData(output) {
 export function createWorkersAiSemanticProvider(env, {
   model = '@cf/baai/bge-m3',
   maxDocuments = 24,
+  enabled = String(env?.MEL_MEMORY_SEMANTIC_ENABLED || '').toLowerCase() === 'true',
 } = {}) {
-  if (!env?.AI || typeof env.AI.run !== 'function') return null;
+  if (!enabled || !env?.AI || typeof env.AI.run !== 'function') return null;
   return async ({ query, documents = [] } = {}) => {
     const docs = (Array.isArray(documents) ? documents : [])
       .map(value => String(value || '').slice(0, 2200))
