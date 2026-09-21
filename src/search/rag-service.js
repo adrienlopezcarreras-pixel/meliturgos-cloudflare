@@ -174,6 +174,7 @@ function normalizeFilters(filters = {}) {
     if (filters.project) out.project = normalizedSearchValue(filters.project);
     if (filters.file_type) out.file_type = normalizedSearchValue(filters.file_type).replace(/^\./, '');
     if (filters.role) out.role = String(filters.role).toLowerCase();
+    if (filters.source) out.source = String(filters.source).toLowerCase();
   }
   return out;
 }
@@ -185,6 +186,7 @@ function rowPassesFilters(row, filters = {}) {
   if (f.to != null && timestamp > f.to) return false;
   if (f.conversation_id && String(row?.conversation_id || row?.provenance?.conversation_id || '') !== f.conversation_id) return false;
   if (f.role && String(row?.role || '').toLowerCase() !== f.role) return false;
+  if (f.source && rowSource(row).toLowerCase() !== f.source) return false;
   if (f.project && !rowSearchText(row).includes(f.project)) return false;
   if (f.file_type) {
     const fileTypes = attachmentFileTypes(row);
