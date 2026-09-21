@@ -12,7 +12,7 @@ import { LearningEngine } from '../learning/learning-engine.js';
 import { MentorMemoryRepository } from '../learning/mentor-memory.js';
 import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
 import { stripInternalCounters } from './chat-sanitization.js';
-import { retrieveContext } from '../core/orchestrator/conversation-context.js';
+import { retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
 import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
 import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
@@ -26,6 +26,13 @@ export function inferChatGPTHistoryCapability(text) {
   const explicit = /\b(?:chat\s*collector|collector|historique\s+chatgpt|archives?\s+chatgpt|anciennes?\s+(?:discussions?|conversations?)|dans\s+(?:nos|mes)\s+(?:discussions?|conversations?)|qu['’]est[- ]?ce\s+qu['’]on\s+avait|qu['’]est[- ]?ce\s+que\s+j['’]avais|on\s+avait\s+d[ée]cid[ée]|rappelle[- ]?moi\s+ce\s+qu['’]on)\b/i.test(value);
   if (!explicit) return null;
   return { id: 'chatgpt.history.search', input: { query: value, limit: 12 } };
+}
+
+export function isPersonalProfileRecall(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /\b(?:que sais[- ]?tu (?:de|sur) moi|ce que tu sais (?:de|sur) moi|dis[- ]?moi ce que tu sais (?:de|sur) moi|tu (?:me )?connais|qui je suis|mon profil|profil (?:personnel|complet)|a mon sujet|sur moi|ton createur|de ton createur|moi ton createur)\b/.test(normalized);
 }
 
 export function shouldRetrieveArchiveRecall(text) {
@@ -508,7 +515,11 @@ export async function handleNativeChat(request, env, options = {}) {
   await saveConversationFocusState(env, conversationId, conversationFocus);
   const conversationFocusInstruction = buildConversationFocusInstruction(recent, text, persistedFocus);
 
-  const inferredCapability = inferNativeComputerCapability(text) || inferChatGPTHistoryCapability(text) || inferKnowledgeCapability(text) || inferNativeCodeCapability(text, recent);
+  const personalProfileIntent = isPersonalProfileRecall(text);
+  const inferredCapability = inferNativeComputerCapability(text)
+    || (!personalProfileIntent ? inferChatGPTHistoryCapability(text) : null)
+    || inferKnowledgeCapability(text)
+    || inferNativeCodeCapability(text, recent);
   if (conversationFocus.needs_clarification && !body.capability?.id && !inferredCapability) {
     const responseText = 'Tu veux que je continue quoi exactement ? Je n’ai pas de référent récent ou persistant assez fiable pour choisir un chantier sans risquer de partir sur le mauvais sujet.';
     let archiveSaved = false;
@@ -563,15 +574,18 @@ export async function handleNativeChat(request, env, options = {}) {
   ]);
   const archiveRecallQuery = conversationFocus.elliptical && conversationFocus.anchor ? conversationFocus.anchor : text;
   const shouldRecallArchive = shouldRetrieveArchiveRecall(text) || conversationFocus.anchor_source === 'persisted';
-  const [cognitiveMemory, archiveRecall] = await Promise.all([
+  const [cognitiveMemory, archiveRecall, personalProfile] = await Promise.all([
     loadCognitiveMemory(env, activeInferenceSettings?.memory_results ?? 12),
-    env?.DB && shouldRecallArchive
+    env?.DB && shouldRecallArchive && !personalProfileIntent
       ? retrieveContext(env.DB, env.MELITURGOS_USER || 'owner', archiveRecallQuery).catch(() => null)
+      : Promise.resolve(null),
+    env?.DB && personalProfileIntent
+      ? retrievePersonalProfileContext(env.DB, env.MELITURGOS_USER || 'owner', { limit: 28 }).catch(() => null)
       : Promise.resolve(null),
   ]);
   const retrieved = {
-    prompt: [cognitiveMemory?.prompt, archiveRecall?.prompt].filter(Boolean).join('\n'),
-    count: Number(cognitiveMemory?.count || 0) + Number(archiveRecall?.rag?.total || 0),
+    prompt: [cognitiveMemory?.prompt, personalProfile?.prompt, archiveRecall?.prompt].filter(Boolean).join('\n'),
+    count: Number(cognitiveMemory?.count || 0) + Number(personalProfile?.total || 0) + Number(archiveRecall?.rag?.total || 0),
   };
   const manifestText = JSON.stringify(capabilityManifest);
   const operationalExperience = await loadOperationalExperience(env, text);
@@ -596,6 +610,9 @@ export async function handleNativeChat(request, env, options = {}) {
     'ACTIONS : lorsqu’un outil vient d’être exécuté, décris son résultat au passé ou au présent factuel. Ne dis pas « je vais vérifier » après avoir déjà vérifié, et ne dis pas « c’est fait » si la preuve ne montre qu’une mise en file ou un travail en cours.',
     'RECHERCHE ET DOSSIERS : knowledge.research permet de rechercher le web public, recouper la diversité des sources, classer/taguer le résultat, créer un vrai fichier Markdown durable dans D1/R2 et enregistrer une référence en mémoire. knowledge.search retrouve ces dossiers ensuite; knowledge.file.read relit le contenu et vérifie son SHA-256 avant usage. Si un TOOL_RESULT knowledge.* SUCCEEDED existe, il t’est interdit d’affirmer que tu ne peux pas rechercher, créer un fichier, mémoriser, retrouver, vérifier ou réutiliser ces informations.',
     'HISTORIQUE COLLECTOR : chatgpt.history.search recherche explicitement dans les conversations importées par le Chat Collector/archives ChatGPT. Priorité épistémique : message historique écrit par Adrien > ancienne réponse assistant non corroborée. Utilise le titre, l’ID de conversation, la provenance et la complétude pour contextualiser; une conversation partielle n’est jamais exhaustive.',
+    personalProfileIntent
+      ? 'PROFIL PERSONNEL DEMANDÉ : utilise en priorité PERSONAL PROFILE HISTORY et la mémoire cognitive pour répondre avec des faits concrets sur Adrien. Ne te contente jamais de dire qu’il est ton créateur, qu’il t’a nommée ou qu’il a des projets. Donne plusieurs faits précis et variés réellement présents dans les données récupérées (par exemple parcours, famille, activités, projets, préférences ou décisions), distingue les éléments possiblement anciens, et n’invente aucun détail absent. Si aucun fait personnel n’a été récupéré, dis explicitement que la récupération de profil n’a rien retourné au lieu de produire une biographie générique.'
+      : '',
     'INTENTION ACTIVE : le dernier message utilisateur est toujours la question ou la tâche à traiter maintenant. Les messages précédents servent seulement de contexte. Ne répète pas une réponse à une ancienne question, notamment sur l’accès au code source, sauf si le dernier message la redemande explicitement.',
     'N’utilise un TOOL_RESULT que s’il répond directement au dernier message. Si un outil a été déclenché hors sujet, ignore son contenu dans la réponse au lieu de ramener la conversation vers une ancienne question.',
     'ARCHITECTURE MEL : tu es l’application MELITURGOS, une couche d’orchestration distincte du modèle de fondation qui produit le texte. Le flux principal est interface MEL (/ ou /professor) -> Worker/router -> /api/chat -> native-chat/context-builder -> mémoire et récupération -> bus de capabilities/outils -> ModelRouter et fournisseur(s) de modèle -> réponse et archivage. Le Learning Engine exploite les corrections et preuves persistées; les benchmarks évaluent les versions et la non-régression; un LoRA activé et persisté devient prioritaire dans l’inférence courante.',
