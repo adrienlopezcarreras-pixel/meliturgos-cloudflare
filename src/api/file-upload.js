@@ -48,8 +48,17 @@ export async function handleFileUpload(request, env) {
   const mime = String(file.type || 'application/octet-stream').slice(0, 160);
   const bytes = new Uint8Array(await file.arrayBuffer());
   const sha256 = await sha256Hex(bytes);
-  const id = crypto.randomUUID();
-  const key = `uploads/${new Date().toISOString().slice(0,10)}/${id}-${name}`;
+  const source = boundedMeta(form.get('source'), 120);
+  const conversationId = boundedMeta(form.get('conversation_id'));
+  const messageId = boundedMeta(form.get('message_id'));
+  const attachmentId = boundedMeta(form.get('attachment_id'));
+  const stableAttachmentPart = attachmentId ? safeName(attachmentId).slice(0, 120) : sha256.slice(0, 32);
+  const id = source === 'chatgpt_attachment'
+    ? `chatgpt-${stableAttachmentPart}-${sha256.slice(0, 16)}`
+    : crypto.randomUUID();
+  const key = source === 'chatgpt_attachment'
+    ? `uploads/chatgpt/${stableAttachmentPart}-${sha256.slice(0, 16)}-${name}`
+    : `uploads/${new Date().toISOString().slice(0,10)}/${id}-${name}`;
   let stored = false;
 
   if (env?.MEDIA_BUCKET && typeof env.MEDIA_BUCKET.put === 'function') {
@@ -58,10 +67,6 @@ export async function handleFileUpload(request, env) {
       owner:String(env.MELITURGOS_USER || 'owner'),
       sha256,
     };
-    const source = boundedMeta(form.get('source'), 120);
-    const conversationId = boundedMeta(form.get('conversation_id'));
-    const messageId = boundedMeta(form.get('message_id'));
-    const attachmentId = boundedMeta(form.get('attachment_id'));
     if (source) customMetadata.source = source;
     if (conversationId) customMetadata.conversationId = conversationId;
     if (messageId) customMetadata.messageId = messageId;
