@@ -19,10 +19,19 @@ function parseJson(value, fallback = {}) {
   try { return JSON.parse(value); } catch { return fallback; }
 }
 
-async function archiveSearchRows(db, owner, where, patterns) {
+function attachmentList(row) {
+  const parsed = parseJson(row?.attachments_json, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function archiveSearchableText(row) {
+  return `${String(row?.content || '')} ${JSON.stringify(attachmentList(row))}`.toLowerCase();
+}
+
+async function archiveSearchRows(db, owner, where, patterns, fallbackWhere = where) {
   try {
     return (await db.prepare(`
-      SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
+      SELECT a.id,a.content,a.attachments_json,a.timestamp,a.conversation_id,a.role,
              a.provenance archive_provenance,a.metadata message_metadata,
              c.title conversation_title,c.metadata conversation_metadata,
              'archive_messages' source
@@ -34,24 +43,24 @@ async function archiveSearchRows(db, owner, where, patterns) {
     `).bind(owner, ...patterns, ARCHIVE_SCAN_LIMIT).all()).results || [];
   } catch {
     return (await db.prepare(`
-      SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
+      SELECT a.id,a.content,NULL attachments_json,a.timestamp,a.conversation_id,a.role,
              NULL archive_provenance,NULL message_metadata,
              c.title conversation_title,NULL conversation_metadata,
              'archive_messages' source
       FROM archive_messages a
       JOIN conversations c ON c.id=a.conversation_id
-      WHERE (c.owner=? OR c.owner='') AND (${where})
+      WHERE (c.owner=? OR c.owner='') AND (${fallbackWhere})
       ORDER BY a.timestamp DESC
       LIMIT ?
     `).bind(owner, ...patterns, ARCHIVE_SCAN_LIMIT).all()).results || [];
   }
 }
 
-async function collectorSearchRows(db, owner, roles, where, patterns) {
+async function collectorSearchRows(db, owner, roles, where, patterns, fallbackWhere = where) {
   const rolePlaceholders = roles.map(() => '?').join(',');
   try {
     return (await db.prepare(`
-      SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
+      SELECT a.id,a.content,a.attachments_json,a.timestamp,a.conversation_id,a.role,
              a.provenance archive_provenance,a.metadata message_metadata,
              c.title conversation_title,c.metadata conversation_metadata
       FROM archive_messages a
@@ -65,7 +74,7 @@ async function collectorSearchRows(db, owner, roles, where, patterns) {
     `).bind(owner, ...roles, ...patterns, ARCHIVE_SCAN_LIMIT).all()).results || [];
   } catch {
     return (await db.prepare(`
-      SELECT a.id,a.content,a.timestamp,a.conversation_id,a.role,
+      SELECT a.id,a.content,NULL attachments_json,a.timestamp,a.conversation_id,a.role,
              NULL archive_provenance,NULL message_metadata,
              c.title conversation_title,NULL conversation_metadata
       FROM archive_messages a
@@ -73,7 +82,7 @@ async function collectorSearchRows(db, owner, roles, where, patterns) {
       WHERE (c.owner=? OR c.owner='')
         AND a.conversation_id LIKE 'chatgpt:%'
         AND a.role IN (${rolePlaceholders})
-        AND (${where})
+        AND (${fallbackWhere})
       ORDER BY a.timestamp DESC
       LIMIT ?
     `).bind(owner, ...roles, ...patterns, ARCHIVE_SCAN_LIMIT).all()).results || [];
@@ -95,6 +104,9 @@ function archiveMetadata(row) {
     collector_partial: messageMetadata.collector_partial === true || receipt?.partial === true,
     collector_complete: receipt?.complete === true,
     chatgpt_conversation_id: messageMetadata.chatgpt_conversation_id || null,
+    attachments: attachmentList(row),
+    attachment_count: attachmentList(row).length,
+    attachment_binary_content_indexed: messageMetadata.attachment_binary_content_indexed === true,
   };
 }
 
@@ -116,8 +128,9 @@ export class RAGService {
     const rows = [];
 
     if (sources.includes('archive_messages')) {
-      const where = lexicalSql('a.content', tokens);
-      rows.push(...await archiveSearchRows(db, owner, where, patterns));
+      const attachmentWhere = lexicalSql("(COALESCE(a.content,'') || ' ' || COALESCE(a.attachments_json,''))", tokens);
+      const contentWhere = lexicalSql('a.content', tokens);
+      rows.push(...await archiveSearchRows(db, owner, attachmentWhere, patterns, contentWhere));
     }
 
     if (sources.includes('conversations')) {
@@ -159,7 +172,8 @@ export class RAGService {
 
     const results = rows
       .map(row => {
-        const similarity = tokens.filter(t => String(row.content).toLowerCase().includes(t)).length/tokens.length;
+        const searchable = row.source === 'archive_messages' ? archiveSearchableText(row) : String(row.content || '').toLowerCase();
+        const similarity = tokens.filter(t => searchable.includes(t)).length/tokens.length;
         const role = row.source === 'archive_messages' ? String(row.role || 'unknown') : null;
         const archive = row.source === 'archive_messages' ? archiveMetadata(row) : null;
         const authority = row.source === 'archive_messages'
@@ -181,6 +195,7 @@ export class RAGService {
             : row.source === 'archive_messages'
               ? {table:row.source,id:row.id,...archive}
               : {table:row.source,id:row.id},
+          attachments: row.source === 'archive_messages' ? (archive?.attachments || []) : [],
           role,
           authority,
           retrieval:'lexical'
@@ -200,12 +215,13 @@ export class RAGService {
 
     const tokens = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || [])].slice(0,32);
     if (!tokens.length) return { results: [], total: 0, retrieval: 'collector-lexical' };
-    const where = lexicalSql('a.content', tokens);
+    const where = lexicalSql("(COALESCE(a.content,'') || ' ' || COALESCE(a.attachments_json,''))", tokens);
+    const fallbackWhere = lexicalSql('a.content', tokens);
     const patterns = lexicalBindings(tokens);
-    const rows = await collectorSearchRows(db, owner, roles, where, patterns);
+    const rows = await collectorSearchRows(db, owner, roles, where, patterns, fallbackWhere);
 
     const results = rows.map(row => {
-      const similarity = tokens.filter(t => String(row.content || '').toLowerCase().includes(t)).length / tokens.length;
+      const similarity = tokens.filter(t => archiveSearchableText(row).includes(t)).length / tokens.length;
       const archive = archiveMetadata(row);
       const role = String(row.role || 'unknown');
       const authority = role === 'user' ? 'historical_user_message' : 'historical_assistant_output';
@@ -219,6 +235,7 @@ export class RAGService {
         timestamp: Number(row.timestamp || 0),
         conversation_id: row.conversation_id,
         conversation_title: row.conversation_title || null,
+        attachments: archive.attachments || [],
         role,
         authority,
         similarity,

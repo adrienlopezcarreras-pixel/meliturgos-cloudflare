@@ -181,3 +181,46 @@ test('authenticated collector coverage endpoint persists a bounded coverage proo
     assert.equal(response.status,200);const body=await response.json();assert.equal(body.ok,true);assert.equal(body.deep_discovery_done,true);assert.equal(body.discovered_count,1);
   } finally { DB.close(); }
 });
+
+
+test('attachment-only ChatGPT messages are preserved with bounded searchable descriptors', async () => {
+  const DB=sqliteD1();
+  try {
+    const env={DB,MELITURGOS_USER:'adrien'};
+    const archive=[{
+      id:'attachment-only',
+      title:'Pièce jointe',
+      mapping:{
+        n1:{id:'n1',parent:null,message:{
+          id:'file-msg',
+          author:{role:'user'},
+          create_time:1700000100,
+          content:{parts:[]},
+          metadata:{attachments:[{id:'file-1',name:'plan-ultraviolet.pdf',mime_type:'application/pdf',size_bytes:1234}]}
+        }}
+      }
+    }];
+    const normalized=normalizeChatGPTArchive(archive);
+    assert.equal(normalized.summary.messages,1);
+    assert.equal(normalized.conversations[0].messages[0].content,'');
+    assert.equal(normalized.conversations[0].messages[0].attachments.length,1);
+    assert.equal(normalized.conversations[0].messages[0].attachments[0].name,'plan-ultraviolet.pdf');
+
+    const result=await importChatGPTArchive(env,archive,{preview:false});
+    assert.equal(result.inserted,1);
+    const row=await DB.prepare("SELECT content,attachments_json,metadata FROM archive_messages WHERE id=?").bind('chatgpt:attachment-only:file-msg').first();
+    assert.equal(row.content,'');
+    const attachments=JSON.parse(row.attachments_json);
+    assert.equal(attachments.length,1);
+    assert.equal(attachments[0].mime_type,'application/pdf');
+    assert.equal(attachments[0].binary_content_indexed,false);
+    const metadata=JSON.parse(row.metadata);
+    assert.equal(metadata.attachment_count,1);
+
+    const status=await getChatGPTImportStatus(env);
+    assert.equal(status.attachment_index.messages_with_attachments,1);
+    assert.equal(status.attachment_index.descriptors,1);
+    assert.equal(status.attachment_index.metadata_searchable,true);
+    assert.equal(status.attachment_index.binary_content_indexed,false);
+  } finally { DB.close(); }
+});

@@ -4,6 +4,8 @@ import { createSyncService } from '../conversations/sync-service.js';
 const MAX_CONVERSATIONS = 1000;
 const MAX_MESSAGES = 100000;
 const MAX_MESSAGE_CHARS = 200000;
+const MAX_ATTACHMENTS_PER_MESSAGE = 32;
+const MAX_ATTACHMENT_FIELD_CHARS = 1000;
 const MAX_COVERAGE_ITEMS = 25000;
 const COVERAGE_STATUSES = new Set(['DONE','PARTIAL','FAILED','UNAVAILABLE','DEFERRED','QUEUED']);
 
@@ -155,6 +157,67 @@ function messageText(message) {
   return '';
 }
 
+function boundedAttachmentString(value, max = MAX_ATTACHMENT_FIELD_CHARS) {
+  const text = String(value ?? '').trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function normalizeAttachmentDescriptor(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const metadata = value.metadata && typeof value.metadata === 'object' ? value.metadata : {};
+  const id = boundedAttachmentString(
+    value.id ?? value.file_id ?? value.fileId ?? value.asset_pointer ?? value.assetPointer
+      ?? metadata.id ?? metadata.file_id ?? metadata.asset_pointer
+  );
+  const name = boundedAttachmentString(
+    value.name ?? value.filename ?? value.file_name ?? value.fileName ?? value.title
+      ?? metadata.name ?? metadata.filename ?? metadata.file_name
+  );
+  const mimeType = boundedAttachmentString(
+    value.mime_type ?? value.mimeType ?? value.content_type ?? value.contentType
+      ?? metadata.mime_type ?? metadata.content_type
+  , 240);
+  const kind = boundedAttachmentString(value.type ?? value.kind ?? metadata.type ?? metadata.kind, 120);
+  const sizeRaw = Number(value.size_bytes ?? value.size ?? metadata.size_bytes ?? metadata.size);
+  const widthRaw = Number(value.width ?? metadata.width);
+  const heightRaw = Number(value.height ?? metadata.height);
+  if (!id && !name && !mimeType && !kind) return null;
+  return {
+    id,
+    name,
+    mime_type: mimeType,
+    kind,
+    size_bytes: Number.isFinite(sizeRaw) && sizeRaw >= 0 ? Math.trunc(sizeRaw) : null,
+    width: Number.isFinite(widthRaw) && widthRaw > 0 ? Math.trunc(widthRaw) : null,
+    height: Number.isFinite(heightRaw) && heightRaw > 0 ? Math.trunc(heightRaw) : null,
+    binary_content_indexed: false,
+  };
+}
+
+function messageAttachments(message) {
+  const content = message?.content && typeof message.content === 'object' ? message.content : {};
+  const candidates = [
+    ...(Array.isArray(message?.attachments) ? message.attachments : []),
+    ...(Array.isArray(message?.metadata?.attachments) ? message.metadata.attachments : []),
+    ...(Array.isArray(content?.attachments) ? content.attachments : []),
+  ];
+  for (const part of Array.isArray(content?.parts) ? content.parts : []) {
+    if (part && typeof part === 'object' && !Array.isArray(part)) candidates.push(part);
+  }
+  const out = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const normalized = normalizeAttachmentDescriptor(candidate);
+    if (!normalized) continue;
+    const key = JSON.stringify(normalized);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+    if (out.length >= MAX_ATTACHMENTS_PER_MESSAGE) break;
+  }
+  return out;
+}
+
 function normalizeRole(role) {
   const value = String(role || '').toLowerCase();
   if (['user', 'assistant', 'system', 'tool'].includes(value)) return value;
@@ -175,7 +238,8 @@ function flattenMapping(conversation, conversationIndex) {
     const message = node?.message;
     if (!message) continue;
     const text = messageText(message);
-    if (!text) continue;
+    const attachments = messageAttachments(message);
+    if (!text && !attachments.length) continue;
     const role = normalizeRole(message?.author?.role);
     const ts = timestampMs(message?.create_time ?? conversation?.create_time, Date.now() + conversationIndex);
     rows.push({
@@ -183,6 +247,7 @@ function flattenMapping(conversation, conversationIndex) {
       messageId: String(message.id || nodeId),
       role,
       content: text.slice(0, MAX_MESSAGE_CHARS),
+      attachments,
       timestamp: ts,
       parent: node?.parent || null,
       metadata: {
@@ -203,16 +268,18 @@ function flattenLinearConversation(conversation, conversationIndex) {
   if (!Array.isArray(source)) return [];
   return source.map((message, index) => {
     const text = messageText(message);
+    const attachments = messageAttachments(message);
     return {
       nodeId: String(message?.id || index),
       messageId: String(message?.id || index),
       role: normalizeRole(message?.role || message?.author?.role),
       content: text.slice(0, MAX_MESSAGE_CHARS),
+      attachments,
       timestamp: timestampMs(message?.create_time ?? message?.timestamp ?? conversation?.create_time, Date.now() + conversationIndex + index),
       parent: null,
-      metadata: { chatgpt_message_id: message?.id || null, truncated: text.length > MAX_MESSAGE_CHARS }
+      metadata: { chatgpt_message_id: message?.id || null, truncated: text.length > MAX_MESSAGE_CHARS, attachment_count: attachments.length }
     };
-  }).filter(x => x.content);
+  }).filter(x => x.content || x.attachments.length);
 }
 
 function collectorReceipt(raw, messages) {
@@ -331,6 +398,7 @@ export async function importChatGPTArchive(env, payload, { preview = false } = {
           conversationId: conversation.id,
           role: message.role,
           content: message.content,
+          attachments: message.attachments?.length ? message.attachments : null,
           timestamp: message.timestamp,
           provenance: 'chatgpt_export',
           metadata: {
@@ -338,6 +406,8 @@ export async function importChatGPTArchive(env, payload, { preview = false } = {
             chatgpt_conversation_id: conversation.sourceId,
             chatgpt_conversation_title: conversation.title,
             source_type: 'chatgpt_export',
+            attachment_count: message.attachments?.length || 0,
+            attachment_binary_content_indexed: false,
             collector_source: conversation.collector?.source || null,
             collector_version: conversation.collector?.version || null,
             collector_partial: conversation.collector?.partial === true,
@@ -408,6 +478,7 @@ export async function getChatGPTImportStatus(env) {
       server_archive_complete: false,
       collector_inventory_confirmed: false,
       collector_inventory: null,
+      attachment_index: { messages_with_attachments: 0, descriptors: 0, metadata_searchable: false, binary_content_indexed: false },
       full_archive_confirmed: false,
       last_received: null
     };
@@ -416,7 +487,7 @@ export async function getChatGPTImportStatus(env) {
   const service = createConversationService(env);
   await service.migrate();
 
-  const [conversations, messages, userMessages, assistantMessages, memoryCandidates, pendingCandidates, unsyncedMessages] = await Promise.all([
+  const [conversations, messages, userMessages, assistantMessages, memoryCandidates, pendingCandidates, unsyncedMessages, attachmentMessages, attachmentDescriptors] = await Promise.all([
     scalar(env.DB, "SELECT COUNT(DISTINCT conversation_id) AS count FROM archive_messages WHERE provenance='chatgpt_export'"),
     scalar(env.DB, "SELECT COUNT(*) AS count FROM archive_messages WHERE provenance='chatgpt_export'"),
     scalar(env.DB, "SELECT COUNT(*) AS count FROM archive_messages WHERE provenance='chatgpt_export' AND role='user'"),
@@ -429,7 +500,16 @@ export async function getChatGPTImportStatus(env) {
         AND NOT EXISTS (
           SELECT 1 FROM memory_candidates c
           WHERE c.conversation_id=a.conversation_id AND c.message_id=a.id
-        )`)
+        )`),
+    scalar(env.DB, `SELECT COUNT(*) AS count FROM archive_messages
+      WHERE provenance='chatgpt_export'
+        AND attachments_json IS NOT NULL
+        AND json_valid(attachments_json)
+        AND json_array_length(attachments_json)>0`),
+    scalar(env.DB, `SELECT COALESCE(SUM(json_array_length(attachments_json)),0) AS count FROM archive_messages
+      WHERE provenance='chatgpt_export'
+        AND attachments_json IS NOT NULL
+        AND json_valid(attachments_json)`)
   ]);
 
   const [receiptAggregate, coverageManifest, storedConversationRows] = await Promise.all([
@@ -488,6 +568,12 @@ export async function getChatGPTImportStatus(env) {
     pending_memory_candidates: pendingCandidates,
     unsynced_messages: unsyncedMessages,
     memory_sync_complete: messages > 0 && unsyncedMessages === 0,
+    attachment_index: {
+      messages_with_attachments: attachmentMessages,
+      descriptors: attachmentDescriptors,
+      metadata_searchable: true,
+      binary_content_indexed: false,
+    },
     tracked_conversations: trackedConversations,
     complete_conversations: completeConversations,
     partial_conversations: partialConversations,

@@ -55,3 +55,31 @@ test('collector-aware RAG preserves provenance and prioritizes user-authored his
     assert.equal(out.results[0].provenance.collector_complete,true);
   } finally { DB.close(); }
 });
+
+
+test('collector RAG finds attachment metadata even when the message has no text', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    await importChatGPTArchive({DB,MELITURGOS_USER:'adrien'}, [{
+      id:'collector-file-rag',
+      title:'Fichier de référence',
+      collector:{source:'firefox_dom',version:'0.6.2',partial:false,totalMessages:1},
+      messages:[{
+        id:'file-only',
+        role:'user',
+        content:'',
+        timestamp:22,
+        attachments:[{id:'asset-77',name:'plan-ultraviolet.pdf',mime_type:'application/pdf',size_bytes:2048}],
+      }],
+    }], {preview:false});
+    const out=await RAGService.searchCollector(DB,'adrien','ultraviolet',{limit:10});
+    assert.equal(out.total,1);
+    assert.equal(out.results[0].id,'chatgpt:collector-file-rag:file-only');
+    assert.equal(out.results[0].content,'');
+    assert.equal(out.results[0].attachments.length,1);
+    assert.equal(out.results[0].attachments[0].name,'plan-ultraviolet.pdf');
+    assert.equal(out.results[0].provenance.attachment_count,1);
+    assert.equal(out.results[0].provenance.attachment_binary_content_indexed,false);
+  } finally { DB.close(); }
+});
