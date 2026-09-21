@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import worker from '../src/index.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { importChatGPTArchive } from '../src/persistence/chatgpt-archive-importer.js';
+import { retrievePersonalProfileContext } from '../src/core/orchestrator/conversation-context.js';
 
 const auth = 'Basic ' + btoa('test:test-only');
 function request(text, conversation_id='memory-test') {
@@ -123,5 +124,28 @@ test('personal profile question injects cross-conversation user-authored facts i
     assert.match(body.text,/Orion-fixture/);
     assert.doesNotMatch(body.text,/château-fixture/);
     assert.equal(body.response_grounding?.mode,'deterministic-personal-profile');
+  } finally { DB.close(); }
+});
+
+
+test('personal profile retrieval reaches beyond a 900-message recency window', async () => {
+  const DB = sqliteD1();
+  try {
+    await DB.prepare("CREATE TABLE conversations (id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '', metadata TEXT, updated_at INTEGER NOT NULL)").run();
+    await DB.prepare("CREATE TABLE archive_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', content TEXT NOT NULL, attachments_json TEXT, timestamp INTEGER NOT NULL, provenance TEXT, metadata TEXT)").run();
+    await DB.prepare("INSERT INTO conversations VALUES (?,?,?,?,?)").bind('chatgpt:deep-profile','test','Profil ancien',null,1).run();
+    await DB.prepare("INSERT INTO archive_messages VALUES (?,?,?,?,?,?,?,?)")
+      .bind('old-profile','chatgpt:deep-profile','user','Je suis relieur-fixture et ce métier ancien fait partie de mon parcours.',null,1,'chatgpt_export',null)
+      .run();
+
+    for (let i=0;i<930;i++) {
+      await DB.prepare("INSERT INTO archive_messages VALUES (?,?,?,?,?,?,?,?)")
+        .bind('noise-'+i,'chatgpt:deep-profile','user','contenu récent sans donnée personnelle stable '+i,null,1000+i,'chatgpt_export',null)
+        .run();
+    }
+
+    const profile=await retrievePersonalProfileContext(DB,'test',{limit:20});
+    assert.ok(profile.total>0);
+    assert.match(profile.prompt,/relieur-fixture/);
   } finally { DB.close(); }
 });
