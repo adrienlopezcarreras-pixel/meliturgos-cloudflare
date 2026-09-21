@@ -42,11 +42,16 @@ test('ambiguous short follow-ups stay anchored to recent conversation instead of
 });
 
 
-test('personal profile recall recognizes natural creator/about-me questions including the observed wording', () => {
+test('personal profile recall recognizes natural creator/about-me questions including observed wordings', () => {
   const observed='tu as reçu tous les messages du collecteur, tu sais maintenant qui je suis ce que je fais, tu peux me dire quoi sur moi ton créateur ?';
+  const observedDetailed="comment je m'appelle où je vis comment sont mes enfants, qu'est ce que j'aime dans la vie, quels ont été mes métiers ?";
   assert.equal(isPersonalProfileRecall(observed), true);
+  assert.equal(isPersonalProfileRecall(observedDetailed), true);
   assert.equal(isPersonalProfileRecall('Que sais-tu de moi ?'), true);
   assert.equal(isPersonalProfileRecall('Tu me connais maintenant ?'), true);
   assert.equal(isPersonalProfileRecall('Fais-moi mon profil complet'), true);
+  assert.equal(isPersonalProfileRecall("Où j'habite ?"), true);
+  assert.equal(isPersonalProfileRecall('Quels ont été mes métiers ?'), true);
+  assert.equal(isPersonalProfileRecall('Ma femme est rentrée à la maison.'), false);
   assert.equal(isPersonalProfileRecall('Vérifie ton code source'), false);
 });
