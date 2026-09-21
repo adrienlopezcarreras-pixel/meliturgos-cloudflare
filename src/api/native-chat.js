@@ -12,7 +12,7 @@ import { LearningEngine } from '../learning/learning-engine.js';
 import { MentorMemoryRepository } from '../learning/mentor-memory.js';
 import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
 import { stripInternalCounters } from './chat-sanitization.js';
-import { retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
+import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
 import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
 import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
@@ -587,6 +587,9 @@ export async function handleNativeChat(request, env, options = {}) {
     prompt: [cognitiveMemory?.prompt, personalProfile?.prompt, archiveRecall?.prompt].filter(Boolean).join('\n'),
     count: Number(cognitiveMemory?.count || 0) + Number(personalProfile?.total || 0) + Number(archiveRecall?.rag?.total || 0),
   };
+  const deterministicPersonalProfile = personalProfileIntent
+    ? formatPersonalProfileRecall(personalProfile, { maxFacts: 10 })
+    : '';
   const manifestText = JSON.stringify(capabilityManifest);
   const operationalExperience = await loadOperationalExperience(env, text);
   const codeAccess = codeAccessTruth(capabilityManifest);
@@ -679,17 +682,18 @@ export async function handleNativeChat(request, env, options = {}) {
     toolResults,
     recent,
   });
-  const responseText = enforceResponseQuality({
+  const qualityGuardedResponseText = enforceResponseQuality({
     responseText: evidenceAlignedResponseText,
     userText: text,
     focus: conversationFocus,
     assessment: initialQualityAssessment,
   });
+  const responseText = deterministicPersonalProfile || qualityGuardedResponseText;
   const responseGuarded = responseText !== evidenceAlignedResponseText;
   const qualityEventSaved = await persistResponseQualityEvent(env, {
     conversationId,
     userText: text,
-    responseText: evidenceAlignedResponseText,
+    responseText,
     focus: conversationFocus,
     assessment: initialQualityAssessment,
   });
@@ -715,8 +719,10 @@ export async function handleNativeChat(request, env, options = {}) {
     cache_hit: ai.cache_hit === true,
     finish_reason: ai.finish_reason || null,
     response_truncated: ai.truncated === true,
-    response_grounding: communicationAuditObserved
-      ? { mode: 'deterministic-communication-audit', source: 'conversation.audit', observed_at: communicationAuditObserved.audited_at || null }
+    response_grounding: deterministicPersonalProfile
+      ? { mode: 'deterministic-personal-profile', source: 'archive_messages:user', fact_count: Number(personalProfile?.total || 0) }
+      : communicationAuditObserved
+        ? { mode: 'deterministic-communication-audit', source: 'conversation.audit', observed_at: communicationAuditObserved.audited_at || null }
       : capabilityAuditObserved
         ? { mode: 'deterministic-capability-audit', source: 'capability.audit', observed_at: null }
         : selfStateObserved
