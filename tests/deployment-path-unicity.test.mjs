@@ -36,6 +36,7 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /test "\$RELEASE_SHA" = "\$EXPECTED_SHA"/);
   assert.match(source, /git fetch origin main --depth=1/);
   assert.match(source, /test "\$SOURCE_SHA" = "\$EXPECTED_SHA"/);
+  assert.match(source, /for attempt in \$\(seq 1 20\); do/);
   assert.match(source, /MEL_DEPLOYED_GIT_SHA/);
   assert.match(source, /MEL_DEPLOYED_GIT_BRANCH/);
 });
