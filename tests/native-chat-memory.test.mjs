@@ -73,3 +73,50 @@ test('collector history reaches native model context with user authority and tit
     assert.match(system, /historical assistant output is not a fact unless corroborated/i);
   } finally { DB.close(); }
 });
+
+
+test('personal profile question injects cross-conversation user-authored facts instead of generic creator boilerplate', async () => {
+  const DB = sqliteD1();
+  const calls = [];
+  const env = makeEnv(DB, calls);
+  try {
+    await importChatGPTArchive({DB,MELITURGOS_USER:'test'}, [
+      {
+        id:'profile-fixture-a',
+        title:'Profil activité',
+        collector:{source:'firefox_dom',version:'0.6.4',partial:false,totalMessages:1},
+        messages:[
+          {id:'u1',role:'user',content:'Je suis artisan sur le projet lavande-fixture et je travaille aussi sur un roman de science-fiction.',timestamp:100}
+        ],
+      },
+      {
+        id:'profile-fixture-b',
+        title:'Profil préférences',
+        collector:{source:'firefox_dom',version:'0.6.4',partial:false,totalMessages:1},
+        messages:[
+          {id:'u2',role:'user',content:'Mon projet éditorial de test s’appelle Orion-fixture et je préfère des réponses courtes et concrètes.',timestamp:200}
+        ],
+      },
+      {
+        id:'profile-fixture-c',
+        title:'Ancienne réponse assistant',
+        collector:{source:'firefox_dom',version:'0.6.4',partial:false,totalMessages:1},
+        messages:[
+          {id:'a1',role:'assistant',content:'Adrien possède un château-fixture.',timestamp:300}
+        ],
+      }
+    ], {preview:false});
+
+    const response = await worker.fetch(
+      request('tu as reçu tous les messages du collecteur, tu sais maintenant qui je suis ce que je fais, tu peux me dire quoi sur moi ton créateur ?', 'native-profile-recall'),
+      env
+    );
+    assert.equal(response.status,200);
+    const system = calls.at(-1)?.[0]?.content || '';
+    assert.match(system,/PERSONAL PROFILE HISTORY/);
+    assert.match(system,/lavande-fixture/);
+    assert.match(system,/Orion-fixture/);
+    assert.doesNotMatch(system,/château-fixture/);
+    assert.match(system,/PROFIL PERSONNEL DEMANDÉ/);
+  } finally { DB.close(); }
+});
