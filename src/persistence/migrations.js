@@ -252,6 +252,22 @@ export const MIGRATIONS = [
       received_at INTEGER NOT NULL
     )`).run();
   }},
+  { version: 12, name: 'memory_candidate_provenance', run: async db => {
+    const columns = [
+      [`ALTER TABLE memory_candidates ADD COLUMN provenance_json TEXT NOT NULL DEFAULT '{}'`, 'provenance_json'],
+      [`ALTER TABLE memory_candidates ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'`, 'metadata_json'],
+      [`ALTER TABLE memory_candidates ADD COLUMN observed_at INTEGER`, 'observed_at'],
+      [`ALTER TABLE memory_candidates ADD COLUMN fragment TEXT NOT NULL DEFAULT ''`, 'fragment'],
+      [`ALTER TABLE memory_candidates ADD COLUMN contradictions_json TEXT NOT NULL DEFAULT '[]'`, 'contradictions_json'],
+    ];
+    for (const [sql, column] of columns) {
+      try { await db.prepare(sql).run(); }
+      catch (error) {
+        const message = String(error?.message || '');
+        if (!/duplicate column name/i.test(message) && !message.includes(column)) throw error;
+      }
+    }
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
