@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-21.7';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-21.8';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -155,7 +155,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-45', 'Audit log', 'DONE', 'Persistance et corrélation de toutes les actions sensibles', 'P0'),
     item('GEN2-46', 'Secrets / authentification', 'PARTIAL', 'Étendre les auth gates robustes à toutes les surfaces sensibles', 'P0'),
     item('MEL-SEC-01', 'Prompt-injection firewall outils/RAG', 'PARTIAL', 'Étiqueter données vs instructions partout', 'P0'),
-    item('MEL-SEC-02', 'Permissions par capacité', 'PARTIAL', 'Enforcement systématique', 'P0'),
+    item('MEL-SEC-02', 'Permissions par capacité', 'DONE_VERIFIED', 'Enforcement centralisé dans CapabilityBus: owner requis, permissions déclarées obligatoires, enable/disable protégé par capabilities.manage, validation entrée/sortie et audit. Syntaxe + preuves ciblées Actions 35640484204.', 'P0'),
     item('MEL-SEC-03', 'Supply-chain / dépendances / CI', 'PARTIAL', 'SBOM et dépendances runtime fail-closed', 'P1'),
     item('MEL-SEC-04', 'Owner shutdown always wins', 'DONE_VERIFIED', 'Conserver invariant dans toutes les évolutions', 'P0'),
     item('MEL-SEC-05', 'Pas de réplication cachée ni récolte de secrets', 'DONE_VERIFIED', 'Conserver tests de sécurité', 'P0')
