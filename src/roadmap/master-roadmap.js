@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-21.3';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-21.4';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -60,7 +60,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-MEM-01', 'Memory Compiler: faits, préférences, décisions, compétences', 'DONE_VERIFIED', 'Maintenir la déduplication canonique, la confiance sans boost de répétition et la provenance; memory.consolidate reste lecture/proposition uniquement', 'P0'),
     item('MEL-MEM-02', 'Synchronisation continue des nouveaux échanges vers la mémoire', 'PLANNED', 'Créer pipeline incrémental idempotent', 'P1'),
     item('MEL-MEM-03', 'Export mémoire portable et lisible', 'PARTIAL', 'Ajouter manifeste, checksums et version de schéma', 'P1'),
-    item('MEL-MEM-04', 'Complétude des archives ChatGPT récupérables', 'IN_PROGRESS', 'Preuve fail-closed implémentée: reçus serveur exhaustifs + manifeste de couverture Collector 0.6.2; valider un inventaire profond réel en production avant DONE_VERIFIED', 'P0'),
+    item('MEL-MEM-04', 'Complétude des archives ChatGPT récupérables', 'IN_PROGRESS', 'Preuve fail-closed renforcée: agrégat exhaustif sans plafond 2 000, reçu obligatoire par conversation, stocké >= attendu, inventaire Collector bidirectionnel et régression >2 000 validée; reste à obtenir full_archive_confirmed=true sur un inventaire profond réel avant DONE_VERIFIED', 'P0'),
     item('MEL-MEM-05', 'Indexation complète messages et pièces jointes', 'IN_PROGRESS', 'Messages fichier-seul et métadonnées de pièces jointes conservés/recherchables; prochaine étape: backfill idempotent des archives existantes et indexation du contenu binaire quand les octets sont réellement disponibles', 'P0'),
     item('MEL-MEM-06', 'Pont archives vers mémoire opérationnelle unifiée', 'PLANNED', 'Brancher l’index complet à MemoryService/RAG afin que MEL décide elle-même quand consulter les archives sans injecter tout le corpus dans chaque contexte', 'P0'),
     item('MEL-MEM-07', 'Recherche mémoire hybride sémantique, exacte et filtrable', 'PLANNED', 'Ajouter recherche sémantique + exacte avec filtres date, projet, conversation, source et type de fichier, avec fusion/reranking des résultats', 'P0'),

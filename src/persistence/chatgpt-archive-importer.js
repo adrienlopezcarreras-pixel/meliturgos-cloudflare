@@ -528,21 +528,38 @@ export async function getChatGPTImportStatus(env) {
   const storedById = new Map(storedConversationRows.map(row => [String(row.conversation_id || '').replace(/^chatgpt:/, ''), Number(row.stored_messages || 0)]));
   const coverageItems = coverageManifest?.items || [];
   const coverageCounts = { DONE:0, PARTIAL:0, FAILED:0, UNAVAILABLE:0, DEFERRED:0, QUEUED:0 };
+  const coverageById = new Map();
   let missingDoneFromArchive = 0, underfilledDone = 0;
   for (const item of coverageItems) {
     const itemStatus = String(item?.status || '').toUpperCase();
+    const itemId = String(item?.id || '');
+    if (itemId) coverageById.set(itemId, item);
     if (Object.prototype.hasOwnProperty.call(coverageCounts, itemStatus)) coverageCounts[itemStatus]++;
     if (itemStatus === 'DONE') {
-      const stored = storedById.get(String(item.id || ''));
+      const stored = storedById.get(itemId);
       if (stored == null) missingDoneFromArchive++;
       else if (stored < Math.max(0, Number(item.messages || 0))) underfilledDone++;
     }
   }
+
+  let archivedMissingFromInventory = 0;
+  for (const archivedId of storedById.keys()) {
+    const inventoryItem = coverageById.get(archivedId);
+    if (!inventoryItem || String(inventoryItem.status || '').toUpperCase() !== 'DONE') {
+      archivedMissingFromInventory++;
+    }
+  }
+
   const unresolvedRecoverable = coverageCounts.PARTIAL + coverageCounts.FAILED + coverageCounts.DEFERRED + coverageCounts.QUEUED;
   const inventoryReported = coverageManifest != null;
+  const archivedCountMatchesDone = receiptAggregate.archived_conversations === coverageCounts.DONE;
   const inventoryConfirmed = Boolean(coverageManifest?.deep_discovery_done === true
     && coverageManifest.discovered_count === coverageItems.length
-    && unresolvedRecoverable === 0 && missingDoneFromArchive === 0 && underfilledDone === 0);
+    && unresolvedRecoverable === 0
+    && missingDoneFromArchive === 0
+    && underfilledDone === 0
+    && archivedMissingFromInventory === 0
+    && archivedCountMatchesDone);
   const fullArchiveConfirmed = serverArchiveComplete && inventoryConfirmed;
 
   let lastReceived = null;
@@ -592,6 +609,8 @@ export async function getChatGPTImportStatus(env) {
       unresolved_recoverable: unresolvedRecoverable,
       missing_done_from_archive: missingDoneFromArchive,
       underfilled_done: underfilledDone,
+      archived_missing_from_inventory: archivedMissingFromInventory,
+      done_archived_count_match: archivedCountMatchesDone,
       counts: coverageCounts,
       manifest_sha256: coverageManifest.manifest_sha256,
       captured_at: coverageManifest.captured_at,

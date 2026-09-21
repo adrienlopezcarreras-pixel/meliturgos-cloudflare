@@ -224,3 +224,100 @@ test('attachment-only ChatGPT messages are preserved with bounded searchable des
     assert.equal(status.attachment_index.binary_content_indexed,false);
   } finally { DB.close(); }
 });
+
+
+test('completeness proof scans beyond 2000 archived conversations and requires a receipt for every one', async () => {
+  const DB = sqliteD1();
+  try {
+    const env = { DB, MELITURGOS_USER: 'adrien' };
+    const items = Array.from({ length: 2001 }, (_, index) => ({
+      id: `bulk-${index + 1}`,
+      status: 'DONE',
+      messages: 1,
+    }));
+    await recordChatGPTCollectorCoverage(env, {
+      collector_version: '0.6.5',
+      deep_discovery_done: true,
+      discovered_count: items.length,
+      items,
+    });
+
+    await DB.prepare(`WITH RECURSIVE seq(n) AS (
+        SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 2001
+      )
+      INSERT INTO conversations(id,owner,title,metadata,created_at,updated_at)
+      SELECT 'chatgpt:bulk-' || n, 'adrien', 'Bulk ' || n,
+        '{"chatgpt_import":{"complete":true,"partial":false,"expected_messages":1}}',
+        1, 1 FROM seq`).run();
+
+    await DB.prepare(`WITH RECURSIVE seq(n) AS (
+        SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 2001
+      )
+      INSERT INTO archive_messages(id,conversation_id,role,content,timestamp,provenance,metadata)
+      SELECT 'bulk-message-' || n, 'chatgpt:bulk-' || n, 'user', 'message ' || n, n, 'chatgpt_export', '{}'
+      FROM seq`).run();
+
+    let status = await getChatGPTImportStatus(env);
+    assert.equal(status.tracked_conversations, 2001);
+    assert.equal(status.complete_conversations, 2001);
+    assert.equal(status.unknown_completeness, 0);
+    assert.equal(status.collector_inventory.archived_missing_from_inventory, 0);
+    assert.equal(status.collector_inventory.done_archived_count_match, true);
+    assert.equal(status.full_archive_confirmed, true);
+
+    await DB.prepare("UPDATE conversations SET metadata='{}' WHERE id='chatgpt:bulk-2001'").run();
+    status = await getChatGPTImportStatus(env);
+    assert.equal(status.tracked_conversations, 2000);
+    assert.equal(status.unknown_completeness, 1);
+    assert.equal(status.server_archive_complete, false);
+    assert.equal(status.full_archive_confirmed, false);
+  } finally { DB.close(); }
+});
+
+test('server completeness requires stored message count to reach each receipt expected count', async () => {
+  const DB = sqliteD1();
+  try {
+    const env = { DB, MELITURGOS_USER: 'adrien' };
+    await recordChatGPTCollectorCoverage(env, {
+      collector_version: '0.6.5',
+      deep_discovery_done: true,
+      discovered_count: 1,
+      items: [{ id: 'underfilled-receipt', status: 'DONE', messages: 1 }],
+    });
+    await DB.prepare(`INSERT INTO conversations(id,owner,title,metadata,created_at,updated_at)
+      VALUES ('chatgpt:underfilled-receipt','adrien','Underfilled',
+      '{"chatgpt_import":{"complete":true,"partial":false,"expected_messages":2}}',1,1)`).run();
+    await DB.prepare(`INSERT INTO archive_messages(id,conversation_id,role,content,timestamp,provenance,metadata)
+      VALUES ('underfilled-message','chatgpt:underfilled-receipt','user','only one',1,'chatgpt_export','{}')`).run();
+
+    const status = await getChatGPTImportStatus(env);
+    assert.equal(status.underfilled_conversations, 1);
+    assert.equal(status.missing_expected_messages, 1);
+    assert.equal(status.server_archive_complete, false);
+    assert.equal(status.full_archive_confirmed, false);
+  } finally { DB.close(); }
+});
+
+test('collector inventory cannot omit an already archived conversation', async () => {
+  const DB = sqliteD1();
+  try {
+    const env = { DB, MELITURGOS_USER: 'adrien' };
+    await importChatGPTArchive(env, [
+      { id:'inventory-a', title:'A', collector:{source:'firefox_dom',version:'0.6.5',partial:false,totalMessages:1}, messages:[{id:'m1',role:'user',content:'A',timestamp:1}] },
+      { id:'inventory-b', title:'B', collector:{source:'firefox_dom',version:'0.6.5',partial:false,totalMessages:1}, messages:[{id:'m1',role:'user',content:'B',timestamp:2}] },
+    ], { preview:false });
+    await recordChatGPTCollectorCoverage(env, {
+      collector_version: '0.6.5',
+      deep_discovery_done: true,
+      discovered_count: 1,
+      items: [{ id:'inventory-a', status:'DONE', messages:1 }],
+    });
+
+    const status = await getChatGPTImportStatus(env);
+    assert.equal(status.server_archive_complete, true);
+    assert.equal(status.collector_inventory.archived_missing_from_inventory, 1);
+    assert.equal(status.collector_inventory.done_archived_count_match, false);
+    assert.equal(status.collector_inventory_confirmed, false);
+    assert.equal(status.full_archive_confirmed, false);
+  } finally { DB.close(); }
+});
