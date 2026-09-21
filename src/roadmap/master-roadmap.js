@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-21.5';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-21.6';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -64,7 +64,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-MEM-05', 'Indexation complète messages et pièces jointes', 'IN_PROGRESS', 'Messages fichier-seul et métadonnées de pièces jointes conservés/recherchables; prochaine étape: backfill idempotent des archives existantes et indexation du contenu binaire quand les octets sont réellement disponibles', 'P0'),
     item('MEL-MEM-06', 'Pont archives vers mémoire opérationnelle unifiée', 'DONE_VERIFIED', 'MemoryService.retrieve unifie mémoire cognitive, archives ChatGPT, titres de conversations et knowledge artifacts via RAG avec provenance et déduplication; conversation-context passe par ce pont et n’injecte qu’un top-k borné. Full CI + preview complet + reconstruction/stress/launch readiness validés sur e24404c1 (rerun attempt 2).', 'P0'),
     item('MEL-MEM-07', 'Recherche mémoire hybride sémantique, exacte et filtrable', 'IN_PROGRESS', 'Recherche exacte + lexicale, filtres date/projet/conversation/source/rôle/type de fichier, fusion/déduplication et reranking hybrides implémentés et exposés via memory.retrieve; provider BGE-M3 optionnel branché mais fail-closed derrière une provenance zéro-euro vérifiée. Reste à fournir cette preuve gratuite puis valider le chemin sémantique réel en preview/production avant DONE_VERIFIED', 'P0'),
-    item('MEL-MEM-08', 'Apprentissage mémoire avec provenance conservée', 'PLANNED', 'Permettre à MEL d’enregistrer de nouvelles connaissances issues des archives tout en conservant source, date, conversation, fragment, confiance et contradictions', 'P0'),
+    item('MEL-MEM-08', 'Apprentissage mémoire avec provenance conservée', 'IN_PROGRESS', 'Pipeline archive -> memory_candidates enrichi en v12 avec provenance structurée, conversation/message, rôle, date observée, fragment, métadonnées bornées et champ contradictions; le compilateur conserve ces preuves dans les propositions sans auto-confirmer la mémoire. Reste à produire/relier automatiquement les contradictions puis valider preview/production avant DONE_VERIFIED', 'P0'),
     item('MEL-MEM-09', 'Validation de rappel historique difficile', 'PLANNED', 'Tester des questions anciennes et multi-conversations difficiles à retrouver, vérifier citations d’origine, croisement de sources et absence d’invention', 'P0'),
     item('MEL-MEM-10', 'Reconstruction mémoire identique après panne', 'PLANNED', 'Tester redémarrage, restauration et reconstruction de l’index puis vérifier que MEL retrouve les mêmes informations et la même provenance', 'P0')
   ]),
