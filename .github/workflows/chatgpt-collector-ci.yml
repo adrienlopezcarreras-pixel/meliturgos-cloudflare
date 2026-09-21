@@ -5,11 +5,19 @@ on:
     paths:
       - "browser-companion/chatgpt-collector/**"
       - "tests/chatgpt-collector-integrity.test.mjs"
+      - "tests/chatgpt-archive-importer.test.mjs"
+      - "tests/file-upload-memory.test.mjs"
+      - "src/persistence/chatgpt-archive-importer.js"
+      - "src/api/file-upload.js"
       - ".github/workflows/chatgpt-collector-ci.yml"
   pull_request:
     paths:
       - "browser-companion/chatgpt-collector/**"
       - "tests/chatgpt-collector-integrity.test.mjs"
+      - "tests/chatgpt-archive-importer.test.mjs"
+      - "tests/file-upload-memory.test.mjs"
+      - "src/persistence/chatgpt-archive-importer.js"
+      - "src/api/file-upload.js"
       - ".github/workflows/chatgpt-collector-ci.yml"
   workflow_dispatch:
 
@@ -22,8 +30,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Run collector integrity tests
-        run: node --test tests/chatgpt-collector-integrity.test.mjs
+      - name: Run collector and memory attachment tests
+        run: node --test tests/chatgpt-collector-integrity.test.mjs tests/chatgpt-archive-importer.test.mjs tests/file-upload-memory.test.mjs
       - name: Package Collector 0.6.4
         run: |
           cd browser-companion/chatgpt-collector
