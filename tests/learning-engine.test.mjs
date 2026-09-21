@@ -187,3 +187,4 @@ test('adapter activation rejects base-model mismatch', async () => {
   const otherBase='google/gemma-7b-it'; const otherRuntime=CLOUDFLARE_LORA_MODEL_PAIRS[otherBase]; const artifact=validArtifact(plan, { id:'mel-adapter-gemma', base_model:otherBase, runtime_model:otherRuntime });
   await assert.rejects(() => engine.activateAdapter({ plan, artifact, baseline, candidate }), error => error.code === 'LORA_BASE_MODEL_MISMATCH');
 });
+// CI trigger only: validate MEL-MEM-05 candidate through canonical full regression.
