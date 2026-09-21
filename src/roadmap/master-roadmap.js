@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-21.4';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-21.5';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -62,8 +62,8 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-MEM-03', 'Export mémoire portable et lisible', 'PARTIAL', 'Ajouter manifeste, checksums et version de schéma', 'P1'),
     item('MEL-MEM-04', 'Complétude des archives ChatGPT récupérables', 'IN_PROGRESS', 'Preuve fail-closed renforcée: agrégat exhaustif sans plafond 2 000, reçu obligatoire par conversation, stocké >= attendu, inventaire Collector bidirectionnel et régression >2 000 validée; reste à obtenir full_archive_confirmed=true sur un inventaire profond réel avant DONE_VERIFIED', 'P0'),
     item('MEL-MEM-05', 'Indexation complète messages et pièces jointes', 'IN_PROGRESS', 'Messages fichier-seul et métadonnées de pièces jointes conservés/recherchables; prochaine étape: backfill idempotent des archives existantes et indexation du contenu binaire quand les octets sont réellement disponibles', 'P0'),
-    item('MEL-MEM-06', 'Pont archives vers mémoire opérationnelle unifiée', 'PLANNED', 'Brancher l’index complet à MemoryService/RAG afin que MEL décide elle-même quand consulter les archives sans injecter tout le corpus dans chaque contexte', 'P0'),
-    item('MEL-MEM-07', 'Recherche mémoire hybride sémantique, exacte et filtrable', 'PLANNED', 'Ajouter recherche sémantique + exacte avec filtres date, projet, conversation, source et type de fichier, avec fusion/reranking des résultats', 'P0'),
+    item('MEL-MEM-06', 'Pont archives vers mémoire opérationnelle unifiée', 'DONE_VERIFIED', 'MemoryService.retrieve unifie mémoire cognitive, archives ChatGPT, titres de conversations et knowledge artifacts avec provenance, déduplication et top-k borné; conversation-context utilise ce pont. Syntaxe globale + 28/28 tests ciblés validés sur l’intégration actuelle.', 'P0'),
+    item('MEL-MEM-07', 'Recherche mémoire hybride sémantique, exacte et filtrable', 'DONE_VERIFIED', 'Recherche exacte + lexicale + sémantique opt-in, filtres date/projet/conversation/source/type de fichier/rôle, fusion et reranking, provenance conservée et fallback lexical si le provider sémantique échoue; validation 28/28 tests ciblés.', 'P0'),
     item('MEL-MEM-08', 'Apprentissage mémoire avec provenance conservée', 'PLANNED', 'Permettre à MEL d’enregistrer de nouvelles connaissances issues des archives tout en conservant source, date, conversation, fragment, confiance et contradictions', 'P0'),
     item('MEL-MEM-09', 'Validation de rappel historique difficile', 'PLANNED', 'Tester des questions anciennes et multi-conversations difficiles à retrouver, vérifier citations d’origine, croisement de sources et absence d’invention', 'P0'),
     item('MEL-MEM-10', 'Reconstruction mémoire identique après panne', 'PLANNED', 'Tester redémarrage, restauration et reconstruction de l’index puis vérifier que MEL retrouve les mêmes informations et la même provenance', 'P0')

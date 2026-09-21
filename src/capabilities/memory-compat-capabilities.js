@@ -1,4 +1,5 @@
 import { createMemoryService } from '../memory/memory-service.js';
+import { createWorkersAiSemanticProvider } from '../search/rag-service.js';
 
 async function safeCount(db, table) {
   if (!db) return 0;
@@ -63,6 +64,52 @@ export function registerMemoryCompatibilityCapabilities(bus, env = {}) {
       archive_messages: archiveMessages,
     };
   });
+  bus.discover({
+    id: 'memory.retrieve', name: 'Rechercher dans la mémoire unifiée', category: 'memory', version: '1.0.0', provider: 'core',
+    description: 'Hybrid exact/lexical/semantic retrieval across archives, memories, conversation titles and knowledge artifacts with provenance and structured filters.',
+    input_schema: {
+      type: 'object',
+      required: ['query'],
+      properties: {
+        query: { type: 'string', minLength: 1, maxLength: 12000 },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+        sources: { type: 'array', items: { type: 'string', enum: ['archive_messages','conversations','memories','knowledge_artifacts'] } },
+        semantic: { type: 'boolean' },
+        filters: {
+          type: 'object',
+          properties: {
+            from: { type: 'number' },
+            to: { type: 'number' },
+            conversation_id: { type: 'string' },
+            project: { type: 'string' },
+            file_type: { type: 'string' },
+            role: { type: 'string' },
+            source: { type: 'string' }
+          },
+          additionalProperties: false
+        }
+      },
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: env.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true,
+  }, async (input = {}) => {
+    if (!env.DB) throw Object.assign(new Error('DB_BINDING_MISSING'), { code: 'DB_BINDING_MISSING', status: 503 });
+    const semanticEnabled = input.semantic !== false && String(env.MEL_MEMORY_SEMANTIC_ENABLED || '').toLowerCase() === 'true';
+    const semanticProvider=createWorkersAiSemanticProvider(env,{
+      model:String(env.MEL_MEMORY_EMBEDDING_MODEL||'@cf/baai/bge-m3').trim(),
+      enabled:semanticEnabled,
+    });
+    return createMemoryService(env.DB,{semanticProvider}).retrieve({
+      owner: env.MELITURGOS_USER || 'owner',
+      query: String(input.query || ''),
+      limit: Number.isInteger(input.limit) ? input.limit : 12,
+      sources: Array.isArray(input.sources) && input.sources.length ? input.sources : ['archive_messages','conversations','memories','knowledge_artifacts'],
+      filters: input.filters || {},
+      semantic: input.semantic !== false,
+    });
+  });
+
   bus.discover({
     id: 'memory.consolidate', name: 'Compiler les candidats mémoire', category: 'memory', version: '1.0.0', provider: 'core',
     description: 'Compiles pending memory observations into deterministic deduplicated proposals with confidence, recency, topics and provenance. Read/proposal only: it never confirms or writes memories.',

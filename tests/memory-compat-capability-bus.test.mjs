@@ -84,3 +84,39 @@ test('memory compatibility HTTP endpoints execute through CapabilityBus', async 
   assert.doesNotMatch(handler, /safeCount\(/);
   assert.doesNotMatch(handler, /safeRows\(/);
 });
+
+
+test('memory.retrieve exposes hybrid filtered search through CapabilityBus and keeps semantic opt-in', async () => {
+  const db = sqliteD1();
+  try {
+    await db.prepare("CREATE TABLE conversations (id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '', metadata TEXT, updated_at INTEGER NOT NULL)").run();
+    await db.prepare("CREATE TABLE archive_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', content TEXT NOT NULL, attachments_json TEXT, timestamp INTEGER NOT NULL, provenance TEXT, metadata TEXT)").run();
+    await db.prepare("INSERT INTO conversations VALUES (?,?,?,?,?)").bind('c1','adrien','Projet Orion','{}',100).run();
+    await db.prepare("INSERT INTO archive_messages VALUES (?,?,?,?,?,?,?,?)")
+      .bind('m1','c1','user','Le repère memsevenbus concerne Orion.',JSON.stringify([{name:'preuve.pdf',mime_type:'application/pdf'}]),100,'chatgpt_export','{}').run();
+
+    let aiCalls=0;
+    const runtime = createGen2Runtime({ env: {
+      DB: db,
+      MELITURGOS_USER: 'adrien',
+      MEL_MEMORY_SEMANTIC_ENABLED: 'false',
+      AI: { async run() { aiCalls++; throw new Error('semantic should stay disabled'); } },
+    } });
+    const manifest = new Map(runtime.bus.list().map(row => [row.id, row]));
+    assert.equal(manifest.get('memory.retrieve')?.risk, 'LOW');
+
+    const result = await runtime.bus.execute('memory.retrieve', {
+      query:'memsevenbus',
+      sources:['archive_messages'],
+      semantic:true,
+      filters:{project:'Orion',conversation_id:'c1',file_type:'pdf',source:'archive_messages',role:'user'}
+    }, { owner:'adrien', permissions:[], requestId:'memory-retrieve-runtime' });
+
+    assert.equal(result.total,1);
+    assert.equal(result.results[0].id,'m1');
+    assert.equal(result.semantic_status,'DISABLED');
+    assert.equal(aiCalls,0);
+  } finally {
+    db.close();
+  }
+});
