@@ -196,3 +196,49 @@ test('Workers AI semantic adapter is disabled by default without explicit opt-in
   const provider=createWorkersAiSemanticProvider({AI:{run:async()=>({data:[]})}});
   assert.equal(provider,null);
 });
+
+
+test('exact hybrid retrieval works for short phrases that lexical tokenization would ignore', async () => {
+  const db = await makeHybridDb();
+  try {
+    await db.prepare("INSERT INTO conversations VALUES (?,?,?,?,?)").bind('c-ai','adrien','Projet IA','{}',500).run();
+    await db.prepare("INSERT INTO archive_messages VALUES (?,?,?,?,?,?,?,?)")
+      .bind('m-ai','c-ai','user','AI',null,500,'chatgpt_export','{}').run();
+
+    const result = await RAGService.searchHybrid(db,'adrien','AI',{
+      sources:['archive_messages'],
+      semanticProvider:null
+    });
+
+    assert.equal(result.total,1);
+    assert.equal(result.results[0].id,'m-ai');
+    assert.ok(result.results[0].exact_score>0);
+  } finally { db.close(); }
+});
+
+test('semantic hybrid retrieval rejects unrelated broad candidates with zero lexical exact and weak semantic score', async () => {
+  const db = await makeHybridDb();
+  try {
+    await db.prepare("INSERT INTO conversations VALUES (?,?,?,?,?)").bind('c-noise','adrien','Cuisine','{}',600).run();
+    await db.prepare("INSERT INTO archive_messages VALUES (?,?,?,?,?,?,?,?)")
+      .bind('m-noise','c-noise','user','Recette de tarte aux pommes',null,600,'chatgpt_export','{}').run();
+
+    const result = await RAGService.searchHybrid(db,'adrien','moteur quantique',{
+      sources:['archive_messages'],
+      semanticProvider:async({documents})=>documents.map(()=>0.05)
+    });
+
+    assert.equal(result.semantic_status,'SUCCEEDED');
+    assert.equal(result.total,0);
+  } finally { db.close(); }
+});
+
+test('hybrid retrieval rejects inverted date ranges', async () => {
+  const db = await makeHybridDb();
+  try {
+    await assert.rejects(
+      () => RAGService.searchHybrid(db,'adrien','test',{filters:{from:200,to:100}}),
+      /INVALID_DATE_RANGE/
+    );
+  } finally { db.close(); }
+});
