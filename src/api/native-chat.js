@@ -32,7 +32,18 @@ export function isPersonalProfileRecall(text) {
   const value = String(text || '').trim();
   if (!value) return false;
   const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  return /\b(?:que sais[- ]?tu (?:de|sur) moi|ce que tu sais (?:de|sur) moi|dis[- ]?moi ce que tu sais (?:de|sur) moi|tu (?:me )?connais|qui je suis|mon profil|profil (?:personnel|complet)|a mon sujet|sur moi|ton createur|de ton createur|moi ton createur)\b/.test(normalized);
+  if (/\b(?:que sais[- ]?tu (?:de|sur) moi|ce que tu sais (?:de|sur) moi|dis[- ]?moi ce que tu sais (?:de|sur) moi|tu (?:me )?connais|qui je suis|mon profil|profil (?:personnel|complet)|a mon sujet|sur moi|ton createur|de ton createur|moi ton createur)\b/.test(normalized)) return true;
+
+  const personalSignals = [
+    /\b(?:comment je m['’]?appelle|quel est mon nom|mon prenom|mon nom)\b/,
+    /\b(?:ou je vis|ou j['’]?habite|mon lieu de vie|ma ville|mon village)\b/,
+    /\b(?:ma femme|mon epouse|mon mari|mes enfants|mon fils|ma fille|ma famille)\b/,
+    /\b(?:ce que j['’]?aime|j['’]?aime dans la vie|mes gouts|mes preferences|ce que je prefere)\b/,
+    /\b(?:mes metiers|mon metier|mes professions|ma profession|mon travail|mon parcours professionnel|j['’]?ai travaille)\b/,
+    /\b(?:mes projets|mon projet|mes activites|mon activite|ce que je fais)\b/,
+  ];
+  const signalCount = personalSignals.reduce((count, pattern) => count + (pattern.test(normalized) ? 1 : 0), 0);
+  return signalCount >= 2;
 }
 
 export function shouldRetrieveArchiveRecall(text) {
