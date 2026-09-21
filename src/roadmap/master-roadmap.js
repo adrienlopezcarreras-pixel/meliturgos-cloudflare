@@ -89,7 +89,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P06', 'Module Lab, évolution et apprentissage', [
-    item('GEN2-16', 'Module Lab', 'PARTIAL', 'Brancher préflight Council -> spec -> code -> tests', 'P0'),
+    item('GEN2-16', 'Module Lab', 'DONE_VERIFIED', 'Pipeline canonique fail-closed Council -> inspection -> plan gate -> spec -> génération -> validation -> tests -> sandbox -> sécurité; activation séparée derrière release gate. Syntaxe globale et tests ciblés validés par Actions 35639574318.', 'P0'),
     item('GEN2-17', 'Dev Agent / auto-évolution supervisée', 'PARTIAL', 'Prouver plusieurs cycles cohérents complets sur candidate avant toute promotion', 'P0'),
     item('MEL-EVOL-01', 'Détecter une compétence manquante à partir d’une demande', 'DONE_VERIFIED', 'Maintenir la détection sans doublon et n’entrer au Module Lab que pour un vrai gap', 'P0'),
     item('MEL-EVOL-02', 'Proposer ou générer un module', 'DONE_VERIFIED', 'Maintenir la proposition non activante, le Council gate et l’entrée au Module Lab uniquement pour un vrai gap', 'P0'),
