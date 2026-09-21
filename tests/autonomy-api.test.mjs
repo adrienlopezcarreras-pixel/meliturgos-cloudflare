@@ -2,9 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { maybeHandleAutonomyApi } from '../src/evolution/autonomy-api.js';
+import { selectNextAutonomyItem } from '../src/evolution/autonomy-supervisor.js';
+
+process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
 
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
+const FIRST_AUTONOMY_ID = selectNextAutonomyItem()?.id;
 
 function authHeader(user = 'test', password = 'pw') {
   return `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
@@ -86,7 +90,7 @@ test('manual autonomy tick executes the same Council-first heartbeat and returns
   const body = await response.json();
   assert.equal(body.ok, true);
   assert.equal(body.tick.ensured.created, true);
-  assert.equal(body.tick.job.roadmap_id, 'MEL-WORK-01');
+  assert.equal(body.tick.job.roadmap_id, FIRST_AUTONOMY_ID);
   assert.equal(body.tick.job.status, 'WAITING_TEACHER');
   assert.ok(body.tick.teacher.request_id);
   assert.ok(f.aiCalls.length >= 2, 'manual tick must preserve multi-AI Council-first rule');

@@ -138,7 +138,8 @@ test('production deploy requires explicit approval and exact canonical release i
   assert.match(workflow, /DEPLOY_APPROVED/);
   assert.match(workflow, /EXPECTED_SHA/);
   assert.match(workflow, /RELEASE_BRANCH/);
-  assert.match(workflow, /candidate\/mel-clean-autonomy/);
+  assert.match(workflow, /git fetch origin main --depth=1/);
+  assert.ok(workflow.includes('test "$SOURCE_SHA" = "$EXPECTED_SHA"'));
   assert.match(workflow, /MEL_DEPLOYED_GIT_SHA/);
   assert.match(workflow, /MEL_DEPLOYED_GIT_BRANCH/);
   assert.match(workflow, /--define/);
