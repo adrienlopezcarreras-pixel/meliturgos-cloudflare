@@ -27,7 +27,7 @@ jobs:
       - name: Package Collector 0.6.0
         run: |
           cd browser-companion/chatgpt-collector
-          zip -r ../../../MEL_ChatGPT_Collector_0.6.0.zip .
+          zip -r ../../MEL_ChatGPT_Collector_0.6.0.zip .
       - name: Upload Collector archive
         uses: actions/upload-artifact@v4
         with:
