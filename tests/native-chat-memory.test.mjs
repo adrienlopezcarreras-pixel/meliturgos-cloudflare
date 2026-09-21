@@ -112,11 +112,16 @@ test('personal profile question injects cross-conversation user-authored facts i
       env
     );
     assert.equal(response.status,200);
+    const body = await response.json();
     const system = calls.at(-1)?.[0]?.content || '';
     assert.match(system,/PERSONAL PROFILE HISTORY/);
     assert.match(system,/lavande-fixture/);
     assert.match(system,/Orion-fixture/);
     assert.doesNotMatch(system,/château-fixture/);
     assert.match(system,/PROFIL PERSONNEL DEMANDÉ/);
+    assert.match(body.text,/lavande-fixture/);
+    assert.match(body.text,/Orion-fixture/);
+    assert.doesNotMatch(body.text,/château-fixture/);
+    assert.equal(body.response_grounding?.mode,'deterministic-personal-profile');
   } finally { DB.close(); }
 });
