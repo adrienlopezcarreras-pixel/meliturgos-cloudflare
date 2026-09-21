@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile, stat } from 'node:fs/promises';
 
 import { getMelAvatarRoute, serveMelAvatar } from '../src/pages/mel-avatar-assets.js';
 
@@ -14,22 +15,26 @@ const BACKGROUNDS = [
   '/assets/backgrounds/mel-bg-futuristic-hd.jpg',
 ];
 
-test('clean MEL background pack is embedded as repository-owned JPEG assets', async () => {
+function staticAssetUrl(route) {
+  return new URL('../dist' + route, import.meta.url);
+}
+
+test('clean MEL background pack is deployed as repository-owned static JPEG assets', async () => {
   for (const path of BACKGROUNDS) {
-    const response = serveMelAvatar(path);
-    assert.ok(response instanceof Response, path);
-    assert.equal(response.status, 200, path);
-    assert.equal(response.headers.get('content-type'), 'image/jpeg', path);
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    assert.ok(bytes.length > 5000, path);
-    assert.deepEqual([...bytes.slice(0, 3)], [0xff, 0xd8, 0xff], path);
+    const url = staticAssetUrl(path);
+    const info = await stat(url);
+    assert.ok(info.size > 10000, path);
+    const bytes = await readFile(url);
+    assert.deepEqual([...bytes.subarray(0, 3)], [0xff, 0xd8, 0xff], path);
   }
 });
 
-test('Futuriste resolves to the exact shared full-mode avatar asset', () => {
-  assert.equal(getMelAvatarRoute('futuristic'), '/assets/avatars/mel-full.webp');
-  const response = serveMelAvatar('/assets/avatars/mel-full.webp');
-  assert.ok(response instanceof Response);
-  assert.equal(response.headers.get('content-type'), 'image/webp');
-  assert.equal(response.headers.get('x-mel-asset'), 'avatarFuturistic');
+test('Futuriste resolves to the exact shared full-mode static avatar asset', async () => {
+  const path = '/assets/avatars/mel-full.webp';
+  assert.equal(getMelAvatarRoute('futuristic'), path);
+  const bytes = await readFile(staticAssetUrl(path));
+  assert.ok(bytes.length > 10000);
+  assert.equal(bytes.subarray(0, 4).toString('ascii'), 'RIFF');
+  assert.equal(bytes.subarray(8, 12).toString('ascii'), 'WEBP');
+  assert.equal(serveMelAvatar(path), null);
 });
