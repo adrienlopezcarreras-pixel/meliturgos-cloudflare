@@ -1,0 +1,26 @@
+name: MEL-WORK-01-02 current proof CI
+
+on:
+  push:
+    branches:
+      - 'roadmap/mel-work-01-02-current-proof-20260921'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Syntax gate
+        run: npm run check
+      - name: Persistent Work proofs
+        run: node --test tests/work-persistent-capabilities.test.mjs tests/work-dag-resume.test.mjs tests/work-dag-state.test.mjs tests/autonomous-work-loop.test.mjs
