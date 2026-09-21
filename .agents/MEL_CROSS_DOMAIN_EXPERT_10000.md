@@ -1,126 +1,73 @@
 # MEL — Cross-domain Expert +10 000
 
-**MEL_CROSS_DOMAIN_EXPERT_PLUS_cycle_100/10000 — IN_PROGRESS**  
+**MEL_CROSS_DOMAIN_EXPERT_PLUS_cycle_150/10000 — IN_PROGRESS**  
 Started: 2026-09-20. Additive to the two completed 1000-cycle AI-engineering tracks. This corpus is knowledge, not model-weight training and not validated implementation XP. A lesson becomes validated XP only after real application, tests and runtime proof per `.agents/XP_PROTOCOL.md`.
 
-## Provenance — block 001–050
-Primary references reviewed for this block: Cloudflare official Workers/D1/Durable Objects/Queues/Workflows documentation; GitHub official artifact-attestation documentation; W3C WCAG 2.2; OWASP GenAI Security Project; existing repository expert corpus and XP protocol. No `MEL_TRANSFER_*_10000.md` package was found in the repository search during this run; therefore none was ingested.
+## Provenance — blocks 001–100
+Cycles 001–100 are preserved in Git history through commit `aca6fc4e42bf8720da99f9a8917566af23ba03fe`. They cover observable postconditions, deadlines/retries/idempotency, Cloudflare state/concurrency, frontend performance/accessibility, supply-chain provenance, grounded communication/RAG, ShardVault recovery, game/audio/publishing/narrative/BD/e-commerce/archival methods. This compacted checkpoint avoids repeatedly expanding old material while retaining immutable provenance in Git.
 
-## Cycles 001–050
+## Provenance — block 101–150
+Primary/recent references reviewed for this block: Cloudflare Browser Run official docs (updated 2026-08-11), Cloudflare Playwright docs (2026-04-21) and Live View docs (2026-09-14); OWASP API Security Top 10 2023; WordPress REST API Handbook; RFC/HTTP conditional-request principles; current browser hardware API documentation. Repository search found no `MEL_TRANSFER_*_10000.md`; none ingested. These are transferable principles, not implementation claims.
 
-Each cycle records: precise theme → principle → limit/counterexample → falsifiable gate → concrete MEL implication.
+## Cycles 101–150
+Each cycle records precise theme → principle → limit/counterexample → falsifiable gate → concrete MEL implication.
 
-1. Observable postconditions → success means effect observed, not handler/HTTP existence → async effects may be eventually consistent → mutate then reread authoritative state → deep capability tests prove effect and UI/runtime coherence.
-2. End-to-end deadlines → propagate total deadline through subcalls → per-call timeout alone can exceed budget → inject slow dependency → MEL jobs terminate boundedly.
-3. Retry taxonomy → retry transient/ambiguous failures with bounded backoff → permanent validation/auth fails fast → inject each class → explicit retry classes.
-4. Idempotency → mutation retries require stable operation identity → reads need not all use keys → replay request → one durable effect.
-5. Queue at-least-once semantics → consumers assume duplicates → timing is not dedupe → redeliver after partial success → persist completion before ack.
-6. Dead-letter handling → poison work exits bounded retry path → DLQ does not replace root-cause fix → force permanent failure → actionable failed-job state.
-7. Durable state ownership → serialize genuine coordination → avoid centralizing unrelated hot traffic → concurrent conflicting writes → scoped ownership.
-8. D1 consistency awareness → distinguish authoritative write from replica read → replica may lag → intended consistency test → status avoids stale false failure.
-9. Schema migrations → ordered, restartable, backward-aware → destructive changes need compatibility plan → interrupt/resume → survive partial migration.
-10. Workflow resumability → checkpoint externally visible progress → excessive checkpoints add cost → crash/resume → stable long-job boundaries.
-11. Abort propagation → cancelled UI intent cancels obsolete work → cannot undo committed effects → supersede request → cleanup stale calls.
-12. GET deduplication → coalesce identical in-flight reads → not across auth/consistency contexts → concurrent reads → reduce polling.
-13. Visibility-aware polling → hidden views reduce polling → critical monitoring can continue server-side → hide tab/measure → no invisible UI burn.
-14. Cache correctness → TTL follows staleness tolerance → never mask safety-critical state → mutate/invalidate → cache static metadata more.
-15. Pagination → bounded stable cursors → offsets drift under inserts → mutate between pages → bounded Activity/memory views.
-16. DOM virtualization → render visible rows → small lists need not virtualize → 10k-row benchmark → long logs stay responsive.
-17. content-visibility → skip off-screen rendering with semantics intact → test focus/a11y → keyboard/render benchmark → progressive optimization only.
-18. Event-listener lifecycle → deterministic cleanup → singleton globals can be valid → mount/unmount leak test → long-session stability.
-19. Payload budgets → return fields needed by surface → micro-trimming can complicate APIs → bytes/p95 before-after → split heavy diagnostics.
-20. Lazy capability panels → load expensive detail on demand → critical status remains immediate → first-load/open-panel tests → preserve discoverability.
-21. Accessibility keyboard path → every action operable without pointer → custom widgets need semantics → full traversal gate → audit all controls.
-22. Visible focus → focus indication plus logical order → ring alone insufficient → automated/manual order → dense bars accessible.
-23. Target sizing → usable pointer targets/context spacing → dense expert UI may use allowed alternatives → mobile tap test.
-24. Accessible status → async changes perceivable without chatter → excessive live regions harm UX → screen-reader event test.
-25. Error recovery UX → state cause, retained work, next action → generic retry amplifies permanent failure → inject error classes.
-26. Supply-chain provenance → attest artifact to source/workflow/SHA → attestation does not prove safety → verify expected repo/SHA.
-27. Attestation verification → generated provenance matters only if verified → negative wrong-source test → release gate verifies provenance.
-28. Least workflow permissions → minimum token permissions/job → broad write increases blast radius → inspect workflows.
-29. Immutable release identity → evidence exact commit/digest → branch moves → preview SHA equals candidate SHA.
-30. Canonical branch race check → reread candidate before mutation → preparation can stale → concurrent commit simulation → abort/reconcile.
-31. No force-push discipline → preserve shared history → reject non-fast-forward mutation → additive candidate updates.
-32. Prompt injection boundary → retrieved/tool content is data, not authority → higher policy remains authoritative → injected document test.
-33. Tool-output validation → schema plus semantic invariants → valid payload can be wrong → adversarial valid payload.
-34. Least-agent authority → task-scoped tools/data → super-agent raises blast radius → capability-denial tests.
-35. Grounded status claims → runtime evidence outranks prior prose → old responses stale → runtime contradiction fixture.
-36. Ellipsis resolution → short follow-ups inherit active subject/constraints → ambiguity can require clarification → “c’est bon ?” fixtures.
-37. Contradiction precedence → newest explicit user constraint outranks older assumption, below immutable policy → conflicting-turn fixture.
-38. Memory provenance → origin/time/scope/confidence → provenance does not prove truth → conflicting-source retrieval.
-39. Recent-vs-old memory → recency is signal not absolute truth → stable facts persist → volatility classification.
-40. RAG abstention → insufficient evidence yields uncertainty/search → excessive abstention harms utility → answerability evals.
-41. Source triangulation → consequential synthesis prefers independent authoritative sources → sometimes one authority exists → conflict test.
-42. Citation entailment → source supports adjacent claim → citation presence alone insufficient → claim-source spot checks.
-43. Research freshness → window depends on volatility → standards need not refresh hourly → dated fixtures.
-44. File integrity → digest persistent artifacts and verify on restore → hash proves integrity not truth → corrupt byte test.
-45. Backup restore proof → backup PASS only after isolated restore/validation → upload/probe insufficient → exact SHA restore.
-46. Erasure reconstruction threshold → recover at threshold and 1/2/3 missing → shard existence insufficient → decrypt/gunzip/hash exact.
-47. Bounded failover → deadline plus alternate target → no infinite cycling → blackhole target test.
-48. Stress cleanup → bounded concurrency/teardown/isolation → stress can self-DoS → no orphan resources.
-49. Performance evidence → optimize measured p95/p99/bytes/CPU/DOM → averages hide tails → baseline/same workload.
-50. Anti-loop learning → after two identical failures change strategy/isolate → blind retries add noise → repeated-failure fixture.
-
-## Provenance — block 051–100
-Primary/recent references reviewed: W3C EPUB 3.3 Recommendation update (2025) and EPUB 3.4/Accessibility 1.2 Candidate Recommendation snapshot announcement (2026-07-21); Google Search Central official Product/ProductGroup, merchant-listing and Breadcrumb structured-data guidance; MDN Web Audio API/AudioWorklet documentation; Godot official documentation search for current performance guidance. Repository search again found no `MEL_TRANSFER_*_10000.md`; none ingested. Principles below remain transferable knowledge until applied and proved.
-
-## Cycles 051–100
-51. Frame-time budgets → optimize worst-frame spikes, not only average FPS → offline/noninteractive tools differ → capture frame-time distribution → game/UI agents report p95/p99.
-52. Profiling before optimization → measure CPU/GPU/script/render bottleneck first → profiler overhead can distort tiny workloads → reproduce fixed scene → MEL game workflow stores baseline evidence.
-53. Object pooling → reuse high-churn objects when allocation/GC is measured bottleneck → pooling can increase complexity/memory → projectile stress test → recommend only after allocation evidence.
-54. Fixed-step simulation → physics/state updates use deterministic step assumptions → render interpolation remains variable → replay same input → game QA separates simulation from render cadence.
-55. Deterministic replay → record seed/input/version for reproducible bugs → floating-point/platform differences can remain → replay hash checkpoints → game incidents become reproducible artifacts.
-56. Asset budgets → texture/audio/model budgets are platform-specific → quality targets vary → build-size/VRAM/runtime gate → production generator records target platform.
-57. Level-of-detail → reduce distant visual cost without semantic loss → stylized scenes may need custom thresholds → camera sweep benchmark → game optimization preserves art intent.
-58. Occlusion/culling → avoid rendering invisible work → bad bounds can hide visible content → adversarial camera test → generated scenes validate culling correctness.
-59. Audio voice limits → bound simultaneous voices and prioritize perceptually important sounds → hard cuts can sound worse → dense-scene audio test → soundtrack/SFX runtime has voice policy.
-60. Audio loudness consistency → master against delivery context, not arbitrary peak normalization → platform specs differ → loudness/true-peak QC → music export stores measured metadata.
-61. AudioWorklet isolation → custom low-latency processing belongs off main thread where supported → secure context required and worklet thread still has realtime constraints → underrun/load test → MEL web audio avoids main-thread DSP.
-62. Realtime audio discipline → no blocking/unbounded allocation in render callback → some engines abstract this safely → synthetic CPU pressure test → audio modules expose underrun counters.
-63. Sample-rate awareness → conversions can alter latency/quality → source and output rates vary → multi-rate render comparison → audio pipeline records rate explicitly.
-64. Metadata provenance → title/artist/version/license/source travel with audio asset → metadata can be stale → compare manifest to source artifact → generated soundtrack stays attributable.
-65. License scope → distinguish composition, master, sample and distribution rights → “royalty-free” is not universally unrestricted → rights checklist gate → MEL never infers permission from availability.
-66. EPUB semantic structure → publication uses structured HTML/CSS/SVG resources, not page screenshots → fixed-layout exceptions exist → validator plus reading-system test → editorial exports preserve semantics.
-67. EPUB accessibility metadata → discoverability requires truthful accessibility metadata → metadata cannot compensate inaccessible content → compare claims with content checks → publication QA rejects unsupported claims.
-68. EPUB version strategy → 3.3 is Recommendation while 3.4 is candidate-stage in 2026 → newest draft is not automatically safest production target → compatibility matrix → MEL labels standards maturity.
-69. Reflow-first publishing → reflow improves reader adaptation → comics/fixed art may require fixed layout → font-size/orientation tests → choose format by content semantics.
-70. Typography hierarchy → hierarchy uses consistent scale/spacing/roles → decorative variation can be intentional → blind page-role comparison → magazine generator separates tokens from local exceptions.
-71. Baseline-grid discipline → align recurring text rhythm where it improves coherence → images/callouts may intentionally break grid → spread overlay QA → editorial automation flags accidental drift only.
-72. Widows/orphans control → avoid stranded lines when possible → aggressive prevention can create worse whitespace → pagination stress corpus → PDF QA balances defects.
-73. Image effective resolution → judge placed-size resolution, not source pixel count alone → vector art differs → preflight at final geometry → export warns low effective DPI.
-74. Color-space intent → print and screen outputs need explicit color management → conversion depends on printer/profile → preflight profile presence → MEL never silently assumes press profile.
-75. Bleed/safe area → trim-dependent print work needs bleed and protected critical content → digital-only output does not → geometry preflight → magazine pipeline distinguishes print/digital targets.
-76. Font embedding/licensing → output must embed/subset as allowed and preserve glyph coverage → licenses can forbid embedding → preflight fonts/rights → no accidental substitution.
-77. PDF preflight → visual inspection alone misses boxes/fonts/transparency → standards profile depends on printer → automated checks plus rendered spot checks → publication gate has machine and human evidence.
-78. Sequential-art readability → panel order must remain unambiguous across page/spread → experimental layouts can break convention intentionally → cold-reader order test → BD storyboard stores intended traversal.
-79. Balloon ownership → tail/placement makes speaker identity clear → off-panel voices need explicit convention → dialogue-only page test → lettering QA detects ambiguous attribution.
-80. Lettering safe zones → text survives trim and avoids focal art → deliberate overlaps can be stylistic → trim simulation → BD export validates critical text bounds.
-81. Color script continuity → palette progression supports narrative/emotional beats → accessibility and print gamut constrain choices → grayscale/color-vision/print preview → color decisions have functional checks.
-82. Scene objective → prose scenes earn place through character goal/conflict/change → atmospheric scenes can serve world/voice → scene-removal test → novel revision labels scene function.
-83. Causal plot chain → major beats should arise from prior choices/events → coincidence can initiate but repeated rescue weakens agency → because/therefore outline audit → MEL flags “and then” chains.
-84. Character knowledge state → dialogue/action only use information plausibly acquired → intentional dramatic irony differs → per-scene knowledge ledger → continuity QA catches leaks.
-85. Dialogue subtext → characters need not state full intent → exposition may sometimes require clarity → read-aloud/intent comparison → revision checks voice plus information load.
-86. Viewpoint contract → control what narrator can perceive/know → omniscient narration is valid if established → paragraph-level POV audit → MEL distinguishes chosen mode from accidental head-hopping.
-87. Worldbuilding cost → introduce detail when it changes choice, image or understanding → encyclopedia passages can be intentional appendix material → remove-detail comprehension test → prose keeps worldbuilding functional.
-88. Revision passes → separate structural, scene, line and proof passes → tiny works may combine passes → defect-category tracking → MEL avoids polishing doomed structure first.
-89. Product structured data truthfulness → markup mirrors visible/current product facts → markup cannot invent availability/reviews → page-vs-JSON-LD comparison → e-commerce automation validates parity.
-90. Product variants → use parent/variant relationships where variants genuinely share product identity → unrelated products must not be grouped → variant navigation/schema test → catalogue model keeps stable group IDs.
-91. Merchant listing completeness → price/availability/shipping/returns improve machine understanding when accurate → eligibility does not guarantee display → rich-result validation → SEO reports eligibility not promised ranking.
-92. Breadcrumb semantics → hierarchy aids users/search understanding → breadcrumb is not substitute for navigation architecture → crawl/navigation test → catalogue pages expose coherent hierarchy.
-93. SEO crawlability → important pages must be accessible, indexable and internally linked → some account/private pages should remain excluded → crawler fixture → MEL distinguishes discovery from privacy.
-94. Canonicalization → canonical hints consolidate true duplicates → wrong canonicals can erase intended pages → variant/parameter matrix → store canonical decisions as testable rules.
-95. Conversion measurement → CRO changes require predefined metric and guardrails → short tests can be noisy → event-integrity + sample-size review → MEL reports uncertainty, not fake wins.
-96. Newsletter consent provenance → recipient permission/source/time must be retained → legitimate-interest contexts vary by jurisdiction → suppression/consent audit → outreach system never equates scraped address with consent.
-97. Deliverability hygiene → authenticate domain, control complaints/bounces and list quality → authentication alone does not ensure inboxing → seed/telemetry checks → prospecting tracks reputation signals.
-98. Archival original preservation → keep immutable original plus derived working copies → redaction may be required for sharing → digest/provenance test → autobiography methods preserve source integrity without ingesting unnecessary private content.
-99. Chronology confidence → dates carry source and certainty ranges → memory alone may be approximate → conflicting-date reconciliation → autobiography engine separates known/inferred/unknown.
-100. Incident evidence bundle → preserve timeline, version, inputs, logs, impact and recovery proof → logs may contain secrets/PII and require minimization → tabletop incident reconstruction → MEL incident reports are reproducible and privacy-aware.
+101. Browser task modality → use stateless quick actions for one-shot extraction and sessions for interactive state → sessions add lifecycle cost → same task via both modes → MEL routes to cheapest adequate primitive.
+102. Browser session reuse → reconnect to an acquired session when continuity matters → stale sessions must not become hidden global state → disconnect/reconnect fixture → browser jobs persist explicit session IDs.
+103. Browser lifecycle ownership → distinguish disconnect from terminating remote session → library semantics differ → session-count before/after close → no leaked Browser Run sessions.
+104. Browser bot identity → automation remains identifiable as bot even with custom UA → UA spoofing is not anti-bot bypass → protected-site fixture → MEL reports access limitation rather than evasion.
+105. Browser navigation deadline → navigation/action assertions share a bounded task deadline → page-level defaults can accumulate → blackhole page test → Collector/browser jobs terminate predictably.
+106. Browser selector resilience → prefer semantic roles/labels/test IDs over brittle DOM depth → third-party pages may lack semantics → controlled DOM mutation → MEL UI tests survive cosmetic changes.
+107. Browser action postcondition → click PASS requires observed state/effect → click dispatch alone is insufficient → no-op handler fixture → deep UI audit validates effect.
+108. Browser download integrity → await completed download, size/type/hash where expected → filename alone is weak → truncated download fixture → export/download controls prove artifact integrity.
+109. Browser upload integrity → verify server/UI acknowledgement and reread metadata → setting input files is not completion → rejected-file fixture → uploads prove persistence.
+110. Human-in-loop boundary → expose live session for genuinely ambiguous/manual steps → manual takeover must not silently corrupt automation state → takeover/resume test → MEL records ownership transitions.
+111. Screenshot evidence → screenshots support visual state but not hidden persistence → pixels cannot prove backend mutation → visual/backend disagreement fixture → audit bundles pair screenshot with authoritative reread.
+112. Browser context isolation → separate cookies/storage by task/security principal → shared contexts can leak identity → two-user fixture → MEL scopes contexts explicitly.
+113. SSRF boundary → server-side URL fetching validates destination and redirects → public URL syntax does not guarantee safe resolved target → redirect-to-private fixture → research/import endpoints enforce egress policy.
+114. Third-party API distrust → validate external responses as hostile input → provider reputation is not validation → malformed oversized payload → MEL tools enforce schema/size/deadline.
+115. API object authorization → authorize each referenced object, not merely endpoint access → authenticated user may still target another object → cross-user ID test → D1/R2 object routes bind ownership.
+116. API property authorization → whitelist mutable/visible fields by role → valid object access does not imply every property → mass-assignment fixture → PATCH handlers reject protected fields.
+117. Function authorization → admin/operator actions need explicit server-side checks → hidden UI buttons are not controls → direct endpoint test → MAX/Teacher/hardware operations enforce role.
+118. Resource consumption → bound body size, pagination, concurrency and expensive operations → rate limit alone misses single huge request → adversarial-size test → diagnostics/import/search have budgets.
+119. Sensitive-flow abuse → protect high-impact workflows from automation misuse even when requests are valid → not every repetitive action is malicious → burst business-flow fixture → costly/autonomous actions get quotas/guardrails.
+120. API inventory → deployed endpoints/versions/debug surfaces are enumerated → source routes alone may differ from deployed config → preview crawl + route manifest → launch gate detects accidental debug endpoints.
+121. HTTP conditional update → use validators/version preconditions to prevent lost update → ETag is useful only if tied to authoritative representation → concurrent writers fixture → settings/config writes fail safely on stale version.
+122. Optimistic concurrency UX → conflict response preserves user work and offers reconcile → blind last-write-wins hides loss → simultaneous edit fixture → MEL surfaces candidate HEAD/state races explicitly.
+123. Hardware capability discovery → enumerate support before action → browser/device APIs vary by platform/permission → unsupported-device fixture → hardware UI reports capability, not generic failure.
+124. Hardware permission gesture → permission prompts often require explicit user activation → background autonomy cannot assume grant → no-gesture fixture → MEL separates setup from autonomous reuse.
+125. Device identity stability → transient device handles are not universal durable IDs → reconnects/OS changes occur → unplug/replug fixture → hardware registry stores robust descriptors plus rebind path.
+126. Serial framing → protocol needs explicit message boundaries/checks → raw byte chunks need not equal messages → fragmented/coalesced chunk fixture → MEL parser is streaming and bounded.
+127. Serial backpressure → writers respect stream readiness/queue pressure → uncontrolled writes can exhaust buffers → slow-device fixture → commands are queued with deadline.
+128. Hardware checksum → detect transport corruption where protocol supports it → checksum is not authentication → bit-flip fixture → MEL distinguishes integrity from trust.
+129. Hardware command idempotency → retries must not duplicate unsafe physical effects → some commands are inherently non-idempotent → lost-ack fixture → command protocol uses operation IDs/status query where possible.
+130. Hardware fail-safe state → disconnect/timeout yields defined safe behavior → software cannot guarantee safety absent device support → cable-pull test → MEL documents device-side safe state.
+131. Mobile viewport correctness → test dynamic viewport, zoom and keyboard occlusion → desktop responsive emulation misses real input behavior → small-device keyboard fixture → chat controls remain reachable.
+132. Touch semantics → pointer/touch actions avoid hover-only affordances → desktop can retain hover enhancement → touch-only traversal → all MEL functions remain discoverable.
+133. Input latency budget → heavy handlers move work off immediate interaction path → async deferral cannot delay critical feedback indefinitely → long-task instrumentation → UI acknowledges action quickly then reports progress.
+134. Progressive rendering → critical shell/status first, heavy diagnostics on demand → lazy loading must not hide errors → cold-load/open-panel fixture → MEL keeps capability while reducing startup work.
+135. Request cancellation → superseded searches/polls abort obsolete fetches → committed mutation cannot be uncommitted by AbortController → rapid-query fixture → Collector/search avoid stale response overwrite.
+136. Poll coalescing → multiple panels share equivalent status reads → security/scope differences prevent unsafe coalescing → multi-panel network trace → MEL reduces duplicate GETs.
+137. Visibility polling → hidden document throttles noncritical polling → server-side safety monitoring remains independent → background-tab trace → UI stops hidden churn without disabling autonomy.
+138. Large-log virtualization → retain data while rendering bounded visible window → browser find/accessibility need deliberate support → 50k-event fixture → Activity remains responsive with search/export separate.
+139. Memory leak gate → repeated mount/action/unmount reaches stable retained-memory envelope → caches may intentionally warm → long-session heap checkpoints → MEL catches listener/object URL/session leaks.
+140. WordPress REST fit → use REST when structured external/client integration benefits; do not force it for every theme/plugin task → simpler native server rendering can be preferable → compare implementation path → MEL chooses integration by need.
+141. WordPress capability checks → REST mutations require nonce/auth plus server-side capability authorization → authenticated request is not sufficient → low-role mutation fixture → VI Édition automation respects WP roles.
+142. WordPress pagination discipline → bounded page sizes and explicit traversal → requesting giant collections harms latency → large-catalog fixture → catalogue sync checkpoints cursors/pages.
+143. WordPress idempotent product sync → stable external key prevents duplicate products on retry → titles/SKUs can change → replay sync fixture → automation reconciles instead of blindly creating.
+144. Media derivative awareness → WordPress may create multiple image sizes → original-only assumptions inflate pages or break references → upload + responsive-render test → editorial assets use generated sizes deliberately.
+145. Research source hierarchy → primary/current sources lead technical claims → community sources can reveal failure modes but not override authoritative specs → conflicting-source fixture → MEL labels evidence role.
+146. Fact/interpretation separation → distinguish sourced fact, inference and recommendation → even primary sources can omit context → claim ledger review → research outputs expose uncertainty.
+147. Citation atomicity → citation should entail the smallest meaningful claim cluster → one citation after a dense paragraph can overclaim → sentence-level audit sample → MEL research QA checks entailment.
+148. Freshness policy → volatility determines refresh interval → immutable RFC/history does not need news cadence → mixed-source corpus → research router assigns freshness class.
+149. Evidence minimization → collect only evidence needed for proof, redact secrets/PII → exhaustive logs can create privacy/security risk → incident bundle review → MEL diagnostics default to minimized artifacts.
+150. Recovery rehearsal → recovery procedure is validated by isolated restore and functional checks → documentation/backups alone are not readiness → timed restore drill → MEL launch evidence requires recoverability, not backup presence.
 
 ## Deduplication notes
-Cycles 51–100 broaden the corpus into game/runtime performance, audio, publishing, narrative/BD, e-commerce/SEO, deliverability and archival method. Similar engineering principles from 1–50 are not recounted as new expertise; these entries add domain-specific limits and falsifiable gates. No item is promoted to implementation XP without code/application proof.
+Cycles 101–150 add browser automation/session semantics, API authorization/abuse controls, hardware protocol robustness, mobile/frontend runtime performance, WordPress operational patterns and research evidence discipline. General timeout/idempotency/observable-effect concepts from 001–100 are reused only where a domain-specific failure mode or gate is added.
 
 ## Transfer ingestion
-No `MEL_TRANSFER_*_10000.md` package was discoverable in the repository at this checkpoint. Recheck periodically; ingest only generalized methods with provenance, scope and limits, never raw private autobiographical material.
+No `MEL_TRANSFER_*_10000.md` package was discoverable at this checkpoint. Continue periodic search and ingest only generalized, provenance-bearing methods; never raw private autobiographical material.
 
 ## Next block
-Continue at `MEL_CROSS_DOMAIN_EXPERT_PLUS_cycle_101/10000`; prioritize browser/computer use, hardware/protocols, frontend/mobile performance, research/fact-checking, WordPress/e-commerce operations, social/CRM, backup/recovery and then code-linked audits. Before every write, reread candidate HEAD and abort/reconcile if moved.
+Continue at `MEL_CROSS_DOMAIN_EXPERT_PLUS_cycle_151/10000`. Prioritize MCP/tool schemas, model routing/evals, Cloudflare D1/R2/Queues/DO/Workflows failure semantics, security/release supply chain, then inspect code-linked open defects. Before every write reread candidate HEAD and abort/reconcile if moved.
