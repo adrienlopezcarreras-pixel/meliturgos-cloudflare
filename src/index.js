@@ -151,7 +151,7 @@ export function withChatAiDefaults(env) {
 
 async function maybeHandleMemoryCompatibility(request, env) {
   const url = new URL(request.url);
-  if (request.method !== 'GET' || (url.pathname !== '/api/memory/status' && url.pathname !== '/api/export')) return null;
+  if (request.method !== 'GET' || !['/api/memory/status', '/api/memory/consolidate', '/api/export'].includes(url.pathname)) return null;
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
 
@@ -159,6 +159,16 @@ async function maybeHandleMemoryCompatibility(request, env) {
   if (url.pathname === '/api/memory/status') {
     const status = await runtime.bus.execute('memory.status', {}, busContext(env));
     return Response.json(status, { headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (url.pathname === '/api/memory/consolidate') {
+    const rawLimit = url.searchParams.get('limit');
+    const limit = rawLimit == null ? 100 : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+      return Response.json({ ok: false, error: 'MEMORY_CONSOLIDATE_LIMIT_INVALID' }, { status: 400, headers: { 'cache-control': 'no-store' } });
+    }
+    const result = await runtime.bus.execute('memory.consolidate', { limit }, busContext(env));
+    return Response.json({ ok: true, ...result }, { headers: { 'cache-control': 'no-store' } });
   }
 
   const payload = await runtime.bus.execute('memory.export', {}, busContext(env));
@@ -366,7 +376,7 @@ export default {
         if (publicTeacherResponse) return publicTeacherResponse;
       }
 
-      if (path === '/api/memory/status' || path === '/api/export') {
+      if (path === '/api/memory/status' || path === '/api/memory/consolidate' || path === '/api/export') {
         const memoryResponse = await maybeHandleMemoryCompatibility(request, env);
         if (memoryResponse) return memoryResponse;
       }

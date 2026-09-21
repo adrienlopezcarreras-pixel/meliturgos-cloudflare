@@ -1,3 +1,5 @@
+import { createMemoryService } from '../memory/memory-service.js';
+
 async function safeCount(db, table) {
   if (!db) return 0;
   try {
@@ -61,4 +63,20 @@ export function registerMemoryCompatibilityCapabilities(bus, env = {}) {
       archive_messages: archiveMessages,
     };
   });
+  bus.discover({
+    id: 'memory.consolidate', name: 'Compiler les candidats mémoire', category: 'memory', version: '1.0.0', provider: 'core',
+    description: 'Compiles pending memory observations into deterministic deduplicated proposals with confidence, recency, topics and provenance. Read/proposal only: it never confirms or writes memories.',
+    input_schema: {
+      type: 'object',
+      properties: { limit: { type: 'integer', minimum: 1, maximum: 500 } },
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: env.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true,
+  }, async (input = {}) => {
+    if (!env.DB) throw Object.assign(new Error('DB_BINDING_MISSING'), { code: 'DB_BINDING_MISSING', status: 503 });
+    const limit = Number.isInteger(input.limit) ? input.limit : 100;
+    return createMemoryService(env.DB).consolidate({ limit });
+  });
+
 }
