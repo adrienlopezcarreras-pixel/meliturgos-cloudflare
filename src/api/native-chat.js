@@ -43,7 +43,8 @@ export function isPersonalProfileRecall(text) {
     /\b(?:mes projets|mon projet|mes activites|mon activite|ce que je fais)\b/,
   ];
   const signalCount = personalSignals.reduce((count, pattern) => count + (pattern.test(normalized) ? 1 : 0), 0);
-  return signalCount >= 2;
+  const asksPersonalFact = /\?|\b(?:comment|ou|quel|quelle|quels|quelles|qu['’]?est[- ]?ce|est[- ]?ce que|sais[- ]?tu)\b/.test(normalized);
+  return signalCount >= 2 || (signalCount >= 1 && asksPersonalFact);
 }
 
 export function shouldRetrieveArchiveRecall(text) {
