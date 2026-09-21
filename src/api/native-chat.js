@@ -548,11 +548,13 @@ export async function handleNativeChat(request, env, options = {}) {
   if (conversationFocus.needs_clarification && !body.capability?.id && !inferredCapability) {
     const responseText = 'Tu veux que je continue quoi exactement ? Je n’ai pas de référent récent ou persistant assez fiable pour choisir un chantier sans risquer de partir sur le mauvais sujet.';
     let archiveSaved = false;
+    let clarificationMemorySync = { ok:false, status:'NOT_RUN' };
     if (service) {
       try {
         await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:'native-chat' });
         await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText, timestamp:Date.now()+1, provenance:'native-chat:clarification' });
         archiveSaved = true;
+        clarificationMemorySync = await syncConversationMemoryBestEffort(env, conversationId);
       } catch {}
     }
     return Response.json({
@@ -568,6 +570,7 @@ export async function handleNativeChat(request, env, options = {}) {
         needs_clarification:true,
       },
       archive_saved:archiveSaved,
+      memory_sync:clarificationMemorySync,
     }, { headers:{'cache-control':'no-store'} });
   }
 
