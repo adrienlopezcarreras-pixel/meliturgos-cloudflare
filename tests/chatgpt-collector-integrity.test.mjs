@@ -92,5 +92,48 @@ test('collector self-recovers a stalled large conversation without manual pause/
   assert.match(background, /await recoverTab\(tabId,code\);\s*continue;/s);
   assert.match(background, /await api\.tabs\.update\(tabId,\{url:'about:blank'\}\)/);
   assert.match(popup, /Relances automatiques/);
-  assert.equal(manifest.version, '0.5.3');
+  assert.equal(manifest.version, '0.6.0');
+});
+
+
+test('collector runner is asynchronous, single-flight and rate-limit aware', async () => {
+  const background = await readFile(new URL('../browser-companion/chatgpt-collector/background.js', import.meta.url), 'utf8');
+  const content = await readFile(new URL('../browser-companion/chatgpt-collector/content.js', import.meta.url), 'utf8');
+  const manifest = JSON.parse(await readFile(new URL('../browser-companion/chatgpt-collector/manifest.json', import.meta.url), 'utf8'));
+
+  assert.match(background, /const RUNNER_GLOBAL_GAP_MS=60\*1000/);
+  assert.match(background, /const RUNNER_PER_TAB_COOLDOWN_MS=90\*1000/);
+  assert.match(background, /let runnerTickPromise=null/);
+  assert.match(background, /if\(runnerTickPromise\)return runnerTickPromise/);
+  assert.match(background, /nextGlobalSendAt:sentAt\+RUNNER_GLOBAL_GAP_MS/);
+  assert.match(background, /nextEligibleAt:sentAt\+RUNNER_PER_TAB_COOLDOWN_MS/);
+  assert.match(background, /\['USAGE_LIMIT','RATE_LIMIT'\]\.includes/);
+  assert.match(background, /paused:true[\s\S]*blockedReason:/);
+  assert.match(content, /SEND_NOT_CONFIRMED/);
+  assert.ok(manifest.permissions.includes('alarms'));
+});
+
+test('collector runner only controls currently open explicitly armed tabs', async () => {
+  const background = await readFile(new URL('../browser-companion/chatgpt-collector/background.js', import.meta.url), 'utf8');
+  const popup = await readFile(new URL('../browser-companion/chatgpt-collector/popup.html', import.meta.url), 'utf8');
+  const popupJs = await readFile(new URL('../browser-companion/chatgpt-collector/popup.js', import.meta.url), 'utf8');
+
+  const resolveStart = background.indexOf('async function resolveRunnerTab');
+  const resolveEnd = background.indexOf('function isHardRunnerBlock', resolveStart);
+  const resolveBody = background.slice(resolveStart, resolveEnd);
+  assert.match(resolveBody, /api\.tabs\.get\(Number\(target\.tabId\)\)/);
+  assert.doesNotMatch(resolveBody, /api\.tabs\.query/);
+  assert.doesNotMatch(resolveBody, /api\.tabs\.create/);
+
+  assert.match(background, /api\.tabs\.onRemoved\.addListener/);
+  assert.match(background, /delete targets\[sourceId\]/);
+  assert.match(background, /api\.tabs\.onUpdated\.addListener/);
+  assert.match(background, /if\(idFromUrl\(tab\?\.url\)!==sourceId\)delete targets\[sourceId\]/);
+  assert.match(background, /COLLECTOR_TAB_RESERVED/);
+  assert.match(background, /!\['cycle','go'\]\.includes\(command\)/);
+
+  assert.match(popup, /uniquement sur les conversations ChatGPT actuellement ouvertes/i);
+  assert.match(popupJs, /mel\.runner\.mark-current/);
+  assert.match(popupJs, /command:'cycle'/);
+  assert.match(popupJs, /command:'go'/);
 });
