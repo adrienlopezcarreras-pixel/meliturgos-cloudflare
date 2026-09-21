@@ -50,8 +50,9 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
 
   if (path === "/api/gen2/capabilities" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });
-    const capabilities = await runtime.bus.refreshHealthAll();
-    return json({ ok: true, capabilities });
+    const refresh = url.searchParams.get("refresh") !== "0";
+    const capabilities = refresh ? await runtime.bus.refreshHealthAll() : runtime.bus.list();
+    return json({ ok: true, capabilities, health_refreshed: refresh });
   }
 
   if (path === "/api/gen2/capabilities/execute" && request.method === "POST") {
