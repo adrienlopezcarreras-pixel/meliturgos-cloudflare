@@ -368,9 +368,87 @@ export function normalizeChatGPTArchive(payload) {
   };
 }
 
-async function exists(db, id) {
-  try { return Boolean(await db.prepare('SELECT id FROM archive_messages WHERE id=?').bind(id).first()); }
-  catch { return false; }
+function parseStoredJson(value, fallback) {
+  if (!value || typeof value !== 'string') return fallback;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
+function attachmentIdentity(item) {
+  const id = String(item?.id || '').trim();
+  if (id) return `id:${id}`;
+  return [
+    String(item?.name || '').trim().toLowerCase(),
+    String(item?.mime_type || '').trim().toLowerCase(),
+    String(item?.kind || '').trim().toLowerCase(),
+    Number(item?.size_bytes || 0),
+  ].join('|');
+}
+
+function mergeAttachmentDescriptors(existing, incoming) {
+  const merged = [];
+  const index = new Map();
+  const add = (raw, preferIncoming = false) => {
+    const item = normalizeAttachmentDescriptor(raw);
+    if (!item) return;
+    const key = attachmentIdentity(item);
+    if (!key) return;
+    if (!index.has(key)) {
+      index.set(key, merged.length);
+      merged.push(item);
+      return;
+    }
+    if (!preferIncoming) return;
+    const at = index.get(key);
+    const current = merged[at];
+    merged[at] = {
+      id: current.id || item.id,
+      name: current.name || item.name,
+      mime_type: current.mime_type || item.mime_type,
+      kind: current.kind || item.kind,
+      size_bytes: current.size_bytes ?? item.size_bytes,
+      width: current.width ?? item.width,
+      height: current.height ?? item.height,
+      binary_content_indexed: current.binary_content_indexed === true || item.binary_content_indexed === true,
+    };
+  };
+  for (const item of Array.isArray(existing) ? existing : []) add(item, false);
+  for (const item of Array.isArray(incoming) ? incoming : []) add(item, true);
+  return merged.slice(0, MAX_ATTACHMENTS_PER_MESSAGE);
+}
+
+async function readExistingArchiveMessage(db, id) {
+  try {
+    return await db.prepare('SELECT id,content,attachments_json,metadata FROM archive_messages WHERE id=?').bind(id).first();
+  } catch {
+    return null;
+  }
+}
+
+async function enrichExistingArchiveMessage(db, id, existingRow, message) {
+  const existingAttachments = parseStoredJson(existingRow?.attachments_json, []);
+  const incomingAttachments = Array.isArray(message?.attachments) ? message.attachments : [];
+  const mergedAttachments = mergeAttachmentDescriptors(existingAttachments, incomingAttachments);
+  const beforeAttachments = JSON.stringify(Array.isArray(existingAttachments) ? existingAttachments : []);
+  const afterAttachments = JSON.stringify(mergedAttachments);
+  const attachmentBackfill = afterAttachments !== beforeAttachments;
+  const existingContent = String(existingRow?.content || '');
+  const incomingContent = String(message?.content || '');
+  const contentBackfill = !existingContent.trim() && !!incomingContent.trim();
+  if (!attachmentBackfill && !contentBackfill) return { changed:false, attachment_backfill:false, content_backfill:false };
+
+  const metadata = parseStoredJson(existingRow?.metadata, {});
+  if (attachmentBackfill) {
+    metadata.attachment_count = mergedAttachments.length;
+    metadata.attachment_binary_content_indexed = mergedAttachments.some(item => item?.binary_content_indexed === true);
+    metadata.attachment_metadata_backfilled_at = Date.now();
+  }
+  if (contentBackfill) metadata.content_backfilled_at = Date.now();
+
+  await db.prepare('UPDATE archive_messages SET content=?, attachments_json=?, metadata=? WHERE id=?')
+    .bind(contentBackfill ? incomingContent : existingContent,
+      mergedAttachments.length ? afterAttachments : (existingRow?.attachments_json || null),
+      JSON.stringify(metadata), id).run();
+  return { changed:true, attachment_backfill:attachmentBackfill, content_backfill:contentBackfill };
 }
 
 function archiveMessageId(conversationSourceId, messageId) {
@@ -386,12 +464,25 @@ export async function importChatGPTArchive(env, payload, { preview = false } = {
   const syncService = createSyncService(env);
   await service.migrate();
   let inserted = 0, duplicates = 0, failed = 0;
+  let enrichedDuplicates = 0, attachmentBackfills = 0, contentBackfills = 0;
   const memorySync = { scanned: 0, eligible: 0, inserted: 0, alreadyPresent: 0, skippedEmpty: 0, failed_conversations: 0 };
   for (const conversation of normalized.conversations) {
     await service.ensureConversation(conversation.id, env.MELITURGOS_USER || '', conversation.title);
     for (const message of conversation.messages) {
       const id = archiveMessageId(conversation.sourceId, message.messageId);
-      if (await exists(env.DB, id)) { duplicates++; continue; }
+      const existing = await readExistingArchiveMessage(env.DB, id);
+      if (existing) {
+        duplicates++;
+        try {
+          const enrichment = await enrichExistingArchiveMessage(env.DB, id, existing, message);
+          if (enrichment.changed) enrichedDuplicates++;
+          if (enrichment.attachment_backfill) attachmentBackfills++;
+          if (enrichment.content_backfill) contentBackfills++;
+        } catch {
+          failed++;
+        }
+        continue;
+      }
       try {
         await service.archiveMessage({
           id,
@@ -443,6 +534,9 @@ export async function importChatGPTArchive(env, payload, { preview = false } = {
     messages: normalized.summary.messages,
     inserted,
     duplicates,
+    enriched_duplicates: enrichedDuplicates,
+    attachment_backfills: attachmentBackfills,
+    content_backfills: contentBackfills,
     failed,
     provenance: 'chatgpt_export',
     memory_sync: {
