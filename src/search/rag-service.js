@@ -1,4 +1,5 @@
 import { requireValue } from '../core/contracts.js';
+import { ZeroEuroGovernor } from '../augmentio/zero-euro-governor.js';
 
 const ARCHIVE_SCAN_LIMIT = 4000;
 const CONVERSATION_SCAN_LIMIT = 1000;
@@ -329,12 +330,36 @@ function semanticVectorData(output) {
   return null;
 }
 
+function semanticCostProvenance(env) {
+  const raw = env?.MEL_MEMORY_SEMANTIC_COST_PROVENANCE;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createWorkersAiSemanticProvider(env, {
   model = '@cf/baai/bge-m3',
   maxDocuments = 24,
   enabled = String(env?.MEL_MEMORY_SEMANTIC_ENABLED || '').toLowerCase() === 'true',
 } = {}) {
   if (!enabled || !env?.AI || typeof env.AI.run !== 'function') return null;
+  const candidate = {
+    id: 'memory-semantic-workers-ai',
+    providerId: 'cloudflare-workers-ai',
+    modelId: model,
+    estimatedCost: 0,
+    costProvenance: semanticCostProvenance(env),
+  };
+  try {
+    new ZeroEuroGovernor().assertAllowed(candidate);
+  } catch {
+    return null;
+  }
   return async ({ query, documents = [] } = {}) => {
     const docs = (Array.isArray(documents) ? documents : [])
       .map(value => String(value || '').slice(0, 2200))
