@@ -157,7 +157,7 @@ test('collector 0.6.4 reports deep discovery coverage to MEL server and keeps un
   const background=await readFile(new URL('../browser-companion/chatgpt-collector/background.js',import.meta.url),'utf8');
   const content=await readFile(new URL('../browser-companion/chatgpt-collector/content.js',import.meta.url),'utf8');
   const manifest=JSON.parse(await readFile(new URL('../browser-companion/chatgpt-collector/manifest.json',import.meta.url),'utf8'));
-  assert.equal(manifest.version,'0.6.4');assert.match(content,/version:'0\.6\.3'/);assert.match(background,/api\/gen2\/import\/chatgpt-coverage/);assert.match(background,/deep_discovery_done:s\.deepDiscoveryDone===true/);assert.match(background,/coverageItemsFromState/);
+  assert.equal(manifest.version,'0.6.4');assert.match(content,/version:'0\.6\.4'/);assert.match(background,/api\/gen2\/import\/chatgpt-coverage/);assert.match(background,/deep_discovery_done:s\.deepDiscoveryDone===true/);assert.match(background,/coverageItemsFromState/);
   for(const state of ['DONE','PARTIAL','FAILED','UNAVAILABLE','DEFERRED','QUEUED'])assert.match(background,new RegExp("'"+state+"'"));
 });
 
@@ -179,7 +179,7 @@ test('collector 0.6.4 performs one-time attachment metadata backfill for already
   assert.match(content,/download_url: downloadUrl/);
   assert.match(background,/async function enrichConversationAttachments/);
   assert.match(background,/\/api\/files\/upload/);
-  assert.match(background,/byte_capture_status:'STORED_PRIVATE'/);
+  assert.match(background,/byte_capture_status:body\.stored===true\?'STORED_PRIVATE':'RECEIVED_NOT_PERSISTED'/);
   assert.match(background,/content_text:extracted/);
   assert.match(background,/sha256:body\.sha256/);
   assert.match(popup,/Backfill pièces jointes/);
