@@ -590,7 +590,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const [cognitiveMemory, archiveRecall, personalProfile] = await Promise.all([
     loadCognitiveMemory(env, activeInferenceSettings?.memory_results ?? 12),
     env?.DB && shouldRecallArchive && !personalProfileIntent
-      ? retrieveContext(env.DB, env.MELITURGOS_USER || 'owner', archiveRecallQuery).catch(() => null)
+      ? retrieveContext(env.DB, env.MELITURGOS_USER || 'owner', archiveRecallQuery, { env }).catch(() => null)
       : Promise.resolve(null),
     env?.DB && personalProfileIntent
       ? retrievePersonalProfileContext(env.DB, env.MELITURGOS_USER || 'owner', { limit: 28 }).catch(() => null)
