@@ -8,8 +8,8 @@ test('canonical migration provisions persistent conversation focus and response 
   const DB=sqliteD1();
   try {
     const result=await migrate(DB);
-    assert.equal(DB_SCHEMA_VERSION,10);
-    assert.equal(result.currentVersion,10);
+    assert.equal(DB_SCHEMA_VERSION,11);
+    assert.equal(result.currentVersion,11);
     const focus=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_focus_state'").first();
     const quality=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mel_response_quality_events'").first();
     assert.equal(focus?.name,'conversation_focus_state');
@@ -28,7 +28,7 @@ test('migration v8 is idempotent', async () => {
   try {
     await migrate(DB);
     const second=await migrate(DB);
-    assert.equal(second.currentVersion,10);
+    assert.equal(second.currentVersion,11);
     const rows=await DB.prepare('SELECT version,name FROM schema_migrations WHERE version=8').all();
     assert.equal(rows.results.length,1);
     assert.equal(rows.results[0].name,'conversation_focus_and_response_quality');
@@ -66,6 +66,24 @@ test('canonical migration provisions durable knowledge workspace', async () => {
     assert.equal(index?.name,'idx_knowledge_artifacts_owner_updated');
     const migration=await DB.prepare('SELECT name FROM schema_migrations WHERE version=10').first();
     assert.equal(migration?.name,'knowledge_workspace');
+  } finally {
+    DB.close();
+  }
+});
+
+
+test('migration v11 provisions Collector coverage state and remains idempotent', async () => {
+  const DB=sqliteD1();
+  try {
+    const first=await migrate(DB);
+    const second=await migrate(DB);
+    assert.equal(first.currentVersion,11);
+    assert.equal(second.currentVersion,11);
+    const table=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chatgpt_collector_coverage'").first();
+    assert.equal(table?.name,'chatgpt_collector_coverage');
+    const rows=await DB.prepare('SELECT version,name FROM schema_migrations WHERE version=11').all();
+    assert.equal(rows.results.length,1);
+    assert.equal(rows.results[0].name,'chatgpt_collector_coverage');
   } finally {
     DB.close();
   }
