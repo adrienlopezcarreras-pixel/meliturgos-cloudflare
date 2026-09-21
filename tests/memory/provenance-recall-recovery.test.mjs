@@ -158,5 +158,21 @@ test('MEL-MEM-10 rebuild after index loss reproduces candidates, proposals and r
     });
     assert.deepEqual(proposalSignature(afterCompiled.proposals), proposalSignature(beforeCompiled.proposals));
     assert.deepEqual(retrievalSignature(afterRetrieval.results), retrievalSignature(beforeRetrieval.results));
+
+    const restoredDB = sqliteD1();
+    try {
+      const restoredEnv = { DB: restoredDB, MELITURGOS_USER:'adrien' };
+      await prepareGen2(restoredDB);
+      await importChatGPTArchive(restoredEnv, archive, { preview:false });
+      const restoredService = createMemoryService(restoredDB);
+      const restoredCompiled = await restoredService.consolidate({limit:100});
+      const restoredRetrieval = await restoredService.retrieve({
+        owner:'adrien', query:'zephyr 741 Nova provenance', limit:10, sources:['archive_messages'], semantic:false,
+      });
+      assert.deepEqual(proposalSignature(restoredCompiled.proposals), proposalSignature(beforeCompiled.proposals));
+      assert.deepEqual(retrievalSignature(restoredRetrieval.results), retrievalSignature(beforeRetrieval.results));
+    } finally {
+      restoredDB.close();
+    }
   } finally { DB.close(); }
 });
