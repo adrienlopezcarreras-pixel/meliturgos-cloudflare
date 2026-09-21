@@ -75,10 +75,19 @@ export function createMemoryService(db, { semanticProvider = null } = {}) {
     async consolidate({limit=100} = {}) {
       requireValue(Number.isInteger(limit) && limit > 0 && limit <= 500, 'MEMORY_CONSOLIDATE_LIMIT_INVALID', 400);
       const now = Date.now();
-      const [pendingResult, existingResult] = await Promise.all([
-        db.prepare("SELECT id,conversation_id,message_id,content,confidence,source,status,created_at FROM memory_candidates WHERE status='PENDING' ORDER BY created_at ASC LIMIT ?").bind(limit).all(),
-        db.prepare("SELECT id,kind,content,confidence,source,provenance,metadata,created_at FROM memories WHERE valid_until IS NULL OR valid_until>? ORDER BY created_at ASC LIMIT ?").bind(now, Math.max(limit * 4, 100)).all(),
-      ]);
+      let pendingPromise;
+      try {
+        pendingPromise = db.prepare("SELECT id,conversation_id,message_id,content,confidence,source,status,created_at,provenance_json,metadata_json,observed_at,fragment,contradictions_json FROM memory_candidates WHERE status='PENDING' ORDER BY created_at ASC LIMIT ?").bind(limit).all();
+      } catch {
+        pendingPromise = db.prepare("SELECT id,conversation_id,message_id,content,confidence,source,status,created_at FROM memory_candidates WHERE status='PENDING' ORDER BY created_at ASC LIMIT ?").bind(limit).all();
+      }
+      let pendingResult;
+      try {
+        pendingResult = await pendingPromise;
+      } catch {
+        pendingResult = await db.prepare("SELECT id,conversation_id,message_id,content,confidence,source,status,created_at FROM memory_candidates WHERE status='PENDING' ORDER BY created_at ASC LIMIT ?").bind(limit).all();
+      }
+      const existingResult = await db.prepare("SELECT id,kind,content,confidence,source,provenance,metadata,created_at FROM memories WHERE valid_until IS NULL OR valid_until>? ORDER BY created_at ASC LIMIT ?").bind(now, Math.max(limit * 4, 100)).all();
       return compileMemoryCandidates({
         candidates: pendingResult?.results || [],
         existingMemories: existingResult?.results || [],
