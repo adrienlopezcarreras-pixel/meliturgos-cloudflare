@@ -1,43 +1,41 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { getMelAvatarRoute, serveMelAvatar } from '../src/pages/mel-avatar-assets.js';
 import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
 import { onRequestGet as renderNormalMode } from '../src/pages/mvp-interface.js';
 
 const AVATARS = [
-  ['classic', '/assets/avatars/mel-classic.webp', 'avatarClassic'],
-  ['granada', '/assets/avatars/mel-granada.webp', 'avatarGranada'],
-  ['guadix', '/assets/avatars/mel-religious-andalusian.webp', 'avatarGuadix'],
-  ['crusade', '/assets/avatars/mel-crusade.webp', 'avatarCrusade'],
-  ['aviation', '/assets/avatars/mel-aviation-1940s.webp', 'avatarAviation'],
-  ['amazon', '/assets/avatars/mel-amazon-griffon.webp', 'avatarAmazon'],
-  ['paladin', '/assets/avatars/mel-paladin-light-full-plate.webp', 'avatarPaladin'],
-  ['futuristic', '/assets/avatars/mel-full.webp', 'avatarFuturistic'],
+  ['classic', '/assets/avatars/mel-classic.webp'],
+  ['granada', '/assets/avatars/mel-granada.webp'],
+  ['guadix', '/assets/avatars/mel-religious-andalusian.webp'],
+  ['crusade', '/assets/avatars/mel-crusade.webp'],
+  ['aviation', '/assets/avatars/mel-aviation-1940s.webp'],
+  ['amazon', '/assets/avatars/mel-amazon-griffon.webp'],
+  ['paladin', '/assets/avatars/mel-paladin-light-full-plate.webp'],
+  ['futuristic', '/assets/avatars/mel-full.webp'],
 ];
 
-test('each MEL visual mode resolves to its clean embedded avatar route', async () => {
-  for (const [theme, path, assetKey] of AVATARS) {
+function staticAssetUrl(route) {
+  return new URL('../dist' + route, import.meta.url);
+}
+
+test('each MEL visual mode resolves to a valid static WebP avatar route', async () => {
+  for (const [theme, path] of AVATARS) {
     assert.equal(getMelAvatarRoute(theme), path);
-    const response = serveMelAvatar(path);
-    assert.ok(response instanceof Response);
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get('content-type'), 'image/webp');
-    assert.equal(response.headers.get('x-mel-asset'), assetKey);
-    assert.equal(response.headers.get('x-mel-avatar'), assetKey);
-    assert.equal(response.headers.get('cache-control'), 'public,max-age=300,must-revalidate');
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    assert.ok(bytes.length > 3000);
-    assert.equal(String.fromCharCode(...bytes.slice(0, 4)), 'RIFF');
-    assert.equal(String.fromCharCode(...bytes.slice(8, 12)), 'WEBP');
+    const bytes = await readFile(staticAssetUrl(path));
+    assert.ok(bytes.length > 10000, path);
+    assert.equal(bytes.subarray(0, 4).toString('ascii'), 'RIFF', path);
+    assert.equal(bytes.subarray(8, 12).toString('ascii'), 'WEBP', path);
   }
   assert.equal(serveMelAvatar('/assets/avatars/unknown.webp'), null);
 });
 
-test('clean embedded portraits remain byte-distinct', async () => {
+test('clean static portraits remain byte-distinct', async () => {
   const hashes = [];
   for (const [, path] of AVATARS) {
-    const bytes = Buffer.from(await serveMelAvatar(path).arrayBuffer());
+    const bytes = await readFile(staticAssetUrl(path));
     hashes.push(createHash('sha256').update(bytes).digest('hex'));
   }
   assert.equal(new Set(hashes).size, AVATARS.length);
