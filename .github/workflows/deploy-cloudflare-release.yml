@@ -85,7 +85,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git checkout -B release/production-ci-head "$EXPECTED_SHA"
+          git checkout -B candidate/release-ci-head "$EXPECTED_SHA"
           npm test
 
       - name: Build critical MEL code bundle
