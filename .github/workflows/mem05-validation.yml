@@ -1,0 +1,38 @@
+name: mem05-validation
+
+on:
+  pull_request:
+    branches:
+      - test/mem05-ci-base-20260921
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout PR merge
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Syntax gate
+        run: npm run check
+
+      - name: Targeted MEL-MEM-05 tests
+        run: |
+          node --test             tests/chatgpt-archive-importer.test.mjs             tests/chatgpt-collector-integrity.test.mjs             tests/file-upload-memory.test.mjs
+
+      - name: Full regression
+        run: npm test
