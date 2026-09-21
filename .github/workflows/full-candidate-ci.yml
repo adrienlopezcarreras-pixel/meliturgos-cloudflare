@@ -16,6 +16,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Normalize archive branch for candidate-only integration tests
+        if: github.ref_name == 'archive/mel-runtime-lightweight-integration-20260921-0837'
+        run: git switch -c candidate/optimization-lightweight-ci
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '22'
