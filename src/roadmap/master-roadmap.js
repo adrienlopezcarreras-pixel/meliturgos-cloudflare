@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-21.9';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-21.10';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -59,7 +59,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-56', 'Import contexte ChatGPT', 'DONE_VERIFIED', 'Valider les gros exports réels et la compatibilité entre versions', 'P0'),
     item('MEL-MEM-01', 'Memory Compiler: faits, préférences, décisions, compétences', 'DONE_VERIFIED', 'Maintenir la déduplication canonique, la confiance sans boost de répétition et la provenance; memory.consolidate reste lecture/proposition uniquement', 'P0'),
     item('MEL-MEM-02', 'Synchronisation continue des nouveaux échanges vers la mémoire', 'IN_PROGRESS', 'Le chat natif archive puis déclenche désormais syncToMemory() en best-effort idempotent pour les réponses normales et de clarification, avec résultat observable et memory_candidates enrichis. Reste à brancher les autres producteurs d’échanges puis valider preview/production avant DONE_VERIFIED', 'P1'),
-    item('MEL-MEM-03', 'Export mémoire portable et lisible', 'PARTIAL', 'Ajouter manifeste, checksums et version de schéma', 'P1'),
+    item('MEL-MEM-03', 'Export mémoire portable et lisible', 'DONE_VERIFIED', 'Format versionné avec manifeste, SHA-256 global et par enregistrement, vérification fail-closed, sérialisation lisible et round-trip isolé validé par deploy-memory-export-preview run 35005909807 (SHA 2281407d). Maintenir compatibilité et tests à chaque évolution de schéma', 'P1'),
     item('MEL-MEM-04', 'Complétude des archives ChatGPT récupérables', 'IN_PROGRESS', 'Preuve fail-closed implémentée: reçus serveur exhaustifs + manifeste de couverture Collector 0.6.2; valider un inventaire profond réel en production avant DONE_VERIFIED', 'P0'),
     item('MEL-MEM-05', 'Indexation complète messages et pièces jointes', 'IN_PROGRESS', 'Messages fichier-seul et métadonnées de pièces jointes conservés/recherchables; prochaine étape: backfill idempotent des archives existantes et indexation du contenu binaire quand les octets sont réellement disponibles', 'P0'),
     item('MEL-MEM-06', 'Pont archives vers mémoire opérationnelle unifiée', 'DONE_VERIFIED', 'MemoryService.retrieve unifie mémoire cognitive, archives ChatGPT, titres de conversations et knowledge artifacts via RAG avec provenance et déduplication; conversation-context passe par ce pont et n’injecte qu’un top-k borné. Full CI + preview complet + reconstruction/stress/launch readiness validés sur e24404c1 (rerun attempt 2).', 'P0'),
