@@ -1,5 +1,5 @@
 name: Godot private five-game test
-# artifact-key moviewriter run 14
+# unified gamedev runtime run 15
 
 on:
   push:
@@ -174,6 +174,30 @@ jobs:
             fi
           done
           if [ "$overall" -eq 0 ]; then echo "OVERALL_RESULT=PASS"; else echo "OVERALL_RESULT=FAIL"; fi
+          exit "$overall"
+
+      - name: Execute persistence and input tests
+        run: |
+          set +e
+          overall=0
+          projects=(TARNEN DIVISION_AZUL CHEVALIER_IMMORTEL ORPHELINS_DU_CODE_3D CIVITAS)
+          for name in "${projects[@]}"; do
+            proj="$GAMES_ROOT/$name"
+            echo "===== INFRA TEST $name ====="
+            "$GODOT" --headless --path "$proj" --script "res://tests/save_service_v55_test.gd" > "/tmp/${name}-save-test.log" 2>&1
+            save_rc=$?
+            "$GODOT" --headless --path "$proj" --script "res://tests/input_router_v55_test.gd" > "/tmp/${name}-input-test.log" 2>&1
+            input_rc=$?
+            cat "/tmp/${name}-save-test.log"
+            cat "/tmp/${name}-input-test.log"
+            if [ "$save_rc" -ne 0 ] || [ "$input_rc" -ne 0 ]; then
+              echo "$name INFRA_TEST=FAIL save_rc=$save_rc input_rc=$input_rc"
+              overall=1
+            else
+              echo "$name INFRA_TEST=PASS save_rc=$save_rc input_rc=$input_rc"
+            fi
+          done
+          if [ "$overall" -eq 0 ]; then echo "INFRA_OVERALL=PASS"; else echo "INFRA_OVERALL=FAIL"; fi
           exit "$overall"
 
       - name: Capture real rendered screenshots
