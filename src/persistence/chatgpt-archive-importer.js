@@ -525,7 +525,8 @@ export async function importChatGPTArchive(env, payload, { preview = false } = {
             chatgpt_conversation_title: conversation.title,
             source_type: 'chatgpt_export',
             attachment_count: message.attachments?.length || 0,
-            attachment_binary_content_indexed: false,
+            attachment_binary_content_indexed: Array.isArray(message.attachments)
+              && message.attachments.some(item => item?.binary_content_indexed === true || !!item?.content_text),
             collector_source: conversation.collector?.source || null,
             collector_version: conversation.collector?.version || null,
             collector_partial: conversation.collector?.partial === true,
