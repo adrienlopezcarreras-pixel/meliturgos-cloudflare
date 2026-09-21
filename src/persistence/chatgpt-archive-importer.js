@@ -182,6 +182,13 @@ function normalizeAttachmentDescriptor(value) {
   const widthRaw = Number(value.width ?? metadata.width);
   const heightRaw = Number(value.height ?? metadata.height);
   if (!id && !name && !mimeType && !kind) return null;
+  const storageId = boundedAttachmentString(value.storage_id ?? metadata.storage_id, 500);
+  const storageKey = boundedAttachmentString(value.storage_key ?? metadata.storage_key, 1000);
+  const sha256 = boundedAttachmentString(value.sha256 ?? metadata.sha256, 128);
+  const contentIndexStatus = boundedAttachmentString(value.content_index_status ?? metadata.content_index_status, 120);
+  const byteCaptureStatus = boundedAttachmentString(value.byte_capture_status ?? metadata.byte_capture_status, 120);
+  const contentTextRaw = typeof value.content_text === 'string' ? value.content_text : (typeof metadata.content_text === 'string' ? metadata.content_text : '');
+  const contentText = contentTextRaw ? contentTextRaw.slice(0, 120000) : null;
   return {
     id,
     name,
@@ -190,7 +197,13 @@ function normalizeAttachmentDescriptor(value) {
     size_bytes: Number.isFinite(sizeRaw) && sizeRaw >= 0 ? Math.trunc(sizeRaw) : null,
     width: Number.isFinite(widthRaw) && widthRaw > 0 ? Math.trunc(widthRaw) : null,
     height: Number.isFinite(heightRaw) && heightRaw > 0 ? Math.trunc(heightRaw) : null,
-    binary_content_indexed: false,
+    storage_id: storageId,
+    storage_key: storageKey,
+    sha256,
+    content_text: contentText,
+    content_index_status: contentIndexStatus,
+    byte_capture_status: byteCaptureStatus,
+    binary_content_indexed: value.binary_content_indexed === true || metadata.binary_content_indexed === true || !!contentText,
   };
 }
 
@@ -408,7 +421,13 @@ function mergeAttachmentDescriptors(existing, incoming) {
       size_bytes: current.size_bytes ?? item.size_bytes,
       width: current.width ?? item.width,
       height: current.height ?? item.height,
-      binary_content_indexed: current.binary_content_indexed === true || item.binary_content_indexed === true,
+      storage_id: current.storage_id || item.storage_id,
+      storage_key: current.storage_key || item.storage_key,
+      sha256: current.sha256 || item.sha256,
+      content_text: current.content_text || item.content_text,
+      content_index_status: current.content_index_status || item.content_index_status,
+      byte_capture_status: current.byte_capture_status || item.byte_capture_status,
+      binary_content_indexed: current.binary_content_indexed === true || item.binary_content_indexed === true || !!current.content_text || !!item.content_text,
     };
   };
   for (const item of Array.isArray(existing) ? existing : []) add(item, false);
