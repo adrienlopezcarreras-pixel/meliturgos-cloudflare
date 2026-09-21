@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - 'candidate/mel-clean-autonomy'
-      - 'optimization/mel-runtime-lightweight'
   workflow_dispatch:
 
 permissions:
