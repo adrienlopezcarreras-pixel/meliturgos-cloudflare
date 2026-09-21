@@ -69,6 +69,71 @@
       .trim();
   }
 
+  function cleanAttachmentName(value) {
+    return String(value || '')
+      .replace(/^(?:download|télécharger|fichier|file|attachment|pièce jointe)\s*[:–-]?\s*/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 500);
+  }
+
+  function attachmentDescriptors(node) {
+    const holder = node.closest('[data-message-id]') || node;
+    const selector = [
+      'a[download]',
+      'a[href*="/files/" i]',
+      'a[href*="files.oaiusercontent.com" i]',
+      '[data-testid*="attachment" i]',
+      '[data-testid*="file" i]',
+      '[data-file-name]',
+      '[data-file-id]',
+      '[data-asset-id]'
+    ].join(',');
+    const out = [], seen = new Set();
+    for (const el of holder.querySelectorAll(selector)) {
+      const href = el.tagName === 'A' ? String(el.getAttribute('href') || '') : '';
+      let hrefName = '';
+      if (href) {
+        try {
+          const pathname = new URL(href, location.href).pathname;
+          hrefName = decodeURIComponent(pathname.split('/').filter(Boolean).at(-1) || '');
+        } catch {}
+      }
+      const name = cleanAttachmentName(
+        el.getAttribute('download')
+        || el.getAttribute('data-file-name')
+        || el.getAttribute('aria-label')
+        || el.getAttribute('title')
+        || el.textContent
+        || hrefName
+      );
+      const id = String(el.getAttribute('data-file-id') || el.getAttribute('data-asset-id') || '').trim().slice(0, 500) || null;
+      const testId = String(el.getAttribute('data-testid') || '').trim().slice(0, 120);
+      const isExplicit = /attachment|file/i.test(testId)
+        || el.hasAttribute('download')
+        || el.hasAttribute('data-file-name')
+        || el.hasAttribute('data-file-id')
+        || el.hasAttribute('data-asset-id')
+        || /\/files\//i.test(href)
+        || /files\.oaiusercontent\.com/i.test(href);
+      if (!isExplicit || (!id && !name)) continue;
+      const item = {
+        id,
+        name: name || hrefName || null,
+        mime_type: null,
+        kind: testId || 'dom_attachment',
+        size_bytes: null,
+        binary_content_indexed: false
+      };
+      const key = id ? 'id:'+id : JSON.stringify(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+      if (out.length >= 32) break;
+    }
+    return out;
+  }
+
   async function yieldForPc() {
     await wait(CAPTURE_CHUNK_PAUSE_MS);
   }
@@ -105,7 +170,8 @@
         const role = String(node.getAttribute('data-message-author-role') || 'unknown').toLowerCase();
         const holder = node.closest('[data-message-id]') || node.querySelector('[data-message-id]');
         const text = textOf(node);
-        if (!text) continue;
+        const attachments = attachmentDescriptors(node);
+        if (!text && !attachments.length) continue;
         messages.push({
           id: String(
             holder?.getAttribute('data-message-id') ||
@@ -114,6 +180,7 @@
           ).slice(0, 500),
           role,
           content: text,
+          attachments,
           timestamp: base + index * 1000
         });
       }
@@ -138,7 +205,7 @@
         messages,
         collector:{
           source:'firefox_dom',
-          version:'0.6.2',
+          version:'0.6.3',
           url:convUrl(),
           totalMessages,
           partial:tailLimit > 0
