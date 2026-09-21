@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "MEL ChatGPT Collector",
-  "version": "0.6.3",
-  "description": "Collecte ChatGPT vers MEL avec preuve de couverture, métadonnées de pièces jointes, backfill historique idempotent après collecte primaire et runner GPT asynchrone.",
+  "version": "0.6.4",
+  "description": "Collecte ChatGPT vers MEL avec preuve de couverture, backfill historique et récupération privée des octets de pièces jointes quand une URL de téléchargement est disponible.",
   "permissions": [
     "storage",
     "tabs",
@@ -13,6 +13,7 @@
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
+    "https://*.oaiusercontent.com/*",
     "https://meliturgos.adrien-lopezcarreras.workers.dev/*",
     "https://meliturgos-preview.adrien-lopezcarreras.workers.dev/*",
     "https://professeur.verite-interdite.fr/*"
