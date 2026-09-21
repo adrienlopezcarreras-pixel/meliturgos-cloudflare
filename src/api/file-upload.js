@@ -15,6 +15,16 @@ function isTextual(type, name) {
     || /\.(?:txt|md|json|csv|tsv|js|mjs|cjs|ts|tsx|jsx|css|html|htm|xml|yml|yaml|toml|ini|log|sql|py|sh|ps1|java|c|h|cpp|hpp|rs|go|php|rb)$/i.test(name);
 }
 
+function boundedMeta(value, max = 500) {
+  const text = String(value || '').trim();
+  return text ? text.slice(0, max) : null;
+}
+
+async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
+}
+
 export async function handleFileUpload(request, env) {
   if (request.method !== 'POST' || new URL(request.url).pathname !== '/api/files/upload') return null;
   const auth = requireAuth(request, env);
@@ -37,14 +47,29 @@ export async function handleFileUpload(request, env) {
   const name = safeName(file.name);
   const mime = String(file.type || 'application/octet-stream').slice(0, 160);
   const bytes = new Uint8Array(await file.arrayBuffer());
+  const sha256 = await sha256Hex(bytes);
   const id = crypto.randomUUID();
   const key = `uploads/${new Date().toISOString().slice(0,10)}/${id}-${name}`;
   let stored = false;
 
   if (env?.MEDIA_BUCKET && typeof env.MEDIA_BUCKET.put === 'function') {
+    const customMetadata = {
+      originalName:name,
+      owner:String(env.MELITURGOS_USER || 'owner'),
+      sha256,
+    };
+    const source = boundedMeta(form.get('source'), 120);
+    const conversationId = boundedMeta(form.get('conversation_id'));
+    const messageId = boundedMeta(form.get('message_id'));
+    const attachmentId = boundedMeta(form.get('attachment_id'));
+    if (source) customMetadata.source = source;
+    if (conversationId) customMetadata.conversationId = conversationId;
+    if (messageId) customMetadata.messageId = messageId;
+    if (attachmentId) customMetadata.attachmentId = attachmentId;
+
     await env.MEDIA_BUCKET.put(key, bytes, {
       httpMetadata: { contentType:mime },
-      customMetadata: { originalName:name, owner:String(env.MELITURGOS_USER || 'owner') },
+      customMetadata,
     });
     stored = true;
   }
@@ -55,7 +80,7 @@ export async function handleFileUpload(request, env) {
   }
 
   return Response.json({
-    ok:true,id,name,size,type:mime,stored,private:true,key:stored?key:null,url:null,
+    ok:true,id,name,size,type:mime,stored,private:true,key:stored?key:null,url:null,sha256,
     preview_text,
     analysis_status: preview_text !== null ? 'TEXT_EXTRACTED' : (stored ? 'STORED_PRIVATE' : 'RECEIVED_NOT_PERSISTED')
   }, { headers:{'cache-control':'no-store'} });
