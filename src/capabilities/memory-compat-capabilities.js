@@ -111,6 +111,30 @@ export function registerMemoryCompatibilityCapabilities(bus, env = {}) {
   });
 
   bus.discover({
+    id: 'memory.learn', name: 'Confirmer un apprentissage mémoire', category: 'memory', version: '1.0.0', provider: 'core',
+    description: 'Confirms one canonical fact from archive-derived memory candidates while preserving conversation/message/source/date fragments, confidence and explicit contradiction snapshots.',
+    input_schema: {
+      type: 'object',
+      required: ['candidate_ids'],
+      properties: {
+        candidate_ids: { type: 'array', minItems: 1, maxItems: 32, items: { type: 'string', minLength: 1, maxLength: 240 } },
+        kind: { type: 'string', minLength: 1, maxLength: 120 },
+        contradiction_ids: { type: 'array', maxItems: 32, items: { type: 'string', minLength: 1, maxLength: 80 } }
+      },
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'MEDIUM', permissions: [], health: env.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true,
+  }, async (input = {}) => {
+    if (!env.DB) throw Object.assign(new Error('DB_BINDING_MISSING'), { code: 'DB_BINDING_MISSING', status: 503 });
+    return createMemoryService(env.DB).confirm({
+      candidateIds: input.candidate_ids,
+      kind: input.kind || 'fact',
+      contradictionIds: input.contradiction_ids || [],
+    });
+  });
+
+  bus.discover({
     id: 'memory.consolidate', name: 'Compiler les candidats mémoire', category: 'memory', version: '1.0.0', provider: 'core',
     description: 'Compiles pending memory observations into deterministic deduplicated proposals with confidence, recency, topics and provenance. Read/proposal only: it never confirms or writes memories.',
     input_schema: {
