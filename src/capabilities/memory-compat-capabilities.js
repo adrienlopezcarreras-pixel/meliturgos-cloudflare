@@ -1,5 +1,5 @@
 import { createMemoryService } from '../memory/memory-service.js';
-import { createWorkersAiSemanticProvider } from '../search/embeddings.js';
+import { createWorkersAiSemanticProvider } from '../search/rag-service.js';
 
 async function safeCount(db, table) {
   if (!db) return 0;
@@ -74,7 +74,7 @@ export function registerMemoryCompatibilityCapabilities(bus, env = {}) {
         query: { type: 'string', minLength: 1, maxLength: 12000 },
         limit: { type: 'integer', minimum: 1, maximum: 100 },
         sources: { type: 'array', items: { enum: ['archive_messages','conversations','memories','knowledge_artifacts'] } },
-        exact: { type: ['boolean','string'] },
+        semantic: { type: 'boolean' },
         filters: {
           type: 'object',
           properties: {
@@ -82,7 +82,9 @@ export function registerMemoryCompatibilityCapabilities(bus, env = {}) {
             to: { type: ['number','string'] },
             conversation_id: { type: 'string' },
             project: { type: 'string' },
-            file_types: { type: 'array', items: { type: 'string' } }
+            file_type: { type: 'string' },
+            role: { type: 'string' },
+            source: { type: 'string' }
           },
           additionalProperties: false
         }
@@ -93,15 +95,18 @@ export function registerMemoryCompatibilityCapabilities(bus, env = {}) {
     risk: 'LOW', permissions: [], health: env.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true,
   }, async (input = {}) => {
     if (!env.DB) throw Object.assign(new Error('DB_BINDING_MISSING'), { code: 'DB_BINDING_MISSING', status: 503 });
-    const model=String(env.MEL_MEMORY_EMBEDDING_MODEL||'').trim();
-    const semanticProvider=createWorkersAiSemanticProvider(env.AI,{model});
+    const semanticEnabled = input.semantic !== false && String(env.MEL_MEMORY_SEMANTIC_ENABLED || '').toLowerCase() === 'true';
+    const semanticProvider=createWorkersAiSemanticProvider(env,{
+      model:String(env.MEL_MEMORY_EMBEDDING_MODEL||'@cf/baai/bge-m3').trim(),
+      enabled:semanticEnabled,
+    });
     return createMemoryService(env.DB,{semanticProvider}).retrieve({
       owner: env.MELITURGOS_USER || 'owner',
       query: String(input.query || ''),
       limit: Number.isInteger(input.limit) ? input.limit : 12,
       sources: Array.isArray(input.sources) && input.sources.length ? input.sources : ['archive_messages','conversations','memories','knowledge_artifacts'],
-      exact: input.exact ?? false,
       filters: input.filters || {},
+      semantic: input.semantic !== false,
     });
   });
 
