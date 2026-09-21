@@ -1,0 +1,26 @@
+name: MEL-EVAL-03 current proof CI
+
+on:
+  push:
+    branches:
+      - 'roadmap/mel-eval-03-current-proof-20260921'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Syntax gate
+        run: npm run check
+      - name: MEL-EVAL-03 regression gate
+        run: node --test tests/gen2/regression-gate.test.mjs
