@@ -599,7 +599,7 @@ export async function getChatGPTImportStatus(env) {
       server_archive_complete: false,
       collector_inventory_confirmed: false,
       collector_inventory: null,
-      attachment_index: { messages_with_attachments: 0, descriptors: 0, metadata_searchable: false, binary_content_indexed: false },
+      attachment_index: { messages_with_attachments: 0, descriptors: 0, indexed_descriptors: 0, metadata_searchable: false, binary_content_indexed: false, binary_content_complete: false },
       full_archive_confirmed: false,
       last_received: null
     };
@@ -608,7 +608,7 @@ export async function getChatGPTImportStatus(env) {
   const service = createConversationService(env);
   await service.migrate();
 
-  const [conversations, messages, userMessages, assistantMessages, memoryCandidates, pendingCandidates, unsyncedMessages, attachmentMessages, attachmentDescriptors] = await Promise.all([
+  const [conversations, messages, userMessages, assistantMessages, memoryCandidates, pendingCandidates, unsyncedMessages, attachmentMessages, attachmentDescriptors, indexedAttachmentDescriptors] = await Promise.all([
     scalar(env.DB, "SELECT COUNT(DISTINCT conversation_id) AS count FROM archive_messages WHERE provenance='chatgpt_export'"),
     scalar(env.DB, "SELECT COUNT(*) AS count FROM archive_messages WHERE provenance='chatgpt_export'"),
     scalar(env.DB, "SELECT COUNT(*) AS count FROM archive_messages WHERE provenance='chatgpt_export' AND role='user'"),
@@ -630,7 +630,13 @@ export async function getChatGPTImportStatus(env) {
     scalar(env.DB, `SELECT COALESCE(SUM(json_array_length(attachments_json)),0) AS count FROM archive_messages
       WHERE provenance='chatgpt_export'
         AND attachments_json IS NOT NULL
-        AND json_valid(attachments_json)`)
+        AND json_valid(attachments_json)`),
+    scalar(env.DB, `SELECT COUNT(*) AS count
+      FROM archive_messages a, json_each(a.attachments_json) j
+      WHERE a.provenance='chatgpt_export'
+        AND a.attachments_json IS NOT NULL
+        AND json_valid(a.attachments_json)
+        AND json_extract(j.value,'$.binary_content_indexed')=1`)
   ]);
 
   const [receiptAggregate, coverageManifest, storedConversationRows] = await Promise.all([
@@ -692,8 +698,10 @@ export async function getChatGPTImportStatus(env) {
     attachment_index: {
       messages_with_attachments: attachmentMessages,
       descriptors: attachmentDescriptors,
+      indexed_descriptors: indexedAttachmentDescriptors,
       metadata_searchable: true,
-      binary_content_indexed: false,
+      binary_content_indexed: indexedAttachmentDescriptors > 0,
+      binary_content_complete: attachmentDescriptors > 0 && indexedAttachmentDescriptors === attachmentDescriptors,
     },
     tracked_conversations: trackedConversations,
     complete_conversations: completeConversations,
