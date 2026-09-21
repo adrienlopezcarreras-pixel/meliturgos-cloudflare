@@ -262,6 +262,9 @@ test('code sync requires fresh representative proof and invalidates a target aft
   assert.match(runtime,/invalidateCodeTargetQualification\(env,e\.id\)/);
   assert.match(runtime,/removeEndpointFromRegistry\(env,VALIDATED_ENDPOINTS_KEY,endpointId\)/);
   assert.match(runtime,/removeEndpointFromRegistry\(env,CODE_CANDIDATES_KEY,endpointId\)/);
+  assert.match(runtime,/invalidateRepresentativeProof\(env,endpointId\)/);
+  assert.match(autonomous,/export async function invalidateRepresentativeProof\(/);
+  assert.match(autonomous,/delete next\[id\]/);
   assert.match(runtime,/representativeLatencyMs/);
   assert.match(runtime,/const proofBudget=representativeLatency>0\?Math\.ceil\(representativeLatency\*1\.35\+10000\):0/);
   assert.match(autonomous,/REPRESENTATIVE_DEADLINE_EXCEEDED/);
