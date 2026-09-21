@@ -118,6 +118,8 @@ function personalFactScore(row) {
   if (/\b(?:je|j['’]|moi|mon|ma|mes|me|m['’])\b/.test(text)) score += 3;
   if (/\b(?:famille|enfant|travail|metier|profession|entreprise|societe|projet|vehicule|voiture|maison|ville|village|apiculture|ruches|roman|site|sante|formation|religion|voyage)\b/.test(text)) score += 2;
   if (text.length >= 40 && text.length <= 1200) score += 1;
+  if (/\?|\b(?:est-ce|vais-je|peux-je|puis-je|dois-je|comment|pourquoi|quel|quelle|quels|quelles)\b/.test(text)) score -= 6;
+  if (/\b(?:waiting teacher|ready for review|runner|commit|sha|workflow|ci|deploy|deploiement|bouton|interface|audit|code source|capable d['’]?appeler)\b/.test(text)) score -= 6;
   if (/\b(?:go|cycle|maj|runner|commit|sha|branche|workflow|ci|deploy|deploiement)\b/.test(text) && score < 9) score -= 3;
   return score;
 }
@@ -180,7 +182,7 @@ export async function retrievePersonalProfileContext(db, owner, { limit = 28 } =
   const perConversation = new Map();
   const selected = rows
     .map(row => ({ ...row, profile_score: personalFactScore(row) }))
-    .filter(row => row.profile_score >= 4)
+    .filter(row => row.profile_score >= 8)
     .filter(row => !profileSecretLike(row.content))
     .sort((a,b) => b.profile_score-a.profile_score || Number(b.timestamp||0)-Number(a.timestamp||0))
     .filter(row => {
