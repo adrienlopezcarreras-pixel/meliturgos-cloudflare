@@ -489,6 +489,16 @@ async function writeRepresentativeProofs(env,proofs){
   if(!env?.MEDIA_BUCKET?.put)return;
   await env.MEDIA_BUCKET.put(REPRESENTATIVE_PROOF_KEY,JSON.stringify(proofs),{httpMetadata:{contentType:'application/json'}});
 }
+export async function invalidateRepresentativeProof(env,endpointId){
+  const id=String(endpointId||'').trim();
+  if(!id)return false;
+  const proofs=await readRepresentativeProofs(env);
+  if(!Object.prototype.hasOwnProperty.call(proofs,id))return false;
+  const next={...proofs};
+  delete next[id];
+  await writeRepresentativeProofs(env,next);
+  return true;
+}
 function representativeProofFresh(proof,requiredBytes,env,c=null){
   if(!proof?.ok)return false;
   const target=representativeTargetBytes(requiredBytes);

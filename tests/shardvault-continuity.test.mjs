@@ -66,10 +66,11 @@ assert.deepEqual(proven.map(x=>x.id),['p1','p2','p3']);
 
 const rankedCodeTargets = __shardvaultTest.rankExternalCodeCandidates({}, [
   { id:'slow-small', operatorDomain:'slow.test', providerId:'slow', expectedRetentionDays:365, maxBytes:4096, probeLatencyMs:900, score:100 },
-  { id:'fast-large', operatorDomain:'fast.test', providerId:'fast', expectedRetentionDays:365, maxBytes:1024*1024, probeLatencyMs:25, score:80 },
-  { id:'fast-large-2', operatorDomain:'fast2.test', providerId:'fast2', expectedRetentionDays:365, maxBytes:1024*1024, probeLatencyMs:30, score:79 },
+  { id:'fast-large', operatorDomain:'fast.test', providerId:'fast', expectedRetentionDays:365, maxBytes:1024*1024, probeLatencyMs:25, score:80, representativeBytes:256*1024, representativeSha256:'a'.repeat(64), representativeVerifiedAt:new Date().toISOString() },
+  { id:'fast-large-2', operatorDomain:'fast2.test', providerId:'fast2', expectedRetentionDays:365, maxBytes:1024*1024, probeLatencyMs:30, score:79, representativeBytes:256*1024, representativeSha256:'b'.repeat(64), representativeVerifiedAt:new Date().toISOString() },
 ], 128*1024);
-assert.deepEqual(rankedCodeTargets.slice(0,2).map(x=>x.id), ['fast-large','fast-large-2']);
+assert.deepEqual(rankedCodeTargets.map(x=>x.id), ['fast-large','fast-large-2']);
+assert.equal(rankedCodeTargets.some(x=>x.id==='slow-small'), false);
 
 const failoverItems = [new Uint8Array([1]), new Uint8Array([2]), new Uint8Array([3])];
 const failoverCandidates = ['e1','e2','e3','e4'].map(id => ({
