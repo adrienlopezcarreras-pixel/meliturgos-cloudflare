@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { devRuntime } from '../src/dev/runtime-api.js';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
+import { selectNextAutonomyItem } from '../src/evolution/autonomy-supervisor.js';
 
 const env = { MELITURGOS_USER: 'test', MEL_DEV_BRIDGE_TOKEN: 'bridge-test' };
 const auth = { authorization: 'Bearer bridge-test', 'content-type': 'application/json' };
 const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
+const FIRST_AUTONOMY_ID = selectNextAutonomyItem()?.id;
 
 test('authorized dev bridge can create exactly one non-idle autonomy job', async () => {
   let response = await devRuntime(new Request('http://x/api/dev-bridge/autonomy/next', {
@@ -16,7 +18,7 @@ test('authorized dev bridge can create exactly one non-idle autonomy job', async
   assert.equal(first.ok, true);
   assert.equal(first.created, true);
   assert.equal(first.job.requested_by, 'mel-autonomy');
-  assert.equal(first.job.optional_context.roadmap_id, 'MEL-WORK-01');
+  assert.equal(first.job.optional_context.roadmap_id, FIRST_AUTONOMY_ID);
 
   response = await devRuntime(new Request('http://x/api/dev-bridge/autonomy/next', {
     method: 'POST', headers: auth, body: '{}',
@@ -24,7 +26,7 @@ test('authorized dev bridge can create exactly one non-idle autonomy job', async
   const second = await response.json();
   assert.equal(second.created, false);
   assert.equal(second.job.id, first.job.id);
-  assert.notEqual(second.next?.id, 'MEL-WORK-01');
+  assert.notEqual(second.next?.id, FIRST_AUTONOMY_ID);
 });
 
 test('autonomy status exposes active work and the following safe roadmap target', async () => {
@@ -36,7 +38,7 @@ test('autonomy status exposes active work and the following safe roadmap target'
   assert.equal(state.ok, true);
   assert.ok(Array.isArray(state.active_jobs));
   assert.ok(state.active_jobs.some((job) => job.requested_by === 'mel-autonomy'));
-  assert.notEqual(state.next?.id, 'MEL-WORK-01');
+  assert.notEqual(state.next?.id, FIRST_AUTONOMY_ID);
 });
 
 test('autonomy endpoint remains protected by the bridge token', async () => {
