@@ -594,6 +594,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - name: Live ShardVault external target probe
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -712,6 +713,7 @@ jobs:
           retention-days: 3
 
       - name: Prove ShardVault external code reconstruction
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -813,6 +815,7 @@ jobs:
           NODE
 
       - name: Stress preview UI API and recovery paths
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -878,6 +881,7 @@ jobs:
           retention-days: 7
 
       - name: Prove autonomy launch readiness on isolated preview
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -957,6 +961,7 @@ jobs:
           retention-days: 7
 
       - name: Refresh zero-cost Benchmark and LoRA readiness
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -1035,6 +1040,7 @@ jobs:
             > /dev/null || true
 
       - name: Verify production still responds
+        if: always()
         shell: bash
         run: |
           set +e
