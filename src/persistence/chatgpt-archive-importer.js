@@ -181,7 +181,16 @@ function normalizeAttachmentDescriptor(value) {
   const sizeRaw = Number(value.size_bytes ?? value.size ?? metadata.size_bytes ?? metadata.size);
   const widthRaw = Number(value.width ?? metadata.width);
   const heightRaw = Number(value.height ?? metadata.height);
-  if (!id && !name && !mimeType && !kind) return null;
+  const storageId = boundedAttachmentString(value.storage_id ?? metadata.storage_id, 500);
+  const storageKey = boundedAttachmentString(value.storage_key ?? metadata.storage_key, 1200);
+  const sha256 = boundedAttachmentString(value.sha256 ?? metadata.sha256, 128);
+  const contentText = boundedAttachmentString(value.content_text ?? metadata.content_text, 120000);
+  const contentIndexStatus = boundedAttachmentString(value.content_index_status ?? metadata.content_index_status, 160);
+  const byteCaptureStatus = boundedAttachmentString(value.byte_capture_status ?? metadata.byte_capture_status, 160);
+  const binaryContentIndexed = value.binary_content_indexed === true
+    || metadata.binary_content_indexed === true
+    || contentText !== null;
+  if (!id && !name && !mimeType && !kind && !storageKey) return null;
   return {
     id,
     name,
@@ -190,7 +199,13 @@ function normalizeAttachmentDescriptor(value) {
     size_bytes: Number.isFinite(sizeRaw) && sizeRaw >= 0 ? Math.trunc(sizeRaw) : null,
     width: Number.isFinite(widthRaw) && widthRaw > 0 ? Math.trunc(widthRaw) : null,
     height: Number.isFinite(heightRaw) && heightRaw > 0 ? Math.trunc(heightRaw) : null,
-    binary_content_indexed: false,
+    storage_id: storageId,
+    storage_key: storageKey,
+    sha256,
+    content_text: contentText,
+    content_index_status: contentIndexStatus,
+    byte_capture_status: byteCaptureStatus,
+    binary_content_indexed: binaryContentIndexed,
   };
 }
 
@@ -408,6 +423,14 @@ function mergeAttachmentDescriptors(existing, incoming) {
       size_bytes: current.size_bytes ?? item.size_bytes,
       width: current.width ?? item.width,
       height: current.height ?? item.height,
+      storage_id: current.storage_id || item.storage_id,
+      storage_key: current.storage_key || item.storage_key,
+      sha256: current.sha256 || item.sha256,
+      content_text: String(item.content_text || '').length > String(current.content_text || '').length
+        ? item.content_text
+        : current.content_text,
+      content_index_status: item.content_index_status || current.content_index_status,
+      byte_capture_status: item.byte_capture_status || current.byte_capture_status,
       binary_content_indexed: current.binary_content_indexed === true || item.binary_content_indexed === true,
     };
   };
@@ -580,7 +603,7 @@ export async function getChatGPTImportStatus(env) {
       server_archive_complete: false,
       collector_inventory_confirmed: false,
       collector_inventory: null,
-      attachment_index: { messages_with_attachments: 0, descriptors: 0, metadata_searchable: false, binary_content_indexed: false },
+      attachment_index: { messages_with_attachments: 0, descriptors: 0, binary_indexed_descriptors: 0, metadata_searchable: false, binary_content_indexed: false },
       full_archive_confirmed: false,
       last_received: null
     };
@@ -589,7 +612,7 @@ export async function getChatGPTImportStatus(env) {
   const service = createConversationService(env);
   await service.migrate();
 
-  const [conversations, messages, userMessages, assistantMessages, memoryCandidates, pendingCandidates, unsyncedMessages, attachmentMessages, attachmentDescriptors] = await Promise.all([
+  const [conversations, messages, userMessages, assistantMessages, memoryCandidates, pendingCandidates, unsyncedMessages, attachmentMessages, attachmentDescriptors, binaryIndexedDescriptors] = await Promise.all([
     scalar(env.DB, "SELECT COUNT(DISTINCT conversation_id) AS count FROM archive_messages WHERE provenance='chatgpt_export'"),
     scalar(env.DB, "SELECT COUNT(*) AS count FROM archive_messages WHERE provenance='chatgpt_export'"),
     scalar(env.DB, "SELECT COUNT(*) AS count FROM archive_messages WHERE provenance='chatgpt_export' AND role='user'"),
@@ -611,7 +634,13 @@ export async function getChatGPTImportStatus(env) {
     scalar(env.DB, `SELECT COALESCE(SUM(json_array_length(attachments_json)),0) AS count FROM archive_messages
       WHERE provenance='chatgpt_export'
         AND attachments_json IS NOT NULL
-        AND json_valid(attachments_json)`)
+        AND json_valid(attachments_json)`),
+    scalar(env.DB, `SELECT COUNT(*) AS count
+      FROM archive_messages a, json_each(a.attachments_json) j
+      WHERE a.provenance='chatgpt_export'
+        AND a.attachments_json IS NOT NULL
+        AND json_valid(a.attachments_json)
+        AND json_extract(j.value,'$.binary_content_indexed')=1`)
   ]);
 
   const [receiptAggregate, coverageManifest, storedConversationRows] = await Promise.all([
@@ -673,8 +702,9 @@ export async function getChatGPTImportStatus(env) {
     attachment_index: {
       messages_with_attachments: attachmentMessages,
       descriptors: attachmentDescriptors,
+      binary_indexed_descriptors: binaryIndexedDescriptors,
       metadata_searchable: true,
-      binary_content_indexed: false,
+      binary_content_indexed: binaryIndexedDescriptors > 0,
     },
     tracked_conversations: trackedConversations,
     complete_conversations: completeConversations,
