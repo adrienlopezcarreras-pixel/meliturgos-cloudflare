@@ -236,14 +236,13 @@ async function enrichConversationAttachments(conversation){
 async function sendConversation(conversation,trackActive=false){
   const c=await config();
   if(!c.username||!c.password) throw Object.assign(new Error('MEL_CREDENTIALS_REQUIRED'),{code:'MEL_CREDENTIALS_REQUIRED'});
-  const enrichedConversation=await enrichConversationAttachments(conversation);
   const controller=new AbortController();
   if(trackActive)activeAbortController=controller;
   const request=(async()=>{
     const r=await fetch(c.endpoint+'/api/gen2/import/chatgpt-archive',{
       method:'POST',
       headers:{'content-type':'application/json','authorization':auth(c.username,c.password)},
-      body:JSON.stringify({archive:[enrichedConversation],preview:false}),
+      body:JSON.stringify({archive:[conversation],preview:false}),
       signal:controller.signal
     });
     const t=await r.text();let b={};try{b=t?JSON.parse(t):{}}catch{}
@@ -527,7 +526,9 @@ async function process(tabId,generation){
       await save({currentStage:'attachments',lastProgressAt:Date.now(),currentMessageCount:messageCount,captureProcessed:messageCount});
       cap.conversation=await enrichConversationAttachments(cap.conversation);
       await save({currentStage:'import',lastProgressAt:Date.now(),currentMessageCount:messageCount,captureProcessed:messageCount});
+      const attachmentByteFailures=Number(cap.conversation.collector?.attachment_bytes?.failed||0);
       const result=await withTimeout(sendConversation(cap.conversation,true),WATCHDOG_IDLE_MS,'CONVERSATION_NO_PROGRESS_TIMEOUT',()=>{try{activeAbortController?.abort()}catch{}});
+      if(forcedAttachmentBackfill&&attachmentByteFailures>0)throw codedError('ATTACHMENT_BYTE_BACKFILL_INCOMPLETE');
       if(!isCurrentRun(generation))return;
       s=await state();
       if(!s.running||s.paused)return;
@@ -565,7 +566,7 @@ async function process(tabId,generation){
       failed[key]={url,code,attempts,failedAt:Date.now()};
       const unavailable={...(s.unavailable||{})};
       const deferred={...(s.deferred||{})};
-      const transient=['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND','NOT_A_CONVERSATION','CONTENT_SCRIPT_UNAVAILABLE','CONTENT_SCRIPT_TIMEOUT','TAB_UPDATE_TIMEOUT','MEL_IMPORT_TIMEOUT','MEL_IMPORT_ABORTED','CONVERSATION_NO_PROGRESS_TIMEOUT','CAPTURE_NO_PROGRESS_TIMEOUT','DOM_NOT_STABLE'].includes(code);
+      const transient=['CONVERSATION_STILL_GENERATING','NO_MESSAGES_FOUND','NOT_A_CONVERSATION','CONTENT_SCRIPT_UNAVAILABLE','CONTENT_SCRIPT_TIMEOUT','TAB_UPDATE_TIMEOUT','MEL_IMPORT_TIMEOUT','MEL_IMPORT_ABORTED','CONVERSATION_NO_PROGRESS_TIMEOUT','CAPTURE_NO_PROGRESS_TIMEOUT','DOM_NOT_STABLE','ATTACHMENT_BYTE_BACKFILL_INCOMPLETE'].includes(code);
       const autoRecoverable=['CONTENT_SCRIPT_UNAVAILABLE','CONTENT_SCRIPT_TIMEOUT','TAB_UPDATE_TIMEOUT','CAPTURE_NO_PROGRESS_TIMEOUT','DOM_NOT_STABLE'].includes(code);
       const timedOut=['MEL_IMPORT_TIMEOUT','MEL_IMPORT_ABORTED','CONVERSATION_NO_PROGRESS_TIMEOUT'].includes(code);
       const maxAttempts=code==='CONVERSATION_REDIRECTED_OR_UNAVAILABLE'?2:(transient?2:3);
