@@ -4,6 +4,8 @@ import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { maybeHandleAutonomyApi } from '../src/evolution/autonomy-api.js';
 import { selectNextAutonomyItem } from '../src/evolution/autonomy-supervisor.js';
 
+process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
+
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
 const FIRST_AUTONOMY_ID = selectNextAutonomyItem()?.id;
