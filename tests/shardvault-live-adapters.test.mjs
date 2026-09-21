@@ -28,7 +28,8 @@ test('ShardVault provider adapters reflect current official API contracts', () =
   assert.match(autonomous,/x-uuid':'1'/);
   assert.match(autonomous,/adapter:'pastegg_b64'/);
   assert.match(autonomous,/api\.paste\.gg\/v1\/pastes/);
-  assert.match(autonomous,/format:'text',value:b64u\(payload\)/);
+  assert.match(autonomous,/PASTEGG_CONTENT_MISSING[\s\S]*content\?\.format[\s\S]*unb64u\(encoded\)[\s\S]*unb64\(encoded\)/);
+  assert.match(autonomous,/format:'base64',value:b64\(payload\)/);
   assert.match(autonomous,/adapter:'markdownpaste_b64'/);
   assert.match(autonomous,/markdownpasteit\.vercel\.app\/api\/paste/);
   assert.doesNotMatch(autonomous,/expires_in:0/);
@@ -57,6 +58,8 @@ test('snapshot runtime can write and read every repaired adapter selected by dis
   assert.match(runtime,/user-agent':'curl\/8\.0 MEL-ShardVault\/1\.0'/);
   assert.match(runtime,/fileditch_b64/);
   assert.match(runtime,/api\.paste\.gg\/v1\/pastes\//);
+  assert.match(runtime,/format:'base64',value:b64\(payload\)/);
+  assert.match(runtime,/PASTEGG_CONTENT_MISSING[\s\S]*content\?\.format[\s\S]*unb64u\(encoded\)[\s\S]*unb64\(encoded\)/);
   assert.match(runtime,/markdownpasteit\.vercel\.app\/api\/paste\//);
   assert.match(runtime,/udrop_dev_b64/);
   assert.match(runtime,/waifuvault_b64/);

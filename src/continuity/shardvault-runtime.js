@@ -371,7 +371,7 @@ async function upload(env,e,objectId,payload){
   }
   if(e.adapter==='pastegg_b64'){
     const endpoint=fixedApiUrl(u);
-    const body={name:objectId,visibility:'unlisted',files:[{name:'shard.txt',content:{format:'text',value:b64u(payload)}}]};
+    const body={name:objectId,visibility:'unlisted',files:[{name:'shard.bin',content:{format:'base64',value:b64(payload)}}]};
     const r=await fetchTimed(endpoint,{method:'POST',headers:{'content-type':'application/json','accept':'application/json','user-agent':'MEL-ShardVault/1.0'},body:JSON.stringify(body)},15000);
     if(!r.ok)throw new Error(`WRITE_${e.id}_${r.status}`);
     const data=await r.json().catch(()=>null),id=String(data?.result?.id||data?.id||'').trim();
@@ -515,8 +515,9 @@ async function download(env,e,objectId,descriptor=null){
     const r=await fetchTimed(publicUrl(remote,`READ_${e.id}_REMOTE`),{method:'GET',headers:{'accept':'application/json','user-agent':'MEL-ShardVault/1.0'}},15000);
     if(!r.ok)throw new Error(`READ_${e.id}_${r.status}`);
     const data=await r.json().catch(()=>null),content=data?.result?.files?.[0]?.content;
-    const encoded=String(content?.content??content?.value??'').trim();
+    const encoded=String(content?.value??content?.content??'').trim();
     if(!encoded)throw new Error(`READ_${e.id}_PASTEGG_CONTENT_MISSING`);
+    if(String(content?.format||'').toLowerCase()==='text')return unb64u(encoded);
     return unb64(encoded);
   }
   if(e.adapter==='markdownpaste_b64'){
