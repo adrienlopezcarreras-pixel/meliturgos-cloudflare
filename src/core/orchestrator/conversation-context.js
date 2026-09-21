@@ -37,6 +37,79 @@ function normalizedProfileText(value) {
     .trim();
 }
 
+
+function profileSecretLike(value) {
+  return /(?:api[_ -]?key|password|mot\s+de\s+passe|bearer\s+[a-z0-9._-]+|\btoken\b|\botp\b|secret\s*[=:]|private[_ -]?key|authorization\s*:)/i.test(String(value || ''));
+}
+
+function profileCategory(value) {
+  const text = normalizedProfileText(value);
+  if (/\b(?:ma femme|mon epouse|mon mari|mes enfants|mon fils|ma fille|mes parents|ma famille|famille|enfant)\b/.test(text)) return 'Famille';
+  if (/\b(?:je travaille|mon metier|ma profession|mon entreprise|ma societe|travail|formation|directeur|professeur|artisan|activite)\b/.test(text)) return 'Parcours et activité';
+  if (/\b(?:mon projet|mes projets|roman|site|jeu|magazine|edition|boutique|apiculture|ruches|meliturgos|\bmel\b)\b/.test(text)) return 'Projets';
+  if (/\b(?:je prefere|j['’]?aime|je veux|je souhaite|preference|objectif)\b/.test(text)) return 'Préférences et objectifs';
+  if (/\b(?:j['’]?habite|je vis|ville|village|voyage|vehicule|voiture|maison)\b/.test(text)) return 'Vie quotidienne';
+  return 'Autres éléments';
+}
+
+function profileEvidenceSnippet(value) {
+  const raw = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!raw || profileSecretLike(raw)) return null;
+  const sentences = raw.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const preferred = sentences.find(sentence => /\b(?:je|j['’]|moi|mon|ma|mes|me|m['’])\b/i.test(sentence)) || sentences[0] || raw;
+  const clean = preferred.replace(/^[\s>*#-]+/, '').trim();
+  if (!clean || profileSecretLike(clean)) return null;
+  return clean.length > 420 ? clean.slice(0, 417).trimEnd() + '…' : clean;
+}
+
+export function formatPersonalProfileRecall(profile, { maxFacts = 10 } = {}) {
+  const rows = Array.isArray(profile?.rows) ? profile.rows : [];
+  if (!rows.length) return '';
+
+  const seen = new Set();
+  const perCategory = new Map();
+  const selected = [];
+  for (const row of rows) {
+    const snippet = profileEvidenceSnippet(row?.content);
+    if (!snippet) continue;
+    const key = normalizedProfileText(snippet).replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 180);
+    if (!key || seen.has(key)) continue;
+    const category = profileCategory(snippet);
+    const count = Number(perCategory.get(category) || 0);
+    if (count >= 2) continue;
+    perCategory.set(category, count + 1);
+    seen.add(key);
+    selected.push({ category, snippet, title: String(row?.conversation_title || '').trim() });
+    if (selected.length >= Math.max(4, Math.min(14, Number(maxFacts) || 10))) break;
+  }
+
+  if (selected.length < 4) {
+    for (const row of rows) {
+      const snippet = profileEvidenceSnippet(row?.content);
+      if (!snippet) continue;
+      const key = normalizedProfileText(snippet).replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 180);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      selected.push({ category: profileCategory(snippet), snippet, title: String(row?.conversation_title || '').trim() });
+      if (selected.length >= Math.max(4, Math.min(14, Number(maxFacts) || 10))) break;
+    }
+  }
+
+  if (!selected.length) return '';
+  const conversationCount = new Set(rows.map(row => String(row?.conversation_id || '')).filter(Boolean)).size;
+  const lines = selected.map(item => {
+    const source = item.title ? ` — source : « ${item.title.slice(0, 90)} »` : '';
+    return `- **${item.category}** : ${item.snippet}${source}`;
+  });
+  return [
+    'Voici ce que je retrouve concrètement dans tes propres messages historiques :',
+    '',
+    ...lines,
+    '',
+    `Je me base ici sur ${rows.length} messages utilisateur sélectionnés dans ${conversationCount || 1} conversation(s). Ce sont des éléments historiques : certains peuvent avoir changé depuis, et une correction plus récente de ta part doit toujours primer.`,
+  ].join('\n');
+}
+
 function personalFactScore(row) {
   const text = normalizedProfileText(row?.content);
   if (!text) return -100;
@@ -76,6 +149,7 @@ export async function retrievePersonalProfileContext(db, owner, { limit = 28 } =
   const selected = rows
     .map(row => ({ ...row, profile_score: personalFactScore(row) }))
     .filter(row => row.profile_score >= 4)
+    .filter(row => !profileSecretLike(row.content))
     .sort((a,b) => b.profile_score-a.profile_score || Number(b.timestamp||0)-Number(a.timestamp||0))
     .filter(row => {
       const key = String(row.conversation_id || '');
