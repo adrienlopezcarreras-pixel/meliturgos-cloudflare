@@ -87,3 +87,33 @@ test('archive retrieval preserves speaker role and marks old assistant output as
   assert.equal(result.results[0].role, 'assistant');
   assert.equal(result.results[0].authority, 'historical_assistant_output');
 });
+
+
+test('archive retrieval finds text present only inside an indexed attachment descriptor', async () => {
+  const db = sqliteD1();
+  try {
+    await db.prepare("CREATE TABLE conversations (id TEXT PRIMARY KEY, owner TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '', metadata TEXT, updated_at INTEGER NOT NULL)").run();
+    await db.prepare("CREATE TABLE archive_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', content TEXT NOT NULL, attachments_json TEXT, timestamp INTEGER NOT NULL, provenance TEXT, metadata TEXT)").run();
+    await db.prepare("CREATE TABLE memories (id TEXT PRIMARY KEY, content TEXT NOT NULL, created_at INTEGER NOT NULL, valid_until INTEGER, provenance TEXT)").run();
+    await db.prepare("INSERT INTO conversations VALUES (?,?,?,?,?)").bind('chatgpt:attachment-search','adrien','Conversation fichier',JSON.stringify({chatgpt_import:{complete:true,source:'firefox_dom',collector_version:'0.6.4'}}),1).run();
+    const attachments=JSON.stringify([{
+      id:'asset-1',
+      name:'notes.txt',
+      mime_type:'text/plain',
+      content_text:'reperepiecejointeuniquement présent dans le contenu extrait',
+      binary_content_indexed:true,
+      sha256:'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    }]);
+    await db.prepare("INSERT INTO archive_messages VALUES (?,?,?,?,?,?,?,?)")
+      .bind('attachment-search-msg','chatgpt:attachment-search','user','message sans le terme recherché',attachments,2,'chatgpt_export',JSON.stringify({attachment_binary_content_indexed:true}))
+      .run();
+
+    const result=await RAGService.search(db,'adrien','reperepiecejointeuniquement',{sources:['archive_messages'],limit:5});
+    assert.equal(result.total,1);
+    assert.equal(result.results[0].id,'attachment-search-msg');
+    assert.equal(result.results[0].attachments[0].binary_content_indexed,true);
+    assert.equal(result.results[0].provenance.attachment_binary_content_indexed,true);
+  } finally {
+    db.close();
+  }
+});
