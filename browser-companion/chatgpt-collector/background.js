@@ -9,12 +9,20 @@ const RECOVERY_BLANK_MS=1500;
 const ECO_HEAVY_MESSAGES=250;
 const ECO_BLANK_EVERY=5;
 const STOP_WAIT_MS=3000;
+const RUNNER_ALARM='mel-runner-tick';
+const RUNNER_STABLE_MS=15*1000;
+const RUNNER_GLOBAL_GAP_MS=60*1000;
+const RUNNER_PER_TAB_COOLDOWN_MS=90*1000;
+const RUNNER_ERROR_BACKOFF_MS=10*60*1000;
+const RUNNER_DEFAULT={enabled:true,paused:false,targets:{},nextGlobalSendAt:0,lastSendAt:null,lastSendTabId:null,lastError:null,blockedReason:null,updatedAt:null};
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 let processPromise=null;
 let processGeneration=0;
 let activeAbortController=null;
 let activeCapturePulse=null;
 let processedSinceBlank=0;
+let runnerTickPromise=null;
+let runnerTickTimer=null;
 
 function codedError(code){return Object.assign(new Error(code),{code})}
 async function withTimeout(task,timeoutMs,code,onTimeout){
@@ -44,6 +52,8 @@ function norm(value){
 function idFromUrl(value){const u=norm(value);return u?decodeURIComponent(new URL(u).pathname.match(/(?:^|\/)c\/([^/?#]+)/i)?.[1]||''):''}
 async function state(){const x=await api.storage.local.get('melCollectorState');return {...DEFAULT,...(x.melCollectorState||{})}}
 async function save(p){const n={...(await state()),...p,updatedAt:Date.now()};await api.storage.local.set({melCollectorState:n});return n}
+async function runnerState(){const x=await api.storage.local.get('melRunnerState');return {...RUNNER_DEFAULT,...(x.melRunnerState||{}),targets:{...((x.melRunnerState||{}).targets||{})}}}
+async function saveRunner(p){const n={...(await runnerState()),...p,updatedAt:Date.now()};await api.storage.local.set({melRunnerState:n});return n}
 async function config(){const x=await api.storage.local.get('melCollectorConfig'),c=x.melCollectorConfig||{};return{endpoint:String(c.endpoint||'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/,''),username:String(c.username||''),password:String(c.password||''),continuous:c.continuous!==false,ecoMode:c.ecoMode!==false,delayMs:Math.max(8000,Math.min(60000,Number(c.delayMs)||30000))}}
 function auth(u,p){return 'Basic '+btoa(unescape(encodeURIComponent(`${u}:${p}`)))}
 
@@ -250,6 +260,9 @@ async function recoverTab(tabId,reason){
 }
 async function collectorTab(preferred){
   if(preferred!=null){
+    const runner=await runnerState();
+    const reserved=Object.values(runner.targets||{}).some(target=>target?.enabled!==false&&Number(target?.tabId)===Number(preferred));
+    if(reserved) preferred=null;
     try{
       const t=await api.tabs.get(preferred);
       if(t?.id!=null && t.active!==true && (/^https:\/\/(chatgpt\.com|chat\.openai\.com)\//i.test(t.url||'') || t.url==='about:blank')) return {tab:t,owned:true};
@@ -394,8 +407,232 @@ async function retryDeferred(){
   return save({queue,deferred,failed,lastError:null,retryDeferredAdded:added});
 }
 
-api.runtime.onMessage.addListener(async msg=>{
+
+async function ensureRunnerAlarm(){
+  if(!api.alarms?.create)return;
+  try{await api.alarms.create(RUNNER_ALARM,{periodInMinutes:1})}catch{}
+}
+function scheduleRunnerTick(delayMs=1500){
+  if(runnerTickTimer)return;
+  runnerTickTimer=setTimeout(()=>{
+    runnerTickTimer=null;
+    runnerTick().catch(()=>{});
+  },Math.max(500,Number(delayMs)||1500));
+}
+async function resolveRunnerTab(target,sourceId){
+  if(target?.tabId==null)return null;
+  try{
+    const tab=await api.tabs.get(Number(target.tabId));
+    if(idFromUrl(tab?.url)===sourceId)return tab;
+  }catch{}
+  return null;
+}
+function isHardRunnerBlock(code){
+  return ['USAGE_LIMIT','RATE_LIMIT'].includes(String(code||''));
+}
+async function pauseRunnerForLimit(code,tabId=null){
+  const now=Date.now();
+  const s=await runnerState();
+  return saveRunner({
+    paused:true,
+    lastError:String(code||'RUNNER_LIMIT'),
+    blockedReason:{code:String(code||'RUNNER_LIMIT'),tabId,at:now},
+    nextGlobalSendAt:0
+  });
+}
+async function runnerTick(){
+  if(runnerTickPromise)return runnerTickPromise;
+  runnerTickPromise=(async()=>{
+    let rs=await runnerState();
+    if(!rs.enabled||rs.paused)return rs;
+    const now=Date.now();
+    if(Number(rs.nextGlobalSendAt||0)>now)return rs;
+
+    const collector=await state();
+    const collectorTabId=collector.collectorOwnedTab?Number(collector.tabId):null;
+    const targets={...(rs.targets||{})};
+    const entries=Object.entries(targets)
+      .filter(([,target])=>target?.enabled!==false)
+      .sort((a,b)=>Number(a[1]?.lastSentAt||0)-Number(b[1]?.lastSentAt||0));
+
+    for(const [sourceId,existing] of entries){
+      const target={...existing};
+      if(Number(target.nextEligibleAt||0)>Date.now())continue;
+      const tab=await resolveRunnerTab(target,sourceId);
+      if(!tab?.id){
+        delete targets[sourceId];
+        continue;
+      }
+      if(collectorTabId!=null&&Number(tab.id)===collectorTabId)continue;
+
+      let probe;
+      try{probe=await tabMessage(tab.id,{type:'mel.runner.probe'},1,PROBE_TIMEOUT_MS)}
+      catch{
+        targets[sourceId]={...target,tabId:tab.id,status:'unreachable',lastSeenAt:Date.now(),nextEligibleAt:Date.now()+RUNNER_ERROR_BACKOFF_MS};
+        continue;
+      }
+
+      const block=String(probe?.blocked||'');
+      if(block){
+        targets[sourceId]={...target,tabId:tab.id,status:'blocked',lastSeenAt:Date.now(),lastError:block};
+        await saveRunner({targets});
+        if(isHardRunnerBlock(block))return pauseRunnerForLimit(block,tab.id);
+        targets[sourceId].nextEligibleAt=Date.now()+RUNNER_ERROR_BACKOFF_MS;
+        continue;
+      }
+
+      targets[sourceId]={
+        ...target,
+        tabId:tab.id,
+        url:norm(tab.url)||target.url||null,
+        status:probe?.generating?'working':'idle',
+        lastSeenAt:Date.now(),
+        lastSignature:String(probe?.assistantSignature||target.lastSignature||'')
+      };
+
+      const signature=String(probe?.assistantSignature||'');
+      const ready=
+        !probe?.generating &&
+        probe?.composerReady===true &&
+        probe?.composerEmpty===true &&
+        Number(probe?.stableForMs||0)>=RUNNER_STABLE_MS &&
+        !!signature &&
+        signature!==String(target.lastSentSignature||'');
+
+      if(!ready)continue;
+      if(Number((await runnerState()).nextGlobalSendAt||0)>Date.now())break;
+
+      const command=String(target.command||'').trim();
+      if(!['cycle','go'].includes(command)){
+        targets[sourceId]={...targets[sourceId],enabled:false,status:'invalid_command',lastError:'INVALID_RUNNER_COMMAND'};
+        continue;
+      }
+
+      const result=await tabMessage(tab.id,{type:'mel.runner.send',command},1,PROBE_TIMEOUT_MS);
+      if(!result?.ok){
+        const code=String(result?.code||'RUNNER_SEND_FAILED');
+        targets[sourceId]={...targets[sourceId],status:'send_error',lastError:code,nextEligibleAt:Date.now()+RUNNER_ERROR_BACKOFF_MS};
+        await saveRunner({targets,lastError:code});
+        if(isHardRunnerBlock(code))return pauseRunnerForLimit(code,tab.id);
+        continue;
+      }
+
+      const sentAt=Date.now();
+      targets[sourceId]={
+        ...targets[sourceId],
+        status:'sent',
+        lastSentSignature:signature,
+        lastSentAt:sentAt,
+        nextEligibleAt:sentAt+RUNNER_PER_TAB_COOLDOWN_MS,
+        cycles:Number(target.cycles||0)+1,
+        lastError:null
+      };
+      rs=await saveRunner({
+        targets,
+        nextGlobalSendAt:sentAt+RUNNER_GLOBAL_GAP_MS,
+        lastSendAt:sentAt,
+        lastSendTabId:tab.id,
+        lastError:null,
+        blockedReason:null
+      });
+      return rs;
+    }
+    return saveRunner({targets});
+  })().finally(()=>{runnerTickPromise=null});
+  return runnerTickPromise;
+}
+async function markCurrentRunner(command){
+  const clean=String(command||'').trim().toLowerCase();
+  if(!['cycle','go'].includes(clean))throw codedError('INVALID_RUNNER_COMMAND');
+  const [tab]=await api.tabs.query({active:true,currentWindow:true});
+  if(!tab?.id)throw codedError('ACTIVE_TAB_REQUIRED');
+  const url=norm(tab.url),sourceId=idFromUrl(url);
+  if(!sourceId)throw codedError('CHATGPT_CONVERSATION_REQUIRED');
+  const collector=await state();
+  if(collector.collectorOwnedTab&&Number(collector.tabId)===Number(tab.id))throw codedError('COLLECTOR_TAB_RESERVED');
+  const probe=await tabMessage(tab.id,{type:'mel.runner.probe'},2,PROBE_TIMEOUT_MS);
+  if(!probe?.ok)throw codedError('RUNNER_PROBE_FAILED');
+  let rs=await runnerState();
+  const targets={...(rs.targets||{})};
+  targets[sourceId]={
+    ...(targets[sourceId]||{}),
+    conversationId:sourceId,
+    tabId:tab.id,
+    url,
+    title:String(tab.title||'ChatGPT').slice(0,300),
+    command:clean,
+    enabled:true,
+    status:probe.generating?'working':'armed',
+    lastSignature:String(probe.assistantSignature||''),
+    lastSentSignature:'',
+    lastSeenAt:Date.now(),
+    nextEligibleAt:0,
+    cycles:Number(targets[sourceId]?.cycles||0),
+    lastError:null
+  };
+  rs=await saveRunner({enabled:true,paused:false,targets,lastError:null,blockedReason:null});
+  await tabMessage(tab.id,{type:'mel.runner.watch',enabled:true},1,PROBE_TIMEOUT_MS).catch(()=>{});
+  await ensureRunnerAlarm();
+  scheduleRunnerTick(1200);
+  return rs;
+}
+async function unmarkCurrentRunner(){
+  const [tab]=await api.tabs.query({active:true,currentWindow:true});
+  if(!tab?.id)throw codedError('ACTIVE_TAB_REQUIRED');
+  const sourceId=idFromUrl(tab.url);
+  if(!sourceId)throw codedError('CHATGPT_CONVERSATION_REQUIRED');
+  const rs=await runnerState(),targets={...(rs.targets||{})};
+  delete targets[sourceId];
+  await tabMessage(tab.id,{type:'mel.runner.watch',enabled:false},1,PROBE_TIMEOUT_MS).catch(()=>{});
+  return saveRunner({targets});
+}
+async function resumeRunner(){
+  const rs=await saveRunner({enabled:true,paused:false,lastError:null,blockedReason:null,nextGlobalSendAt:Math.max(Date.now()+RUNNER_GLOBAL_GAP_MS,Number((await runnerState()).nextGlobalSendAt||0))});
+  await ensureRunnerAlarm();
+  scheduleRunnerTick(RUNNER_GLOBAL_GAP_MS);
+  return rs;
+}
+
+api.runtime.onMessage.addListener(async (msg,sender)=>{
   if(msg?.type==='mel.collector.status')return state();
+  if(msg?.type==='mel.runner.status')return runnerState();
+  if(msg?.type==='mel.runner.mark-current')return markCurrentRunner(msg.command);
+  if(msg?.type==='mel.runner.unmark-current')return unmarkCurrentRunner();
+  if(msg?.type==='mel.runner.pause')return saveRunner({paused:true});
+  if(msg?.type==='mel.runner.resume')return resumeRunner();
+  if(msg?.type==='mel.runner.bootstrap'){
+    const tabId=sender?.tab?.id;
+    const sourceId=idFromUrl(sender?.tab?.url||'');
+    const rs=await runnerState();
+    const target=sourceId?rs.targets?.[sourceId]:null;
+    if(target&&tabId!=null&&Number(target.tabId)!==Number(tabId)){
+      const targets={...(rs.targets||{}),[sourceId]:{...target,tabId,lastSeenAt:Date.now()}};
+      await saveRunner({targets});
+    }
+    return{ok:true,enabled:!!(target?.enabled!==false&&target)};
+  }
+  if(msg?.type==='mel.runner.page-state'){
+    const tabId=sender?.tab?.id;
+    const sourceId=String(msg.state?.conversationId||idFromUrl(sender?.tab?.url||''));
+    if(!sourceId||tabId==null)return{ok:false,skipped:'RUNNER_TARGET_UNKNOWN'};
+    let rs=await runnerState();
+    const target=rs.targets?.[sourceId];
+    if(!target?.enabled)return{ok:false,skipped:'RUNNER_NOT_ARMED'};
+    const block=String(msg.state?.blocked||'');
+    const targets={...(rs.targets||{}),[sourceId]:{
+      ...target,
+      tabId,
+      url:norm(sender?.tab?.url)||target.url||null,
+      status:block?'blocked':msg.state?.generating?'working':'idle',
+      lastSeenAt:Date.now(),
+      lastSignature:String(msg.state?.assistantSignature||target.lastSignature||''),
+      lastError:block||null
+    }};
+    await saveRunner({targets});
+    if(isHardRunnerBlock(block)){await pauseRunnerForLimit(block,tabId);return{ok:true,paused:true}}
+    scheduleRunnerTick(1200);
+    return{ok:true};
+  }
   if(msg?.type==='mel.collector.passive-status'){
     const s=await state();
     return{busy:!!(s.running&&!s.paused)};
@@ -456,4 +693,42 @@ api.runtime.onMessage.addListener(async msg=>{
   }
 });
 
-api.runtime.onStartup.addListener(async()=>{const s=await state();if(s.running&&!s.paused)start().catch(()=>{})});
+async function pruneClosedRunnerTabs(){
+  const rs=await runnerState(),targets={...(rs.targets||{})};
+  for(const [sourceId,target] of Object.entries(targets)){
+    if(target?.tabId==null){delete targets[sourceId];continue}
+    try{
+      const tab=await api.tabs.get(Number(target.tabId));
+      if(idFromUrl(tab?.url)!==sourceId)delete targets[sourceId];
+    }catch{delete targets[sourceId]}
+  }
+  return saveRunner({targets});
+}
+api.tabs.onRemoved.addListener(async tabId=>{
+  const rs=await runnerState(),targets={...(rs.targets||{})};
+  let changed=false;
+  for(const [sourceId,target] of Object.entries(targets)){
+    if(Number(target?.tabId)===Number(tabId)){delete targets[sourceId];changed=true}
+  }
+  if(changed)await saveRunner({targets});
+});
+api.tabs.onUpdated.addListener(async (tabId,changeInfo,tab)=>{
+  if(!changeInfo.url)return;
+  const rs=await runnerState(),targets={...(rs.targets||{})};
+  let changed=false;
+  for(const [sourceId,target] of Object.entries(targets)){
+    if(Number(target?.tabId)!==Number(tabId))continue;
+    if(idFromUrl(tab?.url)!==sourceId){delete targets[sourceId];changed=true}
+  }
+  if(changed)await saveRunner({targets});
+});
+api.runtime.onStartup.addListener(async()=>{
+  const s=await state();
+  if(s.running&&!s.paused)start().catch(()=>{});
+  await pruneClosedRunnerTabs();
+  await ensureRunnerAlarm();
+  scheduleRunnerTick(3000);
+});
+if(api.runtime.onInstalled?.addListener)api.runtime.onInstalled.addListener(()=>{ensureRunnerAlarm().catch(()=>{});scheduleRunnerTick(3000)});
+if(api.alarms?.onAlarm?.addListener)api.alarms.onAlarm.addListener(alarm=>{if(alarm?.name===RUNNER_ALARM)runnerTick().catch(()=>{})});
+ensureRunnerAlarm().catch(()=>{});
