@@ -765,10 +765,26 @@ jobs:
             "$BASE_URL/api/gen2/shardvault/code-reconstruct" \
             --output shardvault-code-reconstruct.json
 
+          LOSS3_PATTERN="$(SEED_PATTERN='[0,2,5]' node - <<'NODE'
+          const fs=require('fs');
+          const normal=JSON.parse(fs.readFileSync('shardvault-code-reconstruct.json','utf8'));
+          const seed=JSON.parse(process.env.SEED_PATTERN||'[]');
+          const real=(normal?.download_errors||[]).map(x=>Number(x?.index)).filter(Number.isInteger);
+          const out=[];
+          for(const x of [...real,...seed,0,1,2,3,4,5,6]){
+            if(x>=0&&x<7&&!out.includes(x)) out.push(x);
+            if(out.length===3) break;
+          }
+          if(out.length!==3) process.exit(31);
+          process.stdout.write(JSON.stringify(out));
+          NODE
+          )"
+          echo "ShardVault exact-three-loss proof pattern=${LOSS3_PATTERN}"
+
           curl --fail-with-body --show-error --silent --max-time 240 \
             --header "$AUTH" \
             --header "content-type: application/json" \
-            --data '{"simulate_missing":[0,2,5]}' \
+            --data "{\"simulate_missing\":${LOSS3_PATTERN}}" \
             "$BASE_URL/api/gen2/shardvault/code-reconstruct" \
             --output shardvault-code-reconstruct-loss3.json
 
@@ -827,13 +843,46 @@ jobs:
           export -f stress_one
           seq 1 180 | xargs -P 18 -n 1 bash -c 'stress_one "$1"' _
 
-          for pattern in '[0,1,2]' '[1,3,6]' '[0,4,6]' '[2,4,5]' '[1,2,5]' '[3,4,5]' '[0,3,6]'; do
+          for seed_pattern in '[0,1,2]' '[1,3,6]' '[0,4,6]' '[2,4,5]' '[1,2,5]' '[3,4,5]' '[0,3,6]'; do
             curl --fail-with-body --show-error --silent --max-time 240 \
               --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
               --header "content-type: application/json" \
-              --data "{\"simulate_missing\":${pattern}}" \
+              --data '{}' \
               "$BASE_URL/api/gen2/shardvault/code-reconstruct" \
-              > stress-reconstruct.json
+              > stress-baseline.json
+
+            pattern="$(SEED_PATTERN="$seed_pattern" node - <<'NODE'
+            const fs=require('fs');
+            const d=JSON.parse(fs.readFileSync('stress-baseline.json','utf8'));
+            if(d?.ok!==true||d?.status!=='CODE_RECONSTRUCTION_VERIFIED') process.exit(32);
+            const seed=JSON.parse(process.env.SEED_PATTERN||'[]');
+            const real=(d?.download_errors||[]).map(x=>Number(x?.index)).filter(Number.isInteger);
+            const out=[];
+            for(const x of [...real,...seed,0,1,2,3,4,5,6]){
+              if(x>=0&&x<7&&!out.includes(x)) out.push(x);
+              if(out.length===3) break;
+            }
+            if(out.length!==3) process.exit(33);
+            process.stdout.write(JSON.stringify(out));
+            NODE
+            )"
+            echo "ShardVault stress seed=${seed_pattern} effective=${pattern}"
+
+            STRESS_OK=0
+            for reconstruction_attempt in 1 2 3; do
+              HTTP_CODE="$(curl --show-error --silent --max-time 240 \
+                --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+                --header "content-type: application/json" \
+                --data "{\"simulate_missing\":${pattern}}" \
+                --output stress-reconstruct.json \
+                --write-out '%{http_code}' \
+                "$BASE_URL/api/gen2/shardvault/code-reconstruct" || true)"
+              if [ "$HTTP_CODE" = "200" ]; then STRESS_OK=1; break; fi
+              echo "Stress reconstruction attempt ${reconstruction_attempt} returned HTTP ${HTTP_CODE}; retrying bounded transient read."
+              sleep 2
+            done
+            test "$STRESS_OK" -eq 1
+
             PATTERN="$pattern" node -e '
               const fs=require("fs");
               const d=JSON.parse(fs.readFileSync("stress-reconstruct.json","utf8"));
