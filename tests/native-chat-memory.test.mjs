@@ -51,6 +51,34 @@ test('secret-like explicit memory is rejected from durable memory', async () => 
 });
 
 
+test('new native-chat clarification exchange is incrementally synchronized into provenance-rich memory candidates', async () => {
+  const DB = sqliteD1();
+  const calls = [];
+  const env = makeEnv(DB, calls);
+  try {
+    const response = await worker.fetch(request('go', 'memory-sync-clarification'), env);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.response_mode, 'clarification');
+    assert.equal(body.archive_saved, true);
+    assert.equal(body.memory_sync?.ok, true);
+    assert.equal(body.memory_sync?.inserted, 2);
+    const rows=(await DB.prepare(`
+      SELECT conversation_id,message_id,source,provenance_json,observed_at,fragment
+      FROM memory_candidates
+      WHERE conversation_id=?
+      ORDER BY created_at,id
+    `).bind('memory-sync-clarification').all()).results || [];
+    assert.equal(rows.length,2);
+    assert.ok(rows.every(row=>row.provenance_json));
+    assert.ok(rows.every(row=>Number(row.observed_at)>0));
+    assert.ok(rows.every(row=>String(row.fragment||'').length>0));
+    assert.ok(rows.some(row=>row.source.includes('native-chat:user')));
+    assert.ok(rows.some(row=>row.source.includes('native-chat:clarification:assistant')));
+  } finally { DB.close(); }
+});
+
+
 test('collector history reaches native model context with user authority and title', async () => {
   const DB = sqliteD1();
   const calls = [];
