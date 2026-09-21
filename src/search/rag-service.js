@@ -269,16 +269,16 @@ function semanticVectorData(output) {
 
 export function createWorkersAiSemanticProvider(env, {
   model = '@cf/baai/bge-m3',
-  maxDocuments = 48,
+  maxDocuments = 24,
 } = {}) {
   if (!env?.AI || typeof env.AI.run !== 'function') return null;
   return async ({ query, documents = [] } = {}) => {
     const docs = (Array.isArray(documents) ? documents : [])
-      .map(value => String(value || '').slice(0, 8000))
+      .map(value => String(value || '').slice(0, 2200))
       .filter(Boolean)
-      .slice(0, Math.max(1, Math.min(64, Number(maxDocuments) || 48)));
+      .slice(0, Math.max(1, Math.min(32, Number(maxDocuments) || 24)));
     if (!docs.length) return [];
-    const output = await env.AI.run(model, { text: [String(query || '').slice(0, 8000), ...docs] });
+    const output = await env.AI.run(model, { text: [String(query || '').slice(0, 2200), ...docs] });
     const vectors = semanticVectorData(output);
     if (!Array.isArray(vectors) || vectors.length < docs.length + 1 || !Array.isArray(vectors[0])) {
       throw new Error('SEMANTIC_EMBEDDING_RESPONSE_INVALID');
@@ -286,6 +286,50 @@ export function createWorkersAiSemanticProvider(env, {
     const queryVector = vectors[0];
     return docs.map((_, index) => RAGService.cosineSimilarity(queryVector, vectors[index + 1]));
   };
+}
+
+
+function decorateHybridRow(row) {
+  const source = rowSource(row);
+  if (source === 'archive_messages') {
+    const archive = archiveMetadata(row);
+    const role = String(row?.role || 'unknown');
+    return {
+      ...row,
+      source,
+      role,
+      authority: row?.authority || (role.toLowerCase() === 'user' ? 'historical_user_message' : 'historical_assistant_output'),
+      attachments: row?.attachments || archive.attachments || [],
+      provenance: row?.provenance || { table:'archive_messages', id:row?.id, ...archive },
+    };
+  }
+  if (source === 'memories') {
+    return {
+      ...row,
+      source,
+      authority: row?.authority || 'memory_record',
+      provenance: row?.provenance && typeof row.provenance === 'object'
+        ? row.provenance
+        : { table:'memories', id:row?.id },
+    };
+  }
+  if (source === 'knowledge_artifacts') {
+    return {
+      ...row,
+      source,
+      authority: row?.authority || (/^(?:VERIFIED_)/.test(String(row?.verification_status || '')) ? 'verified_knowledge_artifact' : 'knowledge_artifact'),
+      provenance: row?.provenance || { table:'knowledge_artifacts', id:row?.id, filename:row?.filename||null, sha256:row?.content_sha256||null },
+    };
+  }
+  if (source === 'conversations') {
+    return {
+      ...row,
+      source,
+      authority: row?.authority || 'conversation_title',
+      provenance: row?.provenance || { table:'conversations', id:row?.id },
+    };
+  }
+  return row;
 }
 
 export class RAGService {
@@ -449,7 +493,8 @@ export class RAGService {
 
     const merged = [];
     const seen = new Set();
-    for (const row of [...(lexical.results || []), ...broad]) {
+    for (const rawRow of [...(lexical.results || []), ...broad]) {
+      const row = decorateHybridRow(rawRow);
       if (!rowPassesFilters(row, filters)) continue;
       const source = rowSource(row);
       const id = String(row?.id || row?.provenance?.id || '');
