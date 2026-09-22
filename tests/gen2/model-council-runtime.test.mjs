@@ -2,11 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ProviderPool } from '../../src/augmentio/provider-pool.js';
 import { ZERO_EURO_POLICY } from '../../src/augmentio/zero-euro-governor.js';
-import { runModelCouncil } from '../../src/models/model-council.js';
+import { inspectModelCouncilZeroEuroReadiness, runModelCouncil } from '../../src/models/model-council.js';
 import { createDefaultCapabilityBus } from '../../src/capabilities/default-bus.js';
 import router from '../../src/router.js';
 
 process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
+
+function runtimeZeroEuroAuthorization(modelId, overrides = {}) {
+  return {
+    adapter_id: `workers-ai:${modelId}`,
+    provider: 'workers-ai',
+    model: modelId,
+    source: 'owner-verified-account-zero-added-cost',
+    authority: 'owner-runtime-authorization',
+    verified: true,
+    approved: true,
+    policy: ZERO_EURO_POLICY,
+    added_cost: 0,
+    ...overrides,
+  };
+}
 
 function verifiedFree({ id, providerId, modelId }) {
   return Object.freeze({
@@ -238,6 +253,124 @@ test('HTTP capability execution route exposes model.council end-to-end', async (
   assert.equal(body.result.independent_response_count, 2);
   assert.equal(body.result.synthesis.status, 'COMPLETE');
   assert.equal(calls.length, 3);
+});
+
+test('explicit runtime zero-euro authorization enables exact configured models without the Node test fixture', async () => {
+  const previous = process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+  delete process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+  const calls = [];
+  const first = '@cf/zai-org/glm-4.7-flash';
+  const second = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+  try {
+    const env = {
+      MEL_MODEL_COUNCIL_ZERO_EURO_AUTHORIZATIONS: JSON.stringify([
+        runtimeZeroEuroAuthorization(first),
+        runtimeZeroEuroAuthorization(second),
+      ]),
+      AI: {
+        async run(model, payload) {
+          calls.push({ model, payload });
+          return { response: `runtime-authorized response from ${model}` };
+        },
+      },
+    };
+
+    const readiness = await inspectModelCouncilZeroEuroReadiness(env, { minimum: 2 });
+    assert.equal(readiness.status, 'ONLINE');
+    assert.equal(readiness.authorized_zero_cost_count, 2);
+    assert.equal(readiness.configured_authorization_count, 2);
+    assert.equal(readiness.matched_authorization_count, 2);
+    assert.equal(calls.length, 0);
+
+    const bus = createDefaultCapabilityBus({ env });
+    const health = await bus.refreshHealth('model.council');
+    assert.equal(health.health, 'HEALTHY');
+
+    const result = await bus.execute('model.council', {
+      request: { prompt: 'prove runtime zero-euro authorization' },
+      maxCandidates: 2,
+    }, {
+      owner: 'gen2-05-test',
+      permissions: [],
+      requestId: 'gen2-05-runtime-zero-euro',
+    });
+
+    assert.equal(result.status, 'COMPLETE');
+    assert.equal(result.independent_response_count, 2);
+    assert.equal(result.synthesis.status, 'COMPLETE');
+    assert.ok(result.critiques.every(row => row.cost.allowed === true));
+    assert.ok(result.critiques.every(row => row.cost.provenance_source === 'owner-verified-account-zero-added-cost'));
+    assert.equal(calls.length, 3);
+  } finally {
+    if (previous === undefined) delete process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+    else process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = previous;
+  }
+});
+
+test('runtime zero-euro authorization is exact-match and cannot authorize a different model', async () => {
+  const previous = process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+  delete process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+  let externalCalls = 0;
+  try {
+    const env = {
+      MEL_MODEL_COUNCIL_ZERO_EURO_AUTHORIZATIONS: JSON.stringify([
+        runtimeZeroEuroAuthorization('@cf/not-the-configured-model'),
+      ]),
+      AI: {
+        async run() {
+          externalCalls += 1;
+          return { response: 'must not run' };
+        },
+      },
+    };
+
+    const readiness = await inspectModelCouncilZeroEuroReadiness(env, { minimum: 2 });
+    assert.equal(readiness.status, 'SAFE_IDLE');
+    assert.equal(readiness.authorized_zero_cost_count, 0);
+    assert.equal(readiness.matched_authorization_count, 0);
+
+    await assert.rejects(
+      () => runModelCouncil({ env, request: { prompt: 'exact match required' }, maxCandidates: 2 }),
+      error => error?.code === 'COUNCIL_NO_ELIGIBLE_PROVIDER'
+    );
+    assert.equal(externalCalls, 0);
+  } finally {
+    if (previous === undefined) delete process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+    else process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = previous;
+  }
+});
+
+test('malformed or nonzero runtime authorization fails closed before any inference', async () => {
+  const previous = process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+  delete process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+  let externalCalls = 0;
+  try {
+    const model = '@cf/zai-org/glm-4.7-flash';
+    const env = {
+      MEL_MODEL_COUNCIL_ZERO_EURO_AUTHORIZATIONS: JSON.stringify([
+        runtimeZeroEuroAuthorization(model, { added_cost: 0.01 }),
+      ]),
+      AI: {
+        async run() {
+          externalCalls += 1;
+          return { response: 'must not run' };
+        },
+      },
+    };
+
+    const readiness = await inspectModelCouncilZeroEuroReadiness(env, { minimum: 2 });
+    assert.equal(readiness.status, 'DEGRADED');
+    assert.equal(readiness.reason, 'COUNCIL_ZERO_EURO_AUTH_CONFIG_INVALID');
+
+    await assert.rejects(
+      () => runModelCouncil({ env, request: { prompt: 'reject nonzero authorization' } }),
+      error => error?.code === 'COUNCIL_ZERO_EURO_AUTH_CONFIG_INVALID'
+    );
+    assert.equal(externalCalls, 0);
+  } finally {
+    if (previous === undefined) delete process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+    else process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = previous;
+  }
 });
 
 test('one provider failure is isolated and partial multi-model result remains usable', async () => {
