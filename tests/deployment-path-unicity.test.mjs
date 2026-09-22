@@ -40,6 +40,14 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /x-mel-release-smoke: 1/);
   assert.match(source, /production-code-read-smoke\.json/);
   assert.match(source, /production-code-search-smoke\.json/);
+  assert.match(source, /production-code-self-check\.json/);
+  assert.match(source, /production-memory-status\.json/);
+  assert.match(source, /production-professor\.html/);
+  assert.match(source, /production-normal-runtime\.js/);
+  assert.match(source, /PRODUCTION_SELF_CODE_BRANCH_MISMATCH/);
+  assert.match(source, /PRODUCTION_MEMORY_NOT_ONLINE/);
+  assert.match(source, /PRODUCTION_PROFESSOR_MARKER_MISSING/);
+  assert.match(source, /PRODUCTION_NORMAL_RUNTIME_CHAT_WIRING_MISSING/);
   assert.match(source, /SEARCH_CODE="\$\(curl --silent --show-error --max-time 120 \\\n\s+--header "x-mel-release-smoke: 1"/);
   assert.match(source, /node - <<'NODE'\n\s+const fs=require\('fs'\);/);
   assert.match(source, /PRODUCTION_CAPABILITY_NOT_USED/);
@@ -47,8 +55,13 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /code\.search/);
   assert.ok(
     source.indexOf('Production authenticated /api/chat code.read + code.search smoke passed.') <
+      source.indexOf('Production code self-check + memory + UI smoke passed.'),
+    'chat self-code smoke must complete before the broader production smoke bundle',
+  );
+  assert.ok(
+    source.indexOf('Production code self-check + memory + UI smoke passed.') <
       source.indexOf('cleanup_secret\n          trap - EXIT'),
-    'live chat smoke must run before the temporary bootstrap secret is deleted',
+    'all authenticated release smokes must run before the temporary bootstrap secret is deleted',
   );
   assert.match(source, /MEL_DEPLOYED_GIT_SHA/);
   assert.match(source, /MEL_DEPLOYED_GIT_BRANCH/);
