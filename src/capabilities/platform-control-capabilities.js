@@ -265,7 +265,6 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
           versions,
           annotations: {
             'workers/message': message || 'MELITURGOS approved deployment control',
-            'workers/triggered_by': 'meliturgos-gen2-36',
           },
         },
         code: 'CLOUDFLARE_DEPLOYMENT_CREATE_FAILED',

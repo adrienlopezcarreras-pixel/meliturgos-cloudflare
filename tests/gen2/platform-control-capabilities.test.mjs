@@ -180,7 +180,8 @@ test('Cloudflare deployment control is locked to configured Worker, existing UUI
   const body = JSON.parse(seen[0].init.body);
   assert.equal(body.strategy, 'percentage');
   assert.equal(body.versions.reduce((sum, row) => sum + row.percentage, 0), 100);
-  assert.equal(body.annotations['workers/triggered_by'], 'meliturgos-gen2-36');
+  assert.equal(body.annotations['workers/message'], 'approved staged deployment');
+  assert.equal('workers/triggered_by' in body.annotations, false);
   assert.equal('force' in body, false);
   assert.equal(JSON.stringify(result).includes('cf-secret'), false);
 

@@ -64,7 +64,6 @@ jobs:
             versions,
             annotations: {
               'workers/message': 'GEN2-36 bounded neutral mutation proof',
-              'workers/triggered_by': 'gen2-36-proof',
             },
           }));
           fs.writeFileSync('/tmp/gen2-36-before.json', JSON.stringify({
