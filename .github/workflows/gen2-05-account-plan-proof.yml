@@ -1,9 +1,9 @@
-name: gen2-05-live-provider-proof
+name: gen2-05-canonical-live-provider-proof
 
 on:
   push:
     branches:
-      - 'feat/gen2-05-runtime-capability'
+      - 'feat/gen2-05-live-zero-cost-proof'
     paths:
       - '.github/workflows/gen2-05-account-plan-proof.yml'
 
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: gen2-05-live-provider-proof
+  group: gen2-05-canonical-live-provider-proof
   cancel-in-progress: true
 
 jobs:
@@ -91,7 +91,7 @@ jobs:
 
           const config={
             $schema:'node_modules/wrangler/config-schema.json',
-            name:'meliturgos-gen2-05-live-proof',
+            name:'meliturgos-gen2-05-canonical-proof',
             main:'src/visual-final-entry.js',
             compatibility_date:'2026-09-04',
             workers_dev:true,
@@ -103,7 +103,7 @@ jobs:
               MEL_WORKERS_AI_ZERO_COST_PROOF_JSON:JSON.stringify(proof),
             },
           };
-          fs.writeFileSync('wrangler.gen2-05-live-proof.json',JSON.stringify(config,null,2));
+          fs.writeFileSync('wrangler.gen2-05-canonical-proof.json',JSON.stringify(config,null,2));
 
           const safe={
             schema:'mel.gen2-05.live-plan-proof/v1',
@@ -118,7 +118,7 @@ jobs:
             expires_at:proof.expires_at,
             models:proof.models,
           };
-          fs.writeFileSync('gen2-05-live-plan-proof.json',JSON.stringify(safe,null,2));
+          fs.writeFileSync('gen2-05-canonical-plan-proof.json',JSON.stringify(safe,null,2));
           console.log(JSON.stringify(safe,null,2));
           NODE
 
@@ -126,7 +126,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler deploy --config wrangler.gen2-05-live-proof.json             --define "MEL_DEPLOYED_GIT_SHA:'${GITHUB_SHA}'"             --define "MEL_DEPLOYED_GIT_BRANCH:'${GITHUB_REF_NAME}'"
+          npx wrangler deploy --config wrangler.gen2-05-canonical-proof.json             --define "MEL_DEPLOYED_GIT_SHA:'${GITHUB_SHA}'"             --define "MEL_DEPLOYED_GIT_BRANCH:'${GITHUB_REF_NAME}'"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -138,7 +138,7 @@ jobs:
           PROOF_PASSWORD="$(openssl rand -hex 32)"
           echo "::add-mask::${PROOF_PASSWORD}"
           echo "GEN2_05_PROOF_PASSWORD=${PROOF_PASSWORD}" >> "${GITHUB_ENV}"
-          printf '%s' "${PROOF_PASSWORD}" | npx wrangler secret put MELITURGOS_PASSWORD             --config wrangler.gen2-05-live-proof.json             --name meliturgos-gen2-05-live-proof
+          printf '%s' "${PROOF_PASSWORD}" | npx wrangler secret put MELITURGOS_PASSWORD             --config wrangler.gen2-05-canonical-proof.json             --name meliturgos-gen2-05-canonical-proof
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -147,7 +147,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BASE_URL="https://meliturgos-gen2-05-live-proof.adrien-lopezcarreras.workers.dev"
+          BASE_URL="https://meliturgos-gen2-05-canonical-proof.adrien-lopezcarreras.workers.dev"
 
           ready=0
           for attempt in $(seq 1 12); do
@@ -157,19 +157,20 @@ jobs:
           done
           test "${ready}" -eq 1
 
-          council_code="$(curl --silent --show-error --max-time 120             --header "Authorization: Bearer ${GEN2_05_PROOF_PASSWORD}"             --header "content-type: application/json"             --data '{"request":{"prompt":"Independently assess this factual statement in one short sentence: 2 + 2 = 4. State whether it is correct."},"capability":"GENERAL","maxCandidates":2,"timeoutMs":90000}'             --output council.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/model-council" || true)"
+          council_code="$(curl --silent --show-error --max-time 120             --header "Authorization: Bearer ${GEN2_05_PROOF_PASSWORD}"             --header "content-type: application/json"             --data '{"id":"model.council","input":{"request":{"prompt":"Independently assess this factual statement in one short sentence: 2 + 2 = 4. State whether it is correct."},"capability":"GENERAL","maxCandidates":2,"timeoutMs":90000}}'             --output council.json             --write-out '%{http_code}'             "${BASE_URL}/api/gen2/capabilities/execute" || true)"
           test "${council_code}" = "200"
 
           GITHUB_SHA="${GITHUB_SHA}" node - <<'NODE'
           const fs=require('fs');
           const readiness=JSON.parse(fs.readFileSync('readiness.json','utf8'));
-          const council=JSON.parse(fs.readFileSync('council.json','utf8'));
+          const body=JSON.parse(fs.readFileSync('council.json','utf8'));
+          const council=body?.result;
           const runtime=readiness?.models?.runtime_zero_cost||{};
 
           if(readiness?.bindings?.ai!==true) throw new Error('AI_BINDING_NOT_LIVE');
           if(runtime.status!=='ONLINE') throw new Error('ZERO_COST_RUNTIME_NOT_ONLINE:'+String(runtime.status));
           if(Number(runtime.authorized_zero_cost_count||0)<2) throw new Error('ZERO_COST_QUORUM_LT_2');
-          if(council?.ok!==true || council?.schema!=='mel.model-council') throw new Error('COUNCIL_RUNTIME_RESPONSE_INVALID');
+          if(body?.ok!==true || body?.capability!=='model.council' || council?.schema!=='mel.model-council') throw new Error('CANONICAL_COUNCIL_RUNTIME_RESPONSE_INVALID');
           if(Number(council?.independent_response_count||0)<2) throw new Error('LIVE_COUNCIL_RESPONSES_LT_2');
           if(Number(council?.unique_model_count||0)<2) throw new Error('LIVE_COUNCIL_MODELS_LT_2');
           if(council?.synthesis?.status!=='COMPLETE') throw new Error('LIVE_COUNCIL_SYNTHESIS_NOT_COMPLETE');
@@ -182,8 +183,10 @@ jobs:
           if(council?.synthesis?.cost?.allowed!==true || council?.synthesis?.cost?.added_cost!==0) throw new Error('LIVE_SYNTHESIS_ZERO_COST_METADATA_INVALID');
 
           const proof={
-            schema:'mel.gen2-05.live-provider-proof/v1',
+            schema:'mel.gen2-05.canonical-live-provider-proof/v1',
             sha:process.env.GITHUB_SHA,
+            canonical_http_path:'/api/gen2/capabilities/execute',
+            capability:'model.council',
             cloudflare_runtime:true,
             ai_binding_live:true,
             zero_cost_status:runtime.status,
@@ -200,9 +203,9 @@ jobs:
             synthesis_latency_ms:Number(council?.synthesis?.latency_ms||0),
             zero_added_cost_metadata:true,
             fake_consensus:false,
-            verdict:'LIVE_MULTI_PROVIDER_COUNCIL_VERIFIED',
+            verdict:'CANONICAL_LIVE_MULTI_PROVIDER_COUNCIL_VERIFIED',
           };
-          fs.writeFileSync('gen2-05-live-provider-proof.json',JSON.stringify(proof,null,2));
+          fs.writeFileSync('gen2-05-canonical-live-provider-proof.json',JSON.stringify(proof,null,2));
           console.log(JSON.stringify(proof,null,2));
           NODE
 
@@ -210,10 +213,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: gen2-05-live-provider-proof-${{ github.sha }}
+          name: gen2-05-canonical-live-provider-proof-${{ github.sha }}
           path: |
-            gen2-05-live-plan-proof.json
-            gen2-05-live-provider-proof.json
+            gen2-05-canonical-plan-proof.json
+            gen2-05-canonical-live-provider-proof.json
           if-no-files-found: warn
           retention-days: 7
 
@@ -222,7 +225,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          printf 'y\n' | npx wrangler delete             --config wrangler.gen2-05-live-proof.json             --name meliturgos-gen2-05-live-proof
+          printf 'y\n' | npx wrangler delete             --config wrangler.gen2-05-canonical-proof.json             --name meliturgos-gen2-05-canonical-proof
           exit 0
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
