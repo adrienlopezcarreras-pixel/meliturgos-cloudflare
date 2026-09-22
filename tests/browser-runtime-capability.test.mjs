@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CapabilityBus } from '../src/capabilities/capability-bus.js';
 import { registerBrowserRuntimeCapabilities } from '../src/capabilities/browser-runtime-capabilities.js';
-import { createBrowserCompanionAdapter } from '../src/devices/browser-companion-adapter.js';
+import {
+  BROWSER_COMPANION_SCHEMA,
+  createBrowserCompanionAdapter,
+} from '../src/devices/browser-companion-adapter.js';
 import { BROWSER_ACTIONS } from '../src/devices/browser-capability.js';
 
 function request() {
@@ -27,7 +30,13 @@ function fakeBinding() {
       }
       const payload = await req.json();
       calls.push({ method: req.method, path: url.pathname, payload });
-      return new Response(JSON.stringify({ ok: true, result: { action: payload.step.action } }), {
+      return new Response(JSON.stringify({
+        schema: BROWSER_COMPANION_SCHEMA,
+        ok: true,
+        step_id: payload.step.id,
+        action: payload.step.action,
+        result: { action: payload.step.action },
+      }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
@@ -98,4 +107,104 @@ test('browser.execute is discoverable but unavailable without a configured compa
     permissions: ['browser.control'],
     requestId: 'r-unavailable',
   }), { code: 'CAPABILITY_UNAVAILABLE' });
+});
+
+
+test('browser companion propagates companion errors and rejects fake success payloads', async () => {
+  const rejected = createBrowserCompanionAdapter({
+    binding: {
+      async fetch() {
+        return new Response(JSON.stringify({ ok: false, code: 'BROWSER_ENGINE_FAILED' }), {
+          status: 502,
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    },
+    timeoutMs: 1000,
+  });
+
+  await assert.rejects(() => rejected.perform(request().steps[0], {
+    sessionId: 'session-31',
+    deviceId: 'browser-1',
+    allowedOrigins: ['https://example.com'],
+  }), { code: 'BROWSER_ENGINE_FAILED', status: 502 });
+
+  const fakeSuccess = createBrowserCompanionAdapter({
+    binding: {
+      async fetch() {
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    },
+    timeoutMs: 1000,
+  });
+
+  await assert.rejects(() => fakeSuccess.perform(request().steps[0], {
+    sessionId: 'session-31',
+    deviceId: 'browser-1',
+    allowedOrigins: ['https://example.com'],
+  }), { code: 'BROWSER_COMPANION_PROTOCOL_INVALID' });
+});
+
+test('browser companion timeout is explicit and propagated', async () => {
+  const adapter = createBrowserCompanionAdapter({
+    binding: {
+      async fetch(req) {
+        return new Promise((resolve, reject) => {
+          req.signal.addEventListener('abort', () => {
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            reject(error);
+          }, { once: true });
+        });
+      },
+    },
+    timeoutMs: 250,
+  });
+
+  await assert.rejects(() => adapter.perform(request().steps[0], {
+    sessionId: 'session-31',
+    deviceId: 'browser-1',
+    allowedOrigins: ['https://example.com'],
+  }), { code: 'BROWSER_COMPANION_TIMEOUT', status: 504 });
+});
+
+test('browser.execute validates its CapabilityBus contract before execution', async () => {
+  const binding = fakeBinding();
+  const bus = new CapabilityBus();
+  registerBrowserRuntimeCapabilities(bus, { binding });
+
+  await assert.rejects(() => bus.execute('browser.execute', {
+    ...request(),
+    raw_shell: 'not-allowed',
+  }, {
+    owner: 'owner',
+    permissions: ['browser.control'],
+    requestId: 'r-invalid-contract',
+  }), { code: 'UNKNOWN_FIELD' });
+
+  assert.equal(binding.calls.filter(row => row.path === '/v1/browser/perform').length, 0);
+});
+
+test('browser.execute propagates companion failure status through the CapabilityBus', async () => {
+  const binding = {
+    async fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === '/health') return new Response('{}', { status: 200 });
+      return new Response(JSON.stringify({ ok: false, code: 'BROWSER_ENGINE_FAILED' }), {
+        status: 502,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  };
+  const bus = new CapabilityBus();
+  registerBrowserRuntimeCapabilities(bus, { binding });
+
+  await assert.rejects(() => bus.execute('browser.execute', request(), {
+    owner: 'owner',
+    permissions: ['browser.control'],
+    requestId: 'r-companion-failed',
+  }), { code: 'BROWSER_ENGINE_FAILED', status: 502 });
 });

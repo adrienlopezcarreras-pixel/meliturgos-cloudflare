@@ -164,8 +164,20 @@ export function createBrowserCompanionAdapter({
       if (!response.ok) {
         throw browserCompanionError(body.code || `BROWSER_COMPANION_HTTP_${response.status}`, response.status);
       }
-      if (body.ok === false) throw browserCompanionError(body.code || 'BROWSER_COMPANION_REJECTED', 502);
-      return body.result ?? body.output ?? null;
+      if (body.ok !== true) {
+        throw browserCompanionError(body.code || 'BROWSER_COMPANION_REJECTED', 502);
+      }
+      if (body.schema !== BROWSER_COMPANION_SCHEMA) {
+        throw browserCompanionError('BROWSER_COMPANION_PROTOCOL_INVALID', 502);
+      }
+      if (boundedText(body.step_id, 200) !== boundedText(step.id, 200)
+        || boundedText(body.action, 160) !== action) {
+        throw browserCompanionError('BROWSER_COMPANION_STEP_MISMATCH', 502);
+      }
+      if (!body.result || typeof body.result !== 'object' || Array.isArray(body.result)) {
+        throw browserCompanionError('BROWSER_COMPANION_PROTOCOL_INVALID', 502);
+      }
+      return body.result;
     },
   });
 }

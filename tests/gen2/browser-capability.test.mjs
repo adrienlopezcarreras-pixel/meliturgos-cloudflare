@@ -139,3 +139,69 @@ test('controller executes authorized steps and audit omits typed secrets', async
   assert.equal(audits.at(-1).status, 'COMPLETED');
   assert.equal(JSON.stringify(audits).includes('private-value'), false);
 });
+
+
+test('owner halt is terminal before controller authorization or adapter work', async () => {
+  let authorizeCalls = 0;
+  let adapterCalls = 0;
+  const audits = [];
+  const controller = createBrowserController({
+    adapter: {
+      async perform() {
+        adapterCalls += 1;
+        return {};
+      },
+    },
+    authorize: async () => {
+      authorizeCalls += 1;
+      return false;
+    },
+    audit: async event => audits.push(event),
+  });
+
+  await assert.rejects(() => controller.execute({
+    ...baseRequest(),
+    owner_halt: true,
+  }, { owner: 'adrien', requestId: 'halt-1' }), {
+    code: 'OWNER_HALT_ACTIVE',
+    status: 409,
+  });
+
+  assert.equal(authorizeCalls, 0);
+  assert.equal(adapterCalls, 0);
+  assert.equal(audits.at(-1).reason, 'OWNER_HALT_ACTIVE');
+});
+
+test('controller preserves companion status and audits only structured step metadata', async () => {
+  const audits = [];
+  const controller = createBrowserController({
+    adapter: {
+      async perform() {
+        const error = new Error('provider detail should not leak');
+        error.code = 'BROWSER_COMPANION_TIMEOUT';
+        error.status = 504;
+        throw error;
+      },
+    },
+    authorize: async () => true,
+    audit: async event => audits.push(event),
+  });
+
+  await assert.rejects(() => controller.execute(baseRequest(), {
+    owner: 'adrien',
+    permissions: ['browser.control'],
+    requestId: 'timeout-1',
+  }), {
+    code: 'BROWSER_COMPANION_TIMEOUT',
+    status: 504,
+  });
+
+  const failed = audits.at(-1);
+  assert.equal(failed.status, 'FAILED');
+  assert.deepEqual(failed.step_results, [{
+    step_id: 'nav',
+    ok: false,
+    code: 'BROWSER_COMPANION_TIMEOUT',
+  }]);
+  assert.equal(JSON.stringify(failed).includes('provider detail should not leak'), false);
+});
