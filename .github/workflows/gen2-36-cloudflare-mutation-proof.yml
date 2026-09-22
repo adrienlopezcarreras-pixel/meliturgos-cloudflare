@@ -86,34 +86,11 @@ jobs:
             exit 11
           fi
 
-          BASE="$BASE" node - <<'NODE'
+          node - <<'NODE'
           const fs = require('fs');
-          const before = JSON.parse(fs.readFileSync('/tmp/gen2-36-before.json','utf8'));
           const created = JSON.parse(fs.readFileSync('/tmp/gen2-36-created-deployment.json','utf8'));
           if (created?.success !== true || !created?.result?.id) throw new Error('CLOUDFLARE_DEPLOYMENT_CREATE_FAILED');
-          const normalize = rows => (rows || []).map(row => ({
-            version_id: String(row?.version_id || ''),
-            percentage: Number(row?.percentage || 0),
-          })).sort((a,b) => a.version_id.localeCompare(b.version_id));
-          const versions = normalize(created?.result?.versions);
-          const expected = normalize(before.versions);
-          const same = versions.length === expected.length && versions.every((row, index) =>
-            row.version_id === expected[index].version_id
-            && Math.abs(row.percentage - expected[index].percentage) <= 0.001
-          );
-          if (!same) {
-            console.error(JSON.stringify({ expected, actual: versions }, null, 2));
-            throw new Error('CLOUDFLARE_NEUTRALITY_PROOF_FAILED');
-          }
           fs.writeFileSync('/tmp/gen2-36-created-id.txt', String(created.result.id));
-          console.log(JSON.stringify({
-            proof: 'GEN2_36_CLOUDFLARE_BOUNDED_MUTATION_VERIFIED',
-            previous_deployment_id: before.id,
-            created_deployment_id: String(created.result.id),
-            versions,
-            traffic_changed: false,
-            force_used: false,
-          }, null, 2));
           NODE
 
           CREATED_ID="$(cat /tmp/gen2-36-created-id.txt)"
@@ -131,9 +108,32 @@ jobs:
 
           CREATED_ID="$CREATED_ID" node - <<'NODE'
           const fs = require('fs');
+          const before = JSON.parse(fs.readFileSync('/tmp/gen2-36-before.json','utf8'));
           const payload = JSON.parse(fs.readFileSync('/tmp/gen2-36-verified-deployment.json','utf8'));
           if (payload?.success !== true || String(payload?.result?.id || '') !== String(process.env.CREATED_ID || '')) {
             throw new Error('CLOUDFLARE_DEPLOYMENT_VERIFY_FAILED');
           }
+          const normalize = rows => (rows || []).map(row => ({
+            version_id: String(row?.version_id || ''),
+            percentage: Number(row?.percentage || 0),
+          })).sort((a,b) => a.version_id.localeCompare(b.version_id));
+          const expected = normalize(before.versions);
+          const actual = normalize(payload?.result?.versions);
+          const same = actual.length === expected.length && actual.every((row, index) =>
+            row.version_id === expected[index].version_id
+            && Math.abs(row.percentage - expected[index].percentage) <= 0.001
+          );
+          if (!same) {
+            console.error(JSON.stringify({ expected, actual }, null, 2));
+            throw new Error('CLOUDFLARE_NEUTRALITY_PROOF_FAILED');
+          }
+          console.log(JSON.stringify({
+            proof: 'GEN2_36_CLOUDFLARE_BOUNDED_MUTATION_VERIFIED',
+            previous_deployment_id: before.id,
+            created_deployment_id: String(payload.result.id),
+            versions: actual,
+            traffic_changed: false,
+            force_used: false,
+          }, null, 2));
           console.log('Cloudflare bounded neutral deployment mutation verified end-to-end.');
           NODE

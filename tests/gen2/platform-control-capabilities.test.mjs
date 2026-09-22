@@ -147,6 +147,21 @@ test('Cloudflare deployment control is locked to configured Worker, existing UUI
     env: configuredEnv(),
     fetchImpl: async (url, init) => {
       seen.push({ url: String(url), init });
+      if (init?.method === 'GET') {
+        return json({
+          success: true,
+          result: {
+            id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            created_on: '2026-09-22T10:00:00Z',
+            source: 'api',
+            strategy: 'percentage',
+            versions: [
+              { version_id: '11111111-1111-4111-8111-111111111111', percentage: 90 },
+              { version_id: '22222222-2222-4222-8222-222222222222', percentage: 10 },
+            ],
+          },
+        });
+      }
       return json({
         success: true,
         result: {
@@ -154,10 +169,6 @@ test('Cloudflare deployment control is locked to configured Worker, existing UUI
           created_on: '2026-09-22T10:00:00Z',
           source: 'api',
           strategy: 'percentage',
-          versions: [
-            { version_id: '11111111-1111-4111-8111-111111111111', percentage: 90 },
-            { version_id: '22222222-2222-4222-8222-222222222222', percentage: 10 },
-          ],
         },
       });
     },
@@ -183,6 +194,11 @@ test('Cloudflare deployment control is locked to configured Worker, existing UUI
   assert.equal(body.annotations['workers/message'], 'approved staged deployment');
   assert.equal('workers/triggered_by' in body.annotations, false);
   assert.equal('force' in body, false);
+  assert.equal(seen[1].init.method, 'GET');
+  assert.equal(
+    seen[1].url,
+    'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts/meliturgos/deployments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  );
   assert.equal(JSON.stringify(result).includes('cf-secret'), false);
 
   await assert.rejects(

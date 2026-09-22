@@ -271,15 +271,27 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
       },
     );
     if (body?.success === false) throw capabilityError('CLOUDFLARE_DEPLOYMENT_CREATE_FAILED', 502);
-    const result = body?.result || {};
+    const created = body?.result || {};
+    const deploymentId = required(created.id, 'CLOUDFLARE_DEPLOYMENT_ID_MISSING', 64);
+    const verifiedBody = await requestJson(
+      fetchImpl,
+      `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(script)}/deployments/${encodeURIComponent(deploymentId)}`,
+      {
+        token: cloudflareToken,
+        method: 'GET',
+        code: 'CLOUDFLARE_DEPLOYMENT_VERIFY_FAILED',
+      },
+    );
+    if (verifiedBody?.success === false) throw capabilityError('CLOUDFLARE_DEPLOYMENT_VERIFY_FAILED', 502);
+    const result = verifiedBody?.result || created;
     return {
       provider: 'cloudflare',
       script,
       deployment: {
-        id: String(result.id || ''),
-        created_on: String(result.created_on || ''),
-        source: String(result.source || ''),
-        strategy: String(result.strategy || ''),
+        id: String(result.id || deploymentId),
+        created_on: String(result.created_on || created.created_on || ''),
+        source: String(result.source || created.source || ''),
+        strategy: String(result.strategy || created.strategy || ''),
         versions: Array.isArray(result.versions) ? result.versions.slice(0, 2).map(row => ({
           version_id: String(row.version_id || ''),
           percentage: Number(row.percentage || 0),
