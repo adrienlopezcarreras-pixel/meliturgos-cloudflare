@@ -39,6 +39,8 @@ jobs:
         run: node --test tests/gen2/platform-read-capabilities.test.mjs tests/connectors-security.test.mjs
       - name: Syntax
         run: npm run check
+      - name: Normalize branch for candidate-only integration tests
+        run: git switch -c candidate/gen2-36-ci
       - name: Full test suite
         run: npm test
       - name: Runtime dependency security gate
