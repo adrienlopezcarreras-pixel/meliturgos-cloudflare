@@ -81,7 +81,7 @@ export const MASTER_ROADMAP = Object.freeze([
   phase('P05', 'Multi-IA, .augmentio et Council', [
     item('MEL-AUG-01', '.augmentio fan-out parallèle', 'DONE_VERIFIED', 'Mesurer qualité et latence par fournisseur', 'P0'),
     item('MEL-AUG-02', 'Zero-Euro Governor fail-closed', 'DONE_VERIFIED', 'Maintenir le refus des coûts inconnus, non autorisés ou non prouvés à zéro', 'P0'),
-    item('GEN2-05', 'Model Council / benchmarks', 'IN_PROGRESS', 'Passer du squelette à un Council réellement connecté aux providers', 'P0'),
+    item('GEN2-05', 'Model Council / benchmarks', 'DONE_VERIFIED', 'Provider-neutral Council connecté au CapabilityBus et vérifié live sur Cloudflare via /api/gen2/capabilities/execute -> model.council : 2 modèles Workers AI distincts, critiques indépendantes, provenance exacte, synthèse MEL séparée, 0 panne et métadonnées zéro-coût sous preuve Workers Free expirante. Actions 35706085950; artifact 10684537054.', 'P0'),
     item('MEL-COUNCIL-01', 'Pré-audit multi-IA obligatoire avant développement', 'DONE_VERIFIED', 'Brancher le Council réel au Module Lab', 'P0'),
     item('MEL-COUNCIL-02', 'Critiques indépendantes + synthèse MEL', 'PARTIAL', 'Ajouter rôles architecte, sécurité, test, produit', 'P1'),
     item('MEL-COUNCIL-03', 'Teacher escalation vers ChatGPT/autres IA', 'PARTIAL', 'Standardiser provenance, paquet de revue et handoff avec le protocole multi-IA canonique', 'P1'),
