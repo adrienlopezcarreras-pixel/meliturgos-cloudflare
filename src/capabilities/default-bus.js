@@ -331,7 +331,11 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   }, async input => ({ ok: true, preview: true, ...normalizeChatGPTArchive(input.archive ?? input).summary }));
 
   registerCreativeMediaCapabilities(bus, { env: runtimeEnv });
-  registerBrowserRuntimeCapabilities(bus, { binding: runtimeEnv.MEL_BROWSER_COMPANION });
+  registerBrowserRuntimeCapabilities(bus, {
+    binding: runtimeEnv.MEL_BROWSER_COMPANION,
+    endpoint: runtimeEnv.MEL_BROWSER_COMPANION_ENDPOINT,
+    timeoutMs: runtimeEnv.MEL_BROWSER_COMPANION_TIMEOUT_MS,
+  });
   registerComputerRuntimeCapabilities(bus, { db: runtimeEnv.DB });
   registerWorkCapabilities(bus, { db: runtimeEnv.DB });
   return bus;

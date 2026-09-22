@@ -62,7 +62,7 @@ const browserInputSchema = {
         allowed_origins: {
           type: 'array',
           minItems: 1,
-          maxItems: 64,
+          maxItems: 50,
           items: { type: 'string', minLength: 1, maxLength: 4096 },
         },
         max_steps: { type: 'integer', minimum: 1, maximum: 64 },

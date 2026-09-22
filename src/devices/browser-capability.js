@@ -77,7 +77,7 @@ function normalizeOrigin(value) {
 
 function uniqueOrigins(value) {
   if (!Array.isArray(value)) return [];
-  return [...new Set(value.map(normalizeOrigin).filter(Boolean))].slice(0, 64);
+  return [...new Set(value.map(normalizeOrigin).filter(Boolean))].slice(0, 50);
 }
 
 function uniqueCapabilities(value) {

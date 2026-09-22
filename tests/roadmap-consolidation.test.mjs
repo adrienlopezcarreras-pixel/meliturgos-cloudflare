@@ -42,11 +42,15 @@ test('HD theme cleanup stays consolidated under the canonical control center del
   assert.match(row.next, /une seule couche de présentation/i);
 });
 
-test('browser abstraction is partial until a real adapter is wired', () => {
+test('browser abstraction is done only with recorded real Browser Run proof', () => {
   const row = byId('GEN2-31');
   assert.ok(row);
-  assert.equal(row.status, 'PARTIAL');
-  assert.match(row.next, /adapter navigateur réel/i);
+  assert.equal(row.status, 'DONE_VERIFIED');
+  assert.match(row.next, /Cloudflare Browser Run réel/i);
+  assert.match(row.next, /browser\.execute validé de bout en bout/i);
+  assert.match(row.next, /run 35708251465/i);
+  assert.match(row.next, /2f3a0e108643fd407ca55760349cc00eb48426c8/i);
+  assert.match(row.next, /audit COMPLETED/i);
 });
 
 test('canary rollback verification stays tied to the recorded real proof', () => {

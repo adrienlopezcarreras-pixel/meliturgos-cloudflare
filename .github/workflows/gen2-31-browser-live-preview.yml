@@ -1,0 +1,158 @@
+name: gen2-31-browser-live-preview
+
+on:
+  push:
+    branches:
+      - 'work/gen2-31-browser-live-preview'
+    paths:
+      - 'browser-companion/runtime/**'
+      - 'src/devices/browser-capability.js'
+      - 'src/devices/browser-companion-adapter.js'
+      - 'src/capabilities/browser-runtime-capabilities.js'
+      - 'src/capabilities/default-bus.js'
+      - 'tests/browser-companion-runtime.test.mjs'
+      - '.github/workflows/gen2-31-browser-live-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gen2-31-browser-live-preview
+  cancel-in-progress: true
+
+jobs:
+  verify-and-live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact GEN2-31 branch SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install repository lockfile
+        run: npm ci
+
+      - name: Install pinned Browser Run adapter for this deployment
+        run: npm install --no-save --ignore-scripts @cloudflare/playwright@1.3.6
+
+      - name: Syntax and targeted GEN2-31 tests
+        run: |
+          node --check browser-companion/runtime/browser-core.js
+          node --check browser-companion/runtime/worker.js
+          node --check browser-companion/runtime/smoke-worker.js
+          node --test             tests/browser-companion-runtime.test.mjs             tests/gen2/browser-capability.test.mjs             tests/browser-runtime-capability.test.mjs
+
+      - name: Full syntax gate
+        run: npm run check
+
+      - name: Full regression suite
+        shell: bash
+        run: |
+          if git symbolic-ref -q HEAD >/dev/null; then
+            git branch -m candidate/mel-clean-autonomy
+          else
+            git switch -c candidate/mel-clean-autonomy
+          fi
+          npm test
+
+      - name: Deploy internal Browser Companion
+        run: cd browser-companion/runtime && npx wrangler deploy --config wrangler.browser-preview.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy authenticated E2E smoke Worker
+        run: cd browser-companion/runtime && npx wrangler deploy --config wrangler.smoke-preview.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Configure ephemeral smoke authentication
+        shell: bash
+        run: |
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${TOKEN}"
+          echo "GEN2_31_SMOKE_TOKEN=${TOKEN}" >> "$GITHUB_ENV"
+          printf '%s' "$TOKEN" | npx wrangler secret put SMOKE_TOKEN             --config browser-companion/runtime/wrangler.smoke-preview.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Execute real browser.execute through CapabilityBus
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://mel-browser31-smoke-preview.adrien-lopezcarreras.workers.dev/smoke"
+          HTTP_CODE=""
+          for attempt in $(seq 1 10); do
+            HTTP_CODE="$(curl --silent --show-error --max-time 60               --header "x-mel-browser-smoke: ${GEN2_31_SMOKE_TOKEN}"               --request POST               --output gen2-31-live-proof.json               --write-out '%{http_code}'               "$URL" || true)"
+            if [ "$HTTP_CODE" = "200" ]; then
+              break
+            fi
+            echo "GEN2-31 live smoke attempt ${attempt} returned HTTP ${HTTP_CODE:-curl_error}."
+            if [ -s gen2-31-live-proof.json ]; then
+              node -e 'const fs=require("fs"); try { const d=JSON.parse(fs.readFileSync("gen2-31-live-proof.json","utf8")); console.log(JSON.stringify({ok:d?.ok??null,code:d?.code??null,status:d?.status??null},null,2)); } catch { console.log("non-json smoke response"); }'
+            fi
+            sleep 2
+          done
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "GEN2-31 live smoke failed after retries."
+            test ! -s gen2-31-live-proof.json || cat gen2-31-live-proof.json
+            exit 41
+          fi
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const d = JSON.parse(fs.readFileSync('gen2-31-live-proof.json', 'utf8'));
+          if (d?.ok !== true) throw new Error('GEN2_31_LIVE_NOT_OK:' + String(d?.code || 'unknown'));
+          if (d?.proof !== 'REAL_CLOUDFLARE_BROWSER_RUN') throw new Error('GEN2_31_PROOF_KIND_INVALID');
+          if (d?.capability_health !== 'HEALTHY') throw new Error('GEN2_31_CAPABILITY_NOT_HEALTHY');
+          if (d?.result?.ok !== true || d?.result?.steps_completed !== 2) throw new Error('GEN2_31_BROWSER_EXECUTE_INCOMPLETE');
+          const nav = d.result.outputs?.find(x => x?.step_id === 'navigate-example')?.output;
+          const read = d.result.outputs?.find(x => x?.step_id === 'read-example')?.output;
+          if (nav?.kind !== 'navigation' || !String(nav?.url || '').startsWith('https://example.com')) {
+            throw new Error('GEN2_31_REAL_NAVIGATION_MISSING');
+          }
+          if (read?.kind !== 'text' || !String(read?.text || '').includes('Example Domain')) {
+            throw new Error('GEN2_31_REAL_PAGE_TEXT_MISSING');
+          }
+          if (!Array.isArray(d?.audit) || !d.audit.some(x => x?.kind === 'BROWSER_CAPABILITY_AUDIT' && x?.status === 'COMPLETED')) {
+            throw new Error('GEN2_31_BROWSER_AUDIT_MISSING');
+          }
+          console.log(JSON.stringify({
+            proof: d.proof,
+            capability_health: d.capability_health,
+            steps_completed: d.result.steps_completed,
+            navigation: { url: nav.url, title: nav.title, status: nav.status },
+            read_text_sample: String(read.text).slice(0, 120),
+            completed_audit: true,
+          }, null, 2));
+          NODE
+
+      - name: Upload sanitized live proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-31-real-browser-run-proof-${{ github.sha }}
+          path: gen2-31-live-proof.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove ephemeral smoke authentication
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'y\n' | npx wrangler secret delete SMOKE_TOKEN \
+            --config browser-companion/runtime/wrangler.smoke-preview.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
