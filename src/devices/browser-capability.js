@@ -89,10 +89,11 @@ function actionNeedsUrl(action) {
   return action === BROWSER_ACTIONS.NAVIGATE;
 }
 
-function browserError(code) {
+function browserError(code, status = 500) {
   const error = new Error(code);
   error.name = 'BrowserCapabilityError';
   error.code = code;
+  if (Number.isInteger(status)) error.status = status;
   return error;
 }
 
@@ -197,6 +198,14 @@ export function createBrowserController({ adapter, authorize = async () => false
   return Object.freeze({
     async execute(input = {}, context = {}) {
       const plan = evaluateBrowserPlan(input);
+
+      // An explicit owner halt is terminal and must win before any adapter or
+      // controller-level authorization work is attempted.
+      if (!plan.allowed && plan.reason === 'OWNER_HALT_ACTIVE') {
+        await audit(makeAudit(plan, 'DENIED', plan.reason, []));
+        throw browserError(plan.reason, 409);
+      }
+
       const globallyAuthorized = await authorize('browser:control', {
         ...context,
         sessionId: plan.request.session_id,
@@ -205,11 +214,11 @@ export function createBrowserController({ adapter, authorize = async () => false
 
       if (!globallyAuthorized) {
         await audit(makeAudit(plan, 'DENIED', 'GLOBAL_PERMISSION_DENIED', []));
-        throw browserError('GLOBAL_PERMISSION_DENIED');
+        throw browserError('GLOBAL_PERMISSION_DENIED', 403);
       }
       if (!plan.allowed) {
         await audit(makeAudit(plan, 'DENIED', plan.reason, []));
-        throw browserError(plan.reason);
+        throw browserError(plan.reason, 403);
       }
 
       const outputs = [];
@@ -224,9 +233,10 @@ export function createBrowserController({ adapter, authorize = async () => false
           outputs.push({ step_id: step.id, ok: true, output: output ?? null });
         } catch (error) {
           const code = boundedText(error?.code || error?.name || 'BROWSER_ADAPTER_FAILURE', 100) || 'BROWSER_ADAPTER_FAILURE';
+          const status = Number.isInteger(error?.status) ? error.status : 502;
           outputs.push({ step_id: step.id, ok: false, code });
           await audit(makeAudit(plan, 'FAILED', code, outputs));
-          throw browserError(code);
+          throw browserError(code, status);
         }
       }
 
@@ -264,5 +274,10 @@ function makeAudit(plan, status, reason, outputs) {
     step_count: plan.request.steps.length,
     completed_steps: outputs.filter(row => row.ok).length,
     failed_steps: outputs.filter(row => !row.ok).length,
+    step_results: outputs.map(row => ({
+      step_id: row.step_id,
+      ok: row.ok === true,
+      ...(row.code ? { code: row.code } : {}),
+    })),
   };
 }
