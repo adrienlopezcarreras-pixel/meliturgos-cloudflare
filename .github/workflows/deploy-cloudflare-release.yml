@@ -274,6 +274,72 @@ jobs:
           console.log('Production authenticated /api/chat code.read + code.search smoke passed.');
           NODE
 
+          SELF_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --output production-code-self-check.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/code/self-check")"
+          if [ "$SELF_CODE" != "200" ]; then
+            echo "Production code self-check returned HTTP ${SELF_CODE}."
+            test ! -s production-code-self-check.json || cat production-code-self-check.json
+            exit 33
+          fi
+
+          MEMORY_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --output production-memory-status.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/memory/status")"
+          if [ "$MEMORY_CODE" != "200" ]; then
+            echo "Production memory smoke returned HTTP ${MEMORY_CODE}."
+            test ! -s production-memory-status.json || cat production-memory-status.json
+            exit 34
+          fi
+
+          PROFESSOR_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --output production-professor.html \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/professor")"
+          test "$PROFESSOR_CODE" = "200"
+
+          RUNTIME_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --output production-normal-runtime.js \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/normal-runtime.js")"
+          test "$RUNTIME_CODE" = "200"
+
+          RELEASE_BRANCH="$RELEASE_BRANCH" node - <<'NODE'
+          const fs=require('fs');
+          const self=JSON.parse(fs.readFileSync('production-code-self-check.json','utf8'));
+          const memory=JSON.parse(fs.readFileSync('production-memory-status.json','utf8'));
+          const professor=fs.readFileSync('production-professor.html','utf8');
+          const runtime=fs.readFileSync('production-normal-runtime.js','utf8');
+
+          if(self?.ok!==true || self?.capability!=='code.read') throw new Error('PRODUCTION_SELF_CODE_NOT_OK');
+          if(self?.path!=='src/router.js') throw new Error('PRODUCTION_SELF_CODE_PATH_MISMATCH');
+          if(String(self?.branch||'')!==String(process.env.RELEASE_BRANCH||'')) throw new Error('PRODUCTION_SELF_CODE_BRANCH_MISMATCH');
+          if(Number(self?.bytes||0)<100) throw new Error('PRODUCTION_SELF_CODE_EMPTY');
+
+          if(memory?.ok!==true || memory?.db_bound!==true || memory?.status!=='ONLINE') throw new Error('PRODUCTION_MEMORY_NOT_ONLINE');
+          for(const key of ['memory_count','archive_count','conversation_count']){
+            if(!Number.isFinite(Number(memory?.[key])) || Number(memory[key])<0) throw new Error('PRODUCTION_MEMORY_COUNT_INVALID:'+key);
+          }
+          if(memory?.portable!==true || memory?.provenance!==true) throw new Error('PRODUCTION_MEMORY_CONTRACT_INCOMPLETE');
+
+          if(!professor.includes('Centre de contrôle')) throw new Error('PRODUCTION_PROFESSOR_MARKER_MISSING');
+          if(!professor.includes('data-panel="memory"') || !professor.includes('data-panel="roadmap"')) throw new Error('PRODUCTION_PROFESSOR_PANEL_MISSING');
+          if(!runtime.includes("fetch('/api/chat'")) throw new Error('PRODUCTION_NORMAL_RUNTIME_CHAT_WIRING_MISSING');
+          if(!runtime.includes('toggleVoice')) throw new Error('PRODUCTION_NORMAL_RUNTIME_VOICE_WIRING_MISSING');
+
+          console.log('Production code self-check + memory + UI smoke passed.');
+          NODE
+
           cleanup_secret
           trap - EXIT
           echo "Temporary launch bootstrap secret deleted."
@@ -288,6 +354,9 @@ jobs:
               echo '- ShardVault recovery: verified'
               echo '- External critical-code copies: >= 7'
               echo '- Authenticated /api/chat code.read + code.search: verified'
+              echo '- Code self-check: verified'
+              echo '- Memory status: ONLINE + D1 bound'
+              echo '- Professor + normal runtime UI: verified'
               echo '- Historical failure retries: bounded'
               echo '- Autonomy started by deployment: **no**'
               echo '- Owner Resume/MAX remains required to start the SHA'
