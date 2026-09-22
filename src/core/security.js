@@ -48,9 +48,21 @@ function safeEqual(left, right) {
   return diff === 0;
 }
 
+const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
+  ['POST', new Set(['/api/chat'])],
+  ['GET', new Set([
+    '/api/gen2/code/self-check',
+    '/api/memory/status',
+    '/professor',
+    '/normal-runtime.js',
+  ])],
+]));
+
 export function isReleaseSmokeRequest(request, env) {
   const url = new URL(request.url);
-  if (url.pathname !== '/api/chat' || request.method !== 'POST') return false;
+  const method = String(request.method || 'GET').toUpperCase();
+  const allowedPaths = RELEASE_SMOKE_ALLOWLIST.get(method);
+  if (!allowedPaths?.has(url.pathname)) return false;
   if (request.headers.get('x-mel-release-smoke') !== '1') return false;
   const expected = withoutTerminalNewline(env?.MEL_LAUNCH_BOOTSTRAP_TOKEN || '');
   const supplied = withoutTerminalNewline(request.headers.get('x-mel-launch-bootstrap') || '');

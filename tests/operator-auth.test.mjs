@@ -59,41 +59,56 @@ test('requireAuth distinguishes unconfigured auth from rejected credentials with
 });
 
 
-test('ephemeral release smoke auth is restricted to POST /api/chat with exact bootstrap token', () => {
+test('ephemeral release smoke auth is restricted to exact read-only verification routes plus POST /api/chat', () => {
   const token = 'b'.repeat(64);
   const env = {
     MELITURGOS_USER: 'adrien',
     MELITURGOS_PASSWORD: 'owner-password',
     MEL_LAUNCH_BOOTSTRAP_TOKEN: token,
   };
-  const request = new Request('https://meliturgos.test/api/chat', {
+  const headers = {
+    'x-mel-release-smoke': '1',
+    'x-mel-launch-bootstrap': token,
+  };
+
+  const chat = new Request('https://meliturgos.test/api/chat', {
     method: 'POST',
-    headers: {
-      'x-mel-release-smoke': '1',
-      'x-mel-launch-bootstrap': token,
-      'content-type': 'application/json',
-    },
+    headers: { ...headers, 'content-type': 'application/json' },
     body: JSON.stringify({ text: 'lis src/index.js dans ton code' }),
   });
-  assert.equal(isReleaseSmokeRequest(request, env), true);
-  assert.equal(authorized(request, env), true);
+  assert.equal(isReleaseSmokeRequest(chat, env), true);
+  assert.equal(authorized(chat, env), true);
 
-  const wrongRoute = new Request('https://meliturgos.test/api/export', {
-    method: 'POST',
-    headers: { 'x-mel-release-smoke':'1', 'x-mel-launch-bootstrap':token },
-  });
-  assert.equal(isReleaseSmokeRequest(wrongRoute, env), false);
-  assert.equal(authorized(wrongRoute, env), false);
+  for (const path of [
+    '/api/gen2/code/self-check',
+    '/api/memory/status',
+    '/professor',
+    '/normal-runtime.js',
+  ]) {
+    const request = new Request('https://meliturgos.test' + path, { method:'GET', headers });
+    assert.equal(isReleaseSmokeRequest(request, env), true, path);
+    assert.equal(authorized(request, env), true, path);
+  }
 
-  const wrongMethod = new Request('https://meliturgos.test/api/chat', {
-    method: 'GET',
-    headers: { 'x-mel-release-smoke':'1', 'x-mel-launch-bootstrap':token },
-  });
-  assert.equal(isReleaseSmokeRequest(wrongMethod, env), false);
+  for (const [method,path] of [
+    ['POST','/api/export'],
+    ['POST','/api/memory/status'],
+    ['POST','/professor'],
+    ['GET','/api/chat'],
+    ['POST','/api/gen2/capabilities/execute'],
+    ['DELETE','/api/gen2/conversations'],
+  ]) {
+    const request = new Request('https://meliturgos.test' + path, { method, headers });
+    assert.equal(isReleaseSmokeRequest(request, env), false, method + ' ' + path);
+    assert.equal(authorized(request, env), false, method + ' ' + path);
+  }
 
   const wrongToken = new Request('https://meliturgos.test/api/chat', {
     method: 'POST',
-    headers: { 'x-mel-release-smoke':'1', 'x-mel-launch-bootstrap':'c'.repeat(64) },
+    headers: {
+      'x-mel-release-smoke':'1',
+      'x-mel-launch-bootstrap':'c'.repeat(64),
+    },
   });
   assert.equal(isReleaseSmokeRequest(wrongToken, env), false);
   assert.equal(authorized(wrongToken, env), false);
