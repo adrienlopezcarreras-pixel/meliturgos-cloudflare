@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-21.10';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-22.1';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -143,7 +143,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-58', 'Build et release Android', 'PLANNED', 'Pipeline CI APK signé localement/secret protégé', 'P1'),
     item('GEN2-28', 'Windows Companion runtime / agent', 'PLANNED', 'Implémenter l’agent local Windows et ses capacités', 'P0'),
     item('GEN2-59', 'Build et release Windows', 'PLANNED', 'Packaging, signature et mises à jour', 'P2'),
-    item('GEN2-30', 'Computer Use abstraction', 'PLANNED', 'Permission tiers et sandbox', 'P0'),
+    item('GEN2-30', 'Computer Use abstraction', 'DONE_VERIFIED', 'Abstraction provider-neutral validée: tiers OBSERVE/INTERACT/SENSITIVE/DENY, sandbox apps + origines HTTPS, arrêt propriétaire, approbation explicite par étape sensible, refus shell/process/file/power brut, autorisation globale et audit; maintenir les tests de non-régression.', 'P0'),
     item('GEN2-31', 'Browser capability', 'PARTIAL', 'Configurer MEL_BROWSER_COMPANION comme adapter navigateur réel puis valider browser.execute de bout en bout avant DONE_VERIFIED', 'P0'),
     item('MEL-DEVICE-01', 'Ouvrir/fermer applications et fichiers', 'PLANNED', 'Agent PC avec allowlist et confirmation', 'P1'),
     item('MEL-DEVICE-02', 'Commandes système / arrêt contrôlé', 'PLANNED', 'Permissions élevées explicites; arrêt propriétaire prioritaire', 'P2'),
