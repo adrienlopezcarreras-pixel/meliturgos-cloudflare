@@ -317,7 +317,7 @@ jobs:
           check_surface "/professor" 'id="chatSend"'
           check_surface "/veille" 'id="testAll"'
           check_surface "/shardvault" 'id="reconstructCode"'
-          check_surface "/normal-runtime.js?v=5" "send.addEventListener('click'"
+          check_surface "/normal-runtime.js?v=6" "send.addEventListener('click'"
 
           check_json "/api/gen2/roadmap"
           check_json "/api/mel/capability-watch"
