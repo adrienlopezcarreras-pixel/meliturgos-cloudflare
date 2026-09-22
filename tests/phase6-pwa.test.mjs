@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SERVICE_WORKER_SOURCE } from '../src/pages/service-worker.js';
+import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 
 test('service worker source provides offline cache fallback for GET requests', () => {
   assert.match(SERVICE_WORKER_SOURCE, /caches\.open/);
@@ -15,4 +16,10 @@ test('service worker never persists private HTML as an offline fallback', () => 
   assert.doesNotMatch(SERVICE_WORKER_SOURCE, /cache\.add\('\/'\)|cache\.add\(FALLBACK\)/);
   assert.match(SERVICE_WORKER_SOURCE, /request\.mode==='navigate'.*return/);
   assert.match(SERVICE_WORKER_SOURCE, /url\.pathname\.startsWith\('\/assets\/'\)/);
+});
+
+test('normal client actually registers the service worker and revalidation is kept alive', () => {
+  assert.match(NORMAL_RUNTIME_SOURCE, /navigator\.serviceWorker\.register\('\/sw\.js'/);
+  assert.match(SERVICE_WORKER_SOURCE, /meliturgos-static-v7/);
+  assert.match(SERVICE_WORKER_SOURCE, /event\.waitUntil\(update/);
 });
