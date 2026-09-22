@@ -95,3 +95,26 @@ export async function requireExplicitApproval(args = {}) {
   }
   return result;
 }
+
+
+export async function attachRequestApproval(context = {}, { request, capability, input, source = 'owner-http-confirmation' } = {}) {
+  if (!hasExplicitConfirmationHeader(request)) return context;
+  const proof = await createExplicitApprovalProof({
+    capability,
+    input,
+    requestId: context.requestId,
+    source,
+  });
+  return { ...context, explicitApprovals: [...(context.explicitApprovals || []), proof] };
+}
+
+export async function attachTextApproval(context = {}, { text, capability, input, source = 'owner-chat-confirmation' } = {}) {
+  if (!hasExplicitConfirmationText(text)) return context;
+  const proof = await createExplicitApprovalProof({
+    capability,
+    input,
+    requestId: context.requestId,
+    source,
+  });
+  return { ...context, explicitApprovals: [...(context.explicitApprovals || []), proof] };
+}
