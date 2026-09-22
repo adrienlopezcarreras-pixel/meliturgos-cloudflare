@@ -56,6 +56,30 @@ test('CapabilityBus registers and executes the canonical provider-neutral Model 
   assert.ok(result.critiques.every(row => row.provenance.provider === 'workers-ai'));
 });
 
+test('default runtime Council makes zero provider calls without verified zero-cost provenance', async () => {
+  const previous = process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+  delete process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+  const calls = [];
+  try {
+    const runtime = createGen2Runtime({ env: runtimeEnv(calls) });
+    await assert.rejects(
+      () => runtime.bus.execute('model-council.run', {
+        request: { prompt: 'This must remain fail-closed.' },
+        capability: 'GENERAL',
+        maxCandidates: 2,
+        timeoutMs: 1000,
+      }, context()),
+      error => error.code === 'COUNCIL_NO_ELIGIBLE_PROVIDER'
+        && Array.isArray(error.rejections)
+        && error.rejections.length >= 1,
+    );
+    assert.equal(calls.length, 0);
+  } finally {
+    if (previous === undefined) process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
+    else process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = previous;
+  }
+});
+
 test('CapabilityBus Model Council rejects an empty structured request', async () => {
   const runtime = createGen2Runtime({ env: runtimeEnv() });
 
