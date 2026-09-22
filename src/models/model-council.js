@@ -14,6 +14,7 @@ function codeOf(error) {
 }
 
 function finiteCost(value) {
+  if (value == null || (typeof value === 'string' && !value.trim())) return null;
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : null;
 }
@@ -313,9 +314,9 @@ export class ModelCouncil {
       const identity = canonicalIdentity(provider);
       attempted.push(identity);
       const started = this.now();
-      try {
-        this.governor.assertAllowed(provider);
-        const response = await provider.invoke({
+      const settled = await this.scheduler.run([provider], async (candidate, _index, meta = {}) => {
+        this.governor.assertAllowed(candidate);
+        const response = await candidate.invoke({
           input,
           context: {
             purpose: 'model-council-synthesis',
@@ -323,27 +324,31 @@ export class ModelCouncil {
             request_id: request.request_id,
             synthesis_basis: basis,
           },
-          signal,
+          signal: meta.signal,
         });
         const text = clean(typeof response === 'string' ? response : response?.text ?? response?.response);
         if (!text) throw Object.assign(new Error('EMPTY_PROVIDER_RESPONSE'), { code: 'EMPTY_PROVIDER_RESPONSE' });
+        return { response, text };
+      }, { signal });
+
+      const outcome = settled[0];
+      if (outcome?.status === 'fulfilled') {
         return {
           status: 'COMPLETE',
           coordinator: 'MEL',
           basis,
-          text,
+          text: outcome.value.text,
           latency_ms: Math.max(0, this.now() - started),
           cost: safeCostMetadata(provider),
           provenance: {
             ...identity,
-            upstream: safeUpstreamProvenance(response?.provenance),
+            upstream: safeUpstreamProvenance(outcome.value.response?.provenance),
           },
           attempted,
           failures,
         };
-      } catch (error) {
-        failures.push({ ...identity, code: codeOf(error) });
       }
+      failures.push({ ...identity, code: codeOf(outcome?.reason) });
     }
 
     return {
