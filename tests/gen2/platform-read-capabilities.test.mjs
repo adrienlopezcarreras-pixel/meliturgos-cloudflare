@@ -67,8 +67,9 @@ test('GitHub metadata and Actions runs are limited to the configured repository'
   assert.equal(repo.full_name, 'owner/repo');
   assert.equal(runs.count, 3);
   assert.equal(runs.runs.length, 3);
-  assert.equal(seen[0].url, 'https://api.github.com/repos/owner/repo');
-  assert.equal(seen[1].url, 'https://api.github.com/repos/owner/repo/actions/runs?per_page=3');
+  assert.equal(seen.some(call => call.url === 'https://api.github.com/repos/owner/repo'), true);
+  assert.equal(seen.some(call => call.url === 'https://api.github.com/repos/owner/repo/actions/runs?per_page=1'), true);
+  assert.equal(seen.some(call => call.url === 'https://api.github.com/repos/owner/repo/actions/runs?per_page=3'), true);
   assert.equal(seen.every(call => call.authorization === 'Bearer github-secret'), true);
   assert.equal(JSON.stringify({ repo, runs }).includes('github-secret'), false);
 });
@@ -100,8 +101,8 @@ test('Cloudflare reads only Workers inventory and deployment metadata, never sou
   assert.equal(workers.scripts[0].id, 'meliturgos');
   assert.equal(deployments.count, 1);
   assert.equal(deployments.deployments[0].id, 'd1');
-  assert.equal(seen[0].url, 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts');
-  assert.equal(seen[1].url, 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts/meliturgos/deployments');
+  assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts'), true);
+  assert.equal(seen.some(call => call.url === 'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts/meliturgos/deployments'), true);
   assert.equal(seen.every(call => call.authorization === 'Bearer cf-secret'), true);
   assert.equal(JSON.stringify({ workers, deployments }).includes('cf-secret'), false);
   await assert.rejects(
@@ -135,11 +136,13 @@ test('Vercel project and deployment reads preserve team scoping and bounded outp
 
   assert.equal(projects.count, 1);
   assert.equal(deployments.count, 1);
-  assert.match(seen[0].url, /^https:\/\/api\.vercel\.com\/v9\/projects\?/);
-  assert.match(seen[0].url, /teamId=team_123/);
-  assert.match(seen[1].url, /^https:\/\/api\.vercel\.com\/v6\/deployments\?/);
-  assert.match(seen[1].url, /projectId=prj_1/);
-  assert.match(seen[1].url, /teamId=team_123/);
+  const projectCalls=seen.filter(call => /^https:\/\/api\.vercel\.com\/v9\/projects\?/.test(call.url));
+  const deploymentCall=seen.find(call => /^https:\/\/api\.vercel\.com\/v6\/deployments\?/.test(call.url));
+  assert.ok(projectCalls.length >= 2);
+  assert.equal(projectCalls.every(call => /teamId=team_123/.test(call.url)), true);
+  assert.ok(deploymentCall);
+  assert.match(deploymentCall.url, /projectId=prj_1/);
+  assert.match(deploymentCall.url, /teamId=team_123/);
   assert.equal(seen.every(call => call.authorization === 'Bearer vercel-secret'), true);
   assert.equal(JSON.stringify({ projects, deployments }).includes('vercel-secret'), false);
 });
@@ -163,4 +166,28 @@ test('Cloudflare and Vercel fail closed when credentials are absent and upstream
   assert.ok(caught);
   assert.equal(caught.code, 'GITHUB_REPOSITORY_READ_FAILED_AUTH');
   assert.equal(String(caught.message).includes('contains-sensitive-upstream-detail'), false);
+});
+
+
+test('platform read healthchecks turn working GitHub reads healthy and explain unconfigured providers', async () => {
+  const bus = new CapabilityBus();
+  registerPlatformReadCapabilities(bus, {
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo' },
+    fetchImpl: async url => {
+      if (String(url).includes('api.github.com/repos/owner/repo')) return json({ workflow_runs: [] });
+      return json({}, 503);
+    },
+  });
+
+  const github = await bus.refreshHealth('github.repository.read');
+  const githubRuns = await bus.refreshHealth('github.actions.runs.read');
+  const cloudflare = await bus.refreshHealth('cloudflare.workers.read');
+  const vercel = await bus.refreshHealth('vercel.projects.read');
+
+  assert.equal(github.health, 'HEALTHY');
+  assert.equal(githubRuns.health, 'HEALTHY');
+  assert.equal(cloudflare.health, 'UNAVAILABLE');
+  assert.equal(cloudflare.health_detail, 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED');
+  assert.equal(vercel.health, 'UNAVAILABLE');
+  assert.equal(vercel.health_detail, 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED');
 });
