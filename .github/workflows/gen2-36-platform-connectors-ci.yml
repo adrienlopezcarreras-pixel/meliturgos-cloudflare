@@ -17,8 +17,10 @@ on:
       - 'src/roadmap/master-roadmap.js'
       - 'wrangler.jsonc'
       - '.github/workflows/gen2-36-provider-write-smoke.yml'
+      - '.github/workflows/gen2-36-authenticated-provider-smokes.yml'
       - 'tests/gen2/platform-read-capabilities.test.mjs'
       - 'tests/gen2/platform-control-capabilities.test.mjs'
+      - 'tests/gen2/platform-auth-smoke-workflow.test.mjs'
       - 'tests/approval-gates.test.mjs'
       - '.github/workflows/gen2-36-platform-connectors-ci.yml'
   workflow_dispatch:
@@ -41,7 +43,7 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
       - name: Targeted GEN2-36 tests
-        run: node --test tests/gen2/platform-read-capabilities.test.mjs tests/gen2/platform-control-capabilities.test.mjs tests/connectors-security.test.mjs tests/approval-gates.test.mjs
+        run: node --test tests/gen2/platform-read-capabilities.test.mjs tests/gen2/platform-control-capabilities.test.mjs tests/gen2/platform-auth-smoke-workflow.test.mjs tests/connectors-security.test.mjs tests/approval-gates.test.mjs
       - name: Syntax
         run: npm run check
       - name: Normalize branch for candidate-only integration tests
