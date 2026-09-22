@@ -178,3 +178,23 @@ test('collector 0.6.4 performs one-time attachment metadata backfill for already
   assert.match(content,/attachments,/);
   assert.match(popup,/Backfill pièces jointes/);
 });
+
+
+test('collector 0.6.4 republishes deep coverage and resumes partial recapture after restart without overriding pause', async () => {
+  const background=await readFile(new URL('../browser-companion/chatgpt-collector/background.js',import.meta.url),'utf8');
+  const workflow=await readFile(new URL('../.github/workflows/chatgpt-collector-ci.yml',import.meta.url),'utf8');
+  assert.match(background,/async function queuePartialRecaptures/);
+  assert.match(background,/if\(s\.done\?\.\[id\]&&partialMessages<=completedMessages\)continue/);
+  assert.match(background,/async function reconcileCollectorProof/);
+  assert.match(background,/if\(s\.deepDiscoveryDone===true\)await sendCoverageManifest\(s\)/);
+  assert.match(background,/if\(s\.paused===true\)return s/);
+  assert.match(background,/const needsDeepDiscovery=s\.deepDiscoveryDone!==true/);
+  assert.match(background,/if\(needsDeepDiscovery\|\|hasQueuedWork\)return start\(\)/);
+  assert.match(background,/api\.runtime\.onStartup\.addListener\(async\(\)=>\{\s*await reconcileCollectorProof\(\)\.catch\(\(\)=>\{\}\)/s);
+  assert.match(background,/api\.runtime\.onInstalled\?\.addListener/);
+  assert.match(background,/reconcileCollectorProof\(\)\.catch\(\(\)=>\{\}\)/);
+  assert.match(background,/if\(saved\.deepDiscoveryDone===true\)await sendCoverageManifest\(saved\)/);
+  assert.match(workflow,/Package Collector 0\.6\.4/);
+  assert.match(workflow,/MEL_ChatGPT_Collector_0\.6\.4\.zip/);
+  assert.doesNotMatch(workflow,/0\.6\.1/);
+});
