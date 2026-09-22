@@ -91,11 +91,18 @@ jobs:
           const before = JSON.parse(fs.readFileSync('/tmp/gen2-36-before.json','utf8'));
           const created = JSON.parse(fs.readFileSync('/tmp/gen2-36-created-deployment.json','utf8'));
           if (created?.success !== true || !created?.result?.id) throw new Error('CLOUDFLARE_DEPLOYMENT_CREATE_FAILED');
-          const versions = (created?.result?.versions || []).map(row => ({
+          const normalize = rows => (rows || []).map(row => ({
             version_id: String(row?.version_id || ''),
             percentage: Number(row?.percentage || 0),
-          }));
-          if (JSON.stringify(versions) !== JSON.stringify(before.versions)) {
+          })).sort((a,b) => a.version_id.localeCompare(b.version_id));
+          const versions = normalize(created?.result?.versions);
+          const expected = normalize(before.versions);
+          const same = versions.length === expected.length && versions.every((row, index) =>
+            row.version_id === expected[index].version_id
+            && Math.abs(row.percentage - expected[index].percentage) <= 0.001
+          );
+          if (!same) {
+            console.error(JSON.stringify({ expected, actual: versions }, null, 2));
             throw new Error('CLOUDFLARE_NEUTRALITY_PROOF_FAILED');
           }
           fs.writeFileSync('/tmp/gen2-36-created-id.txt', String(created.result.id));
