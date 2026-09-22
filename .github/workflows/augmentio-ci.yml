@@ -19,6 +19,10 @@ jobs:
   augmentio-core:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # Node-only fixture: authorizes mocked zero-cost providers in CI.
+      # Cloudflare runtime cannot activate this process.env switch.
+      MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
