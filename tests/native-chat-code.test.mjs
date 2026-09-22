@@ -34,3 +34,16 @@ test('natural source search routes to code.search with extracted symbol', () => 
     { id: 'code.search', input: { query: 'createDefaultCapabilityBus' } }
   );
 });
+
+test('source search keeps an explicit file scope instead of scanning an arbitrary repository window', () => {
+  assert.deepEqual(
+    inferNativeCodeCapability('cherche dans ton code "createDefaultCapabilityBus" dans src/capabilities/default-bus.js'),
+    {
+      id: 'code.search',
+      input: {
+        query: 'createDefaultCapabilityBus',
+        path: 'src/capabilities/default-bus.js',
+      },
+    }
+  );
+});
