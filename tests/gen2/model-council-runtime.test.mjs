@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { ProviderPool } from '../../src/augmentio/provider-pool.js';
 import { ZERO_EURO_POLICY } from '../../src/augmentio/zero-euro-governor.js';
 import { runModelCouncil } from '../../src/models/model-council.js';
+import { createDefaultCapabilityBus } from '../../src/capabilities/default-bus.js';
+import router from '../../src/router.js';
 
 process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
 
@@ -127,6 +129,115 @@ test('default connected Council uses the configured Workers AI adapter path', as
   assert.equal(calls.length, 3);
   assert.ok(calls.every(row => row.model.startsWith('@cf/')));
   assert.ok(calls.every(row => Array.isArray(row.payload.messages) && row.payload.messages.length > 0));
+});
+
+test('Model Council is registered in the production CapabilityBus and executes through Workers AI adapters', async () => {
+  const calls = [];
+  const env = {
+    AI: {
+      async run(model, payload) {
+        calls.push({ model, payload });
+        return { response: `bus response from ${model}` };
+      },
+    },
+  };
+  const bus = createDefaultCapabilityBus({ env });
+  const record = bus.describe('model.council');
+  assert.equal(record.enabled, true);
+  assert.equal(record.risk, 'LOW');
+  assert.equal(record.provider, 'mel');
+
+  const result = await bus.execute('model.council', {
+    request: { prompt: 'compare via capability bus' },
+    capability: 'GENERAL',
+    maxCandidates: 2,
+    timeoutMs: 5000,
+  }, {
+    owner: 'gen2-05-test',
+    permissions: [],
+    requestId: 'gen2-05-capability-bus',
+  });
+
+  assert.equal(result.status, 'COMPLETE');
+  assert.equal(result.independent_response_count, 2);
+  assert.equal(new Set(result.critiques.map(row => row.identity)).size, 2);
+  assert.equal(result.synthesis.status, 'COMPLETE');
+  assert.equal(calls.length, 3);
+});
+
+test('CapabilityBus Model Council remains fail-closed in production-like runtime without explicit zero-euro provenance', async () => {
+  const previous = process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+  delete process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+  let externalCalls = 0;
+  try {
+    const bus = createDefaultCapabilityBus({
+      env: {
+        AI: {
+          async run() {
+            externalCalls += 1;
+            return { response: 'must not be called' };
+          },
+        },
+      },
+    });
+
+    await assert.rejects(
+      () => bus.execute('model.council', {
+        request: { prompt: 'do not spend without proof' },
+        maxCandidates: 2,
+      }, {
+        owner: 'gen2-05-test',
+        permissions: [],
+        requestId: 'gen2-05-zero-euro-guard',
+      }),
+      error => error?.code === 'COUNCIL_NO_ELIGIBLE_PROVIDER'
+    );
+    assert.equal(externalCalls, 0);
+  } finally {
+    if (previous === undefined) delete process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS;
+    else process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = previous;
+  }
+});
+
+test('HTTP capability execution route exposes model.council end-to-end', async () => {
+  const calls = [];
+  const credentials = btoa('owner:test-password');
+  const env = {
+    MELITURGOS_USER: 'owner',
+    MELITURGOS_PASSWORD: 'test-password',
+    AI: {
+      async run(model, payload) {
+        calls.push({ model, payload });
+        return { response: `http response from ${model}` };
+      },
+    },
+  };
+  const request = new Request('https://mel.test/api/gen2/capabilities/execute', {
+    method: 'POST',
+    headers: {
+      authorization: `Basic ${credentials}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      id: 'model.council',
+      input: {
+        request: { prompt: 'prove HTTP runtime wiring' },
+        capability: 'GENERAL',
+        maxCandidates: 2,
+        timeoutMs: 5000,
+      },
+    }),
+  });
+
+  const response = await router.fetch(request, env, {});
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.capability, 'model.council');
+  assert.equal(body.result.status, 'COMPLETE');
+  assert.equal(body.result.independent_response_count, 2);
+  assert.equal(body.result.synthesis.status, 'COMPLETE');
+  assert.equal(calls.length, 3);
 });
 
 test('one provider failure is isolated and partial multi-model result remains usable', async () => {
