@@ -45,7 +45,7 @@ test('every canonical Professor button has a concrete client-side handler', asyn
     assert.ok(sourceHasHtmlId(source, id), `missing button #${id}`);
     for (const token of evidence) assert.ok(source.includes(token), `button #${id} lost handler evidence: ${token}`);
   }
-  assert.ok(source.includes("qsa('#nav button').forEach"), 'navigation buttons lost generic handler');
+  assert.ok(source.includes("qsa('#nav button[data-view]').forEach"), 'navigation buttons lost generic handler');
   assert.ok(source.includes("qsa('[data-jump]').forEach"), 'overview jump buttons lost generic handler');
   assert.ok(source.includes("qs('#rmStatus').onchange=renderRoadmap"), 'roadmap status filter lost handler');
   assert.ok(source.includes("qs('#rmPriority').onchange=renderRoadmap"), 'roadmap priority filter lost handler');
