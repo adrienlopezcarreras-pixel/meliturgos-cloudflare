@@ -144,7 +144,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-28', 'Windows Companion runtime / agent', 'PLANNED', 'Implémenter l’agent local Windows et ses capacités', 'P0'),
     item('GEN2-59', 'Build et release Windows', 'PLANNED', 'Packaging, signature et mises à jour', 'P2'),
     item('GEN2-30', 'Computer Use abstraction', 'DONE_VERIFIED', 'Abstraction provider-neutral validée: tiers OBSERVE/INTERACT/SENSITIVE/DENY, sandbox apps + origines HTTPS, arrêt propriétaire, approbation explicite par étape sensible, refus shell/process/file/power brut, autorisation globale et audit; maintenir les tests de non-régression.', 'P0'),
-    item('GEN2-31', 'Browser capability', 'PARTIAL', 'Configurer MEL_BROWSER_COMPANION comme adapter navigateur réel puis valider browser.execute de bout en bout avant DONE_VERIFIED', 'P0'),
+    item('GEN2-31', 'Browser capability', 'DONE_VERIFIED', 'Cloudflare Browser Run réel via MEL_BROWSER_COMPANION + Durable Object; browser.execute validé de bout en bout par CapabilityBus (navigate + read-text sur example.com, HTTP 200, audit COMPLETED), run 35708251465 sur 2f3a0e108643fd407ca55760349cc00eb48426c8; 21/21 tests ciblés, 333/333 suite complète, secret smoke supprimé.', 'P0'),
     item('MEL-DEVICE-01', 'Ouvrir/fermer applications et fichiers', 'PLANNED', 'Agent PC avec allowlist et confirmation', 'P1'),
     item('MEL-DEVICE-02', 'Commandes système / arrêt contrôlé', 'PLANNED', 'Permissions élevées explicites; arrêt propriétaire prioritaire', 'P2'),
     item('MEL-DEVICE-03', 'Wake-on-LAN séparé', 'PLANNED', 'Module réseau indépendant', 'P3')
