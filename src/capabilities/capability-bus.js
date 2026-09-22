@@ -89,12 +89,21 @@ export class CapabilityBus {
       throw error;
     }
     validate(input,record.input_schema);
+    const startedAt = Date.now();
     await this.audit({...event,status:'STARTED'});
     try {
       const output = await entry.execute(input,context);
       validate(output,record.output_schema);
-      await this.audit({...event,status:'SUCCEEDED'});
+      await this.audit({...event,status:'SUCCEEDED',duration_ms:Math.max(0,Date.now()-startedAt)});
       return output;
-    } catch (error) { await this.audit({...event,status:'FAILED'}); throw error; }
+    } catch (error) {
+      await this.audit({
+        ...event,
+        status:'FAILED',
+        duration_ms:Math.max(0,Date.now()-startedAt),
+        error_code:String(error?.code || error?.message || 'CAPABILITY_FAILED').slice(0,120),
+      });
+      throw error;
+    }
   }
 }
