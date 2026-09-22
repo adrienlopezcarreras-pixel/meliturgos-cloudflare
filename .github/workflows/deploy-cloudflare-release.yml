@@ -242,7 +242,7 @@ jobs:
             --header "x-mel-release-smoke: 1" \
             --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
             --header "content-type: application/json" \
-            --data '{"text":"cherche dans ton code \"createDefaultCapabilityBus\"","conversation_id":"release-smoke-code-search"}' \
+            --data '{"text":"cherche dans ton code \"createDefaultCapabilityBus\" dans src/capabilities/default-bus.js","conversation_id":"release-smoke-code-search"}' \
             --output production-code-search-smoke.json \
             --write-out '%{http_code}' \
             "${BASE_URL}/api/chat")"
