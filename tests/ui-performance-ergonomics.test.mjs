@@ -96,3 +96,36 @@ test('Professor exposes a lightweight dashboard summary route and registers the 
   assert.match(router,/path === "\/api\/gen2\/dashboard-summary"/);
   assert.match(page,/navigator\.serviceWorker\.register\('\/sw\.js'/);
 });
+
+
+test('Professor desktop hides the mobile Plus control and keeps a populated mobile secondary menu', async () => {
+  const html = await (await renderProfessor()).text();
+  assert.match(html, /.nav button.mobile-more-nav,.mobile-more-menu{display:none}/);
+  assert.match(html, /@media(max-width:960px)[sS]*.mobile-more-nav{display:flex!important}/);
+  assert.match(html, /id="mobileMoreMenu"[^>]*hidden/);
+  for (const target of ['skills','roadmap','computer','terminal','lora','diagnostics']) {
+    assert.match(html, new RegExp('data-jump="' + target + '"'));
+  }
+});
+
+test('MEL techno avatar is the canonical favicon in normal and Professor modes', async () => {
+  const normal = await (await renderNormal()).text();
+  const professor = await (await renderProfessor()).text();
+  for (const html of [normal, professor]) {
+    assert.match(html, /rel="icon" type="image/webp" href="/assets/avatars/mel-full.webp"/);
+    assert.match(html, /rel="apple-touch-icon" href="/assets/avatars/mel-full.webp"/);
+    assert.doesNotMatch(html, /data:image/svg+xml/);
+  }
+});
+
+test('Professor skills surface refreshes real health and explains provider state', async () => {
+  const html = await (await renderProfessor()).text();
+  assert.match(html, /id="skillsHealthy"/);
+  assert.match(html, /id="skillsProtected"/);
+  assert.match(html, /id="skillsDegraded"/);
+  assert.match(html, /id="skillsUnavailable"/);
+  assert.match(html, /id="skillsProviderSummary"/);
+  assert.match(html, /loadCapabilitiesData(true)/);
+  assert.match(html, /health_detail/);
+  assert.match(html, /NON CONFIGURÉ/);
+});
