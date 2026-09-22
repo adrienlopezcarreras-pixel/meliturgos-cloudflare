@@ -41,7 +41,7 @@ jobs:
               .github/workflows/deploy-candidate-preview.yml)
                 grep -Fq -- '--env preview' "$file" || violations+=("$file")
                 ;;
-              .github/workflows/deploy-dreamina-preview.yml|.github/workflows/deploy-memory-export-preview.yml|.github/workflows/deploy-memory-sync-preview.yml)
+              .github/workflows/deploy-dreamina-preview.yml|.github/workflows/deploy-memory-export-preview.yml|.github/workflows/deploy-memory-sync-preview.yml|.github/workflows/gen2-31-browser-live-preview.yml)
                 grep -Eq -- '--config[[:space:]]+wrangler[.][A-Za-z0-9._-]*preview[.]jsonc' "$file" || violations+=("$file")
                 ;;
               *)
