@@ -29,6 +29,153 @@ function providerIdentity(provider = {}) {
   return `${providerId}::${modelId}`;
 }
 
+const MODEL_COUNCIL_ZERO_EURO_AUTH_ENV = 'MEL_MODEL_COUNCIL_ZERO_EURO_AUTHORIZATIONS';
+const SAFE_AUTH_LABEL = /^[A-Za-z0-9@._:/+\-]{1,240}$/;
+
+function runtimeAuthError() {
+  const error = new Error('COUNCIL_ZERO_EURO_AUTH_CONFIG_INVALID');
+  error.code = 'COUNCIL_ZERO_EURO_AUTH_CONFIG_INVALID';
+  error.status = 503;
+  return error;
+}
+
+function safeAuthLabel(value) {
+  const text = clean(value);
+  return text && SAFE_AUTH_LABEL.test(text) ? text : null;
+}
+
+function parseRuntimeZeroEuroAuthorizations(env = {}) {
+  const raw = clean(env?.[MODEL_COUNCIL_ZERO_EURO_AUTH_ENV]);
+  if (!raw) return Object.freeze({ present: false, entries: [] });
+  if (raw.length > 32000) throw runtimeAuthError();
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw runtimeAuthError();
+  }
+  if (!Array.isArray(parsed) || parsed.length < 1 || parsed.length > 12) throw runtimeAuthError();
+
+  const seen = new Set();
+  const entries = parsed.map((row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) throw runtimeAuthError();
+    const adapterId = safeAuthLabel(row.adapter_id);
+    const provider = safeAuthLabel(row.provider);
+    const model = safeAuthLabel(row.model);
+    const source = safeAuthLabel(row.source);
+    const authority = safeAuthLabel(row.authority);
+    const addedCost = finiteOrNull(row.added_cost ?? row.addedCost);
+    if (!adapterId || !provider || !model || !source || !authority) throw runtimeAuthError();
+    if (seen.has(adapterId)) throw runtimeAuthError();
+    if (row.verified !== true || row.approved !== true) throw runtimeAuthError();
+    if (clean(row.policy) !== ZERO_EURO_POLICY || addedCost !== 0) throw runtimeAuthError();
+    seen.add(adapterId);
+    return Object.freeze({
+      adapter_id: adapterId,
+      provider,
+      model,
+      source,
+      authority,
+    });
+  });
+
+  return Object.freeze({ present: true, entries: Object.freeze(entries) });
+}
+
+function applyRuntimeZeroEuroAuthorizations(pool, env = {}) {
+  const config = parseRuntimeZeroEuroAuthorizations(env);
+  if (!config.present) return { configured: 0, matched: 0 };
+
+  const byAdapter = new Map(config.entries.map(row => [row.adapter_id, row]));
+  let matched = 0;
+  for (const provider of pool?.adapters?.values?.() || []) {
+    const row = byAdapter.get(clean(provider?.id));
+    if (!row) continue;
+    const providerId = clean(provider?.providerId ?? provider?.provider_id);
+    const modelId = clean(provider?.modelId ?? provider?.model_id);
+    if (providerId !== row.provider || modelId !== row.model) continue;
+    provider.costProvenance = Object.freeze({
+      verified: true,
+      addedCost: 0,
+      source: row.source,
+      authorization: Object.freeze({
+        approved: true,
+        policy: ZERO_EURO_POLICY,
+        authority: row.authority,
+        adapter_id: row.adapter_id,
+        provider: row.provider,
+        model: row.model,
+      }),
+    });
+    matched += 1;
+  }
+  return { configured: config.entries.length, matched };
+}
+
+export async function inspectModelCouncilZeroEuroReadiness(env = {}, {
+  capability = 'GENERAL',
+  minimum = 2,
+} = {}) {
+  const required = Math.max(1, Math.min(12, Number(minimum) || 2));
+  if (!env?.AI || typeof env.AI.run !== 'function') {
+    return {
+      status: 'DEGRADED',
+      reason: 'AI_BINDING_UNAVAILABLE',
+      minimum: required,
+      healthy_provider_count: 0,
+      authorized_zero_cost_count: 0,
+      authorized_provider_ids: [],
+    };
+  }
+
+  let pool;
+  let auth;
+  try {
+    pool = createDefaultAugmentioPool(env);
+    auth = applyRuntimeZeroEuroAuthorizations(pool, env);
+  } catch (error) {
+    return {
+      status: 'DEGRADED',
+      reason: error?.code || 'COUNCIL_ZERO_EURO_AUTH_CONFIG_INVALID',
+      minimum: required,
+      healthy_provider_count: 0,
+      authorized_zero_cost_count: 0,
+      authorized_provider_ids: [],
+    };
+  }
+
+  await pool.refreshHealth?.();
+  const governor = new ZeroEuroGovernor();
+  const candidates = pool.list?.({ capability }) || [];
+  const healthy = candidates.filter(provider => provider.healthStatus === 'HEALTHY');
+  const authorized = healthy.filter(provider => governor.allows(provider));
+  const status = authorized.length >= required
+    ? 'ONLINE'
+    : authorized.length > 0
+      ? 'LIMITED'
+      : healthy.length > 0
+        ? 'SAFE_IDLE'
+        : 'DEGRADED';
+
+  return {
+    status,
+    reason: status === 'ONLINE'
+      ? 'ZERO_EURO_QUORUM_READY'
+      : status === 'LIMITED'
+        ? 'ZERO_EURO_QUORUM_INSUFFICIENT'
+        : status === 'SAFE_IDLE'
+          ? 'ZERO_EURO_POLICY_PROTECTED'
+          : 'NO_HEALTHY_PROVIDER',
+    minimum: required,
+    healthy_provider_count: healthy.length,
+    authorized_zero_cost_count: authorized.length,
+    authorized_provider_ids: authorized.map(provider => clean(provider.id)).filter(Boolean).sort(),
+    configured_authorization_count: auth.configured,
+    matched_authorization_count: auth.matched,
+  };
+}
+
 function safeReportedProvenance(response = {}) {
   const source = response?.provenance;
   if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
@@ -343,7 +490,9 @@ export async function runModelCouncil({
   if (!providerPool) {
     try {
       providerPool = createDefaultAugmentioPool(env);
+      applyRuntimeZeroEuroAuthorizations(providerPool, env);
     } catch (error) {
+      if (error?.code === 'COUNCIL_ZERO_EURO_AUTH_CONFIG_INVALID') throw error;
       throw noProviderError('COUNCIL_PROVIDER_POOL_UNAVAILABLE', {
         failures: [{ code: errorCode(error, 'PROVIDER_POOL_UNAVAILABLE') }],
       });
