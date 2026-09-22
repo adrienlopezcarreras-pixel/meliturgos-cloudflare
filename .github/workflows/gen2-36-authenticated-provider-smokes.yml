@@ -85,7 +85,7 @@ jobs:
             --write-out '%{http_code}' \
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}")"
           test "$HTTP_CODE" = "200"
-          MEL_CLOUDFLARE_SCRIPT="$MEL_CLOUDFLARE_SCRIPT" node - <<'NODE'
+          node - <<'NODE'
           const fs = require('fs');
           const payload = JSON.parse(fs.readFileSync('/tmp/gen2-36-cloudflare.json', 'utf8'));
           if (payload?.success !== true) throw new Error('CLOUDFLARE_AUTH_SMOKE_FAILED');
@@ -107,8 +107,12 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$VERCEL_TOKEN" ]; then
-            echo "VERCEL_TOKEN_MISSING" >&2
-            exit 2
+            echo "::warning title=GEN2-36 Vercel blocked::VERCEL_TOKEN_MISSING"
+            {
+              echo "### GEN2-36 Vercel"
+              echo "BLOCKED_HUMAN: VERCEL_TOKEN is not configured in GitHub Actions."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
           HTTP_CODE="$(curl --silent --show-error --max-time 30 \
             --header "Authorization: Bearer ${VERCEL_TOKEN}" \

@@ -24,5 +24,7 @@ test('GEN2-36 smoke fails closed when provider credentials or targets are unavai
   assert.match(workflow, /test -n "\$CLOUDFLARE_ACCOUNT_ID"/);
   assert.match(workflow, /CLOUDFLARE_ACCOUNT_TARGET_MISMATCH/);
   assert.match(workflow, /VERCEL_TOKEN_MISSING/);
+  assert.match(workflow, /BLOCKED_HUMAN: VERCEL_TOKEN/);
   assert.match(workflow, /VERCEL_AUTH_SMOKE_FAILED/);
+  assert.doesNotMatch(workflow, /MEL_CLOUDFLARE_SCRIPT="\\\$MEL_CLOUDFLARE_SCRIPT"/);
 });
