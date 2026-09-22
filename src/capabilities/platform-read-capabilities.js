@@ -80,6 +80,25 @@ function configured(env, ...keys) {
   return keys.every(key => Boolean(String(env?.[key] || '').trim()));
 }
 
+function healthFailure(error) {
+  const code = String(error?.code || error?.message || 'PROVIDER_HEALTHCHECK_FAILED').slice(0, 200);
+  const status = Number(error?.status || 0);
+  return {
+    status: status === 401 || status === 403 || /AUTH_REQUIRED|NOT_CONFIGURED/.test(code) ? 'UNAVAILABLE' : 'DEGRADED',
+    reason: code,
+  };
+}
+
+async function probeHealth(task, unavailableReason = '') {
+  if (unavailableReason) return { status: 'UNAVAILABLE', reason: unavailableReason };
+  try {
+    await task();
+    return { status: 'HEALTHY' };
+  } catch (error) {
+    return healthFailure(error);
+  }
+}
+
 function projectRow(row = {}) {
   return {
     id: String(row.id || ''),
@@ -122,6 +141,13 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     permissions: [],
     health: githubRepository ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
+    healthcheck: async () => probeHealth(
+      () => requestJson(fetchImpl, `${GITHUB_API}/repos/${repositoryPath(githubRepository)}`, {
+        token: githubToken,
+        code: 'GITHUB_REPOSITORY_READ_FAILED',
+      }),
+      githubRepository ? '' : 'GITHUB_REPOSITORY_NOT_CONFIGURED',
+    ),
   }, async () => {
     const repoPath = repositoryPath(githubRepository);
     const body = await requestJson(fetchImpl, `${GITHUB_API}/repos/${repoPath}`, {
@@ -161,6 +187,13 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     permissions: [],
     health: githubRepository ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
+    healthcheck: async () => probeHealth(
+      () => requestJson(fetchImpl, `${GITHUB_API}/repos/${repositoryPath(githubRepository)}/actions/runs?per_page=1`, {
+        token: githubToken,
+        code: 'GITHUB_ACTIONS_READ_FAILED',
+      }),
+      githubRepository ? '' : 'GITHUB_REPOSITORY_NOT_CONFIGURED',
+    ),
   }, async input => {
     const count = limit(input.limit);
     const repoPath = repositoryPath(githubRepository);
@@ -201,6 +234,13 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     permissions: [],
     health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
+    healthcheck: async () => probeHealth(
+      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
+        token: cloudflareToken,
+        code: 'CLOUDFLARE_WORKERS_READ_FAILED',
+      }),
+      cloudflareToken && cloudflareAccountId ? '' : 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
+    ),
   }, async input => {
     if (!cloudflareToken || !cloudflareAccountId) throw capabilityError('CLOUDFLARE_AUTH_REQUIRED', 503);
     const accountId = safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64);
@@ -242,6 +282,13 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     permissions: [],
     health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
+    healthcheck: async () => probeHealth(
+      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
+        token: cloudflareToken,
+        code: 'CLOUDFLARE_WORKERS_READ_FAILED',
+      }),
+      cloudflareToken && cloudflareAccountId ? '' : 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
+    ),
   }, async input => {
     if (!cloudflareToken || !cloudflareAccountId) throw capabilityError('CLOUDFLARE_AUTH_REQUIRED', 503);
     const accountId = safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64);
@@ -282,6 +329,17 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     permissions: [],
     health: configured(env, 'VERCEL_TOKEN') ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
+    healthcheck: async () => probeHealth(
+      () => {
+        const params = new URLSearchParams({ limit: '1' });
+        if (vercelTeamId) params.set('teamId', vercelTeamId);
+        return requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
+          token: vercelToken,
+          code: 'VERCEL_PROJECTS_READ_FAILED',
+        });
+      },
+      vercelToken ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
+    ),
   }, async input => {
     if (!vercelToken) throw capabilityError('VERCEL_AUTH_REQUIRED', 503);
     const count = limit(input.limit);
@@ -316,6 +374,17 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     permissions: [],
     health: configured(env, 'VERCEL_TOKEN') ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
+    healthcheck: async () => probeHealth(
+      () => {
+        const params = new URLSearchParams({ limit: '1' });
+        if (vercelTeamId) params.set('teamId', vercelTeamId);
+        return requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
+          token: vercelToken,
+          code: 'VERCEL_PROJECTS_READ_FAILED',
+        });
+      },
+      vercelToken ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
+    ),
   }, async input => {
     if (!vercelToken) throw capabilityError('VERCEL_AUTH_REQUIRED', 503);
     const projectId = safeResource(input.projectId, 'VERCEL_PROJECT_ID_INVALID', 200);
