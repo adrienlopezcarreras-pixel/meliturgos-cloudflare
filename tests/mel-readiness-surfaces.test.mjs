@@ -95,6 +95,6 @@ test('Benchmark and LoRA remain Professor-only surfaces', async () => {
   assert.doesNotMatch(professorLayer, /PROFESSOR_LIVE_LEARNING_PATCH|enhanceProfessorLearning/);
   assert.match(professorLayer, /\/api\/learning\/benchmark\/run/);
   assert.match(professorLayer, /\/api\/learning\/lora\/prepare/);
-  assert.match(professorPage, /learnBenchmark/);
-  assert.match(professorPage, /learnLora/);
+  assert.match(professorPage, /id="melRunBenchmark"/);
+  assert.match(professorPage, /id="melPrepareLora"/);
 });
