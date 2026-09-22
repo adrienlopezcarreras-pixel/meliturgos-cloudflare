@@ -20,7 +20,7 @@ test('bus denies disabled, unauthorized and invalid inputs before effects; valid
  await assert.rejects(()=>bus.execute('echo','ok',ctx),{code:'CAPABILITY_DISABLED'});bus.enable('echo',ctx);
  await assert.rejects(()=>bus.execute('echo','ok',{owner:'test'}),{code:'PERMISSION_DENIED'});
  await assert.rejects(()=>bus.execute('echo',{},ctx),{code:'INVALID_TYPE'});
- assert.equal(calls,0);assert.equal(await bus.execute('echo','ok',ctx),'ok');assert.equal(calls,1);assert.deepEqual(events.map(e=>e.status),['STARTED','SUCCEEDED']);assert.ok(!JSON.stringify(events).includes('input'));
+ assert.equal(calls,0);assert.equal(await bus.execute('echo','ok',ctx),'ok');assert.equal(calls,1);assert.deepEqual(events.map(e=>e.status),['DENIED','DENIED','DENIED','STARTED','SUCCEEDED']);assert.deepEqual(events.slice(0,3).map(e=>e.reason),['CAPABILITY_DISABLED','PERMISSION_DENIED','INVALID_TYPE']);assert.ok(!JSON.stringify(events).includes('input'));
 });
 test('extension activation requires exact-version test, sandbox and security proofs',()=>{
  const record={version:'1.0.0',status:'CANDIDATE'};
