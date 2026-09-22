@@ -36,7 +36,11 @@ function boundedCapabilityAuditEvent(event = {}) {
 function runtimeAuditSink(env = {}, override) {
   if (typeof override === 'function') return override;
   if (!env?.DB || typeof env.DB.prepare !== 'function') return async () => {};
-  return async event => persistAuditLog(env.DB, 'capability_bus', null, boundedCapabilityAuditEvent(event));
+  return async event => {
+    const status = String(event?.status || '').toUpperCase();
+    if (!['SUCCEEDED', 'FAILED', 'DENIED'].includes(status)) return;
+    await persistAuditLog(env.DB, 'capability_bus', null, boundedCapabilityAuditEvent(event));
+  };
 }
 
 /**
