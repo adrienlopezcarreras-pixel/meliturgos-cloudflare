@@ -2,6 +2,7 @@ import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { buildContext } from '../core/orchestrator/context-builder.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { requireAuth, isReleaseSmokeRequest } from '../core/security.js';
+import { attachTextApproval } from '../security/explicit-approval.js';
 import { ModelRouter, classifyTask, extractFinishReason, isTruncationFinishReason } from '../models/ModelRouter.js';
 import { ModelRegistry, standardRegistry } from '../models/ModelRegistry.js';
 import { buildMelIdentityPrompt } from '../identity/mel-persona.js';
@@ -121,7 +122,7 @@ export function inferNativeComputerCapability(text) {
   if(open){
     const key=open[1].toLowerCase().replace(/\s+/g,'-');
     const apps={'bloc-notes':'notepad','blocnotes':'notepad','notepad':'notepad','calculatrice':'calculator','calculator':'calculator','explorateur':'explorer','explorer':'explorer','edge':'msedge','msedge':'msedge','firefox':'firefox','chrome':'chrome'};
-    return {id:'computer.quick',input:{kind:'open_app',app:apps[key]||apps[open[1].toLowerCase()]||key,approve_sensitive:true}};
+    return {id:'computer.quick',input:{kind:'open_app',app:apps[key]||apps[open[1].toLowerCase()]||key}};
   }
 
   if(computer){
@@ -129,7 +130,7 @@ export function inferNativeComputerCapability(text) {
     if(typed&&typed[1]?.trim()){
       const targetSuffix=/\s+(?:sur|dans)\s+(?:(?:le|la|mon|ma|mes)\s+|l['’])?(?:pc|ordinateur|bureau|windows|fenêtre|fenetre)\s*$/i;
       const requestedText=typed[1].trim().replace(targetSuffix,'').trim();
-      if(requestedText)return {id:'computer.quick',input:{kind:'type_text',text:requestedText.slice(0,4096),approve_sensitive:true}};
+      if(requestedText)return {id:'computer.quick',input:{kind:'type_text',text:requestedText.slice(0,4096)}};
     }
 
     const key=value.match(/\b(?:appuie|presse)\s+(?:sur\s+)?(?:la\s+touche\s+)?(entrée|entree|enter|tab|tabulation|ctrl\+l|alt\+tab)\b/i);
@@ -569,7 +570,16 @@ export async function handleNativeChat(request, env, options = {}) {
 
   if (capability?.id) {
     try {
-      const result = await runtime.bus.execute(String(capability.id), capability.input || {}, nativeCapabilityContext(env));
+      const capabilityId = String(capability.id);
+      const capabilityInput = capability.input || {};
+      const baseContext = nativeCapabilityContext(env);
+      const executionContext = await attachTextApproval(baseContext, {
+        text,
+        capability: capabilityId,
+        input: capabilityInput,
+        source: 'owner-native-chat-confirmation',
+      });
+      const result = await runtime.bus.execute(capabilityId, capabilityInput, executionContext);
       toolResults.push({ capability: capability.id, status: 'SUCCEEDED', result: summarizeToolResult(result) });
       capabilitiesUsed.push(capability.id);
     } catch (error) {
