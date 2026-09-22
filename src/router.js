@@ -55,6 +55,18 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
     return json({ ok: true, capabilities, health_refreshed: refresh });
   }
 
+  if (path === "/api/gen2/dashboard-summary" && request.method === "GET") {
+    const runtime = createGen2Runtime({ env });
+    const capabilities = runtime.bus.list();
+    const roadmap = await runtime.bus.execute("roadmap.read", {}, capabilityContext(env));
+    const active = capabilities.filter(row => row?.enabled !== false && !["OFFLINE","BLOCKED","DISABLED"].includes(String(row?.health || "").toUpperCase())).length;
+    return json({
+      ok: true,
+      capabilities: { total: capabilities.length, active },
+      roadmap: roadmap?.summary || {}
+    });
+  }
+
   if (path === "/api/gen2/capabilities/execute" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     if (!body?.id) return json({ error: "capability id required", code: "MISSING_CAPABILITY" }, 400);
