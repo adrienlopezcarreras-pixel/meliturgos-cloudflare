@@ -33,6 +33,8 @@ jobs:
         run: node --test tests/model-council-runtime.test.mjs
       - name: Syntax check
         run: npm run check
+      - name: Use candidate branch identity for legacy bridge integration test
+        run: git switch -c candidate/gen2-05-ci
       - name: Full test suite
         run: npm test
       - name: Runtime dependency security gate
