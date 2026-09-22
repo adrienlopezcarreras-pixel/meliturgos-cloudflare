@@ -12,8 +12,12 @@ on:
   push:
     branches:
       - 'gen2-05-model-council-providers'
+      - 'feat/gen2-05-runtime-capability'
     paths:
       - 'src/models/model-council.js'
+      - 'src/capabilities/default-bus.js'
+      - 'src/index.js'
+      - 'tests/gen2/model-council-capability.test.mjs'
       - 'tests/gen2/model-council-runtime.test.mjs'
       - '.github/workflows/gen2-05-model-council-ci.yml'
 
