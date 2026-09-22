@@ -174,6 +174,9 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     risk: 'LOW', permissions: [], health: 'DEGRADED', healthcheck: zeroCostHealth(runtimeEnv, 1), enabled: true
   }, async input => {
     if (!runtimeEnv.AI || typeof runtimeEnv.AI.run !== 'function') throw capabilityError('AI_BINDING_MISSING');
+    if (!input.request || typeof input.request !== 'object' || Array.isArray(input.request) || Object.keys(input.request).length === 0) {
+      throw capabilityError('COUNCIL_REQUEST_REQUIRED', 'COUNCIL_REQUEST_REQUIRED', 400);
+    }
     return runModelCouncil({
       env: runtimeEnv,
       request: input.request,
