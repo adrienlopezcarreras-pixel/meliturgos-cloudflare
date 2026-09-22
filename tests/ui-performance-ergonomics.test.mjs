@@ -5,6 +5,7 @@ import { onRequestGet as renderNormal } from '../src/pages/mvp-interface-v3.js';
 import { onRequestGet as renderProfessor } from '../src/pages/full-interface-v2.js';
 import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 import { SERVICE_WORKER_SOURCE } from '../src/pages/service-worker.js';
+import { handleShardVaultStatus } from '../src/pages/shardvault-status.js';
 
 const read = path => readFile(new URL('../' + path, import.meta.url), 'utf8');
 
@@ -31,25 +32,34 @@ test('Professor mobile controls are unambiguous and secondary navigation is coll
   assert.match(html,/id="mobileMoreMenu"[^>]*hidden/);
 });
 
-test('Professor boot avoids automatic code self-check and refreshes live data only while visible', async () => {
+test('Professor boot is lightweight and live refresh is visibility-aware', async () => {
   const source = await read('src/pages/full-interface-v2.js');
   const boot = source.match(/async function boot\(\)\{[\s\S]*?\n\}/)?.[0] || '';
   assert.doesNotMatch(boot,/codeCheck\(/);
+  assert.match(boot,/loadDashboardSummary\(\)/);
+  assert.doesNotMatch(boot,/loadCapabilitySummary\(\)|loadRoadmapSummary\(\)/);
   assert.match(source,/if\(document\.hidden\)return/);
   assert.match(source,/active==='roadmap'/);
-  assert.match(source,/active==='work'/);
+  assert.match(source,/active==='multi'/);
+  assert.match(source,/active==='overview'\)loadLearningProgress/);
 });
 
-test('normal file drop is keyboard accessible and runtime is versioned', async () => {
+test('normal mode is keyboard accessible, voice-discoverable and runtime is versioned', async () => {
   const html = await (await renderNormal()).text();
   assert.match(html,/id="drop" role="button" tabindex="0" aria-label="Ajouter des fichiers"/);
-  assert.match(html,/normal-runtime\.js\?v=6/);
+  assert.match(html,/aria-label="Parler à MEL au micro"/);
+  assert.match(html,/class="mic-hint"/);
+  assert.match(html,/↩ Reprendre le dernier échange/);
+  assert.match(html,/class="window empty-chat"/);
+  assert.match(html,/normal-runtime\.js\?v=7/);
   assert.match(NORMAL_RUNTIME_SOURCE,/drop\.addEventListener\('keydown'/);
+  assert.match(NORMAL_RUNTIME_SOURCE,/navigator\.serviceWorker\.register\('\/sw\.js'/);
 });
 
-test('service worker caches only static resources and leaves private HTML to the network', () => {
-  assert.match(SERVICE_WORKER_SOURCE,/meliturgos-static-v6/);
+test('service worker caches only static resources, persists revalidation and leaves private HTML to the network', () => {
+  assert.match(SERVICE_WORKER_SOURCE,/meliturgos-static-v7/);
   assert.match(SERVICE_WORKER_SOURCE,/staleWhileRevalidate/);
+  assert.match(SERVICE_WORKER_SOURCE,/event\.waitUntil\(update/);
   assert.match(SERVICE_WORKER_SOURCE,/url\.pathname\.startsWith\('\/assets\/'\)/);
   assert.match(SERVICE_WORKER_SOURCE,/request\.mode==='navigate'.*return/);
   assert.doesNotMatch(SERVICE_WORKER_SOURCE,/cache\.add\('\/'\)|FALLBACK='\/'/);
@@ -59,4 +69,30 @@ test('normal runtime HTTP route has reusable cache headers', async () => {
   const router = await read('src/router.js');
   assert.match(router,/normal-runtime\.js/);
   assert.match(router,/public, max-age=86400, stale-while-revalidate=604800/);
+});
+
+test('Professor IA and Work are rendered as one canonical tabbed surface with real Work loading', async () => {
+  const html = await (await renderProfessor()).text();
+  assert.match(html,/id="melUnifiedTabs"/);
+  assert.match(html,/data-mode-panel="meeting"/);
+  assert.match(html,/data-mode-panel="development" hidden/);
+  assert.doesNotMatch(html,/data-panel="work"/);
+  assert.doesNotMatch(html,/mel-control-center-runtime/);
+  assert.match(html,/if\(development\)\{await loadWork\(\)/);
+});
+
+test('ShardVault status page is passive until an explicit user action', async () => {
+  const response = await handleShardVaultStatus(new Request('https://mel.invalid/shardvault'), {});
+  const html = await response.text();
+  assert.match(html,/Mode lecture/);
+  assert.doesNotMatch(html,/autoRepairStarted|autoCodeSyncStarted|setTimeout\(\(\)=>search\(\),250\)/);
+  assert.match(html,/if\(!document\.hidden\)load\(\)/);
+  assert.match(html,/role="status" aria-live="polite"/);
+});
+
+test('Professor exposes a lightweight dashboard summary route and registers the static cache', async () => {
+  const [page,router] = await Promise.all([read('src/pages/full-interface-v2.js'),read('src/router.js')]);
+  assert.match(page,/\/api\/gen2\/dashboard-summary/);
+  assert.match(router,/path === "\/api\/gen2\/dashboard-summary"/);
+  assert.match(page,/navigator\.serviceWorker\.register\('\/sw\.js'/);
 });
