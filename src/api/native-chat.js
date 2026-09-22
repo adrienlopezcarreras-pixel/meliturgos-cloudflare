@@ -566,7 +566,7 @@ export async function handleNativeChat(request, env, options = {}) {
     return Response.json({ error: 'AI_BINDING_MISSING', code: 'AI_BINDING_MISSING' }, { status: 503 });
   }
 
-  let capabilityManifest = await buildRuntimeCapabilityManifest(runtime);
+  let capabilityManifest = releaseSmoke ? [] : await buildRuntimeCapabilityManifest(runtime);
   const capability = releaseSmoke
     ? inferredCapability
     : (body.capability?.id ? body.capability : inferredCapability);
@@ -592,7 +592,7 @@ export async function handleNativeChat(request, env, options = {}) {
     }
   }
 
-  capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
+  if (!releaseSmoke) capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
 
   if (releaseSmoke) {
     const evidence = toolResults.find(row => row.capability === capability?.id) || null;
@@ -605,7 +605,6 @@ export async function handleNativeChat(request, env, options = {}) {
       release_smoke: true,
       capability_used: capabilitiesUsed,
       tool_results: toolResults,
-      capability_manifest: capabilityManifest.filter(row => ['code.read','code.search','code.integrity'].includes(String(row?.id || ''))),
       archive_saved: false,
     }, {
       status: succeeded ? 200 : 502,
