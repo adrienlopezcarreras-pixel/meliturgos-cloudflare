@@ -121,3 +121,84 @@ test('MEL-SEC-02 validates input only after authorization and validates output b
     error => error?.message === 'MISSING_FIELD' || error?.code === 'MISSING_FIELD',
   );
 });
+
+
+function destructiveBus(audit = async () => {}) {
+  const bus = new CapabilityBus({ audit });
+  let executions = 0;
+  bus.discover({
+    id: 'fixture.destructive',
+    name: 'Destructive fixture',
+    category: 'test',
+    version: '1.0.0',
+    provider: 'test',
+    description: 'Mutation that must require explicit owner approval.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        value: { type: 'string', minLength: 1, maxLength: 100 },
+        confirm: { type: 'boolean' },
+      },
+      required: ['value'],
+      additionalProperties: false,
+    },
+    output_schema: {
+      type: 'object',
+      properties: { value: { type: 'string' } },
+      required: ['value'],
+      additionalProperties: false,
+    },
+    risk: 'HIGH',
+    permissions: [],
+    approval: { required: true, scope: 'fixture.destructive', reason: 'TEST_MUTATION' },
+    health: 'HEALTHY',
+    enabled: true,
+  }, async input => {
+    executions += 1;
+    return { value: input.value };
+  });
+  return { bus, executions: () => executions };
+}
+
+test('MEL-WORK-03 central CapabilityBus approval gate denies destructive execution before handler or input self-confirmation can run', async () => {
+  const events = [];
+  const fixture = destructiveBus(async event => events.push(event));
+
+  await assert.rejects(
+    () => fixture.bus.execute('fixture.destructive', { value:'x', confirm:true }, {
+      owner:'owner',
+      permissions:[],
+      requestId:'approval-denied',
+    }),
+    error => error.code === 'EXPLICIT_APPROVAL_REQUIRED',
+  );
+
+  assert.equal(fixture.executions(), 0);
+  assert.equal(events.at(-1)?.status, 'DENIED');
+  assert.equal(events.at(-1)?.reason, 'EXPLICIT_APPROVAL_REQUIRED');
+  const contract = fixture.bus.contract('fixture.destructive');
+  assert.equal(contract.explicit_approval_gate, true);
+  assert.equal(contract.approval_policy_valid, true);
+});
+
+test('MEL-WORK-03 destructive capability executes only with exact trusted approval scope', async () => {
+  const fixture = destructiveBus();
+  await assert.rejects(
+    () => fixture.bus.execute('fixture.destructive', { value:'x' }, {
+      owner:'owner',
+      permissions:[],
+      approvedCapabilities:['fixture.other'],
+      requestId:'approval-wrong',
+    }),
+    error => error.code === 'EXPLICIT_APPROVAL_REQUIRED',
+  );
+
+  const result = await fixture.bus.execute('fixture.destructive', { value:'approved' }, {
+    owner:'owner',
+    permissions:[],
+    approvedCapabilities:['fixture.destructive'],
+    requestId:'approval-ok',
+  });
+  assert.deepEqual(result, { value:'approved' });
+  assert.equal(fixture.executions(), 1);
+});

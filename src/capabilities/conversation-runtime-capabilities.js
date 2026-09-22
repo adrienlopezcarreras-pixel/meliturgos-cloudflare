@@ -14,7 +14,7 @@ function serviceFor(env) {
 
 const objectOutput = { type: 'object', additionalProperties: true };
 
-function register(bus, env, { id, name, description, input_schema, risk = 'LOW' }, execute) {
+function register(bus, env, { id, name, description, input_schema, risk = 'LOW', approval = null }, execute) {
   bus.discover({
     id,
     name,
@@ -26,6 +26,7 @@ function register(bus, env, { id, name, description, input_schema, risk = 'LOW' 
     output_schema: objectOutput,
     risk,
     permissions: [],
+    ...(approval ? { approval } : {}),
     health: env.DB ? 'HEALTHY' : 'DEGRADED',
     enabled: true,
   }, execute);
@@ -76,8 +77,9 @@ export function registerConversationRuntimeCapabilities(bus, env = {}) {
   register(bus, env, {
     id: 'conversation.archive',
     name: 'Archiver une conversation',
-    description: 'Archives an existing conversation without deleting its history.',
+    description: 'Archives an existing conversation without deleting its history. Requires an explicit owner approval carried by trusted request context.',
     risk: 'MEDIUM',
+    approval: { required: true, scope: 'conversation.archive', reason: 'ARCHIVE_MUTATION' },
     input_schema: {
       type: 'object',
       properties: { id: { type: 'string', minLength: 1, maxLength: 200 } },

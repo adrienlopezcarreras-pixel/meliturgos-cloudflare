@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-22.1';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-22.2';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -108,7 +108,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-40', 'Event Bus idempotent / follow-ups', 'PLANNED', 'Transporter événements et relances idempotentes entre services', 'P1'),
     item('GEN2-41', 'Notifications', 'PLANNED', 'Web Push + compagnons', 'P2'),
     item('MEL-WORK-02', 'Planifier, reprendre et terminer un travail multi-étapes', 'DONE_VERIFIED', 'Reprise idempotente et terminaison multi-étapes prouvées, dont chaîne autonome 50 tâches + 50 gates Teacher sur plusieurs heartbeats sans duplication. Revalidé par Actions 35641014709.', 'P0'),
-    item('MEL-WORK-03', 'Actions destructives avec confirmation explicite', 'PARTIAL', 'Centraliser les approval gates', 'P0')
+    item('MEL-WORK-03', 'Actions destructives avec confirmation explicite', 'DONE_VERIFIED', 'Gate central fail-closed validé: approbation exacte issue du contexte propriétaire, jamais d’un confirm:true agentique; CapabilityBus audite les refus, Work DAG hérite seulement du contexte approuvé, Browser/Computer partagent le même moteur d’approbation par étape et conversation.archive l’exige explicitement. CI 35691866943.', 'P0')
   ]),
 
   phase('P08', 'Connecteurs et web', [

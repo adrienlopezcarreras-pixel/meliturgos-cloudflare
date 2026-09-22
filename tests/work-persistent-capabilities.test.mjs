@@ -119,3 +119,93 @@ test('Work execution fails closed when durable D1 is unavailable', async () => {
     error => error.code === 'WORK_DAG_DB_REQUIRED'
   );
 });
+
+
+function addDestructiveCapability(bus, calls) {
+  bus.discover({
+    id: 'fixture.destructive',
+    name: 'Destructive fixture',
+    category: 'test',
+    version: '1.0.0',
+    provider: 'test',
+    description: 'Mutating fixture protected by central explicit approval.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        value: { type:'string', minLength:1, maxLength:100 },
+        confirm: { type:'boolean' },
+      },
+      required: ['value'],
+      additionalProperties: false,
+    },
+    output_schema: { type:'object', additionalProperties:true },
+    risk: 'HIGH',
+    permissions: [],
+    approval: { required:true, scope:'fixture.destructive', reason:'TEST_MUTATION' },
+    health: 'HEALTHY',
+    enabled: true,
+  }, async input => {
+    calls.push(input.value);
+    return { ok:true, value:input.value };
+  });
+}
+
+test('MEL-WORK-03 Work DAG cannot self-approve a destructive child through payload input', async () => {
+  const db = new FakeD1();
+  const bus = createDefaultCapabilityBus({ env:{ DB:db } });
+  const calls = [];
+  addDestructiveCapability(bus, calls);
+
+  await bus.execute('work.create', {
+    id:'destructive-work-denied',
+    goal:'Must require fresh owner approval',
+    nodes:[{
+      id:'mutate',
+      kind:'TASK',
+      idempotent:false,
+      payload:{
+        capability:'fixture.destructive',
+        input:{ value:'must-not-run', confirm:true },
+      },
+    }],
+  }, context);
+
+  const result = await bus.execute('work.run', { id:'destructive-work-denied' }, context);
+  assert.equal(result.status, 'BLOCKED');
+  assert.equal(result.blocked, true);
+  assert.deepEqual(calls, []);
+
+  const stored = await new D1WorkDagStore(db, 'destructive-work-denied').load();
+  assert.equal(stored.nodes[0].status, 'FAILED');
+  assert.equal(stored.nodes[0].error, 'EXPLICIT_APPROVAL_REQUIRED');
+});
+
+test('MEL-WORK-03 Work DAG inherits exact trusted approval context for destructive child capability', async () => {
+  const db = new FakeD1();
+  const bus = createDefaultCapabilityBus({ env:{ DB:db } });
+  const calls = [];
+  addDestructiveCapability(bus, calls);
+
+  await bus.execute('work.create', {
+    id:'destructive-work-approved',
+    goal:'Run only after explicit owner approval',
+    nodes:[{
+      id:'mutate',
+      kind:'TASK',
+      idempotent:false,
+      payload:{
+        capability:'fixture.destructive',
+        input:{ value:'approved-run', confirm:false },
+      },
+    }],
+  }, context);
+
+  const result = await bus.execute('work.run', { id:'destructive-work-approved' }, {
+    ...context,
+    requestId:'work-approved',
+    approvedCapabilities:['fixture.destructive'],
+  });
+  assert.equal(result.status, 'COMPLETED');
+  assert.equal(result.completed, true);
+  assert.deepEqual(calls, ['approved-run']);
+});
