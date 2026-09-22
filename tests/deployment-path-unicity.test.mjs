@@ -37,6 +37,17 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /git fetch origin main --depth=1/);
   assert.match(source, /test "\$SOURCE_SHA" = "\$EXPECTED_SHA"/);
   assert.match(source, /for attempt in \$\(seq 1 20\); do/);
+  assert.match(source, /x-mel-release-smoke: 1/);
+  assert.match(source, /production-code-read-smoke\.json/);
+  assert.match(source, /production-code-search-smoke\.json/);
+  assert.match(source, /PRODUCTION_CAPABILITY_NOT_USED/);
+  assert.match(source, /code\.read/);
+  assert.match(source, /code\.search/);
+  assert.ok(
+    source.indexOf('Production authenticated /api/chat code.read + code.search smoke passed.') <
+      source.indexOf('cleanup_secret\n          trap - EXIT'),
+    'live chat smoke must run before the temporary bootstrap secret is deleted',
+  );
   assert.match(source, /MEL_DEPLOYED_GIT_SHA/);
   assert.match(source, /MEL_DEPLOYED_GIT_BRANCH/);
 });

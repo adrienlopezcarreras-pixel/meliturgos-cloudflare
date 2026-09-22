@@ -1,7 +1,7 @@
 import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { buildContext } from '../core/orchestrator/context-builder.js';
 import { createConversationService } from '../conversations/conversation-service.js';
-import { requireAuth } from '../core/security.js';
+import { requireAuth, isReleaseSmokeRequest } from '../core/security.js';
 import { ModelRouter, classifyTask, extractFinishReason, isTruncationFinishReason } from '../models/ModelRouter.js';
 import { ModelRegistry, standardRegistry } from '../models/ModelRegistry.js';
 import { buildMelIdentityPrompt } from '../identity/mel-persona.js';
@@ -495,6 +495,7 @@ export async function runNativeInference({ env, messages, text, parallel = false
 
 export async function handleNativeChat(request, env, options = {}) {
   const trustedInternal = options?.authorized === true;
+  const releaseSmoke = isReleaseSmokeRequest(request, env);
   if (!trustedInternal) {
     const auth = requireAuth(request, env);
     if (!auth.ok) return auth.response;
@@ -516,16 +517,16 @@ export async function handleNativeChat(request, env, options = {}) {
   const runtime = createGen2Runtime({ env });
   let recent = [];
   let service = null;
-  if (env.DB) {
+  if (env.DB && !releaseSmoke) {
     try {
       service = createConversationService(env);
       recent = (await service.getMessages(conversationId, { limit: 40, latest: true })).slice(-40).map(m => ({ role: m.role, content: m.content }));
     } catch { recent = []; }
   }
 
-  const persistedFocus = await loadConversationFocusState(env, conversationId);
+  const persistedFocus = releaseSmoke ? null : await loadConversationFocusState(env, conversationId);
   const conversationFocus = deriveConversationFocus(recent, text, persistedFocus);
-  await saveConversationFocusState(env, conversationId, conversationFocus);
+  if (!releaseSmoke) await saveConversationFocusState(env, conversationId, conversationFocus);
   const conversationFocusInstruction = buildConversationFocusInstruction(recent, text, persistedFocus);
 
   const personalProfileIntent = isPersonalProfileRecall(text);
@@ -722,7 +723,7 @@ export async function handleNativeChat(request, env, options = {}) {
   });
   const responseText = qualityGuardedResponseText;
   const responseGuarded = responseText !== evidenceAlignedResponseText;
-  const qualityEventSaved = await persistResponseQualityEvent(env, {
+  const qualityEventSaved = releaseSmoke ? false : await persistResponseQualityEvent(env, {
     conversationId,
     userText: text,
     responseText,
@@ -798,6 +799,7 @@ export async function handleNativeChat(request, env, options = {}) {
       created: developmentQueued.created === true,
       teacher_request_id: developmentQueued.teacher?.request_id || null,
     } : null,
-    archive_saved: archiveSaved
+    archive_saved: archiveSaved,
+    release_smoke: releaseSmoke === true
   }, { headers: { 'cache-control': 'no-store' } });
 }
