@@ -530,10 +530,12 @@ export async function handleNativeChat(request, env, options = {}) {
   const conversationFocusInstruction = buildConversationFocusInstruction(recent, text, persistedFocus);
 
   const personalProfileIntent = isPersonalProfileRecall(text);
-  const inferredCapability = inferNativeComputerCapability(text)
-    || (!personalProfileIntent ? inferChatGPTHistoryCapability(text) : null)
-    || inferKnowledgeCapability(text)
-    || inferNativeCodeCapability(text, recent);
+  const inferredCapability = releaseSmoke
+    ? inferNativeCodeCapability(text, [])
+    : inferNativeComputerCapability(text)
+      || (!personalProfileIntent ? inferChatGPTHistoryCapability(text) : null)
+      || inferKnowledgeCapability(text)
+      || inferNativeCodeCapability(text, recent);
   if (conversationFocus.needs_clarification && !body.capability?.id && !inferredCapability) {
     const responseText = 'Tu veux que je continue quoi exactement ? Je n’ai pas de référent récent ou persistant assez fiable pour choisir un chantier sans risquer de partir sur le mauvais sujet.';
     let archiveSaved = false;
@@ -560,12 +562,25 @@ export async function handleNativeChat(request, env, options = {}) {
     }, { headers:{'cache-control':'no-store'} });
   }
 
-  if (!env.AI || typeof env.AI.run !== 'function') return Response.json({ error: 'AI_BINDING_MISSING', code: 'AI_BINDING_MISSING' }, { status: 503 });
+  if (!releaseSmoke && (!env.AI || typeof env.AI.run !== 'function')) {
+    return Response.json({ error: 'AI_BINDING_MISSING', code: 'AI_BINDING_MISSING' }, { status: 503 });
+  }
 
   let capabilityManifest = await buildRuntimeCapabilityManifest(runtime);
-  const capability = body.capability?.id ? body.capability : inferredCapability;
+  const capability = releaseSmoke
+    ? inferredCapability
+    : (body.capability?.id ? body.capability : inferredCapability);
   const toolResults = [];
   const capabilitiesUsed = [];
+
+  if (releaseSmoke && (!capability?.id || !['code.read','code.search'].includes(String(capability.id)))) {
+    return Response.json({
+      ok: false,
+      code: 'RELEASE_SMOKE_CAPABILITY_DENIED',
+      release_smoke: true,
+      allowed_capabilities: ['code.read','code.search'],
+    }, { status: 403, headers: { 'cache-control': 'no-store' } });
+  }
 
   if (capability?.id) {
     try {
@@ -578,6 +593,26 @@ export async function handleNativeChat(request, env, options = {}) {
   }
 
   capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
+
+  if (releaseSmoke) {
+    const evidence = toolResults.find(row => row.capability === capability?.id) || null;
+    const succeeded = evidence?.status === 'SUCCEEDED';
+    return Response.json({
+      ok: succeeded,
+      text: succeeded ? 'RELEASE_CODE_SMOKE_OK' : 'RELEASE_CODE_SMOKE_FAILED',
+      model: 'deterministic-release-smoke',
+      provider: 'mel',
+      release_smoke: true,
+      capability_used: capabilitiesUsed,
+      tool_results: toolResults,
+      capability_manifest: capabilityManifest.filter(row => ['code.read','code.search','code.integrity'].includes(String(row?.id || ''))),
+      archive_saved: false,
+    }, {
+      status: succeeded ? 200 : 502,
+      headers: { 'cache-control': 'no-store' },
+    });
+  }
+
   const knowledgeMemory = toolResults.find(row => row.capability === 'knowledge.research' && row.status === 'SUCCEEDED')?.result?.memory || null;
   const memoryWrite = knowledgeMemory?.stored === true
     ? { stored:true, reason:'RESEARCH_REFERENCE', content:null }
