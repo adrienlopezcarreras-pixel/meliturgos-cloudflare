@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-22.5';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-22.6';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -151,7 +151,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P11', 'Sécurité, audit et gouvernance', [
-    item('GEN2-44', 'Observability / diagnostics', 'PARTIAL', 'CapabilityBus persiste désormais un événement terminal borné par exécution dans D1; readiness agrège une fenêtre audit_logs bornée et le health dashboard expose volumes, échecs, taux, p95, refus et alertes sans données brutes. CI dédiée 35703289453 verte; reste smoke production sur métriques D1 réelles avant DONE_VERIFIED.', 'P0'),
+    item('GEN2-44', 'Observability / diagnostics', 'DONE_VERIFIED', 'Production certifiée sur SHA 6c5d917660117c2e43a1d08ca19279b0ef640a08 par release run 35705522236, job 106673379365 : événement terminal CapabilityBus écrit en D1 via echo, readiness observability.query_ok avec événement/succès et latest_event_at, composant dashboard runtime_observability présent; code/mémoire/UI et HTTP final également verts.', 'P0'),
     item('GEN2-45', 'Audit log', 'DONE', 'Persistance et corrélation de toutes les actions sensibles', 'P0'),
     item('GEN2-46', 'Secrets / authentification', 'PARTIAL', 'Étendre les auth gates robustes à toutes les surfaces sensibles', 'P0'),
     item('MEL-SEC-01', 'Prompt-injection firewall outils/RAG', 'DONE_VERIFIED', 'Point d’assemblage unique durci: RAG et résultats d’outils enveloppés UNTRUSTED_* classification=DATA instruction_authority=NONE, délimiteurs forgés neutralisés, pare-feu réaffirmé après les données et avant priorité du tour actuel. Syntaxe + tests injection/contexte Actions 35640804128.', 'P0'),
