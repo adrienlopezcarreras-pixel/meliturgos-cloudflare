@@ -58,7 +58,7 @@ test('normal page exposes only controls that are wired by the canonical normal r
     /id="fileInput"/,
     /id="send"/,
     /id="full"/,
-    /src="\/normal-runtime\.js\?v=6"/,
+    /src="\/normal-runtime\.js\?v=7"/,
   ], 'normal UI');
 
   expectAll(NORMAL_RUNTIME_SOURCE, [
@@ -172,5 +172,5 @@ test('all anonymous canonical buttons use a declared delegated control family', 
   assert.match(source, /qsa\('\[data-jump\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-pc-app\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-pc-key\]'\)\.forEach\(b=>b\.onclick=/);
-  assert.match(source, /tabs\.querySelectorAll\('button'\)\.forEach\(b=>b\.onclick=/);
+  assert.match(source, /modeTabs\.forEach\(tab=>tab\.onclick=/);
 });

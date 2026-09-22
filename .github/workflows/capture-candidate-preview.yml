@@ -95,7 +95,7 @@ jobs:
           if (!response?.ok) throw new Error('CANONICAL_NORMAL_UI_RENDER_FAILED');
           const html = await response.text();
           if (!/<!doctype html|<html/i.test(html)) throw new Error('CANONICAL_NORMAL_UI_HTML_INVALID');
-          if (!html.includes('/normal-runtime.js?v=6')) throw new Error('CANONICAL_NORMAL_RUNTIME_V6_TAG_MISSING');
+          if (!html.includes('/normal-runtime.js?v=7')) throw new Error('CANONICAL_NORMAL_RUNTIME_V7_TAG_MISSING');
           if (!NORMAL_RUNTIME_SOURCE.includes('function setTheme')) throw new Error('CANONICAL_NORMAL_RUNTIME_INVALID');
           await writeFile('preview-root.html', html, 'utf8');
           await writeFile('normal-runtime.js', NORMAL_RUNTIME_SOURCE, 'utf8');
@@ -117,7 +117,7 @@ jobs:
           else:
               source = base + source
 
-          runtime_tag = '<script src="/normal-runtime.js?v=6" defer></script>'
+          runtime_tag = '<script src="/normal-runtime.js?v=7" defer></script>'
           if runtime_tag not in source:
               raise SystemExit('Canonical external normal runtime tag not found in preview HTML')
 

@@ -26,11 +26,12 @@ test('Professor exposes one canonical manual cycle control', async () => {
 
 test('IA and Development unification preserves the Work panel runtime', async () => {
   const page = await read('src/pages/full-interface-v2.js');
-  assert.match(page, /dev\.appendChild\(work\)/);
-  assert.doesNotMatch(page, /work\.remove\(\)/);
-  assert.match(page, /work\.style\.display='block'/);
+  assert.match(page, /id="melUnifiedTabs"/);
+  assert.match(page, /data-mode-panel="development" hidden/);
+  assert.doesNotMatch(page, /data-panel="work"/);
+  assert.doesNotMatch(page, /mel-control-center-runtime|dev\.appendChild\(work\)/);
+  assert.match(page, /if\(development\)\{await loadWork\(\)/);
 });
-
 test('Professor visible controls are wired to real route implementations', async () => {
   const [page, controls, autonomy, dev, index] = await Promise.all([
     read('src/pages/full-interface-v2.js'),

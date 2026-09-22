@@ -10,7 +10,7 @@ test('canonical normal UI exposes one responsive MEL surface with no legacy root
 
   assert.match(html, /data-visual-owner="mel-normal-v3"/);
   assert.equal((html.match(/id="mel-normal-v3-style"/g) || []).length, 1);
-  assert.equal((html.match(/src="\/normal-runtime\.js\?v=6"/g) || []).length, 1);
+  assert.equal((html.match(/src="\/normal-runtime\.js\?v=7"/g) || []).length, 1);
 
   for (const id of ['melAvatar','melAvatarImage','promptInput','previousMessage','drop','fileInput','send','full']) {
     assert.match(html, new RegExp(`id=["']${id}["']`), id);

@@ -46,7 +46,7 @@ test('legacy theme enhancer stays transparent while canonical normal page owns e
   const html = await (await renderNormalMode()).text();
   assert.match(html, /data-visual-owner="mel-normal-v3"/);
   assert.match(html, /id="mel-normal-v3-style"/);
-  assert.match(html, /src="\/normal-runtime\.js\?v=6"/);
+  assert.match(html, /src="\/normal-runtime\.js\?v=7"/);
   assert.doesNotMatch(html, /mel-theme-avatar-runtime/);
   assert.doesNotMatch(html, /mel-theme-decor-style/);
 
