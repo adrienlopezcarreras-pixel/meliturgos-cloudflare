@@ -32,7 +32,7 @@ test('canonical normal V3 is the single theme and avatar owner', () => {
   assert.match(mvpEntry, /export \{ onRequestGet \} from '\.\/mvp-interface-v3\.js';/);
   assert.match(mvp, /data-visual-owner="mel-normal-v3"/);
   assert.match(mvp, /id="mel-normal-v3-style"/);
-  assert.match(mvp, /src="\/normal-runtime\.js\?v=6"/);
+  assert.match(mvp, /src="\/normal-runtime\.js\?v=7"/);
   assert.match(mvp, /id="melAvatar" class="avatar"/);
   assert.match(mvp, /id="themePanelV3"/);
   assert.doesNotMatch(mvp, /mel-theme-avatar-runtime/);
