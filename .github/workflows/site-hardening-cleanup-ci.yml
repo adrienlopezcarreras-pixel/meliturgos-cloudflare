@@ -30,7 +30,11 @@ jobs:
       - name: Syntax gate
         run: npm run check
       - name: Full suite
-        run: npm test
+        shell: bash
+        run: |
+          set -euo pipefail
+          git branch -m candidate/site-hardening-cleanup-20260922
+          npm test
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
       - name: Repository cleanup invariant
