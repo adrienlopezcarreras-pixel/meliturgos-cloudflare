@@ -25,10 +25,10 @@ test('Professor exposes one canonical manual cycle control', async () => {
 });
 
 test('IA and Development unification preserves the Work panel runtime', async () => {
-  const learning = await read('src/learning-entry.js');
-  assert.match(learning, /dev\.appendChild\(work\)/);
-  assert.doesNotMatch(learning, /work\.remove\(\)/);
-  assert.match(learning, /work\.style\.display='block'/);
+  const page = await read('src/pages/full-interface-v2.js');
+  assert.match(page, /dev\.appendChild\(work\)/);
+  assert.doesNotMatch(page, /work\.remove\(\)/);
+  assert.match(page, /work\.style\.display='block'/);
 });
 
 test('Professor visible controls are wired to real route implementations', async () => {
