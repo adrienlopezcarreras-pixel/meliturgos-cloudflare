@@ -1,7 +1,7 @@
 // Canonical core Worker handler. The retired root worker.js stays inert;
 // deployment/auth/UI wrappers delegate here without owning a second runtime.
 import router from "./router.js";
-import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
+import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";\nimport { approvedCapabilitiesFromRequest } from "./security/approval-gates.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import { injectEvolutionPreflightCapability } from "./evolution/chat-intent.js";
 import { getSystemReadiness } from "./diagnostics/system-readiness.js";
