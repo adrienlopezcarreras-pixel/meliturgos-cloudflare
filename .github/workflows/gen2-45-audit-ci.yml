@@ -8,6 +8,7 @@ on:
       - 'src/core/orchestrator/gen2-runtime.js'
       - 'src/roadmap/master-roadmap.js'
       - 'tests/gen2/audit-sensitive-correlation.test.mjs'
+      - 'tests/gen2/contracts.test.mjs'
       - '.github/workflows/gen2-45-audit-ci.yml'
   push:
     branches:
