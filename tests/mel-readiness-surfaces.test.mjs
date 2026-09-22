@@ -91,7 +91,9 @@ test('Benchmark and LoRA remain Professor-only surfaces', async () => {
     readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8'),
   ]);
   assert.doesNotMatch(normalLayer, /learnBenchmark|learnLora/);
-  assert.match(professorLayer, /pathname !== '\/professor'/);
+  assert.doesNotMatch(professorLayer, /PROFESSOR_LIVE_LEARNING_PATCH|enhanceProfessorLearning/);
+  assert.match(professorLayer, /\/api\/learning\/benchmark\/run/);
+  assert.match(professorLayer, /\/api\/learning\/lora\/prepare/);
   assert.match(professorLayer, /learnBenchmark/);
   assert.match(professorLayer, /learnLora/);
 });
