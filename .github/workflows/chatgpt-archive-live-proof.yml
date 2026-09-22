@@ -28,7 +28,11 @@ jobs:
       - name: Validate fail-closed live proof contract
         run: node --test tests/chatgpt-archive-live-proof.test.mjs
       - name: Full test suite
-        run: npm test
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B candidate/mel-mem-04-ci "$(git rev-parse HEAD)"
+          npm test
 
   production-live-proof:
     if: github.event_name == 'workflow_dispatch'
