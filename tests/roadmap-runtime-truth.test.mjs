@@ -45,3 +45,15 @@ test('GEN2-30 computer use abstraction is verified with explicit safety boundari
   assert.match(row.next, /approbation explicite/i);
   assert.match(row.next, /audit/i);
 });
+
+
+test('MEL-WORK-03 central destructive approval gate is DONE_VERIFIED', () => {
+  const row = byId('MEL-WORK-03');
+  assert.ok(row, 'missing roadmap item MEL-WORK-03');
+  assert.equal(row.status, 'DONE_VERIFIED');
+  assert.match(row.next, /Gate central fail-closed/i);
+  assert.match(row.next, /confirm:true/);
+  assert.match(row.next, /Work DAG/);
+  assert.match(row.next, /Browser\/Computer/);
+  assert.match(row.next, /35691866943/);
+});
