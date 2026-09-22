@@ -33,7 +33,11 @@ jobs:
             --output /tmp/gen2-36-current-deployments.json \
             --write-out '%{http_code}' \
             "${BASE}?per_page=10")"
-          test "$HTTP_CODE" = "200"
+          echo "Cloudflare deployment list HTTP ${HTTP_CODE}"
+          if [ "$HTTP_CODE" != "200" ]; then
+            node -e 'const fs=require("fs"); try { const d=JSON.parse(fs.readFileSync("/tmp/gen2-36-current-deployments.json","utf8")); console.error(JSON.stringify({success:d?.success,errors:d?.errors||[]},null,2)); } catch {}'
+            exit 10
+          fi
 
           node - <<'NODE'
           const fs = require('fs');
@@ -77,7 +81,11 @@ jobs:
             --output /tmp/gen2-36-created-deployment.json \
             --write-out '%{http_code}' \
             "$BASE")"
-          test "$MUTATE_CODE" = "200"
+          echo "Cloudflare deployment create HTTP ${MUTATE_CODE}"
+          if [ "$MUTATE_CODE" != "200" ] && [ "$MUTATE_CODE" != "201" ]; then
+            node -e 'const fs=require("fs"); try { const d=JSON.parse(fs.readFileSync("/tmp/gen2-36-created-deployment.json","utf8")); console.error(JSON.stringify({success:d?.success,errors:d?.errors||[]},null,2)); } catch {}'
+            exit 11
+          fi
 
           BASE="$BASE" node - <<'NODE'
           const fs = require('fs');
@@ -109,7 +117,11 @@ jobs:
             --output /tmp/gen2-36-verified-deployment.json \
             --write-out '%{http_code}' \
             "${BASE}/${CREATED_ID}")"
-          test "$VERIFY_CODE" = "200"
+          echo "Cloudflare deployment verify HTTP ${VERIFY_CODE}"
+          if [ "$VERIFY_CODE" != "200" ]; then
+            node -e 'const fs=require("fs"); try { const d=JSON.parse(fs.readFileSync("/tmp/gen2-36-verified-deployment.json","utf8")); console.error(JSON.stringify({success:d?.success,errors:d?.errors||[]},null,2)); } catch {}'
+            exit 12
+          fi
 
           CREATED_ID="$CREATED_ID" node - <<'NODE'
           const fs = require('fs');
