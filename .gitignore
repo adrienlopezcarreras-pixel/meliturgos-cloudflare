@@ -15,3 +15,8 @@ d1/
 *.sqlite-wal
 *.sqlite-shm
 .mel-dev-candidates/
+
+# Historical snapshots belong in Git history/archive refs, not the active tree
+/backups/
+/worker.js.backup-*
+/worker.js.mvp-fix-*
