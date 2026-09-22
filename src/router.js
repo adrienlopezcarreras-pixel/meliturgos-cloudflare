@@ -59,7 +59,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
     const runtime = createGen2Runtime({ env });
     const capabilities = runtime.bus.list();
     const roadmap = await runtime.bus.execute("roadmap.read", {}, capabilityContext(env));
-    const active = capabilities.filter(row => row?.enabled !== false && !["OFFLINE","BLOCKED","DISABLED"].includes(String(row?.health || "").toUpperCase())).length;
+    const active = capabilities.filter(row => row?.enabled !== false && !["OFFLINE","UNAVAILABLE","BLOCKED","DISABLED"].includes(String(row?.health || "").toUpperCase())).length;
     return json({
       ok: true,
       capabilities: { total: capabilities.length, active },
