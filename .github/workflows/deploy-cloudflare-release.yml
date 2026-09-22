@@ -274,6 +274,51 @@ jobs:
           console.log('Production authenticated /api/chat code.read + code.search smoke passed.');
           NODE
 
+          OBS_ECHO_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"id":"echo","input":{"value":"release-observability-smoke"}}' \
+            --output production-observability-echo.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute")"
+          if [ "$OBS_ECHO_CODE" != "200" ]; then
+            echo "Production observability echo smoke returned HTTP ${OBS_ECHO_CODE}."
+            test ! -s production-observability-echo.json || cat production-observability-echo.json
+            exit 35
+          fi
+
+          OBS_READINESS_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --output production-observability-readiness.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/readiness")"
+          if [ "$OBS_READINESS_CODE" != "200" ]; then
+            echo "Production observability readiness smoke returned HTTP ${OBS_READINESS_CODE}."
+            test ! -s production-observability-readiness.json || cat production-observability-readiness.json
+            exit 36
+          fi
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const echo=JSON.parse(fs.readFileSync('production-observability-echo.json','utf8'));
+          const ready=JSON.parse(fs.readFileSync('production-observability-readiness.json','utf8'));
+          if(echo?.ok!==true || echo?.capability!=='echo' || echo?.result?.value!=='release-observability-smoke') {
+            throw new Error('PRODUCTION_OBSERVABILITY_ECHO_NOT_OK');
+          }
+          if(ready?.ok!==true || ready?.observability?.query_ok!==true) {
+            throw new Error('PRODUCTION_OBSERVABILITY_QUERY_NOT_OK');
+          }
+          const metrics=ready?.observability?.metrics||{};
+          if(Number(metrics.capability_events||0)<1) throw new Error('PRODUCTION_OBSERVABILITY_EVENT_MISSING');
+          if(Number(metrics.succeeded||0)<1) throw new Error('PRODUCTION_OBSERVABILITY_SUCCESS_MISSING');
+          if(!metrics.latest_event_at) throw new Error('PRODUCTION_OBSERVABILITY_LATEST_EVENT_MISSING');
+          const component=(ready?.dashboard?.components||[]).find(row=>row?.id==='runtime_observability');
+          if(!component || component?.evidence?.query_ok!==true) throw new Error('PRODUCTION_OBSERVABILITY_DASHBOARD_MISSING');
+          console.log('Production D1 observability metrics smoke passed.');
+          NODE
+
           SELF_CODE="$(curl --silent --show-error --max-time 60 \
             --header "x-mel-release-smoke: 1" \
             --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
@@ -354,6 +399,7 @@ jobs:
               echo '- ShardVault recovery: verified'
               echo '- External critical-code copies: >= 7'
               echo '- Authenticated /api/chat code.read + code.search: verified'
+              echo '- D1 runtime observability metrics: verified'
               echo '- Code self-check: verified'
               echo '- Memory status: ONLINE + D1 bound'
               echo '- Professor + normal runtime UI: verified'
