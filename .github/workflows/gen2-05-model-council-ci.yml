@@ -12,7 +12,6 @@ on:
   push:
     branches:
       - 'gen2-05-model-council-providers'
-      - 'feat/gen2-05-runtime-capability'
     paths:
       - 'src/models/model-council.js'
       - 'src/capabilities/default-bus.js'
