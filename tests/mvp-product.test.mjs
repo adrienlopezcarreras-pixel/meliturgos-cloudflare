@@ -42,7 +42,7 @@ test('normal MEL surface remains available and loads the external canonical cont
   assert.match(html, /<title>MEL<\/title>/);
   assert.match(html, /id="melAvatar"/);
   assert.match(html, /id="full"/);
-  assert.match(html, /<script src="\/normal-runtime\.js\?v=6" defer><\/script>/);
+  assert.match(html, /<script src="\/normal-runtime\.js\?v=7" defer><\/script>/);
   assert.doesNotMatch(html, /id="mel-normal-v3-runtime"/);
   assert.match(html, /data-mel-theme-choice="classic"/);
   assert.match(html, /data-mel-avatar="\/assets\/avatars\/mel-classic\.webp"/);
@@ -92,10 +92,13 @@ test('canonical Professor renders chat text safely and exposes explicit error st
 
 test('canonical Professor exposes the complete control-center views instead of the retired theme picker', async () => {
   const html = await canonicalProfessorHtml();
-  for (const view of ['overview','chat','skills','roadmap','multi','work','memory','diagnostics']) {
+  for (const view of ['overview','chat','skills','roadmap','multi','memory','diagnostics']) {
     assert.match(html, new RegExp(`data-view="${view}"`));
     assert.match(html, new RegExp(`data-panel="${view}"`));
   }
+  assert.match(html, /id="melUnifiedTabs"/);
+  assert.match(html, /data-mode-panel="development" hidden/);
+  assert.doesNotMatch(html, /data-panel="work"/);
   assert.doesNotMatch(html, /data-theme-choice/);
   assert.doesNotMatch(html, /conversationSelect|newConversation|interaction_count/i);
 });
