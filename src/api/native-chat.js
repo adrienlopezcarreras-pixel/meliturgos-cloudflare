@@ -98,7 +98,15 @@ export function inferNativeCodeCapability(text, recent = []) {
   const path = pathNow || (followUpAccess ? extractCodePath(history) : null);
   if (asksIntegrity) return { id: 'code.integrity', input: {} };
   if (path && (asksRead || asksAccess || followUpAccess)) return { id: 'code.read', input: { path } };
-  if (asksSearch) return { id: 'code.search', input: { query: extractNativeSearchQuery(value) } };
+  if (asksSearch) {
+    return {
+      id: 'code.search',
+      input: {
+        query: extractNativeSearchQuery(value),
+        ...(path ? { path } : {}),
+      },
+    };
+  }
   // Never invent a source target. Access/read questions without an explicit or
   // resolvable repository path are answered from capability truth, not by
   // silently reading a default file such as src/router.js.
