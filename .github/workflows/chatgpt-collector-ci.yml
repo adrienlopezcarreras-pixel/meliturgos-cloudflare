@@ -24,14 +24,14 @@ jobs:
           node-version: "22"
       - name: Run collector integrity tests
         run: node --test tests/chatgpt-collector-integrity.test.mjs
-      - name: Package Collector 0.6.1
+      - name: Package Collector 0.6.4
         run: |
           cd browser-companion/chatgpt-collector
-          zip -r ../../MEL_ChatGPT_Collector_0.6.1.zip .
+          zip -r ../../MEL_ChatGPT_Collector_0.6.4.zip .
       - name: Upload Collector archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: MEL_ChatGPT_Collector_0.6.1
-          path: MEL_ChatGPT_Collector_0.6.1.zip
+          name: MEL_ChatGPT_Collector_0.6.4
+          path: MEL_ChatGPT_Collector_0.6.4.zip
           if-no-files-found: error
           retention-days: 7
