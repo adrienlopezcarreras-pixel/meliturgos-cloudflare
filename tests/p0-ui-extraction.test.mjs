@@ -14,7 +14,7 @@ test('normal public MEL entry remains self-contained and links to canonical /pro
   assert.match(html, /<title>MEL<\/title>/);
   assert.match(html, /id="melAvatar"/);
   assert.match(html, /id="full"/);
-  assert.match(html, /\/normal-runtime\.js\?v=6/);
+  assert.match(html, /\/normal-runtime\.js\?v=7/);
   assert.match(NORMAL_RUNTIME_SOURCE, /location\.href='\/professor'/);
 });
 
@@ -32,8 +32,11 @@ test('canonical Professor interface is self-contained HTML with chat and complet
   assert.match(html, /fetch\(url,opts\)/);
   assert.match(html, /jfetch\('\/api\/chat'/);
   assert.match(html, /e\.key==='Enter'/);
-  for (const panel of ['overview','chat','skills','roadmap','multi','work','memory','diagnostics']) {
+  for (const panel of ['overview','chat','skills','roadmap','multi','memory','diagnostics']) {
     assert.match(html, new RegExp(`data-panel="${panel}"`));
   }
+  assert.match(html, /id="melUnifiedTabs"/);
+  assert.match(html, /data-mode-panel="development" hidden/);
+  assert.doesNotMatch(html, /data-panel="work"/);
   assert.doesNotMatch(html, /conversationSelect|newConversation|interaction_count/i);
 });
