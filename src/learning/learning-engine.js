@@ -85,9 +85,9 @@ export class LearningEngine {
     return { ...corpus, digest: digest(dataset), dataset, expert_plus: expertPlusSummary(), source_intelligence: sourceIntelligenceSummary(), generated_at: Date.now() };
   }
 
-  async recordBenchmark({ cases, kind = 'candidate', model_id = '', adapter_id = null, source_sha = null, metadata = {} } = {}) {
+  async recordBenchmark({ cases, kind = 'candidate', provider_id = '', model_id = '', adapter_id = null, source_sha = null, metadata = {} } = {}) {
     const score = scoreBenchmarkResults(cases || []);
-    const evidence = { kind, model_id, adapter_id, source_sha, ...score, metadata };
+    const evidence = { kind, provider_id, model_id, adapter_id, source_sha, ...score, metadata };
     const record = await this.memory.remember({
       goal: `MEL benchmark ${kind}`,
       kind: 'LEARNING_BENCHMARK',
@@ -105,7 +105,7 @@ export class LearningEngine {
     return rows.slice().reverse().map(evidenceObject).filter(row => Number.isFinite(Number(row?.overall)));
   }
 
-  async runCanonicalBenchmark({ kind = 'candidate', evaluator, model_id = '', adapter_id = null, source_sha = null, metadata = {}, suite = CANONICAL_LEARNING_BENCHMARK_SUITE } = {}) {
+  async runCanonicalBenchmark({ kind = 'candidate', evaluator, provider_id = '', model_id = '', adapter_id = null, source_sha = null, metadata = {}, suite = CANONICAL_LEARNING_BENCHMARK_SUITE } = {}) {
     const result = await runLearningBenchmarkSuite({ suite, evaluator });
     if (kind === 'baseline') {
       const existing = (await this.benchmarks({ limit: 200 })).find((row) => row.kind === 'baseline' && row?.metadata?.suite_digest === result.suite_digest);
@@ -117,6 +117,7 @@ export class LearningEngine {
     const recorded = await this.recordBenchmark({
       cases: result.results,
       kind,
+      provider_id,
       model_id,
       adapter_id,
       source_sha,
@@ -136,6 +137,7 @@ export class LearningEngine {
     verifiedJobsDelta = 0,
     significantCorrections = 0,
     evaluator = null,
+    provider_id = '',
     model_id = '',
     adapter_id = null,
     source_sha = null,
@@ -167,6 +169,7 @@ export class LearningEngine {
         const run = await this.runCanonicalBenchmark({
           kind: 'candidate',
           evaluator,
+          provider_id,
           model_id,
           adapter_id,
           source_sha,
@@ -180,6 +183,8 @@ export class LearningEngine {
           suite_digest: run?.suite_digest || null,
           repeated_error_count: Array.isArray(run?.repeated_errors) ? run.repeated_errors.length : 0,
           source_sha: source_sha || null,
+          provider_id: provider_id || null,
+          model_id: model_id || null,
         };
         status = 'RAN';
         verifiedJobsSinceBenchmark = 0;
