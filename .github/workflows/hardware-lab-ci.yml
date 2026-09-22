@@ -35,3 +35,9 @@ jobs:
       - name: Hardware lab tests
         run: |
           node --test             tests/waveshare-terminal-api.test.mjs             tests/waveshare-terminal-owner-routes.test.mjs             tests/full-interface-terminal.test.mjs             tests/computer-companion-api.test.mjs             tests/native-chat-computer-intent.test.mjs             tests/full-interface-computer.test.mjs             tests/voice-internal-device.test.mjs             tests/gen2/computer-use.test.mjs
+      - name: Professor UI ownership regression
+        run: node --test tests/site-hardening-cleanup.test.mjs
+      - name: Full test suite
+        run: npm test
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs
