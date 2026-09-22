@@ -8,8 +8,10 @@ export const definition = Object.freeze({
     "CLOUDFLARE_API_TOKEN"
   ],
   "capabilities": [
-    "cloudflare.resources.read"
+    "cloudflare.resources.read",
+    "cloudflare.workers.read",
+    "cloudflare.deployments.read"
   ]
 });
-// TODO implement bounded read adapter via CapabilityBus; OAuth grant is external.
+// Runtime read adapters are registered through CapabilityBus; API-token grant remains external.
 export const createConnector = options => new Connector(definition,options);
