@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authorized, requireAuth } from '../src/core/security.js';
+import { authorized, requireAuth, isReleaseSmokeRequest } from '../src/core/security.js';
 
 function requestWithAuthorization(value) {
   return new Request('https://meliturgos.test/api/gen2/autonomy/tick', {
@@ -56,4 +56,57 @@ test('requireAuth distinguishes unconfigured auth from rejected credentials with
   const payload = await rejected.response.json();
   assert.equal(payload.code, 'AUTH_REQUIRED');
   assert.equal(JSON.stringify(payload).includes('hidden-value'), false);
+});
+
+
+test('ephemeral release smoke auth is restricted to POST /api/chat with exact bootstrap token', () => {
+  const token = 'b'.repeat(64);
+  const env = {
+    MELITURGOS_USER: 'adrien',
+    MELITURGOS_PASSWORD: 'owner-password',
+    MEL_LAUNCH_BOOTSTRAP_TOKEN: token,
+  };
+  const request = new Request('https://meliturgos.test/api/chat', {
+    method: 'POST',
+    headers: {
+      'x-mel-release-smoke': '1',
+      'x-mel-launch-bootstrap': token,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ text: 'lis src/index.js dans ton code' }),
+  });
+  assert.equal(isReleaseSmokeRequest(request, env), true);
+  assert.equal(authorized(request, env), true);
+
+  const wrongRoute = new Request('https://meliturgos.test/api/export', {
+    method: 'POST',
+    headers: { 'x-mel-release-smoke':'1', 'x-mel-launch-bootstrap':token },
+  });
+  assert.equal(isReleaseSmokeRequest(wrongRoute, env), false);
+  assert.equal(authorized(wrongRoute, env), false);
+
+  const wrongMethod = new Request('https://meliturgos.test/api/chat', {
+    method: 'GET',
+    headers: { 'x-mel-release-smoke':'1', 'x-mel-launch-bootstrap':token },
+  });
+  assert.equal(isReleaseSmokeRequest(wrongMethod, env), false);
+
+  const wrongToken = new Request('https://meliturgos.test/api/chat', {
+    method: 'POST',
+    headers: { 'x-mel-release-smoke':'1', 'x-mel-launch-bootstrap':'c'.repeat(64) },
+  });
+  assert.equal(isReleaseSmokeRequest(wrongToken, env), false);
+  assert.equal(authorized(wrongToken, env), false);
+});
+
+test('release smoke token shorter than 32 characters is never accepted', () => {
+  const token = 'x'.repeat(31);
+  const request = new Request('https://meliturgos.test/api/chat', {
+    method:'POST',
+    headers:{'x-mel-release-smoke':'1','x-mel-launch-bootstrap':token},
+  });
+  assert.equal(isReleaseSmokeRequest(request, {
+    MELITURGOS_PASSWORD:'owner-password',
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:token,
+  }), false);
 });
