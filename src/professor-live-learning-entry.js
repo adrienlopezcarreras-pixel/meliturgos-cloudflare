@@ -1,4 +1,4 @@
-import app from './ui-release-fix-entry.js';
+import app from './ui-entry.js';
 import { requireAuth } from './core/security.js';
 import { authorizeDevBridge } from './core/dev-bridge-auth.js';
 import { createLearningEngine } from './learning/learning-engine.js';
