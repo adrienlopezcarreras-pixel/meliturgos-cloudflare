@@ -9,6 +9,10 @@ on:
       - "scripts/prove-chatgpt-archive-live.mjs"
       - "tests/chatgpt-archive-live-proof.test.mjs"
       - ".github/workflows/chatgpt-archive-live-proof.yml"
+      - "browser-companion/chatgpt-collector/**"
+      - "tests/chatgpt-collector-integrity.test.mjs"
+      - "browser-companion/chatgpt-collector/**"
+      - "tests/chatgpt-collector-integrity.test.mjs"
   pull_request:
     paths:
       - "scripts/prove-chatgpt-archive-live.mjs"
