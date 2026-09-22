@@ -37,6 +37,9 @@ jobs:
           node --test             tests/waveshare-terminal-api.test.mjs             tests/waveshare-terminal-owner-routes.test.mjs             tests/full-interface-terminal.test.mjs             tests/computer-companion-api.test.mjs             tests/native-chat-computer-intent.test.mjs             tests/full-interface-computer.test.mjs             tests/voice-internal-device.test.mjs             tests/gen2/computer-use.test.mjs
       - name: Professor UI ownership regression
         run: node --test tests/site-hardening-cleanup.test.mjs
+      - name: Isolated candidate branch context for full suite
+        if: github.event_name == 'pull_request'
+        run: git checkout -b "candidate/pr-${{ github.event.pull_request.number }}"
       - name: Full test suite
         run: npm test
       - name: Runtime dependency security gate
