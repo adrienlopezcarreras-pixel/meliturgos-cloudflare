@@ -1,0 +1,61 @@
+name: gen2-17-multi-cycle-ci
+
+on:
+  pull_request:
+    paths:
+      - 'tests/autonomy-runtime.test.mjs'
+      - 'src/evolution/**'
+      - 'src/roadmap/master-roadmap.js'
+      - '.github/workflows/gen2-17-multi-cycle-ci.yml'
+  push:
+    branches:
+      - 'work/gen2-17-multi-cycle-proof'
+
+permissions:
+  contents: read
+
+jobs:
+  gen2-17-targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs
+      - name: Evolution syntax
+        run: >
+          node --check src/evolution/autonomy-runtime.js &&
+          node --check src/evolution/autonomy-supervisor.js &&
+          node --check src/evolution/evolution-proof-runner.js
+      - name: Targeted supervised autonomy proof
+        run: >
+          node --test
+          tests/autonomy-runtime.test.mjs
+          tests/autonomy-completion-gates.test.mjs
+          tests/autonomy-supervisor.test.mjs
+          tests/evolution-proof-runner.test.mjs
+
+  gen2-17-full-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: gen2-17-targeted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Repository syntax
+        run: npm run check
+      - name: Normalize branch for candidate-only integration tests
+        run: git switch -c candidate/gen2-17-proof-ci
+      - name: Full test suite
+        run: npm test
