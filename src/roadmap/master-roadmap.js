@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-22.13';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-22.14';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -98,7 +98,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-EVOL-05', 'Skill Registry durable', 'PLANNED', 'Compiler les acquis système dans un registre portable', 'P1'),
     item('MEL-EVOL-06', 'Fine-tuning / LoRA open-weight continu', 'IN_PROGRESS', 'Heartbeat MEL supervise la chaîne Kaggle GPU gratuite: relance seulement si aucun run actif, checkpoints immuables, benchmark après chaque cycle, UNCENSORED puis AGENTIC sans écraser le parent, aucun fallback payant', 'P0'),
     item('GEN2-18', 'Self Healing contrôlé', 'PLANNED', 'Limiter à détection, rollback approuvé et réparation testée', 'P2'),
-    item('GEN2-20', 'Learning Engine', 'PARTIAL', 'Corpus XP développement canonique et protocole d’envoi ajoutés; brancher automatiquement les handoffs validés aux cycles autonomes en conservant provenance et déduplication', 'P1')
+    item('GEN2-20', 'Learning Engine', 'PARTIAL', 'Corpus XP canonique porté à 72 leçons après réconciliation 21–22/09 (mémoire, approval, release live, observabilité, Council) et handoff technique hebdomadaire ajouté; reste à brancher automatiquement les handoffs validés aux cycles autonomes en conservant provenance et déduplication', 'P1')
   ]),
 
   phase('P07', 'Work, agents et automatisations', [
