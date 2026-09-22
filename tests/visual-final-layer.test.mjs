@@ -46,7 +46,7 @@ test('normal mode has exactly one canonical visual owner and the clean eight-the
 
   assert.match(body, /data-visual-owner="mel-normal-v3"/);
   assert.equal((body.match(/id="mel-normal-v3-style"/g) || []).length, 1);
-  assert.equal((body.match(/src="\/normal-runtime\.js\?v=5"/g) || []).length, 1);
+  assert.equal((body.match(/src="\/normal-runtime\.js\?v=6"/g) || []).length, 1);
   assert.equal((body.match(/id="melAvatarImage"/g) || []).length, 1);
   for (const id of LEGACY_IDS) assert.equal(body.includes('id="' + id + '"'), false, id + ' must be absent');
 

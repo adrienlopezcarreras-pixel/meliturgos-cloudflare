@@ -35,7 +35,7 @@ test('normal home UI remains available while v1 redirects to canonical Professor
   assert.match(mvp, /data-visual-owner="mel-normal-v3"/);
   assert.match(mvp, /id="melAvatar"/);
   assert.match(mvp, /id="full"/);
-  assert.match(mvp, /\/normal-runtime\.js\?v=5/);
+  assert.match(mvp, /\/normal-runtime\.js\?v=6/);
   assert.match(NORMAL_RUNTIME_SOURCE, /location\.href='\/professor'/);
   assert.doesNotMatch(mvp, /status:\s*308/);
   assert.match(v1, /status:\s*308/);

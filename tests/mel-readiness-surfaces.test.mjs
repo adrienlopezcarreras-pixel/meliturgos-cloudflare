@@ -86,12 +86,15 @@ test('benchmark and LoRA live state are evidence-backed', async () => {
 });
 
 test('Benchmark and LoRA remain Professor-only surfaces', async () => {
-  const [normalLayer, professorLayer] = await Promise.all([
+  const [normalLayer, professorLayer, professorPage] = await Promise.all([
     readFile(new URL('../src/pages/theme-avatar-enhancer.js', import.meta.url), 'utf8'),
     readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8'),
   ]);
   assert.doesNotMatch(normalLayer, /learnBenchmark|learnLora/);
-  assert.match(professorLayer, /pathname !== '\/professor'/);
-  assert.match(professorLayer, /learnBenchmark/);
-  assert.match(professorLayer, /learnLora/);
+  assert.doesNotMatch(professorLayer, /PROFESSOR_LIVE_LEARNING_PATCH|enhanceProfessorLearning/);
+  assert.match(professorLayer, /\/api\/learning\/benchmark\/run/);
+  assert.match(professorLayer, /\/api\/learning\/lora\/prepare/);
+  assert.match(professorPage, /id="melRunBenchmark"/);
+  assert.match(professorPage, /id="melPrepareLora"/);
 });

@@ -10,8 +10,9 @@ test('service worker source provides offline cache fallback for GET requests', (
   assert.match(SERVICE_WORKER_SOURCE, /request\.method!=='GET'/);
 });
 
-test('service worker keeps the current MEL root as an offline fallback', () => {
-  assert.match(SERVICE_WORKER_SOURCE, /const FALLBACK='\/'/);
-  assert.match(SERVICE_WORKER_SOURCE, /cache\.add\(FALLBACK\)/);
-  assert.match(SERVICE_WORKER_SOURCE, /cache\.match\(FALLBACK\)/);
+test('service worker never persists private HTML as an offline fallback', () => {
+  assert.doesNotMatch(SERVICE_WORKER_SOURCE, /const FALLBACK='\/'/);
+  assert.doesNotMatch(SERVICE_WORKER_SOURCE, /cache\.add\('\/'\)|cache\.add\(FALLBACK\)/);
+  assert.match(SERVICE_WORKER_SOURCE, /request\.mode==='navigate'.*return/);
+  assert.match(SERVICE_WORKER_SOURCE, /url\.pathname\.startsWith\('\/assets\/'\)/);
 });

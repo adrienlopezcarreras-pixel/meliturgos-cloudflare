@@ -43,7 +43,7 @@ test('deployed entrypoint gates every internal Dev Bridge route before delegatio
   const source = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
   const gate = source.indexOf("url.pathname.startsWith('/api/dev-bridge/')");
   const auth = source.indexOf('authorizeDevBridge(request, env)', gate);
-  const delegate = source.indexOf('await app.fetch(request, env, ctx)');
+  const delegate = source.indexOf('return app.fetch(request, env, ctx)');
 
   assert.equal(source.includes('PROFESSOR_SAFE_DEV_BRIDGE_PATHS'), false, 'internal bridge must have no owner-UI auth bypass list');
   assert.equal(source.includes("'/api/dev-bridge/health'"), false, 'user Work health moved to /api/work/health');

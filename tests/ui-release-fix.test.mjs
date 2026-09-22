@@ -25,7 +25,8 @@ test('production entry preserves preview auth and live learning over the canonic
 
 test('full mode owns its local MEL portrait and release presentation directly', async () => {
   const source = await text('src/pages/full-interface-v2.js');
-  assert.match(source, /HD_BACKGROUNDS/);
+  assert.doesNotMatch(source, /HD_BACKGROUNDS|verite-interdite\.fr\/wp-content\/uploads/);
+  assert.match(source, /radial-gradient\(circle at 82% 12%/);
   assert.match(source, /\/assets\/avatars\/mel-full\.webp/);
   assert.match(source, /\.brand img,\.hero img/);
   assert.doesNotMatch(source, /MutationObserver|setInterval\(apply,2500\)|forceAvatar|melLiveNarrative/);
@@ -40,10 +41,13 @@ test('generated fallback background inventory remains self-contained and 4K-capa
   }
 });
 
-test('service worker is network-first and never caches API reads', async () => {
+test('service worker caches static resources while never caching API or private HTML reads', async () => {
   const source = await text('src/pages/service-worker.js');
-  assert.match(source, /meliturgos-gen2-v5/);
-  assert.match(source, /networkFirst/);
+  assert.match(source, /meliturgos-static-v6/);
+  assert.match(source, /staleWhileRevalidate/);
   assert.match(source, /pathname\.startsWith\('\/api\/'\)/);
+  assert.match(source, /request\.mode==='navigate'.*return/);
+  assert.match(source, /pathname\.startsWith\('\/assets\/'\)/);
   assert.match(source, /skipWaiting/);
+  assert.doesNotMatch(source, /const FALLBACK='\/'|cache\.add\('\/'\)/);
 });

@@ -4,7 +4,6 @@ import { readFile } from 'node:fs/promises';
 import { onRequestGet as renderNormal } from '../src/pages/mvp-interface-v3.js';
 import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
 import { onRequestGet as renderFull } from '../src/pages/full-interface-v2.js';
-import { FULL_MODE_CONTROL_PATCH } from '../src/pages/full-mode-control-enhancer.js';
 import { onRequestGet as renderWatch } from '../src/pages/watch-interface.js';
 import { handleShardVaultStatus } from '../src/pages/shardvault-status.js';
 
@@ -59,7 +58,7 @@ test('normal page exposes only controls that are wired by the canonical normal r
     /id="fileInput"/,
     /id="send"/,
     /id="full"/,
-    /src="\/normal-runtime\.js\?v=5"/,
+    /src="\/normal-runtime\.js\?v=6"/,
   ], 'normal UI');
 
   expectAll(NORMAL_RUNTIME_SOURCE, [
@@ -71,44 +70,35 @@ test('normal page exposes only controls that are wired by the canonical normal r
     /previousMessage\.addEventListener\('click'/,
     /avatar\.addEventListener\('click'/,
     /drop\.addEventListener\('click'/,
+    /drop\.addEventListener\('keydown'/,
     /fileInput\.addEventListener\('change'/,
     /input\.addEventListener\('keydown'/,
   ], 'normal runtime');
 });
 
-test('full-mode base controls, navigation and injected controls all have a click path', async () => {
+test('full-mode canonical controls and navigation all have a click path', async () => {
   const html = await (await renderFull()).text();
   const source = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
 
   const ids = [
-    'chatCapRefresh','chatSend','refreshSkills','multiRun','workCreate','workRefresh',
+    'chatCapRefresh','chatSend','resumeLatestChat','refreshSkills','multiRun','workCreate','workRefresh',
     'memoryRefresh','chatgptStatusRefresh','chatgptImport','freeLoraRefresh',
     'codeSelfCheck','diagCaps','diagRoadmap','diagAug',
+    'melFullMax','melFullCycle','melFullStop','melFullActivity','desktopActivityClose',
+    'melRunBenchmark','melPrepareLora','mobileMoreNav',
   ];
   for (const id of ids) {
     assert.match(html, new RegExp('id="' + id + '"'), 'missing full-mode control ' + id);
-    assert.match(source, new RegExp("(?:qs\\('#" + id + "'\\)|getElementById\\('" + id + "'\\))\\.onclick"), 'missing handler for ' + id);
   }
 
-  assert.match(source, /qsa\('#nav button'\)\.forEach\(b=>b\.onclick=/);
+  assert.match(source, /qsa\('#nav button\[data-view\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-jump\]'\)\.forEach\(b=>b\.onclick=/);
+  assert.match(source, /href="\/veille"/);
+  assert.match(source, /Mettre MEL en pause/);
+  assert.match(source, /Veille des capacités/);
   assert.match(source, /freeAgenticColab/);
   assert.match(source, /agenticLink\.href=d\.agentic_colab_url/);
-
-  expectAll(FULL_MODE_CONTROL_PATCH, [
-    /id="melFullMax"/,
-    /id="melFullCycle"/,
-    /href="\/veille"/,
-    /id="melFullStop"/,
-    /id="melFullActivity"/,
-    /getElementById\('melFullMax'\)\.onclick=setMax/,
-    /getElementById\('melFullCycle'\)\.onclick=runCycle/,
-    /getElementById\('melFullStop'\)\.onclick=toggleStop/,
-    /getElementById\('melFullActivity'\)\.onclick=/,
-    /getElementById\('melFullActivityRefresh'\)\.onclick=loadActivity/,
-  ], 'full-mode enhancer');
-  assert.doesNotMatch(FULL_MODE_CONTROL_PATCH, /capability-watch\/run/, 'watch execution must stay on /veille');
-  assert.doesNotMatch(FULL_MODE_CONTROL_PATCH, /melProposalChatNotice/, 'watch proposals must not leak into chat');
+  assert.doesNotMatch(source, /mel-full-control-runtime|mel-roadmap-live-refresh-runtime|mel-work-truth-runtime/);
 });
 
 test('dedicated watch page owns all watch actions and every top-level button is wired', async () => {
@@ -127,22 +117,25 @@ test('dedicated watch page owns all watch actions and every top-level button is 
   ], 'watch page');
 });
 
-test('learning controls are wired and LoRA validation is not mislabeled as runtime activation', async () => {
-  const source = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
+test('learning controls are canonical and LoRA validation is not mislabeled as runtime activation', async () => {
+  const entry = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
   const learning = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
 
-  expectAll(source, [
-    /benchmark\.id='melRunBenchmark'/,
-    /benchmark\.addEventListener\('click'/,
-    /lora\.id='melPrepareLora'/,
-    /lora\.addEventListener\('click'/,
-  ], 'learning operator controls');
   expectAll(learning, [
+    /id="melRunBenchmark"/,
+    /id="melPrepareLora"/,
+    /runLearningAction/,
     /learningChip\.addEventListener\('click'/,
     /Poids runtime/,
     /LoRA validé techniquement/,
     /aucun adaptateur actif en runtime/,
-  ], 'learning meter');
+  ], 'learning controls');
+  expectAll(entry, [
+    /\/api\/learning\/benchmark\/run/,
+    /\/api\/learning\/lora\/prepare/,
+    /requireAuth\(request, env\)/,
+  ], 'learning API owner');
+  assert.doesNotMatch(entry, /PROFESSOR_LIVE_LEARNING_PATCH|mel-professor-live-learning-runtime/);
   assert.doesNotMatch(learning, /inchangés · LoRA inactif/);
 });
 
@@ -151,9 +144,6 @@ test('every canonical id button is automatically inventoried and wired', async (
   const fullSource = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
   const fullIds = assertIdButtonsWired(fullHtml, fullSource, 'full interface');
   assert.ok(fullIds.length >= 30, 'full interface button inventory unexpectedly small');
-
-  const enhancerIds = assertIdButtonsWired(FULL_MODE_CONTROL_PATCH, FULL_MODE_CONTROL_PATCH, 'full-mode enhancer');
-  assert.ok(enhancerIds.length >= 6, 'full-mode enhancer inventory unexpectedly small');
 
   const watchHtml = await (await renderWatch()).text();
   const watchIds = assertIdButtonsWired(watchHtml, watchHtml, 'watch interface');
@@ -178,7 +168,7 @@ test('all anonymous canonical buttons use a declared delegated control family', 
   assert.ok(families.has('data-pc-app'));
   assert.ok(families.has('data-pc-key'));
   assert.ok(families.has('data-mode'));
-  assert.match(source, /qsa\('#nav button'\)\.forEach\(b=>b\.onclick=/);
+  assert.match(source, /qsa\('#nav button\[data-view\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-jump\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-pc-app\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-pc-key\]'\)\.forEach\(b=>b\.onclick=/);

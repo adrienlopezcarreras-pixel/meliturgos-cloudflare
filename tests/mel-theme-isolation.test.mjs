@@ -17,7 +17,7 @@ test('normal mode has one visual owner and exactly the eight requested themes', 
   const html = await response.text();
   assert.equal(response.status, 200);
   assert.equal(count(html, 'id="mel-normal-v3-style"'), 1);
-  assert.equal(count(html, 'src="/normal-runtime.js?v=5"'), 1);
+  assert.equal(count(html, 'src="/normal-runtime.js?v=6"'), 1);
   assert.equal(count(html, 'data-mel-theme-choice='), 8);
   for (const theme of expectedThemes) assert.match(html, new RegExp(`data-mel-theme-choice="${theme}"`));
   assert.match(html, /Bibliothèque/);

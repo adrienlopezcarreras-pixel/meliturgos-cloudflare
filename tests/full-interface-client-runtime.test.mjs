@@ -9,7 +9,7 @@ test('full interface emits parseable browser runtime and keeps core navigation b
   const match = html.match(/<script>([\s\S]*?)<\/script>/);
   assert.ok(match, 'inline browser runtime must be present');
   assert.doesNotThrow(() => new Function(match[1]), 'generated browser runtime must parse');
-  assert.match(match[1], /qsa\('#nav button'\)\.forEach/, 'sidebar navigation must be bound');
+  assert.match(match[1], /qsa\('#nav button\[data-view\]'\)\.forEach/, 'sidebar navigation must be bound');
   assert.match(match[1], /qsa\('\[data-jump\]'\)\.forEach/, 'overview action buttons must be bound');
   assert.match(match[1], /Sauvegardes réelles[\s\S]*\\n/, 'ShardVault status output newline must remain escaped in browser JS');
 });
@@ -26,8 +26,10 @@ test('full interface keeps capabilities while avoiding eager heavy hidden-panel 
   assert.match(runtime, /async function loadRoadmapData\(force=false\)/);
   assert.match(runtime, /async function loadPanel\(name,force=false\)/);
   assert.match(runtime, /lora:\(\)=>loadFreeLoraStatus\(\)/);
-  assert.match(runtime, /Promise\.allSettled\(\[loadCapabilitySummary\(\),loadRoadmapSummary\(\),codeCheck\(\),loadAutonomy\(\)\]\)/);
+  assert.match(runtime, /Promise\.allSettled\(\[loadCapabilitySummary\(\),loadRoadmapSummary\(\),loadAutonomy\(\)\]\)/);
   assert.doesNotMatch(runtime, /async function boot\(\)\{[^}]*loadFreeLoraStatus\(\)/);
+  const boot = runtime.match(/async function boot\(\)\{[\s\S]*?\n\}/)?.[0] || '';
+  assert.doesNotMatch(boot, /codeCheck\(/, 'code self-check must stay manual for fast boot');
   assert.match(runtime, /document\.createDocumentFragment\(\)/);
   assert.match(html, /content-visibility:auto/);
 });

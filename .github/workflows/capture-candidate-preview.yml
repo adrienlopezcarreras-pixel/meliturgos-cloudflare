@@ -102,7 +102,7 @@ jobs:
             --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
             --output normal-runtime.js \
             --write-out '%{http_code}' \
-            'https://meliturgos-preview.adrien-lopezcarreras.workers.dev/normal-runtime.js?v=5')
+            'https://meliturgos-preview.adrien-lopezcarreras.workers.dev/normal-runtime.js?v=6')
           echo "Normal runtime HTTP status: ${runtime_status}"
           case "$runtime_status" in 2??|3??) ;; *) exit 22 ;; esac
           test -s normal-runtime.js
@@ -122,7 +122,7 @@ jobs:
           else:
               source = base + source
 
-          runtime_tag = '<script src="/normal-runtime.js?v=5" defer></script>'
+          runtime_tag = '<script src="/normal-runtime.js?v=6" defer></script>'
           if runtime_tag not in source:
               raise SystemExit('Canonical external normal runtime tag not found in preview HTML')
 
