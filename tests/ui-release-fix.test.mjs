@@ -8,25 +8,25 @@ async function text(path) {
   return readFile(new URL(path, root), 'utf8');
 }
 
-test('production entry preserves preview auth, live-learning and verified release UI below the final visual owner', async () => {
+test('production entry preserves preview auth and live learning over the canonical Professor owner', async () => {
   const wrangler = await text('wrangler.jsonc');
   const finalVisual = await text('src/visual-final-entry.js');
   const previewAuth = await text('src/preview-auth-entry.js');
   const live = await text('src/professor-live-learning-entry.js');
-  const release = await text('src/ui-release-fix-entry.js');
   assert.match(wrangler, /"main"\s*:\s*"src\/visual-final-entry\.js"/);
   assert.match(finalVisual, /import\s+app\s+from\s+['"]\.\/preview-auth-entry\.js['"]/);
   assert.match(finalVisual, /async\s+scheduled\s*\([^)]*\)\s*\{[\s\S]*app\.scheduled\(controller,\s*env,\s*ctx\)/);
   assert.match(previewAuth, /import\s+app\s+from\s+['"]\.\/professor-live-learning-entry\.js['"]/);
   assert.match(previewAuth, /async\s+scheduled\s*\([^)]*\)\s*\{[\s\S]*app\.scheduled\(controller,\s*env,\s*ctx\)/);
-  assert.match(live, /import\s+app\s+from\s+['"]\.\/ui-release-fix-entry\.js['"]/);
-  assert.match(release, /import\s+app\s+from\s+['"]\.\/ui-entry\.js['"]/);
+  assert.match(live, /import\s+app\s+from\s+['"]\.\/ui-entry\.js['"]/);
+  assert.doesNotMatch(live, /import\s+app\s+from\s+['"]\.\/ui-release-fix-entry\.js['"]/);
   assert.match(live, /\/api\/learning\/progress/);
 });
 
-test('full mode keeps one local MEL portrait without a polling DOM runtime', async () => {
-  const source = await text('src/ui-release-fix-entry.js');
-  assert.match(source, /FULL_AVATAR_DATA_URL\s*=\s*['"]\/assets\/avatars\/mel-full\.webp['"]/);
+test('full mode owns its local MEL portrait and release presentation directly', async () => {
+  const source = await text('src/pages/full-interface-v2.js');
+  assert.match(source, /HD_BACKGROUNDS/);
+  assert.match(source, /\/assets\/avatars\/mel-full\.webp/);
   assert.match(source, /\.brand img,\.hero img/);
   assert.doesNotMatch(source, /MutationObserver|setInterval\(apply,2500\)|forceAvatar|melLiveNarrative/);
   assert.doesNotMatch(source, /verite-interdite\.fr\/wp-content\/uploads/);
