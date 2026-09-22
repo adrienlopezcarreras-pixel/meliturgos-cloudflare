@@ -1,0 +1,29 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "mel-browser-companion-gen2-31-preview",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-22",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": false,
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BROWSER_SESSIONS",
+        "class_name": "BrowserSession"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "gen2-31-v1",
+      "new_sqlite_classes": [
+        "BrowserSession"
+      ]
+    }
+  ]
+}

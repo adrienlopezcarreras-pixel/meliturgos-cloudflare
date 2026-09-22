@@ -1,0 +1,19 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "mel-browser31-smoke-preview",
+  "main": "smoke-worker.js",
+  "compatibility_date": "2026-09-22",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "services": [
+    {
+      "binding": "MEL_BROWSER_COMPANION",
+      "service": "mel-browser-companion-gen2-31-preview"
+    }
+  ],
+  "vars": {
+    "MEL_BROWSER_COMPANION_TIMEOUT_MS": 15000
+  }
+}

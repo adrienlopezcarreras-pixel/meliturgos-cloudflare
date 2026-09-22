@@ -10,7 +10,7 @@ const DEPLOY_PATTERN = /cloudflare\/wrangler-action|(^|\s)(npx\s+|pnpm\s+exec\s+
 
 function isIsolatedPreview(name, source) {
   if (name === 'deploy-candidate-preview.yml') return source.includes('--env preview');
-  if (['deploy-dreamina-preview.yml','deploy-memory-export-preview.yml','deploy-memory-sync-preview.yml'].includes(name)) {
+  if (['deploy-dreamina-preview.yml','deploy-memory-export-preview.yml','deploy-memory-sync-preview.yml','gen2-31-browser-live-preview.yml'].includes(name)) {
     return /--config\s+wrangler\.[A-Za-z0-9._-]*preview\.jsonc/.test(source);
   }
   return false;
