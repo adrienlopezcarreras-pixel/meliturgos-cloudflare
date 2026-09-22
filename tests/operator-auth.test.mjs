@@ -59,7 +59,7 @@ test('requireAuth distinguishes unconfigured auth from rejected credentials with
 });
 
 
-test('ephemeral release smoke auth is restricted to exact read-only verification routes plus POST /api/chat', () => {
+test('ephemeral release smoke auth is restricted to exact verification routes and bounded smoke entry points', () => {
   const token = 'b'.repeat(64);
   const env = {
     MELITURGOS_USER: 'adrien',
@@ -71,16 +71,22 @@ test('ephemeral release smoke auth is restricted to exact read-only verification
     'x-mel-launch-bootstrap': token,
   };
 
-  const chat = new Request('https://meliturgos.test/api/chat', {
-    method: 'POST',
-    headers: { ...headers, 'content-type': 'application/json' },
-    body: JSON.stringify({ text: 'lis src/index.js dans ton code' }),
-  });
-  assert.equal(isReleaseSmokeRequest(chat, env), true);
-  assert.equal(authorized(chat, env), true);
+  for (const [method,path,body] of [
+    ['POST','/api/chat', { text: 'lis src/index.js dans ton code' }],
+    ['POST','/api/gen2/capabilities/execute', { id:'echo', input:{ value:'release-observability-smoke' } }],
+  ]) {
+    const request = new Request('https://meliturgos.test' + path, {
+      method,
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    assert.equal(isReleaseSmokeRequest(request, env), true, method + ' ' + path);
+    assert.equal(authorized(request, env), true, method + ' ' + path);
+  }
 
   for (const path of [
     '/api/gen2/code/self-check',
+    '/api/gen2/readiness',
     '/api/memory/status',
     '/professor',
     '/normal-runtime.js',
@@ -95,7 +101,6 @@ test('ephemeral release smoke auth is restricted to exact read-only verification
     ['POST','/api/memory/status'],
     ['POST','/professor'],
     ['GET','/api/chat'],
-    ['POST','/api/gen2/capabilities/execute'],
     ['DELETE','/api/gen2/conversations'],
   ]) {
     const request = new Request('https://meliturgos.test' + path, { method, headers });

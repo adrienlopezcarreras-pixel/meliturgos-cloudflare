@@ -1,5 +1,5 @@
 import { conversationRoutes } from "./api/routes/conversations.js";
-import { requireAuth } from "./core/security.js";
+import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
 import { json, html } from "./core/http.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
@@ -58,6 +58,13 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
   if (path === "/api/gen2/capabilities/execute" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     if (!body?.id) return json({ error: "capability id required", code: "MISSING_CAPABILITY" }, 400);
+    if (isReleaseSmokeRequest(request, env) && String(body.id) !== "echo") {
+      return json({
+        error: "release smoke capability denied",
+        code: "RELEASE_SMOKE_CAPABILITY_DENIED",
+        allowed_capabilities: ["echo"],
+      }, 403);
+    }
     const runtime = createGen2Runtime({ env });
     const result = await runtime.bus.execute(String(body.id), body.input || {}, capabilityContext(env));
     return json({ ok: true, capability: body.id, result });

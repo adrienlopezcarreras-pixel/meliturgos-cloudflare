@@ -7,16 +7,40 @@ const SHA = 'b'.repeat(40);
 const BRANCH = 'release/mel-hardware-v0.1.0';
 
 function db() {
+  const auditRows = [];
   return {
     prepare(sql) {
       return {
-        bind() { return this; },
+        params: [],
+        bind(...params) { this.params = params; return this; },
         async first() {
           if (/COUNT\(\*\)/i.test(String(sql))) return { count: 3 };
           return null;
         },
-        async all() { return { results: [] }; },
-        async run() { return { success: true }; },
+        async all() {
+          if (/FROM\s+audit_logs/i.test(String(sql))) {
+            const since = Number(this.params[0]) || 0;
+            const limit = Number(this.params[1]) || 200;
+            return {
+              results: auditRows
+                .filter(row => Number(row.timestamp) >= since)
+                .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
+                .slice(0, limit),
+            };
+          }
+          return { results: [] };
+        },
+        async run() {
+          if (/INSERT\s+INTO\s+audit_logs/i.test(String(sql))) {
+            auditRows.push({
+              timestamp: this.params[0],
+              action: this.params[1],
+              path: this.params[2],
+              details_json: this.params[3],
+            });
+          }
+          return { success: true };
+        },
       };
     },
   };
@@ -111,7 +135,33 @@ test('MEL-REL-03 release token verifies Professor and canonical browser runtime 
   assert.match(js, /toggleVoice/);
 });
 
-test('MEL-REL-03 release token cannot authorize mutation endpoints', async () => {
+test('MEL-REL-03 release token runs only echo then exposes persisted observability metrics', async () => {
+  const runtimeEnv = env();
+  const echo = await worker.fetch(
+    smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id:'echo', input:{ value:'release-observability-smoke' } }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(echo.status, 200);
+  const echoBody = await echo.json();
+  assert.equal(echoBody.ok, true);
+  assert.equal(echoBody.capability, 'echo');
+  assert.equal(echoBody.result.value, 'release-observability-smoke');
+
+  const readiness = await worker.fetch(smokeRequest('/api/gen2/readiness'), runtimeEnv, {});
+  assert.equal(readiness.status, 200);
+  const body = await readiness.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.observability.query_ok, true);
+  assert.ok(body.observability.metrics.capability_events >= 1);
+  assert.ok(body.observability.metrics.succeeded >= 1);
+  assert.ok(body.dashboard.components.some(row => row.id === 'runtime_observability'));
+});
+
+test('MEL-REL-03 release token cannot use the generic capability route for anything except echo', async () => {
   const response = await worker.fetch(
     smokeRequest('/api/gen2/capabilities/execute', 'POST', {
       headers: { 'content-type': 'application/json' },
@@ -120,7 +170,8 @@ test('MEL-REL-03 release token cannot authorize mutation endpoints', async () =>
     env(),
     {},
   );
-  assert.equal(response.status, 401);
+  assert.equal(response.status, 403);
   const body = await response.json();
-  assert.equal(body.code, 'AUTH_REQUIRED');
+  assert.equal(body.code, 'RELEASE_SMOKE_CAPABILITY_DENIED');
+  assert.deepEqual(body.allowed_capabilities, ['echo']);
 });

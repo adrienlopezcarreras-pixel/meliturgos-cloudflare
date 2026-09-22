@@ -1,0 +1,62 @@
+name: release-observability-smoke-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/core/security.js'
+      - 'src/router.js'
+      - '.github/workflows/deploy-cloudflare-release.yml'
+      - 'tests/operator-auth.test.mjs'
+      - 'tests/release-production-smoke-routes.test.mjs'
+      - '.github/workflows/release-observability-smoke-ci.yml'
+  push:
+    branches:
+      - 'fix/release-observability-smoke'
+
+permissions:
+  contents: read
+
+jobs:
+  release-observability-targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs
+      - name: Syntax
+        run: >
+          node --check src/core/security.js &&
+          node --check src/router.js
+      - name: Targeted release observability tests
+        run: >
+          node --test
+          tests/operator-auth.test.mjs
+          tests/release-production-smoke-routes.test.mjs
+          tests/gen2/runtime-observability.test.mjs
+          tests/system-readiness.test.mjs
+
+  release-observability-full-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: release-observability-targeted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Repository syntax
+        run: npm run check
+      - name: Normalize branch for candidate-only integration tests
+        run: git switch -c candidate/release-observability-ci
+      - name: Full test suite
+        run: npm test
