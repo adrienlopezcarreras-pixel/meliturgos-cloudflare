@@ -204,14 +204,14 @@ test('unknown cost fails closed when zero-euro policy applies', async () => {
     providerId: 'unknown-provider',
     modelId: 'unknown-model',
     estimatedCost: null,
-    costProvenance: null,
+    costProvenance: verifiedFree('unknown', 'unknown-provider', 'unknown-model'),
   });
   const subject = council([unknown]);
 
   await assert.rejects(
     () => subject.run({ request: 'unknown cost', synthesize: false }),
     error => error.code === 'COUNCIL_NO_PROVIDER_AVAILABLE'
-      && error.excluded.some(row => row.provider === 'unknown-provider' && row.reason.startsWith('ZERO_EURO_'))
+      && error.excluded.some(row => row.provider === 'unknown-provider' && row.reason === 'ZERO_EURO_COST_UNKNOWN')
   );
 });
 
@@ -245,6 +245,38 @@ test('single surviving model gets an explicit SINGLE_SOURCE synthesis basis', as
   assert.equal(result.synthesis.status, 'COMPLETE');
   assert.equal(result.synthesis.basis, 'SINGLE_SOURCE');
   assert.equal(result.consensus.status, 'NOT_INFERRED');
+});
+
+test('MEL synthesis uses the same individual timeout policy and falls back to another provider', async () => {
+  const calls = [];
+  const subject = council([
+    provider({ id: 'slow-synth', providerId: 'alpha', modelId: 'm1', calls }),
+    provider({ id: 'fast-synth', providerId: 'beta', modelId: 'm2', calls }),
+  ], {
+    scheduler: new ParallelScheduler({ timeoutMs: 15, retries: 0 }),
+  });
+
+  const originalA = subject.pool.get('slow-synth').invoke;
+  subject.pool.get('slow-synth').invoke = async args => {
+    if (args.context?.purpose !== 'model-council-synthesis') return originalA(args);
+    calls.push({ id: 'slow-synth', providerId: 'alpha', modelId: 'm1', purpose: args.context.purpose, input: args.input });
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, 80);
+      args.signal?.addEventListener?.('abort', () => {
+        clearTimeout(timer);
+        reject(Object.assign(new Error('ABORTED'), { code: 'ABORTED' }));
+      }, { once: true });
+    });
+    return { text: 'late synthesis' };
+  };
+
+  const result = await subject.run({ request: 'synthesis timeout', minResponses: 2 });
+  assert.equal(result.critiques.length, 2);
+  assert.equal(result.synthesis.status, 'COMPLETE');
+  assert.equal(result.synthesis.provenance.provider, 'beta');
+  assert.equal(result.synthesis.failures.length, 1);
+  assert.equal(result.synthesis.failures[0].provider, 'alpha');
+  assert.match(result.synthesis.failures[0].code, /PROVIDER_TIMEOUT|ABORTED/);
 });
 
 test('canonical provenance cannot be spoofed by provider response payload', async () => {
