@@ -2,6 +2,7 @@ import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { buildContext } from '../core/orchestrator/context-builder.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { requireAuth, isReleaseSmokeRequest } from '../core/security.js';
+import { approvedCapabilitiesFromRequest } from '../security/approval-gates.js';
 import { ModelRouter, classifyTask, extractFinishReason, isTruncationFinishReason } from '../models/ModelRouter.js';
 import { ModelRegistry, standardRegistry } from '../models/ModelRegistry.js';
 import { buildMelIdentityPrompt } from '../identity/mel-persona.js';
@@ -435,10 +436,11 @@ export function createNativeModelRouter(env, inferenceSettings = null, activeAda
   });
 }
 
-function nativeCapabilityContext(env) {
+function nativeCapabilityContext(env, request = null) {
   return {
     owner: env.MELITURGOS_USER || 'owner',
     permissions: env.CAPABILITY_PERMISSIONS || [],
+    approvedCapabilities: approvedCapabilitiesFromRequest(request),
     requestId: crypto.randomUUID(),
   };
 }
@@ -584,7 +586,7 @@ export async function handleNativeChat(request, env, options = {}) {
 
   if (capability?.id) {
     try {
-      const result = await runtime.bus.execute(String(capability.id), capability.input || {}, nativeCapabilityContext(env));
+      const result = await runtime.bus.execute(String(capability.id), capability.input || {}, nativeCapabilityContext(env, request));
       toolResults.push({ capability: capability.id, status: 'SUCCEEDED', result: summarizeToolResult(result) });
       capabilitiesUsed.push(capability.id);
     } catch (error) {
