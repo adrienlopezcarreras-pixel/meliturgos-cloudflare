@@ -405,7 +405,7 @@ let canonicalRefreshTimer=setInterval(()=>{
   if(document.hidden)return;
   const active=document.querySelector('.view.active')?.dataset?.panel||'';
   if(active==='roadmap'){roadmapCache=null;loadRoadmap(true).catch(()=>{})}
-  if(active==='work')loadWork().catch?.(()=>{});
+  if(active==='work')loadWork().catch(()=>{});
   loadLearningProgress().catch(()=>{});
 },60000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadLearningProgress().catch(()=>{})});
