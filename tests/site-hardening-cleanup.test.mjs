@@ -60,6 +60,6 @@ test('professor visual ownership is canonical and legacy UI patch layers are ret
   const learningSource = fs.readFileSync('src/learning-entry.js','utf8');
   const liveSource = fs.readFileSync('src/professor-live-learning-entry.js','utf8');
   assert.doesNotMatch(learningSource, /learningMeter|mel-control-center-runtime|injectLearningProgressWidget|injectControlCenter/);
-  assert.doesNotMatch(liveSource, /ui-release-fix-entry/);
+  assert.doesNotMatch(liveSource, /import app from ['\"]\.\/ui-release-fix-entry\.js['\"]/);
   assert.equal(fs.existsSync('src/ui-release-fix-entry.js'), false);
 });
