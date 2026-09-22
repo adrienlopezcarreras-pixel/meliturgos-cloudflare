@@ -1,0 +1,45 @@
+name: gen2-36-platform-connectors-ci
+
+on:
+  push:
+    branches:
+      - 'candidate/gen2-36-*'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/capabilities/platform-read-capabilities.js'
+      - 'src/capabilities/default-bus.js'
+      - 'src/connectors/github.js'
+      - 'src/connectors/cloudflare.js'
+      - 'src/connectors/vercel.js'
+      - 'src/roadmap/master-roadmap.js'
+      - 'tests/gen2/platform-read-capabilities.test.mjs'
+      - '.github/workflows/gen2-36-platform-connectors-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Targeted GEN2-36 tests
+        run: node --test tests/gen2/platform-read-capabilities.test.mjs tests/connectors-security.test.mjs
+      - name: Syntax
+        run: npm run check
+      - name: Full test suite
+        run: npm test
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs

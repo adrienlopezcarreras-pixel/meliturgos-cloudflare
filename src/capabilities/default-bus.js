@@ -1,5 +1,6 @@
 import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
+import { registerPlatformReadCapabilities } from './platform-read-capabilities.js';
 import { registerWorkCapabilities } from './work-capabilities.js';
 import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
 import { registerComputerRuntimeCapabilities } from './computer-runtime-capabilities.js';
@@ -118,6 +119,11 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     token: githubToken,
     fetchImpl: githubFetch,
   });
+  registerPlatformReadCapabilities(bus, {
+    env: runtimeEnv,
+    repository: githubRepository,
+    fetchImpl: githubFetch,
+  });
 
   bus.discover({
     id: 'augmentio.fanout', name: '.augmentio multi-AI', category: 'orchestration', version: '0.3.0', provider: 'mel',
@@ -220,6 +226,8 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   }, async () => ({
     ai: Boolean(runtimeEnv.AI), db: Boolean(runtimeEnv.DB), media_bucket: Boolean(runtimeEnv.MEDIA_BUCKET),
     github_repository: githubRepository, github_branch: githubBranch,
+    cloudflare_control_configured: Boolean(runtimeEnv.CLOUDFLARE_API_TOKEN && runtimeEnv.CLOUDFLARE_ACCOUNT_ID),
+    vercel_control_configured: Boolean(runtimeEnv.VERCEL_TOKEN),
     owner_configured: Boolean(runtimeEnv.MELITURGOS_USER),
     browser_companion: Boolean(runtimeEnv.MEL_BROWSER_COMPANION?.fetch),
   }));

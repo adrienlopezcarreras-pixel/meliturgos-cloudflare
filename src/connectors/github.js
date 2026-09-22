@@ -8,8 +8,9 @@ export const definition = Object.freeze({
     "GITHUB_TOKEN"
   ],
   "capabilities": [
-    "github.repositories.read"
+    "github.repositories.read",
+    "github.actions.runs.read"
   ]
 });
-// TODO implement bounded read adapter via CapabilityBus; OAuth grant is external.
+// Runtime read adapters are registered through CapabilityBus; OAuth/API-token grant remains external.
 export const createConnector = options => new Connector(definition,options);
