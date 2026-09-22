@@ -82,6 +82,33 @@ async function sendCoverageManifest(snapshot=null){
   }catch(e){return{ok:false,error:e?.code||e?.message||'MEL_COVERAGE_FAILED'}}
 }
 
+async function queuePartialRecaptures(snapshot=null){
+  const s=snapshot||await state();
+  const queue=[...(s.queue||[])];
+  let added=0;
+  for(const [id,row] of Object.entries(s.partial||{})){
+    const partialMessages=Number(row?.messages||0);
+    const completedMessages=Number(s.done?.[id]?.messages||0);
+    if(s.done?.[id]&&partialMessages<=completedMessages)continue;
+    const url=norm(row?.url);
+    if(!url||s.unavailable?.[id])continue;
+    if(!queue.includes(url)){queue.push(url);added++}
+  }
+  if(!added)return s;
+  return save({queue});
+}
+async function reconcileCollectorProof(){
+  let s=await state();
+  if(s.deepDiscoveryDone===true)await sendCoverageManifest(s);
+  if(s.paused===true)return s;
+  if(s.running===true)return start();
+  s=await queuePartialRecaptures(s);
+  const needsDeepDiscovery=s.deepDiscoveryDone!==true;
+  const hasQueuedWork=Array.isArray(s.queue)&&s.queue.length>0;
+  if(needsDeepDiscovery||hasQueuedWork)return start();
+  return s;
+}
+
 async function ensureAttachmentBackfillQueue(snapshot=null){
   const s=snapshot||await state();
   if(s.deepDiscoveryDone!==true||s.attachmentBackfillVersion===ATTACHMENT_BACKFILL_VERSION)return s;
@@ -781,7 +808,9 @@ api.runtime.onMessage.addListener(async (msg,sender)=>{
     const result=await sendConversation(cap.conversation),s=await state(),sourceId=cap.conversation.id;
     const done={...(s.done||{}),[sourceId]:{url:norm(tab.url),title:cap.conversation.title,messages:cap.conversation.messages.length,importedAt:Date.now()}};
     const partial={...(s.partial||{})};delete partial[sourceId];
-    return save({done,partial,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),enrichedDuplicates:Number(s.enrichedDuplicates||0)+Number(result.enriched_duplicates||0)});
+    const saved=await save({done,partial,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),enrichedDuplicates:Number(s.enrichedDuplicates||0)+Number(result.enriched_duplicates||0)});
+    if(saved.deepDiscoveryDone===true)await sendCoverageManifest(saved);
+    return saved;
   }
   if(msg?.type==='mel.collector.auto-capture'&&msg.conversation){
     const c=await config();if(!c.continuous)return{ok:false,skipped:'CONTINUOUS_DISABLED'};
@@ -803,7 +832,8 @@ api.runtime.onMessage.addListener(async (msg,sender)=>{
         done[sourceId]=record;
         delete partial[sourceId];
       }
-      await save({done,partial,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),enrichedDuplicates:Number(s.enrichedDuplicates||0)+Number(result.enriched_duplicates||0)});
+      const saved=await save({done,partial,importedConversations:Object.keys(done).length,importedMessages:Number(s.importedMessages||0)+Number(result.inserted||0),duplicates:Number(s.duplicates||0)+Number(result.duplicates||0),enrichedDuplicates:Number(s.enrichedDuplicates||0)+Number(result.enriched_duplicates||0)});
+      if(saved.deepDiscoveryDone===true)await sendCoverageManifest(saved);
       return{ok:true,partial:partialCapture};
     }catch(e){await save({lastError:e?.code||e?.message||'AUTO_CAPTURE_FAILED'});return{ok:false,code:e?.code||e?.message||'AUTO_CAPTURE_FAILED'}}
   }
@@ -839,12 +869,15 @@ api.tabs.onUpdated.addListener(async (tabId,changeInfo,tab)=>{
   if(changed)await saveRunner({targets});
 });
 api.runtime.onStartup.addListener(async()=>{
-  const s=await state();
-  if(s.running&&!s.paused)start().catch(()=>{});
+  await reconcileCollectorProof().catch(()=>{});
   await pruneClosedRunnerTabs();
   await ensureRunnerAlarm();
   scheduleRunnerTick(3000);
 });
-if(api.runtime.onInstalled?.addListener)api.runtime.onInstalled.addListener(()=>{ensureRunnerAlarm().catch(()=>{});scheduleRunnerTick(3000)});
+if(api.runtime.onInstalled?.addListener)api.runtime.onInstalled.addListener(()=>{
+  reconcileCollectorProof().catch(()=>{});
+  ensureRunnerAlarm().catch(()=>{});
+  scheduleRunnerTick(3000);
+});
 if(api.alarms?.onAlarm?.addListener)api.alarms.onAlarm.addListener(alarm=>{if(alarm?.name===RUNNER_ALARM)runnerTick().catch(()=>{})});
 ensureRunnerAlarm().catch(()=>{});
