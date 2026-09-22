@@ -35,7 +35,7 @@ test('normal home UI remains available while v1 redirects to canonical Professor
   assert.match(mvp, /data-visual-owner="mel-normal-v3"/);
   assert.match(mvp, /id="melAvatar"/);
   assert.match(mvp, /id="full"/);
-  assert.match(mvp, /\/normal-runtime\.js\?v=6/);
+  assert.match(mvp, /\/normal-runtime\.js\?v=7/);
   assert.match(NORMAL_RUNTIME_SOURCE, /location\.href='\/professor'/);
   assert.doesNotMatch(mvp, /status:\s*308/);
   assert.match(v1, /status:\s*308/);
@@ -48,7 +48,7 @@ test('canonical full mode remains the contemporary control center wired at /prof
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
   assert.match(page, /Centre de contrôle/);
   assert.match(page, /data-panel="roadmap"/);
-  assert.match(page, /data-panel="work"/);
+  assert.match(page, /data-mode-panel="development" hidden/);
   assert.match(page, /data-panel="memory"/);
   assert.match(page, /data-panel="diagnostics"/);
   assert.match(page, /\/assets\/avatars\/mel-full\.webp/);
