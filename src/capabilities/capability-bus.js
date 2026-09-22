@@ -58,6 +58,9 @@ export class CapabilityBus {
     try {
       const observed = await entry.healthcheck();
       const status = typeof observed === 'string' ? observed : observed?.status;
+      const detail = typeof observed === 'object' && observed
+        ? String(observed.reason || observed.code || observed.detail || '').trim()
+        : '';
       entry.record.health = status === 'ONLINE' || status === 'HEALTHY'
         ? 'HEALTHY'
         : status === 'SAFE_IDLE' || status === 'PROTECTED'
@@ -65,11 +68,20 @@ export class CapabilityBus {
           : status === 'OFFLINE' || status === 'UNAVAILABLE'
             ? 'UNAVAILABLE'
             : 'DEGRADED';
-    } catch { entry.record.health = 'DEGRADED'; }
+      if (detail) entry.record.health_detail = detail.slice(0, 240);
+      else delete entry.record.health_detail;
+    } catch (error) {
+      entry.record.health = 'DEGRADED';
+      entry.record.health_detail = String(error?.code || error?.message || 'HEALTHCHECK_FAILED').slice(0, 240);
+    }
     return this.describe(id);
   }
   async refreshHealthAll() {
-    for (const id of this.records.keys()) await this.refreshHealth(id);
+    const ids = [...this.records.keys()];
+    const concurrency = 6;
+    for (let index = 0; index < ids.length; index += concurrency) {
+      await Promise.all(ids.slice(index, index + concurrency).map(id => this.refreshHealth(id)));
+    }
     return this.list();
   }
   enable(id, context) { authorize(['capabilities.manage'],context); this.records.get(this.describe(id).id).record.enabled = true; }

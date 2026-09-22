@@ -25,7 +25,7 @@ test('canonical Professor interface is self-contained HTML with chat and complet
   const html = await response.text();
   assert.match(html, /<!doctype html>/i);
   assert.match(html, /<title>Mode complet<\/title>/);
-  assert.match(html, /rel="icon" type="image\/svg\+xml"/);
+  assert.ok(html.includes('rel="icon" type="image/webp" href="/assets/avatars/mel-full.webp"'));
   assert.match(html, /id="chatlog"/);
   assert.match(html, /id="chatInput"/);
   assert.match(html, /id="chatSend"/);

@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-22.14';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-22.15';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -60,7 +60,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-MEM-01', 'Memory Compiler: faits, préférences, décisions, compétences', 'DONE_VERIFIED', 'Maintenir la déduplication canonique, la confiance sans boost de répétition et la provenance; memory.consolidate reste lecture/proposition uniquement', 'P0'),
     item('MEL-MEM-02', 'Synchronisation continue des nouveaux échanges vers la mémoire', 'PLANNED', 'Créer pipeline incrémental idempotent', 'P1'),
     item('MEL-MEM-03', 'Export mémoire portable et lisible', 'PARTIAL', 'Ajouter manifeste, checksums et version de schéma', 'P1'),
-    item('MEL-MEM-04', 'Complétude des archives ChatGPT récupérables', 'IN_PROGRESS', 'Preuve fail-closed renforcée: agrégat exhaustif sans plafond 2 000, reçu obligatoire par conversation, stocké >= attendu, inventaire Collector bidirectionnel et régression >2 000 validée; reste à obtenir full_archive_confirmed=true sur un inventaire profond réel avant DONE_VERIFIED', 'P0'),
+    item('MEL-MEM-04', 'Complétude des archives ChatGPT récupérables', 'DONE', 'Clôturé par décision owner le 22/09/2026 : l’archive serveur déjà importée est conservée et l’import manuel reste disponible; le Collector Firefox est retiré du parcours cible et aucune preuve Collector supplémentaire n’est requise.', 'P0'),
     item('MEL-MEM-05', 'Indexation complète messages et pièces jointes', 'IN_PROGRESS', 'Collector 0.6.3 + importeur: messages fichier-seul, descripteurs recherchables et backfill historique idempotent des doublons validés par CI. Reste l’indexation du contenu binaire uniquement pour les pièces jointes dont les octets réels peuvent être récupérés, puis une exécution complète du backfill sur l’archive réelle.', 'P0'),
     item('MEL-MEM-06', 'Pont archives vers mémoire opérationnelle unifiée', 'DONE_VERIFIED', 'MemoryService.retrieve unifie mémoire cognitive, archives ChatGPT, titres de conversations et knowledge artifacts avec provenance, déduplication et top-k borné; conversation-context utilise ce pont. Syntaxe globale + 28/28 tests ciblés validés sur l’intégration actuelle.', 'P0'),
     item('MEL-MEM-07', 'Recherche mémoire hybride sémantique, exacte et filtrable', 'DONE_VERIFIED', 'Recherche exacte + lexicale + sémantique opt-in, filtres date/projet/conversation/source/type de fichier/rôle, fusion et reranking, provenance conservée et fallback lexical si le provider sémantique échoue; validation 28/28 tests ciblés.', 'P0'),
