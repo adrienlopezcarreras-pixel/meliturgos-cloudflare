@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'src/models/model-council.js'
+      - 'src/roadmap/master-roadmap.js'
+      - 'tests/gen2/workers-ai-zero-cost-proof.test.mjs'
+      - 'src/augmentio/workers-ai-zero-cost-proof.js'
+      - 'src/augmentio/default-pool.js'
       - 'tests/gen2/model-council-runtime.test.mjs'
       - '.github/workflows/gen2-05-model-council-ci.yml'
   push:
@@ -37,6 +41,7 @@ jobs:
         run: >
           node --test
           tests/gen2/model-council-runtime.test.mjs
+          tests/gen2/workers-ai-zero-cost-proof.test.mjs
           tests/augmentio-adapters.test.mjs
           tests/augmentio-core.test.mjs
           tests/augmentio-council.test.mjs

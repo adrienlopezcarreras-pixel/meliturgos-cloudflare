@@ -2,6 +2,7 @@ import { ProviderPool } from './provider-pool.js';
 import { createWorkersAIAdapter } from './workers-ai-adapter.js';
 import { ZERO_EURO_POLICY } from './zero-euro-governor.js';
 import { standardRegistry } from '../models/ModelRegistry.js';
+import { workersAiRuntimeZeroCostProvenance } from './workers-ai-zero-cost-proof.js';
 
 function testOnlyVerifiedFreeProvenance({ adapterId, modelId }) {
   // CI/unit tests use mocked providers and make no external billable calls.
@@ -42,6 +43,7 @@ export function createDefaultAugmentioPool(env, { registry = standardRegistry } 
         estimatedCost: model.cost ?? null,
         costProvenance: model.costProvenance
           ?? model.cost_provenance
+          ?? workersAiRuntimeZeroCostProvenance(env, { adapterId, modelId })
           ?? testOnlyVerifiedFreeProvenance({ adapterId, modelId }),
         concurrency: model.concurrency || 2,
       });
