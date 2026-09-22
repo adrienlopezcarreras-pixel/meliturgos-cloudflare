@@ -22,7 +22,7 @@ export function validateLearningHandoff(handoff = {}) {
 }
 
 export async function ingestValidatedHandoffs({ handoffs = [], learningEngine } = {}) {
-  if (!learningEngine || typeof learningEngine.recordCorrection !== 'function' || typeof learningEngine.corrections !== 'function') {
+  if (!learningEngine || typeof learningEngine.corrections !== 'function' || !learningEngine.memory?.remember) {
     throw new Error('LEARNING_ENGINE_REQUIRED');
   }
   const existing = await learningEngine.corrections({ limit: null });
@@ -47,8 +47,18 @@ export async function ingestValidatedHandoffs({ handoffs = [], learningEngine } 
       sha: String(handoff.provenance.sha),
       commit: handoff.provenance.commit ? String(handoff.provenance.commit) : null,
     });
-    const row = createCorrectionRecord({ ...xp, metadata: { ...(xp.metadata || {}), handoff_provenance: provenance } });
-    await learningEngine.recordCorrection({ ...row, handoff_provenance: provenance });
+    const row = createCorrectionRecord(xp);
+    await learningEngine.memory.remember({
+      id: `correction:${row.id}`,
+      goal: row.task || row.input,
+      kind: 'TEACHER_CORRECTION',
+      lesson: row.rationale,
+      evidence: { ...row, handoff_provenance: provenance },
+      outcome: 'SUCCEEDED',
+      score: row.quality,
+      tags: ['learning', 'correction', 'handoff', row.domain, ...row.tags].slice(0, 20),
+      created_at: row.created_at,
+    });
     ids.add(xp.id);
     meanings.add(meaning);
     result.accepted.push({ id: xp.id, provenance });
