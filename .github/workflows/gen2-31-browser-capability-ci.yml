@@ -58,7 +58,11 @@ jobs:
           # One legacy self-dev invariant hardcodes candidate/mel-clean-autonomy as
           # the outer local branch. Rename only the ephemeral runner branch so the
           # invariant tests branch preservation rather than GitHub ref naming.
-          git branch -m candidate/mel-clean-autonomy
+          if git symbolic-ref -q HEAD >/dev/null; then
+            git branch -m candidate/mel-clean-autonomy
+          else
+            git switch -c candidate/mel-clean-autonomy
+          fi
           set +e
           npm test 2>&1 | tee gen2-31-full-test.log
           code=${PIPESTATUS[0]}
