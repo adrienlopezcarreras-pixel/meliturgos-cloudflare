@@ -74,21 +74,31 @@ export class CapabilityBus {
   }
   enable(id, context) { authorize(['capabilities.manage'],context); this.records.get(this.describe(id).id).record.enabled = true; }
   disable(id, context) { authorize(['capabilities.manage'],context); this.records.get(this.describe(id).id).record.enabled = false; }
-  async execute(id, input, context) {
+  async execute(id, input, context = {}) {
     const entry = this.records.get(id); requireValue(entry, 'CAPABILITY_NOT_FOUND', 404);
-    if (entry.healthcheck) await this.refreshHealth(id);
-    const record = this.describe(id);
-    requireValue(record.enabled, 'CAPABILITY_DISABLED', 409);
-    requireValue(record.health !== 'UNAVAILABLE', 'CAPABILITY_UNAVAILABLE', 503);
-    authorize(record.permissions,context);
-    const event = {id: crypto.randomUUID(), capability: id, owner: context.owner, requestId: context.requestId};
+    const event = {
+      id: crypto.randomUUID(),
+      capability: id,
+      owner: context?.owner || null,
+      requestId: context?.requestId || null,
+    };
+    let record;
     try {
+      if (entry.healthcheck) await this.refreshHealth(id);
+      record = this.describe(id);
+      requireValue(record.enabled, 'CAPABILITY_DISABLED', 409);
+      requireValue(record.health !== 'UNAVAILABLE', 'CAPABILITY_UNAVAILABLE', 503);
+      authorize(record.permissions,context);
       assertCapabilityApproval(record, context);
+      validate(input,record.input_schema);
     } catch (error) {
-      await this.audit({...event,status:'DENIED',reason:error?.code || 'EXPLICIT_APPROVAL_REQUIRED'});
+      await this.audit({
+        ...event,
+        status:'DENIED',
+        reason:String(error?.code || error?.message || 'CAPABILITY_PREFLIGHT_DENIED').slice(0,120),
+      });
       throw error;
     }
-    validate(input,record.input_schema);
     const startedAt = Date.now();
     await this.audit({...event,status:'STARTED'});
     try {
