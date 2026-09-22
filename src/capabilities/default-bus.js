@@ -14,7 +14,7 @@ import { getRoadmapPayload } from '../roadmap/master-roadmap.js';
 import { normalizeChatGPTArchive } from '../persistence/chatgpt-archive-importer.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { runAugmentioStateOfPlay } from '../teachers/augmentio-council.js';
-import { runModelCouncil } from '../models/model-council.js';
+import { inspectModelCouncilZeroEuroReadiness, runModelCouncil } from '../models/model-council.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
 
@@ -178,7 +178,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     description: 'Collects one independent critique per unique provider/model through the zero-euro pool, then runs a separate MEL synthesis.',
     input_schema: modelCouncilInputSchema,
     output_schema: { type: 'object', additionalProperties: true },
-    risk: 'LOW', permissions: [], health: 'DEGRADED', healthcheck: zeroCostHealth(runtimeEnv, 2), enabled: true
+    risk: 'LOW', permissions: [], health: 'DEGRADED', healthcheck: async () => inspectModelCouncilZeroEuroReadiness(runtimeEnv, { capability: 'GENERAL', minimum: 2 }), enabled: true
   }, async (input, context = {}) => {
     if (!runtimeEnv.AI) throw capabilityError('AI_BINDING_MISSING');
     return runModelCouncil({
