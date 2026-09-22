@@ -52,7 +52,14 @@ test('active tree no longer carries historical worker snapshots', () => {
   assert.equal(fs.existsSync('worker.js.mvp-fix-20260908-195049'), false);
 });
 
-test('release fix does not import unused HD background tone metadata', () => {
-  const source = fs.readFileSync('src/ui-release-fix-entry.js','utf8');
-  assert.doesNotMatch(source, /HD_BACKGROUND_TONES/);
+test('professor visual ownership is canonical and legacy UI patch layers are retired', async () => {
+  const html = await (await fullPage({ env:{}, request:new Request('https://audit.local/professor'), params:{} })).text();
+  assert.match(html, /id="learningMeter"/);
+  assert.match(html, /id="mel-control-center-runtime"/);
+  assert.match(html, /\/assets\/avatars\/mel-full\.webp/);
+  const learningSource = fs.readFileSync('src/learning-entry.js','utf8');
+  const liveSource = fs.readFileSync('src/professor-live-learning-entry.js','utf8');
+  assert.doesNotMatch(learningSource, /learningMeter|mel-control-center-runtime|injectLearningProgressWidget|injectControlCenter/);
+  assert.doesNotMatch(liveSource, /ui-release-fix-entry/);
+  assert.equal(fs.existsSync('src/ui-release-fix-entry.js'), false);
 });
