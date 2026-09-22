@@ -17,7 +17,7 @@ export async function onRequestGet() {
   const body = `<!doctype html>
 <html lang="fr" data-theme="classic" data-visual-owner="mel-normal-v3"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>MEL</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Crect width=%2264%22 height=%2264%22 rx=%2216%22 fill=%22%2307111f%22/%3E%3Ccircle cx=%2232%22 cy=%2234%22 r=%2219%22 fill=%22%23edc6aa%22/%3E%3Cpath d=%22M13 33c1-19 10-27 20-27 13 0 21 10 20 29-5-9-10-14-22-15-7 0-13 4-18 13Z%22 fill=%22%23261b22%22/%3E%3Ccircle cx=%2225%22 cy=%2234%22 r=%222.4%22 fill=%22%235aa7ff%22/%3E%3Ccircle cx=%2239%22 cy=%2234%22 r=%222.4%22 fill=%22%235aa7ff%22/%3E%3Cpath d=%22M25 45c4 3 10 3 14 0%22 fill=%22none%22 stroke=%22%23a24c62%22 stroke-width=%222.2%22 stroke-linecap=%22round%22/%3E%3C/svg%3E">
+<link rel="icon" type="image/webp" href="/assets/avatars/mel-full.webp"><link rel="apple-touch-icon" href="/assets/avatars/mel-full.webp">
 <style id="mel-normal-v3-style">
 *{box-sizing:border-box}.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}:root{--bg:#08111f;--text:#fff;--ink:#fff;--muted:#94a3b8;--panel:#d8c08b;--panel2:#c9ad72;--composer:#e6d4ad;--border:#6b4623;--accent:#7a2722;--accent2:#4d1715;--button:#4b2d20;--button-text:#f8e9c2;--radius:12px;--font:Georgia,'Times New Roman',serif;--mel-bg:none;--mel-overlay:linear-gradient(180deg,rgba(7,10,16,.03),rgba(7,10,16,.30));--ornament:#9c742f;--avatar-pos:center 23%}
 ${themeCss}
