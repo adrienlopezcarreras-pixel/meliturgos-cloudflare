@@ -286,11 +286,10 @@ async function operatorLoraPrepareResponse(request, env) {
 }
 
 /**
- * Normal mode historically accumulated visual patches in ui-entry and
- * ui-release-fix-entry before the canonical theme enhancer ran. Strip only
- * those presentation-only layers at the final edge; functional cleanup and
- * cache scripts remain intact. This makes theme-avatar-enhancer the sole
- * visual owner of normal mode without rewriting lower runtime behavior.
+ * Compatibility helper for retired normal-mode presentation layers.
+ * The canonical normal page owns its visuals; this helper removes only known
+ * historical style/runtime ids when explicitly invoked by legacy tests or
+ * callers and does not own current page rendering.
  */
 export async function stripLegacyNormalVisualLayers(response) {
   if (!(response instanceof Response)) return response;
