@@ -56,7 +56,7 @@ async function runnerState(){const x=await api.storage.local.get('melRunnerState
 async function saveRunner(p){const n={...(await runnerState()),...p,updatedAt:Date.now()};await api.storage.local.set({melRunnerState:n});return n}
 async function config(){const x=await api.storage.local.get('melCollectorConfig'),c=x.melCollectorConfig||{};return{endpoint:String(c.endpoint||'https://meliturgos.adrien-lopezcarreras.workers.dev').replace(/\/$/,''),username:String(c.username||''),password:String(c.password||''),continuous:c.continuous!==false,ecoMode:c.ecoMode!==false,delayMs:Math.max(8000,Math.min(60000,Number(c.delayMs)||30000))}}
 function auth(u,p){return 'Basic '+btoa(unescape(encodeURIComponent(`${u}:${p}`)))}
-const COLLECTOR_VERSION='0.6.3';
+const COLLECTOR_VERSION='0.6.4';
 const ATTACHMENT_BACKFILL_VERSION='chatgpt-attachments-v1';
 function coverageItemsFromState(s){
   const byId=new Map();
