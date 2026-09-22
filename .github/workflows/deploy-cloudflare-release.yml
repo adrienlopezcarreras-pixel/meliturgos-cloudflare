@@ -238,7 +238,8 @@ jobs:
             exit 31
           fi
 
-          SEARCH_CODE="$(curl --silent --show-error --max-time 120 \            --header "x-mel-release-smoke: 1" \
+          SEARCH_CODE="$(curl --silent --show-error --max-time 120 \
+            --header "x-mel-release-smoke: 1" \
             --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
             --header "content-type: application/json" \
             --data '{"text":"cherche dans ton code \"release-launch-bootstrap\"","conversation_id":"release-smoke-code-search"}' \
@@ -251,7 +252,8 @@ jobs:
             exit 32
           fi
 
-          EXPECTED_SHA="$EXPECTED_SHA" RELEASE_BRANCH="$RELEASE_BRANCH" node - <<'NODE'          const fs=require('fs');
+          EXPECTED_SHA="$EXPECTED_SHA" RELEASE_BRANCH="$RELEASE_BRANCH" node - <<'NODE'
+          const fs=require('fs');
           const read=JSON.parse(fs.readFileSync('production-code-read-smoke.json','utf8'));
           const search=JSON.parse(fs.readFileSync('production-code-search-smoke.json','utf8'));
           const assertTool=(body,id)=>{
