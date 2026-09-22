@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MEL ChatGPT Collector",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Collecte ChatGPT vers MEL avec preuve de couverture, métadonnées de pièces jointes, backfill historique idempotent après collecte primaire et runner GPT asynchrone.",
   "permissions": [
     "storage",

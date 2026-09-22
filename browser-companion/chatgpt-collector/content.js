@@ -205,7 +205,7 @@
         messages,
         collector:{
           source:'firefox_dom',
-          version:'0.6.3',
+          version:'0.6.4',
           url:convUrl(),
           totalMessages,
           partial:tailLimit > 0
