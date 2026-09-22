@@ -7,9 +7,6 @@ import { withConversationArchive } from '../src/conversations/intercept.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import worker from '../src/index.js';
 import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
-import { composeProfessorEnhancements } from '../src/pages/mvp-behavior-enhancer.js';
-import { FULL_MODE_CONTROL_PATCH } from '../src/pages/full-mode-control-enhancer.js';
-import { WORK_TRUTH_PATCH } from '../src/pages/work-truth-enhancer.js';
 
 async function canonicalProfessorHtml() {
   const response = await professorPage({});
@@ -45,7 +42,7 @@ test('normal MEL surface remains available and loads the external canonical cont
   assert.match(html, /<title>MEL<\/title>/);
   assert.match(html, /id="melAvatar"/);
   assert.match(html, /id="full"/);
-  assert.match(html, /<script src="\/normal-runtime\.js\?v=5" defer><\/script>/);
+  assert.match(html, /<script src="\/normal-runtime\.js\?v=6" defer><\/script>/);
   assert.doesNotMatch(html, /id="mel-normal-v3-runtime"/);
   assert.match(html, /data-mel-theme-choice="classic"/);
   assert.match(html, /data-mel-avatar="\/assets\/avatars\/mel-classic\.webp"/);
@@ -57,16 +54,20 @@ test('normal MEL surface remains available and loads the external canonical cont
   assert.match(NORMAL_RUNTIME_SOURCE, /conversationId=String\(d\.conversation\.id\);localStorage\.setItem\('mel\.conversation',conversationId\)/);
 });
 
-test('Professor enhancement pipeline is single-pass and idempotent', async () => {
+test('Professor uses one canonical functional owner without response-time patch stacking', async () => {
   const html = await canonicalProfessorHtml();
-  const enhanced = composeProfessorEnhancements(html);
-  for (const marker of ['mel-full-control-runtime','mel-roadmap-live-refresh-runtime','mel-work-truth-runtime']) {
-    assert.equal((enhanced.match(new RegExp(marker, 'g')) || []).length, 1, marker);
+  const [indexSource, learningEntry] = await Promise.all([
+    readFile(new URL('../src/index.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8'),
+  ]);
+  for (const marker of ['mel-full-control-runtime','mel-roadmap-live-refresh-runtime','mel-work-truth-runtime','mel-professor-live-learning-runtime']) {
+    assert.doesNotMatch(html, new RegExp(marker));
   }
-  assert.equal(composeProfessorEnhancements(enhanced), enhanced);
-  assert.match(FULL_MODE_CONTROL_PATCH, /loadControlState\(\);activityTimer=setInterval/);
-  assert.doesNotMatch(FULL_MODE_CONTROL_PATCH, /loadActivity\(\);activityTimer=setInterval/);
-  assert.match(WORK_TRUTH_PATCH, /if\(panel\.classList\.contains\('active'\)\)refresh\(\);/);
+  assert.doesNotMatch(indexSource, /mvp-behavior-enhancer|enhanceMvpBehavior/);
+  assert.doesNotMatch(learningEntry, /PROFESSOR_LIVE_LEARNING_PATCH|enhanceProfessorLearning/);
+  for (const id of ['melFullMax','melFullCycle','melFullStop','melFullActivity','melRunBenchmark','melPrepareLora']) {
+    assert.match(html, new RegExp('id="' + id + '"'));
+  }
 });
 
 test('canonical Professor keeps chat in the same control surface and sends through /api/chat', async () => {
