@@ -14,7 +14,7 @@ test('normal public MEL entry remains self-contained and links to canonical /pro
   assert.match(html, /<title>MEL<\/title>/);
   assert.match(html, /id="melAvatar"/);
   assert.match(html, /id="full"/);
-  assert.match(html, /\/normal-runtime\.js\?v=5/);
+  assert.match(html, /\/normal-runtime\.js\?v=6/);
   assert.match(NORMAL_RUNTIME_SOURCE, /location\.href='\/professor'/);
 });
 
@@ -25,7 +25,7 @@ test('canonical Professor interface is self-contained HTML with chat and complet
   const html = await response.text();
   assert.match(html, /<!doctype html>/i);
   assert.match(html, /<title>Mode complet<\/title>/);
-  assert.match(html, /rel="icon"[^>]+\/assets\/avatars\/mel-full\.webp/);
+  assert.match(html, /rel="icon" type="image\/svg\+xml"/);
   assert.match(html, /id="chatlog"/);
   assert.match(html, /id="chatInput"/);
   assert.match(html, /id="chatSend"/);
