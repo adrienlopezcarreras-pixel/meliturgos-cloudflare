@@ -51,7 +51,7 @@ test('canonical full mode remains the contemporary control center wired at /prof
   assert.match(page, /data-panel="work"/);
   assert.match(page, /data-panel="memory"/);
   assert.match(page, /data-panel="diagnostics"/);
-  assert.match(page, /meliturgos-avatar-fille\.png/);
+  assert.match(page, /\/assets\/avatars\/mel-full\\.webp/);
   assert.doesNotMatch(page, /data-mel-theme-choice/);
   assert.match(router, /handleFullModeV2/);
   assert.match(router, /url\.pathname === "\/professor"/);
