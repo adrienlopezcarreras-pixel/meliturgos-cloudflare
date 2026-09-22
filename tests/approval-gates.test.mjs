@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { createGen2Runtime } from '../src/core/orchestrator/gen2-runtime.js';
 import {
   approvedCapabilitiesFromRequest,
   assertCapabilityApproval,
@@ -68,4 +69,18 @@ test('WORK-03 central step approvals remain exact to session, step and action', 
   assert.equal(stepApprovalMatches(approvals, 'session-2', { id:'step-1', action:'keyboard.type' }), false);
   assert.equal(stepApprovalMatches(approvals, 'session-1', { id:'step-2', action:'keyboard.type' }), false);
   assert.equal(stepApprovalMatches(approvals, 'session-1', { id:'step-1', action:'app.open' }), false);
+});
+
+
+test('MEL-WORK-03 real conversation.archive capability declares the central explicit approval policy', () => {
+  const runtime = createGen2Runtime({ env:{} });
+  const record = runtime.bus.describe('conversation.archive');
+  const contract = runtime.bus.contract('conversation.archive');
+  assert.deepEqual(record.approval, {
+    required:true,
+    scope:'conversation.archive',
+    reason:'ARCHIVE_MUTATION',
+  });
+  assert.equal(contract.explicit_approval_gate, true);
+  assert.equal(contract.approval_policy_valid, true);
 });
