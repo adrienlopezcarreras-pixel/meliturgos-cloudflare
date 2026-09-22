@@ -163,7 +163,7 @@ export default {
     const auth = requireAuth(request, env);
     if (!auth.ok) return auth.response;
     if (request.method === "GET" && url.pathname === "/sw.js") return new Response(SERVICE_WORKER_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" } });
-    if (request.method === "GET" && url.pathname === "/normal-runtime.js") return new Response(NORMAL_RUNTIME_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-store, no-cache, must-revalidate" } });
+    if (request.method === "GET" && url.pathname === "/normal-runtime.js") return new Response(NORMAL_RUNTIME_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=86400, stale-while-revalidate=604800" } });
     if (!isDevBridge) {
       const devResponse = devRuntime(request, env);
       if (devResponse) return await devResponse;
