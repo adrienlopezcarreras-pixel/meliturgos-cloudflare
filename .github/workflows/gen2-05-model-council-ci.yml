@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'src/models/model-council.js'
+      - 'tests/gen2/model-council-capability.test.mjs'
+      - 'src/index.js'
+      - 'src/capabilities/default-bus.js'
       - 'tests/gen2/model-council-runtime.test.mjs'
       - '.github/workflows/gen2-05-model-council-ci.yml'
   push:
@@ -36,6 +39,7 @@ jobs:
       - name: Council and adjacent targeted tests
         run: >
           node --test
+          tests/gen2/model-council-capability.test.mjs
           tests/gen2/model-council-runtime.test.mjs
           tests/augmentio-adapters.test.mjs
           tests/augmentio-core.test.mjs
