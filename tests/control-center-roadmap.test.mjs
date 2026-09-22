@@ -36,11 +36,12 @@ test('canonical control center exposes one Work, roadmap, diagnostics, multi-AI 
   const page = await response.text();
   const router = await readFile(new URL('../src/router.js', import.meta.url), 'utf8');
   assert.match(page, /Mode complet/);
-  assert.match(page, /Multi-IA/);
+  assert.match(page, /IA & Développement/);
   assert.match(page, /Work/);
   assert.match(page, /Feuille de route/);
   assert.match(page, /Diagnostic/);
-  assert.match(page, /\.augmentio & Council/);
+  assert.match(page, /id="melUnifiedTabs"/);
+  assert.match(page, /data-mode-panel="development" hidden/);
   assert.match(page, /\/api\/gen2\/roadmap/);
   assert.match(page, /\/api\/gen2\/code\/self-check/);
   assert.doesNotMatch(page, /Ouvrir l’ancien Professeur|href="\/professor-legacy"/);
