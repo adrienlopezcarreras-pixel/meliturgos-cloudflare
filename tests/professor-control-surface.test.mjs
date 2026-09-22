@@ -66,23 +66,25 @@ test('every API path called by canonical Professor is implemented in the active 
   assert.ok(router.includes('/professor-legacy'), 'legacy bookmark redirect is missing');
 });
 
-test('injected learning controls are wired to authenticated Worker endpoints without duplicate benchmark ids', async () => {
-  const [entry, actions] = await Promise.all([
+test('canonical learning controls are wired to authenticated Worker endpoints', async () => {
+  const [page, entry, actions] = await Promise.all([
+    read('src/pages/full-interface-v2.js'),
     read('src/professor-live-learning-entry.js'),
     read('src/learning/operator-actions.js'),
   ]);
   for (const id of ['melRunBenchmark', 'melPrepareLora', 'melLearningActionState']) {
-    assert.ok(entry.includes(id), `missing injected control ${id}`);
+    assert.ok(page.includes(id), `missing canonical control ${id}`);
   }
   for (const path of ['/api/learning/benchmark/run', '/api/learning/lora/prepare']) {
+    assert.ok(page.includes(path), `canonical page missing learning action ${path}`);
     assert.ok(entry.includes(path), `missing learning endpoint ${path}`);
   }
   assert.ok(entry.includes('requireAuth(request, env)'), 'learning operator routes must remain authenticated');
+  assert.ok(!entry.includes('PROFESSOR_LIVE_LEARNING_PATCH'), 'learning entry must not rewrite Professor HTML');
   assert.ok(actions.includes('runLearningBenchmark'), 'benchmark action must execute the benchmark suite');
   assert.ok(actions.includes('recordBenchmark'), 'benchmark action must persist evidence');
   assert.ok(actions.includes('prepareLora'), 'LoRA action must build the persisted plan');
   assert.ok(actions.includes("available: false"), 'LoRA control must not pretend an external trainer exists');
-  assert.ok(!entry.includes("['Benchmark','learnBenchmark']"), 'live learning patch must reuse the base benchmark row instead of duplicating its id');
 });
 
 test('Professor Work routes remain usable with owner auth while privileged bridge routes keep bridge-token protection', async () => {
@@ -98,17 +100,19 @@ test('Professor Work routes remain usable with owner auth while privileged bridg
   assert.ok(index.includes('requireAuth(request, env)'), 'owner Work route must retain owner authentication');
 });
 
-test('manual autonomy control is canonical in the top Professor controls and uses real authenticated endpoints', async () => {
-  const [ui, controls, autonomy] = await Promise.all([
-    read('src/ui-entry.js'),
-    read('src/pages/full-mode-control-enhancer.js'),
+test('manual autonomy control is canonical in Professor and uses real authenticated endpoints', async () => {
+  const [page, index, autonomy] = await Promise.all([
+    read('src/pages/full-interface-v2.js'),
+    read('src/index.js'),
     read('src/evolution/autonomy-api.js'),
   ]);
-  assert.ok(controls.includes('/api/gen2/autonomy/state'), 'canonical activity panel must read autonomy state');
-  assert.ok(controls.includes('/api/gen2/autonomy/tick'), 'top control must execute the autonomy tick');
-  assert.ok(controls.includes('id="melFullCycle"'), 'canonical top cycle button is missing');
-  assert.ok(!ui.includes('/api/gen2/autonomy/state'), 'API entry layer must not own a second live autonomy reader');
-  assert.ok(!ui.includes('/api/gen2/autonomy/tick'), 'API entry layer must not expose a second cycle actuator');
+  for (const path of ['/api/gen2/autonomy/state','/api/gen2/autonomy/tick','/api/gen2/autonomy/max','/api/gen2/autonomy/pause','/api/gen2/autonomy/resume']) {
+    assert.ok(page.includes(path), `canonical Professor missing ${path}`);
+  }
+  for (const id of ['melFullMax','melFullCycle','melFullStop','melFullActivity']) {
+    assert.ok(sourceHasHtmlId(page,id), `canonical top control missing ${id}`);
+  }
+  assert.ok(!index.includes('mvp-behavior-enhancer'), 'hot path must not inject a second Professor controller');
   for (const path of ['/api/gen2/autonomy/state', '/api/gen2/autonomy/tick']) {
     assert.ok(autonomy.includes(path), `autonomy backend missing ${path}`);
   }
