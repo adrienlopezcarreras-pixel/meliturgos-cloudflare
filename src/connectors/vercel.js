@@ -9,8 +9,9 @@ export const definition = Object.freeze({
   ],
   "capabilities": [
     "vercel.projects.read",
-    "vercel.deployments.read"
+    "vercel.deployments.read",
+    "vercel.deployments.redeploy"
   ]
 });
-// Runtime read adapters are registered through CapabilityBus; API-token grant remains external.
+// Runtime read/control adapters are registered through CapabilityBus; redeploy mutation requires exact owner approval and one configured project.
 export const createConnector = options => new Connector(definition,options);

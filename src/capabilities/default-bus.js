@@ -1,6 +1,7 @@
 import { CapabilityBus } from './capability-bus.js';
 import { registerGitHubCodeCapabilities } from './github-code-capabilities.js';
 import { registerPlatformReadCapabilities } from './platform-read-capabilities.js';
+import { registerPlatformControlCapabilities } from './platform-control-capabilities.js';
 import { registerWorkCapabilities } from './work-capabilities.js';
 import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
 import { registerComputerRuntimeCapabilities } from './computer-runtime-capabilities.js';
@@ -125,6 +126,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   const githubBranch = branch || deployedBranch || runtimeEnv.MEL_GITHUB_BRANCH || DEFAULT_BRANCH;
   const githubToken = token ?? runtimeEnv.MEL_GITHUB_TOKEN ?? '';
   const githubFetch = fetchImpl || runtimeEnv.MEL_GITHUB_FETCH || fetch;
+  const platformFetch = fetchImpl || runtimeEnv.MEL_PLATFORM_FETCH || fetch;
   registerGitHubCodeCapabilities(bus, {
     repository: githubRepository,
     branch: githubBranch,
@@ -135,7 +137,12 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   registerPlatformReadCapabilities(bus, {
     env: runtimeEnv,
     repository: githubRepository,
-    fetchImpl: githubFetch,
+    fetchImpl: platformFetch,
+  });
+  registerPlatformControlCapabilities(bus, {
+    env: runtimeEnv,
+    repository: githubRepository,
+    fetchImpl: platformFetch,
   });
 
   bus.discover({
@@ -257,8 +264,9 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   }, async () => ({
     ai: Boolean(runtimeEnv.AI), db: Boolean(runtimeEnv.DB), media_bucket: Boolean(runtimeEnv.MEDIA_BUCKET),
     github_repository: githubRepository, github_branch: githubBranch,
-    cloudflare_control_configured: Boolean(runtimeEnv.CLOUDFLARE_API_TOKEN && runtimeEnv.CLOUDFLARE_ACCOUNT_ID),
-    vercel_control_configured: Boolean(runtimeEnv.VERCEL_TOKEN),
+    github_control_configured: Boolean(runtimeEnv.MEL_GITHUB_TOKEN && runtimeEnv.MEL_GITHUB_WRITABLE_WORKFLOWS),
+    cloudflare_control_configured: Boolean(runtimeEnv.CLOUDFLARE_API_TOKEN && runtimeEnv.CLOUDFLARE_ACCOUNT_ID && runtimeEnv.MEL_CLOUDFLARE_SCRIPT),
+    vercel_control_configured: Boolean(runtimeEnv.VERCEL_TOKEN && runtimeEnv.MEL_VERCEL_PROJECT_ID && runtimeEnv.MEL_VERCEL_PROJECT_NAME),
     owner_configured: Boolean(runtimeEnv.MELITURGOS_USER),
     browser_companion: Boolean(runtimeEnv.MEL_BROWSER_COMPANION?.fetch),
   }));
