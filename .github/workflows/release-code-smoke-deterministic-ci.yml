@@ -1,0 +1,28 @@
+name: release code smoke deterministic CI
+
+on:
+  push:
+    branches:
+      - 'fix/release-code-smoke-deterministic-20260922'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: node --test tests/operator-auth.test.mjs tests/release-code-chat-smoke.test.mjs tests/deployment-path-unicity.test.mjs tests/native-chat-code.test.mjs
+      - name: Full suite on candidate alias
+        run: |
+          git checkout -B candidate/release-ci-head "$GITHUB_SHA"
+          npm test
