@@ -53,6 +53,9 @@ test('readiness report covers complete Gen2 runtime and explicit zero-cost model
   assert.equal(report.critical.code_integrity_registered, true);
   assert.equal(report.critical.module_proposal_registered, true);
   assert.equal(report.critical.persistent_work_registered, true);
+  assert.equal(report.observability.query_ok, true);
+  assert.equal(report.observability.status, 'IDLE');
+  assert.equal(report.observability.metrics.capability_events, 0);
   assert.equal(JSON.stringify(report).includes('password'), false);
   assert.equal(JSON.stringify(report).includes('token'), false);
 });

@@ -3,6 +3,7 @@ import { standardRegistry } from '../models/ModelRegistry.js';
 import { roadmapSummary, flattenRoadmap } from '../roadmap/master-roadmap.js';
 import { buildHealthDashboard } from './health-dashboard.js';
 import { inspectZeroCostProviderReadiness } from '../augmentio/zero-cost-readiness.js';
+import { readRuntimeObservability } from './runtime-observability.js';
 
 function costIsExplicitZero(model) {
   return model?.cost !== null && model?.cost !== undefined && model?.cost !== '' && Number(model.cost) === 0;
@@ -71,6 +72,7 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
   const roadmap = roadmapSummary();
   const blockers = blockersFromRoadmap();
   const selfCode = deploymentIdentity(env);
+  const observability = await readRuntimeObservability({ db: env.DB });
 
   const bindings = {
     ai: Boolean(env.AI && typeof env.AI.run === 'function'),
@@ -144,6 +146,7 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
     capabilities: capabilitySummary,
     models: modelSummary,
     blockers,
+    observability,
   });
 
   return {
@@ -155,6 +158,7 @@ export async function getSystemReadiness({ env = {}, refreshHealth = false, fetc
     critical,
     capabilities: capabilitySummary,
     models: modelSummary,
+    observability,
     roadmap,
     blockers,
     invariants: {

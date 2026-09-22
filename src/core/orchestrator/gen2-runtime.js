@@ -18,13 +18,37 @@ import { validateManifest } from '../../plugins/validator.js';
 import { transition } from '../lifecycle/extension.js';
 import { requireValue } from '../contracts.js';
 import { requireStateOfPlayCouncil } from '../../teachers/model-council.js';
+import { audit as persistAuditLog } from '../../audit/audit-service.js';
+
+function boundedCapabilityAuditEvent(event = {}) {
+  const duration = Number(event.duration_ms);
+  return {
+    event_id: String(event.id || '').slice(0, 120) || null,
+    capability: String(event.capability || '').slice(0, 160) || null,
+    status: String(event.status || '').slice(0, 40) || 'UNKNOWN',
+    request_id: String(event.requestId || '').slice(0, 160) || null,
+    reason: event.reason ? String(event.reason).slice(0, 120) : null,
+    error_code: event.error_code ? String(event.error_code).slice(0, 120) : null,
+    duration_ms: Number.isFinite(duration) && duration >= 0 ? Math.round(duration) : null,
+  };
+}
+
+function runtimeAuditSink(env = {}, override) {
+  if (typeof override === 'function') return override;
+  if (!env?.DB || typeof env.DB.prepare !== 'function') return async () => {};
+  return async event => {
+    const status = String(event?.status || '').toUpperCase();
+    if (!['SUCCEEDED', 'FAILED', 'DENIED'].includes(status)) return;
+    await persistAuditLog(env.DB, 'capability_bus', null, boundedCapabilityAuditEvent(event));
+  };
+}
 
 /**
  * Local composition root for integrated Gen2 proofs. Production adapters can
  * replace handlers, but all execution still crosses the same CapabilityBus.
  */
-export function createGen2Runtime({ audit = async () => {}, env = {} } = {}) {
-  const bus = createDefaultCapabilityBus({ audit, env });
+export function createGen2Runtime({ audit, env = {} } = {}) {
+  const bus = createDefaultCapabilityBus({ audit: runtimeAuditSink(env, audit), env });
   registerAutonomyCapabilities(bus, env);
   registerMentorCapabilities(bus, env);
   registerDevicePolicyCapabilities(bus, env);

@@ -23,6 +23,7 @@ export function buildHealthDashboard({
   capabilities = {},
   models = {},
   blockers = [],
+  observability = null,
   now = new Date(),
 } = {}) {
   const criticalFailures = Object.entries(critical)
@@ -48,6 +49,29 @@ export function buildHealthDashboard({
   const runtimeQuorumReady = runtimeZeroCost?.status === 'ONLINE' && authorizedZeroCost >= runtimeMinimum;
   const exactDeploymentIdentity = selfCode.exact_identity_known === true;
   const blockerCount = Array.isArray(blockers) ? blockers.length : 0;
+  const runtimeObservability = observability && typeof observability === 'object' ? observability : null;
+  const runtimeMetrics = runtimeObservability?.metrics && typeof runtimeObservability.metrics === 'object'
+    ? runtimeObservability.metrics
+    : {};
+  const runtimeQueryOk = runtimeObservability?.query_ok === true;
+  const runtimeState = String(runtimeObservability?.status || 'UNKNOWN').toUpperCase();
+  const runtimeEvents = Math.max(0, Number(runtimeMetrics.capability_events) || 0);
+  const runtimeCompleted = Math.max(0, Number(runtimeMetrics.completed) || 0);
+  const runtimeFailed = Math.max(0, Number(runtimeMetrics.failed) || 0);
+  const runtimeDenied = Math.max(0, Number(runtimeMetrics.denied) || 0);
+  const runtimeFailureRate = Math.max(0, Number(runtimeMetrics.failure_rate) || 0);
+  const runtimeP95 = Number.isFinite(Number(runtimeMetrics.p95_duration_ms))
+    ? Math.max(0, Number(runtimeMetrics.p95_duration_ms))
+    : null;
+  const runtimeComponentStatus = !runtimeObservability
+    ? null
+    : !runtimeQueryOk
+      ? 'WARN'
+      : runtimeState === 'ERROR'
+        ? 'ERROR'
+        : runtimeState === 'DEGRADED'
+          ? 'WARN'
+          : 'OK';
 
   const components = [
     component(
@@ -109,6 +133,30 @@ export function buildHealthDashboard({
       blockerCount === 0 ? 'Aucun blocage humain/externe déclaré' : `${blockerCount} blocage(s) humain(s) ou externe(s)`,
       { count: blockerCount }
     ),
+    ...(runtimeObservability ? [component(
+      'runtime_observability',
+      'Métriques runtime',
+      runtimeComponentStatus,
+      !runtimeQueryOk
+        ? 'Agrégats runtime indisponibles'
+        : runtimeEvents === 0
+          ? 'Observabilité active; aucun événement CapabilityBus récent'
+          : `${runtimeEvents} événement(s), ${runtimeFailed} échec(s), p95 ${runtimeP95 == null ? 'n/a' : Math.round(runtimeP95) + ' ms'}`,
+      {
+        query_ok: runtimeQueryOk,
+        status: runtimeState,
+        window_ms: Math.max(0, Number(runtimeObservability.window_ms) || 0),
+        row_limit: Math.max(0, Number(runtimeObservability.row_limit) || 0),
+        capability_events: runtimeEvents,
+        completed: runtimeCompleted,
+        succeeded: Math.max(0, Number(runtimeMetrics.succeeded) || 0),
+        failed: runtimeFailed,
+        denied: runtimeDenied,
+        failure_rate: runtimeFailureRate,
+        p95_duration_ms: runtimeP95,
+        latest_event_at: runtimeMetrics.latest_event_at || null,
+      }
+    )] : []),
   ];
 
   const alerts = [];
@@ -118,6 +166,29 @@ export function buildHealthDashboard({
   if (unknownCapabilities) alerts.push({ severity: 'WARN', code: 'CAPABILITY_HEALTH_UNKNOWN', count: unknownCapabilities });
   if (!exactDeploymentIdentity) alerts.push({ severity: 'WARN', code: 'DEPLOYMENT_IDENTITY_INCOMPLETE' });
   if (blockerCount) alerts.push({ severity: 'INFO', code: 'ROADMAP_BLOCKERS', count: blockerCount });
+  if (runtimeObservability) {
+    if (!runtimeQueryOk) {
+      alerts.push({ severity: 'WARN', code: 'OBSERVABILITY_UNAVAILABLE' });
+    } else {
+      if (runtimeState === 'ERROR') {
+        alerts.push({
+          severity: 'ERROR',
+          code: 'RUNTIME_CAPABILITY_FAILURE_RATE',
+          failed: runtimeFailed,
+          completed: runtimeCompleted,
+          failure_rate: runtimeFailureRate,
+        });
+      } else if (runtimeFailed > 0) {
+        alerts.push({ severity: 'WARN', code: 'RUNTIME_CAPABILITY_FAILURES', count: runtimeFailed });
+      }
+      if (runtimeP95 != null && runtimeP95 > 5000) {
+        alerts.push({ severity: 'WARN', code: 'RUNTIME_CAPABILITY_LATENCY_HIGH', p95_duration_ms: Math.round(runtimeP95) });
+      }
+      if (runtimeDenied > 0) {
+        alerts.push({ severity: 'INFO', code: 'RUNTIME_CAPABILITY_DENIALS', count: runtimeDenied });
+      }
+    }
+  }
 
   const statusCounts = components.reduce((acc, row) => {
     acc[row.status] = (acc[row.status] || 0) + 1;
