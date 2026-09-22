@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-22.2';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-22.3';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -71,8 +71,8 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P04', 'Capability Bus, outils et accès au code', [
     item('GEN2-14', 'Capability Bus central', 'DONE_VERIFIED', 'Maintenir l’invariant : tous les outils utilisateur passent par le bus', 'P0'),
-    item('MEL-CODE-01', 'Lecture sécurisée du propre code de MEL', 'IN_PROGRESS', 'Lecture bornée/paths sensibles interdits + routage chat + pin du SHA déployé validés en CI 35640215437; reste un smoke authentifié sur le Worker réellement déployé avant DONE_VERIFIED', 'P0'),
-    item('MEL-CODE-02', 'Recherche sécurisée dans le dépôt', 'IN_PROGRESS', 'Recherche bornée + extraction de symbole et routage naturel du chat validés en CI 35640215437; reste un smoke authentifié sur le Worker réellement déployé avant DONE_VERIFIED', 'P0'),
+    item('MEL-CODE-01', 'Lecture sécurisée du propre code de MEL', 'DONE_VERIFIED', 'Production certifiée sur SHA f5f294b1b4167fdbc88926d590f1dd808b73133e : /api/chat a exécuté code.read avec succès sur le Worker déployé; release run 35693911802, job 106636510849.', 'P0'),
+    item('MEL-CODE-02', 'Recherche sécurisée dans le dépôt', 'DONE_VERIFIED', 'Production certifiée sur SHA f5f294b1b4167fdbc88926d590f1dd808b73133e : /api/chat a exécuté code.search avec succès et retrouvé src/capabilities/default-bus.js; release run 35693911802, job 106636510849.', 'P0'),
     item('MEL-CODE-03', 'Diagnostic self-code et branche réellement déployée', 'DONE_VERIFIED', 'Le self-check expose branche + commit déployés et inspecte désormais le SHA exact comme snapshot immuable; mismatch de branche/HEAD fail-closed. Syntaxe et suites code/self-state validées par Actions 35640215437.', 'P0'),
     item('GEN2-15', 'Plugin SDK', 'PLANNED', 'Stabiliser contrat manifest + permissions', 'P1'),
     item('GEN2-50', 'Compatibilité MCP', 'PLANNED', 'Mapper CapabilityBus vers MCP', 'P2')
@@ -197,7 +197,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-63', 'Règle NON-IDLE / continue-when-blocked', 'IN_PROGRESS', 'Continuer sur tâches non bloquées', 'P1'),
     item('MEL-REL-01', 'Release figée sur commit exact', 'DONE_VERIFIED', 'Répéter pour chaque déploiement', 'P0'),
     item('MEL-REL-02', 'CI complet vert avant déploiement', 'DONE_VERIFIED', 'Conserver gate', 'P0'),
-    item('MEL-REL-03', 'Smoke tests production après déploiement', 'PARTIAL', 'Automatiser code self-check, chat, mémoire, UI', 'P0')
+    item('MEL-REL-03', 'Smoke tests production après déploiement', 'DONE_VERIFIED', 'Release run 35693911802 vert sur SHA f5f294b1b4167fdbc88926d590f1dd808b73133e : readiness publique GO, code.read/code.search authentifiés via chat, self-check, mémoire ONLINE, Professor + runtime UI et HTTP production vérifiés.', 'P0')
   ])
 ]);
 
