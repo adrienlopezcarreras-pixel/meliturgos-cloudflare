@@ -48,6 +48,15 @@ function safeEqual(left, right) {
   return diff === 0;
 }
 
+export function isReleaseSmokeRequest(request, env) {
+  const url = new URL(request.url);
+  if (url.pathname !== '/api/chat' || request.method !== 'POST') return false;
+  if (request.headers.get('x-mel-release-smoke') !== '1') return false;
+  const expected = withoutTerminalNewline(env?.MEL_LAUNCH_BOOTSTRAP_TOKEN || '');
+  const supplied = withoutTerminalNewline(request.headers.get('x-mel-launch-bootstrap') || '');
+  return expected.length >= 32 && supplied.length === expected.length && safeEqual(supplied, expected);
+}
+
 function decodeBasicPayload(encoded) {
   const binary = atob(String(encoded || "").trim());
   const bytes = new Uint8Array(binary.length);
@@ -89,6 +98,7 @@ function bearerToken(header) {
  * not lock the owner out; ordinary spaces remain significant.
  */
 export function authorized(request, env) {
+  if (isReleaseSmokeRequest(request, env)) return true;
   const user = String(env.MELITURGOS_USER || "");
   const pass = withoutTerminalNewline(env.MELITURGOS_PASSWORD || "");
   if (!user && !pass) return true;
