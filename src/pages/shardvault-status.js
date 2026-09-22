@@ -39,10 +39,10 @@ pre{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;background
  .row>div:last-child{text-align:left}
  .row>b,.row>strong,.row>.muted{width:100%}
  .section{margin-top:12px}
- pre{font-size:12px;line-height:1.45;max-height:300px;padding:10px}
- .tag{font-size:11px;margin:2px 4px 2px 0}.preferBtn{width:100%;margin:7px 0 0}
+ pre{font-size:13px;line-height:1.45;max-height:300px;padding:10px}
+ .tag{font-size:12px;margin:2px 4px 2px 0}.preferBtn{width:100%;margin:7px 0 0}
 }
-@media(max-width:380px){
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}@media(max-width:380px){
  main{padding-left:10px;padding-right:10px}
  h1{font-size:27px}
  .card{padding:12px}
@@ -61,12 +61,11 @@ pre{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;background
 <div class="section card"><h2>Dernier snapshot</h2><div id="snapshotInfo">Chargement…</div></div>
 <div class="section card"><h2>Dépôts sélectionnés</h2><div id="endpoints">Chargement…</div></div>
 <div class="section card"><h2>Copies du code de MEL</h2><div id="codeBackup">Chargement…</div></div>
-<div class="section card"><h2>Exploration Internet</h2><div class="muted" style="margin-bottom:8px"><b>Mode persistant :</b> MEL relance automatiquement une génération chaque heure jusqu’à disposer de 7 cibles externes validées, puis continue à les revalider et à remplacer celles qui deviennent indisponibles.</div><div id="searchStatus" class="muted">Les candidats sont validés par documentation API officielle puis par un test réel écriture/lecture.</div><div id="results"></div></div>
+<div class="section card"><h2>Exploration Internet</h2><div class="muted" style="margin-bottom:8px"><b>Mode lecture :</b> ouvrir cette page ne déclenche aucune recherche, écriture ni synchronisation. Les automatismes de continuité restent gérés hors de cette interface ; ici, toute mutation exige une action explicite.</div><div id="searchStatus" class="muted" role="status" aria-live="polite">Les candidats sont validés par documentation API officielle puis par un test réel écriture/lecture.</div><div id="results"></div></div>
 <div class="section card"><h2>Détails techniques</h2><pre id="raw">Chargement…</pre></div>
 </main>
 <script>
 const $=id=>document.getElementById(id),qsa=s=>[...document.querySelectorAll(s)];
-let autoRepairStarted=false,autoCodeSyncStarted=false;
 const fmt=n=>Number.isFinite(Number(n))?Number(n).toLocaleString('fr-FR'):'—';
 function safe(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function card(label,value,state=''){return '<div class="card"><small>'+safe(label)+'</small><div class="big '+state+'">'+safe(value)+'</div></div>'}
@@ -132,15 +131,6 @@ async function load(){
   const actualActiveIds=(d.selected_endpoints||[]).filter(e=>e.backend==='http'&&e.active===true).map(e=>e.id);
   if(d.last_discovery)renderDiscovery(d.last_discovery,'Dernière exploration automatique',d.preferred_endpoint?.endpoint_id||null,actualActiveIds);
   $('raw').textContent=JSON.stringify(d,null,2);
-  const externalActive=(d.selected_endpoints||[]).filter(e=>e.backend==='http'&&e.active===true).length;
-  const externalCode=(d.code_survival?.external?.endpoints||[]).length;
-  if(!autoRepairStarted&&externalActive<7){
-    autoRepairStarted=true;
-    setTimeout(()=>search(),250);
-  }else if(!autoCodeSyncStarted&&externalActive>=7&&externalCode<7){
-    autoCodeSyncStarted=true;
-    setTimeout(()=>syncCodeExternal({quiet:true}).then(()=>load()),250);
-  }
  }catch(e){$('summary').innerHTML=card('Erreur',e.message,'bad');$('raw').textContent=String(e)}
  finally{$('refresh').disabled=false}
 }
@@ -210,7 +200,7 @@ async function search(){
  }catch(e){$('searchStatus').className='bad';$('searchStatus').textContent='Erreur : '+e.message}
  finally{b.disabled=false;b.textContent='Nouvelle recherche Internet'}
 }
-$('refresh').onclick=load;$('snapshotNow').onclick=snapshot;$('search').onclick=search;$('reconstructCode').onclick=reconstructCode;load();setInterval(load,30000);
+$('refresh').onclick=load;$('snapshotNow').onclick=snapshot;$('search').onclick=search;$('reconstructCode').onclick=reconstructCode;load();const shardStatusTimer=setInterval(()=>{if(!document.hidden)load()},60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)load()});window.addEventListener('beforeunload',()=>clearInterval(shardStatusTimer),{once:true});
 </script></body></html>`,{headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
 }
 
