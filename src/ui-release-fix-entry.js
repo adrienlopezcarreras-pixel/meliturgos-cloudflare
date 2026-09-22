@@ -1,5 +1,5 @@
 import app from './ui-entry.js';
-import { HD_BACKGROUNDS, HD_BACKGROUND_TONES } from './assets/generated/hd-backgrounds.js';
+import { HD_BACKGROUNDS } from './assets/generated/hd-backgrounds.js';
 
 const FULL_AVATAR_DATA_URL = '/assets/avatars/mel-full.webp';
 function withHead(html, fragment) {

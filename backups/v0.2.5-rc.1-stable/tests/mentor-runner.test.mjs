@@ -1,8 +1,0 @@
-import assert from "node:assert/strict";
-import {copyFile,unlink} from "node:fs/promises";
-const tmp="/tmp/meliturgos-mentor.test.mjs";await copyFile(new URL("../worker.js",import.meta.url),tmp);const {default:worker}=await import("file://"+tmp+"?v="+Date.now());
-const auth="Basic "+Buffer.from("adrien:test").toString("base64"),stmt={bind(){return this},run:async()=>({meta:{changes:0}}),first:async()=>({n:0,quick_check:"ok"}),all:async()=>({results:[]})};
-const env={MELITURGOS_PASSWORD:"test",MELITURGOS_USER:"adrien",DB:{prepare(){return Object.create(stmt)},batch:async()=>[]},AI:{run:async()=>({response:"Tâche limitée et testable."})}};
-const r=await worker.fetch(new Request("https://local/api/mentor/task",{method:"POST",headers:{Authorization:auth,"content-type":"application/json"},body:JSON.stringify({objective:"Améliorer le rendu d’un module",files:["worker.js","tests/module.test.mjs"],tests:["node --check worker.js"]})}),env);assert.equal(r.status,200);const j=await r.json();assert.equal(j.mentor.approval_required,true);assert.deepEqual(j.mentor.files,["worker.js","tests/module.test.mjs"]);assert.match(j.mentor.rollback,/stable|rollback/i);
-const blocked=await worker.fetch(new Request("https://local/api/mentor/task",{method:"POST",headers:{Authorization:auth,"content-type":"application/json"},body:JSON.stringify({objective:"Modifier auth",files:["auth.js"]})}),env);assert.equal(blocked.status,200);assert.equal((await blocked.json()).mentor.blocked,true);
-const unauth=await worker.fetch(new Request("https://local/api/mentor/task",{method:"POST"}),env);assert.equal(unauth.status,401);await unlink(tmp);console.log("mentor-runner: proposition, blocage sensible et authentification validés");

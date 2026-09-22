@@ -21,6 +21,38 @@ const PROFESSOR_ASSET_REWRITES = Object.freeze([
   ['/meliturgos-avatar-fille.png', '/assets/avatars/mel-full.webp'],
 ]);
 
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' data: blob:",
+  "connect-src 'self'",
+  "font-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline'",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+].join('; ');
+
+export function hardenResponseHeaders(response) {
+  if (!(response instanceof Response)) return response;
+  const headers = new Headers(response.headers);
+  headers.set('content-security-policy', CONTENT_SECURITY_POLICY);
+  headers.set('x-content-type-options', 'nosniff');
+  headers.set('referrer-policy', 'no-referrer');
+  headers.set('x-frame-options', 'DENY');
+  headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains');
+  headers.set('permissions-policy', 'camera=(), geolocation=(), payment=(), microphone=(self)');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 function stripElementById(html, id) {
   const escaped = String(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return String(html)
@@ -68,7 +100,7 @@ export default {
     // Canonical pages now own their visuals directly. Keep the exported
     // finalizer as a compatibility/audit helper, but do not parse and rebuild
     // every HTML response in the deployed hot path.
-    return app.fetch(request, env, ctx);
+    return hardenResponseHeaders(await app.fetch(request, env, ctx));
   },
   async scheduled(controller, env, ctx) {
     return app.scheduled(controller, env, ctx);
