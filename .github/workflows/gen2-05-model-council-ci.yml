@@ -16,7 +16,11 @@ on:
       - 'feat/gen2-05-*'
     paths:
       - 'src/models/model-council.js'
+      - 'src/augmentio/default-pool.js'
+      - 'src/augmentio/workers-ai-zero-cost-proof.js'
+      - 'src/roadmap/master-roadmap.js'
       - 'tests/gen2/model-council-runtime.test.mjs'
+      - 'tests/gen2/workers-ai-zero-cost-proof.test.mjs'
       - '.github/workflows/gen2-05-model-council-ci.yml'
 
 permissions:
