@@ -51,6 +51,8 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /SEARCH_CODE="\$\(curl --silent --show-error --max-time 120 \\\n\s+--header "x-mel-release-smoke: 1"/);
   assert.match(source, /node - <<'NODE'\n\s+const fs=require\('fs'\);/);
   assert.match(source, /PRODUCTION_CAPABILITY_NOT_USED/);
+  assert.match(source, /createDefaultCapabilityBus/);
+  assert.match(source, /src\/capabilities\/default-bus\.js/);
   assert.match(source, /code\.read/);
   assert.match(source, /code\.search/);
   assert.ok(
