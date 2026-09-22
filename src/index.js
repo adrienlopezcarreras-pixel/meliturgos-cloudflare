@@ -12,7 +12,6 @@ import { runAutonomyMaintenance, runAutonomyRuntimeTick } from "./evolution/auto
 import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
-import { enhanceMvpBehavior } from "./pages/mvp-behavior-enhancer.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
 import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
@@ -430,9 +429,7 @@ export default {
       }
 
       const response = await router.fetch(preparedRequest, env, ctx);
-      if (response) {
-        return path === '/professor' ? await enhanceMvpBehavior(response) : response;
-      }
+      if (response) return response;
       throw new Error("Router returned null");
     } catch (error) {
       if (error?.status >= 400 && error.status < 600 && typeof error.code === "string") return Response.json({error:error.code,code:error.code},{status:Number(error.status)});
