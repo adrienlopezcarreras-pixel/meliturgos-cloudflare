@@ -22,10 +22,10 @@ const DEFAULT_TEACHER_BRANCH = 'candidate/mel-clean-autonomy';
 function compileTimeDeployedGitIdentity() {
   const branch = typeof MEL_DEPLOYED_GIT_BRANCH !== 'undefined'
     ? String(MEL_DEPLOYED_GIT_BRANCH || '').trim()
-    : '';
+    : String(globalThis?.MEL_DEPLOYED_GIT_BRANCH || '').trim();
   const sha = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined'
     ? String(MEL_DEPLOYED_GIT_SHA || '').trim()
-    : '';
+    : String(globalThis?.MEL_DEPLOYED_GIT_SHA || '').trim();
   return { branch, sha };
 }
 /**
