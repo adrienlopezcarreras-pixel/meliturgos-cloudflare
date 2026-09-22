@@ -16,6 +16,7 @@ test('Professor → Worker job → CapabilityBus bridge → approval → candida
   r=await devRuntime(new Request('http://x/api/dev-bridge/claim',{method:'POST',headers:{authorization:'Bearer e2e-token'},body:'{}'}),env,{repository});
   const job=await r.json();
   const outerBranch=await b.currentBranch();
+  const outerHead=await b.currentHead();
   const c=await b.bus.execute('dev.create_candidate',{job_id:job.job_id},ctx);
   await b.bus.execute('dev.apply_change',{job_id:job.job_id,path:'fixture.txt',content:'candidate\n'},ctx);
   const check=await b.exec(['git','diff','--check'],b.candidate(job.job_id).dir); assert.equal(check.exit_code,0);
@@ -23,6 +24,6 @@ test('Professor → Worker job → CapabilityBus bridge → approval → candida
   r=await devRuntime(new Request(`http://x/api/professor/dev/jobs/${created.job_id}/approve`,{method:'POST',headers:professor,body:'{}'}),env,{repository}); assert.equal((await r.json()).status,'APPROVED');
   const committed=await b.bus.execute('dev.commit',{job_id:job.job_id,files:['fixture.txt'],message:'safe candidate',approved:true},ctx); assert.equal(committed.status,'COMMITTED');
   assert.equal(await b.currentBranch(),outerBranch);
-  assert.ok(outerBranch);
+  assert.equal(await b.currentHead(),outerHead);
   await b.rollbackCandidate(job.job_id);
 });
