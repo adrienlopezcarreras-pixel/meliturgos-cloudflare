@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-22.10';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-22.11';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -90,7 +90,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P06', 'Module Lab, évolution et apprentissage', [
     item('GEN2-16', 'Module Lab', 'DONE_VERIFIED', 'Pipeline canonique fail-closed Council -> inspection -> plan gate -> spec -> génération -> validation -> tests -> sandbox -> sécurité; activation séparée derrière release gate. Syntaxe globale et tests ciblés validés par Actions 35639574318.', 'P0'),
-    item('GEN2-17', 'Dev Agent / auto-évolution supervisée', 'PARTIAL', 'Prouver plusieurs cycles cohérents complets sur candidate avant toute promotion', 'P0'),
+    item('GEN2-17', 'Dev Agent / auto-évolution supervisée', 'DONE_VERIFIED', 'Preuve candidate supervisée run 35710587356 sur SHA 91831831c5581f2c7b5d657228d6e9a8a4ab31e6 : 3 jobs roadmap distincts complétés successivement, SHA candidate A→B→C, approbations Teacher stale rejetées puis renouvelées sur SHA exacte, CI corrélée verte à chaque cycle, Council exécuté à chaque cycle, aucune mutation production.', 'P0'),
     item('MEL-EVOL-01', 'Détecter une compétence manquante à partir d’une demande', 'DONE_VERIFIED', 'Maintenir la détection sans doublon et n’entrer au Module Lab que pour un vrai gap', 'P0'),
     item('MEL-EVOL-02', 'Proposer ou générer un module', 'DONE_VERIFIED', 'Maintenir la proposition non activante, le Council gate et l’entrée au Module Lab uniquement pour un vrai gap', 'P0'),
     item('MEL-EVOL-03', 'Tests, benchmark, critique et correction en boucle', 'DONE_VERIFIED', 'Preuve candidate e0dc435ec6daf4971243709c76f5ed077a72f0cc: CI 35100248725; smoke Teacher/runtime 35100248854; preview 35100248729; maintenir la boucle runner et ses tests de non-régression', 'P0'),
