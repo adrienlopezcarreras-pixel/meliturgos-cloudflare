@@ -1,0 +1,33 @@
+name: gen2-36-dispatch-canonical-deploy
+
+on:
+  push:
+    branches:
+      - candidate/gen2-36-deploy-dispatch
+    paths:
+      - '.github/workflows/gen2-36-dispatch-canonical-deploy.yml'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_SHA: 603e45f7ebfa27b718d77ad022efded6f402c9cd
+      RELEASE_BRANCH: release/gen2-36-cloudflare-live-fix
+    steps:
+      - name: Dispatch canonical production release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-cloudflare-release.yml/dispatches" \
+            -f ref=main \
+            -f "inputs[release_branch]=${RELEASE_BRANCH}" \
+            -f "inputs[expected_sha]=${EXPECTED_SHA}" \
+            -f "inputs[approval]=DEPLOY_APPROVED"
+          echo "Canonical deployment dispatched for ${EXPECTED_SHA} via ${RELEASE_BRANCH}."
