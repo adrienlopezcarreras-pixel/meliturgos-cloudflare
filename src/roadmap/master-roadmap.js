@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-22.6';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-22.7';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -116,7 +116,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-33', 'Gmail / Google', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
     item('GEN2-34', 'Outlook / Microsoft', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P2'),
     item('GEN2-35', 'OneDrive / SharePoint', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
-    item('GEN2-36', 'GitHub / Cloudflare / Vercel', 'PARTIAL', 'Lectures bornées GitHub dépôt/Actions, Cloudflare Workers/déploiements et Vercel projets/déploiements ajoutées via CapabilityBus; valider la CI complète puis ajouter les actions d’écriture explicitement approuvées et les smokes authentifiés avant DONE_VERIFIED', 'P0'),
+    item('GEN2-36', 'GitHub / Cloudflare / Vercel', 'PARTIAL', 'Lectures bornées GitHub/Cloudflare/Vercel et contrôles d’écriture approval-gated ajoutés (workflow dispatch allowlist, déploiement Cloudflare sur versions existantes, redéploiement Vercel sur projet configuré); exécuter les smokes authentifiés réels des trois providers avant DONE_VERIFIED', 'P0'),
     item('GEN2-37', 'Web / recherche', 'PARTIAL', 'Valider en production la recherche sourcée, les redirections et la qualité des sources', 'P1'),
     item('MEL-CONN-01', 'WordPress Vérité Interdite', 'PLANNED', 'Créer MEL publique isolée de la mémoire privée', 'P3'),
     item('MEL-CONN-02', 'Catalogue de connecteurs installables', 'PLANNED', 'Découverte, permissions, test santé, désactivation', 'P2')

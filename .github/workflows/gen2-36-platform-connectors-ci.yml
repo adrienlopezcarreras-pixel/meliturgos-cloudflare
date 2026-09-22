@@ -9,12 +9,15 @@ on:
       - main
     paths:
       - 'src/capabilities/platform-read-capabilities.js'
+      - 'src/capabilities/platform-control-capabilities.js'
       - 'src/capabilities/default-bus.js'
       - 'src/connectors/github.js'
       - 'src/connectors/cloudflare.js'
       - 'src/connectors/vercel.js'
       - 'src/roadmap/master-roadmap.js'
       - 'tests/gen2/platform-read-capabilities.test.mjs'
+      - 'tests/gen2/platform-control-capabilities.test.mjs'
+      - 'tests/approval-gates.test.mjs'
       - '.github/workflows/gen2-36-platform-connectors-ci.yml'
   workflow_dispatch:
 
@@ -36,7 +39,7 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
       - name: Targeted GEN2-36 tests
-        run: node --test tests/gen2/platform-read-capabilities.test.mjs tests/connectors-security.test.mjs
+        run: node --test tests/gen2/platform-read-capabilities.test.mjs tests/gen2/platform-control-capabilities.test.mjs tests/connectors-security.test.mjs tests/approval-gates.test.mjs
       - name: Syntax
         run: npm run check
       - name: Normalize branch for candidate-only integration tests

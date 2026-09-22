@@ -10,8 +10,9 @@ export const definition = Object.freeze({
   "capabilities": [
     "cloudflare.resources.read",
     "cloudflare.workers.read",
-    "cloudflare.deployments.read"
+    "cloudflare.deployments.read",
+    "cloudflare.deployments.create"
   ]
 });
-// Runtime read adapters are registered through CapabilityBus; API-token grant remains external.
+// Runtime read/control adapters are registered through CapabilityBus; deployment mutation requires exact owner approval and a configured Worker target.
 export const createConnector = options => new Connector(definition,options);

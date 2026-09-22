@@ -9,8 +9,9 @@ export const definition = Object.freeze({
   ],
   "capabilities": [
     "github.repositories.read",
-    "github.actions.runs.read"
+    "github.actions.runs.read",
+    "github.actions.workflow.dispatch"
   ]
 });
-// Runtime read adapters are registered through CapabilityBus; OAuth/API-token grant remains external.
+// Runtime read/control adapters are registered through CapabilityBus; write control requires exact owner approval and an allowlisted workflow.
 export const createConnector = options => new Connector(definition,options);
