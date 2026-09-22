@@ -34,3 +34,14 @@ test('code access roadmap still requires production proof instead of inheriting 
   assert.equal(byId('MEL-CODE-02').status, 'IN_PROGRESS');
   assert.match(byId('MEL-CODE-01').next, /production|Worker réellement déployé/i);
 });
+
+
+test('GEN2-30 computer use abstraction is verified with explicit safety boundaries', () => {
+  const row = byId('GEN2-30');
+  assert.ok(row, 'missing roadmap item GEN2-30');
+  assert.equal(row.status, 'DONE_VERIFIED');
+  assert.match(row.next, /OBSERVE|INTERACT|SENSITIVE|DENY/);
+  assert.match(row.next, /sandbox/i);
+  assert.match(row.next, /approbation explicite/i);
+  assert.match(row.next, /audit/i);
+});
