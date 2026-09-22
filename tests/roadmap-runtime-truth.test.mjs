@@ -6,10 +6,14 @@ function byId(id) {
   return flattenRoadmap().find((row) => row.id === id);
 }
 
-test('roadmap keeps broader autonomy open while preserving verified Work and gap evidence', () => {
+test('roadmap certifies repeated supervised autonomy only with exact candidate proof while preserving Work and gap evidence', () => {
   const autonomy = byId('GEN2-17');
   assert.ok(autonomy, 'missing roadmap item GEN2-17');
-  assert.equal(autonomy.status, 'PARTIAL');
+  assert.equal(autonomy.status, 'DONE_VERIFIED');
+  assert.match(autonomy.next, /35710587356/);
+  assert.match(autonomy.next, /91831831c5581f2c7b5d657228d6e9a8a4ab31e6/);
+  assert.match(autonomy.next, /3 jobs|A→B→C|stale/i);
+  assert.match(autonomy.next, /aucune mutation production/i);
 
   const work = byId('MEL-WORK-02');
   assert.ok(work, 'missing roadmap item MEL-WORK-02');
