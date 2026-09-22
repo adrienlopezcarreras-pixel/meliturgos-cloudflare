@@ -157,7 +157,7 @@ async function maybeHandleMemoryCompatibility(request, env) {
 
   const runtime = createGen2Runtime({ env });
   if (url.pathname === '/api/memory/status') {
-    const status = await runtime.bus.execute('memory.status', {}, busContext(env));
+    const status = await runtime.bus.execute('memory.status', {}, busContext(env, request));
     return Response.json(status, { headers: { 'cache-control': 'no-store' } });
   }
 
@@ -167,11 +167,11 @@ async function maybeHandleMemoryCompatibility(request, env) {
     if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
       return Response.json({ ok: false, error: 'MEMORY_CONSOLIDATE_LIMIT_INVALID' }, { status: 400, headers: { 'cache-control': 'no-store' } });
     }
-    const result = await runtime.bus.execute('memory.consolidate', { limit }, busContext(env));
+    const result = await runtime.bus.execute('memory.consolidate', { limit }, busContext(env, request));
     return Response.json({ ok: true, ...result }, { headers: { 'cache-control': 'no-store' } });
   }
 
-  const payload = await runtime.bus.execute('memory.export', {}, busContext(env));
+  const payload = await runtime.bus.execute('memory.export', {}, busContext(env, request));
   return new Response(JSON.stringify(payload, null, 2), {
     headers: {
       'content-type': 'application/json; charset=utf-8',
@@ -181,10 +181,11 @@ async function maybeHandleMemoryCompatibility(request, env) {
   });
 }
 
-function busContext(env) {
+function busContext(env, request = null) {
   return {
     owner: env.MELITURGOS_USER || 'owner',
     permissions: env.CAPABILITY_PERMISSIONS || [],
+    approvedCapabilities: approvedCapabilitiesFromRequest(request),
     requestId: crypto.randomUUID(),
   };
 }
@@ -230,7 +231,7 @@ async function maybeHandleWorkPreflight(request, env) {
         goal,
         context: { ...(body.context && typeof body.context === 'object' ? body.context : {}), origin: 'work-ui', rule: 'AI_COUNCIL_BEFORE_CODE' },
         minResponses: Math.max(2, Math.min(12, Number(body.minResponses) || 2))
-      }, busContext(env));
+      }, busContext(env, request));
       const lastSafeWorkJob = {
         id: crypto.randomUUID(),
         mode: 'preflight-only',
@@ -279,7 +280,7 @@ async function maybeHandleCouncilAndEvolution(request, env) {
     const capabilityId = path === '/api/gen2/council/state-of-play'
       ? 'council.state-of-play'
       : 'evolution.preflight';
-    const result = await runtime.bus.execute(capabilityId, { goal, context, minResponses }, busContext(env));
+    const result = await runtime.bus.execute(capabilityId, { goal, context, minResponses }, busContext(env, request));
 
     if (capabilityId === 'council.state-of-play') {
       return Response.json({ ok: true, ...result }, { headers: { 'cache-control': 'no-store' } });
@@ -342,7 +343,7 @@ async function maybeHandleChatGPTArchive(request, env) {
   try {
     const runtime = createGen2Runtime({ env });
     const capabilityId = preview ? 'chatgpt.archive.preview' : 'chatgpt.archive.import';
-    const result = await runtime.bus.execute(capabilityId, { archive }, busContext(env));
+    const result = await runtime.bus.execute(capabilityId, { archive }, busContext(env, request));
     return Response.json(result, { status: result.ok === false ? 207 : 200, headers: { 'cache-control': 'no-store' } });
   } catch (error) {
     return apiError(error, 'CHATGPT_ARCHIVE_IMPORT_FAILED');
