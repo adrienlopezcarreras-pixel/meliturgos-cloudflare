@@ -19,7 +19,7 @@ assert.equal(r.status,200);
 const html=await r.text();
 const ids=[...html.matchAll(/id=["']([^"']+)["']/g)].map(m=>m[1]);
 assert.equal(ids.length,new Set(ids).size);
-assert.match(html,/\/normal-runtime\.js\?v=5/);
+assert.match(html,/\/normal-runtime\.js\?v=6/);
 assert.match(NORMAL_RUNTIME_SOURCE,/queueMessage\(\)/);
 assert.match(NORMAL_RUNTIME_SOURCE,/e\.isComposing/);
 console.log("root-interface-integrity: canonical entry, IDs uniques, Entrée/Maj+Entrée et zoom validés");
