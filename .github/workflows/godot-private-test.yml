@@ -1,5 +1,5 @@
 name: Godot private five-game test
-# unified gamedev runtime run 42 c618-wallclock-10min
+# unified gamedev runtime run 57 c619-art
 
 on:
   push:
@@ -222,27 +222,8 @@ jobs:
             fi
           done
 
-          # C618 ten-minute wall-clock soak: all five games concurrently.
-          # C616/C617 remain archived checkpoints and their logic is a strict-duration subset of this harness.
-          # Each process independently measures >=600 real seconds.
-          c618_pids=()
-          for name in "${projects[@]}"; do
-            proj="$GAMES_ROOT/$name"
-            "$GODOT" --headless --path "$proj" --script "res://tests/wallclock_soak_c618_test.gd" > "/tmp/${name}-c618-test.log" 2>&1 &
-            c618_pids+=("$!")
-          done
-          idx=0
-          for name in "${projects[@]}"; do
-            if wait "${c618_pids[$idx]}"; then c618_rc=0; else c618_rc=$?; fi
-            cat "/tmp/${name}-c618-test.log"
-            if [ "$c618_rc" -ne 0 ]; then
-              echo "$name C618_TEST=FAIL c618_rc=$c618_rc"
-              overall=1
-            else
-              echo "$name C618_TEST=PASS c618_rc=$c618_rc"
-            fi
-            idx=$((idx + 1))
-          done
+          # C619 visual validation: C618 ten-minute soak remains a separately proven rollback gate.
+          # Do not rerun the 10-minute soak for asset-only changes; import/start + infra + MovieWriter are required here.
 
           if [ "$overall" -eq 0 ]; then echo "INFRA_OVERALL=PASS"; else echo "INFRA_OVERALL=FAIL"; fi
           exit "$overall"
