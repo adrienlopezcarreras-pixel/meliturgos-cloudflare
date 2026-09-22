@@ -1,0 +1,46 @@
+name: Professor UI audit CI
+
+on:
+  pull_request:
+    paths:
+      - "src/pages/full-interface-v2.js"
+      - "src/pages/mvp-interface-v3.js"
+      - "src/capabilities/**"
+      - "src/router.js"
+      - "src/roadmap/master-roadmap.js"
+      - "tests/ui-control-contract-exhaustive.test.mjs"
+      - "tests/ui-performance-ergonomics.test.mjs"
+      - "tests/capability-protected-health.test.mjs"
+      - "tests/gen2/platform-read-capabilities.test.mjs"
+      - ".github/workflows/professor-ui-audit-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  professor-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Syntax gate
+        run: npm run check
+      - name: Audit every Professor control
+        run: node --test tests/ui-control-contract-exhaustive.test.mjs
+      - name: Audit Professor ergonomics and responsive UI
+        run: node --test tests/ui-performance-ergonomics.test.mjs
+      - name: Audit capability health semantics
+        run: node --test tests/capability-protected-health.test.mjs tests/gen2/platform-read-capabilities.test.mjs
+      - name: Full test suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout -B candidate/professor-ui-audit-ci "$(git rev-parse HEAD)"
+          npm test
