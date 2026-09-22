@@ -1,0 +1,21 @@
+name: gen2-36-provider-write-smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authenticated-dispatch-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Prove authenticated workflow dispatch
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GEN2-36 authenticated GitHub workflow dispatch accepted"
+          echo "repository=${GITHUB_REPOSITORY}"
+          echo "ref=${GITHUB_REF_NAME}"
+          echo "run_id=${GITHUB_RUN_ID}"
