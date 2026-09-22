@@ -1,3 +1,4 @@
+import { normalizeStepApprovals, stepApprovalMatches } from '../security/approval-gates.js';
 export const BROWSER_CAPABILITY_SCHEMA = 'mel.devices.browser-capability.v1';
 
 export const BROWSER_RISK = Object.freeze({
@@ -84,22 +85,6 @@ function uniqueCapabilities(value) {
   return [...new Set(value.map(item => boundedText(item, 160)).filter(Boolean))].slice(0, 64);
 }
 
-function normalizeApproval(row = {}) {
-  return {
-    approved: row?.approved === true,
-    session_id: boundedText(row?.session_id),
-    step_id: boundedText(row?.step_id),
-    action: boundedText(row?.action, 160),
-  };
-}
-
-function approvalMatches(approvals, sessionId, step) {
-  return approvals.some(row => row.approved === true
-    && row.session_id === sessionId
-    && row.step_id === step.id
-    && row.action === step.action);
-}
-
 function actionNeedsUrl(action) {
   return action === BROWSER_ACTIONS.NAVIGATE;
 }
@@ -146,7 +131,7 @@ export function normalizeBrowserRequest(input = {}) {
       allowed_origins: uniqueOrigins(sandbox.allowed_origins),
       max_steps: maxSteps,
     },
-    approvals: (Array.isArray(input.approvals) ? input.approvals : []).map(normalizeApproval).slice(0, MAX_STEPS),
+    approvals: normalizeStepApprovals(input.approvals, MAX_STEPS),
     steps,
   };
 }
@@ -191,7 +176,7 @@ export function evaluateBrowserPlan(input = {}) {
       allowed = false;
       reason = 'ORIGIN_OUTSIDE_SANDBOX';
     } else if (risk === BROWSER_RISK.SENSITIVE
-      && !approvalMatches(request.approvals, request.session_id, step)) {
+      && !stepApprovalMatches(request.approvals, request.session_id, step)) {
       allowed = false;
       reason = 'EXPLICIT_STEP_APPROVAL_REQUIRED';
     }
