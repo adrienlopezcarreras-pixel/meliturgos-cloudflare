@@ -224,8 +224,49 @@ jobs:
           console.log('Public production launch-readiness proof is GO.');
           NODE
 
-          cleanup_secret
-          trap - EXIT
+          READ_CODE="$(curl --silent --show-error --max-time 120 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"text":"lis src/index.js dans ton code","conversation_id":"release-smoke-code-read"}' \
+            --output production-code-read-smoke.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/chat")"
+          test "$READ_CODE" = "200"
+
+          SEARCH_CODE="$(curl --silent --show-error --max-time 120 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"text":"cherche dans ton code \"release-launch-bootstrap\"","conversation_id":"release-smoke-code-search"}' \
+            --output production-code-search-smoke.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/chat")"
+          test "$SEARCH_CODE" = "200"
+
+          EXPECTED_SHA="$EXPECTED_SHA" RELEASE_BRANCH="$RELEASE_BRANCH" node - <<'NODE'
+          const fs=require('fs');
+          const read=JSON.parse(fs.readFileSync('production-code-read-smoke.json','utf8'));
+          const search=JSON.parse(fs.readFileSync('production-code-search-smoke.json','utf8'));
+          const assertTool=(body,id)=>{
+            if(body?.ok!==true) throw new Error('PRODUCTION_CHAT_NOT_OK:'+id);
+            if(body?.release_smoke!==true) throw new Error('PRODUCTION_RELEASE_SMOKE_MARKER_MISSING:'+id);
+            if(!Array.isArray(body?.capability_used)||!body.capability_used.includes(id)) throw new Error('PRODUCTION_CAPABILITY_NOT_USED:'+id);
+            const row=(body?.tool_results||[]).find(x=>x?.capability===id);
+            if(row?.status!=='SUCCEEDED') throw new Error('PRODUCTION_TOOL_NOT_SUCCEEDED:'+id+':'+String(row?.error||'UNKNOWN'));
+            return row.result||{};
+          };
+          const readResult=assertTool(read,'code.read');
+          if(readResult.path!=='src/index.js') throw new Error('PRODUCTION_CODE_READ_PATH_MISMATCH');
+          if(String(readResult.branch||'')!==String(process.env.RELEASE_BRANCH||'')) throw new Error('PRODUCTION_CODE_READ_BRANCH_MISMATCH');
+          if(!String(readResult.content||'').includes('Canonical core Worker handler')) throw new Error('PRODUCTION_CODE_READ_CONTENT_MISMATCH');
+          const searchResult=assertTool(search,'code.search');
+          if(String(searchResult.branch||'')!==String(process.env.RELEASE_BRANCH||'')) throw new Error('PRODUCTION_CODE_SEARCH_BRANCH_MISMATCH');
+          if(!Array.isArray(searchResult.matches)||!searchResult.matches.some(x=>String(x?.path||'').includes('release-launch-bootstrap'))) throw new Error('PRODUCTION_CODE_SEARCH_MATCH_MISSING');
+          console.log('Production authenticated /api/chat code.read + code.search smoke passed.');
+          NODE
+
+          cleanup_secret          trap - EXIT
           echo "Temporary launch bootstrap secret deleted."
 
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
@@ -237,6 +278,7 @@ jobs:
               echo '- Fresh SHA-bound system backup: verified'
               echo '- ShardVault recovery: verified'
               echo '- External critical-code copies: >= 7'
+              echo '- Authenticated /api/chat code.read + code.search: verified'
               echo '- Historical failure retries: bounded'
               echo '- Autonomy started by deployment: **no**'
               echo '- Owner Resume/MAX remains required to start the SHA'
