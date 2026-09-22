@@ -7,6 +7,7 @@ import { assertAdapterApprovalForArtifact, assertAdapterArtifactForPlan } from '
 import { compareLoraImpact, runLoraImpactBenchmark } from './lora-impact-benchmark.js';
 
 export const DEFAULT_OPERATOR_BENCHMARK_MODEL = '@cf/zai-org/glm-4.7-flash';
+export const DEFAULT_OPERATOR_BENCHMARK_PROVIDER = 'workers-ai';
 
 function cleanModelId(value, fallback) {
   const model = String(value || '').trim();
@@ -78,6 +79,7 @@ export function createZeroCostBenchmarkEvaluator(env = {}, deps = {}) {
   const casesById = new Map(MEL_LEARNING_BENCHMARK_CASES.map((row) => [String(row.id), row]));
 
   return {
+    provider_id: DEFAULT_OPERATOR_BENCHMARK_PROVIDER,
     model_id: modelId,
     evaluator: async (testCase = {}) => {
       const fixture = casesById.get(String(testCase.id || ''));
@@ -130,6 +132,7 @@ export async function ensureZeroCostBenchmarkBaseline(env = {}, options = {}, de
   const run = await engine.runCanonicalBenchmark({
     kind: 'baseline',
     evaluator: prepared.evaluator,
+    provider_id: prepared.provider_id,
     model_id: prepared.model_id,
     source_sha: sourceSha,
     metadata: {
@@ -170,6 +173,7 @@ export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
     modelId,
     sourceSha,
     metadata: {
+      provider_id: DEFAULT_OPERATOR_BENCHMARK_PROVIDER,
       model_id: modelId,
       source_sha: sourceSha,
       trigger: 'professor',
@@ -181,6 +185,7 @@ export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
   const persisted = await engine.recordBenchmark({
     cases: benchmark.cases,
     kind: 'operator',
+    provider_id: DEFAULT_OPERATOR_BENCHMARK_PROVIDER,
     model_id: modelId,
     source_sha: sourceSha,
     metadata: {
@@ -195,6 +200,7 @@ export async function runOperatorBenchmark(env = {}, options = {}, deps = {}) {
   return {
     benchmark,
     persisted,
+    provider_id: DEFAULT_OPERATOR_BENCHMARK_PROVIDER,
     model_id: modelId,
     source_sha: sourceSha,
   };
@@ -260,6 +266,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
   await engine.recordBenchmark({
     cases: baseline.cases,
     kind: 'lora-baseline',
+    provider_id: DEFAULT_OPERATOR_BENCHMARK_PROVIDER,
     model_id: runtimeModel,
     source_sha: sourceSha,
     metadata: {
