@@ -45,7 +45,7 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /code\.search/);
   assert.ok(
     source.indexOf('Production authenticated /api/chat code.read + code.search smoke passed.') <
-      source.indexOf('cleanup_secret'),
+      source.indexOf('cleanup_secret\n          trap - EXIT'),
     'live chat smoke must run before the temporary bootstrap secret is deleted',
   );
   assert.match(source, /MEL_DEPLOYED_GIT_SHA/);
