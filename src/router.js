@@ -1,5 +1,6 @@
 import { conversationRoutes } from "./api/routes/conversations.js";
 import { requireAuth } from "./core/security.js";
+import { attachRequestApproval } from "./security/explicit-approval.js";
 import { json, html } from "./core/http.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
@@ -59,7 +60,15 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
     const body = await request.json().catch(() => ({}));
     if (!body?.id) return json({ error: "capability id required", code: "MISSING_CAPABILITY" }, 400);
     const runtime = createGen2Runtime({ env });
-    const result = await runtime.bus.execute(String(body.id), body.input || {}, capabilityContext(env));
+    const input = body.input || {};
+    const baseContext = capabilityContext(env);
+    const executionContext = await attachRequestApproval(baseContext, {
+      request,
+      capability: String(body.id),
+      input,
+      source: 'owner-gen2-capability-execute',
+    });
+    const result = await runtime.bus.execute(String(body.id), input, executionContext);
     return json({ ok: true, capability: body.id, result });
   }
 
