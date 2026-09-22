@@ -29,10 +29,22 @@ test('web research remains partial until production validation while naming the 
   assert.match(row.next, /sources/i);
 });
 
-test('code access roadmap still requires production proof instead of inheriting candidate CI success', () => {
-  assert.equal(byId('MEL-CODE-01').status, 'IN_PROGRESS');
-  assert.equal(byId('MEL-CODE-02').status, 'IN_PROGRESS');
-  assert.match(byId('MEL-CODE-01').next, /production|Worker réellement déployé/i);
+test('code access and release smokes stay verified only with explicit live production evidence', () => {
+  const read = byId('MEL-CODE-01');
+  const search = byId('MEL-CODE-02');
+  const release = byId('MEL-REL-03');
+
+  assert.equal(read.status, 'DONE_VERIFIED');
+  assert.equal(search.status, 'DONE_VERIFIED');
+  assert.equal(release.status, 'DONE_VERIFIED');
+
+  for (const row of [read, search, release]) {
+    assert.match(row.next, /35693911802/);
+    assert.match(row.next, /f5f294b1b4167fdbc88926d590f1dd808b73133e/);
+  }
+  assert.match(read.next, /code\.read|Worker déployé/i);
+  assert.match(search.next, /code\.search|default-bus/i);
+  assert.match(release.next, /mémoire ONLINE|Professor|runtime UI|readiness/i);
 });
 
 
