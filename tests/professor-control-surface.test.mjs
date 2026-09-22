@@ -22,6 +22,7 @@ const canonicalApiPaths = Object.freeze([
   '/api/chat',
   '/api/gen2/capabilities',
   '/api/gen2/roadmap',
+  '/api/gen2/dashboard-summary',
   '/api/gen2/code/self-check',
   '/api/gen2/augmentio/fanout',
   '/api/memory/status',
@@ -149,4 +150,14 @@ test('full mode exposes the zero-cost LoRA pipeline with real status endpoint an
   assert.ok(agenticNotebook.includes("--parent-adapter-dir"), 'AGENTIC notebook must continue from the UNCENSORED parent');
   assert.ok(agenticNotebook.includes("--parent-artifact-digest"), 'AGENTIC notebook must bind the exact UNCENSORED parent digest');
   assert.ok(agenticNotebook.includes("Meliturgos/mel-lora-agentic"), 'AGENTIC notebook must publish to a separate repository');
+});
+
+test('IA and Work share one canonical surface and development tab loads Work on demand', async () => {
+  const page = await read('src/pages/full-interface-v2.js');
+  assert.ok(page.includes('id="melUnifiedTabs"'));
+  assert.ok(page.includes('data-mode-panel="development" hidden'));
+  assert.ok(!page.includes('data-panel="work"'));
+  assert.ok(!page.includes('mel-control-center-runtime'));
+  assert.ok(page.includes("if(development){await loadWork().catch(()=>{})"));
+  assert.ok(page.includes('/api/gen2/dashboard-summary'));
 });
