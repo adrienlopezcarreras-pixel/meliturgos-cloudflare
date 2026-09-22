@@ -55,7 +55,10 @@ test('active tree no longer carries historical worker snapshots', () => {
 test('professor visual ownership is canonical and legacy UI patch layers are retired', async () => {
   const html = await (await fullPage({ env:{}, request:new Request('https://audit.local/professor'), params:{} })).text();
   assert.match(html, /id="learningMeter"/);
-  assert.match(html, /id="mel-control-center-runtime"/);
+  assert.match(html, /id="melUnifiedTabs"/);
+  assert.match(html, /data-mode-panel="development" hidden/);
+  assert.doesNotMatch(html, /id="mel-control-center-runtime"/);
+  assert.doesNotMatch(html, /data-panel="work"/);
   assert.match(html, /\/assets\/avatars\/mel-full\.webp/);
   const learningSource = fs.readFileSync('src/learning-entry.js','utf8');
   const liveSource = fs.readFileSync('src/professor-live-learning-entry.js','utf8');
