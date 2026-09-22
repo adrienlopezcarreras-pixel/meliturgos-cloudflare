@@ -164,7 +164,7 @@ test('Cloudflare and Vercel fail closed when credentials are absent and upstream
     caught = error;
   }
   assert.ok(caught);
-  assert.equal(caught.code, 'GITHUB_REPOSITORY_READ_FAILED_AUTH');
+  assert.equal(caught.code, 'CAPABILITY_UNAVAILABLE');
   assert.equal(String(caught.message).includes('contains-sensitive-upstream-detail'), false);
 });
 
