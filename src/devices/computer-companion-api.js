@@ -1,5 +1,6 @@
 import { requireAuth } from "../core/security.js";
-import { evaluateComputerUsePlan } from "./computer-use.js";
+import { createDefaultCapabilityBus } from "../capabilities/default-bus.js";
+import { attachRequestApproval } from "../security/explicit-approval.js";
 
 export const COMPUTER_API_BASE="/api/computer/v1";
 export const COMPUTER_ROUTES=Object.freeze({
@@ -54,17 +55,27 @@ async function ownerStatus(request,env,url){
  return json({ok:true,devices,selected_id:id||null,commands});
 }
 
-function approvals(session,steps){const sensitive=new Set(["keyboard.type","app.open","clipboard.read","clipboard.write"]);return steps.filter(x=>sensitive.has(String(x.action||""))).map(x=>({approved:true,session_id:session,step_id:String(x.id),action:String(x.action)}))}
-
 async function ownerCommand(request,env){
- const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));
- const id=safe(b.computer_id);const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();const device=normalizeDevice(row);
- if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404); if(device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
- const session=safe(b.session_id)||crypto.randomUUID();const steps=(Array.isArray(b.steps)?b.steps:[]).map((x,i)=>({...x,id:String(x?.id||`step-${i+1}`)}));
- const plan=evaluateComputerUsePlan({session_id:session,owner_halt:false,device:{id:device.id,capabilities:device.capabilities},sandbox:{allowed_apps:device.allowed_apps,allowed_origins:Array.isArray(b.allowed_origins)?b.allowed_origins:[],max_steps:Math.max(1,Math.min(100,Number(b.max_steps)||20))},approvals:b.approve_sensitive===true?approvals(session,steps):(Array.isArray(b.approvals)?b.approvals:[]),steps});
- if(!plan.allowed)return json({ok:false,code:plan.reason,decisions:plan.decisions},403);const cid=crypto.randomUUID();
- await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)").bind(cid,device.id,session,JSON.stringify(plan.request),"PENDING",Date.now()).run();
- return json({ok:true,command_id:cid,status:"PENDING",decisions:plan.decisions},202);
+ const auth=requireAuth(request,env);if(!auth.ok)return auth.response;
+ await tables(env);
+ const body=await request.json().catch(()=>({}));
+ const input={
+  computer_id:safe(body.computer_id),
+  session_id:safe(body.session_id)||crypto.randomUUID(),
+  steps:Array.isArray(body.steps)?body.steps:[],
+  allowed_origins:Array.isArray(body.allowed_origins)?body.allowed_origins:[],
+  max_steps:Math.max(1,Math.min(100,Number(body.max_steps)||20)),
+ };
+ const requestId=crypto.randomUUID();
+ let context={owner:env.MELITURGOS_USER||"owner",permissions:env.CAPABILITY_PERMISSIONS||[],requestId};
+ context=await attachRequestApproval(context,{request,capability:"computer.execute",input,source:"owner-computer-api-confirmation"});
+ try{
+  const bus=createDefaultCapabilityBus({env});
+  const result=await bus.execute("computer.execute",input,context);
+  return json(result,202);
+ }catch(error){
+  return json({ok:false,code:error?.code||error?.message||"COMPUTER_COMMAND_FAILED"},error?.status||409);
+ }
 }
 
 async function ownerHalt(request,env,halted){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);await env.DB.prepare("UPDATE computer_devices SET halted=? WHERE id=?").bind(halted?1:0,id).run();const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=?").bind(id).first();return row?json({ok:true,computer:normalizeDevice(row)}):json({ok:false,code:"COMPUTER_NOT_FOUND"},404)}
