@@ -4,6 +4,7 @@ import { CapabilityBus } from '../src/capabilities/capability-bus.js';
 import { registerBrowserRuntimeCapabilities } from '../src/capabilities/browser-runtime-capabilities.js';
 import { createBrowserCompanionAdapter } from '../src/devices/browser-companion-adapter.js';
 import { BROWSER_ACTIONS } from '../src/devices/browser-capability.js';
+import { createExplicitApprovalProof } from '../src/security/explicit-approval.js';
 
 function request() {
   return {
@@ -98,4 +99,52 @@ test('browser.execute is discoverable but unavailable without a configured compa
     permissions: ['browser.control'],
     requestId: 'r-unavailable',
   }), { code: 'CAPABILITY_UNAVAILABLE' });
+});
+
+
+test('browser.execute ignores caller-supplied approvals until CapabilityBus verifies a current-request proof', async () => {
+  const binding = fakeBinding();
+  const bus = new CapabilityBus();
+  registerBrowserRuntimeCapabilities(bus, { binding });
+  const input = {
+    session_id:'session-sensitive',
+    device:{id:'browser-1',capabilities:['browser.control']},
+    sandbox:{allowed_origins:['https://example.com'],max_steps:5},
+    approvals:[{
+      approved:true,
+      session_id:'session-sensitive',
+      step_id:'type-1',
+      action:BROWSER_ACTIONS.TYPE,
+    }],
+    steps:[{
+      id:'type-1',
+      action:BROWSER_ACTIONS.TYPE,
+      selector:'#message',
+      text:'dangerously caller-approved',
+    }],
+  };
+
+  await assert.rejects(
+    () => bus.execute('browser.execute', input, {
+      owner:'owner',
+      permissions:['browser.control'],
+      requestId:'browser-forged',
+    }),
+    error => error?.code === 'EXPLICIT_APPROVAL_REQUIRED',
+  );
+
+  const proof = await createExplicitApprovalProof({
+    capability:'browser.execute',
+    input,
+    requestId:'browser-approved',
+    source:'owner-test',
+  });
+  const result = await bus.execute('browser.execute', input, {
+    owner:'owner',
+    permissions:['browser.control'],
+    requestId:'browser-approved',
+    explicitApprovals:[proof],
+  });
+  assert.equal(result.ok,true);
+  assert.equal(result.steps_completed,1);
 });
