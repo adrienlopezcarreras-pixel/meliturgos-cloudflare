@@ -26,6 +26,16 @@ test('roadmap certifies repeated supervised autonomy only with exact candidate p
   assert.match(gapDetection.next, /d[ée]tection|gap|doublon|module/i);
 });
 
+test('audit log remains verified only with correlated denial and terminal evidence', () => {
+  const row = byId('GEN2-45');
+  assert.ok(row, 'missing roadmap item GEN2-45');
+  assert.equal(row.status, 'DONE_VERIFIED');
+  assert.match(row.next, /35712785367/);
+  assert.match(row.next, /710718a22647235d474fe7780ae7dd0d121d7a72/);
+  assert.match(row.next, /requestId|DENIED|SUCCEEDED|FAILED/i);
+  assert.match(row.next, /D1|sans entrée brute/i);
+});
+
 test('web research remains partial until production validation while naming the remaining proof', () => {
   const row = byId('GEN2-37');
   assert.equal(row.status, 'PARTIAL');
