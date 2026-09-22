@@ -1,0 +1,67 @@
+name: MEL-MEM-04 ChatGPT archive live proof
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/prove-chatgpt-archive-live.mjs"
+      - "tests/chatgpt-archive-live-proof.test.mjs"
+      - ".github/workflows/chatgpt-archive-live-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  proof-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - name: Validate fail-closed live proof contract
+        run: node --test tests/chatgpt-archive-live-proof.test.mjs
+
+  production-live-proof:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Prove production archive completeness from remote D1
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/prove-chatgpt-archive-live.mjs --database meliturgos-memory | tee mel-mem-04-live-proof.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Publish proof summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -s mel-mem-04-live-proof.json ]; then
+            cat mel-mem-04-live-proof.json
+            {
+              echo '### MEL-MEM-04 production archive proof'
+              echo
+              echo '\`\`\`json'
+              cat mel-mem-04-live-proof.json
+              echo '\`\`\`'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload proof artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-mem-04-live-proof
+          path: mel-mem-04-live-proof.json
+          if-no-files-found: warn
+          retention-days: 30
