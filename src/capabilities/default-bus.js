@@ -13,6 +13,7 @@ import { getRoadmapPayload } from '../roadmap/master-roadmap.js';
 import { normalizeChatGPTArchive } from '../persistence/chatgpt-archive-importer.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { runAugmentioStateOfPlay } from '../teachers/augmentio-council.js';
+import { runModelCouncil } from '../models/model-council.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
 
@@ -52,6 +53,18 @@ function capabilityError(message, code = message, status) {
   if (status) error.status = status;
   return error;
 }
+
+const modelCouncilInputSchema = {
+  type: 'object',
+  properties: {
+    request: { type: 'object', additionalProperties: true },
+    capability: { type: 'string', minLength: 1, maxLength: 100 },
+    maxCandidates: { type: 'integer', minimum: 1, maximum: 12 },
+    timeoutMs: { type: 'integer', minimum: 100, maximum: 120000 }
+  },
+  required: ['request'],
+  additionalProperties: false
+};
 
 const councilInputSchema = {
   type: 'object',
@@ -150,6 +163,24 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       input: Array.isArray(input.messages) && input.messages.length ? input.messages : input.input,
       context: input.context || {},
       maxCandidates: Math.min(12, Math.max(1, Number(input.maxCandidates) || 4))
+    });
+  });
+
+  bus.discover({
+    id: 'model.council', name: 'Model Council générique', category: 'orchestration', version: '1.0.0', provider: 'mel',
+    description: 'Collects one independent critique per unique provider/model through the zero-euro pool, then runs a separate MEL synthesis.',
+    input_schema: modelCouncilInputSchema,
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'DEGRADED', healthcheck: zeroCostHealth(runtimeEnv, 2), enabled: true
+  }, async (input, context = {}) => {
+    if (!runtimeEnv.AI) throw capabilityError('AI_BINDING_MISSING');
+    return runModelCouncil({
+      env: runtimeEnv,
+      request: input.request,
+      capability: String(input.capability || 'GENERAL'),
+      maxCandidates: Math.min(12, Math.max(1, Number(input.maxCandidates) || 4)),
+      timeoutMs: Math.min(120000, Math.max(100, Number(input.timeoutMs) || 30000)),
+      signal: context.signal,
     });
   });
 
