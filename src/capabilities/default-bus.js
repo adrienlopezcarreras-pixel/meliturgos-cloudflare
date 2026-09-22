@@ -18,6 +18,16 @@ import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-q
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const DEFAULT_BRANCH = 'candidate/mel-clean-autonomy';
 const DEFAULT_TEACHER_BRANCH = 'candidate/mel-clean-autonomy';
+
+function compileTimeDeployedGitIdentity() {
+  const branch = typeof MEL_DEPLOYED_GIT_BRANCH !== 'undefined'
+    ? String(MEL_DEPLOYED_GIT_BRANCH || '').trim()
+    : '';
+  const sha = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined'
+    ? String(MEL_DEPLOYED_GIT_SHA || '').trim()
+    : '';
+  return { branch, sha };
+}
 /**
  * Compatibility diagnostic only. Runtime capabilities must receive env
  * explicitly; no request bindings are retained globally between requests.
@@ -95,8 +105,9 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   }, async input => ({ value: input.value }));
 
   const githubRepository = repository || runtimeEnv.MEL_GITHUB_REPOSITORY || DEFAULT_REPOSITORY;
-  const deployedBranch = String(runtimeEnv.MEL_DEPLOYED_GIT_BRANCH || '').trim();
-  const deployedSha = String(runtimeEnv.MEL_DEPLOYED_GIT_SHA || '').trim();
+  const definedIdentity = compileTimeDeployedGitIdentity();
+  const deployedBranch = String(runtimeEnv.MEL_DEPLOYED_GIT_BRANCH || definedIdentity.branch || '').trim();
+  const deployedSha = String(runtimeEnv.MEL_DEPLOYED_GIT_SHA || definedIdentity.sha || '').trim();
   const githubBranch = branch || deployedBranch || runtimeEnv.MEL_GITHUB_BRANCH || DEFAULT_BRANCH;
   const githubToken = token ?? runtimeEnv.MEL_GITHUB_TOKEN ?? '';
   const githubFetch = fetchImpl || runtimeEnv.MEL_GITHUB_FETCH || fetch;
