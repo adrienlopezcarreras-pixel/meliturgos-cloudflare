@@ -1,0 +1,110 @@
+name: gen2-05-cloudflare-billing-evidence
+
+on:
+  pull_request:
+    paths:
+      - 'src/models/model-council.js'
+      - 'src/capabilities/default-bus.js'
+      - 'tests/gen2/model-council-runtime.test.mjs'
+      - '.github/workflows/gen2-05-cloudflare-billing-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  billing-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Read Cloudflare account subscription evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "GEN2-05 billing evidence: CLOUDFLARE secrets unavailable to this workflow."
+            echo "GEN2_05_BILLING_EVIDENCE=SECRETS_UNAVAILABLE" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          HTTP_CODE="$(curl --silent --show-error --max-time 30             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             --output cloudflare-subscriptions.json             --write-out '%{http_code}'             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/subscriptions" || true)"
+
+          echo "Cloudflare subscriptions HTTP status: ${HTTP_CODE}"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "GEN2_05_BILLING_EVIDENCE=BILLING_READ_UNAVAILABLE" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('cloudflare-subscriptions.json', 'utf8'));
+          if (payload?.success !== true || !Array.isArray(payload?.result)) {
+            console.log('GEN2-05 billing evidence: malformed Cloudflare subscription response.');
+            fs.appendFileSync(process.env.GITHUB_ENV, 'GEN2_05_BILLING_EVIDENCE=SUBSCRIPTION_RESPONSE_INVALID\n');
+            process.exit(0);
+          }
+
+          const plans = payload.result
+            .map(row => {
+              const rate = row?.rate_plan || {};
+              return {
+                id: String(rate?.id || '').trim(),
+                public_name: String(rate?.public_name || '').trim(),
+                scope: String(rate?.scope || '').trim(),
+              };
+            })
+            .filter(row => row.id || row.public_name);
+
+          const workers = plans.filter(row =>
+            /workers/i.test(row.id) || /workers/i.test(row.public_name)
+          );
+          const paidLike = workers.filter(row =>
+            /(paid|ent|enterprise|partners_workers)/i.test(row.id) ||
+            /(paid|enterprise)/i.test(row.public_name)
+          );
+
+          const safe = {
+            subscription_count: payload.result.length,
+            workers_plan_count: workers.length,
+            workers_plans: workers.map(row => ({
+              id: row.id.slice(0, 120),
+              public_name: row.public_name.slice(0, 160),
+              scope: row.scope.slice(0, 80),
+            })),
+            paid_or_enterprise_workers_visible: paidLike.length > 0,
+          };
+
+          console.log('GEN2-05 sanitized Cloudflare billing evidence:');
+          console.log(JSON.stringify(safe, null, 2));
+
+          const evidence = paidLike.length
+            ? 'PAID_OR_ENTERPRISE_WORKERS_VISIBLE'
+            : 'NO_PAID_WORKERS_SUBSCRIPTION_VISIBLE';
+          fs.appendFileSync(process.env.GITHUB_ENV, `GEN2_05_BILLING_EVIDENCE=${evidence}\n`);
+          NODE
+
+      - name: Summarize zero-euro authorization boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${GEN2_05_BILLING_EVIDENCE:-UNKNOWN}" in
+            PAID_OR_ENTERPRISE_WORKERS_VISIBLE)
+              echo "GEN2-05: do NOT auto-authorize Workers AI zero-added-cost; paid/enterprise Workers evidence is visible."
+              ;;
+            NO_PAID_WORKERS_SUBSCRIPTION_VISIBLE)
+              echo "GEN2-05: no paid Workers subscription is visible to Billing Read. This is evidence, not automatic authorization; live Council remains gated by exact owner authorization."
+              ;;
+            BILLING_READ_UNAVAILABLE)
+              echo "GEN2-05: current Cloudflare token cannot prove billing mode through account subscriptions. Keep Council fail-closed."
+              ;;
+            SECRETS_UNAVAILABLE)
+              echo "GEN2-05: Cloudflare secrets are unavailable in this workflow context. Keep Council fail-closed."
+              ;;
+            *)
+              echo "GEN2-05: billing evidence inconclusive. Keep Council fail-closed."
+              ;;
+          esac
