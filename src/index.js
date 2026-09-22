@@ -267,17 +267,36 @@ async function maybeHandleReadiness(request, env) {
 async function maybeHandleCouncilAndEvolution(request, env) {
   if (request.method !== 'POST') return null;
   const path = new URL(request.url).pathname;
-  if (path !== '/api/gen2/council/state-of-play' && path !== '/api/gen2/evolution/preflight') return null;
+  const isModelCouncil = path === '/api/gen2/model-council';
+  if (!isModelCouncil && path !== '/api/gen2/council/state-of-play' && path !== '/api/gen2/evolution/preflight') return null;
 
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
 
   try {
     const body = await readJsonObject(request);
+    const runtime = createGen2Runtime({ env });
+
+    if (isModelCouncil) {
+      const prompt = String(body.prompt || body.input || '').trim();
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const explicitRequest = body.request && typeof body.request === 'object' && !Array.isArray(body.request)
+        ? body.request
+        : null;
+      const structuredRequest = explicitRequest
+        || (messages.length ? { messages } : prompt ? { prompt } : {});
+      const result = await runtime.bus.execute('model-council.run', {
+        request: structuredRequest,
+        capability: String(body.capability || 'GENERAL').toUpperCase(),
+        maxCandidates: Math.max(1, Math.min(12, Number(body.maxCandidates) || 4)),
+        timeoutMs: Math.max(1, Math.min(120000, Number(body.timeoutMs) || 30000)),
+      }, busContext(env, request));
+      return Response.json({ ok: true, ...result }, { headers: { 'cache-control': 'no-store' } });
+    }
+
     const goal = String(body.goal || body.objective || '').trim();
     const context = body.context && typeof body.context === 'object' ? body.context : {};
     const minResponses = Math.max(2, Math.min(12, Number(body.minResponses) || 2));
-    const runtime = createGen2Runtime({ env });
     const capabilityId = path === '/api/gen2/council/state-of-play'
       ? 'council.state-of-play'
       : 'evolution.preflight';
@@ -288,7 +307,7 @@ async function maybeHandleCouncilAndEvolution(request, env) {
     }
     return Response.json(result, { headers: { 'cache-control': 'no-store' } });
   } catch (error) {
-    return apiError(error, 'AI_PREFLIGHT_FAILED');
+    return apiError(error, isModelCouncil ? 'MODEL_COUNCIL_FAILED' : 'AI_PREFLIGHT_FAILED');
   }
 }
 
@@ -407,7 +426,7 @@ export default {
         if (readinessResponse) return readinessResponse;
       }
 
-      if (path === '/api/gen2/council/state-of-play' || path === '/api/gen2/evolution/preflight') {
+      if (path === '/api/gen2/model-council' || path === '/api/gen2/council/state-of-play' || path === '/api/gen2/evolution/preflight') {
         const councilResponse = await maybeHandleCouncilAndEvolution(request, env);
         if (councilResponse) return councilResponse;
       }
