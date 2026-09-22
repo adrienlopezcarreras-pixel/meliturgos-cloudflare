@@ -49,6 +49,7 @@ test('browser abstraction is done only with recorded real Browser Run proof', ()
   assert.match(row.next, /Cloudflare Browser Run réel/i);
   assert.match(row.next, /browser\.execute validé de bout en bout/i);
   assert.match(row.next, /run 35708251465/i);
+  assert.match(row.next, /2f3a0e108643fd407ca55760349cc00eb48426c8/i);
   assert.match(row.next, /audit COMPLETED/i);
 });
 
