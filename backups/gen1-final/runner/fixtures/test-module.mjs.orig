@@ -1,3 +1,0 @@
-export function runnerFixture(value = "ok") {
-  return `fixture:${String(value)}`;
-}

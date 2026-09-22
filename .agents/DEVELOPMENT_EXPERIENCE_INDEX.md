@@ -103,6 +103,20 @@ Cette leçon est matérialisée dans `src/learning/runtime-operating-experience.
 - `expert-corpus-runtime-distillation-20260920` — corpus expert complet à la demande, distillation prouvée seulement dans le bundle runtime.
 - `audit-sensor-vs-product-proof-chain-20260920` — séparer code/tests, probe, réplication, reconstruction, stress, launch readiness et production.
 
+
+## Expériences 2026-09-21–22 — mémoire, release, gouvernance et Council
+
+- `bootstrap-memory-completeness-proof-20260922` — complétude d’archive sans plafond arbitraire, reçus par conversation et inventaire bidirectionnel fail-closed.
+- `bootstrap-memory-attachment-backfill-20260922` — métadonnées/pièces jointes historiques idempotentes; contenu binaire seulement si les octets réels sont récupérés.
+- `bootstrap-memory-unified-retrieval-provenance-20260922` — retrieval mémoire+archives unifié, provenance conservée, fallback sûr et reconstruction vérifiable.
+- `bootstrap-explicit-approval-context-20260922` — une action sensible requiert une approbation propriétaire exacte et scoped; jamais un simple `confirm:true` agentique.
+- `bootstrap-live-user-path-capability-proof-20260922` — DONE_VERIFIED seulement après smoke exact-SHA sur le chemin utilisateur réellement déployé.
+- `bootstrap-observability-terminal-event-bounded-20260922` — un événement terminal corrélé et borné par exécution, sans entrée brute sensible.
+- `bootstrap-model-council-live-zero-cost-proof-20260922` — Council live multi-modèle + synthèse MEL + preuve zéro-coût runtime fail-closed.
+
+Preuves principales : commits `04f6f5b`, `162914d`, `f464c50`, `01937da`, `4c213f4`, `f5f294b`, `77ddbfa`, `6c5d917`, `fe8ba9c`; runs `35691866943`, `35693911802`, `35705522236`, `35708004479`.
+
+
 ## Règle de déduplication
 
 Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le corpus. Une différence de vocabulaire ne justifie pas une nouvelle leçon si la préférence comportementale est déjà couverte.
@@ -111,6 +125,6 @@ Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le
 
 Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, Benchmark/LoRA, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, Dev Bridge, observabilité, UI partagée, gouvernance de preuve, readiness zéro-euro runtime, checkpoint XP systématique et ingénierie de protocoles matériels versionnés.
 
-Total bootstrap statique actuel : **65 leçons canoniques réparties entre historique, pack développement, réconciliation et LoRA**, auxquelles s’ajoute le corpus Expert PLUS de **10 000 cycles de guidance**.
+Total bootstrap statique actuel : **72 leçons canoniques réparties entre historique, pack développement, réconciliation et LoRA**, auxquelles s’ajoute le corpus Expert PLUS de **10 000 cycles de guidance**.
 
 Le nombre de leçons canoniques **n’a pas de plafond fonctionnel** : 50 reste uniquement le seuil minimal de readiness LoRA. Toute nouvelle leçon validée et dédupliquée s’ajoute au corpus complet ; les fenêtres de contexte runtime peuvent rester bornées pour la performance sans supprimer ni exclure les leçons stockées.

@@ -21,7 +21,6 @@ test('deployed worker exposes the canonical persistent autonomy heartbeat', asyn
     'src/visual-final-entry.js',
     'src/preview-auth-entry.js',
     'src/professor-live-learning-entry.js',
-    'src/ui-release-fix-entry.js',
     'src/ui-entry.js',
     'src/learning-entry.js',
   ];

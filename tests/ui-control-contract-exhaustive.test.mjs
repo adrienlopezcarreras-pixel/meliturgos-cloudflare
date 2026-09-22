@@ -21,7 +21,7 @@ function delegatedButtonAttrs(html) {
     .map(match => match[1])
     .filter(attrs => !/\bid=["']/.test(attrs))
     .map(attrs => {
-      const match = attrs.match(/\b(data-(?:jump|pc-app|pc-key|view))=["'][^"']+["']/);
+      const match = attrs.match(/\b(data-(?:jump|pc-app|pc-key|view|mode))=["'][^"']+["']/);
       return match?.[1] || null;
     });
 }
@@ -129,7 +129,7 @@ test('dedicated watch page owns all watch actions and every top-level button is 
 
 test('learning controls are wired and LoRA validation is not mislabeled as runtime activation', async () => {
   const source = await readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8');
-  const learning = await readFile(new URL('../src/learning-entry.js', import.meta.url), 'utf8');
+  const learning = await readFile(new URL('../src/pages/full-interface-v2.js', import.meta.url), 'utf8');
 
   expectAll(source, [
     /benchmark\.id='melRunBenchmark'/,
@@ -177,8 +177,10 @@ test('all anonymous canonical buttons use a declared delegated control family', 
   assert.ok(families.has('data-jump'));
   assert.ok(families.has('data-pc-app'));
   assert.ok(families.has('data-pc-key'));
+  assert.ok(families.has('data-mode'));
   assert.match(source, /qsa\('#nav button'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-jump\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-pc-app\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-pc-key\]'\)\.forEach\(b=>b\.onclick=/);
+  assert.match(source, /tabs\.querySelectorAll\('button'\)\.forEach\(b=>b\.onclick=/);
 });
