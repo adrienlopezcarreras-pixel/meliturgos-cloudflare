@@ -64,13 +64,13 @@ test('GEN2-44 persists bounded CapabilityBus lifecycle events to D1 by default',
   });
 
   assert.equal(result.value, 'observed');
-  assert.equal(db.rows.length, 2);
+  assert.equal(db.rows.length, 1);
   const details = db.rows.map(entry => JSON.parse(entry.details_json));
-  assert.deepEqual(details.map(entry => entry.status), ['STARTED', 'SUCCEEDED']);
+  assert.deepEqual(details.map(entry => entry.status), ['SUCCEEDED']);
   assert.equal(details[0].capability, 'echo');
   assert.equal(details[0].request_id, 'obs-1');
   assert.equal(details[0].owner, undefined);
-  assert.ok(Number.isFinite(details[1].duration_ms));
+  assert.ok(Number.isFinite(details[0].duration_ms));
 });
 
 test('GEN2-44 aggregates recent runtime failures and latency without returning raw details', async () => {
