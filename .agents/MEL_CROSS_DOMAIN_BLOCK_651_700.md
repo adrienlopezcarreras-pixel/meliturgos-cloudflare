@@ -1,0 +1,67 @@
+# MEL cross-domain expertise — cycles 651–700
+
+Date: 2026-09-22
+Counter after this block: `MEL_CROSS_DOMAIN_EXPERT_PLUS_cycle_700/10000`.
+
+## Source basis
+
+Primary/current material consulted for this block: OpenAI Developers, *Testing agent skills systematically with evals* (2026-01-22); NIST AI RMF/AIRC AI Metrology and GenAI evaluation program; Cloudflare Workers Testing + Vitest integration/isolation documentation (updated 2026-07/08); GitHub Actions workflow rerun documentation. These sources support principles, not claims that MEL passed any runtime gate.
+
+Format: **problem → principle / limit → pattern vs anti-pattern → gate → MEL implication**.
+
+651. **Eval objective ambiguity** → Define measurable outcome/process/style/efficiency success before scoring; one scalar hides failure classes → typed criteria vs “looks good” → gate: every eval maps to explicit criterion → MEL eval specs become machine-readable contracts.
+652. **Training/eval contamination** → Hold out cases and record provenance; small datasets can leak through prompt/examples → immutable holdout vs tuning on benchmark → gate: no holdout IDs in optimization inputs → MEL stores dataset lineage.
+653. **Regression-set drift** → Add real failures without silently rewriting old expectations; requirements can legitimately change → append/version vs moving goalposts → gate: expectation change requires rationale → MEL preserves historical comparability.
+654. **Positive-only routing evals** → Include near-miss negatives; over-triggering is as real as under-triggering → paired positive/negative prompts vs only happy path → gate: false-positive rate tracked → MEL tool/skill routing gets negative controls.
+655. **Deterministic vs model grading** → Prefer deterministic checks for observable facts, rubric graders for qualitative properties; neither covers everything → layered graders vs LLM judging file existence → gate: deterministic facts cannot be overridden by model score → MEL separates evidence types.
+656. **Grader circularity** → A model grader may share biases with producer → calibrate against human/ground-truth slices vs same-model self-approval → gate: sampled disagreement review → MEL labels model-graded evidence as probabilistic.
+657. **Rubric underspecification** → Criteria need anchors/examples; excessive detail can overfit → concise anchored rubric vs vague “quality” → gate: independent raters can apply rubric consistently → MEL communication/style evals gain anchored dimensions.
+658. **Score without diagnosis** → Aggregate metrics must retain per-case traces → score + failure taxonomy vs leaderboard-only → gate: every regression links to case evidence → MEL triage points to root symptom.
+659. **Threshold gaming** → Thresholds should reflect risk and uncertainty; a single cutoff invites brittle optimization → risk-tier thresholds vs universal 80% → gate: critical invariants require 100% deterministic pass → MEL launch gates remain conjunctive.
+660. **Confidence miscalibration** → Confidence is not correctness probability unless calibrated → reliability bins vs self-reported certainty → gate: confidence buckets compared with empirical accuracy → MEL status language reflects evidence.
+661. **Small-sample volatility** → Report counts/intervals, not only percentages → sample-aware trend vs “+5%” on 10 cases → gate: minimum evidence size before promotion → MEL avoids false improvement claims.
+662. **Benchmark saturation** → Repeated tuning can overfit fixed cases → rotating shadow set vs endless optimization on public set → gate: promotion needs untouched slice → MEL keeps shadow evals.
+663. **Capability eval coverage** → Test what MEL can and cannot do → bidirectional capability matrix vs success-only demo → gate: unsupported action cases must be refused/qualified correctly → MEL self-knowledge becomes testable.
+664. **Communication coherence** → Evaluate active subject, ellipsis resolution and follow-up continuity → multi-turn scenario vs isolated prompts → gate: no topic substitution after status follow-up → MEL gets conversation-state evals.
+665. **Memory precedence** → Latest explicit user constraint outranks stale memory; exceptions need provenance → contradiction fixtures vs retrieval relevance alone → gate: stale conflicting memory cannot win → MEL memory evals include temporal precedence.
+666. **RAG citation faithfulness** → Retrieval presence does not prove answer support → claim-to-source entailment vs citation decoration → gate: sampled claims must be supported → MEL separates retrieval and grounding scores.
+667. **RAG abstention** → Missing evidence should trigger uncertainty/clarification where material → unanswerable cases vs forced answer → gate: fabricated source facts = critical fail → MEL gains no-evidence evals.
+668. **RAG freshness** → Current claims need freshness constraints; old sources can still be valid background → freshness metadata vs newest-always → gate: time-sensitive cases require eligible recent source → MEL routing encodes temporal need.
+669. **Contradictory sources** → Surface conflicts and authority rather than average them → source hierarchy + conflict state vs majority text → gate: contradiction case preserves both claims until resolved → MEL provenance engine records conflict.
+670. **Tool side-effect correctness** → Tool call success is not task success → request→handler→effect→readback chain vs HTTP 200 → gate: state re-read matches intended mutation → MEL action evals require observed effect.
+671. **Idempotency eval** → Repeat same mutation under retry → stable idempotency key/effect vs duplicate side effects → gate: N retries produce one logical mutation → MEL jobs/tools get replay tests.
+672. **Timeout semantics** → Timeout can mean unknown outcome → reconcile before retry vs blind duplicate → gate: induced timeout yields correct final state → MEL classifies ambiguous completion.
+673. **Cancellation semantics** → Stop must propagate or explicitly report non-cancellable work → cancellation trace vs UI-only stop → gate: no hidden continuation after acknowledged stop → MEL Stop/Cycle evals inspect runtime.
+674. **Concurrency race** → Default test concurrency can expose or mask shared-state assumptions → explicit isolation model vs accidental ordering → gate: race-sensitive tests run under intended topology → MEL tests document shared state.
+675. **Cloudflare runtime fidelity** → Node mocks alone miss Workers bindings/runtime → Workers Vitest/integration harness vs pure Node confidence → gate: binding-critical path runs in Workers-compatible harness → MEL CI distinguishes unit/runtime proof.
+676. **Per-file storage isolation** → Isolated test storage can hide cross-file lifecycle bugs → dedicated shared-state integration test when required vs assuming unit isolation equals production → gate: persistence flows exercised end-to-end → MEL D1/R2/DO evals include lifecycle scenarios.
+677. **Outbound dependency determinism** → Mock expected external responses in unit tests but retain bounded live qualification separately → mock + live tier vs flaky live-only CI → gate: deterministic CI plus explicit live evidence → MEL labels mock/live provenance.
+678. **Semantic HTTP errors** → 2xx may encode provider failure → parse domain payload vs status-only → gate: synthetic 200-error fixture fails correctly → MEL connector evals validate semantics.
+679. **Retry budget evaluation** → Retry must be bounded and observable → backoff/budget vs infinite resilience loop → gate: forced persistent failure terminates within budget → MEL anti-loop becomes measurable.
+680. **Flaky test masking** → Rerun helps diagnosis but must not convert first failure into unconditional green → record attempt history vs rerun-until-pass → gate: flaky classification remains visible → MEL CI distinguishes flaky from pass.
+681. **Same-SHA rerun interpretation** → GitHub reruns use original SHA/ref; useful for nondeterminism diagnosis, not new-code validation → compare attempts vs claim patch validation → gate: rerun evidence tied to SHA → MEL evidence ledger records commit.
+682. **Test-order dependence** → Randomize/permute critical suites periodically → order audit vs fixed lucky sequence → gate: selected suites pass under multiple orders → MEL detects leaked state.
+683. **Seed control** → Stochastic evals need recorded seeds/config/model versions → reproducible envelope vs unlogged randomness → gate: run manifest complete → MEL benchmark artifacts carry configuration.
+684. **Model-version drift** → Hosted models can change; compare behavior with version metadata → versioned baselines vs timeless score → gate: unexplained shift triggers re-baseline review → MEL routing evals retain model identity.
+685. **Latency distribution** → Mean hides tail pain → p50/p95/p99 by route vs average-only → gate: tail budget per critical interaction → MEL UI/API performance evidence becomes percentile-based.
+686. **Cost/quota regression** → Correctness can improve while becoming unsustainable → tokens/tool calls/requests per success vs score-only → gate: efficiency budget alongside quality → MEL optimization tracks resource envelope.
+687. **Long-context degradation** → Test important constraints at varied positions/lengths → stratified context placement vs short prompts only → gate: critical exclusions survive long history → MEL communication evals stress memory pressure.
+688. **Ellipsis/status follow-ups** → “and now?” depends on active task → multi-turn state fixture vs lexical classifier → gate: response refers to correct unresolved work → MEL active-subject tracker gets regression cases.
+689. **False completion claims** → Status must derive from observable gates → evidence ladder vs prose confidence → gate: missing gate forbids “done/deployed/complete” → MEL response validator checks status vocabulary.
+690. **Production-claim evidence ladder** → Code present < unit pass < integration pass < exact-SHA preview < live effect < production → monotonic evidence levels vs collapsing sensors → gate: claim cannot exceed evidence tier → MEL stores proof tier.
+691. **Preview SHA integrity** → Preview must identify exact candidate commit → embedded/readback SHA vs latest-branch assumption → gate: runtime SHA equals tested SHA → MEL deployment evals reject mismatch.
+692. **Artifact provenance** → Eval outputs need input/config/SHA/timestamp linkage → signed/hashed manifest where useful vs orphan screenshots → gate: evidence replay metadata complete → MEL audit artifacts become traceable.
+693. **Human escalation sampling** → Reserve review for disagreement/high-risk/novel failures → targeted sampling vs reviewing everything/nothing → gate: escalation policy has triggers → MEL keeps zero-cost automation while flagging uncertainty.
+694. **Adversarial evals** → Include prompt injection, misleading retrieved text and tool-output manipulation → attack fixtures vs benign-only → gate: authority boundaries survive adversarial content → MEL grounding/tool safety gets red-team cases.
+695. **Privacy in eval corpora** → Minimize/de-identify user data unless essential; synthetic cases can miss realism → provenance + minimization vs copying private history wholesale → gate: corpus inventory has purpose/sensitivity → MEL eval storage follows lifecycle policy.
+696. **Deletion/non-resurrection eval** → Backups/caches/RAG can reintroduce deleted data → end-to-end tombstone scenario vs primary-store delete only → gate: deleted fixture absent after restore/reindex → MEL privacy audit links all derivatives.
+697. **Recovery eval** → Backup success is not restore proof → periodic independent restore + integrity verification vs write receipt → gate: reconstructed artifact hash matches source → MEL/ShardVault evidence requires recovery.
+698. **Loss-tolerance eval** → Erasure-code claims need unavailable-fragment scenarios → 1/2/3-loss matrix vs intact reconstruction → gate: promised threshold demonstrated → ShardVault 4-of-7 must survive three losses.
+699. **Eval-to-fix closure** → An audit finding without patch/test is inventory, not improvement → defect→root cause→minimal fix→targeted test→non-regression vs audit accumulation → gate: open defect has owner/next exact fix → MEL anti-loop prioritizes closure.
+700. **Evaluation governance** → Keep test evidence separate from source-grounded curriculum and runtime XP → three ledgers vs converting reading into “experience” → gate: every lesson labels evidence class → MEL can learn broadly without falsifying validation.
+
+## Deduplication / transfer / medium-specific correction
+
+These 50 cycles intentionally extend the 601–650 privacy/provenance/lifecycle block rather than recounting its lessons. The candidate tree inspected before this run exposed no `MEL_TRANSFER_*_10000.md` package, so none was ingested. The ROMAN correction remains binding: technical expertise must not displace aesthetic relevance; novel work requires substantial scenes, desire, obstacle, subtext, sensory embodiment, material/social causality, concrete motifs and anti-fragmentation. `Le Roman des signes` 125-micro-chapter version remains a rejected draft; V2 restarts from substantial human/material-life chapters with computing accessory.
+
+No runtime defect is claimed fixed by this knowledge block; no production action is authorized.
