@@ -1,0 +1,45 @@
+name: site-hardening-cleanup-ci
+
+on:
+  push:
+    branches:
+      - maintenance/site-hardening-cleanup-20260922
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.gitignore'
+      - '.github/workflows/site-hardening-cleanup-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Targeted site hardening tests
+        run: |
+          node --test             tests/site-hardening-cleanup.test.mjs             tests/ui-entry-contrast.test.mjs             tests/ui-regression.test.mjs             tests/ui-control-contract-exhaustive.test.mjs             tests/ui-api-route-contract-exhaustive.test.mjs             tests/visual-final-layer.test.mjs             tests/final-theme-assets.test.mjs             tests/theme-avatar-assets.test.mjs             tests/theme-backgrounds.test.mjs             tests/security-auth.test.mjs
+      - name: Syntax gate
+        run: npm run check
+      - name: Full suite
+        run: npm test
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs
+      - name: Repository cleanup invariant
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -d backups
+          test ! -e worker.js.backup-p2
+          test ! -e worker.js.backup-stable
+          test ! -e worker.js.mvp-fix-20260908-195049
+          bytes="$(git ls-tree -rl HEAD | awk '{sum += $4} END {print sum+0}')"
+          echo "active_tree_blob_bytes=$bytes"
