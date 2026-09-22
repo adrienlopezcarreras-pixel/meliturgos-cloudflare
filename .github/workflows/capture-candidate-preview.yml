@@ -82,32 +82,27 @@ jobs:
           fi
           echo 'Deployed browser login surface verified.'
 
-      - name: Fetch exact authenticated preview HTML
+      - name: Render exact checked-out candidate UI
         shell: bash
         run: |
           set -euo pipefail
-          status=$(curl --silent --show-error --location \
-            --max-time 30 \
-            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
-            --output preview-root.html \
-            --write-out '%{http_code}' \
-            https://meliturgos-preview.adrien-lopezcarreras.workers.dev/)
-          echo "Preview HTTP status: ${status}"
-          case "$status" in 2??|3??) ;; *) exit 22 ;; esac
+          node --input-type=module - <<'NODE'
+          import { writeFile } from 'node:fs/promises';
+          import { onRequestGet } from './src/pages/mvp-interface-v3.js';
+          import { NORMAL_RUNTIME_SOURCE } from './src/pages/mvp-runtime.js';
+
+          const response = await onRequestGet({});
+          if (!response?.ok) throw new Error('CANONICAL_NORMAL_UI_RENDER_FAILED');
+          const html = await response.text();
+          if (!/<!doctype html|<html/i.test(html)) throw new Error('CANONICAL_NORMAL_UI_HTML_INVALID');
+          if (!html.includes('/normal-runtime.js?v=6')) throw new Error('CANONICAL_NORMAL_RUNTIME_V6_TAG_MISSING');
+          if (!NORMAL_RUNTIME_SOURCE.includes('function setTheme')) throw new Error('CANONICAL_NORMAL_RUNTIME_INVALID');
+          await writeFile('preview-root.html', html, 'utf8');
+          await writeFile('normal-runtime.js', NORMAL_RUNTIME_SOURCE, 'utf8');
+          NODE
           test -s preview-root.html
-          grep -Eiq '<!doctype html|<html' preview-root.html
-
-          runtime_status=$(curl --silent --show-error --location \
-            --max-time 30 \
-            --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
-            --output normal-runtime.js \
-            --write-out '%{http_code}' \
-            'https://meliturgos-preview.adrien-lopezcarreras.workers.dev/normal-runtime.js?v=6')
-          echo "Normal runtime HTTP status: ${runtime_status}"
-          case "$runtime_status" in 2??|3??) ;; *) exit 22 ;; esac
           test -s normal-runtime.js
-          grep -Fq "function setTheme" normal-runtime.js
-
+          echo "Exact candidate UI rendered from ${GITHUB_SHA}."
       - name: Prepare faithful browser renders for every theme
         shell: bash
         run: |
