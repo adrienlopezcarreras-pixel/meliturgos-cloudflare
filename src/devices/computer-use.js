@@ -1,3 +1,4 @@
+import { normalizeStepApprovals, stepApprovalMatches } from '../security/approval-gates.js';
 export const COMPUTER_USE_SCHEMA = 'mel.devices.computer-use.v1';
 
 export const COMPUTER_USE_RISK = Object.freeze({
@@ -77,24 +78,6 @@ function normalizedCapabilities(device = {}) {
   return new Set(raw.map(item => boundedText(item, 160)).filter(Boolean));
 }
 
-function normalizeApproval(row = {}) {
-  return {
-    approved: row?.approved === true,
-    session_id: boundedText(row?.session_id),
-    step_id: boundedText(row?.step_id),
-    action: boundedText(row?.action, 160),
-  };
-}
-
-function approvalMatches(approvals, sessionId, step) {
-  return approvals.some(row =>
-    row.approved === true
-    && row.session_id === sessionId
-    && row.step_id === step.id
-    && row.action === step.action
-  );
-}
-
 function appAllowed(app, allowlist) {
   if (!app) return true;
   return allowlist.includes(app);
@@ -134,7 +117,7 @@ export function normalizeComputerUseRequest(input = {}) {
       allowed_origins: allowedOrigins,
       max_steps: maxSteps,
     },
-    approvals: (Array.isArray(input.approvals) ? input.approvals : []).map(normalizeApproval).slice(0, MAX_STEPS),
+    approvals: normalizeStepApprovals(input.approvals, MAX_STEPS),
     steps: rawSteps.map((step, index) => ({
       id: boundedText(step?.id) || `step-${index + 1}`,
       action: boundedText(step?.action, 160),
@@ -193,7 +176,7 @@ export function evaluateComputerUsePlan(input = {}) {
       allowed = false;
       reason = 'ORIGIN_OUTSIDE_SANDBOX';
     } else if (risk === COMPUTER_USE_RISK.SENSITIVE
-      && !approvalMatches(request.approvals, request.session_id, step)) {
+      && !stepApprovalMatches(request.approvals, request.session_id, step)) {
       allowed = false;
       reason = 'EXPLICIT_STEP_APPROVAL_REQUIRED';
     }
