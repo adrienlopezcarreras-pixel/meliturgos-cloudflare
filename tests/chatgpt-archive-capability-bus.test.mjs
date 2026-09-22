@@ -24,5 +24,5 @@ test('ChatGPT archive HTTP routes delegate preview and persistent import through
   const source = await readFile(new URL('../src/index.js', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /import\s*\{\s*importChatGPTArchive\s*\}/);
   assert.match(source, /preview \? 'chatgpt\.archive\.preview' : 'chatgpt\.archive\.import'/);
-  assert.match(source, /runtime\.bus\.execute\(capabilityId, \{ archive \}, busContext\(env\)\)/);
+  assert.match(source, /runtime\.bus\.execute\(capabilityId, \{ archive \}, busContext\(env, request\)\)/);
 });
