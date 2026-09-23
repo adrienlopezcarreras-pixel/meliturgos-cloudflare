@@ -139,18 +139,29 @@ jobs:
           set -euo pipefail
           gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
 
-      - name: Collect real MEL UI screenshots
-        if: always()
+      - name: Capture real MEL UI screenshots
         shell: bash
+        working-directory: android-companion
         run: |
           set -euo pipefail
-          mkdir -p android-companion/dist/emulator
-          adb exec-out run-as fr.veriteinterdite.mel cat files/login-screen.png > android-companion/dist/emulator/login-screen.png
-          adb exec-out run-as fr.veriteinterdite.mel cat files/complete-screen.png > android-companion/dist/emulator/complete-screen.png
+          mkdir -p dist/emulator
 
-          test -s android-companion/dist/emulator/login-screen.png
-          test -s android-companion/dist/emulator/complete-screen.png
-          cp "$RUNNER_TEMP/mel-emulator.log" android-companion/dist/emulator/emulator.log || true
+          gradle --no-daemon :app:installDebug
+
+          adb shell am force-stop fr.veriteinterdite.mel
+          adb shell am start -W -n fr.veriteinterdite.mel/.MainActivity
+          sleep 1
+          adb shell dumpsys activity activities | grep -q "fr.veriteinterdite.mel/.MainActivity"
+          adb exec-out screencap -p > dist/emulator/login-screen.png
+          test -s dist/emulator/login-screen.png
+
+          adb shell am start -W             -n fr.veriteinterdite.mel/.MelUiHarnessActivity             --es mode complete             --ez diagnostics true
+          sleep 1
+          adb shell dumpsys activity activities | grep -q "fr.veriteinterdite.mel/.MelUiHarnessActivity"
+          adb exec-out screencap -p > dist/emulator/complete-screen.png
+          test -s dist/emulator/complete-screen.png
+
+          cp "$RUNNER_TEMP/mel-emulator.log" dist/emulator/emulator.log || true
 
       - name: Upload emulator test evidence
         if: always()
