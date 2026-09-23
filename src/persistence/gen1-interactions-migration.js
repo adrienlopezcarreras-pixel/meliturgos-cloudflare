@@ -81,10 +81,10 @@ async function legacyIntegrity(db){
     OR a.provenance <> '${LEGACY_PROVENANCE}'
     OR json_valid(u.metadata)=0
     OR json_valid(a.metadata)=0
-    OR json_extract(u.metadata,'$.legacy_interaction_id') IS NOT i.id
-    OR json_extract(a.metadata,'$.legacy_interaction_id') IS NOT i.id
-    OR json_extract(a.metadata,'$.legacy_feedback') IS NOT i.feedback
-    OR json_extract(a.metadata,'$.legacy_correction') IS NOT i.correction
+    OR (CASE WHEN json_valid(u.metadata) THEN json_extract(u.metadata,'$.legacy_interaction_id') ELSE NULL END) IS NOT i.id
+    OR (CASE WHEN json_valid(a.metadata) THEN json_extract(a.metadata,'$.legacy_interaction_id') ELSE NULL END) IS NOT i.id
+    OR (CASE WHEN json_valid(a.metadata) THEN json_extract(a.metadata,'$.legacy_feedback') ELSE NULL END) IS NOT i.feedback
+    OR (CASE WHEN json_valid(a.metadata) THEN json_extract(a.metadata,'$.legacy_correction') ELSE NULL END) IS NOT i.correction
   `;
   const row=await db.prepare(`SELECT
       SUM(CASE WHEN ${mismatchPredicate} THEN 1 ELSE 0 END) AS coverage_mismatches,
@@ -96,7 +96,7 @@ async function legacyIntegrity(db){
           OR u.timestamp <> i.created_at
           OR u.provenance <> '${LEGACY_PROVENANCE}'
           OR json_valid(u.metadata)=0
-          OR json_extract(u.metadata,'$.legacy_interaction_id') IS NOT i.id
+          OR (CASE WHEN json_valid(u.metadata) THEN json_extract(u.metadata,'$.legacy_interaction_id') ELSE NULL END) IS NOT i.id
         ))
         OR
         (a.id IS NOT NULL AND (
@@ -107,9 +107,9 @@ async function legacyIntegrity(db){
           OR a.timestamp <> i.created_at + 1
           OR a.provenance <> '${LEGACY_PROVENANCE}'
           OR json_valid(a.metadata)=0
-          OR json_extract(a.metadata,'$.legacy_interaction_id') IS NOT i.id
-          OR json_extract(a.metadata,'$.legacy_feedback') IS NOT i.feedback
-          OR json_extract(a.metadata,'$.legacy_correction') IS NOT i.correction
+          OR (CASE WHEN json_valid(a.metadata) THEN json_extract(a.metadata,'$.legacy_interaction_id') ELSE NULL END) IS NOT i.id
+          OR (CASE WHEN json_valid(a.metadata) THEN json_extract(a.metadata,'$.legacy_feedback') ELSE NULL END) IS NOT i.feedback
+          OR (CASE WHEN json_valid(a.metadata) THEN json_extract(a.metadata,'$.legacy_correction') ELSE NULL END) IS NOT i.correction
         ))
         THEN 1 ELSE 0 END) AS existing_mismatches
     FROM interactions i
