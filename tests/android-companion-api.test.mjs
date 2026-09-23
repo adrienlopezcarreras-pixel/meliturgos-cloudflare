@@ -186,3 +186,34 @@ test('Android voice route uses the canonical Whisper endpoint and returns chat h
     assert.equal(body.archive_via,'chat');
   }finally{DB.close();}
 });
+
+
+test('Android file route accepts device-token uploads without owner credentials',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+    const paired=await pair(env,'android-file');
+    const form=new FormData();
+    form.append('file',new Blob(['contenu texte android'],{type:'text/plain'}),'note.txt');
+    const response=await worker.fetch(new Request('https://mel.test/api/android/v1/files/upload',{
+      method:'POST',
+      headers:deviceHeaders(paired.device_id,paired.token),
+      body:form
+    }),env);
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.ok,true);
+    assert.equal(body.name,'note.txt');
+    assert.equal(body.preview_text,'contenu texte android');
+    assert.equal(body.private,true);
+
+    const deniedForm=new FormData();
+    deniedForm.append('file',new Blob(['x'],{type:'text/plain'}),'x.txt');
+    const denied=await worker.fetch(new Request('https://mel.test/api/android/v1/files/upload',{
+      method:'POST',
+      headers:deviceHeaders(paired.device_id,'wrong-token'),
+      body:deniedForm
+    }),env);
+    assert.equal(denied.status,401);
+  }finally{DB.close();}
+});
