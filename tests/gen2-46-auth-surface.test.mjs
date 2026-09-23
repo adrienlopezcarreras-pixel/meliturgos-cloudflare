@@ -7,6 +7,7 @@ import {
   enforceHttpAuthPolicy,
   HTTP_AUTH_POLICY,
 } from '../src/security/http-auth-policy.js';
+import { isReleaseSmokeRequest } from '../src/core/security.js';
 
 const ORIGIN = 'https://mel.test';
 const ownerEnv = { MELITURGOS_USER: 'owner', MELITURGOS_PASSWORD: 'secret' };
@@ -123,4 +124,17 @@ test('GEN2-46 public GET exceptions never make write methods public', () => {
     assert.equal(classifyHttpAuthSurface(req(path, { method: 'POST' })).kind, 'OWNER_AUTH');
     assert.equal(classifyHttpAuthSurface(req(path, { method: 'DELETE' })).kind, 'OWNER_AUTH');
   }
+});
+
+
+test('MEL-MEM-05 release smoke may read only the exact ChatGPT archive status route',()=>{
+  const token='m'.repeat(64);
+  const env={MEL_LAUNCH_BOOTSTRAP_TOKEN:token};
+  const headers={'x-mel-release-smoke':'1','x-mel-launch-bootstrap':token};
+
+  assert.equal(isReleaseSmokeRequest(req('/api/gen2/import/chatgpt-status',{headers}),env),true);
+  assert.equal(isReleaseSmokeRequest(req('/api/gen2/import/chatgpt-status',{method:'POST',headers}),env),false);
+  assert.equal(isReleaseSmokeRequest(req('/api/gen2/import/chatgpt-archive',{headers}),env),false);
+  assert.equal(isReleaseSmokeRequest(req('/api/gen2/import/chatgpt-coverage',{headers}),env),false);
+  assert.equal(isReleaseSmokeRequest(req('/api/gen2/import/chatgpt-status',{headers:{...headers,'x-mel-launch-bootstrap':'x'.repeat(64)}}),env),false);
 });
