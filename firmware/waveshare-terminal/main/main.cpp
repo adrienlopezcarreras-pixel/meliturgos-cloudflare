@@ -73,6 +73,8 @@ static TaskHandle_t wifi_scan_task_handle = nullptr;
 static TaskHandle_t wifi_connect_task_handle = nullptr;
 static volatile bool wifi_got_ip = false;
 static volatile int wifi_disconnect_reason = -1;
+static volatile int wifi_reconnect_attempts = 0;
+static volatile bool wifi_auto_reconnect = false;
 
 enum MiniView {
     MINI_VIEW_MAIN = 0,
@@ -144,12 +146,22 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         auto *ev = static_cast<wifi_event_sta_disconnected_t *>(data);
         wifi_got_ip = false;
+        mel_terminal_set_network_connected(false);
         wifi_disconnect_reason = ev ? (int)ev->reason : -1;
         ESP_LOGW(TAG, "MINI WIFI DISCONNECTED reason=%d (%s)",
                  wifi_disconnect_reason, wifi_reason_text(wifi_disconnect_reason));
+
+        if (wifi_auto_reconnect && wifi_reconnect_attempts < 6) {
+            ++wifi_reconnect_attempts;
+            const esp_err_t retry = esp_wifi_connect();
+            ESP_LOGI(TAG, "MINI WIFI RECONNECT attempt=%d result=%s",
+                     (int)wifi_reconnect_attempts, esp_err_to_name(retry));
+        }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         wifi_got_ip = true;
         wifi_disconnect_reason = -1;
+        wifi_reconnect_attempts = 0;
+        mel_terminal_set_network_connected(true);
         auto *ev = static_cast<ip_event_got_ip_t *>(data);
         if (ev) {
             ESP_LOGI(TAG, "MINI WIFI GOT IP " IPSTR, IP2STR(&ev->ip_info.ip));
@@ -217,8 +229,8 @@ static esp_err_t mini_wifi_sta_connect(const char *ssid, const char *password) {
     if (!ssid || !ssid[0]) return ESP_ERR_INVALID_ARG;
 
     wifi_config_t cfg = {};
-    snprintf((char *)cfg.sta.ssid, sizeof(cfg.sta.ssid), "%s", ssid);
-    snprintf((char *)cfg.sta.password, sizeof(cfg.sta.password), "%s", password ? password : "");
+    snprintf((char *)cfg.sta.ssid, sizeof(cfg.sta.ssid), "%.32s", ssid);
+    snprintf((char *)cfg.sta.password, sizeof(cfg.sta.password), "%.64s", password ? password : "");
 
     // Phone hotspots vary between OPEN/WPA2/WPA3 transition modes.
     // Accept all authentication modes supported by the ESP32-S3 station.
@@ -226,8 +238,14 @@ static esp_err_t mini_wifi_sta_connect(const char *ssid, const char *password) {
     cfg.sta.pmf_cfg.capable = true;
     cfg.sta.pmf_cfg.required = false;
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &cfg));
+    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK) return err;
+    err = esp_wifi_set_config(WIFI_IF_STA, &cfg);
+    if (err != ESP_OK) return err;
+
+    wifi_auto_reconnect = true;
+    wifi_reconnect_attempts = 0;
+    mel_terminal_set_network_connected(false);
     return esp_wifi_connect();
 }
 
@@ -536,7 +554,10 @@ static void wifi_connect_task(void *arg) {
     ESP_LOGI(TAG, "WiFi connect to %s", ssid);
     wifi_got_ip = false;
     wifi_disconnect_reason = -1;
-    mini_wifi_sta_connect(ssid, pwd);
+    const esp_err_t connect_err = mini_wifi_sta_connect(ssid, pwd);
+    if (connect_err != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi connect start failed: %s", esp_err_to_name(connect_err));
+    }
 
     bool connected = false;
     for (int i = 0; i < 30; ++i) {
@@ -945,6 +966,7 @@ extern "C" void app_main(void) {
 
     ESP_LOGI(TAG, "STEP 6: WIFI STACK");
     esp_wifi_port_init(nullptr, nullptr);
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED, &mini_wifi_event_diag, nullptr));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &mini_wifi_event_diag, nullptr));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &mini_wifi_event_diag, nullptr));
     ESP_ERROR_CHECK(esp_wifi_set_country_code("FR", false));
