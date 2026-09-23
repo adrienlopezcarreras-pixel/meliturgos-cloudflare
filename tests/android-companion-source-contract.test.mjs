@@ -175,3 +175,26 @@ test('Android owner password state is not saveable and emulator smoke tests are 
   assert.match(workflow,/connectedDebugAndroidTest/);
   assert.match(workflow,/system-images;android-35;google_apis;x86_64/);
 });
+
+
+test('Android voice and background session invalidation are fail-closed and self-cleaning',async()=>{
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  const background=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBackground.kt',root),'utf8');
+
+  const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
+  assert.match(voice,/isInvalidSession\(error\)/);
+  assert.match(voice,/vault\.clear\(\)/);
+  assert.match(voice,/MelBackground\.cancel\(appContext\)/);
+  assert.match(voice,/SessionStage\.DISCONNECTED/);
+  assert.match(voice,/Session expirée/);
+
+  const pairing=vm.slice(vm.indexOf('fun pair('),vm.indexOf('fun disconnect('));
+  assert.match(pairing,/MelBackground\.cancel\(appContext\)/);
+
+  assert.match(background,/fun stopHeartbeat\(context: Context\)/);
+  assert.match(background,/fun clearSessionAlert\(context: Context\)/);
+  assert.match(background,/fun cancel\(context: Context\)[\s\S]*stopHeartbeat\(context\)[\s\S]*clearSessionAlert\(context\)/);
+  assert.match(background,/fun schedule\(context: Context\)[\s\S]*clearSessionAlert\(context\)/);
+  assert.match(background,/vault\.load\(\)\.isNullOrBlank\(\)[\s\S]*stopHeartbeat\(applicationContext\)/);
+  assert.match(background,/vault\.clear\(\)[\s\S]*stopHeartbeat\(applicationContext\)[\s\S]*notifySessionExpired\(applicationContext\)/);
+});
