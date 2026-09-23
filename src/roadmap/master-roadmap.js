@@ -180,11 +180,11 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P14', 'Interface et expérience', [
-    item('GEN2-54', 'Control Center / Mode complet', 'IN_PROGRESS', 'Control Center unifié relié aux APIs réelles et durci contre les faux états. Dernier pseudo-panneau legacy Work supprimé de la navigation/configuration: compatibilité work redirigée vers IA & Développement -> Développement, avec une seule couche de présentation canonique; routes UI inconnues fail-closed vers Vue d’ensemble. Tests de consolidation ajoutés. Reste validation candidate puis production de cette dernière consolidation avant DONE_VERIFIED.', 'P0'),
+    item('GEN2-54', 'Control Center / Mode complet', 'DONE_VERIFIED', 'Consolidation finale certifiée sur SHA cd2e5762cf199a433a29d148859e2b662608060c: full-candidate-ci 35863695942 SUCCESS, lora-runtime-pipeline-ci 35863696017 SUCCESS, unicity/teacher/hardware/capture verts; production deploy-cloudflare-release 35863775641 SUCCESS avec autonomie post-déploiement et HTTP verts. Pseudo-panneau Work retiré, alias historique redirigé vers IA & Développement, une seule couche de présentation canonique.', 'P0'),
     item('MEL-UI-01', 'Accueil minimal et contemporain', 'DONE_VERIFIED', 'Polish mobile continu', 'P0'),
     item('MEL-UI-02', 'Avatar grand / cible tactile mobile', 'DONE_VERIFIED', 'Tester sur Android réel', 'P0'),
     item('MEL-UI-03', 'Favicon visage MEL', 'DONE_VERIFIED', '—', 'P3'),
-    item('MEL-UI-05', 'État réel, pas de cartes factices', 'IN_PROGRESS', 'Tous les états secondaires connus sont fail-closed: métriques absentes restent —/Indisponible et aucun faux zéro/état lifecycle n’est inventé. Consolidation finale retire le pseudo-panneau Work et conserve une seule surface IA & Développement avec alias historique contrôlé. Reste validation candidate puis production de cette dernière passe avant DONE_VERIFIED.', 'P0')
+    item('MEL-UI-05', 'État réel, pas de cartes factices', 'DONE_VERIFIED', 'État fail-closed et consolidation UI certifiés sur SHA cd2e5762cf199a433a29d148859e2b662608060c: full-candidate-ci 35863695942 SUCCESS et production 35863775641 SUCCESS, autonomie/HTTP inclus. Métriques absentes restent —/Indisponible, aucun faux zéro/lifecycle inventé, pseudo-panneau Work supprimé et surface IA & Développement canonique unique.', 'P0')
   ]),
 
   phase('P15', 'Release, migration et maturité finale', [
