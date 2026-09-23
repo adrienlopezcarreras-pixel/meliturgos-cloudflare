@@ -1,6 +1,9 @@
 package fr.veriteinterdite.mel
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
@@ -9,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -140,7 +144,8 @@ class MainActivity : ComponentActivity() {
                     onFile = ::pickFile,
                     onProfessor = ::openProfessor,
                     onNotifications = ::enableNotifications,
-                    onDiagnostics = model::runDiagnostics
+                    onDiagnostics = model::runDiagnostics,
+                    onCopyDiagnostic = ::copyDiagnostic
                 )
             }
         }
@@ -199,6 +204,12 @@ class MainActivity : ComponentActivity() {
     private fun openProfessor() {
         val url = BuildConfig.MEL_BASE_URL.trimEnd('/') + "/professor"
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+
+    private fun copyDiagnostic(report: String) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Diagnostic MEL Android", report))
+        Toast.makeText(this, "Diagnostic MEL copié", Toast.LENGTH_SHORT).show()
     }
 
     private fun enableNotifications() {
@@ -340,7 +351,8 @@ internal fun MelApp(
     onFile: () -> Unit,
     onProfessor: () -> Unit,
     onNotifications: () -> Unit,
-    onDiagnostics: () -> Unit
+    onDiagnostics: () -> Unit,
+    onCopyDiagnostic: (String) -> Unit
 ) {
     Box(
         Modifier
@@ -367,7 +379,8 @@ internal fun MelApp(
                 onFile = onFile,
                 onProfessor = onProfessor,
                 onNotifications = onNotifications,
-                onDiagnostics = onDiagnostics
+                onDiagnostics = onDiagnostics,
+                onCopyDiagnostic = onCopyDiagnostic
             )
         }
     }
@@ -551,7 +564,8 @@ private fun ConversationScreen(
     onFile: () -> Unit,
     onProfessor: () -> Unit,
     onNotifications: () -> Unit,
-    onDiagnostics: () -> Unit
+    onDiagnostics: () -> Unit,
+    onCopyDiagnostic: (String) -> Unit
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -611,7 +625,8 @@ private fun ConversationScreen(
                     onSync = onSync,
                     onProfessor = onProfessor,
                     onNotifications = onNotifications,
-                    onDiagnostics = onDiagnostics
+                    onDiagnostics = onDiagnostics,
+                    onCopyDiagnostic = onCopyDiagnostic
                 )
             }
             Spacer(Modifier.height(10.dp))
@@ -766,7 +781,8 @@ private fun CompletePanel(
     onSync: () -> Unit,
     onProfessor: () -> Unit,
     onNotifications: () -> Unit,
-    onDiagnostics: () -> Unit
+    onDiagnostics: () -> Unit,
+    onCopyDiagnostic: (String) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -826,6 +842,13 @@ private fun CompletePanel(
                         fontSize = 12.sp,
                         lineHeight = 17.sp
                     )
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { onCopyDiagnostic(diagnosticReport) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Copier diagnostic")
                 }
             }
         }
