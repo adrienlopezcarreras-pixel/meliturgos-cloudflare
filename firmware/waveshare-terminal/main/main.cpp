@@ -18,6 +18,7 @@
 #include "esp_es8311_port.h"
 #include "esp_camera_port.h"
 #include "esp_camera.h"
+#include "esp_ota_ops.h"
 #include "esp_codec_dev.h"
 #include "mel_terminal.h"
 
@@ -96,6 +97,25 @@ static void request_view(MiniView view);
 static void mini_apply_requested_view(void);
 static void wifi_start_scan(void);
 static void ui_stress_task(void *);
+
+static void ota_boot_validation_task(void *) {
+    // With bootloader rollback enabled, a freshly OTA-installed image starts
+    // PENDING_VERIFY. Only confirm it after a sustained stable runtime window.
+    vTaskDelay(pdMS_TO_TICKS(30000));
+
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
+    const esp_err_t state_err = esp_ota_get_state_partition(running, &state);
+    if (state_err == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY) {
+        const esp_err_t valid_err = esp_ota_mark_app_valid_cancel_rollback();
+        if (valid_err == ESP_OK) {
+            ESP_LOGI(TAG, "OTA BOOT VALIDATED after 30s stable runtime");
+        } else {
+            ESP_LOGE(TAG, "OTA validation failed: %s", esp_err_to_name(valid_err));
+        }
+    }
+    vTaskDelete(nullptr);
+}
 
 static void camera_boot_probe_task(void *) {
     // UI is already alive before this runs. Camera probing can therefore be slow
@@ -996,4 +1016,5 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
     xTaskCreatePinnedToCore(camera_boot_probe_task, "mini_camera_probe", 8192, nullptr, 2, nullptr, 1);
     xTaskCreatePinnedToCore(ui_stress_task, "mini_ui_stress", 4096, nullptr, 2, nullptr, 1);
+    xTaskCreatePinnedToCore(ota_boot_validation_task, "mini_ota_validate", 3072, nullptr, 1, nullptr, 0);
 }
