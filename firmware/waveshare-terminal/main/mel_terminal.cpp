@@ -41,6 +41,7 @@ static const int VOICE_RATE = 48000;
 static const int VOICE_BYTES = VOICE_SECONDS * VOICE_RATE * 2;
 
 extern esp_codec_dev_handle_t input_dev;
+extern esp_codec_dev_handle_t output_dev;
 
 struct MelConfig {
     char ssid[33] = {};
@@ -223,6 +224,65 @@ static esp_err_t http_request(
     response = buffer.body;
     esp_http_client_cleanup(client);
     return err;
+}
+
+
+static bool speak_text(const std::string &text) {
+    if (!g_audio_ok || !output_dev || !g_cfg.token[0] || text.empty()) return false;
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "text", text.c_str());
+    cJSON_AddStringToObject(root, "speaker", "luna");
+    std::string body = json_string(root);
+    cJSON_Delete(root);
+
+    std::string url = std::string(SERVER) + "/api/device/v1/voice/tts";
+    esp_http_client_config_t cfg = {};
+    cfg.url = url.c_str();
+    cfg.crt_bundle_attach = esp_crt_bundle_attach;
+    cfg.timeout_ms = 60000;
+
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) return false;
+
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    std::string auth = std::string("Bearer ") + g_cfg.token;
+    esp_http_client_set_header(client, "Authorization", auth.c_str());
+    esp_http_client_set_header(client, "X-MEL-Device-ID", g_device_id);
+
+    bool ok = false;
+    if (esp_http_client_open(client, (int)body.size()) == ESP_OK) {
+        int written = esp_http_client_write(client, body.data(), (int)body.size());
+        if (written == (int)body.size()) {
+            esp_http_client_fetch_headers(client);
+            int status = esp_http_client_get_status_code(client);
+            if (status == 200) {
+                uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4096, MALLOC_CAP_8BIT));
+                if (buffer) {
+                    esp_codec_dev_set_out_vol(output_dev, 72.0);
+                    ok = true;
+                    while (true) {
+                        int n = esp_http_client_read(client, reinterpret_cast<char *>(buffer), 4096);
+                        if (n < 0) { ok = false; break; }
+                        if (n == 0) break;
+                        if (n & 1) n -= 1; // 16-bit PCM alignment
+                        if (n > 0 && esp_codec_dev_write(output_dev, buffer, n) != ESP_CODEC_DEV_OK) {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    esp_codec_dev_set_out_vol(output_dev, 0.0);
+                    heap_caps_free(buffer);
+                }
+            } else {
+                ESP_LOGW(TAG, "TTS failed status=%d", status);
+            }
+        }
+        esp_http_client_close(client);
+    }
+    esp_http_client_cleanup(client);
+    return ok;
 }
 
 static std::string json_string(cJSON *obj) {
@@ -578,7 +638,11 @@ static void voice_task(void *) {
     }
     ui_status("MINI");
     ui_answer(answer.c_str());
-    vTaskDelay(pdMS_TO_TICKS(900));
+    const bool spoken = speak_text(answer);
+    if (!spoken) {
+        ESP_LOGW(TAG, "Voice reply unavailable; keeping text response on screen");
+        vTaskDelay(pdMS_TO_TICKS(900));
+    }
     if (lvgl_port_lock(1000)) {
         mini_face_state(MINI_IDLE);
         lvgl_port_unlock();
@@ -984,6 +1048,53 @@ static void network_task(void *arg) {
     }
     xTaskCreate(heartbeat_task, "mel_heartbeat", 6144, nullptr, 3, nullptr);
     vTaskDelete(nullptr);
+}
+
+
+bool mel_terminal_has_token(void) {
+    nvs_handle_t nvs;
+    char token[96] = {};
+    if (nvs_open("mel", NVS_READONLY, &nvs) != ESP_OK) return false;
+    bool ok = nvs_read_string(nvs, "token", token, sizeof(token)) && token[0] != '\0';
+    nvs_close(nvs);
+    return ok;
+}
+
+void mel_terminal_set_pair_code(const char *code) {
+    const char *value = code ? code : "";
+    strlcpy(g_cfg.pair_code, value, sizeof(g_cfg.pair_code));
+    save_string("pair_code", g_cfg.pair_code);
+}
+
+void mel_terminal_set_network_info(const char *ip) {
+    strlcpy(g_ip, ip ? ip : "", sizeof(g_ip));
+}
+
+static void online_runtime_task(void *) {
+    make_device_id();
+    load_config();
+
+    ui_status("APPAIRAGE…");
+    if (!pair_terminal()) {
+        ui_status("CODE MEL REQUIS");
+        ui_answer("Entre un code d'appairage MEL depuis l'icône de liaison.");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    g_online = true;
+    ui_status("");
+    ui_answer("");
+    if (lvgl_port_lock(1000)) {
+        mini_face_state(MINI_IDLE);
+        lvgl_port_unlock();
+    }
+    xTaskCreate(heartbeat_task, "mel_heartbeat", 6144, nullptr, 3, nullptr);
+    vTaskDelete(nullptr);
+}
+
+void mel_terminal_start_online(void) {
+    xTaskCreate(online_runtime_task, "mel_online", 10240, nullptr, 5, nullptr);
 }
 
 void mel_terminal_start(bool force_setup) {
