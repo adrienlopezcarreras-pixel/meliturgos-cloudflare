@@ -1,8 +1,10 @@
 import { migrate } from "../persistence/migrations.js";
+import { createD1MemoryCandidateSink, createExchangeMemorySync } from "../memory/exchange-sync.js";
 
 export class ConversationService {
   constructor(db) {
     this.db = db;
+    this.memorySync = createExchangeMemorySync({ candidateSink: createD1MemoryCandidateSink(db) });
   }
 
   async create({id=crypto.randomUUID(),owner='',title=''}={}) { await this.migrate(); await this.ensureConversation(id,owner,title); return this.get({id}); }
@@ -14,9 +16,6 @@ export class ConversationService {
   listMessages({conversationId,...options}) { return this.getMessages(conversationId,options); }
   sync({deviceId,conversationId}) { return this.getSyncMessages(deviceId,conversationId); }
 
-  /**
-   * Ensure Gen2 schema is applied (non-destructive).
-   */
   async migrate() {
     if (!this._migrated) {
       await migrate(this.db);
@@ -25,9 +24,6 @@ export class ConversationService {
     return this;
   }
 
-  /**
-   * Archive a single message immutably.
-   */
   async archiveMessage({
     id = crypto.randomUUID(),
     conversationId,
@@ -50,7 +46,7 @@ export class ConversationService {
 
     await this.db
       .prepare(
-        `INSERT INTO archive_messages(
+        `INSERT OR IGNORE INTO archive_messages(
           id, conversation_id, device_id, role, content, attachments_json,
           model, capabilities_used_json, system_prompt_version, timestamp,
           provenance, metadata
@@ -72,6 +68,20 @@ export class ConversationService {
       )
       .run();
 
+    // The archive row is the durable source event. Memory synchronization is
+    // deliberately replay-safe: retries keep the immutable message id and the
+    // candidate sink uses INSERT OR IGNORE on the deterministic candidate id.
+    // If candidate persistence fails after archival, retrying archiveMessage()
+    // completes the missing memory write without duplicating either record.
+    await this.memorySync.sync([{
+      conversationId,
+      messageId: id,
+      role,
+      content,
+      timestamp,
+      provenance: provenance || 'conversation-service',
+    }]);
+
     if (deviceId) {
       await this.updateSyncCheckpoint(deviceId, conversationId, id, timestamp);
     }
@@ -79,9 +89,6 @@ export class ConversationService {
     return { id, conversationId };
   }
 
-  /**
-   * Get or create a conversation (idempotent).
-   */
   async ensureConversation(id, owner = "", title = "") {
     const now = Date.now();
     await this.db
@@ -95,9 +102,6 @@ export class ConversationService {
     return id;
   }
 
-  /**
-   * Update sync checkpoint for a device/conversation pair.
-   */
   async updateSyncCheckpoint(deviceId, conversationId, lastMessageId, lastMessageTimestamp) {
     const now = Date.now();
     await this.db
@@ -113,9 +117,6 @@ export class ConversationService {
       .run();
   }
 
-  /**
-   * Fetch messages for a conversation, optionally since a timestamp.
-   */
   async getMessages(conversationId, { since = 0, limit = 1000, latest = false } = {}) {
     await this.migrate();
     const boundedLimit = Math.max(1, Math.min(10000, Number(limit) || 1000));
@@ -133,9 +134,6 @@ export class ConversationService {
     return latest ? messages.reverse() : messages;
   }
 
-  /**
-   * Register or update a device.
-   */
   async registerDevice({ id, owner = "", name = "", kind = "unknown", metadata = {} }) {
     await this.migrate();
     const now = Date.now();
@@ -155,9 +153,6 @@ export class ConversationService {
     return { deviceId: id };
   }
 
-  /**
-   * Fetch messages newer than a device's checkpoint.
-   */
   async getSyncMessages(deviceId, conversationId) {
     await this.migrate();
     const checkpoint = await this.db
