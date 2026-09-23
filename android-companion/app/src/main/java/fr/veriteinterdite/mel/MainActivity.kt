@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.io.ByteArrayOutputStream
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -145,7 +146,10 @@ class MainActivity : ComponentActivity() {
                     onProfessor = ::openProfessor,
                     onNotifications = ::enableNotifications,
                     onDiagnostics = model::runDiagnostics,
-                    onCopyDiagnostic = ::copyDiagnostic
+                    onCopyDiagnostic = ::copyDiagnostic,
+                    onNormalProbe = model::runNormalProbe,
+                    onFileProbe = model::runFileProbe,
+                    onBackgroundProbe = model::runBackgroundProbe
                 )
             }
         }
@@ -173,7 +177,7 @@ class MainActivity : ComponentActivity() {
         Thread {
             try {
                 val length = contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
-                if (length > 25_000_000L) {
+                if (length > MAX_FILE_BYTES.toLong()) {
                     runOnUiThread { voiceMessage.value = "Fichier trop volumineux · limite 25 Mo" }
                     return@Thread
                 }
@@ -185,20 +189,38 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val type = contentResolver.getType(uri) ?: "application/octet-stream"
-                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: throw IllegalStateException("Fichier illisible")
-                if (bytes.size > 25_000_000) {
-                    runOnUiThread { voiceMessage.value = "Fichier trop volumineux · limite 25 Mo" }
-                    return@Thread
-                }
+                val bytes = readUriBounded(uri)
                 model.sendFile(name, type, bytes)
                 runOnUiThread { voiceMessage.value = "Micro prêt" }
             } catch (error: Throwable) {
                 runOnUiThread {
-                    voiceMessage.value = "Fichier : " + (error.message ?: "lecture impossible")
+                    voiceMessage.value = if (error.message == "FILE_TOO_LARGE")
+                        "Fichier trop volumineux · limite 25 Mo"
+                    else
+                        "Fichier : " + (error.message ?: "lecture impossible")
                 }
             }
         }.start()
+    }
+
+    private fun readUriBounded(uri: Uri): ByteArray {
+        val input = contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("Fichier illisible")
+        input.use { stream ->
+            val output = ByteArrayOutputStream(64 * 1024)
+            val buffer = ByteArray(16 * 1024)
+            var total = 0
+            while (true) {
+                val read = stream.read(buffer)
+                if (read < 0) break
+                total += read
+                if (total > MAX_FILE_BYTES) {
+                    throw IllegalStateException("FILE_TOO_LARGE")
+                }
+                output.write(buffer, 0, read)
+            }
+            return output.toByteArray()
+        }
     }
 
     private fun openProfessor() {
@@ -311,6 +333,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private const val MAX_FILE_BYTES = 25_000_000
+
 private val MelInk = Color(0xFFE6F7FF)
 private val MelMuted = Color(0xFF9FB5C8)
 private val MelCyan = Color(0xFF22D3EE)
@@ -352,7 +376,10 @@ internal fun MelApp(
     onProfessor: () -> Unit,
     onNotifications: () -> Unit,
     onDiagnostics: () -> Unit,
-    onCopyDiagnostic: (String) -> Unit
+    onCopyDiagnostic: (String) -> Unit,
+    onNormalProbe: () -> Unit,
+    onFileProbe: () -> Unit,
+    onBackgroundProbe: () -> Unit
 ) {
     Box(
         Modifier
@@ -380,7 +407,10 @@ internal fun MelApp(
                 onProfessor = onProfessor,
                 onNotifications = onNotifications,
                 onDiagnostics = onDiagnostics,
-                onCopyDiagnostic = onCopyDiagnostic
+                onCopyDiagnostic = onCopyDiagnostic,
+                onNormalProbe = onNormalProbe,
+                onFileProbe = onFileProbe,
+                onBackgroundProbe = onBackgroundProbe
             )
         }
     }
@@ -565,7 +595,10 @@ private fun ConversationScreen(
     onProfessor: () -> Unit,
     onNotifications: () -> Unit,
     onDiagnostics: () -> Unit,
-    onCopyDiagnostic: (String) -> Unit
+    onCopyDiagnostic: (String) -> Unit,
+    onNormalProbe: () -> Unit,
+    onFileProbe: () -> Unit,
+    onBackgroundProbe: () -> Unit
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -626,7 +659,10 @@ private fun ConversationScreen(
                     onProfessor = onProfessor,
                     onNotifications = onNotifications,
                     onDiagnostics = onDiagnostics,
-                    onCopyDiagnostic = onCopyDiagnostic
+                    onCopyDiagnostic = onCopyDiagnostic,
+                    onNormalProbe = onNormalProbe,
+                    onFileProbe = onFileProbe,
+                    onBackgroundProbe = onBackgroundProbe
                 )
             }
             Spacer(Modifier.height(10.dp))
@@ -782,7 +818,10 @@ private fun CompletePanel(
     onProfessor: () -> Unit,
     onNotifications: () -> Unit,
     onDiagnostics: () -> Unit,
-    onCopyDiagnostic: (String) -> Unit
+    onCopyDiagnostic: (String) -> Unit,
+    onNormalProbe: () -> Unit,
+    onFileProbe: () -> Unit,
+    onBackgroundProbe: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -820,6 +859,39 @@ private fun CompletePanel(
             ) {
                 Text("Activer notifications arrière-plan")
             }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Validation téléphone",
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onNormalProbe,
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Tester Normal") }
+                OutlinedButton(
+                    onClick = onFileProbe,
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Tester fichier") }
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onBackgroundProbe,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Tester arrière-plan") }
+            Text(
+                "Micro : utilise le bouton Micro puis parle quelques secondes pour valider le matériel réel.",
+                color = MelMuted,
+                fontSize = 11.sp
+            )
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = onDiagnostics,
