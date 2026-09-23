@@ -348,8 +348,8 @@ static esp_err_t setup_get(httpd_req_t *req) {
         "<!doctype html><html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
         "<title>MINI Setup</title><style>body{font-family:system-ui;background:#07111f;color:#fff;padding:22px;max-width:520px;margin:auto}"
         "input,button{width:100%;padding:14px;margin:8px 0;border-radius:10px;border:1px solid #334155;box-sizing:border-box}"
-        "button{background:#2563eb;color:white;font-weight:700}</style><h1>MEL · premier démarrage</h1>"
-        "<p>Saisis ton Wi-Fi et le code créé dans MEL &gt; Terminal MEL.</p>"
+        "button{background:#2563eb;color:white;font-weight:700}</style><h1>MINI · premier démarrage</h1>"
+        "<p>Saisis ton Wi-Fi et le code créé dans MEL &gt; MINI.</p>"
         "<form method=post action=/save><input name=ssid maxlength=32 placeholder='Nom Wi-Fi' required>"
         "<input name=password type=password maxlength=64 placeholder='Mot de passe Wi-Fi'>"
         "<input name=pair_code maxlength=16 placeholder='Code MEL' required autocomplete=off>"
@@ -409,8 +409,8 @@ static void start_setup_ap() {
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char ssid[32] = {};
     char pass[32] = {};
-    snprintf(ssid, sizeof(ssid), "MEL-SETUP-%02X%02X", mac[4], mac[5]);
-    snprintf(pass, sizeof(pass), "MEL%02X%02X%02X!", mac[3], mac[4], mac[5]);
+    snprintf(ssid, sizeof(ssid), "MINI-SETUP-%02X%02X", mac[4], mac[5]);
+    snprintf(pass, sizeof(pass), "MINI%02X%02X%02X!", mac[3], mac[4], mac[5]);
 
     esp_netif_create_default_wifi_ap();
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
