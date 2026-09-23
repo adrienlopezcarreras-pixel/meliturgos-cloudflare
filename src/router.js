@@ -94,15 +94,17 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
 
   if (path === "/api/gen2/capabilities" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });
-    const refresh = url.searchParams.get("refresh") !== "0";
+    const refresh = url.searchParams.get("refresh") === "1";
     const capabilities = refresh ? await runtime.bus.refreshHealthAll() : runtime.bus.list();
     return json({ ok: true, capabilities, health_refreshed: refresh });
   }
 
   if (path === "/api/gen2/dashboard-summary" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });
-    // The overview must describe observed runtime health, not the registry's boot-time defaults.
-    const capabilities = await runtime.bus.refreshHealthAll();
+    // Keep the Professor hot path fast. Deep provider health checks are explicit
+    // through ?refresh=1 on the capabilities endpoint instead of blocking boot.
+    const refresh = url.searchParams.get("refresh") === "1";
+    const capabilities = refresh ? await runtime.bus.refreshHealthAll() : runtime.bus.list();
     const roadmap = await runtime.bus.execute("roadmap.read", {}, capabilityContext(env));
     const badStates = new Set(["ERROR","FAILED","FAIL","DOWN","UNHEALTHY","BROKEN"]);
     const unavailableStates = new Set(["OFFLINE","UNAVAILABLE","BLOCKED","DISABLED"]);
@@ -137,6 +139,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
       ok: state !== "ERROR",
       state,
       generated_at: new Date().toISOString(),
+      health_refreshed: refresh,
       capabilities: { total: capabilities.length, active, usable: active, failed, unavailable, degraded, protected: protectedCount, health },
       roadmap: roadmapSummary,
       deployment: {
