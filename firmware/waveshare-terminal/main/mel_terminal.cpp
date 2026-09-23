@@ -1095,6 +1095,15 @@ void mel_terminal_set_network_info(const char *ip) {
     strlcpy(g_ip, ip ? ip : "", sizeof(g_ip));
 }
 
+void mel_terminal_set_wifi_connected(bool connected) {
+    if (!connected) {
+        g_online = false;
+        ui_status("WI-FI PERDU");
+        return;
+    }
+    ui_status(g_online ? "" : "WI-FI CONNECTE");
+}
+
 static bool device_session_valid() {
     if (!g_cfg.token[0]) return false;
     std::string response;
