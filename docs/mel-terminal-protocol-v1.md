@@ -12,18 +12,13 @@ Le terminal n'exécute pas le grand modèle localement. Il est l'interface maté
 
 États transitoires: `DEGRADED`, `UPDATING`, `RECOVERY`.
 
-Le bouton BOOT au démarrage efface uniquement la configuration MEL du terminal et retourne à `UNPROVISIONED`.
+La reconfiguration se fait depuis l'interface tactile Wi-Fi/appairage. La configuration persistante reste en NVS entre les mises à jour applicatives.
 
 ## Provisioning
 
-Au premier démarrage, le terminal crée un point d'accès local WPA2 `MEL-SETUP-xxxx` et sert `http://192.168.4.1`.
+Au premier démarrage, MINI ouvre son écran Wi-Fi tactile. L'utilisateur peut scanner les réseaux 2,4 GHz, choisir un SSID, saisir le mot de passe avec le clavier tactile ou entrer un SSID manuellement.
 
-L'utilisateur saisit:
-- SSID Wi-Fi;
-- mot de passe Wi-Fi;
-- code d'appairage MEL à usage unique.
-
-Le mot de passe opérateur MEL n'est jamais envoyé ni stocké sur le terminal.
+Après connexion, le code d'appairage MEL à usage unique est saisi directement sur MINI. Le mot de passe opérateur MEL n'est jamais envoyé ni stocké sur le terminal. Les identifiants Wi-Fi et le jeton appareil sont conservés en NVS pour la reconnexion automatique.
 
 ## Appairage
 
@@ -78,10 +73,12 @@ Deux partitions applicatives sont prévues. Le terminal télécharge le binaire 
 
 Publication sûre:
 1. compiler la vraie cible ESP32-S3;
-2. produire le binaire fusionné à l'offset 0;
-3. calculer SHA-256;
-4. téléverser le firmware;
+2. produire deux images distinctes : l'image applicative `mel-terminal.bin` pour OTA et l'image fusionnée `mini-first-install.bin` pour une première installation USB à l'offset 0;
+3. calculer les SHA-256 des deux images;
+4. téléverser d'abord les deux binaires;
 5. publier le manifeste en dernier.
+
+Une image fusionnée ne doit jamais être écrite directement dans une partition OTA. Les mises à jour OTA utilisent uniquement l'image applicative ESP-IDF.
 
 Le workflow de publication exige une approbation explicite et un SHA de source exact.
 
