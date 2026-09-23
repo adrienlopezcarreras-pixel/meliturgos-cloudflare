@@ -151,6 +151,55 @@ jobs:
 
           printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
+          SHARD_STATUS_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --output production-shardvault-before.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/shardvault/status")"
+          test "$SHARD_STATUS_CODE" = "200"
+          SHARD_ACTIVE="$(node -e 'const d=require("./production-shardvault-before.json"); const n=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; process.stdout.write(String(n));')"
+          echo "ShardVault external registry before release proof: ${SHARD_ACTIVE}/7"
+
+          if [ "$SHARD_ACTIVE" -lt 7 ]; then
+            SHARD_READY=0
+            for SHARD_ATTEMPT in $(seq 1 4); do
+              SHARD_SEARCH_CODE="$(curl --silent --show-error --max-time 180 \
+                --header "x-mel-release-smoke: 1" \
+                --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+                --header "content-type: application/json" \
+                --data '{}' \
+                --output production-shardvault-search.json \
+                --write-out '%{http_code}' \
+                "${BASE_URL}/api/gen2/shardvault/search" || true)"
+              if [ "$SHARD_SEARCH_CODE" != "200" ]; then
+                echo "ShardVault activation search attempt ${SHARD_ATTEMPT} returned HTTP ${SHARD_SEARCH_CODE}."
+                test ! -s production-shardvault-search.json || cat production-shardvault-search.json
+              else
+                SHARD_STATE="$(node -e 'const d=require("./production-shardvault-search.json"); if(d?.ok!==true) throw new Error("SHARDVAULT_SEARCH_NOT_OK"); const active=Number(d?.active_external_count||0); const target=Number(d?.target_count||7); process.stdout.write(String(active)+" "+String(target)+" "+(active>=target?"1":"0"));')"
+                SHARD_ACTIVE="${SHARD_STATE%% *}"
+                SHARD_REST="${SHARD_STATE#* }"
+                SHARD_TARGET="${SHARD_REST%% *}"
+                SHARD_READY="${SHARD_REST##* }"
+                echo "ShardVault activation attempt ${SHARD_ATTEMPT}: ${SHARD_ACTIVE}/${SHARD_TARGET}"
+                if [ "$SHARD_READY" = "1" ]; then
+                  break
+                fi
+              fi
+              sleep 2
+            done
+            test "$SHARD_READY" = "1"
+          fi
+
+          SHARD_FINAL_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --output production-shardvault-final.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/shardvault/status")"
+          test "$SHARD_FINAL_CODE" = "200"
+          node -e 'const d=require("./production-shardvault-final.json"); const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; if(active<7) throw new Error("PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7:"+active); if(d?.health?.recoverable!==true) throw new Error("PRODUCTION_SHARDVAULT_NOT_RECOVERABLE"); console.log("ShardVault active external registry verified: "+active+"/7");'
+
           ready=0
           for attempt in $(seq 1 20); do
             HTTP_CODE="$(curl --silent --show-error --max-time 180 \
