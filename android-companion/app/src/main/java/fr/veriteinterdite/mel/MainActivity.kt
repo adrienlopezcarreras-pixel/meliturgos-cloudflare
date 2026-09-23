@@ -14,6 +14,7 @@ import android.provider.OpenableColumns
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -46,15 +47,18 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -120,7 +124,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
 
         vault = TokenVault(this)
         client = MelApiClient(BuildConfig.MEL_BASE_URL, deviceId(), vault)
@@ -327,13 +334,20 @@ internal fun MelTheme(content: @Composable () -> Unit) {
             secondary = Color(0xFF60A5FA),
             background = Color(0xFF06101D),
             surface = Color(0xFF0B1B2A),
+            surfaceVariant = Color(0xFF122335),
             onPrimary = Color(0xFF00191D),
+            onSecondary = Color(0xFF001B33),
             onBackground = MelInk,
             onSurface = MelInk,
+            onSurfaceVariant = MelMuted,
+            outline = Color(0xFF58748B),
             error = MelDanger
-        ),
-        content = content
-    )
+        )
+    ) {
+        CompositionLocalProvider(LocalContentColor provides MelInk) {
+            content()
+        }
+    }
 }
 
 @Composable
@@ -449,7 +463,7 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MelPanel),
+            colors = CardDefaults.cardColors(containerColor = MelPanel, contentColor = MelInk),
             shape = RoundedCornerShape(24.dp)
         ) {
             Column(Modifier.padding(20.dp)) {
@@ -466,6 +480,15 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
                     onValueChange = { user = it },
                     modifier = Modifier.fillMaxWidth().testTag("login-user"),
                     label = { Text("Utilisateur MEL (optionnel)") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = MelInk,
+                        unfocusedTextColor = MelInk,
+                        focusedLabelColor = MelCyan,
+                        unfocusedLabelColor = MelMuted,
+                        cursorColor = MelCyan,
+                        focusedBorderColor = MelCyan,
+                        unfocusedBorderColor = MelMuted.copy(alpha = .55f)
+                    ),
                     singleLine = true
                 )
                 Spacer(Modifier.height(12.dp))
@@ -474,6 +497,15 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
                     onValueChange = { password = it },
                     modifier = Modifier.fillMaxWidth().testTag("login-password"),
                     label = { Text("Mot de passe MEL") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = MelInk,
+                        unfocusedTextColor = MelInk,
+                        focusedLabelColor = MelCyan,
+                        unfocusedLabelColor = MelMuted,
+                        cursorColor = MelCyan,
+                        focusedBorderColor = MelCyan,
+                        unfocusedBorderColor = MelMuted.copy(alpha = .55f)
+                    ),
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -582,7 +614,7 @@ private fun ConversationScreen(
             .navigationBarsPadding()
             .imePadding(),
         topBar = {
-            Surface(color = Color(0xCC071523)) {
+            Surface(color = Color(0xCC071523), contentColor = MelInk) {
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -641,7 +673,7 @@ private fun ConversationScreen(
                 if (state.messages.isEmpty()) {
                     item {
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = MelPanelSoft),
+                            colors = CardDefaults.cardColors(containerColor = MelPanelSoft, contentColor = MelInk),
                             shape = RoundedCornerShape(20.dp)
                         ) {
                             Column(Modifier.padding(18.dp)) {
@@ -786,7 +818,7 @@ private fun CompletePanel(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xB30C2940)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xB30C2940), contentColor = MelInk),
         shape = RoundedCornerShape(18.dp)
     ) {
         Column(Modifier.padding(13.dp)) {
