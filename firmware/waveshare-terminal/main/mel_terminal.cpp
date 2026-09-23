@@ -20,6 +20,7 @@
 #include "esp_heap_caps.h"
 #include "esp_ota_ops.h"
 #include "esp_camera.h"
+#include "esp_camera_port.h"
 #include "esp_codec_dev.h"
 #include "esp_lvgl_port.h"
 #include "cJSON.h"
@@ -687,7 +688,22 @@ static void audio_test_task(void *) {
 }
 
 static void camera_task(void *) {
-    ui_status("TEST CAMÉRA");
+    ui_status("CAMÉRA…");
+
+    if (!g_camera_ok) {
+        ESP_LOGI(TAG, "Lazy OV5640 init on core %d", xPortGetCoreID());
+        esp_camera_port_init((i2c_port_num_t)0);
+        g_camera_ok = esp_camera_sensor_get() != nullptr;
+        ESP_LOGI(TAG, "Lazy OV5640 init %s", g_camera_ok ? "OK" : "FAILED");
+    }
+
+    if (!g_camera_ok) {
+        ui_status("CAMÉRA ERREUR");
+        ui_answer("OV5640 indisponible.");
+        vTaskDelete(nullptr);
+        return;
+    }
+
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
         ui_status("CAMÉRA ERREUR");
@@ -701,7 +717,6 @@ static void camera_task(void *) {
     }
     vTaskDelete(nullptr);
 }
-
 
 static std::string safe_asset_name(const char *name) {
     std::string out;
@@ -904,7 +919,7 @@ enum Action { ACTION_VOICE = 1, ACTION_CAMERA = 2, ACTION_AUDIO = 3, ACTION_UPDA
 static void button_event(lv_event_t *event) {
     intptr_t action = reinterpret_cast<intptr_t>(lv_event_get_user_data(event));
     if (action == ACTION_VOICE) mel_terminal_request_voice();
-    if (action == ACTION_CAMERA) xTaskCreate(camera_task, "mel_camera", 4096, nullptr, 4, nullptr);
+    if (action == ACTION_CAMERA) xTaskCreatePinnedToCore(camera_task, "mel_camera", 6144, nullptr, 3, nullptr, 1);
     if (action == ACTION_AUDIO) xTaskCreate(audio_test_task, "mel_audio", 4096, nullptr, 4, nullptr);
     if (action == ACTION_UPDATE) xTaskCreate(update_task, "mel_update", 8192, nullptr, 4, nullptr);
 }
