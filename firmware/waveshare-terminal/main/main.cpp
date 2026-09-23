@@ -85,6 +85,9 @@ enum MiniView {
 static volatile int requested_view = MINI_VIEW_MAIN;
 static int active_view = MINI_VIEW_MAIN;
 static volatile bool wifi_scan_requested = false;
+static int last_face_state = -1;
+static bool last_blink = false;
+static bool last_online = false;
 #define MINI_UI_STRESS_TEST 1
 
 static void request_view(MiniView view);
@@ -156,41 +159,58 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
 
 static void mini_anim_cb(lv_timer_t *) {
     mini_apply_requested_view();
+
+    // Do not redraw the animated face while another full-screen view is active.
+    // This materially reduces SPI/LVGL load and avoids hidden-tree invalidations.
+    if (active_view != MINI_VIEW_MAIN) return;
     if (!left_eye || !right_eye || !mouth_obj || !face_obj) return;
-    const uint32_t phase = (lv_tick_get() / 120) % 32;
+
+    const uint32_t phase = (lv_tick_get() / 250) % 32;
     const int state = mel_terminal_state();
+    const bool online = mel_terminal_online();
     listening = state == MEL_TERMINAL_LISTENING;
 
-    const bool blink = state == MEL_TERMINAL_IDLE && (phase == 0 || phase == 1);
-    lv_obj_set_height(left_eye, blink ? 2 : 10);
-    lv_obj_set_height(right_eye, blink ? 2 : 10);
+    const bool blink = state == MEL_TERMINAL_IDLE && (phase == 0);
+    if (blink != last_blink || state != last_face_state) {
+        lv_obj_set_height(left_eye, blink ? 2 : 10);
+        lv_obj_set_height(right_eye, blink ? 2 : 10);
+        last_blink = blink;
+    }
 
-    lv_color_t accent = lv_color_hex(0x22D3EE);
-    if (state == MEL_TERMINAL_LISTENING) accent = lv_color_hex(0x34D399);
-    else if (state == MEL_TERMINAL_THINKING) accent = lv_color_hex(0xA78BFA);
-    else if (state == MEL_TERMINAL_SPEAKING) accent = lv_color_hex(0x60A5FA);
-    else if (state == MEL_TERMINAL_ERROR) accent = lv_color_hex(0xFB7185);
-    lv_obj_set_style_border_color(face_obj, accent, 0);
+    if (state != last_face_state) {
+        lv_color_t accent = lv_color_hex(0x22D3EE);
+        if (state == MEL_TERMINAL_LISTENING) accent = lv_color_hex(0x34D399);
+        else if (state == MEL_TERMINAL_THINKING) accent = lv_color_hex(0xA78BFA);
+        else if (state == MEL_TERMINAL_SPEAKING) accent = lv_color_hex(0x60A5FA);
+        else if (state == MEL_TERMINAL_ERROR) accent = lv_color_hex(0xFB7185);
+        lv_obj_set_style_border_color(face_obj, accent, 0);
+    }
 
     if (state == MEL_TERMINAL_LISTENING) {
         lv_obj_set_height(mouth_obj, (phase % 3 == 0) ? 11 : 5);
-        if (status_label) lv_label_set_text(status_label, "ECOUTE");
+        if (state != last_face_state && status_label) lv_label_set_text(status_label, "ECOUTE");
     } else if (state == MEL_TERMINAL_THINKING) {
         lv_obj_set_height(mouth_obj, 4);
         lv_obj_set_width(mouth_obj, 28 + (phase % 5) * 4);
-        if (status_label) lv_label_set_text(status_label, "REFLEXION");
+        if (state != last_face_state && status_label) lv_label_set_text(status_label, "REFLEXION");
     } else if (state == MEL_TERMINAL_SPEAKING) {
         lv_obj_set_width(mouth_obj, 42);
         lv_obj_set_height(mouth_obj, (phase % 3 == 0) ? 14 : 6);
-        if (status_label) lv_label_set_text(status_label, "MEL");
+        if (state != last_face_state && status_label) lv_label_set_text(status_label, "MEL");
     } else if (state == MEL_TERMINAL_ERROR) {
-        lv_obj_set_height(mouth_obj, 4);
-        if (status_label) lv_label_set_text(status_label, "ERREUR");
-    } else {
+        if (state != last_face_state) {
+            lv_obj_set_width(mouth_obj, 42);
+            lv_obj_set_height(mouth_obj, 4);
+            if (status_label) lv_label_set_text(status_label, "ERREUR");
+        }
+    } else if (state != last_face_state || online != last_online) {
         lv_obj_set_width(mouth_obj, 42);
         lv_obj_set_height(mouth_obj, 5);
-        if (status_label) lv_label_set_text(status_label, mel_terminal_online() ? "PARLER" : "HORS LIGNE");
+        if (status_label) lv_label_set_text(status_label, online ? "PARLER" : "HORS LIGNE");
     }
+
+    last_face_state = state;
+    last_online = online;
 }
 
 static esp_err_t mini_wifi_sta_connect(const char *ssid, const char *password) {
@@ -712,6 +732,9 @@ static void io_expander_init() {
 static void lv_port_init() {
     ESP_LOGI(TAG, "STEP 5: LVGL");
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
+    port_cfg.task_affinity = 1;
+    port_cfg.task_stack = 10240;
+    port_cfg.task_priority = 4;
     ESP_ERROR_CHECK(lvgl_port_init(&port_cfg));
 
     lvgl_port_display_cfg_t display_cfg = {};
@@ -799,9 +822,9 @@ static void mini_smoke_ui() {
     lv_obj_set_style_bg_color(face_obj, lv_color_hex(0x0B1628), 0);
     lv_obj_set_style_border_width(face_obj, 4, 0);
     lv_obj_set_style_border_color(face_obj, lv_color_hex(0x22D3EE), 0);
-    lv_obj_set_style_shadow_width(face_obj, 24, 0);
+    lv_obj_set_style_shadow_width(face_obj, 10, 0);
     lv_obj_set_style_shadow_color(face_obj, lv_color_hex(0x0EA5E9), 0);
-    lv_obj_set_style_shadow_opa(face_obj, LV_OPA_40, 0);
+    lv_obj_set_style_shadow_opa(face_obj, LV_OPA_20, 0);
     lv_obj_clear_flag(face_obj, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *inner = lv_obj_create(face_obj);
@@ -858,7 +881,7 @@ static void mini_smoke_ui() {
     wifi_ui_create(screen);
     pair_ui_create(screen);
     mel_terminal_bind_external_ui(runtime_status_label, answer_label);
-    anim_timer = lv_timer_create(mini_anim_cb, 120, nullptr);
+    anim_timer = lv_timer_create(mini_anim_cb, 250, nullptr);
     ESP_LOGI(TAG, "STEP 6 OK: MINI ANIMATED UI + WIFI READY");
 }
 
