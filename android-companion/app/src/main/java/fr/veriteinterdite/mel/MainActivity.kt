@@ -133,6 +133,15 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
+            LaunchedEffect(state.busy, state.error, recording.value) {
+                if (!state.busy && !recording.value &&
+                    (voiceMessage.value.startsWith("Fichier") ||
+                        voiceMessage.value.startsWith("Voix") ||
+                        voiceMessage.value == "Transcription…")
+                ) {
+                    voiceMessage.value = "Micro prêt"
+                }
+            }
             MelTheme {
                 MelApp(
                     state = state,
@@ -194,7 +203,7 @@ class MainActivity : ComponentActivity() {
                 val type = contentResolver.getType(uri) ?: "application/octet-stream"
                 val bytes = readUriBounded(uri)
                 model.sendFile(name, type, bytes)
-                runOnUiThread { voiceMessage.value = "Fichier envoyé à MEL" }
+                runOnUiThread { voiceMessage.value = "Fichier sélectionné · envoi en cours…" }
             } catch (error: Throwable) {
                 runOnUiThread {
                     voiceMessage.value = if (error.message == "FILE_TOO_LARGE")
@@ -313,7 +322,7 @@ class MainActivity : ComponentActivity() {
                 val bytes = file.readBytes()
                 file.delete()
                 model.sendVoice(bytes, "audio/mp4")
-                runOnUiThread { voiceMessage.value = "Micro prêt" }
+                runOnUiThread { voiceMessage.value = "Voix envoyée · MEL traite…" }
             } catch (error: Throwable) {
                 file.delete()
                 runOnUiThread {
@@ -613,8 +622,13 @@ private fun ConversationScreen(
     val listState = rememberLazyListState()
     val focus = LocalFocusManager.current
 
-    LaunchedEffect(state.messages.size) {
-        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
+    LaunchedEffect(state.messages.size, state.busy) {
+        val target = when {
+            state.messages.isEmpty() && state.busy -> 1
+            state.messages.isEmpty() -> 0
+            else -> state.messages.lastIndex + if (state.busy) 1 else 0
+        }
+        runCatching { listState.animateScrollToItem(target) }
     }
 
     Scaffold(
@@ -649,7 +663,7 @@ private fun ConversationScreen(
                 .padding(horizontal = 14.dp)
         ) {
             Spacer(Modifier.height(12.dp))
-            ModeSelector(state.mode, onMode)
+            ModeSelector(state.mode, state.busy, onMode)
             Spacer(Modifier.height(9.dp))
             Text(
                 if (state.mode == MelMode.NORMAL)
@@ -737,7 +751,7 @@ private fun ConversationScreen(
             OutlinedTextField(
                 value = draft,
                 onValueChange = { draft = it },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().testTag("message-input"),
                 label = { Text("Message à MEL") },
                 minLines = 2,
                 maxLines = 6,
@@ -758,14 +772,14 @@ private fun ConversationScreen(
             ) {
                 OutlinedButton(
                     onClick = onFile,
-                    modifier = Modifier.weight(.28f),
+                    modifier = Modifier.weight(.28f).testTag("file-button"),
                     enabled = !state.busy
                 ) {
                     Text("Fichier")
                 }
                 OutlinedButton(
                     onClick = onVoice,
-                    modifier = Modifier.weight(.28f),
+                    modifier = Modifier.weight(.28f).testTag("micro-button"),
                     enabled = !state.busy || recording
                 ) {
                     Text(if (recording) "Arrêter" else "Micro")
@@ -779,7 +793,7 @@ private fun ConversationScreen(
                             onSend(outgoing)
                         }
                     },
-                    modifier = Modifier.weight(.44f),
+                    modifier = Modifier.weight(.44f).testTag("send-button"),
                     enabled = draft.isNotBlank() && !state.busy,
                     colors = ButtonDefaults.buttonColors(containerColor = MelBlue)
                 ) {
@@ -792,7 +806,7 @@ private fun ConversationScreen(
 }
 
 @Composable
-private fun ModeSelector(mode: MelMode, onMode: (MelMode) -> Unit) {
+private fun ModeSelector(mode: MelMode, busy: Boolean, onMode: (MelMode) -> Unit) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -801,7 +815,8 @@ private fun ModeSelector(mode: MelMode, onMode: (MelMode) -> Unit) {
             if (item == mode) {
                 Button(
                     onClick = { onMode(item) },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).testTag("mode-${item.wireValue}"),
+                    enabled = !busy,
                     shape = RoundedCornerShape(14.dp)
                 ) {
                     Text(item.label, fontWeight = FontWeight.Bold)
@@ -809,7 +824,8 @@ private fun ModeSelector(mode: MelMode, onMode: (MelMode) -> Unit) {
             } else {
                 OutlinedButton(
                     onClick = { onMode(item) },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).testTag("mode-${item.wireValue}"),
+                    enabled = !busy,
                     shape = RoundedCornerShape(14.dp)
                 ) {
                     Text(item.label)
@@ -833,7 +849,7 @@ private fun CompletePanel(
     onBackgroundProbe: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().testTag("complete-panel"),
         colors = CardDefaults.cardColors(containerColor = Color(0xB30C2940), contentColor = MelInk),
         shape = RoundedCornerShape(18.dp)
     ) {
