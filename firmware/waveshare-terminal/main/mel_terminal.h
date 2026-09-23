@@ -27,3 +27,5 @@ enum MelTerminalState {
 void mel_terminal_request_voice(void);
 int mel_terminal_state(void);
 bool mel_terminal_online(void);
+
+void mel_terminal_bind_external_ui(lv_obj_t *status_label, lv_obj_t *answer_label);
