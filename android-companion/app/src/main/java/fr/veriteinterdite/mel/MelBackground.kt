@@ -32,6 +32,7 @@ object MelBackground {
 
     fun schedule(context: Context) {
         ensureChannel(context)
+        clearSessionAlert(context)
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
@@ -51,10 +52,19 @@ object MelBackground {
             )
     }
 
-    fun cancel(context: Context) {
+    fun stopHeartbeat(context: Context) {
         WorkManager.getInstance(context.applicationContext)
             .cancelUniqueWork(HEARTBEAT_WORK_NAME)
         NotificationManagerCompat.from(context).cancel(STATUS_NOTIFICATION_ID)
+    }
+
+    fun clearSessionAlert(context: Context) {
+        NotificationManagerCompat.from(context).cancel(SESSION_NOTIFICATION_ID)
+    }
+
+    fun cancel(context: Context) {
+        stopHeartbeat(context)
+        clearSessionAlert(context)
     }
 
     fun notificationsAllowed(context: Context): Boolean {
@@ -80,6 +90,7 @@ object MelBackground {
 
     fun notifySessionExpired(context: Context) {
         ensureChannel(context)
+        NotificationManagerCompat.from(context).cancel(STATUS_NOTIFICATION_ID)
         if (!notificationsAllowed(context)) return
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_mel)
@@ -125,7 +136,10 @@ class MelHeartbeatWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val vault = TokenVault(applicationContext)
-        if (vault.load().isNullOrBlank()) return Result.success()
+        if (vault.load().isNullOrBlank()) {
+            MelBackground.stopHeartbeat(applicationContext)
+            return Result.success()
+        }
 
         val raw = Settings.Secure.getString(
             applicationContext.contentResolver,
@@ -145,6 +159,7 @@ class MelHeartbeatWorker(
                 )
             ) {
                 vault.clear()
+                MelBackground.stopHeartbeat(applicationContext)
                 MelBackground.notifySessionExpired(applicationContext)
                 Result.success()
             } else if (error.status >= 500 || error.status == 429) {
