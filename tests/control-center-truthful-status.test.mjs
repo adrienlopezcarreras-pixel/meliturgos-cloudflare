@@ -74,3 +74,20 @@ test('activity panel distinguishes unloaded state from an observed empty state',
   assert.doesNotMatch(FULL_MODE_CONTROL_PATCH,/c\.failed\|\|0/);
   assert.doesNotMatch(FULL_MODE_CONTROL_PATCH,/renderActivity\(state,\{events:\[\],deployment:null\}\)/);
 });
+
+
+test('activity and learning cards keep missing evidence unknown instead of inventing zero', async()=>{
+  const html=await (await renderFullMode()).text();
+  const runtime=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+  assert.match(runtime,/Historique d’activité non chargé\./);
+  assert.match(runtime,/Aucune activité récente observée\./);
+  assert.doesNotMatch(runtime,/Number\(counts\.active\|\|0\)/);
+  assert.doesNotMatch(runtime,/Number\(counts\.completed\|\|0\)/);
+  assert.doesNotMatch(runtime,/Number\(counts\.failed\|\|0\)/);
+  assert.match(runtime,/const fmtCount=value=>\{const n=finiteMetric\(value\);return n===null\?'—'/);
+  assert.match(runtime,/bar\.setAttribute\('aria-valuetext',p===null\?'mesure indisponible'/);
+  assert.doesNotMatch(runtime,/Number\(d\.xp\|\|0\)/);
+  assert.doesNotMatch(runtime,/Number\(e\.corrections_validated\|\|0\)/);
+  assert.doesNotMatch(runtime,/Number\(e\.inference_trials\|\|0\)/);
+  assert.match(runtime,/état des poids indisponible/);
+});
