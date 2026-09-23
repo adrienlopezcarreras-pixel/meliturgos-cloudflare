@@ -139,7 +139,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-07', 'Sync PC / téléphone', 'DONE', 'Valider avec clients réels', 'P1'),
     item('GEN2-29', 'Device Bus', 'DONE_VERIFIED', 'Brancher vrais compagnons', 'P0'),
     item('GEN2-26', 'PWA', 'PARTIAL', 'Cache/offline/install améliorés', 'P2'),
-    item('GEN2-27', 'Android Companion runtime / app', 'PLANNED', 'Implémenter le client Android autonome et sa synchronisation', 'P0'),
+    item('GEN2-27', 'Android Companion runtime / app', 'IN_PROGRESS', 'Premier runtime natif intégré sur candidate: pairing par code à usage unique, jeton device hashé côté serveur et chiffré via Android Keystore côté téléphone, heartbeat, chat canonique, sync incrémentale avec ACK sans replay, transcription Whisper, révocation propriétaire, Activity Kotlin native minimale et HTTP clair interdit. Preuves: full-candidate-ci 35840533286 et lora-runtime-pipeline-ci 35840533393 verts sur e9a2912b37d0b39a24c7a1dfd82d9930f1b89d70. Reste validation appareil Android réel, capture micro continue/service de fond/notifications et pipeline APK signé GEN2-58 avant DONE_VERIFIED.', 'P0'),
     item('GEN2-58', 'Build et release Android', 'PLANNED', 'Pipeline CI APK signé localement/secret protégé', 'P1'),
     item('GEN2-28', 'Windows Companion runtime / agent', 'PLANNED', 'Implémenter l’agent local Windows et ses capacités', 'P0'),
     item('GEN2-59', 'Build et release Windows', 'PLANNED', 'Packaging, signature et mises à jour', 'P2'),

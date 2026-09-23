@@ -162,9 +162,22 @@ export class ConversationService {
       )
       .bind(deviceId, conversationId)
       .first();
-    const since = checkpoint?.last_message_timestamp || 0;
-    const messages = await this.getMessages(conversationId, { since, limit: 10000 });
-    return { deviceId, conversationId, since, messages };
+    const since = Number(checkpoint?.last_message_timestamp || 0);
+    const rows = await this.db
+      .prepare(
+        `SELECT * FROM archive_messages
+         WHERE conversation_id = ? AND timestamp > ?
+         ORDER BY timestamp ASC, id ASC
+         LIMIT 10000`
+      )
+      .bind(conversationId, since)
+      .all();
+    return {
+      deviceId,
+      conversationId,
+      since,
+      messages: (rows.results || []).map(row => this._rowToMessage(row)),
+    };
   }
 
   _rowToMessage(row) {

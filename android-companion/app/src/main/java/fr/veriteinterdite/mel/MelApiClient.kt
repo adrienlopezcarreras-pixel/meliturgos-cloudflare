@@ -1,0 +1,137 @@
+package fr.veriteinterdite.mel
+
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.UUID
+
+class MelApiClient(
+    private val baseUrl: String,
+    private val deviceId: String,
+    private val tokenVault: TokenVault
+) {
+    init {
+        require(baseUrl.startsWith("https://")) { "HTTPS_REQUIRED" }
+        require(deviceId.isNotBlank()) { "DEVICE_ID_REQUIRED" }
+    }
+
+    private fun connection(path: String, method: String, authenticated: Boolean = true): HttpURLConnection {
+        val connection = URL(baseUrl.trimEnd('/') + path).openConnection() as HttpURLConnection
+        connection.requestMethod = method
+        connection.connectTimeout = 15_000
+        connection.readTimeout = 90_000
+        connection.setRequestProperty("Accept", "application/json")
+        if (authenticated) {
+            val token = tokenVault.load() ?: error("DEVICE_NOT_PAIRED")
+            connection.setRequestProperty("Authorization", "Bearer $token")
+            connection.setRequestProperty("X-MEL-Device-ID", deviceId)
+        }
+        return connection
+    }
+
+    private fun jsonRequest(path: String, method: String, payload: JSONObject, authenticated: Boolean = true): JSONObject {
+        val connection = connection(path, method, authenticated)
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/json")
+        connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+        return readJson(connection)
+    }
+
+    private fun readJson(connection: HttpURLConnection): JSONObject {
+        val status = connection.responseCode
+        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+        val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        val json = if (body.isBlank()) JSONObject() else JSONObject(body)
+        if (status !in 200..299) {
+            error(json.optString("code", "HTTP_$status"))
+        }
+        return json
+    }
+
+    fun pair(pairCode: String, name: String = "MEL Android", appVersion: String = "0.1.0"): JSONObject {
+        val response = jsonRequest(
+            "/api/android/v1/pair",
+            "POST",
+            JSONObject()
+                .put("pair_code", pairCode.trim().uppercase())
+                .put("device_id", deviceId)
+                .put("name", name)
+                .put("app_version", appVersion)
+                .put("protocol_version", "1.0"),
+            authenticated = false
+        )
+        val token = response.getString("token")
+        tokenVault.save(token)
+        return response.remove("token").let { response }
+    }
+
+    fun heartbeat(appVersion: String = "0.1.0", sdkInt: Int, battery: Int? = null, charging: Boolean = false): JSONObject {
+        return jsonRequest(
+            "/api/android/v1/heartbeat",
+            "POST",
+            JSONObject()
+                .put("app_version", appVersion)
+                .put("sdk_int", sdkInt)
+                .put("battery", battery)
+                .put("charging", charging)
+                .put("phase", "ONLINE")
+        )
+    }
+
+    fun chat(text: String, conversationId: String, voice: Boolean = false): JSONObject {
+        require(text.isNotBlank())
+        return jsonRequest(
+            "/api/android/v1/chat",
+            "POST",
+            JSONObject()
+                .put("text", text)
+                .put("conversation_id", conversationId)
+                .put("input_source", if (voice) "voice-server-transcription" else "text")
+        )
+    }
+
+    fun sync(conversationId: String): JSONObject {
+        val path = "/api/android/v1/sync?conversation_id=" +
+            java.net.URLEncoder.encode(conversationId, Charsets.UTF_8.name())
+        return readJson(connection(path, "GET"))
+    }
+
+    fun ack(conversationId: String, messageId: String, timestamp: Long): JSONObject {
+        return jsonRequest(
+            "/api/android/v1/sync/ack",
+            "POST",
+            JSONObject()
+                .put("conversation_id", conversationId)
+                .put("last_message_id", messageId)
+                .put("last_message_timestamp", timestamp)
+        )
+    }
+
+    fun transcribe(audioBytes: ByteArray, mimeType: String = "audio/webm"): JSONObject {
+        require(audioBytes.isNotEmpty())
+        val boundary = "mel-" + UUID.randomUUID().toString()
+        val connection = connection("/api/android/v1/voice/transcribe", "POST")
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        connection.outputStream.use { output ->
+            fun text(value: String) = output.write(value.toByteArray(Charsets.UTF_8))
+            text("--$boundary\r\n")
+            text("Content-Disposition: form-data; name=\"audio\"; filename=\"voice.webm\"\r\n")
+            text("Content-Type: $mimeType\r\n\r\n")
+            output.write(audioBytes)
+            text("\r\n--$boundary--\r\n")
+        }
+        return readJson(connection)
+    }
+
+    fun syncAndAck(conversationId: String): JSONArray {
+        val response = sync(conversationId)
+        val messages = response.optJSONArray("messages") ?: JSONArray()
+        if (messages.length() > 0) {
+            val last = messages.getJSONObject(messages.length() - 1)
+            ack(conversationId, last.getString("id"), last.getLong("timestamp"))
+        }
+        return messages
+    }
+}

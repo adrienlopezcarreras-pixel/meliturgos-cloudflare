@@ -6,6 +6,7 @@ const PUBLIC_GET_EXACT = Object.freeze(new Set(['/api/gen2/autonomy/control']));
 const DELEGATED_PREFIXES = Object.freeze([
   '/api/device/v1/',
   '/api/computer/v1/',
+  '/api/android/v1/',
 ]);
 const DELEGATED_EXACT = Object.freeze(new Set([
   '/api/internal/release-launch-bootstrap',
