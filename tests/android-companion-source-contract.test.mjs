@@ -172,7 +172,17 @@ test('Android owner password state is not saveable and emulator smoke tests are 
   assert.match(build,/androidx\.compose\.ui:ui-test-junit4/);
   assert.match(uiTest,/createAndroidComposeRule<MainActivity>/);
   assert.match(uiTest,/passwordIsNotRestoredAcrossActivityRecreation/);
+  assert.match(uiTest,/login-screen\.png/);
+  const screenshotTest=await readFile(new URL('app/src/androidTest/java/fr/veriteinterdite/mel/MelUiHarnessScreenshotTest.kt',root),'utf8');
+  assert.match(screenshotTest,/completeModeRendersAndCapturesEvidence/);
+  assert.match(screenshotTest,/complete-screen\.png/);
+  assert.match(screenshotTest,/Contrôles complets/);
   assert.match(workflow,/connectedDebugAndroidTest/);
+  assert.match(workflow,/login-screen\.png/);
+  assert.match(workflow,/complete-screen\.png/);
+  assert.match(workflow,/adb pull/);
+  assert.match(workflow,/test -s android-companion\/dist\/emulator\/login-screen\.png/);
+  assert.match(workflow,/test -s android-companion\/dist\/emulator\/complete-screen\.png/);
   assert.match(workflow,/system-images;android-35;google_apis;x86_64/);
 });
 
