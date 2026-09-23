@@ -1,6 +1,7 @@
 package fr.veriteinterdite.mel
 
 import android.graphics.Bitmap
+import android.os.ParcelFileDescriptor
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -40,5 +41,14 @@ class MelUiHarnessScreenshotTest {
             }
         }
         check(file.isFile && file.length() > 0L) { "SCREENSHOT_NOT_WRITTEN" }
+
+        val command = instrumentation.uiAutomation.executeShellCommand(
+            "mkdir -p /sdcard/Download && cp ${file.absolutePath} /sdcard/Download/complete-screen.png && " +
+                "test -s /sdcard/Download/complete-screen.png && echo SCREENSHOT_EXPORTED"
+        )
+        val result = ParcelFileDescriptor.AutoCloseInputStream(command)
+            .bufferedReader()
+            .use { it.readText() }
+        check(result.contains("SCREENSHOT_EXPORTED")) { "SCREENSHOT_EXPORT_FAILED" }
     }
 }
