@@ -43,7 +43,7 @@ jobs:
           esp_idf_version: v5.4.2
           target: esp32s3
           path: build/waveshare-mel
-          command: idf.py build && idf.py merge-bin -o mel-terminal.bin
+          command: idf.py build && idf.py merge-bin -o mini-first-install.bin && cp build/lvgl_system.bin build/mel-terminal.bin
 
       - name: Build firmware manifest
         shell: bash
@@ -51,25 +51,34 @@ jobs:
           set -euo pipefail
           cd build/waveshare-mel/build
           test -s mel-terminal.bin
-          SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
-          SIZE="$(stat -c '%s' mel-terminal.bin)"
+          test -s mini-first-install.bin
+          OTA_SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
+          OTA_SIZE="$(stat -c '%s' mel-terminal.bin)"
+          INSTALL_SHA256="$(sha256sum mini-first-install.bin | awk '{print $1}')"
+          INSTALL_SIZE="$(stat -c '%s' mini-first-install.bin)"
           cat > ../firmware-manifest.json <<JSON
           {
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.4.3-watchdogfix",
+              "version": "0.4.4-hwproof",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
-              "sha256": "${SHA256}",
-              "size": ${SIZE},
+              "sha256": "${OTA_SHA256}",
+              "size": ${OTA_SIZE},
               "source_sha": "${GITHUB_SHA}",
               "waveshare_upstream_sha": "283ec84c566c096f8c30493b93dcd4b0bb608de7"
+            },
+            "installer": {
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mini-first-install.bin",
+              "sha256": "${INSTALL_SHA256}",
+              "size": ${INSTALL_SIZE}
             },
             "assets": { "version": "1", "items": [] }
           }
           JSON
-          sha256sum mel-terminal.bin ../firmware-manifest.json > ../SHA256SUMS.txt
+          sha256sum mel-terminal.bin mini-first-install.bin lvgl_system.elf lvgl_system.map ../firmware-manifest.json > ../SHA256SUMS.txt
 
       - name: Upload flash-ready artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -77,6 +86,9 @@ jobs:
           name: MEL-Waveshare-3.5-C-${{ github.sha }}
           path: |
             build/waveshare-mel/build/mel-terminal.bin
+            build/waveshare-mel/build/mini-first-install.bin
+            build/waveshare-mel/build/lvgl_system.elf
+            build/waveshare-mel/build/lvgl_system.map
             build/waveshare-mel/firmware-manifest.json
             build/waveshare-mel/SHA256SUMS.txt
             build/waveshare-mel/WAVESHARE_UPSTREAM_SHA
