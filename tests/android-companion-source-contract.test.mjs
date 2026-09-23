@@ -220,9 +220,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 10/);
-  assert.match(build,/versionName = "0\.6\.1"/);
-  assert.match(api,/APP_VERSION = "0\.6\.1"/);
+  assert.match(build,/versionCode = 11/);
+  assert.match(build,/versionName = "0\.6\.2"/);
+  assert.match(api,/APP_VERSION = "0\.6\.2"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -233,4 +233,19 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   assert.match(activity,/Text\("Copier diagnostic"\)/);
   assert.match(activity,/ClipboardManager/);
   assert.match(activity,/ClipData\.newPlainText/);
+});
+
+
+test('Android dark UI contrast is explicit across root, cards, fields and system bars',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  assert.match(activity,/CompositionLocalProvider\(LocalContentColor provides MelInk\)/);
+  assert.match(activity,/SystemBarStyle\.dark\(android\.graphics\.Color\.TRANSPARENT\)/);
+  assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
+  assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanelSoft, contentColor = MelInk\)/);
+  assert.match(activity,/contentColor = MelInk/);
+  assert.match(activity,/OutlinedTextFieldDefaults\.colors/);
+  assert.match(activity,/focusedTextColor = MelInk/);
+  assert.match(activity,/unfocusedTextColor = MelInk/);
+  assert.match(activity,/focusedLabelColor = MelCyan/);
+  assert.match(activity,/unfocusedLabelColor = MelMuted/);
 });
