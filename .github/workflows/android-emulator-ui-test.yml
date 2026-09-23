@@ -145,11 +145,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p android-companion/dist/emulator
-          DEVICE_DIR="/sdcard/Download"
-
-          adb shell ls -l "$DEVICE_DIR" || true
-          adb pull "$DEVICE_DIR/login-screen.png" android-companion/dist/emulator/login-screen.png
-          adb pull "$DEVICE_DIR/complete-screen.png" android-companion/dist/emulator/complete-screen.png
+          adb exec-out run-as fr.veriteinterdite.mel cat files/login-screen.png > android-companion/dist/emulator/login-screen.png
+          adb exec-out run-as fr.veriteinterdite.mel cat files/complete-screen.png > android-companion/dist/emulator/complete-screen.png
 
           test -s android-companion/dist/emulator/login-screen.png
           test -s android-companion/dist/emulator/complete-screen.png
