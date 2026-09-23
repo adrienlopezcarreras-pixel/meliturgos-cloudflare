@@ -219,12 +219,70 @@ jobs:
           test "$SHARD_FINAL_CODE" = "200"
           node -e 'const d=require("./production-shardvault-final.json"); const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; if(active<7) throw new Error("PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7:"+active); if(d?.health?.recoverable!==true) throw new Error("PRODUCTION_SHARDVAULT_NOT_RECOVERABLE"); console.log("ShardVault active external registry verified: "+active+"/7");'
 
-          ready=0
-          for attempt in $(seq 1 20); do
-            HTTP_CODE="$(curl --silent --show-error --max-time 180 \
+          PAUSE_CODE="$(curl --silent --show-error --max-time 30 \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"pause"}' \
+            --output production-launch-pause.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+          test "$PAUSE_CODE" = "200"
+          node -e 'const d=require("./production-launch-pause.json"); if(d?.ok!==true||d?.status!=="RELEASE_PAUSED") throw new Error("PRODUCTION_RELEASE_PAUSE_FAILED");'
+
+          BACKUP_READY=0
+          for BACKUP_ATTEMPT in $(seq 1 3); do
+            BACKUP_CODE="$(curl --silent --show-error --max-time 180 \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
               --header "content-type: application/json" \
-              --data '{}' \
+              --data '{"phase":"backup"}' \
+              --output production-launch-backup.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "$BACKUP_CODE" = "200" ]; then
+              BACKUP_READY=1
+              break
+            fi
+            echo "Launch backup phase attempt ${BACKUP_ATTEMPT}/3 returned HTTP ${BACKUP_CODE}."
+            if [ -s production-launch-backup.json ]; then
+              node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-backup.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,backup:d?.backup||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
+            fi
+            sleep 5
+          done
+          test "$BACKUP_READY" = "1"
+          node -e 'const d=require("./production-launch-backup.json"); if(d?.ok!==true||d?.backup?.ok!==true) throw new Error("PRODUCTION_RELEASE_BACKUP_FAILED"); console.log("Production release backup phase passed: "+String(d?.backup?.status||d?.status||"OK"));'
+
+          CODE_SYNC_READY=0
+          for CODE_SYNC_ATTEMPT in $(seq 1 12); do
+            CODE_SYNC_CODE="$(curl --silent --show-error --max-time 90 \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"code-sync"}' \
+              --output production-launch-code-sync.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "$CODE_SYNC_CODE" = "200" ]; then
+              CODE_SYNC_STATE="$(node -e 'const d=require("./production-launch-code-sync.json"); if(d?.ok!==true) throw new Error("PRODUCTION_CODE_SYNC_NOT_OK"); process.stdout.write(d?.complete===true?"1":"0");')"
+              if [ "$CODE_SYNC_STATE" = "1" ]; then
+                CODE_SYNC_READY=1
+                break
+              fi
+              echo "Launch code-sync phase ${CODE_SYNC_ATTEMPT}/12 is healthy but still progressing."
+            else
+              echo "Launch code-sync phase attempt ${CODE_SYNC_ATTEMPT}/12 returned HTTP ${CODE_SYNC_CODE}."
+              if [ -s production-launch-code-sync.json ]; then
+                node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-code-sync.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,complete:d?.complete===true,code_sync:d?.code_sync||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
+              fi
+            fi
+            sleep 2
+          done
+          test "$CODE_SYNC_READY" = "1"
+
+          ready=0
+          for attempt in $(seq 1 8); do
+            HTTP_CODE="$(curl --silent --show-error --max-time 90 \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"readiness"}' \
               --output production-launch-bootstrap.json \
               --write-out '%{http_code}' \
               "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
@@ -232,11 +290,11 @@ jobs:
               ready=1
               break
             fi
-            echo "Launch bootstrap attempt ${attempt} returned HTTP ${HTTP_CODE}."
+            echo "Launch readiness phase attempt ${attempt}/8 returned HTTP ${HTTP_CODE}."
             if [ -s production-launch-bootstrap.json ]; then
-              node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-bootstrap.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,blockers:d?.readiness?.blockers||[],restore_status:d?.readiness?.restore?.status||null,shardvault_status:d?.readiness?.shardvault?.status||null,active_external_count:Number(d?.readiness?.shardvault?.active_external_count||0),external_code_status:d?.readiness?.shardvault?.external_code_status||null,external_code_endpoints:Number(d?.readiness?.shardvault?.external_code_endpoints||0),code_sync:d?.code_sync||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
+              node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-bootstrap.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,blockers:d?.readiness?.blockers||[],restore_status:d?.readiness?.restore?.status||null,shardvault_status:d?.readiness?.shardvault?.status||null,active_external_count:Number(d?.readiness?.shardvault?.active_external_count||0),external_code_status:d?.readiness?.shardvault?.external_code_status||null,external_code_endpoints:Number(d?.readiness?.shardvault?.external_code_endpoints||0)},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
             fi
-            sleep 5
+            sleep 3
           done
           test "$ready" -eq 1
 
