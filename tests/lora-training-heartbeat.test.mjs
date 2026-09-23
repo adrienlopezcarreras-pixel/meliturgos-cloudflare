@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { runLoraTrainingHeartbeat } from '../src/learning/lora-training-heartbeat.js';
 
 const SHA = '1234567890abcdef1234567890abcdef12345678';
@@ -209,4 +210,15 @@ test('LoRA heartbeat respects its cadence between supervision windows', async ()
   });
   assert.equal(result.status, 'SKIPPED_CADENCE');
   assert.equal(result.interval_minutes, 15);
+});
+
+
+test('canonical Kaggle collector is dispatch-only and cannot create scheduled/push wait queues', async () => {
+  const source = await readFile(new URL('../.github/workflows/lora-kaggle-free-collect.yml', import.meta.url), 'utf8');
+  const triggerBlock = source.slice(source.indexOf('on:'), source.indexOf('permissions:'));
+  assert.match(triggerBlock, /workflow_dispatch:/);
+  assert.doesNotMatch(triggerBlock, /\n\s*push:/);
+  assert.doesNotMatch(triggerBlock, /\n\s*schedule:/);
+  assert.match(source, /WAIT_FOR_COMPLETION:\s*\$\{\{ inputs\.wait_for_completion \}\}/);
+  assert.match(source, /MAX_WAIT_MINUTES:\s*\$\{\{ inputs\.max_wait_minutes \}\}/);
 });
