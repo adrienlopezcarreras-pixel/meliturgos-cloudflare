@@ -63,6 +63,8 @@ static lv_obj_t *wifi_keyboard = nullptr;
 static lv_obj_t *wifi_connect_btn = nullptr;
 static lv_obj_t *main_panel = nullptr;
 static lv_obj_t *pair_panel = nullptr;
+static lv_obj_t *pair_button = nullptr;
+static volatile bool stress_pair_click_requested = false;
 static lv_obj_t *pair_input = nullptr;
 static lv_obj_t *pair_keyboard = nullptr;
 static lv_obj_t *pair_status = nullptr;
@@ -187,6 +189,12 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
 
 static void mini_anim_cb(lv_timer_t *) {
     mini_apply_requested_view();
+
+    if (stress_pair_click_requested && pair_button && active_view == MINI_VIEW_MAIN) {
+        stress_pair_click_requested = false;
+        ESP_LOGI(TAG, "UI STRESS: dispatch real MEL click event");
+        lv_event_send(pair_button, LV_EVENT_CLICKED, nullptr);
+    }
 
     // Do not redraw the animated face while another full-screen view is active.
     // This materially reduces SPI/LVGL load and avoids hidden-tree invalidations.
@@ -718,10 +726,10 @@ static void wifi_ui_create(lv_obj_t *screen) {
 static void ui_stress_task(void *) {
 #if MINI_UI_STRESS_TEST
     vTaskDelay(pdMS_TO_TICKS(7000));
-    ESP_LOGI(TAG, "UI STRESS START: pair/main x24");
+    ESP_LOGI(TAG, "UI STRESS START: real MEL click/main x24");
     bool ok = true;
     for (int i = 0; i < 24; ++i) {
-        request_view(MINI_VIEW_PAIR);
+        stress_pair_click_requested = true;
         vTaskDelay(pdMS_TO_TICKS(350));
         if (active_view != MINI_VIEW_PAIR) {
             ESP_LOGE(TAG, "UI STRESS FAIL: pair view not applied at cycle %d (active=%d)", i, active_view);
@@ -737,7 +745,7 @@ static void ui_stress_task(void *) {
         }
     }
     request_view(MINI_VIEW_MAIN);
-    ESP_LOGI(TAG, "UI STRESS %s: pair/main transitions, free_heap=%u", ok ? "PASS" : "FAIL", (unsigned)esp_get_free_heap_size());
+    ESP_LOGI(TAG, "UI STRESS %s: real MEL click/main transitions, free_heap=%u", ok ? "PASS" : "FAIL", (unsigned)esp_get_free_heap_size());
 #endif
     vTaskDelete(nullptr);
 }
@@ -848,13 +856,13 @@ static void mini_smoke_ui() {
     lv_obj_center(wl);
     lv_obj_add_event_cb(wifi_btn, wifi_open_clicked, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_t *pair_btn = lv_btn_create(main_panel);
-    lv_obj_set_size(pair_btn, 48, 38);
-    lv_obj_align(pair_btn, LV_ALIGN_TOP_LEFT, 10, 16);
-    lv_obj_t *pl = lv_label_create(pair_btn);
+    pair_button = lv_btn_create(main_panel);
+    lv_obj_set_size(pair_button, 48, 38);
+    lv_obj_align(pair_button, LV_ALIGN_TOP_LEFT, 10, 16);
+    lv_obj_t *pl = lv_label_create(pair_button);
     lv_label_set_text(pl, "MEL");
     lv_obj_center(pl);
-    lv_obj_add_event_cb(pair_btn, pair_open_clicked, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(pair_button, pair_open_clicked, LV_EVENT_CLICKED, nullptr);
 
     face_obj = lv_obj_create(main_panel);
     lv_obj_set_size(face_obj, 210, 210);
