@@ -112,8 +112,8 @@ test('MEL techno avatar is the canonical favicon in normal and Professor modes',
   const normal = await (await renderNormal()).text();
   const professor = await (await renderProfessor()).text();
   for (const html of [normal, professor]) {
-    assert.ok(html.includes('rel="icon" type="image/webp" href="/assets/avatars/mel-full.webp"'));
-    assert.ok(html.includes('rel="apple-touch-icon" href="/assets/avatars/mel-full.webp"'));
+    assert.ok(html.includes('rel="icon" type="image/webp" href="/assets/avatars/mel-full.webp?v=techno-20260923"'));
+    assert.ok(html.includes('rel="apple-touch-icon" href="/assets/avatars/mel-full.webp?v=techno-20260923"'));
     assert.equal(html.includes('data:image/svg+xml'), false);
   }
 });
