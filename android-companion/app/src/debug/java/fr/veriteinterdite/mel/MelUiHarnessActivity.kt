@@ -53,7 +53,10 @@ class MelUiHarnessActivity : ComponentActivity() {
                     onProfessor = {},
                     onNotifications = {},
                     onDiagnostics = {},
-                    onCopyDiagnostic = {}
+                    onCopyDiagnostic = {},
+                    onNormalProbe = {},
+                    onFileProbe = {},
+                    onBackgroundProbe = {}
                 )
             }
         }
