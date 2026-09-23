@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { getChatGPTImportStatus, importChatGPTArchive, normalizeChatGPTArchive, recordChatGPTCollectorCoverage } from '../src/persistence/chatgpt-archive-importer.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import worker from '../src/index.js';
+import { RAGService } from '../src/search/rag-service.js';
 
 const sample = [{
   id: 'conv-1',
@@ -342,4 +343,121 @@ test('re-import enriches duplicate archive rows with attachment metadata exactly
     assert.equal(c.enriched_duplicates,0);
     assert.equal(c.attachment_backfills,0);
   } finally { DB.close(); }
+});
+
+
+test('manual/server archive import indexes recovered textual attachment bytes and makes them searchable', async () => {
+  const DB = sqliteD1();
+  try {
+    const env = { DB, MELITURGOS_USER:'adrien' };
+    const phrase = 'octets réellement récupérés pour MEL MEM zéro cinq';
+    const payload = {
+      conversations: [{
+        id:'bytes-text',
+        title:'Archive avec octets',
+        mapping:{
+          n1:{ id:'n1', parent:null, message:{
+            id:'m1', author:{role:'user'}, create_time:1700000200,
+            content:{parts:[]},
+            metadata:{attachments:[{id:'asset-text-1',name:'preuve-mem05.txt',mime_type:'text/plain'}]}
+          }}
+        }
+      }],
+      files: [{
+        id:'asset-text-1',
+        name:'preuve-mem05.txt',
+        mime_type:'text/plain',
+        data_base64:Buffer.from(phrase,'utf8').toString('base64')
+      }]
+    };
+
+    const normalized = normalizeChatGPTArchive(payload);
+    const attachment = normalized.conversations[0].messages[0].attachments[0];
+    assert.equal(attachment.binary_content_available, true);
+    assert.equal(attachment.binary_content_indexed, true);
+    assert.equal(attachment.binary_index_reason, 'TEXT_DECODED');
+    assert.match(attachment.indexed_text, /MEL MEM zéro cinq/);
+
+    const result = await importChatGPTArchive(env, payload, { preview:false });
+    assert.equal(result.ok, true);
+    const status = await getChatGPTImportStatus(env);
+    assert.equal(status.attachment_index.binary_content_available, 1);
+    assert.equal(status.attachment_index.indexed_descriptors, 1);
+    assert.equal(status.attachment_index.binary_content_indexed, true);
+
+    const search = await RAGService.search(DB, 'adrien', 'octets récupérés MEM', {
+      sources:['archive_messages'],
+      limit:5,
+    });
+    assert.ok(search.results.some(row => row.id === 'chatgpt:bytes-text:m1'));
+  } finally {
+    DB.close();
+  }
+});
+
+test('recovered non-text binary bytes are recorded honestly without fake text extraction', async () => {
+  const DB = sqliteD1();
+  try {
+    const env = { DB, MELITURGOS_USER:'adrien' };
+    const payload = {
+      conversations: [{
+        id:'bytes-pdf',
+        title:'PDF réel',
+        messages:[{
+          id:'m1', role:'user', content:'',
+          attachments:[{id:'asset-pdf-1',name:'preuve.pdf',mime_type:'application/pdf'}]
+        }]
+      }],
+      files:[{
+        id:'asset-pdf-1',
+        name:'preuve.pdf',
+        mime_type:'application/pdf',
+        data_base64:Buffer.from('%PDF-1.7\\nnot-extracted','utf8').toString('base64')
+      }]
+    };
+    await importChatGPTArchive(env, payload, { preview:false });
+    const row = await DB.prepare('SELECT attachments_json FROM archive_messages WHERE id=?')
+      .bind('chatgpt:bytes-pdf:m1').first();
+    const [attachment] = JSON.parse(row.attachments_json);
+    assert.equal(attachment.binary_content_available, true);
+    assert.equal(attachment.binary_content_indexed, false);
+    assert.equal(attachment.binary_index_reason, 'UNSUPPORTED_BINARY_TYPE');
+    assert.equal(attachment.indexed_text, null);
+    const status = await getChatGPTImportStatus(env);
+    assert.equal(status.attachment_index.binary_content_available, 1);
+    assert.equal(status.attachment_index.indexed_descriptors, 0);
+    assert.equal(status.attachment_index.binary_content_indexed, false);
+  } finally {
+    DB.close();
+  }
+});
+
+test('attachment byte backfill is replay-safe and preserves indexed text on duplicate imports', async () => {
+  const DB = sqliteD1();
+  try {
+    const env = { DB, MELITURGOS_USER:'adrien' };
+    const base = [{
+      id:'bytes-backfill',
+      title:'Backfill bytes',
+      messages:[{id:'m1',role:'user',content:'voir fichier',timestamp:1,attachments:[{id:'asset-byte-bf',name:'memo.txt',mime_type:'text/plain'}]}]
+    }];
+    await importChatGPTArchive(env, base, { preview:false });
+    const richer = {
+      conversations: base,
+      files:[{id:'asset-byte-bf',name:'memo.txt',mime_type:'text/plain',data_base64:Buffer.from('contenu binaire indexé une seule fois').toString('base64')}]
+    };
+    const second = await importChatGPTArchive(env, richer, { preview:false });
+    assert.equal(second.duplicates, 1);
+    assert.equal(second.attachment_backfills, 1);
+    const third = await importChatGPTArchive(env, richer, { preview:false });
+    assert.equal(third.duplicates, 1);
+    assert.equal(third.attachment_backfills, 0);
+    const row = await DB.prepare('SELECT attachments_json FROM archive_messages WHERE id=?')
+      .bind('chatgpt:bytes-backfill:m1').first();
+    const [attachment] = JSON.parse(row.attachments_json);
+    assert.equal(attachment.binary_content_indexed, true);
+    assert.match(attachment.indexed_text, /une seule fois/);
+  } finally {
+    DB.close();
+  }
 });
