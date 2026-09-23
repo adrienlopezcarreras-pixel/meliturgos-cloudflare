@@ -73,6 +73,9 @@ static TaskHandle_t wifi_scan_task_handle = nullptr;
 static TaskHandle_t wifi_connect_task_handle = nullptr;
 static volatile bool wifi_got_ip = false;
 static volatile int wifi_disconnect_reason = -1;
+static volatile bool wifi_auto_reconnect_enabled = false;
+static volatile int wifi_reconnect_attempt = 0;
+static TaskHandle_t wifi_reconnect_task_handle = nullptr;
 
 enum MiniView {
     MINI_VIEW_MAIN = 0,
@@ -134,6 +137,20 @@ static const char *wifi_reason_text(int reason) {
     }
 }
 
+static void wifi_reconnect_task(void *) {
+    int attempt = ++wifi_reconnect_attempt;
+    int delay_ms = 1000 << (attempt > 4 ? 4 : attempt - 1);
+    if (delay_ms > 15000) delay_ms = 15000;
+    ESP_LOGW(TAG, "MINI WIFI RECONNECT attempt=%d in %d ms", attempt, delay_ms);
+    vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    if (wifi_auto_reconnect_enabled && !wifi_got_ip) {
+        esp_err_t err = esp_wifi_connect();
+        ESP_LOGI(TAG, "MINI WIFI RECONNECT requested: %s", esp_err_to_name(err));
+    }
+    wifi_reconnect_task_handle = nullptr;
+    vTaskDelete(nullptr);
+}
+
 static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void *data) {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
         auto *ev = static_cast<wifi_event_sta_connected_t *>(data);
@@ -145,14 +162,25 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
         auto *ev = static_cast<wifi_event_sta_disconnected_t *>(data);
         wifi_got_ip = false;
         wifi_disconnect_reason = ev ? (int)ev->reason : -1;
+        mel_terminal_set_wifi_connected(false);
         ESP_LOGW(TAG, "MINI WIFI DISCONNECTED reason=%d (%s)",
                  wifi_disconnect_reason, wifi_reason_text(wifi_disconnect_reason));
+        if (wifi_auto_reconnect_enabled && !wifi_reconnect_task_handle) {
+            xTaskCreatePinnedToCore(wifi_reconnect_task, "mini_wifi_reconnect", 4096, nullptr, 3, &wifi_reconnect_task_handle, 0);
+        }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         wifi_got_ip = true;
+        wifi_auto_reconnect_enabled = true;
+        wifi_reconnect_attempt = 0;
         wifi_disconnect_reason = -1;
         auto *ev = static_cast<ip_event_got_ip_t *>(data);
         if (ev) {
-            ESP_LOGI(TAG, "MINI WIFI GOT IP " IPSTR, IP2STR(&ev->ip_info.ip));
+            char ip[32] = {};
+            snprintf(ip, sizeof(ip), IPSTR, IP2STR(&ev->ip_info.ip));
+            mel_terminal_set_network_info(ip);
+            mel_terminal_set_wifi_connected(true);
+            ESP_LOGI(TAG, "MINI WIFI GOT IP %s", ip);
+            if (mel_terminal_has_token()) mel_terminal_start_online();
         }
     }
 }
@@ -534,6 +562,8 @@ static void wifi_connect_task(void *arg) {
     free(payload);
 
     ESP_LOGI(TAG, "WiFi connect to %s", ssid);
+    wifi_auto_reconnect_enabled = false;
+    wifi_reconnect_attempt = 0;
     wifi_got_ip = false;
     wifi_disconnect_reason = -1;
     mini_wifi_sta_connect(ssid, pwd);
