@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-23.01';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-23.02';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -153,7 +153,7 @@ export const MASTER_ROADMAP = Object.freeze([
   phase('P11', 'Sécurité, audit et gouvernance', [
     item('GEN2-44', 'Observability / diagnostics', 'DONE_VERIFIED', 'Production certifiée sur SHA 6c5d917660117c2e43a1d08ca19279b0ef640a08 par release run 35705522236, job 106673379365 : événement terminal CapabilityBus écrit en D1 via echo, readiness observability.query_ok avec événement/succès et latest_event_at, composant dashboard runtime_observability présent; code/mémoire/UI et HTTP final également verts.', 'P0'),
     item('GEN2-45', 'Audit log', 'DONE_VERIFIED', 'CI PR 35712785367 sur SHA 710718a22647235d474fe7780ae7dd0d121d7a72 : CapabilityBus corrèle capability + requestId et audite DENIED pour auth/permission/disponibilité/approbation/validation, puis SUCCEEDED/FAILED terminaux; persistance D1 bornée sans entrée brute, full suite + observability vertes.', 'P0'),
-    item('GEN2-46', 'Secrets / authentification', 'PARTIAL', 'Étendre les auth gates robustes à toutes les surfaces sensibles', 'P0'),
+    item('GEN2-46', 'Secrets / authentification', 'DONE_VERIFIED', 'Politique HTTP canonique fail-closed: toute nouvelle route /api/* exige owner-auth par défaut avant dispatch; seuls les GET publics sanitisés et les protocoles Device/Computer/bootstrap à authentification dédiée sont explicitement exemptés, Dev Bridge conserve son bearer dédié en défense en profondeur, et les refus auth sont non-cacheables. Preuve PR #157, CI 35830760419: syntaxe + targeted + full suite verts sur le code vérifié.', 'P0'),
     item('MEL-SEC-01', 'Prompt-injection firewall outils/RAG', 'DONE_VERIFIED', 'Point d’assemblage unique durci: RAG et résultats d’outils enveloppés UNTRUSTED_* classification=DATA instruction_authority=NONE, délimiteurs forgés neutralisés, pare-feu réaffirmé après les données et avant priorité du tour actuel. Syntaxe + tests injection/contexte Actions 35640804128.', 'P0'),
     item('MEL-SEC-02', 'Permissions par capacité', 'DONE_VERIFIED', 'Enforcement centralisé dans CapabilityBus: owner requis, permissions déclarées obligatoires, enable/disable protégé par capabilities.manage, validation entrée/sortie et audit. Syntaxe + preuves ciblées Actions 35640484204.', 'P0'),
     item('MEL-SEC-03', 'Supply-chain / dépendances / CI', 'PARTIAL', 'SBOM et dépendances runtime fail-closed', 'P1'),

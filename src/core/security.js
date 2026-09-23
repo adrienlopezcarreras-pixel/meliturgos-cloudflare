@@ -11,13 +11,14 @@ export function unauthorizedResponse(request) {
       status: 401,
       headers: {
         "content-type": "application/json",
+        "cache-control": "no-store",
         "WWW-Authenticate": 'Basic realm="MELITURGOS", charset="UTF-8"',
       },
     });
   }
   return new Response("Authentification MELITURGOS requise", {
     status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="MELITURGOS", charset="UTF-8"' },
+    headers: { "cache-control": "no-store", "WWW-Authenticate": 'Basic realm="MELITURGOS", charset="UTF-8"' },
   });
 }
 
@@ -27,10 +28,10 @@ export function notConfiguredResponse(request) {
   if (isApi) {
     return new Response(
       JSON.stringify({ error: "MELITURGOS n'est pas configuré.", code: "AUTH_NOT_CONFIGURED" }),
-      { status: 503, headers: { "content-type": "application/json" } }
+      { status: 503, headers: { "content-type": "application/json", "cache-control": "no-store" } }
     );
   }
-  return new Response("<h1>MELITURGOS non configuré</h1>", { status: 503, headers: { "content-type": "text/html" } });
+  return new Response("<h1>MELITURGOS non configuré</h1>", { status: 503, headers: { "content-type": "text/html", "cache-control": "no-store" } });
 }
 
 function withoutTerminalNewline(value) {
