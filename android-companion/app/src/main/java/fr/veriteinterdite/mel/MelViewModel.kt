@@ -234,6 +234,7 @@ class MelViewModel(
                     status = "MEL connectée · mode ${mode.label}",
                     messages = _state.value.messages + MelChatMessage("mel", answer)
                 )
+                appendDiagnosticLine("Micro réel: OK")
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
                     vault.clear()
@@ -315,6 +316,7 @@ class MelViewModel(
                             "Fichier analysé · mode " + mode.label,
                         messages = _state.value.messages + MelChatMessage("mel", answer)
                     )
+                    appendDiagnosticLine("Fichier réel: OK")
                 } else {
                     _state.value = _state.value.copy(
                         busy = false,
@@ -323,6 +325,7 @@ class MelViewModel(
                         else
                             "Fichier reçu. Aucun texte directement extractible."
                     )
+                    appendDiagnosticLine("Fichier réel: OK")
                 }
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
@@ -404,6 +407,100 @@ class MelViewModel(
                     )
                 }
             }
+        }
+    }
+
+    fun runNormalProbe() {
+        if (_state.value.busy || _state.value.session != SessionStage.CONNECTED) return
+        _state.value = _state.value.copy(busy = true, status = "Test Mode Normal…", error = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val response = client.chat(
+                    text = "Test technique Android. Réponds simplement OK.",
+                    conversationId = conversationId + "-android-validation",
+                    voice = false,
+                    uiMode = MelMode.NORMAL.wireValue
+                )
+                val answer = response.optString("text", response.optString("response", "")).trim()
+                if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
+                appendDiagnosticLine("Mode Normal: OK")
+                _state.value = _state.value.copy(busy = false, status = "Mode Normal validé")
+            } catch (error: Throwable) {
+                handleProbeFailure("Mode Normal", error)
+            }
+        }
+    }
+
+    fun runFileProbe() {
+        if (_state.value.busy || _state.value.session != SessionStage.CONNECTED) return
+        _state.value = _state.value.copy(busy = true, status = "Test fichier Android…", error = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val marker = "MEL_ANDROID_FILE_PROBE_" + System.currentTimeMillis()
+                val upload = client.uploadFile(
+                    "mel-android-validation.txt",
+                    "text/plain; charset=utf-8",
+                    marker.toByteArray(Charsets.UTF_8)
+                )
+                val preview = upload.optString("preview_text").trim()
+                if (preview.isBlank() || !preview.contains(marker)) {
+                    throw MelApiException("FILE_PROBE_PREVIEW_MISSING", 502)
+                }
+                appendDiagnosticLine("Fichier texte: OK")
+                _state.value = _state.value.copy(busy = false, status = "Fichier texte validé")
+            } catch (error: Throwable) {
+                handleProbeFailure("Fichier texte", error)
+            }
+        }
+    }
+
+    fun runBackgroundProbe() {
+        if (_state.value.busy || _state.value.session != SessionStage.CONNECTED) return
+        _state.value = _state.value.copy(busy = true, status = "Test arrière-plan…", error = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                client.heartbeat(sdkInt = Build.VERSION.SDK_INT)
+                MelBackground.schedule(appContext)
+                val scheduled = MelBackground.heartbeatScheduled(appContext)
+                val notifications = MelBackground.notificationsAllowed(appContext)
+                appendDiagnosticLine("Heartbeat immédiat: OK")
+                appendDiagnosticLine("Heartbeat arrière-plan planifié: " + if (scheduled) "OK" else "ÉCHEC")
+                appendDiagnosticLine("Notifications: " + if (notifications) "OK" else "À AUTORISER")
+                _state.value = _state.value.copy(
+                    busy = false,
+                    status = if (scheduled) "Arrière-plan validé" else "Planification arrière-plan à vérifier"
+                )
+            } catch (error: Throwable) {
+                handleProbeFailure("Arrière-plan", error)
+            }
+        }
+    }
+
+    private fun appendDiagnosticLine(line: String) {
+        val current = _state.value.diagnosticReport.orEmpty().trimEnd()
+        _state.value = _state.value.copy(
+            diagnosticReport = if (current.isBlank()) line else current + "\n" + line
+        )
+    }
+
+    private fun handleProbeFailure(label: String, error: Throwable) {
+        if (isInvalidSession(error)) {
+            vault.clear()
+            MelBackground.cancel(appContext)
+            _state.value = _state.value.copy(
+                session = SessionStage.DISCONNECTED,
+                busy = false,
+                status = "Session expirée pendant " + label,
+                diagnosticReport = (_state.value.diagnosticReport.orEmpty().trimEnd() + "\n" + label + ": ÉCHEC").trim(),
+                error = explain(error)
+            )
+        } else {
+            appendDiagnosticLine(label + ": ÉCHEC · " + explain(error))
+            _state.value = _state.value.copy(
+                busy = false,
+                status = label + " en échec",
+                error = explain(error)
+            )
         }
     }
 
