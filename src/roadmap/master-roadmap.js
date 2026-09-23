@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-23.06';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-23.07';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
