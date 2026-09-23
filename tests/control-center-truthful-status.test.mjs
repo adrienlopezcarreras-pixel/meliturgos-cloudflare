@@ -136,3 +136,24 @@ test('partial LoRA payloads keep missing evidence unknown instead of inventing l
   assert.doesNotMatch(runtime,/corrections_available_for_training\|\|0/);
   assert.doesNotMatch(runtime,/impact\.next_stage\|\|'UNCENSORED_WAITING'/);
 });
+
+
+test('CapabilityBus and import counters do not convert missing payload fields into proven zeroes', async()=>{
+  const html=await (await renderFullMode()).text();
+  const runtime=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+  assert.match(runtime,/if\(!Array\.isArray\(d\?\.capabilities\)\)throw Error\('Liste CapabilityBus absente'\)/);
+  assert.match(runtime,/const fmt=v=>v==null\|\|!Number\.isFinite\(Number\(v\)\)\?'—'/);
+  assert.match(runtime,/chatgptServerConversations'\)\.textContent=fmt\(d\.conversations\)/);
+  assert.match(runtime,/chatgptServerMessages'\)\.textContent=fmt\(d\.messages\)/);
+  assert.match(runtime,/chatgptServerCandidates'\)\.textContent=fmt\(d\.memory_candidates\)/);
+  assert.match(runtime,/chatgptServerUnsynced'\)\.textContent=fmt\(d\.unsynced_messages\)/);
+  assert.doesNotMatch(runtime,/Number\(d\.conversations\|\|0\)/);
+  assert.doesNotMatch(runtime,/Number\(d\.messages\|\|0\)/);
+});
+
+test('ShardVault snapshot missing shard count is shown as unavailable, never zero fragments', async()=>{
+  const html=await (await renderFullMode()).text();
+  const runtime=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+  assert.match(runtime,/d\.shards==null\?'nombre de fragments indisponible'/);
+  assert.doesNotMatch(runtime,/Number\(d\.shards\|\|0\)/);
+});
