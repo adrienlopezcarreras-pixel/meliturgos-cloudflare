@@ -68,6 +68,51 @@ static lv_obj_t *g_subtitle = nullptr;
 static lv_obj_t *g_actions = nullptr;
 static httpd_handle_t g_setup_server = nullptr;
 
+enum MiniFaceState { MINI_IDLE = 0, MINI_LISTENING = 1, MINI_THINKING = 2, MINI_SPEAKING = 3, MINI_ERROR = 4 };
+static MiniFaceState g_face_state = MINI_IDLE;
+static lv_obj_t *g_face = nullptr;
+static lv_obj_t *g_eye_left = nullptr;
+static lv_obj_t *g_eye_right = nullptr;
+static lv_obj_t *g_mouth = nullptr;
+static lv_obj_t *g_temple_left = nullptr;
+static lv_obj_t *g_temple_right = nullptr;
+static lv_timer_t *g_face_timer = nullptr;
+
+static void mini_face_state(MiniFaceState state) {
+    g_face_state = state;
+    if (!g_face) return;
+    lv_color_t accent = lv_color_hex(0x22D3EE);
+    if (state == MINI_LISTENING) accent = lv_color_hex(0x34D399);
+    else if (state == MINI_THINKING) accent = lv_color_hex(0xA78BFA);
+    else if (state == MINI_SPEAKING) accent = lv_color_hex(0x60A5FA);
+    else if (state == MINI_ERROR) accent = lv_color_hex(0xFB7185);
+    lv_obj_set_style_border_color(g_face, accent, 0);
+    if (g_temple_left) lv_obj_set_style_bg_color(g_temple_left, accent, 0);
+    if (g_temple_right) lv_obj_set_style_bg_color(g_temple_right, accent, 0);
+}
+
+static void mini_face_timer_cb(lv_timer_t *) {
+    if (!g_eye_left || !g_eye_right || !g_mouth) return;
+    const uint32_t phase = (lv_tick_get() / 120) % 32;
+    const bool blink = g_face_state == MINI_IDLE && (phase == 0 || phase == 1);
+    lv_obj_set_height(g_eye_left, blink ? 2 : 10);
+    lv_obj_set_height(g_eye_right, blink ? 2 : 10);
+
+    if (g_face_state == MINI_LISTENING) {
+        lv_obj_set_width(g_mouth, (phase % 4 < 2) ? 34 : 44);
+        lv_obj_set_height(g_mouth, 5);
+    } else if (g_face_state == MINI_THINKING) {
+        lv_obj_set_width(g_mouth, 28 + (phase % 5) * 4);
+        lv_obj_set_height(g_mouth, 4);
+    } else if (g_face_state == MINI_SPEAKING) {
+        lv_obj_set_width(g_mouth, 40);
+        lv_obj_set_height(g_mouth, (phase % 3 == 0) ? 14 : 6);
+    } else {
+        lv_obj_set_width(g_mouth, 42);
+        lv_obj_set_height(g_mouth, 5);
+    }
+}
+
 static void ui_text(lv_obj_t *label, const char *value) {
     if (!label) return;
     if (lvgl_port_lock(1000)) {
@@ -81,7 +126,14 @@ static void ui_status(const char *value) {
 }
 
 static void ui_answer(const char *value) {
-    ui_text(g_answer, value);
+    if (!g_answer) return;
+    if (lvgl_port_lock(1000)) {
+        const char *text = value ? value : "";
+        lv_label_set_text(g_answer, text);
+        if (text[0]) lv_obj_clear_flag(g_answer, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(g_answer, LV_OBJ_FLAG_HIDDEN);
+        lvgl_port_unlock();
+    }
 }
 
 static void make_device_id() {
@@ -186,7 +238,7 @@ static bool pair_terminal() {
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "device_id", g_device_id);
-    cJSON_AddStringToObject(root, "name", "MEL Waveshare");
+    cJSON_AddStringToObject(root, "name", "MINI");
     cJSON_AddStringToObject(root, "model", MODEL);
     cJSON_AddStringToObject(root, "firmware", MEL_FW_VERSION);
     cJSON_AddStringToObject(root, "protocol_version", MEL_PROTOCOL_VERSION);
@@ -294,14 +346,14 @@ static std::string form_value(const std::string &body, const char *key) {
 static esp_err_t setup_get(httpd_req_t *req) {
     static const char html[] =
         "<!doctype html><html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-        "<title>MEL Setup</title><style>body{font-family:system-ui;background:#07111f;color:#fff;padding:22px;max-width:520px;margin:auto}"
+        "<title>MINI Setup</title><style>body{font-family:system-ui;background:#07111f;color:#fff;padding:22px;max-width:520px;margin:auto}"
         "input,button{width:100%;padding:14px;margin:8px 0;border-radius:10px;border:1px solid #334155;box-sizing:border-box}"
         "button{background:#2563eb;color:white;font-weight:700}</style><h1>MEL · premier démarrage</h1>"
         "<p>Saisis ton Wi-Fi et le code créé dans MEL &gt; Terminal MEL.</p>"
         "<form method=post action=/save><input name=ssid maxlength=32 placeholder='Nom Wi-Fi' required>"
         "<input name=password type=password maxlength=64 placeholder='Mot de passe Wi-Fi'>"
         "<input name=pair_code maxlength=16 placeholder='Code MEL' required autocomplete=off>"
-        "<button>Connecter MEL</button></form></html>";
+        "<button>Connecter MINI</button></form></html>";
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     return httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
 }
@@ -345,7 +397,7 @@ static void show_setup_ui(const char *ssid, const char *pass) {
     char message[420];
     snprintf(
         message, sizeof(message),
-        "Premier démarrage\n\n1. Wi-Fi : %s\n2. Mot de passe : %s\n3. Ouvre http://192.168.4.1\n4. Dans MEL > Terminal MEL, crée un code puis saisis-le.\n\nBOOT au démarrage = réinitialiser.",
+        "Premier démarrage\n\n1. Wi-Fi : %s\n2. Mot de passe : %s\n3. Ouvre http://192.168.4.1\n4. Dans MEL > MINI, crée un code puis saisis-le.\n\nBOOT au démarrage = réinitialiser.",
         ssid, pass
     );
     ui_status("CONFIGURATION");
@@ -491,20 +543,47 @@ static std::string record_and_transcribe() {
 }
 
 static void voice_task(void *) {
-    ui_status("ÉCOUTE 4 S…");
+    if (lvgl_port_lock(1000)) {
+        mini_face_state(MINI_LISTENING);
+        lvgl_port_unlock();
+    }
+    ui_status("ÉCOUTE…");
     ui_answer("Parle maintenant.");
     std::string text = record_and_transcribe();
     if (text.empty()) {
-        ui_status("ERREUR MICRO");
+        if (lvgl_port_lock(1000)) {
+            mini_face_state(MINI_ERROR);
+            lvgl_port_unlock();
+        }
+        ui_status("MICRO");
         ui_answer("Je n'ai pas réussi à transcrire. Réessaie.");
+        vTaskDelay(pdMS_TO_TICKS(1800));
+        if (lvgl_port_lock(1000)) {
+            mini_face_state(MINI_IDLE);
+            lvgl_port_unlock();
+        }
         vTaskDelete(nullptr);
         return;
     }
-    ui_status("MEL RÉFLÉCHIT…");
-    ui_answer((std::string("Toi : ") + text).c_str());
+    if (lvgl_port_lock(1000)) {
+        mini_face_state(MINI_THINKING);
+        lvgl_port_unlock();
+    }
+    ui_status("RÉFLEXION…");
+    ui_answer("");
     std::string answer = chat_with_mel(text);
-    ui_status("EN LIGNE");
+    if (lvgl_port_lock(1000)) {
+        mini_face_state(MINI_SPEAKING);
+        lvgl_port_unlock();
+    }
+    ui_status("MINI");
     ui_answer(answer.c_str());
+    vTaskDelay(pdMS_TO_TICKS(900));
+    if (lvgl_port_lock(1000)) {
+        mini_face_state(MINI_IDLE);
+        lvgl_port_unlock();
+    }
+    ui_status("");
     vTaskDelete(nullptr);
 }
 
@@ -754,43 +833,99 @@ void mel_terminal_ui_init(lv_disp_t *) {
     lv_obj_t *screen = lv_scr_act();
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x07111F), 0);
     lv_obj_set_style_text_color(screen, lv_color_hex(0xF8FAFC), 0);
-    lv_obj_set_style_pad_all(screen, 12, 0);
-
-    lv_obj_t *title = lv_label_create(screen);
-    lv_label_set_text(title, "MEL");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_pad_all(screen, 0, 0);
 
     g_status = lv_label_create(screen);
-    lv_label_set_text(g_status, "DÉMARRAGE…");
-    lv_obj_set_style_text_color(g_status, lv_color_hex(0x22D3EE), 0);
-    lv_obj_align(g_status, LV_ALIGN_TOP_RIGHT, 0, 4);
+    lv_label_set_text(g_status, "");
+    lv_obj_set_style_text_color(g_status, lv_color_hex(0x94A3B8), 0);
+    lv_obj_align(g_status, LV_ALIGN_TOP_MID, 0, 14);
 
-    g_subtitle = lv_label_create(screen);
-    lv_label_set_text(g_subtitle, "Terminal personnel · Waveshare 3.5");
-    lv_obj_set_style_text_color(g_subtitle, lv_color_hex(0x94A3B8), 0);
-    lv_obj_align(g_subtitle, LV_ALIGN_TOP_LEFT, 0, 30);
+    g_face = lv_obj_create(screen);
+    lv_obj_set_size(g_face, 214, 214);
+    lv_obj_align(g_face, LV_ALIGN_CENTER, 0, -58);
+    lv_obj_set_style_radius(g_face, 107, 0);
+    lv_obj_set_style_bg_color(g_face, lv_color_hex(0x0B1628), 0);
+    lv_obj_set_style_bg_opa(g_face, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(g_face, 4, 0);
+    lv_obj_set_style_border_color(g_face, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_shadow_width(g_face, 32, 0);
+    lv_obj_set_style_shadow_color(g_face, lv_color_hex(0x0EA5E9), 0);
+    lv_obj_set_style_shadow_opa(g_face, LV_OPA_40, 0);
+    lv_obj_clear_flag(g_face, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *inner = lv_obj_create(g_face);
+    lv_obj_set_size(inner, 166, 176);
+    lv_obj_center(inner);
+    lv_obj_set_style_radius(inner, 72, 0);
+    lv_obj_set_style_bg_color(inner, lv_color_hex(0x111C30), 0);
+    lv_obj_set_style_border_width(inner, 1, 0);
+    lv_obj_set_style_border_color(inner, lv_color_hex(0x334155), 0);
+    lv_obj_clear_flag(inner, LV_OBJ_FLAG_SCROLLABLE);
+
+    g_eye_left = lv_obj_create(inner);
+    lv_obj_set_size(g_eye_left, 30, 10);
+    lv_obj_align(g_eye_left, LV_ALIGN_CENTER, -38, -24);
+    lv_obj_set_style_radius(g_eye_left, 5, 0);
+    lv_obj_set_style_bg_color(g_eye_left, lv_color_hex(0x7DD3FC), 0);
+    lv_obj_set_style_border_width(g_eye_left, 0, 0);
+
+    g_eye_right = lv_obj_create(inner);
+    lv_obj_set_size(g_eye_right, 30, 10);
+    lv_obj_align(g_eye_right, LV_ALIGN_CENTER, 38, -24);
+    lv_obj_set_style_radius(g_eye_right, 5, 0);
+    lv_obj_set_style_bg_color(g_eye_right, lv_color_hex(0x7DD3FC), 0);
+    lv_obj_set_style_border_width(g_eye_right, 0, 0);
+
+    g_mouth = lv_obj_create(inner);
+    lv_obj_set_size(g_mouth, 42, 5);
+    lv_obj_align(g_mouth, LV_ALIGN_CENTER, 0, 42);
+    lv_obj_set_style_radius(g_mouth, 7, 0);
+    lv_obj_set_style_bg_color(g_mouth, lv_color_hex(0xA5F3FC), 0);
+    lv_obj_set_style_border_width(g_mouth, 0, 0);
+
+    g_temple_left = lv_obj_create(g_face);
+    lv_obj_set_size(g_temple_left, 8, 52);
+    lv_obj_align(g_temple_left, LV_ALIGN_LEFT_MID, 13, 0);
+    lv_obj_set_style_radius(g_temple_left, 4, 0);
+    lv_obj_set_style_bg_color(g_temple_left, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_border_width(g_temple_left, 0, 0);
+
+    g_temple_right = lv_obj_create(g_face);
+    lv_obj_set_size(g_temple_right, 8, 52);
+    lv_obj_align(g_temple_right, LV_ALIGN_RIGHT_MID, -13, 0);
+    lv_obj_set_style_radius(g_temple_right, 4, 0);
+    lv_obj_set_style_bg_color(g_temple_right, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_border_width(g_temple_right, 0, 0);
 
     g_answer = lv_label_create(screen);
     lv_label_set_long_mode(g_answer, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(g_answer, 296);
-    lv_obj_set_height(g_answer, 285);
-    lv_label_set_text(g_answer, "Initialisation du matériel…");
-    lv_obj_align(g_answer, LV_ALIGN_TOP_LEFT, 0, 58);
+    lv_obj_set_width(g_answer, 284);
+    lv_obj_set_height(g_answer, 74);
+    lv_obj_set_style_text_align(g_answer, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(g_answer, lv_color_hex(0xCBD5E1), 0);
+    lv_label_set_text(g_answer, "");
+    lv_obj_align(g_answer, LV_ALIGN_BOTTOM_MID, 0, -84);
+    lv_obj_add_flag(g_answer, LV_OBJ_FLAG_HIDDEN);
 
     g_actions = lv_obj_create(screen);
-    lv_obj_set_size(g_actions, 304, 112);
-    lv_obj_align(g_actions, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_flex_flow(g_actions, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(g_actions, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_size(g_actions, 250, 72);
+    lv_obj_align(g_actions, LV_ALIGN_BOTTOM_MID, 0, -8);
     lv_obj_set_style_bg_opa(g_actions, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(g_actions, 0, 0);
-    lv_obj_set_style_pad_all(g_actions, 2, 0);
+    lv_obj_set_style_pad_all(g_actions, 0, 0);
+    lv_obj_set_flex_flow(g_actions, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(g_actions, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    make_button(g_actions, "Parler", ACTION_VOICE);
-    make_button(g_actions, "Caméra", ACTION_CAMERA);
-    make_button(g_actions, "Test audio", ACTION_AUDIO);
-    make_button(g_actions, "Mise à jour", ACTION_UPDATE);
+    lv_obj_t *talk = make_button(g_actions, "PARLER", ACTION_VOICE);
+    lv_obj_set_size(talk, 224, 62);
+    lv_obj_set_style_radius(talk, 24, 0);
+    lv_obj_set_style_bg_color(talk, lv_color_hex(0x1D4ED8), 0);
+    lv_obj_set_style_shadow_width(talk, 18, 0);
+    lv_obj_set_style_shadow_color(talk, lv_color_hex(0x2563EB), 0);
+    lv_obj_set_style_shadow_opa(talk, LV_OPA_30, 0);
+
+    mini_face_state(MINI_IDLE);
+    g_face_timer = lv_timer_create(mini_face_timer_cb, 120, nullptr);
 }
 
 void mel_terminal_set_hardware(bool camera_ok, bool audio_ok, bool sd_ok) {
@@ -834,19 +969,19 @@ static void network_task(void *arg) {
     }
 
     g_online = true;
-    ui_status("EN LIGNE");
+    ui_status("");
     char ready[420];
     snprintf(
         ready, sizeof(ready),
-        "Bonjour. MEL est connectée.\n\nIP : %s\nFirmware : %s\nProtocole : %s\nCaméra : %s\nMicro/audio : %s\nCarte SD : %s\n\nAppuie sur Parler pour commencer.",
-        g_ip,
-        MEL_FW_VERSION,
-        MEL_PROTOCOL_VERSION,
-        g_camera_ok ? "OK" : "ERREUR",
-        g_audio_ok ? "OK" : "ERREUR",
-        g_sd_ok ? "OK" : "non vérifiée"
+        "MINI prête · %s · %s",
+        g_audio_ok ? "micro OK" : "micro indisponible",
+        g_camera_ok ? "caméra OK" : "caméra indisponible"
     );
-    ui_answer(ready);
+    ui_answer("");
+    if (lvgl_port_lock(1000)) {
+        mini_face_state(MINI_IDLE);
+        lvgl_port_unlock();
+    }
     xTaskCreate(heartbeat_task, "mel_heartbeat", 6144, nullptr, 3, nullptr);
     vTaskDelete(nullptr);
 }
