@@ -265,6 +265,192 @@ export const MIGRATIONS = [
       UNIQUE(message_id,content)
     )`).run();
   }},
+  { version: 13, name: 'gen1_interactions_archive_backfill', run: async db => {
+    const auditId = 'gen1-interactions-v1';
+    const provenance = 'legacy_gen1_interactions';
+    await db.prepare(`CREATE TABLE IF NOT EXISTS legacy_migration_audit (
+      id TEXT PRIMARY KEY,
+      source_table TEXT NOT NULL,
+      source_exists INTEGER NOT NULL,
+      source_rows INTEGER NOT NULL,
+      expected_messages INTEGER NOT NULL,
+      migrated_messages INTEGER NOT NULL,
+      verified INTEGER NOT NULL,
+      details_json TEXT NOT NULL DEFAULT '{}',
+      verified_at INTEGER NOT NULL
+    )`).run();
+
+    const source = await db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='interactions' LIMIT 1"
+    ).first();
+
+    if (!source) {
+      await db.prepare(`INSERT INTO legacy_migration_audit(
+        id,source_table,source_exists,source_rows,expected_messages,migrated_messages,verified,details_json,verified_at
+      ) VALUES(?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET
+        source_exists=excluded.source_exists,
+        source_rows=excluded.source_rows,
+        expected_messages=excluded.expected_messages,
+        migrated_messages=excluded.migrated_messages,
+        verified=excluded.verified,
+        details_json=excluded.details_json,
+        verified_at=excluded.verified_at`)
+        .bind(auditId,'interactions',0,0,0,0,1,JSON.stringify({reason:'SOURCE_TABLE_ABSENT',non_destructive:true}),Date.now())
+        .run();
+      return;
+    }
+
+    const columns = await db.prepare("PRAGMA table_info(interactions)").all();
+    const names = new Set((columns.results || []).map(row => String(row.name || '')));
+    const required = ['id','created_at','user_text','assistant_text','model','feedback','correction'];
+    const missing = required.filter(name => !names.has(name));
+    if (missing.length) {
+      const error = new Error('LEGACY_INTERACTIONS_SCHEMA_MISMATCH:' + missing.join(','));
+      error.code = 'LEGACY_INTERACTIONS_SCHEMA_MISMATCH';
+      throw error;
+    }
+
+    const countRow = await db.prepare("SELECT COUNT(*) AS count FROM interactions").first();
+    const sourceRows = Number(countRow?.count || 0);
+    const expectedMessages = sourceRows * 2;
+
+    const collision = await db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM archive_messages a
+      JOIN interactions i
+        ON a.id = ('legacy-gen1-' || i.id || '-user')
+        OR a.id = ('legacy-gen1-' || i.id || '-assistant')
+      WHERE a.provenance <> ?
+    `).bind(provenance).first();
+    if (Number(collision?.count || 0) > 0) {
+      const error = new Error('LEGACY_ARCHIVE_ID_COLLISION');
+      error.code = 'LEGACY_ARCHIVE_ID_COLLISION';
+      throw error;
+    }
+
+    await db.prepare(`
+      INSERT OR IGNORE INTO conversations(id,owner,title,status,created_at,updated_at,metadata)
+      SELECT
+        'legacy-gen1-' || id,
+        '',
+        'Gen1 interaction #' || id,
+        'archived',
+        created_at,
+        created_at + 1,
+        json_object(
+          'migration','GEN2-57',
+          'legacy_interaction_id',id,
+          'source_table','interactions'
+        )
+      FROM interactions
+    `).run();
+
+    await db.prepare(`
+      INSERT OR IGNORE INTO archive_messages(
+        id,conversation_id,device_id,role,content,attachments_json,model,
+        capabilities_used_json,system_prompt_version,timestamp,provenance,metadata
+      )
+      SELECT
+        'legacy-gen1-' || id || '-user',
+        'legacy-gen1-' || id,
+        NULL,
+        'user',
+        user_text,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        created_at,
+        ?,
+        json_object(
+          'migration','GEN2-57',
+          'legacy_interaction_id',id,
+          'legacy_created_at',created_at,
+          'source_table','interactions'
+        )
+      FROM interactions
+    `).bind(provenance).run();
+
+    await db.prepare(`
+      INSERT OR IGNORE INTO archive_messages(
+        id,conversation_id,device_id,role,content,attachments_json,model,
+        capabilities_used_json,system_prompt_version,timestamp,provenance,metadata
+      )
+      SELECT
+        'legacy-gen1-' || id || '-assistant',
+        'legacy-gen1-' || id,
+        NULL,
+        'assistant',
+        assistant_text,
+        NULL,
+        model,
+        NULL,
+        NULL,
+        created_at + 1,
+        ?,
+        json_object(
+          'migration','GEN2-57',
+          'legacy_interaction_id',id,
+          'legacy_created_at',created_at,
+          'feedback',feedback,
+          'correction',correction,
+          'source_table','interactions'
+        )
+      FROM interactions
+    `).bind(provenance).run();
+
+    const migratedRow = await db.prepare(
+      "SELECT COUNT(*) AS count FROM archive_messages WHERE provenance=?"
+    ).bind(provenance).first();
+    const migratedMessages = Number(migratedRow?.count || 0);
+
+    const mismatch = await db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM interactions i
+      LEFT JOIN archive_messages u ON u.id=('legacy-gen1-' || i.id || '-user')
+      LEFT JOIN archive_messages a ON a.id=('legacy-gen1-' || i.id || '-assistant')
+      WHERE u.id IS NULL
+         OR a.id IS NULL
+         OR u.content <> i.user_text
+         OR a.content <> i.assistant_text
+         OR COALESCE(a.model,'') <> COALESCE(i.model,'')
+         OR u.timestamp <> i.created_at
+         OR a.timestamp <> i.created_at + 1
+         OR u.provenance <> ?
+         OR a.provenance <> ?
+    `).bind(provenance,provenance).first();
+
+    if (Number(mismatch?.count || 0) > 0 || migratedMessages !== expectedMessages) {
+      const error = new Error('LEGACY_INTERACTIONS_BACKFILL_VERIFY_FAILED');
+      error.code = 'LEGACY_INTERACTIONS_BACKFILL_VERIFY_FAILED';
+      throw error;
+    }
+
+    await db.prepare(`INSERT INTO legacy_migration_audit(
+      id,source_table,source_exists,source_rows,expected_messages,migrated_messages,verified,details_json,verified_at
+    ) VALUES(?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET
+      source_exists=excluded.source_exists,
+      source_rows=excluded.source_rows,
+      expected_messages=excluded.expected_messages,
+      migrated_messages=excluded.migrated_messages,
+      verified=excluded.verified,
+      details_json=excluded.details_json,
+      verified_at=excluded.verified_at`)
+      .bind(
+        auditId,
+        'interactions',
+        1,
+        sourceRows,
+        expectedMessages,
+        migratedMessages,
+        1,
+        JSON.stringify({non_destructive:true,source_preserved:true,provenance}),
+        Date.now()
+      )
+      .run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
