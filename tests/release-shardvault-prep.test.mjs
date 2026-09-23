@@ -48,3 +48,10 @@ test('release workflow expands active ShardVault registry before launch bootstra
   assert.match(source,/PRODUCTION_SHARDVAULT_EXTERNAL_LT_7/);
   assert.doesNotMatch(source,/active_external_count\|\|0\)<3/);
 });
+
+
+test('unbounded ShardVault search keeps full live revalidation even with seven active targets',async()=>{
+  const source=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  assert.match(source,/if\(\(!boundedMode\|\|active\.length<targetCount\)&&remainingBudget>0\)\{/);
+  assert.match(source,/search_strategy:boundedMode\?'INCREMENTAL_BOUNDED':'FULL_REVALIDATION'/);
+});
