@@ -145,7 +145,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p android-companion/dist/emulator
-          DEVICE_DIR="/sdcard/Android/data/fr.veriteinterdite.mel/files"
+          DEVICE_DIR="/sdcard/Download"
 
           adb shell ls -l "$DEVICE_DIR" || true
           adb pull "$DEVICE_DIR/login-screen.png" android-companion/dist/emulator/login-screen.png
