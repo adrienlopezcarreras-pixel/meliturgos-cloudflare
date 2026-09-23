@@ -31,7 +31,7 @@ Requête minimale:
 {
   "device_id": "mel-A1B2C3",
   "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
-  "firmware": "0.1.0",
+  "firmware": "0.4.5-stability",
   "protocol_version": "1.0",
   "pair_code": "ABCDEFGH"
 }
