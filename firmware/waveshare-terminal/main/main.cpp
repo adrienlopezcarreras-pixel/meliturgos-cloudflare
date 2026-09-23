@@ -93,7 +93,7 @@ static volatile bool wifi_scan_requested = false;
 static int last_face_state = -1;
 static bool last_blink = false;
 static bool last_online = false;
-#define MINI_UI_STRESS_TEST 1
+#define MINI_UI_STRESS_TEST 0
 
 static void request_view(MiniView view);
 static void mini_apply_requested_view(void);
@@ -1016,7 +1016,7 @@ extern "C" void app_main(void) {
         if (payload) {
             snprintf(payload, 33, "%s", saved_ssid);
             snprintf(payload + 33, 65, "%s", saved_pwd);
-            xTaskCreate(wifi_connect_task, "mini_wifi_boot", 6144, payload, 3, &wifi_connect_task_handle);
+            xTaskCreatePinnedToCore(wifi_connect_task, "mini_wifi_boot", 6144, payload, 3, &wifi_connect_task_handle, 0);
         }
         ESP_LOGI(TAG, "Saved WiFi requested: %s", saved_ssid);
     } else {
@@ -1025,5 +1025,7 @@ extern "C" void app_main(void) {
 
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
     xTaskCreatePinnedToCore(camera_boot_probe_task, "mini_camera_probe", 8192, nullptr, 2, nullptr, 0);
+#if MINI_UI_STRESS_TEST
     xTaskCreatePinnedToCore(ui_stress_task, "mini_ui_stress", 4096, nullptr, 2, nullptr, 0);
+#endif
 }
