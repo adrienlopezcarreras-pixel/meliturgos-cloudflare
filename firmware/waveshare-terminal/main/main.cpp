@@ -14,7 +14,6 @@
 #include "esp_3inch5_lcd_port.h"
 #include "esp_wifi_port.h"
 
-extern esp_err_t esp_wifi_port_sta_connect(const char *ssid, const char *password);
 
 #define MINI_LCD_H_RES 320
 #define MINI_LCD_V_RES 480
@@ -67,6 +66,24 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 }
 
+
+static esp_err_t mini_wifi_sta_connect(const char *ssid, const char *password) {
+    if (!ssid || !ssid[0]) return ESP_ERR_INVALID_ARG;
+
+    wifi_config_t cfg = {};
+    snprintf((char *)cfg.sta.ssid, sizeof(cfg.sta.ssid), "%s", ssid);
+    snprintf((char *)cfg.sta.password, sizeof(cfg.sta.password), "%s", password ? password : "");
+
+    // Phone hotspots vary between OPEN/WPA2/WPA3 transition modes.
+    // Accept all authentication modes supported by the ESP32-S3 station.
+    cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    cfg.sta.pmf_cfg.capable = true;
+    cfg.sta.pmf_cfg.required = false;
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &cfg));
+    return esp_wifi_connect();
+}
 
 static bool wifi_load_credentials(char *ssid, size_t ssid_len, char *pwd, size_t pwd_len) {
     nvs_handle_t h;
@@ -184,7 +201,7 @@ static void wifi_connect_task(void *arg) {
     free(payload);
 
     ESP_LOGI(TAG, "WiFi connect to %s", ssid);
-    esp_wifi_port_sta_connect(ssid, pwd);
+    mini_wifi_sta_connect(ssid, pwd);
 
     bool connected = false;
     wifi_ap_record_t info = {};
@@ -495,7 +512,7 @@ extern "C" void app_main(void) {
     char saved_ssid[33] = {};
     char saved_pwd[65] = {};
     if (wifi_load_credentials(saved_ssid, sizeof(saved_ssid), saved_pwd, sizeof(saved_pwd))) {
-        esp_wifi_port_sta_connect(saved_ssid, saved_pwd);
+        mini_wifi_sta_connect(saved_ssid, saved_pwd);
         ESP_LOGI(TAG, "Saved WiFi requested: %s", saved_ssid);
     } else if (lvgl_port_lock(0)) {
         lv_obj_add_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
