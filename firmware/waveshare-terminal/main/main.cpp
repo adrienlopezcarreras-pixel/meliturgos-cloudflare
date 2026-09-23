@@ -93,7 +93,7 @@ static volatile bool wifi_scan_requested = false;
 static int last_face_state = -1;
 static bool last_blink = false;
 static bool last_online = false;
-#define MINI_UI_STRESS_TEST 0
+#define MINI_UI_STRESS_TEST 1
 
 static void request_view(MiniView view);
 static void mini_apply_requested_view(void);
