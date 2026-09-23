@@ -47,16 +47,8 @@ jobs:
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "emulator" \
-            "system-images;android-35;google_apis;x86_64"
-          echo "no" | avdmanager create avd \
-            --force \
-            --name mel-ci \
-            --package "system-images;android-35;google_apis;x86_64" \
-            --device "pixel_6"
+          sdkmanager             "platforms;android-35"             "build-tools;35.0.0"             "emulator"             "system-images;android-35;google_apis;x86_64"
+          echo "no" | avdmanager create avd             --force             --name mel-ci             --package "system-images;android-35;google_apis;x86_64"             --device "pixel_6"
 
       - name: Enable KVM
         shell: bash
@@ -72,48 +64,14 @@ jobs:
           set -euo pipefail
           adb kill-server || true
           adb start-server
-          nohup "$ANDROID_SDK_ROOT/emulator/emulator" @mel-ci \
-            -no-window \
-            -noaudio \
-            -no-boot-anim \
-            -no-snapshot \
-            -no-snapshot-save \
-            -wipe-data \
-            -gpu swiftshader_indirect \
-            -accel auto \
-            -no-metrics \
-            > "$RUNNER_TEMP/mel-emulator.log" 2>&1 &
+
+          nohup "$ANDROID_SDK_ROOT/emulator/emulator" @mel-ci             -no-window             -noaudio             -no-boot-anim             -no-snapshot             -no-snapshot-save             -wipe-data             -gpu swiftshader_indirect             -accel auto             -no-metrics             > "$RUNNER_TEMP/mel-emulator.log" 2>&1 &
           EMULATOR_PID=$!
 
+          registered=0
           for i in {1..60}; do
-            if adb devices | grep -qE '^emulator-[0-9]+[[:space:]]+device
-      - name: Run instrumented Compose UI tests
-        working-directory: android-companion
-        shell: bash
-        run: |
-          set -euo pipefail
-          gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
-
-      - name: Capture emulator screen
-        if: always()
-        shell: bash
-        run: |
-          mkdir -p android-companion/dist/emulator
-          adb exec-out screencap -p > android-companion/dist/emulator/final-screen.png || true
-          cp "$RUNNER_TEMP/mel-emulator.log" android-companion/dist/emulator/emulator.log || true
-
-      - name: Upload emulator test evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: MEL-Android-emulator-${{ github.sha }}
-          path: |
-            android-companion/app/build/reports/androidTests/connected/**
-            android-companion/app/build/outputs/androidTest-results/connected/**
-            android-companion/dist/emulator/**
-          if-no-files-found: warn
-          retention-days: 14
-; then
+            if adb devices | awk 'NR>1 && $1 ~ /^emulator-/ && $2 == "device" { found=1 } END { exit found ? 0 : 1 }'; then
+              registered=1
               break
             fi
             if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
@@ -124,41 +82,16 @@ jobs:
             sleep 2
           done
 
-          if ! adb devices | grep -qE '^emulator-[0-9]+[[:space:]]+device
-      - name: Run instrumented Compose UI tests
-        working-directory: android-companion
-        shell: bash
-        run: |
-          set -euo pipefail
-          gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
-
-      - name: Capture emulator screen
-        if: always()
-        shell: bash
-        run: |
-          mkdir -p android-companion/dist/emulator
-          adb exec-out screencap -p > android-companion/dist/emulator/final-screen.png || true
-          cp "$RUNNER_TEMP/mel-emulator.log" android-companion/dist/emulator/emulator.log || true
-
-      - name: Upload emulator test evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: MEL-Android-emulator-${{ github.sha }}
-          path: |
-            android-companion/app/build/reports/androidTests/connected/**
-            android-companion/app/build/outputs/androidTest-results/connected/**
-            android-companion/dist/emulator/**
-          if-no-files-found: warn
-          retention-days: 14
-; then
+          if [[ "$registered" != "1" ]]; then
             echo "Android emulator did not register with adb within the bounded startup window" >&2
             cat "$RUNNER_TEMP/mel-emulator.log" >&2 || true
             exit 1
           fi
 
+          booted=0
           for i in {1..90}; do
             if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
+              booted=1
               break
             fi
             if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
@@ -169,7 +102,7 @@ jobs:
             sleep 2
           done
 
-          if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]]; then
+          if [[ "$booted" != "1" ]]; then
             echo "Android emulator did not complete boot within the bounded startup window" >&2
             cat "$RUNNER_TEMP/mel-emulator.log" >&2 || true
             exit 1
