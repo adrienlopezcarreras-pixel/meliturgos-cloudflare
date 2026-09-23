@@ -64,6 +64,8 @@ static bool g_sd_ok = false;
 static bool g_online = false;
 static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
 static TaskHandle_t g_voice_task_handle = nullptr;
+static TaskHandle_t g_online_task_handle = nullptr;
+static TaskHandle_t g_heartbeat_task_handle = nullptr;
 static EventGroupHandle_t g_wifi_bits = nullptr;
 static int g_wifi_retry = 0;
 static lv_obj_t *g_status = nullptr;
@@ -609,54 +611,30 @@ static std::string record_and_transcribe() {
 
 static void voice_task(void *) {
     g_runtime_state = MEL_TERMINAL_LISTENING;
-    if (lvgl_port_lock(1000)) {
-        mini_face_state(MINI_LISTENING);
-        lvgl_port_unlock();
-    }
     ui_status("ÉCOUTE…");
     ui_answer("Parle maintenant.");
     std::string text = record_and_transcribe();
     if (text.empty()) {
         g_runtime_state = MEL_TERMINAL_ERROR;
-        if (lvgl_port_lock(1000)) {
-            mini_face_state(MINI_ERROR);
-            lvgl_port_unlock();
-        }
         ui_status("MICRO");
         ui_answer("Je n'ai pas réussi à transcrire. Réessaie.");
         vTaskDelay(pdMS_TO_TICKS(1800));
-        if (lvgl_port_lock(1000)) {
-            mini_face_state(MINI_IDLE);
-            lvgl_port_unlock();
-        }
         g_runtime_state = MEL_TERMINAL_IDLE;
         g_voice_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
     }
     g_runtime_state = MEL_TERMINAL_THINKING;
-    if (lvgl_port_lock(1000)) {
-        mini_face_state(MINI_THINKING);
-        lvgl_port_unlock();
-    }
     ui_status("RÉFLEXION…");
     ui_answer("");
     std::string answer = chat_with_mel(text);
     g_runtime_state = MEL_TERMINAL_SPEAKING;
-    if (lvgl_port_lock(1000)) {
-        mini_face_state(MINI_SPEAKING);
-        lvgl_port_unlock();
-    }
     ui_status("MINI");
     ui_answer(answer.c_str());
     const bool spoken = speak_text(answer);
     if (!spoken) {
         ESP_LOGW(TAG, "Voice reply unavailable; keeping text response on screen");
         vTaskDelay(pdMS_TO_TICKS(900));
-    }
-    if (lvgl_port_lock(1000)) {
-        mini_face_state(MINI_IDLE);
-        lvgl_port_unlock();
     }
     ui_status("");
     g_runtime_state = MEL_TERMINAL_IDLE;
@@ -667,7 +645,7 @@ static void voice_task(void *) {
 
 void mel_terminal_request_voice(void) {
     if (!g_online || !g_audio_ok || g_voice_task_handle) return;
-    xTaskCreate(voice_task, "mel_voice", 10240, nullptr, 5, &g_voice_task_handle);
+    xTaskCreatePinnedToCore(voice_task, "mel_voice", 10240, nullptr, 5, &g_voice_task_handle, 0);
 }
 
 int mel_terminal_state(void) {
@@ -920,8 +898,8 @@ static void button_event(lv_event_t *event) {
     intptr_t action = reinterpret_cast<intptr_t>(lv_event_get_user_data(event));
     if (action == ACTION_VOICE) mel_terminal_request_voice();
     if (action == ACTION_CAMERA) xTaskCreatePinnedToCore(camera_task, "mel_camera", 6144, nullptr, 3, nullptr, 0);
-    if (action == ACTION_AUDIO) xTaskCreate(audio_test_task, "mel_audio", 4096, nullptr, 4, nullptr);
-    if (action == ACTION_UPDATE) xTaskCreate(update_task, "mel_update", 8192, nullptr, 4, nullptr);
+    if (action == ACTION_AUDIO) xTaskCreatePinnedToCore(audio_test_task, "mel_audio", 4096, nullptr, 4, nullptr, 0);
+    if (action == ACTION_UPDATE) xTaskCreatePinnedToCore(update_task, "mel_update", 8192, nullptr, 4, nullptr, 0);
 }
 
 static lv_obj_t *make_button(lv_obj_t *parent, const char *text, Action action) {
@@ -1088,10 +1066,6 @@ static void network_task(void *arg) {
         g_camera_ok ? "caméra OK" : "caméra indisponible"
     );
     ui_answer("");
-    if (lvgl_port_lock(1000)) {
-        mini_face_state(MINI_IDLE);
-        lvgl_port_unlock();
-    }
     xTaskCreate(heartbeat_task, "mel_heartbeat", 6144, nullptr, 3, nullptr);
     vTaskDelete(nullptr);
 }
@@ -1110,10 +1084,27 @@ void mel_terminal_set_pair_code(const char *code) {
     const char *value = code ? code : "";
     strlcpy(g_cfg.pair_code, value, sizeof(g_cfg.pair_code));
     save_string("pair_code", g_cfg.pair_code);
+    if (g_cfg.pair_code[0]) {
+        g_online = false;
+        g_cfg.token[0] = '\0';
+        save_string("token", "");
+    }
 }
 
 void mel_terminal_set_network_info(const char *ip) {
     strlcpy(g_ip, ip ? ip : "", sizeof(g_ip));
+}
+
+static bool device_session_valid() {
+    if (!g_cfg.token[0]) return false;
+    std::string response;
+    int status = 0;
+    esp_err_t err = http_request(
+        HTTP_METHOD_GET,
+        std::string(SERVER) + "/api/device/v1/manifest",
+        nullptr, nullptr, 0, response, status
+    );
+    return err == ESP_OK && status == 200;
 }
 
 static void online_runtime_task(void *) {
@@ -1122,8 +1113,22 @@ static void online_runtime_task(void *) {
 
     ui_status("APPAIRAGE…");
     if (!pair_terminal()) {
+        g_online = false;
         ui_status("CODE MEL REQUIS");
         ui_answer("Entre un code d'appairage MEL depuis l'icône de liaison.");
+        g_online_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    if (!device_session_valid()) {
+        ESP_LOGW(TAG, "Stored or newly paired MEL token did not validate");
+        g_online = false;
+        g_cfg.token[0] = '\0';
+        save_string("token", "");
+        ui_status("REAPPARIAGE REQUIS");
+        ui_answer("La liaison MEL n'est plus valide. Entre un nouveau code d'appairage.");
+        g_online_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
     }
@@ -1131,16 +1136,17 @@ static void online_runtime_task(void *) {
     g_online = true;
     ui_status("");
     ui_answer("");
-    if (lvgl_port_lock(1000)) {
-        mini_face_state(MINI_IDLE);
-        lvgl_port_unlock();
+    if (!g_heartbeat_task_handle) {
+        xTaskCreatePinnedToCore(heartbeat_task, "mel_heartbeat", 6144, nullptr, 2, &g_heartbeat_task_handle, 0);
     }
-    xTaskCreate(heartbeat_task, "mel_heartbeat", 6144, nullptr, 3, nullptr);
+    ESP_LOGI(TAG, "MEL ONLINE: authenticated device session ready");
+    g_online_task_handle = nullptr;
     vTaskDelete(nullptr);
 }
 
 void mel_terminal_start_online(void) {
-    xTaskCreate(online_runtime_task, "mel_online", 10240, nullptr, 5, nullptr);
+    if (g_online || g_online_task_handle) return;
+    xTaskCreatePinnedToCore(online_runtime_task, "mel_online", 10240, nullptr, 5, &g_online_task_handle, 0);
 }
 
 void mel_terminal_start(bool force_setup) {
