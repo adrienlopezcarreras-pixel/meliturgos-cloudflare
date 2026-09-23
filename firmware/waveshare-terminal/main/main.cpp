@@ -453,9 +453,11 @@ static void wifi_connect_task(void *arg) {
 
         if (lvgl_port_lock(0)) {
             if (wifi_status) lv_label_set_text_fmt(wifi_status, "Connecte a %s\nIP %s", ssid, ip);
-            if (status_label) lv_label_set_text(status_label, "PARLER");
+            if (status_label) lv_label_set_text(status_label, "MEL...");
             lvgl_port_unlock();
         }
+
+        start_mel_runtime_after_wifi(ssid, pwd);
 
         // Never sleep while holding the LVGL mutex: doing so starves taskLVGL
         // and triggers the task watchdog on this board.
@@ -682,6 +684,14 @@ static void mini_smoke_ui() {
     lv_obj_center(wl);
     lv_obj_add_event_cb(wifi_btn, wifi_open_clicked, LV_EVENT_CLICKED, nullptr);
 
+    lv_obj_t *pair_btn = lv_btn_create(main_panel);
+    lv_obj_set_size(pair_btn, 48, 38);
+    lv_obj_align(pair_btn, LV_ALIGN_TOP_LEFT, 10, 16);
+    lv_obj_t *pl = lv_label_create(pair_btn);
+    lv_label_set_text(pl, LV_SYMBOL_LINK);
+    lv_obj_center(pl);
+    lv_obj_add_event_cb(pair_btn, pair_open_clicked, LV_EVENT_CLICKED, nullptr);
+
     face_obj = lv_obj_create(main_panel);
     lv_obj_set_size(face_obj, 210, 210);
     lv_obj_align(face_obj, LV_ALIGN_CENTER, 0, -52);
@@ -736,6 +746,7 @@ static void mini_smoke_ui() {
     lv_obj_center(status_label);
 
     wifi_ui_create(screen);
+    pair_ui_create(screen);
     anim_timer = lv_timer_create(mini_anim_cb, 120, nullptr);
     ESP_LOGI(TAG, "STEP 6 OK: MINI ANIMATED UI + WIFI READY");
 }
@@ -786,7 +797,12 @@ extern "C" void app_main(void) {
     char saved_ssid[33] = {};
     char saved_pwd[65] = {};
     if (wifi_load_credentials(saved_ssid, sizeof(saved_ssid), saved_pwd, sizeof(saved_pwd))) {
-        mini_wifi_sta_connect(saved_ssid, saved_pwd);
+        char *payload = (char *)calloc(1, 33 + 65);
+        if (payload) {
+            snprintf(payload, 33, "%s", saved_ssid);
+            snprintf(payload + 33, 65, "%s", saved_pwd);
+            xTaskCreate(wifi_connect_task, "mini_wifi_boot", 6144, payload, 3, &wifi_connect_task_handle);
+        }
         ESP_LOGI(TAG, "Saved WiFi requested: %s", saved_ssid);
     } else if (lvgl_port_lock(0)) {
         lv_obj_add_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
