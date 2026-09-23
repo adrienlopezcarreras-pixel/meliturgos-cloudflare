@@ -83,7 +83,7 @@ enum MiniView {
 };
 
 static volatile int requested_view = MINI_VIEW_MAIN;
-static int active_view = MINI_VIEW_MAIN;
+static volatile int active_view = MINI_VIEW_MAIN;
 static volatile bool wifi_scan_requested = false;
 static int last_face_state = -1;
 static bool last_blink = false;
@@ -688,15 +688,26 @@ static void wifi_ui_create(lv_obj_t *screen) {
 static void ui_stress_task(void *) {
 #if MINI_UI_STRESS_TEST
     vTaskDelay(pdMS_TO_TICKS(7000));
-    ESP_LOGI(TAG, "UI STRESS START: pair/main x80");
-    for (int i = 0; i < 80; ++i) {
+    ESP_LOGI(TAG, "UI STRESS START: pair/main x24");
+    bool ok = true;
+    for (int i = 0; i < 24; ++i) {
         request_view(MINI_VIEW_PAIR);
-        vTaskDelay(pdMS_TO_TICKS(90));
+        vTaskDelay(pdMS_TO_TICKS(350));
+        if (active_view != MINI_VIEW_PAIR) {
+            ESP_LOGE(TAG, "UI STRESS FAIL: pair view not applied at cycle %d (active=%d)", i, active_view);
+            ok = false;
+            break;
+        }
         request_view(MINI_VIEW_MAIN);
-        vTaskDelay(pdMS_TO_TICKS(90));
+        vTaskDelay(pdMS_TO_TICKS(350));
+        if (active_view != MINI_VIEW_MAIN) {
+            ESP_LOGE(TAG, "UI STRESS FAIL: main view not applied at cycle %d (active=%d)", i, active_view);
+            ok = false;
+            break;
+        }
     }
     request_view(MINI_VIEW_MAIN);
-    ESP_LOGI(TAG, "UI STRESS PASS: pair/main x80");
+    ESP_LOGI(TAG, "UI STRESS %s: pair/main transitions, free_heap=%u", ok ? "PASS" : "FAIL", (unsigned)esp_get_free_heap_size());
 #endif
     vTaskDelete(nullptr);
 }
@@ -956,11 +967,8 @@ extern "C" void app_main(void) {
             xTaskCreate(wifi_connect_task, "mini_wifi_boot", 6144, payload, 3, &wifi_connect_task_handle);
         }
         ESP_LOGI(TAG, "Saved WiFi requested: %s", saved_ssid);
-    } else if (lvgl_port_lock(0)) {
-        lv_obj_add_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
-        wifi_start_scan();
-        lvgl_port_unlock();
+    } else {
+        request_view(MINI_VIEW_WIFI_LIST);
     }
 
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
