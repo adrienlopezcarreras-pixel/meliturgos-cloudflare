@@ -94,6 +94,8 @@ test('Professor exposes a lightweight dashboard summary route and registers the 
   const [page,router] = await Promise.all([read('src/pages/full-interface-v2.js'),read('src/router.js')]);
   assert.match(page,/\/api\/gen2\/dashboard-summary/);
   assert.match(router,/path === "\/api\/gen2\/dashboard-summary"/);
+  assert.match(router,/const refresh = url\.searchParams\.get\("refresh"\) === "1";/);
+  assert.match(router,/const capabilities = refresh \? await runtime\.bus\.refreshHealthAll\(\) : runtime\.bus\.list\(\);/);
   assert.match(page,/navigator\.serviceWorker\.register\('\/sw\.js'/);
 });
 
@@ -139,8 +141,20 @@ test('Professor capability health semantics distinguish protected, degraded, non
   assert.match(html, /\.tag\.neutral/);
   assert.match(html, /raw==='PROTECTED'\?'protected'/);
   assert.match(html, /\['UNAVAILABLE','OFFLINE','DISABLED'\]\.includes\(raw\)\?'neutral'/);
-  assert.match(router, /const capabilities = await runtime\.bus\.refreshHealthAll\(\)/);
+  assert.match(router, /const capabilities = refresh \? await runtime\.bus\.refreshHealthAll\(\) : runtime\.bus\.list\(\);/);
   assert.match(router, /const protectedStates = new Set\(\["PROTECTED"\]\)/);
   assert.doesNotMatch(router, /degradedStates = new Set\(\[[^\]]*"PROTECTED"/);
   assert.match(router, /unavailable > 0 \? "INFO" : "OK"/);
+});
+
+
+test('Professor avoids expensive visual effects and blocking health probes on the hot path', async () => {
+  const [html,router] = await Promise.all([(await renderProfessor()).text(), read('src/router.js')]);
+  assert.match(html,/background-attachment:scroll!important/);
+  assert.match(html,/\.card\{[^}]*backdrop-filter:none!important/);
+  assert.doesNotMatch(html,/backdrop-filter:blur\(18px\)/);
+  assert.match(router,/url\.searchParams\.get\("refresh"\) === "1"/);
+  assert.doesNotMatch(router,/url\.searchParams\.get\("refresh"\) !== "0"/);
+  assert.match(html,/Réponse serveur trop lente/);
+  assert.match(html,/loadChatGPTImportStatus\(\)\.catch\(\(\)=>\{\}\);loadShardVaultStatus\(\)\.catch\(\(\)=>\{\}\)/);
 });
