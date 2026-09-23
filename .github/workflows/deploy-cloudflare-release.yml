@@ -319,6 +319,114 @@ jobs:
           console.log('Production D1 observability metrics smoke passed.');
           NODE
 
+          GEN1_STATUS_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --output production-gen1-migration-before.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/migration/gen1-status")"
+          if [ "$GEN1_STATUS_CODE" != "200" ]; then
+            echo "Production GEN2-57 status returned HTTP ${GEN1_STATUS_CODE}."
+            test ! -s production-gen1-migration-before.json || cat production-gen1-migration-before.json
+            exit 37
+          fi
+
+          GEN1_SOURCE_ROWS="$(node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('production-gen1-migration-before.json','utf8'));
+          if(d?.ok!==true) throw new Error('GEN1_STATUS_NOT_OK');
+          if(d?.source_preserved!==true) throw new Error('GEN1_SOURCE_NOT_PRESERVED');
+          if(d?.schema?.supported!==true) throw new Error('GEN1_SCHEMA_UNSUPPORTED:'+JSON.stringify(d?.schema||{}));
+          const rows=Number(d?.source_rows||0);
+          if(!Number.isInteger(rows)||rows<0) throw new Error('GEN1_SOURCE_COUNT_INVALID');
+          console.error(JSON.stringify({
+            status:d.status,
+            source_present:d.source_present,
+            source_rows:rows,
+            archived_messages:Number(d?.archived_messages||0),
+            remaining_interactions:Number(d?.remaining_interactions||0),
+            coverage_complete:d?.coverage_complete===true,
+          }));
+          process.stdout.write(String(rows));
+          NODE
+          )"
+
+          GEN1_COVERAGE="$(node -e 'const d=require("./production-gen1-migration-before.json"); process.stdout.write(d?.coverage_complete===true?"1":"0")')"
+          if [ "$GEN1_COVERAGE" != "1" ]; then
+            GEN1_MAX_BATCHES="$(( (GEN1_SOURCE_ROWS + 499) / 500 + 2 ))"
+            if [ "$GEN1_MAX_BATCHES" -gt 1000 ]; then
+              echo "GEN2-57 source exceeds bounded release migration budget: ${GEN1_SOURCE_ROWS} interactions."
+              exit 38
+            fi
+            GEN1_CURSOR=0
+            GEN1_DONE=0
+            for GEN1_BATCH in $(seq 1 "$GEN1_MAX_BATCHES"); do
+              GEN1_BACKFILL_CODE="$(curl --silent --show-error --max-time 120 \
+                --header "x-mel-release-smoke: 1" \
+                --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+                --header "content-type: application/json" \
+                --data "{\"after_id\":${GEN1_CURSOR},\"limit\":500}" \
+                --output production-gen1-migration-batch.json \
+                --write-out '%{http_code}' \
+                "${BASE_URL}/api/gen2/migration/gen1-backfill")"
+              if [ "$GEN1_BACKFILL_CODE" != "200" ]; then
+                echo "GEN2-57 backfill batch ${GEN1_BATCH} returned HTTP ${GEN1_BACKFILL_CODE}."
+                test ! -s production-gen1-migration-batch.json || cat production-gen1-migration-batch.json
+                exit 39
+              fi
+              read -r GEN1_LAST_ID GEN1_DONE <<EOF
+$(node - <<'NODE'
+const fs=require('fs');
+const d=JSON.parse(fs.readFileSync('production-gen1-migration-batch.json','utf8'));
+if(d?.ok!==true) throw new Error('GEN1_BACKFILL_NOT_OK');
+if(d?.source_preserved!==true) throw new Error('GEN1_BACKFILL_SOURCE_NOT_PRESERVED');
+if(d?.schema?.supported!==true) throw new Error('GEN1_BACKFILL_SCHEMA_UNSUPPORTED');
+const last=d?.batch?.last_id;
+const done=d?.coverage_complete===true;
+if(!done && (!Number.isInteger(Number(last)) || Number(last)<0)) throw new Error('GEN1_BACKFILL_CURSOR_MISSING');
+process.stdout.write(String(last==null?0:Number(last))+' '+(done?'1':'0'));
+NODE
+)
+EOF
+              if [ "$GEN1_DONE" = "1" ]; then
+                break
+              fi
+              GEN1_CURSOR="$GEN1_LAST_ID"
+            done
+            test "$GEN1_DONE" = "1"
+          fi
+
+          GEN1_FINAL_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --output production-gen1-migration-final.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/migration/gen1-status")"
+          test "$GEN1_FINAL_CODE" = "200"
+
+          GEN1_SOURCE_ROWS="$GEN1_SOURCE_ROWS" node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('production-gen1-migration-final.json','utf8'));
+          const before=Number(process.env.GEN1_SOURCE_ROWS||0);
+          if(d?.ok!==true) throw new Error('GEN1_FINAL_STATUS_NOT_OK');
+          if(d?.source_preserved!==true) throw new Error('GEN1_FINAL_SOURCE_NOT_PRESERVED');
+          if(d?.schema?.supported!==true) throw new Error('GEN1_FINAL_SCHEMA_UNSUPPORTED');
+          if(Number(d?.source_rows||0)!==before) throw new Error('GEN1_SOURCE_COUNT_CHANGED');
+          if(d?.coverage_complete!==true) throw new Error('GEN1_COVERAGE_INCOMPLETE');
+          if(Number(d?.remaining_interactions||0)!==0) throw new Error('GEN1_REMAINING_NOT_ZERO');
+          if(Number(d?.archived_messages||0)!==before*2) throw new Error('GEN1_ARCHIVE_COUNT_MISMATCH');
+          console.log(JSON.stringify({
+            status:d.status,
+            source_present:d.source_present,
+            source_rows:before,
+            archived_messages:Number(d.archived_messages||0),
+            migrated_interactions:Number(d.migrated_interactions||0),
+            remaining_interactions:Number(d.remaining_interactions||0),
+            coverage_complete:d.coverage_complete,
+            source_preserved:d.source_preserved,
+          },null,2));
+          NODE
+
           SELF_CODE="$(curl --silent --show-error --max-time 60 \
             --header "x-mel-release-smoke: 1" \
             --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
