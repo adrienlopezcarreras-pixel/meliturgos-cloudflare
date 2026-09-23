@@ -19,6 +19,7 @@ import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-stat
 import { getChatGPTImportStatus, recordChatGPTCollectorCoverage } from "./persistence/chatgpt-archive-importer.js";
 import { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-api.js";
 import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
+import { enforceHttpAuthPolicy } from "./security/http-auth-policy.js";
 import { runShardVaultCycle, searchAutonomousShardVaultRepositories } from "./continuity/shardvault-runtime.js";
 
 function deployedWatchSourceSha() {
@@ -356,6 +357,8 @@ export default {
     try {
       const url = new URL(request.url);
       const path = url.pathname;
+      const authPolicyResponse = enforceHttpAuthPolicy(request, env);
+      if (authPolicyResponse) return authPolicyResponse;
       if (path.startsWith('/api/device/v1/')) {
         const terminalResponse = await maybeHandleWaveshareTerminalApi(request, env);
         if (terminalResponse) return terminalResponse;
