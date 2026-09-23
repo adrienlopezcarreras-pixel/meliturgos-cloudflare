@@ -33,6 +33,10 @@ test('release workflow expands active ShardVault registry before launch bootstra
   const bootstrap=source.indexOf('/api/internal/release-launch-bootstrap');
   assert.ok(search>0);
   assert.ok(bootstrap>search);
+  assert.match(source,/for SHARD_STATUS_ATTEMPT in \$\(seq 1 12\)/);
+  assert.match(source,/SHARD_STATUS_READY=0/);
+  assert.match(source,/ShardVault status propagation attempt/);
+  assert.match(source,/exit 46/);
   assert.match(source,/seq 1 4/);
   assert.match(source,/active_external_registry/);
   assert.match(source,/active<7/);
