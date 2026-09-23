@@ -550,7 +550,8 @@ private fun ConversationScreen(
     onVoice: () -> Unit,
     onFile: () -> Unit,
     onProfessor: () -> Unit,
-    onNotifications: () -> Unit
+    onNotifications: () -> Unit,
+    onDiagnostics: () -> Unit
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
