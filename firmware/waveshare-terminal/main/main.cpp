@@ -60,7 +60,8 @@ static const char *wifi_reason_text(int reason) {
     switch (reason) {
         case WIFI_REASON_NO_AP_FOUND: return "reseau introuvable";
         case WIFI_REASON_AUTH_FAIL: return "authentification refusee";
-        case WIFI_REASON_HANDSHAKE_TIMEOUT: return "mot de passe/securite";
+        case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT: return "mot de passe / WPA";
+        case WIFI_REASON_HANDSHAKE_TIMEOUT: return "mot de passe / WPA";
         case WIFI_REASON_BEACON_TIMEOUT: return "signal perdu";
         case WIFI_REASON_ASSOC_FAIL: return "association refusee";
         default: return "echec Wi-Fi";
@@ -68,7 +69,13 @@ static const char *wifi_reason_text(int reason) {
 }
 
 static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void *data) {
-    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+        auto *ev = static_cast<wifi_event_sta_connected_t *>(data);
+        if (ev) {
+            ESP_LOGI(TAG, "MINI WIFI ASSOCIATED ssid=%.*s channel=%u authmode=%d",
+                     ev->ssid_len, (char *)ev->ssid, ev->channel, ev->authmode);
+        }
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         auto *ev = static_cast<wifi_event_sta_disconnected_t *>(data);
         wifi_got_ip = false;
         wifi_disconnect_reason = ev ? (int)ev->reason : -1;
