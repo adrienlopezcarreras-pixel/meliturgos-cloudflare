@@ -114,23 +114,16 @@ extern "C" void app_main(void) {
         &touch_handle, i2c_bus_handle, MEL_LCD_H_RES, MEL_LCD_V_RES, DISPLAY_ROTATION
     );
 
-    bool audio_ok = esp_axp2101_port_init(i2c_bus_handle) == ESP_OK;
+    // MINI safe-boot smoke profile: start from the proven Waveshare LCD/touch
+    // path and keep optional peripherals disabled until the physical board has
+    // completed its first UI + Wi-Fi test. This avoids a peripheral init crash
+    // from trapping the device in a reboot loop.
+    (void)esp_axp2101_port_init(i2c_bus_handle);
     vTaskDelay(pdMS_TO_TICKS(100));
-    esp_es8311_port_init(i2c_bus_handle);
-    audio_ok = true;
 
-    esp_pcf85063_port_init(i2c_bus_handle);
-
-    esp_sdcard_port_init();
-    bool sd_ok = esp_sdcard_port_get_size() > 0;
-
-    esp_camera_port_init(I2C_PORT_NUM);
-    bool camera_ok = false;
-    camera_fb_t *probe = esp_camera_fb_get();
-    if (probe) {
-        camera_ok = true;
-        esp_camera_fb_return(probe);
-    }
+    const bool audio_ok = false;
+    const bool sd_ok = false;
+    const bool camera_ok = false;
 
     esp_3inch5_brightness_port_init();
     esp_3inch5_brightness_port_set(75);
