@@ -11,6 +11,7 @@ export const WAVESHARE_TERMINAL_CAPABILITIES = Object.freeze([
   "camera.ov5640",
   "audio.microphone",
   "audio.speaker",
+  "storage.internal",
   "wifi",
   "chat",
   "voice.stt",
@@ -225,6 +226,9 @@ async function updateHeartbeat(request, env, auth) {
     microphone: body.microphone ?? null,
     speaker: body.speaker ?? null,
     sdcard: body.sdcard ?? null,
+    internal_storage: body.internal_storage ?? null,
+    storage_total_bytes: body.storage_total_bytes ?? null,
+    storage_free_bytes: body.storage_free_bytes ?? null,
     phase: body.phase || "ONLINE"
   };
   await env.DB.prepare(`INSERT INTO device_status(device_id,payload_json,updated_at) VALUES(?,?,?)
