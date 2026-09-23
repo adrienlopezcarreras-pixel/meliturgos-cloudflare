@@ -9,11 +9,13 @@ function semanticKey(row = {}) {
   return [row.domain, row.task, row.after].map(normalizeText).join('|');
 }
 
-export function validateLearningHandoff(handoff = {}) {
+export function validateLearningHandoff(handoff = {}, { expectedSha = '' } = {}) {
   const issues = [];
   if (handoff.validated !== true) issues.push('handoff:not-validated');
   if (!String(handoff.provenance?.path || '').trim()) issues.push('provenance:path-required');
-  if (!String(handoff.provenance?.sha || '').trim()) issues.push('provenance:sha-required');
+  const provenanceSha = String(handoff.provenance?.sha || '').trim();
+  if (!provenanceSha) issues.push('provenance:sha-required');
+  if (expectedSha && provenanceSha && provenanceSha !== String(expectedSha)) issues.push('provenance:sha-mismatch');
   const xp = handoff.experience || handoff.xp || {};
   const checked = validateAgentExperience(xp);
   issues.push(...checked.issues.map(issue => `experience:${issue}`));
@@ -21,7 +23,7 @@ export function validateLearningHandoff(handoff = {}) {
   return { ok: issues.length === 0, issues, experience: xp };
 }
 
-export async function ingestValidatedHandoffs({ handoffs = [], learningEngine } = {}) {
+export async function ingestValidatedHandoffs({ handoffs = [], learningEngine, expectedSha = '' } = {}) {
   if (!learningEngine || typeof learningEngine.corrections !== 'function' || !learningEngine.memory?.remember) {
     throw new Error('LEARNING_ENGINE_REQUIRED');
   }
@@ -31,7 +33,7 @@ export async function ingestValidatedHandoffs({ handoffs = [], learningEngine } 
   const result = { accepted: [], duplicate: [], rejected: [] };
 
   for (const handoff of handoffs) {
-    const checked = validateLearningHandoff(handoff);
+    const checked = validateLearningHandoff(handoff, { expectedSha });
     if (!checked.ok) {
       result.rejected.push({ id: checked.experience?.id || null, issues: checked.issues });
       continue;
