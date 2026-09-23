@@ -25,6 +25,8 @@ test('dashboard summary exposes truthful component state instead of request-succ
   assert.equal(typeof body.capabilities.failed,'number');
   assert.equal(typeof body.capabilities.unavailable,'number');
   assert.equal(typeof body.capabilities.degraded,'number');
+  assert.equal(typeof body.capabilities.protected,'number');
+  assert.equal(typeof body.capabilities.usable,'number');
   assert.equal(body.deployment.exact_identity_known,true);
   assert.equal(body.deployment.branch,'release/mel-hardware-v0.1.0');
   assert.equal(body.deployment.commit,'1234567890abcdef1234567890abcdef12345678');
@@ -33,7 +35,7 @@ test('dashboard summary exposes truthful component state instead of request-succ
   assert.ok(ids.has('roadmap'));
   assert.ok(ids.has('deployment'));
   for(const row of body.components){
-    assert.ok(['OK','WARN','ERROR'].includes(row.status));
+    assert.ok(['OK','INFO','WARN','ERROR'].includes(row.status));
     assert.equal(typeof row.detail,'string');
     assert.ok(row.detail.length>0);
   }

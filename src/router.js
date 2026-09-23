@@ -101,11 +101,13 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
 
   if (path === "/api/gen2/dashboard-summary" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });
-    const capabilities = runtime.bus.list();
+    // The overview must describe observed runtime health, not the registry's boot-time defaults.
+    const capabilities = await runtime.bus.refreshHealthAll();
     const roadmap = await runtime.bus.execute("roadmap.read", {}, capabilityContext(env));
     const badStates = new Set(["ERROR","FAILED","FAIL","DOWN","UNHEALTHY","BROKEN"]);
     const unavailableStates = new Set(["OFFLINE","UNAVAILABLE","BLOCKED","DISABLED"]);
-    const degradedStates = new Set(["DEGRADED","UNKNOWN","UNTESTED","NOT_TESTED","PROTECTED"]);
+    const degradedStates = new Set(["DEGRADED","UNKNOWN","UNTESTED","NOT_TESTED"]);
+    const protectedStates = new Set(["PROTECTED"]);
     const health = capabilities.reduce((acc,row)=>{
       const state = row?.enabled === false ? "DISABLED" : String(row?.health || "UNKNOWN").toUpperCase();
       acc[state] = (acc[state] || 0) + 1;
@@ -114,6 +116,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
     const failed = capabilities.filter(row => badStates.has(String(row?.health || "").toUpperCase())).length;
     const unavailable = capabilities.filter(row => row?.enabled === false || unavailableStates.has(String(row?.health || "").toUpperCase())).length;
     const degraded = capabilities.filter(row => degradedStates.has(String(row?.health || "").toUpperCase())).length;
+    const protectedCount = capabilities.filter(row => row?.enabled !== false && protectedStates.has(String(row?.health || "").toUpperCase())).length;
     const active = Math.max(0, capabilities.length - unavailable - failed);
     const roadmapSummary = roadmap?.summary || {};
     const roadmapBlocked = Number(roadmapSummary?.by_status?.BLOCKED_HUMAN || 0)
@@ -125,16 +128,16 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
       ? String(MEL_DEPLOYED_GIT_SHA || "")
       : String(env.MEL_DEPLOYED_GIT_SHA || "");
     const deploymentExact = Boolean(deployedBranch && /^[0-9a-f]{40}$/i.test(deployedSha));
-    const state = failed > 0
+    const state = failed > 0 || (capabilities.length > 0 && active === 0)
       ? "ERROR"
-      : unavailable > 0 || degraded > 0 || roadmapBlocked > 0 || !deploymentExact
+      : degraded > 0 || roadmapBlocked > 0 || !deploymentExact
         ? "WARN"
         : "OK";
     return json({
       ok: state !== "ERROR",
       state,
       generated_at: new Date().toISOString(),
-      capabilities: { total: capabilities.length, active, failed, unavailable, degraded, health },
+      capabilities: { total: capabilities.length, active, usable: active, failed, unavailable, degraded, protected: protectedCount, health },
       roadmap: roadmapSummary,
       deployment: {
         branch: deployedBranch || null,
@@ -145,12 +148,14 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
         {
           id:"capabilities",
           label:"CapabilityBus",
-          status: failed > 0 ? "ERROR" : unavailable > 0 || degraded > 0 ? "WARN" : "OK",
+          status: failed > 0 ? "ERROR" : degraded > 0 ? "WARN" : unavailable > 0 ? "INFO" : "OK",
           detail: failed > 0
-            ? failed+" capacité(s) en échec"
-            : unavailable > 0 || degraded > 0
-              ? active+"/"+capabilities.length+" actives · "+unavailable+" indisponible(s) · "+degraded+" dégradée(s)"
-              : capabilities.length+" capacité(s) actives"
+            ? failed+" capacité(s) en échec · "+active+"/"+capabilities.length+" utilisables"
+            : degraded > 0
+              ? active+"/"+capabilities.length+" utilisables · "+degraded+" dégradée(s) · "+protectedCount+" protégée(s) · "+unavailable+" non configurée(s)"
+              : unavailable > 0
+                ? active+"/"+capabilities.length+" utilisables · "+protectedCount+" protégée(s) · "+unavailable+" non configurée(s)"
+                : capabilities.length+" capacité(s) opérationnelle(s)"
         },
         {
           id:"roadmap",
