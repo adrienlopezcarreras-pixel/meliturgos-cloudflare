@@ -3,6 +3,7 @@
     <application>
         <activity
             android:name=".MelUiHarnessActivity"
-            android:exported="false" />
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
     </application>
 </manifest>

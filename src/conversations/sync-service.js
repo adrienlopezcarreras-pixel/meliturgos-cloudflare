@@ -21,7 +21,7 @@ export class SyncService extends ConversationService {
     });
   }
 
-  async syncToMemory({ conversationId, limit = 250 } = {}) {
+  async syncToMemory({ conversationId, limit = 250, provenance = null } = {}) {
     await this.migrate();
     if (typeof conversationId !== 'string' || !conversationId.trim()) {
       const error = new Error('MEMORY_CONVERSATION_ID_REQUIRED');
@@ -33,11 +33,20 @@ export class SyncService extends ConversationService {
       error.code = 'MEMORY_SYNC_LIMIT_INVALID';
       throw error;
     }
+    const normalizedProvenance = provenance == null ? null : String(provenance).trim();
+    if (provenance != null && !normalizedProvenance) {
+      const error = new Error('MEMORY_SYNC_PROVENANCE_INVALID');
+      error.code = 'MEMORY_SYNC_PROVENANCE_INVALID';
+      throw error;
+    }
 
     const rows = await this.db.prepare(`
       SELECT a.*
       FROM archive_messages a
       WHERE a.conversation_id = ?
+        AND (? IS NULL OR a.provenance = ?)
+        AND trim(COALESCE(a.content,'')) <> ''
+        AND lower(COALESCE(a.role,'')) IN ('user','assistant','system','tool')
         AND NOT EXISTS (
           SELECT 1
           FROM memory_candidates c
@@ -46,7 +55,7 @@ export class SyncService extends ConversationService {
         )
       ORDER BY a.timestamp ASC, a.id ASC
       LIMIT ?
-    `).bind(conversationId.trim(), limit).all();
+    `).bind(conversationId.trim(), normalizedProvenance, normalizedProvenance, limit).all();
 
     const messages = (rows?.results || []).map((row) => this._rowToMessage(row));
     const result = await this.memorySync.sync(messages);
