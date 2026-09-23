@@ -42,12 +42,14 @@ static bool listening = false;
 static lv_obj_t *wifi_panel = nullptr;
 static lv_obj_t *wifi_list = nullptr;
 static lv_obj_t *wifi_status = nullptr;
+static lv_obj_t *wifi_ssid_input = nullptr;
 static lv_obj_t *wifi_pwd = nullptr;
 static lv_obj_t *wifi_keyboard = nullptr;
 static lv_obj_t *wifi_connect_btn = nullptr;
 static lv_obj_t *main_panel = nullptr;
 static char wifi_ssids[MINI_WIFI_MAX_AP][33] = {};
 static char selected_ssid[33] = {};
+static bool wifi_manual_mode = false;
 static TaskHandle_t wifi_scan_task_handle = nullptr;
 static TaskHandle_t wifi_connect_task_handle = nullptr;
 
@@ -113,15 +115,40 @@ static void wifi_show_main() {
 }
 
 static void wifi_show_password(const char *ssid) {
+    wifi_manual_mode = false;
     snprintf(selected_ssid, sizeof(selected_ssid), "%s", ssid ? ssid : "");
     if (!wifi_status || !wifi_pwd || !wifi_keyboard || !wifi_list) return;
     lv_label_set_text_fmt(wifi_status, "Reseau: %s", selected_ssid);
     lv_obj_add_flag(wifi_list, LV_OBJ_FLAG_HIDDEN);
+    if (wifi_ssid_input) lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
     if (wifi_connect_btn) lv_obj_clear_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
     lv_textarea_set_text(wifi_pwd, "");
     lv_keyboard_set_textarea(wifi_keyboard, wifi_pwd);
+}
+
+
+static void wifi_field_focus(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !wifi_keyboard) return;
+    lv_obj_t *ta = lv_event_get_target(e);
+    lv_keyboard_set_textarea(wifi_keyboard, ta);
+}
+
+static void wifi_manual_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    wifi_manual_mode = true;
+    selected_ssid[0] = '\0';
+    if (!wifi_status || !wifi_list || !wifi_ssid_input || !wifi_pwd || !wifi_keyboard) return;
+    lv_label_set_text(wifi_status, "SSID manuel");
+    lv_obj_add_flag(wifi_list, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
+    if (wifi_connect_btn) lv_obj_clear_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
+    lv_textarea_set_text(wifi_ssid_input, "");
+    lv_textarea_set_text(wifi_pwd, "");
+    lv_keyboard_set_textarea(wifi_keyboard, wifi_ssid_input);
 }
 
 static void wifi_ap_clicked(lv_event_t *e) {
@@ -148,6 +175,8 @@ static void wifi_scan_task(void *) {
                 lv_obj_add_event_cb(btn, wifi_ap_clicked, LV_EVENT_CLICKED, wifi_ssids[i]);
             }
         }
+        lv_obj_t *manual_btn = lv_list_add_btn(wifi_list, LV_SYMBOL_EDIT, "AUTRE RESEAU / SSID MANUEL");
+        lv_obj_add_event_cb(manual_btn, wifi_manual_clicked, LV_EVENT_CLICKED, nullptr);
         lvgl_port_unlock();
     }
     wifi_scan_task_handle = nullptr;
@@ -159,6 +188,9 @@ static void wifi_start_scan() {
         lv_obj_clear_flag(wifi_list, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clean(wifi_list);
     }
+    wifi_manual_mode = false;
+    selected_ssid[0] = '\0';
+    if (wifi_ssid_input) lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
     if (wifi_pwd) lv_obj_add_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
     if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
     if (wifi_connect_btn) lv_obj_add_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
@@ -183,6 +215,9 @@ static void wifi_back_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (wifi_list && lv_obj_has_flag(wifi_list, LV_OBJ_FLAG_HIDDEN)) {
         lv_obj_clear_flag(wifi_list, LV_OBJ_FLAG_HIDDEN);
+        wifi_manual_mode = false;
+        selected_ssid[0] = '\0';
+        if (wifi_ssid_input) lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
         if (wifi_pwd) lv_obj_add_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
         if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
         if (wifi_connect_btn) lv_obj_add_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
@@ -235,11 +270,17 @@ static void wifi_connect_task(void *arg) {
 }
 
 static void wifi_connect_clicked(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !wifi_pwd || !selected_ssid[0]) return;
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !wifi_pwd) return;
+    const char *ssid = selected_ssid;
+    if (wifi_manual_mode && wifi_ssid_input) ssid = lv_textarea_get_text(wifi_ssid_input);
+    if (!ssid || !ssid[0]) {
+        if (wifi_status) lv_label_set_text(wifi_status, "Entre le nom du reseau");
+        return;
+    }
     const char *pwd = lv_textarea_get_text(wifi_pwd);
     char *payload = (char *)calloc(1, 33 + 65);
     if (!payload) return;
-    snprintf(payload, 33, "%s", selected_ssid);
+    snprintf(payload, 33, "%s", ssid);
     snprintf(payload + 33, 65, "%s", pwd ? pwd : "");
     if (wifi_status) lv_label_set_text(wifi_status, "Connexion...");
     if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
@@ -293,17 +334,26 @@ static void wifi_ui_create(lv_obj_t *screen) {
     lv_obj_set_size(wifi_list, 292, 380);
     lv_obj_align(wifi_list, LV_ALIGN_BOTTOM_MID, 0, 0);
 
+    wifi_ssid_input = lv_textarea_create(wifi_panel);
+    lv_obj_set_size(wifi_ssid_input, 282, 46);
+    lv_obj_align(wifi_ssid_input, LV_ALIGN_TOP_MID, 0, 66);
+    lv_textarea_set_placeholder_text(wifi_ssid_input, "Nom du reseau (SSID)");
+    lv_textarea_set_one_line(wifi_ssid_input, true);
+    lv_obj_add_event_cb(wifi_ssid_input, wifi_field_focus, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
+
     wifi_pwd = lv_textarea_create(wifi_panel);
-    lv_obj_set_size(wifi_pwd, 282, 50);
-    lv_obj_align(wifi_pwd, LV_ALIGN_TOP_MID, 0, 72);
+    lv_obj_set_size(wifi_pwd, 282, 46);
+    lv_obj_align(wifi_pwd, LV_ALIGN_TOP_MID, 0, 116);
     lv_textarea_set_placeholder_text(wifi_pwd, "Mot de passe Wi-Fi");
     lv_textarea_set_password_mode(wifi_pwd, true);
     lv_textarea_set_one_line(wifi_pwd, true);
+    lv_obj_add_event_cb(wifi_pwd, wifi_field_focus, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
 
     wifi_connect_btn = lv_btn_create(wifi_panel);
     lv_obj_set_size(wifi_connect_btn, 170, 44);
-    lv_obj_align(wifi_connect_btn, LV_ALIGN_TOP_MID, 0, 128);
+    lv_obj_align(wifi_connect_btn, LV_ALIGN_TOP_MID, 0, 168);
     lv_obj_t *cl = lv_label_create(wifi_connect_btn);
     lv_label_set_text(cl, "SE CONNECTER");
     lv_obj_center(cl);
