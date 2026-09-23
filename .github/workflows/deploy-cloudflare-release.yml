@@ -151,13 +151,31 @@ jobs:
 
           printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
-          SHARD_STATUS_CODE="$(curl --silent --show-error --max-time 60 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-            --output production-shardvault-before.json \
-            --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/shardvault/status")"
-          test "$SHARD_STATUS_CODE" = "200"
+          # A Worker secret update may take a few seconds to become visible on
+          # every production isolate.  Retry the first authenticated request
+          # instead of treating that propagation window as a release failure.
+          SHARD_STATUS_READY=0
+          for SHARD_STATUS_ATTEMPT in $(seq 1 12); do
+            SHARD_STATUS_CODE="$(curl --silent --show-error --max-time 60 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --output production-shardvault-before.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/shardvault/status" || true)"
+            if [ "$SHARD_STATUS_CODE" = "200" ]; then
+              SHARD_STATUS_READY=1
+              break
+            fi
+            echo "ShardVault status propagation attempt ${SHARD_STATUS_ATTEMPT}/12 returned HTTP ${SHARD_STATUS_CODE}."
+            if [ -s production-shardvault-before.json ]; then
+              cat production-shardvault-before.json
+            fi
+            sleep 2
+          done
+          if [ "$SHARD_STATUS_READY" != "1" ]; then
+            echo "ShardVault release-smoke authentication did not become ready after bounded propagation retries."
+            exit 46
+          fi
           SHARD_ACTIVE="$(node -e 'const d=require("./production-shardvault-before.json"); const n=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; process.stdout.write(String(n));')"
           echo "ShardVault external registry before release proof: ${SHARD_ACTIVE}/7"
 
