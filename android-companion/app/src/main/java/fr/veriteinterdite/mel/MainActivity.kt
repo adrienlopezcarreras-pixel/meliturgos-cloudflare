@@ -23,7 +23,8 @@ class MainActivity : Activity() {
     private lateinit var client: MelApiClient
     private lateinit var vault: TokenVault
     private lateinit var log: TextView
-    private lateinit var pairCode: EditText
+    private lateinit var ownerUser: EditText
+    private lateinit var ownerPassword: EditText
     private lateinit var message: EditText
     private lateinit var voiceButton: Button
     private var recorder: MediaRecorder? = null
@@ -35,7 +36,7 @@ class MainActivity : Activity() {
         vault = TokenVault(this)
         client = MelApiClient(BuildConfig.MEL_BASE_URL, deviceId(), vault)
         setContentView(buildUi())
-        show(if (vault.load() == null) "Entre un code de pairing MEL." else "MEL Android prêt.")
+        show(if (vault.load() == null) "Associe ce téléphone avec tes identifiants MEL. Ils ne seront pas enregistrés." else "MEL Android prêt.")
     }
 
     override fun onDestroy() {
@@ -53,9 +54,14 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 48, 32, 32)
         }
-        pairCode = EditText(this).apply {
-            hint = "Code de pairing"
+        ownerUser = EditText(this).apply {
+            hint = "Utilisateur MEL"
             inputType = InputType.TYPE_CLASS_TEXT
+            setText("adrien")
+        }
+        ownerPassword = EditText(this).apply {
+            hint = "Mot de passe MEL (non enregistré)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         val pair = Button(this).apply {
             text = "Associer le téléphone"
@@ -79,7 +85,8 @@ class MainActivity : Activity() {
         }
         log = TextView(this).apply { textSize = 16f }
         val scroll = ScrollView(this).apply { addView(log) }
-        root.addView(pairCode)
+        root.addView(ownerUser)
+        root.addView(ownerPassword)
         root.addView(pair)
         root.addView(message)
         root.addView(send)
@@ -90,10 +97,16 @@ class MainActivity : Activity() {
     }
 
     private fun pairPhone() = background {
-        val code = pairCode.text.toString().trim()
-        if (code.isBlank()) error("Code de pairing requis")
-        client.pair(code)
-        show("Téléphone associé. Le jeton est chiffré par Android Keystore.")
+        val user = ownerUser.text.toString().trim()
+        val password = ownerPassword.text.toString()
+        if (user.isBlank() || password.isBlank()) error("Identifiant et mot de passe MEL requis")
+        try {
+            client.pairWithOwnerCredentials(user, password)
+            runOnUiThread { ownerPassword.setText("") }
+            show("Téléphone associé. Le mot de passe n’est pas conservé ; seul le jeton chiffré Keystore reste sur l’appareil.")
+        } finally {
+            runOnUiThread { ownerPassword.setText("") }
+        }
     }
 
     private fun sendMessage() = background {
