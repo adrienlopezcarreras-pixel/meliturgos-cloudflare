@@ -312,3 +312,13 @@ test('Android dark UI keeps readable content contrast',async()=>{
   assert.match(harness,/MEL Android \$\{MelApiClient\.APP_VERSION\}/);
   assert.doesNotMatch(harness,/MEL Android 0\.6\.1/);
 });
+
+
+test('Android Complete panel stays height-bounded and internally scrollable',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const screenshotTest=await readFile(new URL('app/src/androidTest/java/fr/veriteinterdite/mel/MelUiHarnessScreenshotTest.kt',root),'utf8');
+
+  assert.match(activity,/heightIn\(max = 340\.dp\)/);
+  assert.match(activity,/verticalScroll\(rememberScrollState\(\)\)/);
+  assert.match(screenshotTest,/performScrollTo\(\)\.assertIsDisplayed\(\)/);
+});
