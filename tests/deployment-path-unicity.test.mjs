@@ -39,7 +39,9 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /--data '\{"phase":"pause"\}'/);
   assert.match(source, /for BACKUP_ATTEMPT in \$\(seq 1 3\); do/);
   assert.match(source, /--data '\{"phase":"backup"\}'/);
+  assert.match(source, /timeout-minutes: 45/);
   assert.match(source, /for CODE_SYNC_ATTEMPT in \$\(seq 1 12\); do/);
+  assert.match(source, /CODE_SYNC_CODE="\$\(curl --silent --show-error --max-time 170 \\\n\s+--header "x-mel-launch-bootstrap: \$\{BOOTSTRAP_TOKEN\}"/);
   assert.match(source, /--data '\{"phase":"code-sync"\}'/);
   assert.match(source, /for attempt in \$\(seq 1 8\); do/);
   assert.match(source, /--data '\{"phase":"readiness"\}'/);
