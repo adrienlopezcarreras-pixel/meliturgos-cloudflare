@@ -61,6 +61,8 @@ static bool g_camera_ok = false;
 static bool g_audio_ok = false;
 static bool g_sd_ok = false;
 static bool g_online = false;
+static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
+static TaskHandle_t g_voice_task_handle = nullptr;
 static EventGroupHandle_t g_wifi_bits = nullptr;
 static int g_wifi_retry = 0;
 static lv_obj_t *g_status = nullptr;
@@ -605,6 +607,7 @@ static std::string record_and_transcribe() {
 }
 
 static void voice_task(void *) {
+    g_runtime_state = MEL_TERMINAL_LISTENING;
     if (lvgl_port_lock(1000)) {
         mini_face_state(MINI_LISTENING);
         lvgl_port_unlock();
@@ -613,6 +616,7 @@ static void voice_task(void *) {
     ui_answer("Parle maintenant.");
     std::string text = record_and_transcribe();
     if (text.empty()) {
+        g_runtime_state = MEL_TERMINAL_ERROR;
         if (lvgl_port_lock(1000)) {
             mini_face_state(MINI_ERROR);
             lvgl_port_unlock();
@@ -624,9 +628,12 @@ static void voice_task(void *) {
             mini_face_state(MINI_IDLE);
             lvgl_port_unlock();
         }
+        g_runtime_state = MEL_TERMINAL_IDLE;
+        g_voice_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
     }
+    g_runtime_state = MEL_TERMINAL_THINKING;
     if (lvgl_port_lock(1000)) {
         mini_face_state(MINI_THINKING);
         lvgl_port_unlock();
@@ -634,6 +641,7 @@ static void voice_task(void *) {
     ui_status("RÉFLEXION…");
     ui_answer("");
     std::string answer = chat_with_mel(text);
+    g_runtime_state = MEL_TERMINAL_SPEAKING;
     if (lvgl_port_lock(1000)) {
         mini_face_state(MINI_SPEAKING);
         lvgl_port_unlock();
@@ -650,7 +658,23 @@ static void voice_task(void *) {
         lvgl_port_unlock();
     }
     ui_status("");
+    g_runtime_state = MEL_TERMINAL_IDLE;
+    g_voice_task_handle = nullptr;
     vTaskDelete(nullptr);
+}
+
+
+void mel_terminal_request_voice(void) {
+    if (!g_online || !g_audio_ok || g_voice_task_handle) return;
+    xTaskCreate(voice_task, "mel_voice", 10240, nullptr, 5, &g_voice_task_handle);
+}
+
+int mel_terminal_state(void) {
+    return g_runtime_state;
+}
+
+bool mel_terminal_online(void) {
+    return g_online;
 }
 
 static void audio_test_task(void *) {
@@ -879,7 +903,7 @@ enum Action { ACTION_VOICE = 1, ACTION_CAMERA = 2, ACTION_AUDIO = 3, ACTION_UPDA
 
 static void button_event(lv_event_t *event) {
     intptr_t action = reinterpret_cast<intptr_t>(lv_event_get_user_data(event));
-    if (action == ACTION_VOICE) xTaskCreate(voice_task, "mel_voice", 8192, nullptr, 5, nullptr);
+    if (action == ACTION_VOICE) mel_terminal_request_voice();
     if (action == ACTION_CAMERA) xTaskCreate(camera_task, "mel_camera", 4096, nullptr, 4, nullptr);
     if (action == ACTION_AUDIO) xTaskCreate(audio_test_task, "mel_audio", 4096, nullptr, 4, nullptr);
     if (action == ACTION_UPDATE) xTaskCreate(update_task, "mel_update", 8192, nullptr, 4, nullptr);
