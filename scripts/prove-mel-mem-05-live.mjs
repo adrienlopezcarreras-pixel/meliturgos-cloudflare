@@ -44,13 +44,29 @@ receipts AS (
   FROM receipt_rows
 ),
 memory_sync AS (
-  SELECT COUNT(*) AS unsynced_messages
+  SELECT
+    COALESCE(SUM(CASE
+      WHEN trim(COALESCE(a.content,''))<>''
+       AND lower(COALESCE(a.role,'')) IN ('user','assistant','system','tool')
+       AND NOT EXISTS (
+         SELECT 1 FROM memory_candidates m
+         WHERE m.conversation_id=a.conversation_id AND m.message_id=a.id
+       )
+      THEN 1 ELSE 0 END),0) AS unsynced_messages,
+    COALESCE(SUM(CASE
+      WHEN trim(COALESCE(a.content,''))=''
+        OR lower(COALESCE(a.role,'')) NOT IN ('user','assistant','system','tool')
+      THEN 1 ELSE 0 END),0) AS ineligible_messages
   FROM archive_messages a
   WHERE a.provenance='chatgpt_export'
-    AND NOT EXISTS (
-      SELECT 1
-      FROM memory_candidates m
-      WHERE m.conversation_id=a.conversation_id AND m.message_id=a.id
+    AND (
+      trim(COALESCE(a.content,''))=''
+      OR lower(COALESCE(a.role,'')) NOT IN ('user','assistant','system','tool')
+      OR NOT EXISTS (
+        SELECT 1
+        FROM memory_candidates m
+        WHERE m.conversation_id=a.conversation_id AND m.message_id=a.id
+      )
     )
 ),
 attachment_rows AS (
@@ -113,6 +129,7 @@ SELECT
   r.partial_conversations,
   r.underfilled_conversations,
   m.unsynced_messages,
+  m.ineligible_messages,
   s.descriptors,
   s.binary_available,
   s.indexed_descriptors,
@@ -155,6 +172,7 @@ export function evaluateMem05LiveProof(payload){
     partial_conversations:n(row.partial_conversations),
     underfilled_conversations:n(row.underfilled_conversations),
     unsynced_messages:n(row.unsynced_messages),
+    ineligible_messages:n(row.ineligible_messages),
     attachment_descriptors:n(row.descriptors),
     binary_available:n(row.binary_available),
     indexed_descriptors:n(row.indexed_descriptors),
