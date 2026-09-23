@@ -29,7 +29,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.ref_name }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
@@ -253,7 +253,7 @@ jobs:
 
           CODE_SYNC_READY=0
           for CODE_SYNC_ATTEMPT in $(seq 1 12); do
-            CODE_SYNC_CODE="$(curl --silent --show-error --max-time 90 \
+            CODE_SYNC_CODE="$(curl --silent --show-error --max-time 170 \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
               --header "content-type: application/json" \
               --data '{"phase":"code-sync"}' \
