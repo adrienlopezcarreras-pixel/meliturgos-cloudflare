@@ -70,30 +70,38 @@ jobs:
       - name: Build and merge image
         uses: espressif/esp-idf-ci-action@e6f5c74232b1ccd4c97ed641f1e48553853f1fd5
         with:
-          esp_idf_version: v5.3.2
+          esp_idf_version: v5.4.2
           target: esp32s3
           path: build/waveshare-mel
-          command: idf.py build && idf.py merge-bin -o mel-terminal.bin
+          command: idf.py build && idf.py merge-bin -o mini-first-install.bin && cp build/lvgl_system.bin build/mel-terminal.bin
 
       - name: Generate stable manifest
         shell: bash
         run: |
           set -euo pipefail
           cd build/waveshare-mel/build
-          SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
-          SIZE="$(stat -c '%s' mel-terminal.bin)"
+          OTA_SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
+          OTA_SIZE="$(stat -c '%s' mel-terminal.bin)"
+          INSTALL_SHA256="$(sha256sum mini-first-install.bin | awk '{print $1}')"
+          INSTALL_SIZE="$(stat -c '%s' mini-first-install.bin)"
           cat > ../manifest.json <<JSON
           {
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.1.0",
+              "version": "0.4.4-hwproof",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
-              "sha256": "${SHA256}",
-              "size": ${SIZE},
+              "sha256": "${OTA_SHA256}",
+              "size": ${OTA_SIZE},
               "source_sha": "${EXPECTED_SHA}",
               "waveshare_upstream_sha": "283ec84c566c096f8c30493b93dcd4b0bb608de7"
+            },
+            "installer": {
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mini-first-install.bin",
+              "sha256": "${INSTALL_SHA256}",
+              "size": ${INSTALL_SIZE}
             },
             "assets": { "version": "1", "items": [] }
           }
@@ -108,11 +116,17 @@ jobs:
       - name: Install exact Wrangler
         run: npm ci
 
-      - name: Upload firmware first
+      - name: Upload OTA app image first
         shell: bash
         run: |
           set -euo pipefail
           npx wrangler r2 object put             meliturgos-private-media/devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin             --file build/waveshare-mel/build/mel-terminal.bin             --content-type application/octet-stream             --cache-control no-store             --remote --force
+
+      - name: Upload USB first-install image
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler r2 object put             meliturgos-private-media/devices/waveshare-esp32-s3-touch-lcd-3.5-c/mini-first-install.bin             --file build/waveshare-mel/build/mini-first-install.bin             --content-type application/octet-stream             --cache-control no-store             --remote --force
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
