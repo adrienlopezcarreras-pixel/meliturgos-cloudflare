@@ -79,17 +79,10 @@ async function registerRuntimeDevice(env, body) {
           "camera.ov5640",
           "audio.microphone",
           "audio.speaker",
-          "imu.qmi8658",
-          "rtc.pcf85063",
-          "storage.microsd",
           "wifi",
-          "bluetooth",
           "chat",
           "voice.stt",
           "voice.reply",
-          "mel.tools.bridge",
-          "environment.digital",
-          "download.assets",
           "ota"
         ]
       }
@@ -323,10 +316,10 @@ async function ownerFirmware(request, env) {
 
   // USB installation needs the merged image (bootloader + partitions + app).
   // OTA deliberately uses manifest.firmware.key, which must be app-only.
-  const installer = manifest?.installer?.available === true ? manifest.installer : manifest?.firmware;
+  const installer = manifest?.installer;
   const key = String(installer?.key || "");
   if (installer?.available !== true || !validDownloadKey(key)) {
-    return json({ ok: false, code: "FIRMWARE_NOT_PUBLISHED" }, 404);
+    return json({ ok: false, code: "INSTALLER_NOT_PUBLISHED" }, 404);
   }
   if (!env?.MEDIA_BUCKET) return json({ ok: false, code: "MEDIA_BUCKET_UNAVAILABLE" }, 503);
   const object = await env.MEDIA_BUCKET.get(key);
