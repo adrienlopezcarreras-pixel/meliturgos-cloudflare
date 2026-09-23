@@ -62,6 +62,7 @@ class MelViewModel(
     }
 
     fun setMode(mode: MelMode) {
+        if (_state.value.busy) return
         prefs.edit().putString("mode", mode.name).apply()
         _state.value = _state.value.copy(mode = mode, error = null)
     }
