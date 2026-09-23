@@ -253,10 +253,16 @@ async function autonomyAction(button,url,body,label,feedback=qs('#mobileAutonomy
   finally{button.disabled=false;if(!['melFullMax','melFullStop'].includes(button.id))button.textContent=previous;renderAutonomy(autonomyControl)}
 }
 function activityMarkup(state){
-  const items=Array.isArray(state?.recent_activity)?state.recent_activity.slice(0,8):[];
-  const counts=state?.counts||{};
-  const summary='<div><b>Actifs :</b> '+Number(counts.active||0)+' · <b>Terminés :</b> '+Number(counts.completed||0)+' · <b>Échecs :</b> '+Number(counts.failed||0)+'</div>';
-  const rows=items.length?items.map(x=>'<div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.06)"><b>'+esc(x.roadmap_id||x.id||'activité')+'</b> · '+esc(x.status||'—')+'</div>').join(''):'<div style="margin-top:7px">Aucune activité récente.</div>';
+  const activityKnown=Array.isArray(state?.recent_activity);
+  const items=activityKnown?state.recent_activity.slice(0,8):[];
+  const counts=state?.counts&&typeof state.counts==='object'?state.counts:null;
+  const metric=value=>{const n=finiteMetric(value);return n===null?'—':String(n)};
+  const summary='<div><b>Actifs :</b> '+metric(counts?.active)+' · <b>Terminés :</b> '+metric(counts?.completed)+' · <b>Échecs :</b> '+metric(counts?.failed)+'</div>';
+  const rows=!activityKnown
+    ?'<div style="margin-top:7px">Historique d’activité non chargé.</div>'
+    :items.length
+      ?items.map(x=>'<div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.06)"><b>'+esc(x.roadmap_id||x.id||'activité')+'</b> · '+esc(x.status||'—')+'</div>').join('')
+      :'<div style="margin-top:7px">Aucune activité récente observée.</div>';
   return summary+rows;
 }
 async function showActivity(panel){
@@ -445,29 +451,41 @@ function toggleLearningDetails(){
 async function loadLearningProgress(){
   const level=qs('#learnLevel'),rank=qs('#learnRank'),bar=qs('#learnBar'),xp=qs('#learnXp'),meta=qs('#learnMeta'),chip=qs('#learningChip');
   if(!level||!rank||!bar||!xp||!meta)return false;
+  const fmtCount=value=>{const n=finiteMetric(value);return n===null?'—':n.toLocaleString('fr-FR')};
+  const fmtPercent=value=>{const n=finiteMetric(value);return n===null?null:Math.max(0,Math.min(100,n))};
   try{
-    const d=await jfetch('/api/learning/progress'),e=d.evidence||{};
-    const p=Math.max(0,Math.min(100,Number(d.level_progress_percent||0)));
-    level.textContent=d.level??'—'; rank.textContent=(d.rank||'')+' · '+p.toFixed(0)+'%'; bar.style.width=p+'%';
-    xp.textContent=Number(d.xp||0).toLocaleString('fr-FR')+' XP';
-    const bench=e.benchmark_latest_score==null?'bench —':('bench '+(Math.round(Number(e.benchmark_latest_score)*1000)/10)+'%');
-    const loraState=String(d.lora_status?.state||'').toUpperCase();
-    const lora=loraState==='ACTIVE'?'LoRA actif':loraState==='TECHNICALLY_VALIDATED'?'LoRA validé techniquement':loraState==='EVALUATED'?'LoRA benchmarké':loraState==='READY'?'LoRA prêt':loraState==='TRAINING'?'LoRA en entraînement':loraState==='BLOCKED'?'LoRA bloqué':'LoRA non actif';
-    meta.textContent=Number(e.corrections_validated||0)+' corr. · '+bench+' · '+lora;
+    const d=await jfetch('/api/learning/progress'),e=d?.evidence&&typeof d.evidence==='object'?d.evidence:null;
+    const p=fmtPercent(d?.level_progress_percent);
+    level.textContent=d?.level??'—';
+    rank.textContent=(d?.rank||'mesure indisponible')+(p===null?'':' · '+p.toFixed(0)+'%');
+    bar.style.width=p===null?'0%':p+'%';
+    bar.setAttribute('aria-valuetext',p===null?'mesure indisponible':p.toFixed(0)+'%');
+    xp.textContent=fmtCount(d?.xp)+' XP';
+    const bench=e?.benchmark_latest_score==null?'bench —':('bench '+(Math.round(Number(e.benchmark_latest_score)*1000)/10)+'%');
+    const loraState=String(d?.lora_status?.state||'').toUpperCase();
+    const lora=loraState==='ACTIVE'?'LoRA actif':loraState==='TECHNICALLY_VALIDATED'?'LoRA validé techniquement':loraState==='EVALUATED'?'LoRA benchmarké':loraState==='READY'?'LoRA prêt':loraState==='TRAINING'?'LoRA en entraînement':loraState==='BLOCKED'?'LoRA bloqué':'LoRA état indisponible';
+    meta.textContent=fmtCount(e?.corrections_validated)+' corr. · '+bench+' · '+lora;
     const put=(id,v)=>{const n=qs(id);if(n)n.textContent=v;};
-    put('#learnNext',Number(d.xp_to_next_level||0).toLocaleString('fr-FR')+' XP');
-    put('#learnCorrections',Number(e.corrections_validated||0)+' validées / '+Number(e.corrections_recorded||0));
-    put('#learnTraining',Number(e.corrections_available_for_training||0));
-    const base=e.benchmark_baseline_score==null?'—':(Math.round(Number(e.benchmark_baseline_score)*1000)/10)+'%';
-    const latest=e.benchmark_latest_score==null?'—':(Math.round(Number(e.benchmark_latest_score)*1000)/10)+'%';
-    const gain=e.benchmark_gain==null?'':(' · Δ '+(Number(e.benchmark_gain)>=0?'+':'')+(Math.round(Number(e.benchmark_gain)*1000)/10)+' pts');
+    put('#learnNext',fmtCount(d?.xp_to_next_level)+' XP');
+    put('#learnCorrections',fmtCount(e?.corrections_validated)+' validées / '+fmtCount(e?.corrections_recorded));
+    put('#learnTraining',fmtCount(e?.corrections_available_for_training));
+    const base=e?.benchmark_baseline_score==null?'—':(Math.round(Number(e.benchmark_baseline_score)*1000)/10)+'%';
+    const latest=e?.benchmark_latest_score==null?'—':(Math.round(Number(e.benchmark_latest_score)*1000)/10)+'%';
+    const gain=e?.benchmark_gain==null?'':(' · Δ '+(Number(e.benchmark_gain)>=0?'+':'')+(Math.round(Number(e.benchmark_gain)*1000)/10)+' pts');
     put('#learnBenchmark',base+' → '+latest+gain);
-    put('#learnTrials',Number(e.inference_trials||0));
-    put('#learnErrors',Number(e.repeated_taught_errors||0));
-    put('#learnWeights',e.neural_weights_changed?('modifiés · '+Number(e.active_adapter_count||0)+' adaptateur(s) actif(s)'):'inchangés · aucun adaptateur actif en runtime');
-    if(chip)chip.title='Cliquer pour les détails · '+Number(d.xp||0).toLocaleString('fr-FR')+' XP · roadmap exclue';
+    put('#learnTrials',fmtCount(e?.inference_trials));
+    put('#learnErrors',fmtCount(e?.repeated_taught_errors));
+    const adapters=fmtCount(e?.active_adapter_count);
+    put('#learnWeights',e?.neural_weights_changed===true
+      ?('modifiés · '+adapters+' adaptateur(s) actif(s)')
+      :e?.neural_weights_changed===false
+        ?('inchangés · '+adapters+' adaptateur(s) actif(s)')
+        :'état des poids indisponible');
+    if(chip)chip.title='Cliquer pour les détails · '+fmtCount(d?.xp)+' XP · roadmap exclue';
     return true;
-  }catch(err){level.textContent='—';rank.textContent='indisponible';bar.style.width='0%';xp.textContent='— XP';meta.textContent='mesure indisponible';return false;}
+  }catch(err){
+    level.textContent='—';rank.textContent='indisponible';bar.style.width='0%';bar.setAttribute('aria-valuetext','mesure indisponible');xp.textContent='— XP';meta.textContent='mesure indisponible';return false;
+  }
 }
 async function runLearningAction(button,url,busy){
   const state=qs('#melLearningActionState');if(!button)return;button.disabled=true;if(state)state.textContent=busy;
