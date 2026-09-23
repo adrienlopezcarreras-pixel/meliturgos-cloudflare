@@ -609,4 +609,36 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     created_at: 1790158800000,
   }),
 
+  Object.freeze({
+    id: 'bootstrap-mobile-signed-release-exact-sha-20260923',
+    source: 'chatgpt-teacher',
+    domain: 'mobile-release-security',
+    task: 'Construire une release mobile signée sans exposer la clé et sans signer un SHA différent de la release canonique.',
+    input: 'Une APK peut compiler correctement en debug tout en restant impropre à une vraie distribution: clé absente ou exposée, branche non canonique, artifact non vérifié ou matériau de signature laissé sur le runner.',
+    before: 'Considérer le pipeline release terminé parce que assembleRelease existe, embarquer un keystore dans le dépôt, ou autoriser une exécution manuelle depuis n’importe quel SHA.',
+    after: 'Injecter keystore/alias/mots de passe uniquement depuis des secrets protégés; refuser si un secret manque; exiger que HEAD égale exactement la branche release canonique; vérifier la signature et l’alignement du paquet final; supprimer le keystore temporaire même en cas d’échec; ne déclarer la release prouvée qu’après une exécution réelle signée.',
+    rationale: 'La preuve de compilation et la preuve de distribution sont distinctes. Une release mobile exige à la fois provenance exacte du code, secret hors dépôt et vérification cryptographique de l’artefact final.',
+    tests: ['PR #171 Android 0.4.0', 'android-apk-build 35857944756 SUCCESS', 'android-release-build exact-SHA + apksigner + zipalign + cleanup; vraie exécution signée encore requise'],
+    tags: ['android', 'release', 'signing', 'keystore', 'exact-sha', 'secrets', 'fail-closed'],
+    validated: true,
+    quality: 1,
+    created_at: 1790165200000,
+  }),
+
+  Object.freeze({
+    id: 'bootstrap-android-background-heartbeat-vs-microphone-20260923',
+    source: 'chatgpt-teacher',
+    domain: 'mobile-background-runtime',
+    task: 'Séparer la présence réseau différée d’un compagnon Android de la capture microphone en arrière-plan.',
+    input: 'Un compagnon mobile veut rester joignable, vérifier sa session et éventuellement prévenir l’utilisateur, sans transformer un heartbeat en écoute permanente.',
+    before: 'Utiliser le même mécanisme pour heartbeat, notifications et micro continu; lancer du travail périodique trop fréquent; ou garder le microphone actif en arrière-plan sans service visible et activation utilisateur.',
+    after: 'Utiliser WorkManager pour les tâches réseau différables avec contraintes réseau, travail périodique unique et cadence minimale Android; réserver le microphone arrière-plan à un foreground service de type microphone explicitement démarré par l’utilisateur depuis un contexte autorisé; demander les notifications au moment utile; rester fail-closed si ces conditions ne sont pas réunies.',
+    rationale: 'Heartbeat et microphone ont des contraintes système et de confidentialité différentes. Les séparer évite les contournements Android, réduit batterie/bruit réseau et conserve une activation explicite des capacités sensibles.',
+    tests: ['PR #173 Android 0.5.0', 'android-apk-build 35859247125 SUCCESS', 'source contract: WorkManager 15 min + network, no FOREGROUND_SERVICE_MICROPHONE'],
+    tags: ['android', 'workmanager', 'background', 'heartbeat', 'notifications', 'microphone', 'privacy', 'fail-closed'],
+    validated: true,
+    quality: 1,
+    created_at: 1790168400000,
+  }),
+
 ]);

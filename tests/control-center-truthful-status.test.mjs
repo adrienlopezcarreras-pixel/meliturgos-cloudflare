@@ -91,3 +91,69 @@ test('activity and learning cards keep missing evidence unknown instead of inven
   assert.doesNotMatch(runtime,/Number\(e\.inference_trials\|\|0\)/);
   assert.match(runtime,/état des poids indisponible/);
 });
+
+
+test('secondary Control Center cards do not claim device or LoRA absence before evidence loads', async()=>{
+  const html=await (await renderFullMode()).text();
+  assert.match(html,/id="freeWorkflowState">Vérification…<\/span>/);
+  assert.match(html,/id="freeRuntimeState">Vérification…<\/span>/);
+  assert.match(html,/id="freeRuntimeDetail">État runtime en cours de vérification\.<\/small>/);
+  assert.match(html,/id="computerState">VÉRIFICATION…<\/span>/);
+  assert.match(html,/id="computerOut">Chargement de l’état ordinateur…<\/pre>/);
+  assert.match(html,/id="terminalDevices"><div class="muted">Chargement des terminaux…<\/div>/);
+  assert.doesNotMatch(html,/id="freeWorkflowState">Jamais lancé<\/span>/);
+  assert.doesNotMatch(html,/id="freeRuntimeState">Non actif<\/span>/);
+});
+
+test('secondary Control Center load failures explicitly invalidate stale LoRA and terminal claims', async()=>{
+  const html=await (await renderFullMode()).text();
+  const runtime=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+  assert.match(runtime,/setLoraTag\('#freeWorkflowState','Indisponible','bad'\)/);
+  assert.match(runtime,/setLoraTag\('#freeRuntimeState','Indisponible','bad'\)/);
+  assert.match(runtime,/setLoraTag\('#freeAgenticState','Indisponible','bad'\)/);
+  assert.match(runtime,/freeRuntimeDetail'\)\.textContent='État runtime indisponible\.'/);
+  assert.match(runtime,/terminalDevices'\)\.innerHTML='<div class="muted">État des terminaux indisponible\.<\/div>'/);
+});
+
+
+test('partial LoRA payloads keep missing evidence unknown instead of inventing lifecycle states', async()=>{
+  const html=await (await renderFullMode()).text();
+  const runtime=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+  assert.match(runtime,/const trainStatus=trainWfKnown&&trainWf\.status!=null\?String\(trainWf\.status\)\.toUpperCase\(\):'UNKNOWN'/);
+  assert.match(runtime,/const wfStatus=wfKnown&&wf\.status!=null\?String\(wf\.status\)\.toUpperCase\(\):'UNKNOWN'/);
+  assert.match(runtime,/const loraState=loraKnown\?String\(lora\.state\)\.toUpperCase\(\):'UNKNOWN'/);
+  assert.match(runtime,/lessonCount==null\?'—\/50'/);
+  assert.match(runtime,/freeBenchmarkState'\)\.textContent=!benchKnown\?'—'/);
+  assert.match(runtime,/freeImpactStage'\)\.textContent=impact\.next_stage\|\|'—'/);
+  assert.match(runtime,/!agenticKnown\?'Indisponible'/);
+  assert.match(runtime,/trainStatus==='UNKNOWN'\)setLoraTag\('#freeGpuState','Indisponible'/);
+  assert.match(runtime,/wfStatus==='NEVER_RUN'\?'Jamais lancé':'Indisponible'/);
+  assert.match(runtime,/loraState==='UNKNOWN'\?'Indisponible'/);
+  assert.match(runtime,/percent==null\?'—':percent\+'%'/);
+  assert.doesNotMatch(runtime,/trainWf\.status\|\|'NEVER_RUN'/);
+  assert.doesNotMatch(runtime,/wf\.status\|\|'NEVER_RUN'/);
+  assert.doesNotMatch(runtime,/lora\.state\|\|'BLOCKED'/);
+  assert.doesNotMatch(runtime,/corrections_available_for_training\|\|0/);
+  assert.doesNotMatch(runtime,/impact\.next_stage\|\|'UNCENSORED_WAITING'/);
+});
+
+
+test('CapabilityBus and import counters do not convert missing payload fields into proven zeroes', async()=>{
+  const html=await (await renderFullMode()).text();
+  const runtime=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+  assert.match(runtime,/if\(!Array\.isArray\(d\?\.capabilities\)\)throw Error\('Liste CapabilityBus absente'\)/);
+  assert.match(runtime,/const fmt=v=>v==null\|\|!Number\.isFinite\(Number\(v\)\)\?'—'/);
+  assert.match(runtime,/chatgptServerConversations'\)\.textContent=fmt\(d\.conversations\)/);
+  assert.match(runtime,/chatgptServerMessages'\)\.textContent=fmt\(d\.messages\)/);
+  assert.match(runtime,/chatgptServerCandidates'\)\.textContent=fmt\(d\.memory_candidates\)/);
+  assert.match(runtime,/chatgptServerUnsynced'\)\.textContent=fmt\(d\.unsynced_messages\)/);
+  assert.doesNotMatch(runtime,/Number\(d\.conversations\|\|0\)/);
+  assert.doesNotMatch(runtime,/Number\(d\.messages\|\|0\)/);
+});
+
+test('ShardVault snapshot missing shard count is shown as unavailable, never zero fragments', async()=>{
+  const html=await (await renderFullMode()).text();
+  const runtime=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+  assert.match(runtime,/d\.shards==null\?'nombre de fragments indisponible'/);
+  assert.doesNotMatch(runtime,/Number\(d\.shards\|\|0\)/);
+});

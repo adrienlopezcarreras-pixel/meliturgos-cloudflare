@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.provider.Settings
@@ -12,6 +13,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -61,6 +63,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -88,6 +91,18 @@ class MainActivity : ComponentActivity() {
     ) { granted ->
         if (granted) startVoice()
         else voiceMessage.value = "Permission micro refusée"
+    }
+
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            MelBackground.schedule(this)
+            MelBackground.showBackgroundEnabled(this)
+            voiceMessage.value = "Notifications MEL activées"
+        } else {
+            voiceMessage.value = "Notifications refusées"
+        }
     }
 
     private val filePicker = registerForActivityResult(
@@ -122,7 +137,8 @@ class MainActivity : ComponentActivity() {
                     onSync = model::sync,
                     onVoice = ::toggleVoice,
                     onFile = ::pickFile,
-                    onProfessor = ::openProfessor
+                    onProfessor = ::openProfessor,
+                    onNotifications = ::enableNotifications
                 )
             }
         }
@@ -181,6 +197,22 @@ class MainActivity : ComponentActivity() {
     private fun openProfessor() {
         val url = BuildConfig.MEL_BASE_URL.trimEnd('/') + "/professor"
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+
+    private fun enableNotifications() {
+        if (model.state.value.session != SessionStage.CONNECTED) {
+            voiceMessage.value = "Connecte d’abord le téléphone à MEL"
+            return
+        }
+        MelBackground.schedule(this)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        MelBackground.showBackgroundEnabled(this)
+        voiceMessage.value = "Notifications MEL activées"
     }
 
     private fun toggleVoice() {
@@ -304,7 +336,8 @@ private fun MelApp(
     onSync: () -> Unit,
     onVoice: () -> Unit,
     onFile: () -> Unit,
-    onProfessor: () -> Unit
+    onProfessor: () -> Unit,
+    onNotifications: () -> Unit
 ) {
     Box(
         Modifier
@@ -329,28 +362,50 @@ private fun MelApp(
                 onSync = onSync,
                 onVoice = onVoice,
                 onFile = onFile,
-                onProfessor = onProfessor
+                onProfessor = onProfessor,
+                onNotifications = onNotifications
             )
         }
     }
 }
 
 @Composable
-private fun TechMark(size: Int = 76) {
+private fun MelAvatar(size: Int = 84, online: Boolean = true) {
     Box(
         modifier = Modifier
-            .size(size.dp)
+            .size((size + 8).dp)
             .clip(CircleShape)
             .background(
-                Brush.linearGradient(
-                    listOf(Color(0xFF0D304A), Color(0xFF103A5F), Color(0xFF082238))
+                Brush.radialGradient(
+                    listOf(
+                        MelCyan.copy(alpha = if (online) .28f else .10f),
+                        Color.Transparent
+                    )
                 )
-            )
-            .border(1.dp, MelCyan.copy(alpha = .7f), CircleShape)
-            .semantics { contentDescription = "Logo MEL" },
+            ),
         contentAlignment = Alignment.Center
     ) {
-        Text("M", fontSize = (size * .48f).sp, fontWeight = FontWeight.Black, color = MelCyan)
+        Image(
+            painter = painterResource(R.drawable.ic_mel_avatar),
+            contentDescription = "Avatar de MEL",
+            modifier = Modifier
+                .size(size.dp)
+                .clip(CircleShape)
+                .border(
+                    width = if (online) 2.dp else 1.dp,
+                    color = if (online) MelCyan.copy(alpha = .88f) else MelMuted.copy(alpha = .55f),
+                    shape = CircleShape
+                )
+                .semantics { contentDescription = "Avatar MEL" }
+        )
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .size((size * .20f).dp),
+            shape = CircleShape,
+            color = if (online) Color(0xFF34D399) else Color(0xFF64748B),
+            border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF071523))
+        ) {}
     }
 }
 
@@ -369,10 +424,10 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        TechMark()
+        MelAvatar(92, online = false)
         Spacer(Modifier.height(14.dp))
         Text("MEL", fontSize = 34.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
-        Text("Intelligence personnelle", color = MelMuted)
+        Text("Intelligence personnelle · interface Android native", color = MelMuted, textAlign = TextAlign.Center)
         Spacer(Modifier.height(26.dp))
 
         Card(
@@ -445,7 +500,7 @@ private fun LoadingScreen(label: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        TechMark(64)
+        MelAvatar(68, online = false)
         Spacer(Modifier.height(20.dp))
         CircularProgressIndicator()
         Spacer(Modifier.height(16.dp))
@@ -468,7 +523,7 @@ private fun SessionErrorScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        TechMark(64)
+        MelAvatar(68, online = false)
         Spacer(Modifier.height(20.dp))
         Text("MEL est momentanément inaccessible", fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
@@ -490,7 +545,8 @@ private fun ConversationScreen(
     onSync: () -> Unit,
     onVoice: () -> Unit,
     onFile: () -> Unit,
-    onProfessor: () -> Unit
+    onProfessor: () -> Unit,
+    onNotifications: () -> Unit
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -514,7 +570,7 @@ private fun ConversationScreen(
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TechMark(46)
+                    MelAvatar(48, online = true)
                     Spacer(Modifier.width(11.dp))
                     Column(Modifier.weight(1f)) {
                         Text("MEL", fontWeight = FontWeight.Black, fontSize = 20.sp, letterSpacing = 2.sp)
@@ -544,7 +600,7 @@ private fun ConversationScreen(
             )
             if (state.mode == MelMode.COMPLETE) {
                 Spacer(Modifier.height(10.dp))
-                CompletePanel(state.busy, onSync, onProfessor)
+                CompletePanel(state.busy, onSync, onProfessor, onNotifications)
             }
             Spacer(Modifier.height(10.dp))
 
@@ -695,7 +751,8 @@ private fun ModeSelector(mode: MelMode, onMode: (MelMode) -> Unit) {
 private fun CompletePanel(
     busy: Boolean,
     onSync: () -> Unit,
-    onProfessor: () -> Unit
+    onProfessor: () -> Unit,
+    onNotifications: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -724,6 +781,14 @@ private fun CompletePanel(
                     enabled = !busy,
                     modifier = Modifier.weight(1f)
                 ) { Text("Professor") }
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onNotifications,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Activer notifications arrière-plan")
             }
         }
     }
