@@ -564,7 +564,8 @@ private fun ConversationScreen(
     onFile: () -> Unit,
     onProfessor: () -> Unit,
     onNotifications: () -> Unit,
-    onDiagnostics: () -> Unit
+    onDiagnostics: () -> Unit,
+    onCopyDiagnostic: (String) -> Unit
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -780,7 +781,8 @@ private fun CompletePanel(
     onSync: () -> Unit,
     onProfessor: () -> Unit,
     onNotifications: () -> Unit,
-    onDiagnostics: () -> Unit
+    onDiagnostics: () -> Unit,
+    onCopyDiagnostic: (String) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
