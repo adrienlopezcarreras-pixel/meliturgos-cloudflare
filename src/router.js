@@ -59,11 +59,68 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
     const runtime = createGen2Runtime({ env });
     const capabilities = runtime.bus.list();
     const roadmap = await runtime.bus.execute("roadmap.read", {}, capabilityContext(env));
-    const active = capabilities.filter(row => row?.enabled !== false && !["OFFLINE","UNAVAILABLE","BLOCKED","DISABLED"].includes(String(row?.health || "").toUpperCase())).length;
+    const badStates = new Set(["ERROR","FAILED","FAIL","DOWN","UNHEALTHY","BROKEN"]);
+    const unavailableStates = new Set(["OFFLINE","UNAVAILABLE","BLOCKED","DISABLED"]);
+    const degradedStates = new Set(["DEGRADED","UNKNOWN","UNTESTED","NOT_TESTED","PROTECTED"]);
+    const health = capabilities.reduce((acc,row)=>{
+      const state = row?.enabled === false ? "DISABLED" : String(row?.health || "UNKNOWN").toUpperCase();
+      acc[state] = (acc[state] || 0) + 1;
+      return acc;
+    },{});
+    const failed = capabilities.filter(row => badStates.has(String(row?.health || "").toUpperCase())).length;
+    const unavailable = capabilities.filter(row => row?.enabled === false || unavailableStates.has(String(row?.health || "").toUpperCase())).length;
+    const degraded = capabilities.filter(row => degradedStates.has(String(row?.health || "").toUpperCase())).length;
+    const active = Math.max(0, capabilities.length - unavailable - failed);
+    const roadmapSummary = roadmap?.summary || {};
+    const roadmapBlocked = Number(roadmapSummary?.by_status?.BLOCKED_HUMAN || 0)
+      + Number(roadmapSummary?.by_status?.BLOCKED_EXTERNAL || 0);
+    const deployedBranch = typeof MEL_DEPLOYED_GIT_BRANCH !== "undefined"
+      ? String(MEL_DEPLOYED_GIT_BRANCH || "")
+      : String(env.MEL_DEPLOYED_GIT_BRANCH || "");
+    const deployedSha = typeof MEL_DEPLOYED_GIT_SHA !== "undefined"
+      ? String(MEL_DEPLOYED_GIT_SHA || "")
+      : String(env.MEL_DEPLOYED_GIT_SHA || "");
+    const deploymentExact = Boolean(deployedBranch && /^[0-9a-f]{40}$/i.test(deployedSha));
+    const state = failed > 0
+      ? "ERROR"
+      : unavailable > 0 || degraded > 0 || roadmapBlocked > 0 || !deploymentExact
+        ? "WARN"
+        : "OK";
     return json({
-      ok: true,
-      capabilities: { total: capabilities.length, active },
-      roadmap: roadmap?.summary || {}
+      ok: state !== "ERROR",
+      state,
+      generated_at: new Date().toISOString(),
+      capabilities: { total: capabilities.length, active, failed, unavailable, degraded, health },
+      roadmap: roadmapSummary,
+      deployment: {
+        branch: deployedBranch || null,
+        commit: /^[0-9a-f]{40}$/i.test(deployedSha) ? deployedSha : null,
+        exact_identity_known: deploymentExact
+      },
+      components: [
+        {
+          id:"capabilities",
+          label:"CapabilityBus",
+          status: failed > 0 ? "ERROR" : unavailable > 0 || degraded > 0 ? "WARN" : "OK",
+          detail: failed > 0
+            ? failed+" capacité(s) en échec"
+            : unavailable > 0 || degraded > 0
+              ? active+"/"+capabilities.length+" actives · "+unavailable+" indisponible(s) · "+degraded+" dégradée(s)"
+              : capabilities.length+" capacité(s) actives"
+        },
+        {
+          id:"roadmap",
+          label:"Roadmap",
+          status: roadmapBlocked > 0 ? "WARN" : "OK",
+          detail: Number(roadmapSummary.percent_complete || 0)+"% · "+roadmapBlocked+" blocage(s)"
+        },
+        {
+          id:"deployment",
+          label:"Déploiement",
+          status: deploymentExact ? "OK" : "WARN",
+          detail: deploymentExact ? deployedBranch+" · "+deployedSha.slice(0,10) : "Identité exacte indisponible"
+        }
+      ]
     });
   }
 
