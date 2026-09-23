@@ -3,7 +3,9 @@ import { evaluateComputerUsePlan } from "./computer-use.js";
 
 export const COMPUTER_API_BASE="/api/computer/v1";
 export const COMPUTER_ROUTES=Object.freeze({
+ pairCode:"/api/computer/v1/pair-code",
  pair:"/api/computer/v1/pair",
+ revoke:"/api/computer/v1/revoke",
  status:"/api/computer/v1/status",
  commands:"/api/computer/v1/commands",
  halt:"/api/computer/v1/halt",
@@ -13,17 +15,20 @@ export const COMPUTER_ROUTES=Object.freeze({
  screenshot:"/api/computer/v1/screenshot"
 });
 const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome"];
+const PAIR_TTL_MS=10*60*1000;
 
 function json(v,s=200,h={}){return Response.json(v,{status:s,headers:{"cache-control":"no-store",...h}})}
 function safe(v,n=200){return typeof v==="string"?v.trim().slice(0,n):""}
 function bearer(r){const h=r.headers.get("authorization")||"";return /^Bearer\s+/i.test(h)?h.replace(/^Bearer\s+/i,"").trim():""}
 async function sha(v){const b=new TextEncoder().encode(String(v||""));const d=new Uint8Array(await crypto.subtle.digest("SHA-256",b));return [...d].map(x=>x.toString(16).padStart(2,"0")).join("")}
 function parse(v,f){try{return JSON.parse(v)}catch{return f}}
+function pairCode(){const alphabet="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";const bytes=new Uint8Array(8);crypto.getRandomValues(bytes);return [...bytes].map(byte=>alphabet[byte%alphabet.length]).join("")}
 
 async function tables(env){
  if(!env?.DB) throw Object.assign(new Error("COMPUTER_DB_REQUIRED"),{code:"COMPUTER_DB_REQUIRED",status:503});
  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS computer_devices(id TEXT PRIMARY KEY,token_hash TEXT NOT NULL,name TEXT NOT NULL,platform TEXT NOT NULL,capabilities TEXT NOT NULL,allowed_apps TEXT NOT NULL,halted INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,metadata TEXT NOT NULL DEFAULT "{}")`).run();
  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS computer_commands(id TEXT PRIMARY KEY,device_id TEXT NOT NULL,session_id TEXT NOT NULL,plan_json TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,claimed_at INTEGER,finished_at INTEGER,result_json TEXT,error_code TEXT)`).run();
+ await env.DB.prepare(`CREATE TABLE IF NOT EXISTS computer_pair_codes(code_hash TEXT PRIMARY KEY,created_at INTEGER NOT NULL,expires_at INTEGER NOT NULL,used_at INTEGER)`).run();
 }
 function normalizeDevice(r){if(!r)return null;return {id:r.id,name:r.name,platform:r.platform,capabilities:parse(r.capabilities,[]),allowed_apps:parse(r.allowed_apps,[]),halted:Number(r.halted)===1,created_at:Number(r.created_at||0),last_seen_at:Number(r.last_seen_at||0),online:Date.now()-Number(r.last_seen_at||0)<15000,metadata:parse(r.metadata,{})}}
 function normalizeCommand(r){if(!r)return null;return {id:r.id,device_id:r.device_id,session_id:r.session_id,status:r.status,created_at:Number(r.created_at||0),claimed_at:r.claimed_at==null?null:Number(r.claimed_at),finished_at:r.finished_at==null?null:Number(r.finished_at),result:parse(r.result_json,null),error_code:r.error_code||null}}
@@ -36,14 +41,35 @@ async function authDevice(request,env){
  return {ok:true,device:normalizeDevice(row)};
 }
 
-async function pair(request,env){
+async function createPairCode(request,env){
  const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
- const b=await request.json().catch(()=>({})); const id=safe(b.computer_id)||crypto.randomUUID();
+ const code=pairCode(),now=Date.now();
+ await env.DB.prepare("DELETE FROM computer_pair_codes WHERE expires_at<? OR used_at IS NOT NULL").bind(now).run();
+ await env.DB.prepare("INSERT INTO computer_pair_codes(code_hash,created_at,expires_at,used_at) VALUES(?,?,?,NULL)").bind(await sha(code),now,now+PAIR_TTL_MS).run();
+ return json({ok:true,code,expires_at:now+PAIR_TTL_MS,ttl_seconds:PAIR_TTL_MS/1000});
+}
+
+async function consumePairCode(env,raw){
+ const code=safe(raw,32).toUpperCase();if(!code)return false;const hash=await sha(code),now=Date.now();
+ const row=await env.DB.prepare("SELECT code_hash FROM computer_pair_codes WHERE code_hash=? AND used_at IS NULL AND expires_at>? LIMIT 1").bind(hash,now).first();
+ if(!row)return false;
+ await env.DB.prepare("UPDATE computer_pair_codes SET used_at=? WHERE code_hash=? AND used_at IS NULL").bind(now,hash).run();
+ return true;
+}
+
+async function pair(request,env){
+ await tables(env);const b=await request.json().catch(()=>({}));
+ const owner=requireAuth(request,env);
+ if(!owner.ok){
+   const valid=await consumePairCode(env,b.pair_code);
+   if(!valid)return json({ok:false,code:"COMPUTER_PAIR_CODE_INVALID_OR_EXPIRED"},401);
+ }
+ const id=safe(b.computer_id)||crypto.randomUUID();
  const raw=new Uint8Array(32);crypto.getRandomValues(raw);let s="";for(const x of raw)s+=String.fromCharCode(x);const token=btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"");
  const now=Date.now(),apps=Array.isArray(b.allowed_apps)&&b.allowed_apps.length?b.allowed_apps.slice(0,64):DEFAULT_APPS;
  await env.DB.prepare(`INSERT INTO computer_devices(id,token_hash,name,platform,capabilities,allowed_apps,halted,created_at,last_seen_at,metadata) VALUES(?,?,?,?,?,?,0,?,?,?) ON CONFLICT(id) DO UPDATE SET token_hash=excluded.token_hash,name=excluded.name,platform=excluded.platform,capabilities=excluded.capabilities,allowed_apps=excluded.allowed_apps,halted=0,last_seen_at=excluded.last_seen_at,metadata=excluded.metadata`).bind(id,await sha(token),safe(b.name)||"Ordinateur MEL",safe(b.platform)||"windows",JSON.stringify(["computer.use"]),JSON.stringify(apps),now,now,JSON.stringify({version:b.version||null})).run();
  const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=?").bind(id).first();
- return json({ok:true,computer:normalizeDevice(row),token});
+ return json({ok:true,computer:normalizeDevice(row),token,token_storage:"DPAPI_CURRENT_USER_REQUIRED"});
 }
 
 async function ownerStatus(request,env,url){
@@ -69,7 +95,9 @@ async function ownerCommand(request,env){
 
 async function ownerHalt(request,env,halted){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);await env.DB.prepare("UPDATE computer_devices SET halted=? WHERE id=?").bind(halted?1:0,id).run();const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=?").bind(id).first();return row?json({ok:true,computer:normalizeDevice(row)}):json({ok:false,code:"COMPUTER_NOT_FOUND"},404)}
 
-async function asset(request,env,name){const a=requireAuth(request,env);if(!a.ok)return a.response;if(!env?.ASSETS?.fetch)return json({ok:false,code:"ASSETS_BINDING_UNAVAILABLE"},503);const u=new URL("/"+name,request.url);const r=await env.ASSETS.fetch(new Request(u.toString(),{method:"GET"}));if(!r.ok)return json({ok:false,code:"ASSET_NOT_FOUND"},404);const h=new Headers(r.headers);h.set("content-type","text/plain; charset=utf-8");h.set("content-disposition",`attachment; filename="${name}"`);h.set("cache-control","no-store");return new Response(r.body,{status:200,headers:h})}
+async function ownerRevoke(request,env){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);const row=await env.DB.prepare("SELECT id FROM computer_devices WHERE id=?").bind(id).first();if(!row)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);await env.DB.prepare("DELETE FROM computer_commands WHERE device_id=?").bind(id).run();await env.DB.prepare("DELETE FROM computer_devices WHERE id=?").bind(id).run();return json({ok:true,computer_id:id,revoked:true})}
+
+async function asset(request,env,name,{allowDevice=false}={}){const owner=requireAuth(request,env);if(!owner.ok){if(!allowDevice)return owner.response;const device=await authDevice(request,env);if(!device.ok)return device.response}if(!env?.ASSETS?.fetch)return json({ok:false,code:"ASSETS_BINDING_UNAVAILABLE"},503);const u=new URL("/"+name,request.url);const r=await env.ASSETS.fetch(new Request(u.toString(),{method:"GET"}));if(!r.ok)return json({ok:false,code:"ASSET_NOT_FOUND"},404);const h=new Headers(r.headers);h.set("content-type","text/plain; charset=utf-8");h.set("content-disposition",`attachment; filename="${name}"`);h.set("cache-control","no-store");return new Response(r.body,{status:200,headers:h})}
 
 async function screenshotView(request,env,url){const a=requireAuth(request,env);if(!a.ok)return a.response;if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);const key=String(url.searchParams.get("key")||"");if(!key.startsWith("computer/screenshots/")||key.includes(".."))return json({ok:false,code:"SCREENSHOT_KEY_INVALID"},400);const o=await env.MEDIA_BUCKET.get(key);if(!o)return json({ok:false,code:"SCREENSHOT_NOT_FOUND"},404);const h=new Headers({"content-type":"image/png","cache-control":"private, max-age=30"});return new Response(o.body,{headers:h})}
 
@@ -80,13 +108,15 @@ async function uploadShot(request,env,a,url){if(!env?.MEDIA_BUCKET)return json({
 
 export async function maybeHandleComputerApi(request,env){
  const url=new URL(request.url);if(!url.pathname.startsWith(COMPUTER_API_BASE+"/"))return null;
+ if(url.pathname===COMPUTER_ROUTES.pairCode&&request.method==="POST")return createPairCode(request,env);
  if(url.pathname===COMPUTER_ROUTES.pair&&request.method==="POST")return pair(request,env);
+ if(url.pathname===COMPUTER_ROUTES.revoke&&request.method==="POST")return ownerRevoke(request,env);
  if(url.pathname===COMPUTER_ROUTES.status&&request.method==="GET")return ownerStatus(request,env,url);
  if(url.pathname===COMPUTER_ROUTES.commands&&request.method==="POST")return ownerCommand(request,env);
  if(url.pathname===COMPUTER_ROUTES.halt&&request.method==="POST")return ownerHalt(request,env,true);
  if(url.pathname===COMPUTER_ROUTES.resume&&request.method==="POST")return ownerHalt(request,env,false);
  if(url.pathname===COMPUTER_ROUTES.installer&&request.method==="GET")return asset(request,env,"MEL-Computer-Setup.ps1");
- if(url.pathname===COMPUTER_ROUTES.companion&&request.method==="GET")return asset(request,env,"MEL-Computer-Companion.ps1");
+ if(url.pathname===COMPUTER_ROUTES.companion&&request.method==="GET")return asset(request,env,"MEL-Computer-Companion.ps1",{allowDevice:true});
  if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="GET")return screenshotView(request,env,url);
  const a=await authDevice(request,env);if(!a.ok)return a.response;
  if(url.pathname===COMPUTER_API_BASE+"/heartbeat"&&request.method==="POST")return heartbeat(request,env,a);
