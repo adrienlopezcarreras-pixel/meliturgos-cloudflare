@@ -221,3 +221,61 @@ test('GEN2-57 release proof token is accepted only on exact migration methods an
     assert.equal(wrongToken.status,401);
   }finally{DB.close();}
 });
+
+
+test('GEN2-57 refuses deterministic archive id collisions instead of silently ignoring them',async()=>{
+  const DB=sqliteD1();
+  try{
+    await createLegacyTable(DB);
+    await insertLegacy(DB,{id:9,createdAt:9000,user:'source user',assistant:'source assistant'});
+    const env={DB,MELITURGOS_USER:'adrien'};
+    await getLegacyInteractionMigrationStatus(env);
+    await DB.prepare(`INSERT INTO conversations(id,owner,title,status,created_at,updated_at,metadata)
+      VALUES(?,?,?,?,?,?,?)`)
+      .bind('foreign-conversation','','foreign','active',1,1,'{}').run();
+    await DB.prepare(`INSERT INTO archive_messages(
+      id,conversation_id,role,content,timestamp,provenance,metadata
+    ) VALUES(?,?,?,?,?,?,?)`)
+      .bind('legacy-gen1:9:user','foreign-conversation','user','foreign content',1,'foreign_source','{}').run();
+
+    const status=await getLegacyInteractionMigrationStatus(env);
+    assert.equal(status.coverage_complete,false);
+    assert.equal(status.existing_mismatches,1);
+    assert.equal(status.status,'ARCHIVE_MISMATCH');
+
+    await assert.rejects(
+      ()=>backfillLegacyInteractions(env),
+      error=>error?.code==='GEN1_ARCHIVE_ID_COLLISION_OR_MISMATCH'
+    );
+    const foreign=await DB.prepare("SELECT content,provenance FROM archive_messages WHERE id=?")
+      .bind('legacy-gen1:9:user').first();
+    assert.equal(foreign.content,'foreign content');
+    assert.equal(foreign.provenance,'foreign_source');
+  }finally{DB.close();}
+});
+
+test('GEN2-57 refuses to reuse an unrelated legacy-gen1 conversation id',async()=>{
+  const DB=sqliteD1();
+  try{
+    await createLegacyTable(DB);
+    await insertLegacy(DB,{id:4,createdAt:4000,user:'u',assistant:'a'});
+    const env={DB,MELITURGOS_USER:'adrien'};
+    await getLegacyInteractionMigrationStatus(env);
+    await DB.prepare(`INSERT INTO conversations(id,owner,title,status,created_at,updated_at,metadata)
+      VALUES(?,?,?,?,?,?,?)`)
+      .bind('legacy-gen1','other','foreign conversation','active',1,1,JSON.stringify({source_table:'other'})).run();
+
+    const status=await getLegacyInteractionMigrationStatus(env);
+    assert.equal(status.conversation_collision,true);
+    assert.equal(status.coverage_complete,false);
+    assert.equal(status.status,'CONVERSATION_ID_COLLISION');
+
+    await assert.rejects(
+      ()=>backfillLegacyInteractions(env),
+      error=>error?.code==='GEN1_CONVERSATION_ID_COLLISION'
+    );
+    const count=await DB.prepare("SELECT COUNT(*) AS count FROM archive_messages WHERE provenance=?")
+      .bind(LEGACY_INTERACTION_MIGRATION.provenance).first();
+    assert.equal(Number(count.count),0);
+  }finally{DB.close();}
+});
