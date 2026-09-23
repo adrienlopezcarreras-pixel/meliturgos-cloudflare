@@ -80,6 +80,9 @@ test('Android app exposes native file selection and a useful Complete control su
   assert.match(api,/\/api\/android\/v1\/files\/upload/);
   assert.match(vm,/fun sendFile\(/);
   assert.match(vm,/Aucun texte directement extractible/);
+  assert.match(vm,/localTextPreview/);
+  assert.match(vm,/ANDROID_FILE_BACKEND_UPDATE_REQUIRED/);
+  assert.match(vm,/512_000/);
 });
 
 test('Android native client exposes pairing chat sync ACK voice and file transports',async()=>{
