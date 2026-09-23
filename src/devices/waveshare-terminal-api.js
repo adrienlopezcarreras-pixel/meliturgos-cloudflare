@@ -6,6 +6,18 @@ import { handleVoiceTranscription } from "../api/voice-transcribe.js";
 export const WAVESHARE_TERMINAL_MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
 export const WAVESHARE_TERMINAL_API = "/api/device/v1";
 export const WAVESHARE_TERMINAL_PROTOCOL = "1.0";
+export const WAVESHARE_TERMINAL_CAPABILITIES = Object.freeze([
+  "display.touch",
+  "camera.ov5640",
+  "audio.microphone",
+  "audio.speaker",
+  "wifi",
+  "chat",
+  "voice.stt",
+  "voice.reply",
+  "download.assets",
+  "ota"
+]);
 const DOWNLOAD_PREFIX = "devices/waveshare-esp32-s3-touch-lcd-3.5-c/";
 const OWNER_PAIR_CODE_PATH = "/api/device/v1/pair-code";
 const OWNER_STATUS_PATH = "/api/device/v1/status";
@@ -69,26 +81,12 @@ async function registerRuntimeDevice(env, body) {
     await runtime.bus.execute("device.register", {
       id: body.device_id,
       owner: env.MELITURGOS_USER || "owner",
-      name: body.name || "MEL Terminal",
+      name: body.name || "MINI",
       kind: "waveshare-terminal",
       metadata: {
         model: WAVESHARE_TERMINAL_MODEL,
         firmware: body.firmware || null,
-        capabilities: [
-          "display.touch",
-          "camera.ov5640",
-          "audio.microphone",
-          "audio.speaker",
-          "imu.qmi8658",
-          "rtc.pcf85063",
-          "storage.microsd",
-          "wifi",
-          "bluetooth",
-          "chat",
-          "voice.stt",
-          "download.assets",
-          "ota"
-        ]
+        capabilities: [...WAVESHARE_TERMINAL_CAPABILITIES]
       }
     }, {
       owner: env.MELITURGOS_USER || "owner",
@@ -147,7 +145,7 @@ async function issueDeviceToken(env, body) {
   await env.DB.prepare(`INSERT INTO device_status(device_id,payload_json,updated_at) VALUES(?,?,?)
     ON CONFLICT(device_id) DO UPDATE SET payload_json=excluded.payload_json, updated_at=excluded.updated_at`)
     .bind(deviceId, JSON.stringify({
-      name: body.name || "MEL Terminal",
+      name: body.name || "MINI",
       firmware: body.firmware || null,
       phase: "PAIRED",
       protocol_version: protocolVersion
@@ -256,6 +254,11 @@ async function loadManifest(env, origin) {
       key: null,
       sha256: null
     },
+    installer: {
+      available: false,
+      key: null,
+      sha256: null
+    },
     assets: { version: "1", items: [] }
   };
   const value = manifest && typeof manifest === "object" ? { ...defaults, ...manifest } : defaults;
@@ -265,6 +268,7 @@ async function loadManifest(env, origin) {
   value.heartbeat_endpoint = `${origin}${WAVESHARE_TERMINAL_API}/heartbeat`;
   value.chat_endpoint = `${origin}${WAVESHARE_TERMINAL_API}/chat`;
   value.voice_endpoint = `${origin}${WAVESHARE_TERMINAL_API}/voice/transcribe`;
+  value.tts_endpoint = `${origin}${WAVESHARE_TERMINAL_API}/voice/tts`;
   return value;
 }
 
@@ -311,8 +315,12 @@ async function ownerFirmware(request, env) {
   const auth = requireAuth(request, env);
   if (!auth.ok) return auth.response;
   const manifest = await loadManifest(env, new URL(request.url).origin);
-  const key = String(manifest?.firmware?.key || "");
-  if (manifest?.firmware?.available !== true || !validDownloadKey(key)) {
+
+  // USB installation needs the merged image (bootloader + partitions + app).
+  // OTA deliberately uses manifest.firmware.key, which must be app-only.
+  const installer = manifest?.installer?.available === true ? manifest.installer : manifest?.firmware;
+  const key = String(installer?.key || "");
+  if (installer?.available !== true || !validDownloadKey(key)) {
     return json({ ok: false, code: "FIRMWARE_NOT_PUBLISHED" }, 404);
   }
   if (!env?.MEDIA_BUCKET) return json({ ok: false, code: "MEDIA_BUCKET_UNAVAILABLE" }, 503);
@@ -321,9 +329,9 @@ async function ownerFirmware(request, env) {
   const headers = new Headers({
     "content-type": "application/octet-stream",
     "content-length": String(object.size),
-    "content-disposition": 'attachment; filename="mel-terminal.bin"',
+    "content-disposition": 'attachment; filename="mini-first-install.bin"',
     "cache-control": "no-store",
-    "x-mel-sha256": String(manifest?.firmware?.sha256 || object.customMetadata?.sha256 || "")
+    "x-mel-sha256": String(installer?.sha256 || object.customMetadata?.sha256 || "")
   });
   return new Response(object.body, { status: 200, headers });
 }
@@ -371,6 +379,56 @@ async function deviceVoice(request, env, auth) {
   return response || json({ ok: false, code: "TRANSCRIPTION_UNAVAILABLE" }, 503);
 }
 
+
+async function deviceTts(request, env, auth) {
+  const body = await request.json().catch(() => ({}));
+  const text = String(body.text || "").trim().slice(0, 1200);
+  if (!text) return json({ ok: false, code: "TEXT_REQUIRED" }, 400);
+  if (!env?.AI || typeof env.AI.run !== "function") {
+    return json({ ok: false, code: "TTS_UNAVAILABLE", reason: "AI_BINDING_MISSING" }, 503);
+  }
+
+  const speaker = String(body.speaker || "luna").trim().slice(0, 32) || "luna";
+  const model = String(env.MEL_TTS_MODEL || "@cf/deepgram/aura-1");
+
+  try {
+    const result = await env.AI.run(model, {
+      text,
+      speaker,
+      encoding: "linear16",
+      container: "none",
+      sample_rate: 48000
+    }, { returnRawResponse: true });
+
+    if (result instanceof Response) {
+      const headers = new Headers(result.headers);
+      headers.set("content-type", "application/octet-stream");
+      headers.set("cache-control", "no-store");
+      headers.set("x-mel-audio-format", "pcm-s16le");
+      headers.set("x-mel-audio-rate", "48000");
+      headers.set("x-mel-audio-channels", "1");
+      return new Response(result.body, { status: result.status, headers });
+    }
+
+    if (result?.body) {
+      return new Response(result.body, {
+        status: 200,
+        headers: {
+          "content-type": "application/octet-stream",
+          "cache-control": "no-store",
+          "x-mel-audio-format": "pcm-s16le",
+          "x-mel-audio-rate": "48000",
+          "x-mel-audio-channels": "1"
+        }
+      });
+    }
+
+    return json({ ok: false, code: "TTS_EMPTY_RESPONSE" }, 503);
+  } catch (error) {
+    return json({ ok: false, code: "TTS_FAILED", detail: String(error?.message || error).slice(0, 180) }, 503);
+  }
+}
+
 export async function maybeHandleWaveshareTerminalApi(request, env) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith(WAVESHARE_TERMINAL_API + "/")) return null;
@@ -391,6 +449,7 @@ export async function maybeHandleWaveshareTerminalApi(request, env) {
   if (url.pathname === WAVESHARE_TERMINAL_API + "/heartbeat" && request.method === "POST") return updateHeartbeat(request, env, auth);
   if (url.pathname === WAVESHARE_TERMINAL_API + "/chat" && request.method === "POST") return deviceChat(request, env, auth);
   if (url.pathname === WAVESHARE_TERMINAL_API + "/voice/transcribe" && request.method === "POST") return deviceVoice(request, env, auth);
+  if (url.pathname === WAVESHARE_TERMINAL_API + "/voice/tts" && request.method === "POST") return deviceTts(request, env, auth);
   if (url.pathname === WAVESHARE_TERMINAL_API + "/download" && (request.method === "GET" || request.method === "HEAD")) return serveDownload(request, env, url);
 
   return json({ ok: false, code: "DEVICE_ROUTE_NOT_FOUND" }, 404);

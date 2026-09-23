@@ -29,20 +29,22 @@ try {
 
   Write-Host "Vérification du firmware publié..." -ForegroundColor Yellow
   $info = Invoke-RestMethod -Uri "$server/api/device/v1/firmware-info" -Headers $headers -TimeoutSec 30
-  if (-not $info.ok -or $info.firmware.available -ne $true) {
+  $installInfo = $info.firmware
+  if ($info.installer -and $info.installer.available -eq $true) { $installInfo = $info.installer }
+  if (-not $info.ok -or $installInfo.available -ne $true) {
     throw "Le firmware MEL n'est pas encore publié sur le serveur."
   }
 
   $work = Join-Path $env:TEMP "MEL-Waveshare"
   New-Item -ItemType Directory -Force -Path $work | Out-Null
-  $bin = Join-Path $work "mel-terminal.bin"
+  $bin = Join-Path $work "mini-first-install.bin"
 
   Write-Host "Téléchargement MEL $($info.firmware.version)..." -ForegroundColor Yellow
   Invoke-WebRequest -Uri "$server/api/device/v1/firmware" -Headers $headers -UseBasicParsing -OutFile $bin -TimeoutSec 120
 
-  if ($info.firmware.sha256) {
+  if ($installInfo.sha256) {
     $actual = (Get-FileHash -Algorithm SHA256 $bin).Hash.ToLowerInvariant()
-    $expected = ([string]$info.firmware.sha256).ToLowerInvariant()
+    $expected = ([string]$installInfo.sha256).ToLowerInvariant()
     if ($actual -ne $expected) { throw "Empreinte SHA256 invalide. Flashage annulé." }
     Write-Host "Firmware vérifié : SHA256 OK." -ForegroundColor Green
   }
@@ -58,14 +60,14 @@ try {
     if (-not $winget) { throw "Python absent et winget indisponible. Installe Python 3 puis relance ce script." }
     Write-Host "Installation de Python pour l'outil de flash..." -ForegroundColor Yellow
     & $winget.Source install --id Python.Python.3.12 -e --scope user --accept-package-agreements --accept-source-agreements
-    $known = Join-Path $env:LOCALAPPDATA "ProgramsPythonPython312python.exe"
+    $known = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
     if (Test-Path $known) { $python = $known }
     if (-not $python) { throw "Python vient d'être installé. Ferme puis relance ce script une fois." }
   }
 
   Write-Host "Préparation d'esptool..." -ForegroundColor Yellow
   if ([IO.Path]::GetFileName($python).ToLowerInvariant() -eq "py.exe") {
-    & $python -3 -m pip install --user --disable-pip-version-check "esptool==4.8.1" | Out-Host
+    & $python -3 -m pip install --user --disable-pip-version-check "esptool==5.4.0" | Out-Host
     $pyArgs = @("-3")
   } else {
     & $python -m pip install --user --disable-pip-version-check "esptool==4.8.1" | Out-Host
@@ -102,8 +104,8 @@ try {
   Write-Host ""
   Write-Host "Firmware MEL installé." -ForegroundColor Green
   Write-Host "Débranche/rebranche ou appuie sur RESET."
-  Write-Host "L'écran affichera le Wi-Fi MEL-SETUP, son mot de passe et 192.168.4.1."
-  Write-Host "Dans MEL > Terminal MEL, crée ensuite un code d'appairage."
+  Write-Host "MINI démarre directement sur son interface tactile."
+  Write-Host "Choisis le Wi-Fi sur MINI, saisis le mot de passe à l'écran, puis crée un code dans MEL > MINI et saisis-le sur MINI."
 }
 finally {
   $pass = $null

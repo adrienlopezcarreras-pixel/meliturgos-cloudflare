@@ -4,6 +4,7 @@
 #include <cstring>
 #include <string>
 #include <cstdio>
+#include <cctype>
 #include <sys/stat.h>
 
 #include "nvs.h"
@@ -20,9 +21,11 @@
 #include "esp_heap_caps.h"
 #include "esp_ota_ops.h"
 #include "esp_camera.h"
+#include "esp_camera_port.h"
 #include "esp_codec_dev.h"
 #include "esp_lvgl_port.h"
 #include "cJSON.h"
+#include "mbedtls/sha256.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -41,25 +44,30 @@ static const int VOICE_RATE = 48000;
 static const int VOICE_BYTES = VOICE_SECONDS * VOICE_RATE * 2;
 
 extern esp_codec_dev_handle_t input_dev;
+extern esp_codec_dev_handle_t output_dev;
 
 struct MelConfig {
-    char ssid[33] = {};
-    char password[65] = {};
-    char pair_code[17] = {};
-    char token[96] = {};
+    char ssid[33];
+    char password[65];
+    char pair_code[17];
+    char token[96];
 };
 
 struct HttpBuffer {
     std::string body;
 };
 
-static MelConfig g_cfg;
+static MelConfig g_cfg = {};
 static char g_device_id[40] = {};
 static char g_ip[20] = {};
 static bool g_camera_ok = false;
 static bool g_audio_ok = false;
 static bool g_sd_ok = false;
 static bool g_online = false;
+static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
+static TaskHandle_t g_voice_task_handle = nullptr;
+static TaskHandle_t g_online_task_handle = nullptr;
+static TaskHandle_t g_heartbeat_task_handle = nullptr;
 static EventGroupHandle_t g_wifi_bits = nullptr;
 static int g_wifi_retry = 0;
 static lv_obj_t *g_status = nullptr;
@@ -67,6 +75,51 @@ static lv_obj_t *g_answer = nullptr;
 static lv_obj_t *g_subtitle = nullptr;
 static lv_obj_t *g_actions = nullptr;
 static httpd_handle_t g_setup_server = nullptr;
+
+enum MiniFaceState { MINI_IDLE = 0, MINI_LISTENING = 1, MINI_THINKING = 2, MINI_SPEAKING = 3, MINI_ERROR = 4 };
+static MiniFaceState g_face_state = MINI_IDLE;
+static lv_obj_t *g_face = nullptr;
+static lv_obj_t *g_eye_left = nullptr;
+static lv_obj_t *g_eye_right = nullptr;
+static lv_obj_t *g_mouth = nullptr;
+static lv_obj_t *g_temple_left = nullptr;
+static lv_obj_t *g_temple_right = nullptr;
+static lv_timer_t *g_face_timer = nullptr;
+
+static void mini_face_state(MiniFaceState state) {
+    g_face_state = state;
+    if (!g_face) return;
+    lv_color_t accent = lv_color_hex(0x22D3EE);
+    if (state == MINI_LISTENING) accent = lv_color_hex(0x34D399);
+    else if (state == MINI_THINKING) accent = lv_color_hex(0xA78BFA);
+    else if (state == MINI_SPEAKING) accent = lv_color_hex(0x60A5FA);
+    else if (state == MINI_ERROR) accent = lv_color_hex(0xFB7185);
+    lv_obj_set_style_border_color(g_face, accent, 0);
+    if (g_temple_left) lv_obj_set_style_bg_color(g_temple_left, accent, 0);
+    if (g_temple_right) lv_obj_set_style_bg_color(g_temple_right, accent, 0);
+}
+
+static void mini_face_timer_cb(lv_timer_t *) {
+    if (!g_eye_left || !g_eye_right || !g_mouth) return;
+    const uint32_t phase = (lv_tick_get() / 120) % 32;
+    const bool blink = g_face_state == MINI_IDLE && (phase == 0 || phase == 1);
+    lv_obj_set_height(g_eye_left, blink ? 2 : 10);
+    lv_obj_set_height(g_eye_right, blink ? 2 : 10);
+
+    if (g_face_state == MINI_LISTENING) {
+        lv_obj_set_width(g_mouth, (phase % 4 < 2) ? 34 : 44);
+        lv_obj_set_height(g_mouth, 5);
+    } else if (g_face_state == MINI_THINKING) {
+        lv_obj_set_width(g_mouth, 28 + (phase % 5) * 4);
+        lv_obj_set_height(g_mouth, 4);
+    } else if (g_face_state == MINI_SPEAKING) {
+        lv_obj_set_width(g_mouth, 40);
+        lv_obj_set_height(g_mouth, (phase % 3 == 0) ? 14 : 6);
+    } else {
+        lv_obj_set_width(g_mouth, 42);
+        lv_obj_set_height(g_mouth, 5);
+    }
+}
 
 static void ui_text(lv_obj_t *label, const char *value) {
     if (!label) return;
@@ -81,7 +134,14 @@ static void ui_status(const char *value) {
 }
 
 static void ui_answer(const char *value) {
-    ui_text(g_answer, value);
+    if (!g_answer) return;
+    if (lvgl_port_lock(1000)) {
+        const char *text = value ? value : "";
+        lv_label_set_text(g_answer, text);
+        if (text[0]) lv_obj_clear_flag(g_answer, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(g_answer, LV_OBJ_FLAG_HIDDEN);
+        lvgl_port_unlock();
+    }
 }
 
 static void make_device_id() {
@@ -173,6 +233,87 @@ static esp_err_t http_request(
     return err;
 }
 
+
+static std::string json_string(cJSON *obj);
+
+static bool speak_text(const std::string &text) {
+    if (!g_audio_ok || !output_dev || !g_cfg.token[0] || text.empty()) return false;
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "text", text.c_str());
+    cJSON_AddStringToObject(root, "speaker", "luna");
+    std::string body = json_string(root);
+    cJSON_Delete(root);
+
+    std::string url = std::string(SERVER) + "/api/device/v1/voice/tts";
+    esp_http_client_config_t cfg = {};
+    cfg.url = url.c_str();
+    cfg.crt_bundle_attach = esp_crt_bundle_attach;
+    cfg.timeout_ms = 60000;
+
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) return false;
+
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    std::string auth = std::string("Bearer ") + g_cfg.token;
+    esp_http_client_set_header(client, "Authorization", auth.c_str());
+    esp_http_client_set_header(client, "X-MEL-Device-ID", g_device_id);
+
+    bool ok = false;
+    if (esp_http_client_open(client, (int)body.size()) == ESP_OK) {
+        int written = esp_http_client_write(client, body.data(), (int)body.size());
+        if (written == (int)body.size()) {
+            esp_http_client_fetch_headers(client);
+            int status = esp_http_client_get_status_code(client);
+            if (status == 200) {
+                uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4097, MALLOC_CAP_8BIT));
+                if (buffer) {
+                    esp_codec_dev_set_out_vol(output_dev, 72.0);
+                    ok = true;
+                    bool have_carry = false;
+                    uint8_t carry = 0;
+                    while (true) {
+                        const size_t offset = have_carry ? 1 : 0;
+                        if (have_carry) buffer[0] = carry;
+                        int n = esp_http_client_read(
+                            client,
+                            reinterpret_cast<char *>(buffer + offset),
+                            4096
+                        );
+                        if (n < 0) { ok = false; break; }
+                        if (n == 0) {
+                            if (have_carry) {
+                                ESP_LOGE(TAG, "TTS returned truncated 16-bit PCM");
+                                ok = false;
+                            }
+                            break;
+                        }
+
+                        size_t total = offset + (size_t)n;
+                        have_carry = (total & 1U) != 0;
+                        if (have_carry) {
+                            carry = buffer[total - 1];
+                            total -= 1;
+                        }
+                        if (total > 0 && esp_codec_dev_write(output_dev, buffer, total) != ESP_CODEC_DEV_OK) {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    esp_codec_dev_set_out_vol(output_dev, 0.0);
+                    heap_caps_free(buffer);
+                }
+            } else {
+                ESP_LOGW(TAG, "TTS failed status=%d", status);
+            }
+        }
+        esp_http_client_close(client);
+    }
+    esp_http_client_cleanup(client);
+    return ok;
+}
+
 static std::string json_string(cJSON *obj) {
     char *raw = cJSON_PrintUnformatted(obj);
     std::string out = raw ? raw : "{}";
@@ -186,7 +327,7 @@ static bool pair_terminal() {
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "device_id", g_device_id);
-    cJSON_AddStringToObject(root, "name", "MEL Waveshare");
+    cJSON_AddStringToObject(root, "name", "MINI");
     cJSON_AddStringToObject(root, "model", MODEL);
     cJSON_AddStringToObject(root, "firmware", MEL_FW_VERSION);
     cJSON_AddStringToObject(root, "protocol_version", MEL_PROTOCOL_VERSION);
@@ -294,14 +435,14 @@ static std::string form_value(const std::string &body, const char *key) {
 static esp_err_t setup_get(httpd_req_t *req) {
     static const char html[] =
         "<!doctype html><html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-        "<title>MEL Setup</title><style>body{font-family:system-ui;background:#07111f;color:#fff;padding:22px;max-width:520px;margin:auto}"
+        "<title>MINI Setup</title><style>body{font-family:system-ui;background:#07111f;color:#fff;padding:22px;max-width:520px;margin:auto}"
         "input,button{width:100%;padding:14px;margin:8px 0;border-radius:10px;border:1px solid #334155;box-sizing:border-box}"
-        "button{background:#2563eb;color:white;font-weight:700}</style><h1>MEL · premier démarrage</h1>"
-        "<p>Saisis ton Wi-Fi et le code créé dans MEL &gt; Terminal MEL.</p>"
+        "button{background:#2563eb;color:white;font-weight:700}</style><h1>MINI · premier démarrage</h1>"
+        "<p>Saisis ton Wi-Fi et le code créé dans MEL &gt; MINI.</p>"
         "<form method=post action=/save><input name=ssid maxlength=32 placeholder='Nom Wi-Fi' required>"
         "<input name=password type=password maxlength=64 placeholder='Mot de passe Wi-Fi'>"
         "<input name=pair_code maxlength=16 placeholder='Code MEL' required autocomplete=off>"
-        "<button>Connecter MEL</button></form></html>";
+        "<button>Connecter MINI</button></form></html>";
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     return httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
 }
@@ -345,7 +486,7 @@ static void show_setup_ui(const char *ssid, const char *pass) {
     char message[420];
     snprintf(
         message, sizeof(message),
-        "Premier démarrage\n\n1. Wi-Fi : %s\n2. Mot de passe : %s\n3. Ouvre http://192.168.4.1\n4. Dans MEL > Terminal MEL, crée un code puis saisis-le.\n\nBOOT au démarrage = réinitialiser.",
+        "Premier démarrage\n\n1. Wi-Fi : %s\n2. Mot de passe : %s\n3. Ouvre http://192.168.4.1\n4. Dans MEL > MINI, crée un code puis saisis-le.\n\nBOOT au démarrage = réinitialiser.",
         ssid, pass
     );
     ui_status("CONFIGURATION");
@@ -357,8 +498,8 @@ static void start_setup_ap() {
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char ssid[32] = {};
     char pass[32] = {};
-    snprintf(ssid, sizeof(ssid), "MEL-SETUP-%02X%02X", mac[4], mac[5]);
-    snprintf(pass, sizeof(pass), "MEL%02X%02X%02X!", mac[3], mac[4], mac[5]);
+    snprintf(ssid, sizeof(ssid), "MINI-SETUP-%02X%02X", mac[4], mac[5]);
+    snprintf(pass, sizeof(pass), "MINI%02X%02X%02X!", mac[3], mac[4], mac[5]);
 
     esp_netif_create_default_wifi_ap();
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
@@ -491,21 +632,50 @@ static std::string record_and_transcribe() {
 }
 
 static void voice_task(void *) {
-    ui_status("ÉCOUTE 4 S…");
+    g_runtime_state = MEL_TERMINAL_LISTENING;
+    ui_status("ÉCOUTE…");
     ui_answer("Parle maintenant.");
     std::string text = record_and_transcribe();
     if (text.empty()) {
-        ui_status("ERREUR MICRO");
+        g_runtime_state = MEL_TERMINAL_ERROR;
+        ui_status("MICRO");
         ui_answer("Je n'ai pas réussi à transcrire. Réessaie.");
+        vTaskDelay(pdMS_TO_TICKS(1800));
+        g_runtime_state = MEL_TERMINAL_IDLE;
+        g_voice_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
     }
-    ui_status("MEL RÉFLÉCHIT…");
-    ui_answer((std::string("Toi : ") + text).c_str());
+    g_runtime_state = MEL_TERMINAL_THINKING;
+    ui_status("RÉFLEXION…");
+    ui_answer("");
     std::string answer = chat_with_mel(text);
-    ui_status("EN LIGNE");
+    g_runtime_state = MEL_TERMINAL_SPEAKING;
+    ui_status("MINI");
     ui_answer(answer.c_str());
+    const bool spoken = speak_text(answer);
+    if (!spoken) {
+        ESP_LOGW(TAG, "Voice reply unavailable; keeping text response on screen");
+        vTaskDelay(pdMS_TO_TICKS(900));
+    }
+    ui_status("");
+    g_runtime_state = MEL_TERMINAL_IDLE;
+    g_voice_task_handle = nullptr;
     vTaskDelete(nullptr);
+}
+
+
+void mel_terminal_request_voice(void) {
+    if (!g_online || !g_audio_ok || g_voice_task_handle) return;
+    xTaskCreatePinnedToCore(voice_task, "mel_voice", 10240, nullptr, 5, &g_voice_task_handle, 0);
+}
+
+int mel_terminal_state(void) {
+    return g_runtime_state;
+}
+
+bool mel_terminal_online(void) {
+    return g_online;
 }
 
 static void audio_test_task(void *) {
@@ -518,7 +688,22 @@ static void audio_test_task(void *) {
 }
 
 static void camera_task(void *) {
-    ui_status("TEST CAMÉRA");
+    ui_status("CAMÉRA…");
+
+    if (!g_camera_ok) {
+        ESP_LOGI(TAG, "Lazy OV5640 init on core %d", xPortGetCoreID());
+        esp_camera_port_init((i2c_port_num_t)0);
+        g_camera_ok = esp_camera_sensor_get() != nullptr;
+        ESP_LOGI(TAG, "Lazy OV5640 init %s", g_camera_ok ? "OK" : "FAILED");
+    }
+
+    if (!g_camera_ok) {
+        ui_status("CAMÉRA ERREUR");
+        ui_answer("OV5640 indisponible.");
+        vTaskDelete(nullptr);
+        return;
+    }
+
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
         ui_status("CAMÉRA ERREUR");
@@ -532,7 +717,6 @@ static void camera_task(void *) {
     }
     vTaskDelete(nullptr);
 }
-
 
 static std::string safe_asset_name(const char *name) {
     std::string out;
@@ -597,7 +781,23 @@ static int sync_assets(cJSON *root) {
     return synced;
 }
 
-static bool ota_download(const std::string &key) {
+static bool valid_sha256_hex(const std::string &value) {
+    if (value.size() != 64) return false;
+    for (char c : value) {
+        const bool hex = (c >= '0' && c <= '9') ||
+                         (c >= 'a' && c <= 'f') ||
+                         (c >= 'A' && c <= 'F');
+        if (!hex) return false;
+    }
+    return true;
+}
+
+static bool ota_download(const std::string &key, const std::string &expected_sha256) {
+    if (!valid_sha256_hex(expected_sha256)) {
+        ESP_LOGE(TAG, "OTA refused: missing/invalid manifest SHA-256");
+        return false;
+    }
+
     std::string url = std::string(SERVER) + "/api/device/v1/download?key=" + key;
     esp_http_client_config_t cfg = {};
     cfg.url = url.c_str();
@@ -628,20 +828,51 @@ static bool ota_download(const std::string &key) {
         return false;
     }
 
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+    bool ok = mbedtls_sha256_starts(&sha, 0) == 0;
+
     uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(8192, MALLOC_CAP_8BIT));
-    bool ok = buffer != nullptr;
+    if (!buffer) ok = false;
     while (ok) {
         int n = esp_http_client_read(client, reinterpret_cast<char *>(buffer), 8192);
         if (n < 0) { ok = false; break; }
         if (n == 0) break;
+        if (mbedtls_sha256_update(&sha, buffer, (size_t)n) != 0) { ok = false; break; }
         if (esp_ota_write(handle, buffer, n) != ESP_OK) { ok = false; break; }
     }
+
+    uint8_t digest[32] = {};
+    if (ok && mbedtls_sha256_finish(&sha, digest) != 0) ok = false;
+    mbedtls_sha256_free(&sha);
+
     if (buffer) heap_caps_free(buffer);
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
 
-    if (!ok || esp_ota_end(handle) != ESP_OK) return false;
+    if (!ok) {
+        esp_ota_abort(handle);
+        return false;
+    }
+
+    char actual_hex[65] = {};
+    for (int i = 0; i < 32; ++i) {
+        snprintf(actual_hex + (i * 2), 3, "%02x", digest[i]);
+    }
+
+    std::string expected = expected_sha256;
+    std::transform(expected.begin(), expected.end(), expected.begin(),
+                   [](unsigned char c) { return (char)std::tolower(c); });
+
+    if (expected != actual_hex) {
+        ESP_LOGE(TAG, "OTA SHA-256 mismatch; refusing boot partition switch");
+        esp_ota_abort(handle);
+        return false;
+    }
+
+    if (esp_ota_end(handle) != ESP_OK) return false;
     if (esp_ota_set_boot_partition(partition) != ESP_OK) return false;
+    ESP_LOGI(TAG, "OTA image SHA-256 verified before boot switch");
     return true;
 }
 
@@ -667,7 +898,11 @@ static void update_task(void *) {
     cJSON *available = fw ? cJSON_GetObjectItemCaseSensitive(fw, "available") : nullptr;
     cJSON *version = fw ? cJSON_GetObjectItemCaseSensitive(fw, "version") : nullptr;
     cJSON *key = fw ? cJSON_GetObjectItemCaseSensitive(fw, "key") : nullptr;
-    const bool has = cJSON_IsTrue(available) && cJSON_IsString(key) && key->valuestring;
+    cJSON *sha256 = fw ? cJSON_GetObjectItemCaseSensitive(fw, "sha256") : nullptr;
+    const bool has = cJSON_IsTrue(available) &&
+                     cJSON_IsString(key) && key->valuestring &&
+                     cJSON_IsString(sha256) && sha256->valuestring &&
+                     valid_sha256_hex(sha256->valuestring);
     const char *ver = cJSON_IsString(version) && version->valuestring ? version->valuestring : "";
     if (!has || !strcmp(ver, MEL_FW_VERSION)) {
         if (root) cJSON_Delete(root);
@@ -679,11 +914,12 @@ static void update_task(void *) {
         return;
     }
     std::string update_key = key->valuestring;
+    std::string update_sha256 = sha256->valuestring;
     if (root) cJSON_Delete(root);
 
     ui_status("TÉLÉCHARGEMENT…");
-    ui_answer((std::string("Installation de MEL ") + ver + "…").c_str());
-    if (ota_download(update_key)) {
+    ui_answer((std::string("Installation vérifiée de MEL ") + ver + "…").c_str());
+    if (ota_download(update_key, update_sha256)) {
         ui_status("REDÉMARRAGE…");
         ui_answer("Mise à jour installée.");
         vTaskDelay(pdMS_TO_TICKS(1200));
@@ -734,10 +970,10 @@ enum Action { ACTION_VOICE = 1, ACTION_CAMERA = 2, ACTION_AUDIO = 3, ACTION_UPDA
 
 static void button_event(lv_event_t *event) {
     intptr_t action = reinterpret_cast<intptr_t>(lv_event_get_user_data(event));
-    if (action == ACTION_VOICE) xTaskCreate(voice_task, "mel_voice", 8192, nullptr, 5, nullptr);
-    if (action == ACTION_CAMERA) xTaskCreate(camera_task, "mel_camera", 4096, nullptr, 4, nullptr);
-    if (action == ACTION_AUDIO) xTaskCreate(audio_test_task, "mel_audio", 4096, nullptr, 4, nullptr);
-    if (action == ACTION_UPDATE) xTaskCreate(update_task, "mel_update", 8192, nullptr, 4, nullptr);
+    if (action == ACTION_VOICE) mel_terminal_request_voice();
+    if (action == ACTION_CAMERA) xTaskCreatePinnedToCore(camera_task, "mel_camera", 6144, nullptr, 3, nullptr, 0);
+    if (action == ACTION_AUDIO) xTaskCreatePinnedToCore(audio_test_task, "mel_audio", 4096, nullptr, 4, nullptr, 0);
+    if (action == ACTION_UPDATE) xTaskCreatePinnedToCore(update_task, "mel_update", 8192, nullptr, 4, nullptr, 0);
 }
 
 static lv_obj_t *make_button(lv_obj_t *parent, const char *text, Action action) {
@@ -754,43 +990,104 @@ void mel_terminal_ui_init(lv_disp_t *) {
     lv_obj_t *screen = lv_scr_act();
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x07111F), 0);
     lv_obj_set_style_text_color(screen, lv_color_hex(0xF8FAFC), 0);
-    lv_obj_set_style_pad_all(screen, 12, 0);
-
-    lv_obj_t *title = lv_label_create(screen);
-    lv_label_set_text(title, "MEL");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_pad_all(screen, 0, 0);
 
     g_status = lv_label_create(screen);
-    lv_label_set_text(g_status, "DÉMARRAGE…");
-    lv_obj_set_style_text_color(g_status, lv_color_hex(0x22D3EE), 0);
-    lv_obj_align(g_status, LV_ALIGN_TOP_RIGHT, 0, 4);
+    lv_label_set_text(g_status, "");
+    lv_obj_set_style_text_color(g_status, lv_color_hex(0x94A3B8), 0);
+    lv_obj_align(g_status, LV_ALIGN_TOP_MID, 0, 14);
 
-    g_subtitle = lv_label_create(screen);
-    lv_label_set_text(g_subtitle, "Terminal personnel · Waveshare 3.5");
-    lv_obj_set_style_text_color(g_subtitle, lv_color_hex(0x94A3B8), 0);
-    lv_obj_align(g_subtitle, LV_ALIGN_TOP_LEFT, 0, 30);
+    g_face = lv_obj_create(screen);
+    lv_obj_set_size(g_face, 214, 214);
+    lv_obj_align(g_face, LV_ALIGN_CENTER, 0, -58);
+    lv_obj_set_style_radius(g_face, 107, 0);
+    lv_obj_set_style_bg_color(g_face, lv_color_hex(0x0B1628), 0);
+    lv_obj_set_style_bg_opa(g_face, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(g_face, 4, 0);
+    lv_obj_set_style_border_color(g_face, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_shadow_width(g_face, 32, 0);
+    lv_obj_set_style_shadow_color(g_face, lv_color_hex(0x0EA5E9), 0);
+    lv_obj_set_style_shadow_opa(g_face, LV_OPA_40, 0);
+    lv_obj_clear_flag(g_face, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *inner = lv_obj_create(g_face);
+    lv_obj_set_size(inner, 166, 176);
+    lv_obj_center(inner);
+    lv_obj_set_style_radius(inner, 72, 0);
+    lv_obj_set_style_bg_color(inner, lv_color_hex(0x111C30), 0);
+    lv_obj_set_style_border_width(inner, 1, 0);
+    lv_obj_set_style_border_color(inner, lv_color_hex(0x334155), 0);
+    lv_obj_clear_flag(inner, LV_OBJ_FLAG_SCROLLABLE);
+
+    g_eye_left = lv_obj_create(inner);
+    lv_obj_set_size(g_eye_left, 30, 10);
+    lv_obj_align(g_eye_left, LV_ALIGN_CENTER, -38, -24);
+    lv_obj_set_style_radius(g_eye_left, 5, 0);
+    lv_obj_set_style_bg_color(g_eye_left, lv_color_hex(0x7DD3FC), 0);
+    lv_obj_set_style_border_width(g_eye_left, 0, 0);
+
+    g_eye_right = lv_obj_create(inner);
+    lv_obj_set_size(g_eye_right, 30, 10);
+    lv_obj_align(g_eye_right, LV_ALIGN_CENTER, 38, -24);
+    lv_obj_set_style_radius(g_eye_right, 5, 0);
+    lv_obj_set_style_bg_color(g_eye_right, lv_color_hex(0x7DD3FC), 0);
+    lv_obj_set_style_border_width(g_eye_right, 0, 0);
+
+    g_mouth = lv_obj_create(inner);
+    lv_obj_set_size(g_mouth, 42, 5);
+    lv_obj_align(g_mouth, LV_ALIGN_CENTER, 0, 42);
+    lv_obj_set_style_radius(g_mouth, 7, 0);
+    lv_obj_set_style_bg_color(g_mouth, lv_color_hex(0xA5F3FC), 0);
+    lv_obj_set_style_border_width(g_mouth, 0, 0);
+
+    g_temple_left = lv_obj_create(g_face);
+    lv_obj_set_size(g_temple_left, 8, 52);
+    lv_obj_align(g_temple_left, LV_ALIGN_LEFT_MID, 13, 0);
+    lv_obj_set_style_radius(g_temple_left, 4, 0);
+    lv_obj_set_style_bg_color(g_temple_left, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_border_width(g_temple_left, 0, 0);
+
+    g_temple_right = lv_obj_create(g_face);
+    lv_obj_set_size(g_temple_right, 8, 52);
+    lv_obj_align(g_temple_right, LV_ALIGN_RIGHT_MID, -13, 0);
+    lv_obj_set_style_radius(g_temple_right, 4, 0);
+    lv_obj_set_style_bg_color(g_temple_right, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_border_width(g_temple_right, 0, 0);
 
     g_answer = lv_label_create(screen);
     lv_label_set_long_mode(g_answer, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(g_answer, 296);
-    lv_obj_set_height(g_answer, 285);
-    lv_label_set_text(g_answer, "Initialisation du matériel…");
-    lv_obj_align(g_answer, LV_ALIGN_TOP_LEFT, 0, 58);
+    lv_obj_set_width(g_answer, 284);
+    lv_obj_set_height(g_answer, 74);
+    lv_obj_set_style_text_align(g_answer, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(g_answer, lv_color_hex(0xCBD5E1), 0);
+    lv_label_set_text(g_answer, "");
+    lv_obj_align(g_answer, LV_ALIGN_BOTTOM_MID, 0, -84);
+    lv_obj_add_flag(g_answer, LV_OBJ_FLAG_HIDDEN);
 
     g_actions = lv_obj_create(screen);
-    lv_obj_set_size(g_actions, 304, 112);
-    lv_obj_align(g_actions, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_flex_flow(g_actions, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(g_actions, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_size(g_actions, 250, 72);
+    lv_obj_align(g_actions, LV_ALIGN_BOTTOM_MID, 0, -8);
     lv_obj_set_style_bg_opa(g_actions, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(g_actions, 0, 0);
-    lv_obj_set_style_pad_all(g_actions, 2, 0);
+    lv_obj_set_style_pad_all(g_actions, 0, 0);
+    lv_obj_set_flex_flow(g_actions, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(g_actions, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    make_button(g_actions, "Parler", ACTION_VOICE);
-    make_button(g_actions, "Caméra", ACTION_CAMERA);
-    make_button(g_actions, "Test audio", ACTION_AUDIO);
-    make_button(g_actions, "Mise à jour", ACTION_UPDATE);
+    lv_obj_t *talk = make_button(g_actions, "PARLER", ACTION_VOICE);
+    lv_obj_set_size(talk, 224, 62);
+    lv_obj_set_style_radius(talk, 24, 0);
+    lv_obj_set_style_bg_color(talk, lv_color_hex(0x1D4ED8), 0);
+    lv_obj_set_style_shadow_width(talk, 18, 0);
+    lv_obj_set_style_shadow_color(talk, lv_color_hex(0x2563EB), 0);
+    lv_obj_set_style_shadow_opa(talk, LV_OPA_30, 0);
+
+    mini_face_state(MINI_IDLE);
+    g_face_timer = lv_timer_create(mini_face_timer_cb, 120, nullptr);
+}
+
+void mel_terminal_bind_external_ui(lv_obj_t *status_label, lv_obj_t *answer_label) {
+    g_status = status_label;
+    g_answer = answer_label;
 }
 
 void mel_terminal_set_hardware(bool camera_ok, bool audio_ok, bool sd_ok) {
@@ -834,21 +1131,105 @@ static void network_task(void *arg) {
     }
 
     g_online = true;
-    ui_status("EN LIGNE");
+    ui_status("");
     char ready[420];
     snprintf(
         ready, sizeof(ready),
-        "Bonjour. MEL est connectée.\n\nIP : %s\nFirmware : %s\nProtocole : %s\nCaméra : %s\nMicro/audio : %s\nCarte SD : %s\n\nAppuie sur Parler pour commencer.",
-        g_ip,
-        MEL_FW_VERSION,
-        MEL_PROTOCOL_VERSION,
-        g_camera_ok ? "OK" : "ERREUR",
-        g_audio_ok ? "OK" : "ERREUR",
-        g_sd_ok ? "OK" : "non vérifiée"
+        "MINI prête · %s · %s",
+        g_audio_ok ? "micro OK" : "micro indisponible",
+        g_camera_ok ? "caméra OK" : "caméra indisponible"
     );
-    ui_answer(ready);
+    ui_answer("");
     xTaskCreate(heartbeat_task, "mel_heartbeat", 6144, nullptr, 3, nullptr);
     vTaskDelete(nullptr);
+}
+
+
+bool mel_terminal_has_token(void) {
+    nvs_handle_t nvs;
+    char token[96] = {};
+    if (nvs_open("mel", NVS_READONLY, &nvs) != ESP_OK) return false;
+    bool ok = nvs_read_string(nvs, "token", token, sizeof(token)) && token[0] != '\0';
+    nvs_close(nvs);
+    return ok;
+}
+
+void mel_terminal_set_pair_code(const char *code) {
+    const char *value = code ? code : "";
+    strlcpy(g_cfg.pair_code, value, sizeof(g_cfg.pair_code));
+    save_string("pair_code", g_cfg.pair_code);
+    if (g_cfg.pair_code[0]) {
+        g_online = false;
+        g_cfg.token[0] = '\0';
+        save_string("token", "");
+    }
+}
+
+void mel_terminal_set_network_info(const char *ip) {
+    strlcpy(g_ip, ip ? ip : "", sizeof(g_ip));
+}
+
+void mel_terminal_set_wifi_connected(bool connected) {
+    if (!connected) {
+        g_online = false;
+        ui_status("WI-FI PERDU");
+        return;
+    }
+    ui_status(g_online ? "" : "WI-FI CONNECTE");
+}
+
+static bool device_session_valid() {
+    if (!g_cfg.token[0]) return false;
+    std::string response;
+    int status = 0;
+    esp_err_t err = http_request(
+        HTTP_METHOD_GET,
+        std::string(SERVER) + "/api/device/v1/manifest",
+        nullptr, nullptr, 0, response, status
+    );
+    return err == ESP_OK && status == 200;
+}
+
+static void online_runtime_task(void *) {
+    make_device_id();
+    load_config();
+
+    ui_status("APPAIRAGE…");
+    if (!pair_terminal()) {
+        g_online = false;
+        ui_status("CODE MEL REQUIS");
+        ui_answer("Entre un code d'appairage MEL depuis l'icône de liaison.");
+        g_online_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    if (!device_session_valid()) {
+        ESP_LOGW(TAG, "Stored or newly paired MEL token did not validate");
+        g_online = false;
+        g_cfg.token[0] = '\0';
+        save_string("token", "");
+        ui_status("REAPPARIAGE REQUIS");
+        ui_answer("La liaison MEL n'est plus valide. Entre un nouveau code d'appairage.");
+        g_online_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    g_online = true;
+    ui_status("");
+    ui_answer("");
+    if (!g_heartbeat_task_handle) {
+        xTaskCreatePinnedToCore(heartbeat_task, "mel_heartbeat", 6144, nullptr, 2, &g_heartbeat_task_handle, 0);
+    }
+    ESP_LOGI(TAG, "MEL ONLINE: authenticated device session ready");
+    g_online_task_handle = nullptr;
+    vTaskDelete(nullptr);
+}
+
+void mel_terminal_start_online(void) {
+    if (g_online || g_online_task_handle) return;
+    xTaskCreatePinnedToCore(online_runtime_task, "mel_online", 10240, nullptr, 5, &g_online_task_handle, 0);
 }
 
 void mel_terminal_start(bool force_setup) {
