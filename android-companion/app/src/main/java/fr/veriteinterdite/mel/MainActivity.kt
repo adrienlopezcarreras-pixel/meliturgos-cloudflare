@@ -308,7 +308,7 @@ private val MelPanelSoft = Color(0xCC0B1B2A)
 private val MelDanger = Color(0xFFFF8A9A)
 
 @Composable
-private fun MelTheme(content: @Composable () -> Unit) {
+internal fun MelTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = MelCyan,
@@ -325,7 +325,7 @@ private fun MelTheme(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun MelApp(
+internal fun MelApp(
     state: MelUiState,
     recording: Boolean,
     voiceMessage: String,
