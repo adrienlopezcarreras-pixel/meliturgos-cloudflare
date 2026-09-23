@@ -1,6 +1,7 @@
 package fr.veriteinterdite.mel
 
 import android.graphics.Bitmap
+import android.os.ParcelFileDescriptor
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -47,6 +48,15 @@ class MainActivitySmokeTest {
             }
         }
         check(file.isFile && file.length() > 0L) { "SCREENSHOT_NOT_WRITTEN" }
+
+        val command = instrumentation.uiAutomation.executeShellCommand(
+            "mkdir -p /sdcard/Download && cp ${file.absolutePath} /sdcard/Download/$name && " +
+                "test -s /sdcard/Download/$name && echo SCREENSHOT_EXPORTED"
+        )
+        val result = ParcelFileDescriptor.AutoCloseInputStream(command)
+            .bufferedReader()
+            .use { it.readText() }
+        check(result.contains("SCREENSHOT_EXPORTED")) { "SCREENSHOT_EXPORT_FAILED" }
     }
 
     @Test
