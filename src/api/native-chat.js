@@ -524,6 +524,12 @@ export async function handleNativeChat(request, env, options = {}) {
 
   const conversationId = String(body.conversation_id || crypto.randomUUID());
   const deviceId = body.device_id ? String(body.device_id) : null;
+  const requestedInputSource = String(body.input_source || 'text').trim().toLowerCase();
+  const inputSource = ['voice-server-transcription','voice-browser-recognition'].includes(requestedInputSource)
+    ? requestedInputSource
+    : 'text';
+  const userProvenance = inputSource === 'text' ? 'native-chat' : `native-chat:${inputSource}`;
+  const userMetadata = inputSource === 'text' ? {} : { input_source: inputSource, transcribed_voice: true };
   const runtime = createGen2Runtime({ env });
   let recent = [];
   let service = null;
@@ -551,7 +557,7 @@ export async function handleNativeChat(request, env, options = {}) {
     let archiveSaved = false;
     if (service) {
       try {
-        await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:'native-chat' });
+        await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
         await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText, timestamp:Date.now()+1, provenance:'native-chat:clarification' });
         archiveSaved = true;
       } catch {}
@@ -778,7 +784,7 @@ export async function handleNativeChat(request, env, options = {}) {
   let archiveSaved = false;
   if (service) {
     try {
-      await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now(), provenance: 'native-chat' });
+      await service.archiveMessage({ conversationId, deviceId, role: 'user', content: text, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now(), provenance: userProvenance, metadata: userMetadata });
       await service.archiveMessage({ conversationId, deviceId, role: 'assistant', content: responseText, model: ai.model, capabilitiesUsed: capabilitiesUsed.length ? capabilitiesUsed : null, timestamp: Date.now() + 1, provenance: ai.augmentio_used ? 'native-chat:augmentio' : 'native-chat' });
       archiveSaved = true;
     } catch { archiveSaved = false; }
@@ -834,6 +840,7 @@ export async function handleNativeChat(request, env, options = {}) {
     } : null,
     inference_settings_applied: activeInferenceSettings ? { generation: ['temperature','top_p','max_tokens'], memory: ['memory_results'], council: parallel ? ['council_min_responses'] : [], review_passes: 'not_supported_in_single-pass-chat' } : null,
     active_theme: theme,
+    input_source: inputSource,
     capability_used: capabilitiesUsed,
     capability_manifest: capabilityManifest,
     tool_results: toolResults,

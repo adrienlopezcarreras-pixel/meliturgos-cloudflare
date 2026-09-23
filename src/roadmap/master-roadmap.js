@@ -124,12 +124,12 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P09', 'Voix, avatar et multimodal', [
     item('GEN2-21', 'Images / vision', 'PARTIAL', 'Unifier analyse + génération visuelle et laisser la veille comparer les meilleurs outils/providers gratuits', 'P1'),
-    item('GEN2-22', 'Audio / transcription / voix', 'PARTIAL', 'Étendre analyse/génération audio et musique sur le port canonique; valider Android réel et providers zéro-euro', 'P0'),
+    item('GEN2-22', 'Audio / transcription / voix', 'PARTIAL', 'Transcription Workers AI + provenance vocale durable intégrées: reconnaissance navigateur et transcription serveur sont distinguées, whitelistees et archivées dans le chat sans conserver l’audio brut; full-candidate-ci 35837787761 et lora-runtime-pipeline-ci 35837787800 verts sur 3ea9dab1ce5014a47316d409f2625d64ef5dcbf0. Reste à étendre analyse/génération audio et musique sur le port canonique, valider Android réel et providers zéro-euro.', 'P0'),
     item('GEN2-23', 'Vidéo', 'PARTIAL', 'Unifier compréhension + génération vidéo/cinéma et pipeline avatar parlant', 'P1'),
     item('MEL-DREAMINA-01', 'Dreamina : moteur créatif image / vidéo / avatar', 'DONE_VERIFIED', 'Preuves: PR #18; merge 1614dbf98bd70dbb8a71a8d451481107c3cc2c03; Actions 35099730664 vert avec tests ciblés, preview, smoke et vérification production; appels payants toujours fail-closed et désactivés par défaut', 'P1'),
     item('GEN2-24', 'Documents', 'PARTIAL', 'Parsers PDF/doc plus robustes', 'P1'),
     item('MEL-VOICE-01', 'Réveil Bonjour MEL / Allô MEL', 'PLANNED', 'Détection locale/compagnon selon plateforme', 'P1'),
-    item('MEL-VOICE-02', 'Conversation audio transcrite en mémoire', 'PARTIAL', 'Clic avatar -> reconnaissance navigateur ou MediaRecorder -> transcription -> chat ajouté; valider Android réel et garantir l’archive systématique', 'P0'),
+    item('MEL-VOICE-02', 'Conversation audio transcrite en mémoire', 'PARTIAL', 'Clic avatar -> reconnaissance navigateur ou MediaRecorder -> transcription -> chat persistant avec provenance contrôlée voice-browser-recognition / voice-server-transcription; audio brut éphémère, transcription archivée et synchronisée vers la mémoire. Preuve candidate: full-candidate-ci 35837787761 sur 3ea9dab1ce5014a47316d409f2625d64ef5dcbf0. Reste la validation sur Android réel avant DONE_VERIFIED.', 'P0'),
     item('MEL-AVATAR-01', 'Avatar animé temps réel', 'PLANNED', 'Animation légère navigateur', 'P1'),
     item('MEL-AVATAR-02', 'Talking avatar lip-sync', 'PLANNED', 'Adapter provider interchangeable, fallback zéro coût', 'P2'),
     item('MEL-AVATAR-03', 'Tenue/identité visuelle moderne de MEL', 'PLANNED', 'Créer modèle visuel cohérent sans dépendance à un costume fixe', 'P2')
