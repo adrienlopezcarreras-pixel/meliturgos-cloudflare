@@ -56,7 +56,78 @@ function metadataFor(row,part){
   };
 }
 
+async function legacyConversationCollision(db){
+  const row=await db.prepare("SELECT metadata FROM conversations WHERE id=? LIMIT 1")
+    .bind(LEGACY_CONVERSATION_ID).first();
+  if(!row) return false;
+  const metadata=parseMetadata(row.metadata);
+  return metadata?.source_table!==LEGACY_TABLE || metadata?.migration!=="GEN2-57";
+}
+
+async function legacyIntegrity(db){
+  const mismatchPredicate=`
+    u.id IS NULL
+    OR a.id IS NULL
+    OR u.conversation_id <> '${LEGACY_CONVERSATION_ID}'
+    OR a.conversation_id <> '${LEGACY_CONVERSATION_ID}'
+    OR u.role <> 'user'
+    OR a.role <> 'assistant'
+    OR u.content <> i.user_text
+    OR a.content <> i.assistant_text
+    OR COALESCE(a.model,'') <> COALESCE(i.model,'')
+    OR u.timestamp <> i.created_at
+    OR a.timestamp <> i.created_at + 1
+    OR u.provenance <> '${LEGACY_PROVENANCE}'
+    OR a.provenance <> '${LEGACY_PROVENANCE}'
+    OR json_valid(u.metadata)=0
+    OR json_valid(a.metadata)=0
+    OR json_extract(u.metadata,'$.legacy_interaction_id') IS NOT i.id
+    OR json_extract(a.metadata,'$.legacy_interaction_id') IS NOT i.id
+    OR json_extract(a.metadata,'$.legacy_feedback') IS NOT i.feedback
+    OR json_extract(a.metadata,'$.legacy_correction') IS NOT i.correction
+  `;
+  const row=await db.prepare(`SELECT
+      SUM(CASE WHEN ${mismatchPredicate} THEN 1 ELSE 0 END) AS coverage_mismatches,
+      SUM(CASE WHEN
+        (u.id IS NOT NULL AND (
+          u.conversation_id <> '${LEGACY_CONVERSATION_ID}'
+          OR u.role <> 'user'
+          OR u.content <> i.user_text
+          OR u.timestamp <> i.created_at
+          OR u.provenance <> '${LEGACY_PROVENANCE}'
+          OR json_valid(u.metadata)=0
+          OR json_extract(u.metadata,'$.legacy_interaction_id') IS NOT i.id
+        ))
+        OR
+        (a.id IS NOT NULL AND (
+          a.conversation_id <> '${LEGACY_CONVERSATION_ID}'
+          OR a.role <> 'assistant'
+          OR a.content <> i.assistant_text
+          OR COALESCE(a.model,'') <> COALESCE(i.model,'')
+          OR a.timestamp <> i.created_at + 1
+          OR a.provenance <> '${LEGACY_PROVENANCE}'
+          OR json_valid(a.metadata)=0
+          OR json_extract(a.metadata,'$.legacy_interaction_id') IS NOT i.id
+          OR json_extract(a.metadata,'$.legacy_feedback') IS NOT i.feedback
+          OR json_extract(a.metadata,'$.legacy_correction') IS NOT i.correction
+        ))
+        THEN 1 ELSE 0 END) AS existing_mismatches
+    FROM interactions i
+    LEFT JOIN archive_messages u ON u.id=('legacy-gen1:' || i.id || ':user')
+    LEFT JOIN archive_messages a ON a.id=('legacy-gen1:' || i.id || ':assistant')`).first();
+  return {
+    coverage_mismatches:boundedInt(row?.coverage_mismatches),
+    existing_mismatches:boundedInt(row?.existing_mismatches),
+  };
+}
+
 async function ensureLegacyConversation(db,owner=""){
+  if(await legacyConversationCollision(db)){
+    const error=new Error("GEN1_CONVERSATION_ID_COLLISION");
+    error.code="GEN1_CONVERSATION_ID_COLLISION";
+    error.status=409;
+    throw error;
+  }
   const first=await db.prepare("SELECT MIN(created_at) AS first_at, MAX(created_at) AS last_at FROM interactions").first();
   const now=Date.now();
   const created=boundedInt(first?.first_at,{fallback:now});
@@ -123,7 +194,16 @@ export async function getLegacyInteractionMigrationStatus(env){
   const source=await env.DB.prepare("SELECT COUNT(*) AS count, MAX(id) AS max_id FROM interactions").first();
   const sourceRows=boundedInt(source?.count);
   const archived=await archiveCount(env.DB);
-  const migrated=Math.min(sourceRows,archived.interactions);
+  const conversationCollision=await legacyConversationCollision(env.DB);
+  const integrity=schema.supported
+    ? await legacyIntegrity(env.DB)
+    : {coverage_mismatches:sourceRows,existing_mismatches:0};
+  const migrated=Math.max(0,sourceRows-integrity.coverage_mismatches);
+  const coverageComplete=schema.supported
+    && !conversationCollision
+    && integrity.existing_mismatches===0
+    && integrity.coverage_mismatches===0
+    && archived.messages===sourceRows*2;
   return {
     ok:true,
     available:true,
@@ -137,9 +217,16 @@ export async function getLegacyInteractionMigrationStatus(env){
     archived_messages:archived.messages,
     migrated_interactions:migrated,
     remaining_interactions:Math.max(0,sourceRows-migrated),
-    coverage_complete:schema.supported&&archived.messages===sourceRows*2&&archived.interactions===sourceRows,
+    conversation_collision:conversationCollision,
+    existing_mismatches:integrity.existing_mismatches,
+    coverage_mismatches:integrity.coverage_mismatches,
+    coverage_complete:coverageComplete,
     status:!schema.supported?"SCHEMA_UNSUPPORTED":(
-      archived.messages===sourceRows*2&&archived.interactions===sourceRows?"COMPLETE":"PENDING"
+      conversationCollision?"CONVERSATION_ID_COLLISION":(
+        integrity.existing_mismatches>0?"ARCHIVE_MISMATCH":(
+          coverageComplete?"COMPLETE":"PENDING"
+        )
+      )
     ),
   };
 }
@@ -158,6 +245,21 @@ export async function backfillLegacyInteractions(env,{afterId=0,limit=MAX_BATCH}
     error.code="GEN1_INTERACTIONS_SCHEMA_UNSUPPORTED";
     error.status=409;
     error.details=schema;
+    throw error;
+  }
+
+  if(await legacyConversationCollision(env.DB)){
+    const error=new Error("GEN1_CONVERSATION_ID_COLLISION");
+    error.code="GEN1_CONVERSATION_ID_COLLISION";
+    error.status=409;
+    throw error;
+  }
+  const preIntegrity=await legacyIntegrity(env.DB);
+  if(preIntegrity.existing_mismatches>0){
+    const error=new Error("GEN1_ARCHIVE_ID_COLLISION_OR_MISMATCH");
+    error.code="GEN1_ARCHIVE_ID_COLLISION_OR_MISMATCH";
+    error.status=409;
+    error.details=preIntegrity;
     throw error;
   }
 
