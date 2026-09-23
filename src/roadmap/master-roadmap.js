@@ -180,11 +180,11 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P14', 'Interface et expérience', [
-    item('GEN2-54', 'Control Center / Mode complet', 'IN_PROGRESS', 'Afficher roadmap, diagnostics et vraies capacités dans une interface contemporaine unique; conserver une seule couche de présentation pour thèmes, fonds et avatar', 'P0'),
+    item('GEN2-54', 'Control Center / Mode complet', 'IN_PROGRESS', 'Control Center unifié désormais relié à un résumé système factuel: état global OK/WARN/ERROR dérivé de la santé CapabilityBus, des blocages roadmap et de l’identité exacte du déploiement; cartes d’accueil alimentées par composants API réels et navigation mobile « Plus » peuplée. Ouverture Compétences allégée via cache, refresh santé réel conservé sur action explicite. Conserver une seule couche de présentation canonique et y migrer progressivement les panneaux legacy restants. Preuves candidate: full-candidate-ci 35844893515 et lora-runtime-pipeline-ci 35844893604 verts sur 55a2a47968ed341ec3debe5e6d012876618814a0. Reste à poursuivre cette consolidation avant DONE_VERIFIED.', 'P0'),
     item('MEL-UI-01', 'Accueil minimal et contemporain', 'DONE_VERIFIED', 'Polish mobile continu', 'P0'),
     item('MEL-UI-02', 'Avatar grand / cible tactile mobile', 'DONE_VERIFIED', 'Tester sur Android réel', 'P0'),
     item('MEL-UI-03', 'Favicon visage MEL', 'DONE_VERIFIED', '—', 'P3'),
-    item('MEL-UI-05', 'État réel, pas de cartes factices', 'IN_PROGRESS', 'Toutes cartes reliées à API/health', 'P0')
+    item('MEL-UI-05', 'État réel, pas de cartes factices', 'IN_PROGRESS', 'Vue d’ensemble reliée à /api/gen2/dashboard-summary: CapabilityBus, roadmap et déploiement affichent désormais des états calculés et non un simple succès HTTP; fallback explicite « Diagnostic requis » si le résumé réel échoue. Preuves candidate: full-candidate-ci 35844893515 et test control-center-truthful-status sur 55a2a47968ed341ec3debe5e6d012876618814a0. Reste à auditer chaque carte secondaire et supprimer les derniers placeholders/stats non sourcés avant DONE_VERIFIED.', 'P0')
   ]),
 
   phase('P15', 'Release, migration et maturité finale', [
