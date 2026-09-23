@@ -40,7 +40,7 @@ export async function handleVoiceTranscription(request, env, options = {}) {
     const result = await env.AI.run(MODEL, { audio:new Uint8Array(await file.arrayBuffer()), language:'fr' });
     const text = String(resultText(result) || '').trim();
     if (!text) return Response.json({ ok:false, available:false, fallback:'text', reason:'EMPTY_TRANSCRIPTION' }, { status:503 });
-    return Response.json({ ok:true, text, language:'fr', model:MODEL, stored:false }, { headers:{'cache-control':'no-store'} });
+    return Response.json({ ok:true, text, language:'fr', model:MODEL, stored:false, archive_via:'chat', input_source:'voice-server-transcription' }, { headers:{'cache-control':'no-store'} });
   } catch {
     return Response.json({ ok:false, available:false, fallback:'text', reason:'TRANSCRIPTION_UNAVAILABLE' }, { status:503 });
   }
