@@ -3,7 +3,6 @@
     <application>
         <activity
             android:name=".MelUiHarnessActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Mel" />
+            android:exported="false" />
     </application>
 </manifest>
