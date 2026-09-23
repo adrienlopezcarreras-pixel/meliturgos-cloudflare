@@ -1,11 +1,6 @@
 name: lora-kaggle-free-collect
 
 on:
-  push:
-    branches:
-      - candidate/mel-clean-autonomy
-    paths:
-      - ".github/workflows/lora-kaggle-free-collect.yml"
   workflow_dispatch:
     inputs:
       activate_preview:
@@ -23,9 +18,6 @@ on:
         required: true
         default: "180"
         type: string
-  schedule:
-    - cron: "2,17,32,47 * * * *"
-
 permissions:
   contents: read
 
@@ -84,8 +76,8 @@ jobs:
         id: status
         shell: bash
         env:
-          WAIT_FOR_COMPLETION: ${{ github.event_name != 'workflow_dispatch' || inputs.wait_for_completion }}
-          MAX_WAIT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.max_wait_minutes || '180' }}
+          WAIT_FOR_COMPLETION: ${{ inputs.wait_for_completion }}
+          MAX_WAIT_MINUTES: ${{ inputs.max_wait_minutes }}
         run: |
           set -euo pipefail
           KERNEL="${KAGGLE_USERNAME}/mel-lora-uncensored-notebook-t4"
