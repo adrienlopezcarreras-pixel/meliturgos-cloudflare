@@ -93,3 +93,65 @@ test('release bootstrap returns 409 and leaves autonomy paused when evidence is 
   assert.equal(body.owner_launch_required,true);
   assert.equal(controls[0].paused,true);
 });
+
+
+test('release bootstrap exposes bounded pause, backup, code-sync and readiness phases', async () => {
+  const calls=[];
+  const ready={
+    ok:true,
+    status:'GO_FOR_SUPERVISED_AUTONOMY',
+    launch_ready:true,
+    candidate_sha:'d'.repeat(40),
+    gates:{verified_restore_dry_run:true,shardvault_critical_survival:true},
+    blockers:[],
+    failure_hygiene:{ok:true,retry_cap:3,historical_failed_count:0,unbounded_failed_count:0,code:'FAILURE_HISTORY_BOUNDED'},
+    restore:{ok:true,status:'LATEST_SYSTEM_BACKUP_RESTORE_VERIFIED',deployed_sha:'d'.repeat(40),backup_deployed_sha:'d'.repeat(40),sha_matches:true},
+    shardvault:{ok:true,status:'SHARDVAULT_7X_CODE_SURVIVAL_VERIFIED',recoverable:true,active_external_count:7,external_code_status:'COPIED',external_code_endpoints:7,target_count:7},
+  };
+  const deps={
+    setControl:async(_db,input)=>{calls.push(['control',input.reason]); return input;},
+    prepare:async()=>{throw new Error('legacy all phase must not run');},
+    prepareBackup:async()=>({ok:true,status:'CREATED_VERIFIED',id:'system-test'}),
+    prepareCodeSync:async()=>({ok:true,complete:true,status:'COPIED',code_sync:{ok:true,complete:true,status:'COPIED',endpoints:Array(7).fill('x')}}),
+    readReadiness:async()=>ready,
+  };
+  const request=phase=>new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+    method:'POST',
+    headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+    body:JSON.stringify({phase}),
+  });
+
+  const pause=await maybeHandleReleaseLaunchBootstrap(request('pause'),{MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},deps);
+  assert.equal(pause.status,200);
+  assert.equal((await pause.json()).status,'RELEASE_PAUSED');
+
+  const backup=await maybeHandleReleaseLaunchBootstrap(request('backup'),{MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},deps);
+  assert.equal(backup.status,200);
+  assert.equal((await backup.json()).backup.id,'system-test');
+
+  const sync=await maybeHandleReleaseLaunchBootstrap(request('code-sync'),{MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},deps);
+  assert.equal(sync.status,200);
+  assert.equal((await sync.json()).complete,true);
+
+  const readiness=await maybeHandleReleaseLaunchBootstrap(request('readiness'),{MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},deps);
+  assert.equal(readiness.status,200);
+  assert.equal((await readiness.json()).readiness.launch_ready,true);
+  assert.equal(calls.length,4);
+  assert.ok(calls.every(row=>row[1]==='NEW_RELEASE_AWAITING_OWNER_LAUNCH'));
+});
+
+test('release bootstrap rejects unknown phase before running preparation', async () => {
+  let prepared=false;
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'huge-all-at-once'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN},
+    {prepare:async()=>{prepared=true;}},
+  );
+  assert.equal(response.status,400);
+  assert.equal((await response.json()).code,'BOOTSTRAP_PHASE_INVALID');
+  assert.equal(prepared,false);
+});
