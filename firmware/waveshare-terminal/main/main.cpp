@@ -14,6 +14,11 @@
 
 #include "esp_3inch5_lcd_port.h"
 #include "esp_wifi_port.h"
+#include "esp_axp2101_port.h"
+#include "esp_es8311_port.h"
+#include "esp_camera_port.h"
+#include "esp_camera.h"
+#include "mel_terminal.h"
 
 
 #define MINI_LCD_H_RES 320
@@ -38,6 +43,9 @@ static lv_obj_t *right_eye = nullptr;
 static lv_obj_t *mouth_obj = nullptr;
 static lv_timer_t *anim_timer = nullptr;
 static bool listening = false;
+static bool audio_ok = false;
+static bool camera_ok = false;
+static bool mel_runtime_started = false;
 
 #define MINI_WIFI_MAX_AP 12
 static lv_obj_t *wifi_panel = nullptr;
@@ -48,6 +56,10 @@ static lv_obj_t *wifi_pwd = nullptr;
 static lv_obj_t *wifi_keyboard = nullptr;
 static lv_obj_t *wifi_connect_btn = nullptr;
 static lv_obj_t *main_panel = nullptr;
+static lv_obj_t *pair_panel = nullptr;
+static lv_obj_t *pair_input = nullptr;
+static lv_obj_t *pair_keyboard = nullptr;
+static lv_obj_t *pair_status = nullptr;
 static char wifi_ssids[MINI_WIFI_MAX_AP][33] = {};
 static char selected_ssid[33] = {};
 static bool wifi_manual_mode = false;
@@ -94,18 +106,40 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
 static void mini_anim_cb(lv_timer_t *) {
     if (!left_eye || !right_eye || !mouth_obj || !face_obj) return;
     const uint32_t phase = (lv_tick_get() / 120) % 32;
-    const bool blink = !listening && (phase == 0 || phase == 1);
+    const int state = mel_terminal_state();
+    listening = state == MEL_TERMINAL_LISTENING;
+
+    const bool blink = state == MEL_TERMINAL_IDLE && (phase == 0 || phase == 1);
     lv_obj_set_height(left_eye, blink ? 2 : 10);
     lv_obj_set_height(right_eye, blink ? 2 : 10);
-    if (listening) {
-        lv_obj_set_style_border_color(face_obj, lv_color_hex(0x34D399), 0);
-        lv_obj_set_height(mouth_obj, (phase % 3 == 0) ? 12 : 5);
+
+    lv_color_t accent = lv_color_hex(0x22D3EE);
+    if (state == MEL_TERMINAL_LISTENING) accent = lv_color_hex(0x34D399);
+    else if (state == MEL_TERMINAL_THINKING) accent = lv_color_hex(0xA78BFA);
+    else if (state == MEL_TERMINAL_SPEAKING) accent = lv_color_hex(0x60A5FA);
+    else if (state == MEL_TERMINAL_ERROR) accent = lv_color_hex(0xFB7185);
+    lv_obj_set_style_border_color(face_obj, accent, 0);
+
+    if (state == MEL_TERMINAL_LISTENING) {
+        lv_obj_set_height(mouth_obj, (phase % 3 == 0) ? 11 : 5);
+        if (status_label) lv_label_set_text(status_label, "ECOUTE");
+    } else if (state == MEL_TERMINAL_THINKING) {
+        lv_obj_set_height(mouth_obj, 4);
+        lv_obj_set_width(mouth_obj, 28 + (phase % 5) * 4);
+        if (status_label) lv_label_set_text(status_label, "REFLEXION");
+    } else if (state == MEL_TERMINAL_SPEAKING) {
+        lv_obj_set_width(mouth_obj, 42);
+        lv_obj_set_height(mouth_obj, (phase % 3 == 0) ? 14 : 6);
+        if (status_label) lv_label_set_text(status_label, "MEL");
+    } else if (state == MEL_TERMINAL_ERROR) {
+        lv_obj_set_height(mouth_obj, 4);
+        if (status_label) lv_label_set_text(status_label, "ERREUR");
     } else {
-        lv_obj_set_style_border_color(face_obj, lv_color_hex(0x22D3EE), 0);
+        lv_obj_set_width(mouth_obj, 42);
         lv_obj_set_height(mouth_obj, 5);
+        if (status_label) lv_label_set_text(status_label, mel_terminal_online() ? "PARLER" : "HORS LIGNE");
     }
 }
-
 
 static esp_err_t mini_wifi_sta_connect(const char *ssid, const char *password) {
     if (!ssid || !ssid[0]) return ESP_ERR_INVALID_ARG;
@@ -489,9 +523,13 @@ static void lv_port_init() {
 
 static void touch_cb(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED || !status_label) return;
-    listening = !listening;
-    lv_label_set_text(status_label, listening ? "ECOUTE" : "PARLER");
-    ESP_LOGI(TAG, "TOUCH OK - MINI %s", listening ? "LISTENING" : "IDLE");
+    if (!mel_terminal_online()) {
+        lv_label_set_text(status_label, "MEL HORS LIGNE");
+        ESP_LOGW(TAG, "Talk requested while MEL runtime is offline");
+        return;
+    }
+    mel_terminal_request_voice();
+    ESP_LOGI(TAG, "PARLER requested");
 }
 
 static void mini_smoke_ui() {
