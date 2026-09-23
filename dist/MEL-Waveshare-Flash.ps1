@@ -102,8 +102,8 @@ try {
   Write-Host ""
   Write-Host "Firmware MEL installé." -ForegroundColor Green
   Write-Host "Débranche/rebranche ou appuie sur RESET."
-  Write-Host "L'écran affichera le Wi-Fi MEL-SETUP, son mot de passe et 192.168.4.1."
-  Write-Host "Dans MEL > Terminal MEL, crée ensuite un code d'appairage."
+  Write-Host "MINI démarre directement sur son interface tactile."
+  Write-Host "Choisis le Wi-Fi sur MINI, saisis le mot de passe à l'écran, puis crée un code dans MEL > MINI et saisis-le sur MINI."
 }
 finally {
   $pass = $null
