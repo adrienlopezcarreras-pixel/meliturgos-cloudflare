@@ -70,10 +70,10 @@ test('SyncService does not loop forever on empty or unsupported archive messages
   try{
     await seed(DB);
     const service=createSyncService({DB});
-    const result=await service.syncToMemory({conversationId:'chatgpt:mem05',limit:1000});
+    const result=await service.syncToMemory({conversationId:'chatgpt:mem05',limit:1000,provenance:'chatgpt_export'});
     assert.equal(result.scanned,2);
     assert.equal(result.inserted,2);
-    const again=await service.syncToMemory({conversationId:'chatgpt:mem05',limit:1000});
+    const again=await service.syncToMemory({conversationId:'chatgpt:mem05',limit:1000,provenance:'chatgpt_export'});
     assert.equal(again.scanned,0);
   }finally{DB.close();}
 });
