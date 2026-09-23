@@ -98,3 +98,35 @@ test('Android native client exposes pairing chat sync ACK voice and file transpo
   ];
   for(const route of routes) assert.ok(api.includes(route),route);
 });
+
+
+test('Android app surfaces the native MEL avatar in launcher and Compose UI',async()=>{
+  const manifest=await readFile(new URL('app/src/main/AndroidManifest.xml',root),'utf8');
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const avatar=await readFile(new URL('app/src/main/res/drawable/ic_mel_avatar.xml',root),'utf8');
+  assert.match(manifest,/android:icon="@drawable\/ic_mel_avatar"/);
+  assert.match(manifest,/android:roundIcon="@drawable\/ic_mel_avatar"/);
+  assert.match(activity,/painterResource\(R\.drawable\.ic_mel_avatar\)/);
+  assert.match(activity,/MelAvatar\(/);
+  assert.match(avatar,/#22D3EE/);
+  assert.match(avatar,/#3B241B/);
+});
+
+test('signed Android release pipeline is secret-backed fail-closed and verifies the APK signature',async()=>{
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  const workflow=await readFile(new URL('../.github/workflows/android-release-build.yml',import.meta.url),'utf8');
+  assert.match(build,/ANDROID_KEYSTORE_PATH/);
+  assert.match(build,/ANDROID_KEYSTORE_PASSWORD/);
+  assert.match(build,/ANDROID_KEY_ALIAS/);
+  assert.match(build,/ANDROID_KEY_PASSWORD/);
+  assert.match(build,/enableV2Signing\s*=\s*true/);
+  assert.match(workflow,/secrets\.ANDROID_KEYSTORE_BASE64/);
+  assert.match(workflow,/secrets\.ANDROID_KEYSTORE_PASSWORD/);
+  assert.match(workflow,/secrets\.ANDROID_KEY_ALIAS/);
+  assert.match(workflow,/secrets\.ANDROID_KEY_PASSWORD/);
+  assert.match(workflow,/base64 --decode/);
+  assert.match(workflow,/apksigner.*verify/);
+  assert.match(workflow,/zipalign.*-c/);
+  assert.match(workflow,/release\/mel-hardware-v0\.1\.0/);
+  assert.match(workflow,/Remove signing material/);
+});
