@@ -99,6 +99,20 @@ jobs:
                 continue
                 ;;
 
+              feature/mini-physical-companion-v0.2)
+                branch_ref="refs/remotes/origin/$branch"
+                base="$(git merge-base "$branch_ref" "$canonical")"
+                unexpected="$(git diff --name-only "$base" "$branch_ref" | grep -Ev '^(firmware/waveshare-terminal/[A-Za-z0-9._/-]+|src/devices/waveshare-terminal-api[.]js|src/pages/full-interface-v2[.]js)$' || true)"
+                if [[ -n "$unexpected" ]]; then
+                  echo "MINI_LAB_SCOPE_VIOLATION:$branch"
+                  printf '%s\n' "$unexpected"
+                  divergent+=("$branch")
+                else
+                  echo "Isolated MINI hardware lab branch accepted: $branch"
+                fi
+                continue
+                ;;
+
               godot-private-test-*)
                 branch_ref="refs/remotes/origin/$branch"
                 base="$(git merge-base "$branch_ref" "$canonical")"

@@ -1592,7 +1592,7 @@ export async function activateValidatedShardVaultEndpoint(env,endpointId){
   return {ok:true,status:'ACTIVATED',endpoint_id:id,used_fragments:used,snapshot_id:latest.snapshotId,active_external_count:actual.length,active_endpoint_ids:actual.map(e=>e.id),staged_endpoint_ids:staged.map(e=>e.id),code_sync,cycle};
 }
 
-export async function searchAutonomousShardVaultRepositories(env){
+export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoints=7,probeLimit=null,probeOffset=0}={}){
   let c;
   try{c=await config(env);}catch(error){
     const result={ok:false,error:String(error?.message||error),status:'CONFIG_INVALID',searched_at:new Date().toISOString()};
@@ -1620,20 +1620,69 @@ export async function searchAutonomousShardVaultRepositories(env){
         requiredBytes=Math.max(requiredBytes,codeShardBytes);
       }
     }catch{}
+    const targetCount=Math.min(7,c.n);
+    const boundedMode=Number(maxNewEndpoints)!==7||probeLimit!==null||Number(probeOffset)!==0;
+    const boundedMaxNew=boundedMode
+      ? Math.max(1,Math.min(targetCount,Math.trunc(Number(maxNewEndpoints)||1)))
+      : targetCount;
     const activeBefore=await reconcileActiveExternalEndpoints(env,c,last);
-    const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
-    await rememberValidatedExternalEndpoints(env,[...(report.qualified||[]),...(report.selected||[])]);
-    await rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])]);
-    const staged=await stageActiveExternalEndpoints(env,c,last,report.selected||[]);
-    let activation_cycle=null,active=activeBefore;
-    if(staged.length>activeBefore.length){
-      try{activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true});}
-      catch(error){activation_cycle={ok:false,error:String(error?.message||error)};}
-      if(activation_cycle?.ok){
-        const rowsAfter=await inventoryRows(env,c),latestAfter=latestSnapshot(rowsAfter);
-        active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
-      }else{
-        await writeActiveExternalEndpoints(env,activeBefore);
+    let active=activeBefore,activation_cycle=null,cached_staged=0;
+    let report={
+      selected:[],qualified:[],eligible:[],rejected:[],internet_sources:[],leads:[],
+      generation:1,known_leads:0,new_leads:0,query_set:[],diversity:null,
+      discovered:0,probed:0,representative_probed:0,representative_qualified:0,
+      probe_limit:0,probe_offset:Math.max(0,Math.trunc(Number(probeOffset)||0))
+    };
+
+    if(boundedMode&&active.length<targetCount){
+      const activeIds=new Set(active.map(e=>e.id));
+      const validated=(await readValidatedExternalEndpoints(env,requiredBytes))
+        .filter(e=>!activeIds.has(e.id))
+        .slice(0,boundedMaxNew);
+      if(validated.length){
+        const staged=await stageActiveExternalEndpoints(env,c,last,validated);
+        if(staged.length>active.length){
+          try{activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true});}
+          catch(error){activation_cycle={ok:false,error:String(error?.message||error)};}
+          if(activation_cycle?.ok){
+            const rowsAfter=await inventoryRows(env,c),latestAfter=latestSnapshot(rowsAfter);
+            active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
+            last=latestAfter;
+            cached_staged=Math.max(0,active.length-activeBefore.length);
+          }else{
+            await writeActiveExternalEndpoints(env,activeBefore);
+            active=activeBefore;
+          }
+        }
+      }
+    }
+
+    const remainingBudget=boundedMode
+      ? Math.max(0,boundedMaxNew-Math.max(0,active.length-activeBefore.length))
+      : targetCount;
+    if((!boundedMode||active.length<targetCount)&&remainingBudget>0){
+      const selectionTarget=boundedMode
+        ? Math.min(remainingBudget,targetCount-active.length)
+        : targetCount;
+      report=await discoverAutonomousRepositories(env,{
+        masterKey:c.master,vaultId:c.vaultId,requiredBytes,
+        selectionCount:selectionTarget,probeLimit,probeOffset
+      });
+      await rememberValidatedExternalEndpoints(env,[...(report.qualified||[]),...(report.selected||[])]);
+      await rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])]);
+      const activeBeforeDiscovery=active;
+      const staged=await stageActiveExternalEndpoints(env,c,last,(report.selected||[]).slice(0,selectionTarget));
+      if(staged.length>activeBeforeDiscovery.length){
+        try{activation_cycle=await runShardVaultCycle(env,{force:true,skipExternalCode:true});}
+        catch(error){activation_cycle={ok:false,error:String(error?.message||error)};}
+        if(activation_cycle?.ok){
+          const rowsAfter=await inventoryRows(env,c),latestAfter=latestSnapshot(rowsAfter);
+          active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
+          last=latestAfter;
+        }else{
+          await writeActiveExternalEndpoints(env,activeBeforeDiscovery);
+          active=activeBeforeDiscovery;
+        }
       }
     }
     const activeIds=new Set(active.map(e=>e.id));
@@ -1672,12 +1721,17 @@ export async function searchAutonomousShardVaultRepositories(env){
       external_found:active.length>0,
       active_external_count:active.length,
       active_endpoint_ids:active.map(e=>e.id),
+      cached_validated_staged:cached_staged,
+      max_new_endpoints:boundedMaxNew,
+      probe_limit:Number(report?.probe_limit||0),
+      probe_offset:Number(report?.probe_offset||0),
       representative_validated_count:Number(report?.selected?.length||0),
       representative_validated_endpoint_ids:(report?.selected||[]).map(e=>e.id),
-      target_count:Math.min(7,c.n),
-      target_reached:Number(report?.selected?.length||0)>=Math.min(7,c.n),
-      continue_searching:Number(report?.selected?.length||0)<Math.min(7,c.n),
+      target_count:targetCount,
+      target_reached:active.length>=targetCount,
+      continue_searching:active.length<targetCount,
       search_mode:'MAINTAIN_7_EXTERNAL',
+      search_strategy:boundedMode?'INCREMENTAL_BOUNDED':'FULL_REVALIDATION',
       activation_cycle
     };
     if(result.target_reached){

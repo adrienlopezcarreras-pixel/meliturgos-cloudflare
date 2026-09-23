@@ -1364,18 +1364,23 @@ function choose(candidates,count,maxPerOperator,maxPerProvider){
   return selected;
 }
 
-export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requiredBytes=0,selectionCount=7}={}){
+export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requiredBytes=0,selectionCount=7,probeLimit:requestedProbeLimit=null,probeOffset=0}={}){
   const master=bytes(masterKey);if(master.length<32)throw new Error('AUTONOMOUS_MASTER_KEY_INVALID');
   const loaded=await loadCandidates(env,master,String(vaultId));
+  const selectionTarget=Math.max(1,Math.min(7,Math.trunc(Number(selectionCount)||7)));
   const policyMaxAgeDays=Math.max(1,Number(env?.MEL_AUTONOMOUS_POLICY_MAX_AGE_DAYS)||180);
-  const probeLimit=Math.max(selectionCount,Math.min(50,Number(env?.MEL_AUTONOMOUS_PROBE_LIMIT)||14));
+  const configuredProbeLimit=Math.max(selectionTarget,Math.min(50,Number(env?.MEL_AUTONOMOUS_PROBE_LIMIT)||14));
+  const probeLimit=requestedProbeLimit==null
+    ? configuredProbeLimit
+    : Math.max(selectionTarget,Math.min(14,Math.trunc(Number(requestedProbeLimit)||selectionTarget)));
+  const boundedProbeOffset=Math.max(0,Math.min(49,Math.trunc(Number(probeOffset)||0)));
   const maxPerOperator=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_OPERATOR)||2);
   const maxPerProvider=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_PROVIDER)||2);
   const minRetentionDays=Math.max(1,Number(env?.MEL_AUTONOMOUS_MIN_RETENTION_DAYS)||90);
   const eligibleRows=[],rejected=[...loaded.rejected];
   for(const c of loaded.candidates){const e=eligible(c,{requiredBytes,policyMaxAgeDays,minRetentionDays});if(e.ok)eligibleRows.push(c);else rejected.push({source:c.source,id:c.id,reason:e.reasons.join(',')});}
   const probed=[];
-  for(const c of eligibleRows.slice(0,probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays,env));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
+  for(const c of eligibleRows.slice(boundedProbeOffset,boundedProbeOffset+probeLimit)){try{probed.push(await probe(c,requiredBytes,policyMaxAgeDays,env));}catch(error){rejected.push({source:c.source,id:c.id,reason:String(error?.message||error)});}}
   const representativeProofs=await readRepresentativeProofs(env);
   const qualified=[];
   let representativeProbed=0;
@@ -1383,12 +1388,12 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
     try{
       representativeProbed++;
       qualified.push(await representativeProbe(c,requiredBytes,env,representativeProofs));
-      if(qualified.length>=selectionCount)break;
+      if(qualified.length>=selectionTarget)break;
     }catch(error){
       rejected.push({source:c.source,id:c.id,reason:'REPRESENTATIVE_'+String(error?.message||error)});
     }
   }
-  const selected=choose(qualified,selectionCount,maxPerOperator,maxPerProvider);
+  const selected=choose(qualified,selectionTarget,maxPerOperator,maxPerProvider);
   const endpointView=(c,verification=c.representativeVerifiedAt?'representative_full_fragment_roundtrip':'reviewed_documentation_candidate')=>({id:c.id,urlTemplate:c.urlTemplate,method:c.method,maxBytes:c.maxBytes,operatorDomain:c.operatorDomain,providerId:c.providerId,jurisdiction:c.jurisdiction,score:Number(c.score)||0,confidence:Number(c.confidence)||0,autonomous:true,authMode:c.authMode||'none',adapter:c.adapter||null,evidenceMode:c.evidenceMode||null,evidenceVerification:verification,expectedRetentionDays:c.expectedRetentionDays||0,retentionModel:c.retentionModel||'fixed',baseRetentionDays:c.baseRetentionDays||c.expectedRetentionDays||0,refreshEveryDays:c.refreshEveryDays||0,fullReadRenewsRetention:c.fullReadRenewsRetention===true,verifiedAt:c.probe?.checkedAt||null,probeLatencyMs:(Number(c.probe?.writeLatencyMs)||0)+(Number(c.probe?.readLatencyMs)||0),representativeVerifiedAt:c.representativeVerifiedAt||null,representativeBytes:Number(c.representativeBytes)||0,representativeSha256:c.representativeSha256||null,representativeParts:Number(c.representativeParts)||0,representativeLatencyMs:Number(c.representativeLatencyMs)||0,representativeDeadlineMs:Number(c.representativeDeadlineMs)||0});
   return {
     selected:selected.map(endpointView),
@@ -1399,6 +1404,9 @@ export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requ
     probed:probed.length,
     representative_probed:representativeProbed,
     representative_qualified:qualified.length,
+    selection_target:selectionTarget,
+    probe_limit:probeLimit,
+    probe_offset:boundedProbeOffset,
     internet_sources:loaded.sources||[],
     leads:loaded.leads||[],
     generation:loaded.generation||1,

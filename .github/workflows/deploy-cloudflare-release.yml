@@ -181,17 +181,18 @@ jobs:
 
           if [ "$SHARD_ACTIVE" -lt 7 ]; then
             SHARD_READY=0
-            for SHARD_ATTEMPT in $(seq 1 4); do
-              SHARD_SEARCH_CODE="$(curl --silent --show-error --max-time 180 \
+            for SHARD_ATTEMPT in $(seq 1 8); do
+              SHARD_OFFSET=$((SHARD_ATTEMPT - 1))
+              SHARD_SEARCH_CODE="$(curl --silent --show-error --max-time 175 \
                 --header "x-mel-release-smoke: 1" \
                 --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
                 --header "content-type: application/json" \
-                --data '{}' \
+                --data "{\"max_new_endpoints\":1,\"probe_limit\":1,\"probe_offset\":${SHARD_OFFSET}}" \
                 --output production-shardvault-search.json \
                 --write-out '%{http_code}' \
                 "${BASE_URL}/api/gen2/shardvault/search" || true)"
               if [ "$SHARD_SEARCH_CODE" != "200" ]; then
-                echo "ShardVault activation search attempt ${SHARD_ATTEMPT} returned HTTP ${SHARD_SEARCH_CODE}."
+                echo "ShardVault bounded activation attempt ${SHARD_ATTEMPT} returned HTTP ${SHARD_SEARCH_CODE}."
                 test ! -s production-shardvault-search.json || cat production-shardvault-search.json
               else
                 SHARD_STATE="$(node -e 'const d=require("./production-shardvault-search.json"); if(d?.ok!==true) throw new Error("SHARDVAULT_SEARCH_NOT_OK"); const active=Number(d?.active_external_count||0); const target=Number(d?.target_count||7); process.stdout.write(String(active)+" "+String(target)+" "+(active>=target?"1":"0"));')"
@@ -199,7 +200,7 @@ jobs:
                 SHARD_REST="${SHARD_STATE#* }"
                 SHARD_TARGET="${SHARD_REST%% *}"
                 SHARD_READY="${SHARD_REST##* }"
-                echo "ShardVault activation attempt ${SHARD_ATTEMPT}: ${SHARD_ACTIVE}/${SHARD_TARGET}"
+                echo "ShardVault bounded activation ${SHARD_ATTEMPT}: ${SHARD_ACTIVE}/${SHARD_TARGET}"
                 if [ "$SHARD_READY" = "1" ]; then
                   break
                 fi

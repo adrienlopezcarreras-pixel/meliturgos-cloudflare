@@ -213,7 +213,12 @@ export async function handleShardVaultStatus(request,env){
     return Response.json(result,{status:result.ok?200:503,headers:{'cache-control':'no-store'}});
   }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/search'){
-    const result=await searchAutonomousShardVaultRepositories(env);
+    const body=await request.json().catch(()=>({}));
+    const result=await searchAutonomousShardVaultRepositories(env,{
+      maxNewEndpoints:body?.max_new_endpoints,
+      probeLimit:body?.probe_limit,
+      probeOffset:body?.probe_offset,
+    });
     return Response.json(result,{status:result.ok?200:503,headers:{'cache-control':'no-store'}});
   }
   if(request.method==='POST'&&url.pathname==='/api/gen2/shardvault/code-source'){
