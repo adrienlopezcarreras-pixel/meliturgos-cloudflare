@@ -37,7 +37,11 @@ test('release workflow expands active ShardVault registry before launch bootstra
   assert.match(source,/SHARD_STATUS_READY=0/);
   assert.match(source,/ShardVault status propagation attempt/);
   assert.match(source,/exit 46/);
-  assert.match(source,/seq 1 4/);
+  assert.match(source,/seq 1 8/);
+  assert.match(source,/max_new_endpoints\\":1/);
+  assert.match(source,/probe_limit\\":1/);
+  assert.match(source,/probe_offset/);
+  assert.match(source,/--max-time 175/);
   assert.match(source,/active_external_registry/);
   assert.match(source,/active<7/);
   assert.match(source,/PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7/);
