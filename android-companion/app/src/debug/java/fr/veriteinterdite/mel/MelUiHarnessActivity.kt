@@ -39,7 +39,8 @@ class MelUiHarnessActivity : ComponentActivity() {
                     onVoice = {},
                     onFile = {},
                     onProfessor = {},
-                    onNotifications = {}
+                    onNotifications = {},
+                    onDiagnostics = {}
                 )
             }
         }
