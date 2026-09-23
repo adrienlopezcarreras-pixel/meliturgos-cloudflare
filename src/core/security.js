@@ -50,10 +50,15 @@ function safeEqual(left, right) {
 }
 
 const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
-  ['POST', new Set(['/api/chat', '/api/gen2/capabilities/execute'])],
+  ['POST', new Set([
+    '/api/chat',
+    '/api/gen2/capabilities/execute',
+    '/api/gen2/migration/gen1-backfill',
+  ])],
   ['GET', new Set([
     '/api/gen2/code/self-check',
     '/api/gen2/readiness',
+    '/api/gen2/migration/gen1-status',
     '/api/memory/status',
     '/professor',
     '/normal-runtime.js',

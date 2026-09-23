@@ -189,7 +189,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P15', 'Release, migration et maturité finale', [
     item('GEN2-53', 'Canary pré-release / rollback', 'DONE_VERIFIED', 'Preuve canary/rollback: Actions run 35093195456; production: release run 35094721729; smoke live post-déploiement: run 35094194506 job 104789501239', 'P0'),
-    item('GEN2-57', 'Migration Gen1 sans perte', 'IN_PROGRESS', 'Réduire progressivement worker legacy', 'P0'),
+    item('GEN2-57', 'Migration Gen1 sans perte', 'IN_PROGRESS', 'Worker Gen1 racine déjà inerté vers src/index.js. Migration historique interactions -> archive_messages désormais implémentée à partir du schéma réel prouvé dans backups/2026-09-04-v0.2.1/meliturgos-memory.sql: 1 interaction devient 2 messages déterministes, modèle/feedback/correction/timestamps préservés, source jamais modifiée, schéma inconnu fail-closed, lots bornés et replay-safe. Endpoints propriétaire gen1-status/gen1-backfill ajoutés. Preuves candidate: full-candidate-ci 35846068585 et lora-runtime-pipeline-ci 35846068621 verts sur 299ec49a1b7a915e264c764af5acce6d59ee78e2. Reste la preuve D1 production: coverage_complete=true, remaining_interactions=0 et source conservée avant DONE_VERIFIED.', 'P0'),
     item('GEN2-55', 'Data integrity / final maturity tests', 'PLANNED', 'Suite finale après stabilisation', 'P1'),
     item('GEN2-60', 'Completion matrix', 'PLANNED', 'Générer automatiquement depuis ce registre', 'P2'),
     item('GEN2-61', 'Final status report', 'PLANNED', 'Générer au jalon mature', 'P2'),
