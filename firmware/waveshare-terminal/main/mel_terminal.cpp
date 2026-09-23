@@ -4,6 +4,7 @@
 #include <cstring>
 #include <string>
 #include <cstdio>
+#include <cctype>
 #include <sys/stat.h>
 
 #include "nvs.h"
@@ -24,6 +25,7 @@
 #include "esp_codec_dev.h"
 #include "esp_lvgl_port.h"
 #include "cJSON.h"
+#include "mbedtls/sha256.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -759,7 +761,23 @@ static int sync_assets(cJSON *root) {
     return synced;
 }
 
-static bool ota_download(const std::string &key) {
+static bool valid_sha256_hex(const std::string &value) {
+    if (value.size() != 64) return false;
+    for (char c : value) {
+        const bool hex = (c >= '0' && c <= '9') ||
+                         (c >= 'a' && c <= 'f') ||
+                         (c >= 'A' && c <= 'F');
+        if (!hex) return false;
+    }
+    return true;
+}
+
+static bool ota_download(const std::string &key, const std::string &expected_sha256) {
+    if (!valid_sha256_hex(expected_sha256)) {
+        ESP_LOGE(TAG, "OTA refused: missing/invalid manifest SHA-256");
+        return false;
+    }
+
     std::string url = std::string(SERVER) + "/api/device/v1/download?key=" + key;
     esp_http_client_config_t cfg = {};
     cfg.url = url.c_str();
@@ -790,20 +808,51 @@ static bool ota_download(const std::string &key) {
         return false;
     }
 
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+    bool ok = mbedtls_sha256_starts(&sha, 0) == 0;
+
     uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(8192, MALLOC_CAP_8BIT));
-    bool ok = buffer != nullptr;
+    if (!buffer) ok = false;
     while (ok) {
         int n = esp_http_client_read(client, reinterpret_cast<char *>(buffer), 8192);
         if (n < 0) { ok = false; break; }
         if (n == 0) break;
+        if (mbedtls_sha256_update(&sha, buffer, (size_t)n) != 0) { ok = false; break; }
         if (esp_ota_write(handle, buffer, n) != ESP_OK) { ok = false; break; }
     }
+
+    uint8_t digest[32] = {};
+    if (ok && mbedtls_sha256_finish(&sha, digest) != 0) ok = false;
+    mbedtls_sha256_free(&sha);
+
     if (buffer) heap_caps_free(buffer);
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
 
-    if (!ok || esp_ota_end(handle) != ESP_OK) return false;
+    if (!ok) {
+        esp_ota_abort(handle);
+        return false;
+    }
+
+    char actual_hex[65] = {};
+    for (int i = 0; i < 32; ++i) {
+        snprintf(actual_hex + (i * 2), 3, "%02x", digest[i]);
+    }
+
+    std::string expected = expected_sha256;
+    std::transform(expected.begin(), expected.end(), expected.begin(),
+                   [](unsigned char c) { return (char)std::tolower(c); });
+
+    if (expected != actual_hex) {
+        ESP_LOGE(TAG, "OTA SHA-256 mismatch; refusing boot partition switch");
+        esp_ota_abort(handle);
+        return false;
+    }
+
+    if (esp_ota_end(handle) != ESP_OK) return false;
     if (esp_ota_set_boot_partition(partition) != ESP_OK) return false;
+    ESP_LOGI(TAG, "OTA image SHA-256 verified before boot switch");
     return true;
 }
 
@@ -829,7 +878,11 @@ static void update_task(void *) {
     cJSON *available = fw ? cJSON_GetObjectItemCaseSensitive(fw, "available") : nullptr;
     cJSON *version = fw ? cJSON_GetObjectItemCaseSensitive(fw, "version") : nullptr;
     cJSON *key = fw ? cJSON_GetObjectItemCaseSensitive(fw, "key") : nullptr;
-    const bool has = cJSON_IsTrue(available) && cJSON_IsString(key) && key->valuestring;
+    cJSON *sha256 = fw ? cJSON_GetObjectItemCaseSensitive(fw, "sha256") : nullptr;
+    const bool has = cJSON_IsTrue(available) &&
+                     cJSON_IsString(key) && key->valuestring &&
+                     cJSON_IsString(sha256) && sha256->valuestring &&
+                     valid_sha256_hex(sha256->valuestring);
     const char *ver = cJSON_IsString(version) && version->valuestring ? version->valuestring : "";
     if (!has || !strcmp(ver, MEL_FW_VERSION)) {
         if (root) cJSON_Delete(root);
@@ -841,11 +894,12 @@ static void update_task(void *) {
         return;
     }
     std::string update_key = key->valuestring;
+    std::string update_sha256 = sha256->valuestring;
     if (root) cJSON_Delete(root);
 
     ui_status("TÉLÉCHARGEMENT…");
-    ui_answer((std::string("Installation de MEL ") + ver + "…").c_str());
-    if (ota_download(update_key)) {
+    ui_answer((std::string("Installation vérifiée de MEL ") + ver + "…").c_str());
+    if (ota_download(update_key, update_sha256)) {
         ui_status("REDÉMARRAGE…");
         ui_answer("Mise à jour installée.");
         vTaskDelay(pdMS_TO_TICKS(1200));
