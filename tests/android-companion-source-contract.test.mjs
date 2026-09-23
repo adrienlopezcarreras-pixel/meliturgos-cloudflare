@@ -12,17 +12,21 @@ test('Android client forbids cleartext transport and requests only required netw
   assert.match(manifest,/android:allowBackup="false"/);
 });
 
-test('Android token is encrypted with Android Keystore and owner password is absent from client sources',async()=>{
+test('Android token is encrypted with Android Keystore and owner password is never persisted',async()=>{
   const vault=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/TokenVault.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   assert.match(vault,/AndroidKeyStore/);
   assert.match(vault,/AES\/GCM\/NoPadding/);
   assert.match(vault,/PURPOSE_ENCRYPT/);
   assert.match(api,/require\(baseUrl\.startsWith\("https:\/\/"\)\)/);
   assert.match(api,/Authorization", "Bearer \$token"/);
-  assert.doesNotMatch(api,/Basic\s/i);
-  assert.doesNotMatch(api,/password/i);
+  assert.match(api,/\/api\/android\/v1\/pair-code/);
+  assert.match(api,/Authorization", "Basic \$credentials"/);
   assert.doesNotMatch(vault,/password/i);
+  assert.doesNotMatch(vault,/owner/i);
+  assert.match(activity,/ownerPassword\.setText\(""\)/);
+  assert.doesNotMatch(activity,/putString\([^\n]*password/i);
 });
 
 test('Android native client exposes pairing chat sync ACK and voice transports',async()=>{

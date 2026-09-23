@@ -49,6 +49,27 @@ class MelApiClient(
         return json
     }
 
+    fun pairWithOwnerCredentials(
+        username: String,
+        password: String,
+        name: String = "MEL Android",
+        appVersion: String = "0.1.0"
+    ): JSONObject {
+        require(username.isNotBlank()) { "OWNER_USERNAME_REQUIRED" }
+        require(password.isNotBlank()) { "OWNER_PASSWORD_REQUIRED" }
+        val connection = connection("/api/android/v1/pair-code", "POST", authenticated = false)
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/json")
+        val credentials = android.util.Base64.encodeToString(
+            "$username:$password".toByteArray(Charsets.UTF_8),
+            android.util.Base64.NO_WRAP
+        )
+        connection.setRequestProperty("Authorization", "Basic $credentials")
+        connection.outputStream.use { it.write("{}".toByteArray(Charsets.UTF_8)) }
+        val code = readJson(connection).getString("code")
+        return pair(code, name, appVersion)
+    }
+
     fun pair(pairCode: String, name: String = "MEL Android", appVersion: String = "0.1.0"): JSONObject {
         val response = jsonRequest(
             "/api/android/v1/pair",

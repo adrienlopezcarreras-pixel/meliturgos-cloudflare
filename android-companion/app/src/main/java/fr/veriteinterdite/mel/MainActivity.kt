@@ -1,6 +1,9 @@
 package fr.veriteinterdite.mel
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
+import android.media.MediaRecorder
 import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
@@ -10,13 +13,22 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import java.io.File
 
 class MainActivity : Activity() {
+    companion object {
+        private const val RECORD_AUDIO_REQUEST = 7001
+    }
+
     private lateinit var client: MelApiClient
     private lateinit var vault: TokenVault
     private lateinit var log: TextView
-    private lateinit var pairCode: EditText
+    private lateinit var ownerUser: EditText
+    private lateinit var ownerPassword: EditText
     private lateinit var message: EditText
+    private lateinit var voiceButton: Button
+    private var recorder: MediaRecorder? = null
+    private var recordingFile: File? = null
     private val conversationId by lazy { "android-" + deviceId() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -24,7 +36,12 @@ class MainActivity : Activity() {
         vault = TokenVault(this)
         client = MelApiClient(BuildConfig.MEL_BASE_URL, deviceId(), vault)
         setContentView(buildUi())
-        show(if (vault.load() == null) "Entre un code de pairing MEL." else "MEL Android prêt.")
+        show(if (vault.load() == null) "Associe ce téléphone avec tes identifiants MEL. Ils ne seront pas enregistrés." else "MEL Android prêt.")
+    }
+
+    override fun onDestroy() {
+        stopRecorderQuietly()
+        super.onDestroy()
     }
 
     private fun deviceId(): String {
@@ -37,9 +54,14 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 48, 32, 32)
         }
-        pairCode = EditText(this).apply {
-            hint = "Code de pairing"
+        ownerUser = EditText(this).apply {
+            hint = "Utilisateur MEL"
             inputType = InputType.TYPE_CLASS_TEXT
+            setText("adrien")
+        }
+        ownerPassword = EditText(this).apply {
+            hint = "Mot de passe MEL (non enregistré)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
         val pair = Button(this).apply {
             text = "Associer le téléphone"
@@ -53,26 +75,38 @@ class MainActivity : Activity() {
             text = "Envoyer"
             setOnClickListener { sendMessage() }
         }
+        voiceButton = Button(this).apply {
+            text = "Micro"
+            setOnClickListener { toggleVoice() }
+        }
         val sync = Button(this).apply {
             text = "Synchroniser"
             setOnClickListener { syncMessages() }
         }
         log = TextView(this).apply { textSize = 16f }
         val scroll = ScrollView(this).apply { addView(log) }
-        root.addView(pairCode)
+        root.addView(ownerUser)
+        root.addView(ownerPassword)
         root.addView(pair)
         root.addView(message)
         root.addView(send)
+        root.addView(voiceButton)
         root.addView(sync)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         return root
     }
 
     private fun pairPhone() = background {
-        val code = pairCode.text.toString().trim()
-        if (code.isBlank()) error("Code de pairing requis")
-        client.pair(code)
-        show("Téléphone associé. Le jeton est chiffré par Android Keystore.")
+        val user = ownerUser.text.toString().trim()
+        val password = ownerPassword.text.toString()
+        if (user.isBlank() || password.isBlank()) error("Identifiant et mot de passe MEL requis")
+        try {
+            client.pairWithOwnerCredentials(user, password)
+            runOnUiThread { ownerPassword.setText("") }
+            show("Téléphone associé. Le mot de passe n’est pas conservé ; seul le jeton chiffré Keystore reste sur l’appareil.")
+        } finally {
+            runOnUiThread { ownerPassword.setText("") }
+        }
     }
 
     private fun sendMessage() = background {
@@ -93,6 +127,96 @@ class MainActivity : Activity() {
             }
         }
         show(if (out.isBlank()) "Aucun nouveau message." else out)
+    }
+
+    private fun toggleVoice() {
+        if (recorder != null) {
+            finishVoice()
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), RECORD_AUDIO_REQUEST)
+            return
+        }
+        startVoice()
+    }
+
+    private fun startVoice() {
+        if (vault.load() == null) {
+            show("Associe d'abord le téléphone à MEL.")
+            return
+        }
+        val file = File.createTempFile("mel-voice-", ".m4a", cacheDir)
+        recordingFile = file
+        val media = MediaRecorder()
+        recorder = media
+        runCatching {
+            media.setAudioSource(MediaRecorder.AudioSource.MIC)
+            media.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            media.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            media.setAudioEncodingBitRate(96_000)
+            media.setAudioSamplingRate(44_100)
+            media.setOutputFile(file.absolutePath)
+            media.prepare()
+            media.start()
+            voiceButton.text = "Arrêter et envoyer"
+            show("Écoute en cours…")
+        }.onFailure {
+            stopRecorderQuietly()
+            show("Erreur micro : " + (it.message ?: it.javaClass.simpleName))
+        }
+    }
+
+    private fun finishVoice() {
+        val media = recorder ?: return
+        recorder = null
+        runCatching { media.stop() }
+            .onFailure {
+                media.release()
+                recordingFile?.delete()
+                recordingFile = null
+                voiceButton.text = "Micro"
+                show("Enregistrement trop court ou invalide.")
+                return
+            }
+        media.release()
+        voiceButton.text = "Micro"
+        val file = recordingFile
+        recordingFile = null
+        if (file == null || !file.exists() || file.length() == 0L) {
+            show("Aucun son enregistré.")
+            return
+        }
+        background {
+            try {
+                val transcript = client.transcribe(file.readBytes(), "audio/mp4").optString("text").trim()
+                if (transcript.isBlank()) error("Transcription vide")
+                val response = client.chat(transcript, conversationId, voice = true)
+                val answer = response.optString("text", "Réponse vide")
+                show("Adrien (voix) : $transcript\n\nMEL : $answer")
+            } finally {
+                file.delete()
+            }
+        }
+    }
+
+    private fun stopRecorderQuietly() {
+        val media = recorder
+        recorder = null
+        if (media != null) {
+            runCatching { media.stop() }
+            runCatching { media.release() }
+        }
+        recordingFile?.delete()
+        recordingFile = null
+        if (::voiceButton.isInitialized) voiceButton.text = "Micro"
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != RECORD_AUDIO_REQUEST) return
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startVoice()
+        else show("Permission micro refusée.")
     }
 
     private fun background(block: () -> Unit) {
