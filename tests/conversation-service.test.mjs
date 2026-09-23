@@ -30,7 +30,7 @@ class MockStmt {
     } else if (sql.startsWith("create index")) {
       const name = sql.match(/create index if not exists (\w+)/)?.[1];
       if (name) this.db.indexes[name] = true;
-    } else if (sql.startsWith("insert into archive_messages")) {
+    } else if (sql.startsWith("insert into archive_messages") || sql.startsWith("insert or ignore into archive_messages")) {
       this.db.lastArchive = this.params;
       return { meta: { changes: 1 } };
     } else if (sql.startsWith("insert into sync_checkpoints")) {
