@@ -70,22 +70,111 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          adb kill-server || true
+          adb start-server
           nohup "$ANDROID_SDK_ROOT/emulator/emulator" @mel-ci \
             -no-window \
             -noaudio \
             -no-boot-anim \
             -no-snapshot \
+            -no-snapshot-save \
             -wipe-data \
             -gpu swiftshader_indirect \
+            -accel auto \
+            -no-metrics \
             > "$RUNNER_TEMP/mel-emulator.log" 2>&1 &
-          adb wait-for-device
+          EMULATOR_PID=$!
+
+          for i in {1..60}; do
+            if adb devices | grep -qE '^emulator-[0-9]+[[:space:]]+device
+      - name: Run instrumented Compose UI tests
+        working-directory: android-companion
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
+
+      - name: Capture emulator screen
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p android-companion/dist/emulator
+          adb exec-out screencap -p > android-companion/dist/emulator/final-screen.png || true
+          cp "$RUNNER_TEMP/mel-emulator.log" android-companion/dist/emulator/emulator.log || true
+
+      - name: Upload emulator test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MEL-Android-emulator-${{ github.sha }}
+          path: |
+            android-companion/app/build/reports/androidTests/connected/**
+            android-companion/app/build/outputs/androidTest-results/connected/**
+            android-companion/dist/emulator/**
+          if-no-files-found: warn
+          retention-days: 14
+; then
+              break
+            fi
+            if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
+              echo "Android emulator exited before registering with adb" >&2
+              cat "$RUNNER_TEMP/mel-emulator.log" >&2 || true
+              exit 1
+            fi
+            sleep 2
+          done
+
+          if ! adb devices | grep -qE '^emulator-[0-9]+[[:space:]]+device
+      - name: Run instrumented Compose UI tests
+        working-directory: android-companion
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
+
+      - name: Capture emulator screen
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p android-companion/dist/emulator
+          adb exec-out screencap -p > android-companion/dist/emulator/final-screen.png || true
+          cp "$RUNNER_TEMP/mel-emulator.log" android-companion/dist/emulator/emulator.log || true
+
+      - name: Upload emulator test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MEL-Android-emulator-${{ github.sha }}
+          path: |
+            android-companion/app/build/reports/androidTests/connected/**
+            android-companion/app/build/outputs/androidTest-results/connected/**
+            android-companion/dist/emulator/**
+          if-no-files-found: warn
+          retention-days: 14
+; then
+            echo "Android emulator did not register with adb within the bounded startup window" >&2
+            cat "$RUNNER_TEMP/mel-emulator.log" >&2 || true
+            exit 1
+          fi
+
           for i in {1..90}; do
             if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
               break
             fi
+            if ! kill -0 "$EMULATOR_PID" 2>/dev/null; then
+              echo "Android emulator exited before boot completed" >&2
+              cat "$RUNNER_TEMP/mel-emulator.log" >&2 || true
+              exit 1
+            fi
             sleep 2
           done
-          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+
+          if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]]; then
+            echo "Android emulator did not complete boot within the bounded startup window" >&2
+            cat "$RUNNER_TEMP/mel-emulator.log" >&2 || true
+            exit 1
+          fi
+
           adb shell settings put global window_animation_scale 0
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
