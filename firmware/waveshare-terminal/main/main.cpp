@@ -18,7 +18,11 @@
 #include "esp_es8311_port.h"
 #include "esp_camera_port.h"
 #include "esp_camera.h"
+#include "esp_codec_dev.h"
 #include "mel_terminal.h"
+
+extern esp_codec_dev_handle_t input_dev;
+extern esp_codec_dev_handle_t output_dev;
 
 
 #define MINI_LCD_H_RES 320
@@ -773,12 +777,30 @@ extern "C" void app_main(void) {
     );
     ESP_LOGI(TAG, "STEP 3 OK");
 
+    ESP_LOGI(TAG, "STEP 3.5: POWER");
+    esp_err_t pmu_err = esp_axp2101_port_init(i2c_bus_handle);
+    if (pmu_err == ESP_OK) ESP_LOGI(TAG, "STEP 3.5 OK: AXP2101");
+    else ESP_LOGW(TAG, "AXP2101 init warning: %s", esp_err_to_name(pmu_err));
+    vTaskDelay(pdMS_TO_TICKS(100));
+
     ESP_LOGI(TAG, "STEP 4: BACKLIGHT");
     esp_3inch5_brightness_port_init();
     esp_3inch5_brightness_port_set(80);
     ESP_LOGI(TAG, "STEP 4 OK");
 
     lv_port_init();
+
+    ESP_LOGI(TAG, "STEP 5.5: AUDIO ES8311");
+    esp_es8311_port_init(i2c_bus_handle);
+    audio_ok = input_dev != nullptr && output_dev != nullptr;
+    ESP_LOGI(TAG, "STEP 5.5 %s", audio_ok ? "OK" : "FAILED");
+
+    ESP_LOGI(TAG, "STEP 5.6: CAMERA OV5640");
+    esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
+    camera_ok = esp_camera_sensor_get() != nullptr;
+    ESP_LOGI(TAG, "STEP 5.6 %s", camera_ok ? "OK" : "UNAVAILABLE");
+
+    mel_terminal_set_hardware(camera_ok, audio_ok, false);
 
     ESP_LOGI(TAG, "STEP 6: WIFI STACK");
     esp_wifi_port_init(nullptr, nullptr);
@@ -811,5 +833,5 @@ extern "C" void app_main(void) {
         lvgl_port_unlock();
     }
 
-    ESP_LOGI(TAG, "MINI WIFI TEST READY");
+    ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
 }
