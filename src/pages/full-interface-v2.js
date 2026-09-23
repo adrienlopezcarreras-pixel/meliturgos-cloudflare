@@ -92,6 +92,21 @@ async function loadDashboardSummary(){
   qs('#capCount').textContent=Number(caps.total||0);
   qs('#capSummary').textContent=Number(caps.active||0)+' actives';
   renderRoadmapSummary({summary:d?.roadmap||{}});
+  const state=String(d?.state||'WARN').toUpperCase();
+  qs('#globalState').textContent=state==='OK'?'Système prêt':state==='ERROR'?'Attention requise':'Partiellement prêt';
+  qs('#globalDot').className='dot '+(state==='OK'?'good':state==='ERROR'?'bad':'warn');
+  const rows=Array.isArray(d?.components)?d.components:[];
+  qs('#healthRows').innerHTML='';
+  const fragment=document.createDocumentFragment();
+  for(const row of rows){
+    const el=document.createElement('div');el.className='status-row';
+    const left=document.createElement('span');left.textContent=String(row?.label||row?.id||'Composant');
+    const right=document.createElement('span');right.textContent=String(row?.detail||row?.status||'—');
+    right.className='tag '+(row?.status==='OK'?'good':row?.status==='ERROR'?'bad':'warn');
+    el.append(left,right);fragment.appendChild(el);
+  }
+  qs('#healthRows').appendChild(fragment);
+  if(!rows.length)qs('#healthRows').textContent='État détaillé indisponible.';
   return d;
 }
 async function loadPanel(name,force=false){
@@ -136,7 +151,7 @@ qs('#chatCapRefresh').onclick=()=>{panelLoadedAt.delete('chat');loadChatCapabili
 async function loadSkills(force=false){
   const box=qs('#skillsList');box.textContent='Vérification de la santé réelle…';
   try{
-    const d=await loadCapabilitiesData(true),caps=Array.isArray(d.capabilities)?d.capabilities:[];
+    const d=await loadCapabilitiesData(force),caps=Array.isArray(d.capabilities)?d.capabilities:[];
     renderCapabilitySummary(caps);
     const counts={healthy:0,protected:0,degraded:0,unavailable:0},providers={};
     for(const skill of caps){
@@ -397,7 +412,7 @@ qs('#terminalPairCreate').onclick=async()=>{
 };
 qs('#terminalRefresh').onclick=()=>loadTerminal();
 
-async function boot(){qs('#codeMetric').textContent='MANUEL';qs('#codeSummary').textContent='Test à la demande pour accélérer l’ouverture.';const tasks=await Promise.allSettled([loadDashboardSummary(),loadAutonomy()]);const ok=tasks.filter(x=>x.status==='fulfilled'&&x.value!==false).length,total=tasks.length;qs('#globalState').textContent=ok===total?'Système prêt':ok?'Partiellement prêt':'Diagnostic requis';qs('#globalDot').className='dot '+(ok===total?'good':ok?'warn':'bad');qs('#healthRows').innerHTML='<div class="status-row"><span>CapabilityBus</span><span>'+esc(qs('#capSummary').textContent)+'</span></div><div class="status-row"><span>Roadmap</span><span>'+esc(qs('#roadPercent').textContent)+'%</span></div><div class="status-row"><span>Code</span><span>Test manuel</span></div>'}
+async function boot(){qs('#codeMetric').textContent='MANUEL';qs('#codeSummary').textContent='Test à la demande pour accélérer l’ouverture.';const tasks=await Promise.allSettled([loadDashboardSummary(),loadAutonomy()]);const dashboard=tasks[0];if(dashboard.status!=='fulfilled'){qs('#globalState').textContent='Diagnostic requis';qs('#globalDot').className='dot bad';qs('#healthRows').textContent='Résumé système indisponible.'}}
 
 function toggleLearningDetails(){
   const chip=qs('#learningChip'),details=qs('#learningDetails'),arrow=qs('#learnArrow');
