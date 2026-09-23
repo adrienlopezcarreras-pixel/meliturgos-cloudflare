@@ -214,6 +214,7 @@ async function deviceChat(request,env,auth) {
   const text = safe(body.text ?? body.message,100000);
   if (!text) return json({ok:false,code:"MESSAGE_REQUIRED"},400);
   const inputSource = body.input_source === "voice-server-transcription" ? "voice-server-transcription" : "text";
+  const uiMode = safe(body.ui_mode,20).toLowerCase() === "complete" ? "complete" : "normal";
   const internal = new Request(new URL("/api/chat",request.url),{
     method:"POST",
     headers:{"content-type":"application/json"},
@@ -221,8 +222,14 @@ async function deviceChat(request,env,auth) {
       text,
       conversation_id:conversationIdFor(auth,body),
       device_id:auth.deviceId,
-      ui_theme:safe(body.ui_theme,40)||"classic",
+      ui_theme:safe(body.ui_theme,40)||"futuristic",
+      ui_mode:uiMode,
       input_source:inputSource,
+      intent_context:{
+        surface:uiMode === "complete" ? "mel-android-complete" : "mel-android-normal",
+        ui_mode:uiMode,
+        device:"android-companion",
+      },
     }),
   });
   return handleNativeChat(internal,env,{authorized:true,source:"android-companion",device_id:auth.deviceId});
