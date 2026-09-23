@@ -1,5 +1,5 @@
 name: Godot private five-game test
-# unified gamedev runtime run 58 c620-env
+# unified gamedev runtime run 59 c621-ui
 
 on:
   push:
@@ -206,6 +206,8 @@ jobs:
             c615_rc=$?
             "$GODOT" --headless --path "$proj" --script "res://tests/visual_assets_c620_test.gd" > "/tmp/${name}-c620-test.log" 2>&1
             c620_rc=$?
+            "$GODOT" --headless --path "$proj" --script "res://tests/ui_assets_c621_test.gd" > "/tmp/${name}-c621-test.log" 2>&1
+            c621_rc=$?
             cat "/tmp/${name}-save-test.log"
             cat "/tmp/${name}-input-test.log"
             cat "/tmp/${name}-command-test.log"
@@ -217,8 +219,9 @@ jobs:
             cat "/tmp/${name}-c614-test.log"
             cat "/tmp/${name}-c615-test.log"
             cat "/tmp/${name}-c620-test.log"
-            if [ "$save_rc" -ne 0 ] || [ "$input_rc" -ne 0 ] || [ "$command_rc" -ne 0 ] || [ "$c609_rc" -ne 0 ] || [ "$c610_rc" -ne 0 ] || [ "$c611_rc" -ne 0 ] || [ "$c612_rc" -ne 0 ] || [ "$c613_rc" -ne 0 ] || [ "$c614_rc" -ne 0 ] || [ "$c615_rc" -ne 0 ] || [ "$c620_rc" -ne 0 ]; then
-              echo "$name INFRA_TEST=FAIL save_rc=$save_rc input_rc=$input_rc command_rc=$command_rc c609_rc=$c609_rc c610_rc=$c610_rc c611_rc=$c611_rc c612_rc=$c612_rc c613_rc=$c613_rc c614_rc=$c614_rc c615_rc=$c615_rc c620_rc=$c620_rc"
+            cat "/tmp/${name}-c621-test.log"
+            if [ "$save_rc" -ne 0 ] || [ "$input_rc" -ne 0 ] || [ "$command_rc" -ne 0 ] || [ "$c609_rc" -ne 0 ] || [ "$c610_rc" -ne 0 ] || [ "$c611_rc" -ne 0 ] || [ "$c612_rc" -ne 0 ] || [ "$c613_rc" -ne 0 ] || [ "$c614_rc" -ne 0 ] || [ "$c615_rc" -ne 0 ] || [ "$c620_rc" -ne 0 ] || [ "$c621_rc" -ne 0 ]; then
+              echo "$name INFRA_TEST=FAIL save_rc=$save_rc input_rc=$input_rc command_rc=$command_rc c609_rc=$c609_rc c610_rc=$c610_rc c611_rc=$c611_rc c612_rc=$c612_rc c613_rc=$c613_rc c614_rc=$c614_rc c615_rc=$c615_rc c620_rc=$c620_rc c621_rc=$c621_rc"
               overall=1
             else
               echo "$name INFRA_TEST=PASS save_rc=$save_rc input_rc=$input_rc command_rc=$command_rc c609_rc=$c609_rc c610_rc=$c610_rc c611_rc=$c611_rc c612_rc=$c612_rc c613_rc=$c613_rc c614_rc=$c614_rc c615_rc=$c615_rc"
