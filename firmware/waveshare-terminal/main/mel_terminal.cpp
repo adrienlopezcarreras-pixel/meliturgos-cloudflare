@@ -267,16 +267,36 @@ static bool speak_text(const std::string &text) {
             esp_http_client_fetch_headers(client);
             int status = esp_http_client_get_status_code(client);
             if (status == 200) {
-                uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4096, MALLOC_CAP_8BIT));
+                uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4097, MALLOC_CAP_8BIT));
                 if (buffer) {
                     esp_codec_dev_set_out_vol(output_dev, 72.0);
                     ok = true;
+                    bool have_carry = false;
+                    uint8_t carry = 0;
                     while (true) {
-                        int n = esp_http_client_read(client, reinterpret_cast<char *>(buffer), 4096);
+                        const size_t offset = have_carry ? 1 : 0;
+                        if (have_carry) buffer[0] = carry;
+                        int n = esp_http_client_read(
+                            client,
+                            reinterpret_cast<char *>(buffer + offset),
+                            4096
+                        );
                         if (n < 0) { ok = false; break; }
-                        if (n == 0) break;
-                        if (n & 1) n -= 1; // 16-bit PCM alignment
-                        if (n > 0 && esp_codec_dev_write(output_dev, buffer, n) != ESP_CODEC_DEV_OK) {
+                        if (n == 0) {
+                            if (have_carry) {
+                                ESP_LOGE(TAG, "TTS returned truncated 16-bit PCM");
+                                ok = false;
+                            }
+                            break;
+                        }
+
+                        size_t total = offset + (size_t)n;
+                        have_carry = (total & 1U) != 0;
+                        if (have_carry) {
+                            carry = buffer[total - 1];
+                            total -= 1;
+                        }
+                        if (total > 0 && esp_codec_dev_write(output_dev, buffer, total) != ESP_CODEC_DEV_OK) {
                             ok = false;
                             break;
                         }
