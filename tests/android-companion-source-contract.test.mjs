@@ -134,3 +134,26 @@ test('signed Android release pipeline is secret-backed fail-closed and verifies 
   assert.match(workflow,/ACTUAL_SHA.*EXPECTED_SHA/);
   assert.match(workflow,/Remove signing material/);
 });
+
+
+test('Android background heartbeat uses WorkManager without hidden background microphone capture',async()=>{
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  const manifest=await readFile(new URL('app/src/main/AndroidManifest.xml',root),'utf8');
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  const background=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBackground.kt',root),'utf8');
+  assert.match(build,/androidx\.work:work-runtime-ktx:2\.11\.2/);
+  assert.match(manifest,/android\.permission\.POST_NOTIFICATIONS/);
+  assert.match(background,/PeriodicWorkRequestBuilder<MelHeartbeatWorker>/);
+  assert.match(background,/15,\s*TimeUnit\.MINUTES/);
+  assert.match(background,/NetworkType\.CONNECTED/);
+  assert.match(background,/ExistingPeriodicWorkPolicy\.UPDATE/);
+  assert.match(background,/client\.heartbeat/);
+  assert.match(background,/notifySessionExpired/);
+  assert.doesNotMatch(background,/startForegroundService/);
+  assert.doesNotMatch(manifest,/FOREGROUND_SERVICE_MICROPHONE/);
+  assert.match(vm,/MelBackground\.schedule\(appContext\)/);
+  assert.match(vm,/MelBackground\.cancel\(appContext\)/);
+  assert.match(activity,/Manifest\.permission\.POST_NOTIFICATIONS/);
+  assert.match(activity,/Activer notifications arrière-plan/);
+});
