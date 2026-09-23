@@ -139,12 +139,20 @@ jobs:
           set -euo pipefail
           gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
 
-      - name: Capture emulator screen
+      - name: Collect real MEL UI screenshots
         if: always()
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p android-companion/dist/emulator
-          adb exec-out screencap -p > android-companion/dist/emulator/final-screen.png || true
+          DEVICE_DIR="/sdcard/Android/data/fr.veriteinterdite.mel/files"
+
+          adb shell ls -l "$DEVICE_DIR" || true
+          adb pull "$DEVICE_DIR/login-screen.png" android-companion/dist/emulator/login-screen.png
+          adb pull "$DEVICE_DIR/complete-screen.png" android-companion/dist/emulator/complete-screen.png
+
+          test -s android-companion/dist/emulator/login-screen.png
+          test -s android-companion/dist/emulator/complete-screen.png
           cp "$RUNNER_TEMP/mel-emulator.log" android-companion/dist/emulator/emulator.log || true
 
       - name: Upload emulator test evidence
