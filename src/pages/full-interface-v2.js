@@ -81,17 +81,37 @@ async function loadRoadmapData(force=false){
   roadmapCacheAt=Date.now();
   return roadmapCache;
 }
+function finiteMetric(value){
+  if(value===null||value===undefined||value==='')return null;
+  const n=Number(value);return Number.isFinite(n)?n:null;
+}
+function setMetric(selector,value,suffix=''){
+  const node=qs(selector),n=finiteMetric(value);if(!node)return n;
+  node.textContent=n===null?'—':String(n)+suffix;return n;
+}
 function renderRoadmapSummary(d){
-  const s=d?.summary||{},bs=s.by_status||{};
-  qs('#rmTotal').textContent=s.total||0;qs('#rmDone').textContent=s.complete||0;qs('#rmActive').textContent=(bs.IN_PROGRESS||0)+(bs.PARTIAL||0);qs('#rmPercent').textContent=(s.percent_complete||0)+'%';qs('#roadPercent').textContent=s.percent_complete||0;qs('#roadBar').style.width=(s.percent_complete||0)+'%';
+  const s=d?.summary&&typeof d.summary==='object'?d.summary:null;
+  const bs=s?.by_status&&typeof s.by_status==='object'?s.by_status:null;
+  const total=setMetric('#rmTotal',s?.total),done=setMetric('#rmDone',s?.complete);
+  const inProgress=finiteMetric(bs?.IN_PROGRESS),partial=finiteMetric(bs?.PARTIAL);
+  qs('#rmActive').textContent=inProgress===null||partial===null?'—':String(inProgress+partial);
+  const percent=finiteMetric(s?.percent_complete);
+  qs('#rmPercent').textContent=percent===null?'—':percent+'%';
+  qs('#roadPercent').textContent=percent===null?'—':String(percent);
+  qs('#roadBar').style.width=percent===null?'0%':Math.max(0,Math.min(100,percent))+'%';
+  return total!==null&&done!==null&&inProgress!==null&&partial!==null&&percent!==null;
+}
+function renderCapabilityOverview(caps){
+  const total=setMetric('#capCount',caps?.total),active=finiteMetric(caps?.active);
+  qs('#capSummary').textContent=active===null?'État indisponible':active+' actives';
+  return total!==null&&active!==null;
 }
 async function loadRoadmapSummary(force=false){const d=await loadRoadmapData(force);renderRoadmapSummary(d);return d}
 async function loadDashboardSummary(){
   const d=await jfetch('/api/gen2/dashboard-summary');
-  const caps=d?.capabilities||{};
-  qs('#capCount').textContent=Number(caps.total||0);
-  qs('#capSummary').textContent=Number(caps.active||0)+' actives';
-  renderRoadmapSummary({summary:d?.roadmap||{}});
+  const caps=d?.capabilities&&typeof d.capabilities==='object'?d.capabilities:null;
+  renderCapabilityOverview(caps);
+  renderRoadmapSummary({summary:d?.roadmap});
   const state=String(d?.state||'WARN').toUpperCase();
   qs('#globalState').textContent=state==='OK'?'Système prêt':state==='ERROR'?'Attention requise':'Partiellement prêt';
   qs('#globalDot').className='dot '+(state==='OK'?'good':state==='ERROR'?'bad':'warn');
@@ -412,7 +432,7 @@ qs('#terminalPairCreate').onclick=async()=>{
 };
 qs('#terminalRefresh').onclick=()=>loadTerminal();
 
-async function boot(){qs('#codeMetric').textContent='MANUEL';qs('#codeSummary').textContent='Test à la demande pour accélérer l’ouverture.';const tasks=await Promise.allSettled([loadDashboardSummary(),loadAutonomy()]);const dashboard=tasks[0];if(dashboard.status!=='fulfilled'){qs('#globalState').textContent='Diagnostic requis';qs('#globalDot').className='dot bad';qs('#healthRows').textContent='Résumé système indisponible.'}}
+async function boot(){qs('#codeMetric').textContent='MANUEL';qs('#codeSummary').textContent='Test à la demande pour accélérer l’ouverture.';const tasks=await Promise.allSettled([loadDashboardSummary(),loadAutonomy()]);const dashboard=tasks[0];if(dashboard.status!=='fulfilled'){renderCapabilityOverview(null);renderRoadmapSummary(null);qs('#globalState').textContent='Diagnostic requis';qs('#globalDot').className='dot bad';qs('#healthRows').textContent='Résumé système indisponible.'}}
 
 function toggleLearningDetails(){
   const chip=qs('#learningChip'),details=qs('#learningDetails'),arrow=qs('#learnArrow');
