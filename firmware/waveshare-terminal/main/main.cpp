@@ -74,6 +74,33 @@ static TaskHandle_t wifi_connect_task_handle = nullptr;
 static volatile bool wifi_got_ip = false;
 static volatile int wifi_disconnect_reason = -1;
 
+static void camera_boot_probe_task(void *) {
+    // UI is already alive before this runs. Camera probing can therefore be slow
+    // without starving taskLVGL on CPU0.
+    vTaskDelay(pdMS_TO_TICKS(2500));
+    ESP_LOGI(TAG, "SELFTEST CAMERA: init OV5640 on CPU%d", xPortGetCoreID());
+    esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
+    camera_ok = esp_camera_sensor_get() != nullptr;
+
+    if (camera_ok) {
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (fb) {
+            ESP_LOGI(TAG, "SELFTEST CAMERA PASS: %ux%u, %u bytes", fb->width, fb->height, (unsigned)fb->len);
+            esp_camera_fb_return(fb);
+        } else {
+            ESP_LOGW(TAG, "SELFTEST CAMERA: sensor initialized but no frame returned");
+            camera_ok = false;
+        }
+    } else {
+        ESP_LOGW(TAG, "SELFTEST CAMERA: OV5640 unavailable");
+    }
+
+    mel_terminal_set_hardware(camera_ok, audio_ok, false);
+    ESP_LOGI(TAG, "SELFTEST SUMMARY: display=OK touch=OK audio=%s camera=%s wifi=READY",
+             audio_ok ? "OK" : "FAIL", camera_ok ? "OK" : "FAIL");
+    vTaskDelete(nullptr);
+}
+
 static const char *wifi_reason_text(int reason) {
     switch (reason) {
         case WIFI_REASON_NO_AP_FOUND: return "reseau introuvable";
@@ -855,4 +882,5 @@ extern "C" void app_main(void) {
     }
 
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
+    xTaskCreatePinnedToCore(camera_boot_probe_task, "mini_camera_probe", 8192, nullptr, 2, nullptr, 1);
 }
