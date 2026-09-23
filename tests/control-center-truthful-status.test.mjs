@@ -114,3 +114,25 @@ test('secondary Control Center load failures explicitly invalidate stale LoRA an
   assert.match(runtime,/freeRuntimeDetail'\)\.textContent='État runtime indisponible\.'/);
   assert.match(runtime,/terminalDevices'\)\.innerHTML='<div class="muted">État des terminaux indisponible\.<\/div>'/);
 });
+
+
+test('partial LoRA payloads keep missing evidence unknown instead of inventing lifecycle states', async()=>{
+  const html=await (await renderFullMode()).text();
+  const runtime=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+  assert.match(runtime,/const trainStatus=trainWfKnown&&trainWf\.status!=null\?String\(trainWf\.status\)\.toUpperCase\(\):'UNKNOWN'/);
+  assert.match(runtime,/const wfStatus=wfKnown&&wf\.status!=null\?String\(wf\.status\)\.toUpperCase\(\):'UNKNOWN'/);
+  assert.match(runtime,/const loraState=loraKnown\?String\(lora\.state\)\.toUpperCase\(\):'UNKNOWN'/);
+  assert.match(runtime,/lessonCount==null\?'—\/50'/);
+  assert.match(runtime,/freeBenchmarkState'\)\.textContent=!benchKnown\?'—'/);
+  assert.match(runtime,/freeImpactStage'\)\.textContent=impact\.next_stage\|\|'—'/);
+  assert.match(runtime,/!agenticKnown\?'Indisponible'/);
+  assert.match(runtime,/trainStatus==='UNKNOWN'\)setLoraTag\('#freeGpuState','Indisponible'/);
+  assert.match(runtime,/wfStatus==='NEVER_RUN'\?'Jamais lancé':'Indisponible'/);
+  assert.match(runtime,/loraState==='UNKNOWN'\?'Indisponible'/);
+  assert.match(runtime,/percent==null\?'—':percent\+'%'/);
+  assert.doesNotMatch(runtime,/trainWf\.status\|\|'NEVER_RUN'/);
+  assert.doesNotMatch(runtime,/wf\.status\|\|'NEVER_RUN'/);
+  assert.doesNotMatch(runtime,/lora\.state\|\|'BLOCKED'/);
+  assert.doesNotMatch(runtime,/corrections_available_for_training\|\|0/);
+  assert.doesNotMatch(runtime,/impact\.next_stage\|\|'UNCENSORED_WAITING'/);
+});
