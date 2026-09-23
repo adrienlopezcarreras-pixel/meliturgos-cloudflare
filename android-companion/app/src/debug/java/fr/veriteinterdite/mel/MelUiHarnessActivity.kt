@@ -33,7 +33,7 @@ class MelUiHarnessActivity : ComponentActivity() {
                         error = null,
                         messages = messages,
                         diagnosticReport = if (showDiagnostics) {
-                            "MEL Android 0.6.1\nSession: CONNECTED\nHeartbeat: OK\nKeystore: OK"
+                            "MEL Android ${MelApiClient.APP_VERSION}\nSession: CONNECTED\nHeartbeat: OK\nKeystore: OK"
                         } else {
                             null
                         }

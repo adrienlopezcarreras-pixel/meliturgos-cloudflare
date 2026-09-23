@@ -20,6 +20,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +30,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -381,15 +384,20 @@ internal fun MelApp(
     onFileProbe: () -> Unit,
     onBackgroundProbe: () -> Unit
 ) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF06101D), Color(0xFF0A1F34), Color(0xFF05111C))
-                )
-            )
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color.Transparent,
+        contentColor = MelInk
     ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF06101D), Color(0xFF0A1F34), Color(0xFF05111C))
+                    )
+                )
+        ) {
         when (state.session) {
             SessionStage.DISCONNECTED -> LoginScreen(state, onLogin)
             SessionStage.VERIFYING -> LoadingScreen(state.status)
@@ -413,6 +421,7 @@ internal fun MelApp(
                 onBackgroundProbe = onBackgroundProbe
             )
         }
+    }
     }
 }
 
@@ -473,17 +482,17 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
     ) {
         MelAvatar(92, online = false)
         Spacer(Modifier.height(14.dp))
-        Text("MEL", fontSize = 34.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
+        Text("MEL", color = MelInk, fontSize = 34.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
         Text("Intelligence personnelle · interface Android native", color = MelMuted, textAlign = TextAlign.Center)
         Spacer(Modifier.height(26.dp))
 
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MelPanel),
+            colors = CardDefaults.cardColors(containerColor = MelPanel, contentColor = MelInk),
             shape = RoundedCornerShape(24.dp)
         ) {
             Column(Modifier.padding(20.dp)) {
-                Text("Connexion sécurisée", fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                Text("Connexion sécurisée", color = MelInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "Le mot de passe sert uniquement à associer ce téléphone. Il n’est jamais enregistré.",
@@ -572,7 +581,7 @@ private fun SessionErrorScreen(
     ) {
         MelAvatar(68, online = false)
         Spacer(Modifier.height(20.dp))
-        Text("MEL est momentanément inaccessible", fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Text("MEL est momentanément inaccessible", color = MelInk, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
         Text(state.error ?: state.status, color = MelMuted, textAlign = TextAlign.Center)
         Spacer(Modifier.height(20.dp))
@@ -615,7 +624,7 @@ private fun ConversationScreen(
             .navigationBarsPadding()
             .imePadding(),
         topBar = {
-            Surface(color = Color(0xCC071523)) {
+            Surface(color = Color(0xCC071523), contentColor = MelInk) {
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -625,7 +634,7 @@ private fun ConversationScreen(
                     MelAvatar(48, online = true)
                     Spacer(Modifier.width(11.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("MEL", fontWeight = FontWeight.Black, fontSize = 20.sp, letterSpacing = 2.sp)
+                        Text("MEL", color = MelInk, fontWeight = FontWeight.Black, fontSize = 20.sp, letterSpacing = 2.sp)
                         Text(state.status.ifBlank { "Connectée" }, color = MelMuted, fontSize = 12.sp)
                     }
                     TextButton(onClick = onDisconnect) { Text("Déconnexion") }
@@ -677,7 +686,7 @@ private fun ConversationScreen(
                 if (state.messages.isEmpty()) {
                     item {
                         Card(
-                            colors = CardDefaults.cardColors(containerColor = MelPanelSoft),
+                            colors = CardDefaults.cardColors(containerColor = MelPanelSoft, contentColor = MelInk),
                             shape = RoundedCornerShape(20.dp)
                         ) {
                             Column(Modifier.padding(18.dp)) {
@@ -825,11 +834,16 @@ private fun CompletePanel(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xB30C2940)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xB30C2940), contentColor = MelInk),
         shape = RoundedCornerShape(18.dp)
     ) {
-        Column(Modifier.padding(13.dp)) {
-            Text("Contrôles complets", fontWeight = FontWeight.Bold)
+        Column(
+            Modifier
+                .heightIn(max = 340.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(11.dp)
+        ) {
+            Text("Contrôles complets", color = MelInk, fontWeight = FontWeight.Bold)
             Text(
                 "Synchronisation multi-surface et accès au centre de contrôle Professor.",
                 color = MelMuted,
@@ -862,6 +876,7 @@ private fun CompletePanel(
             Spacer(Modifier.height(8.dp))
             Text(
                 "Validation téléphone",
+                color = MelInk,
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp
             )
