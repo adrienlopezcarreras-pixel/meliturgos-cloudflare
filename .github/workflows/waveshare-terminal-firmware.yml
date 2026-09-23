@@ -51,6 +51,7 @@ jobs:
             grep -Fxq 'CONFIG_COMPILER_OPTIMIZATION_PERF=y' sdkconfig &&
             grep -Fxq 'CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y' sdkconfig &&
             grep -Fxq 'CONFIG_LV_MEMCPY_MEMSET_STD=y' sdkconfig &&
+            grep -Fxq 'CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y' sdkconfig &&
             idf.py merge-bin -o mini-first-install.bin &&
             cp build/lvgl_system.bin build/mel-terminal.bin
 
@@ -58,6 +59,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          VERSION="$(sed -n 's/^#define MEL_FW_VERSION "\([^"]*\)"/\1/p' firmware/waveshare-terminal/main/mel_terminal.h)"
+          test -n "$VERSION"
           cd build/waveshare-mel/build
           test -s mel-terminal.bin
           test -s mini-first-install.bin
@@ -70,7 +73,7 @@ jobs:
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.4.4-hwproof",
+              "version": "${VERSION}",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",
