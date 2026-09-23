@@ -89,6 +89,7 @@ static volatile bool wifi_scan_requested = false;
 
 static void request_view(MiniView view);
 static void mini_apply_requested_view(void);
+static void wifi_start_scan(void);
 static void ui_stress_task(void *);
 
 static void camera_boot_probe_task(void *) {
