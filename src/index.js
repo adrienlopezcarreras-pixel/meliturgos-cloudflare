@@ -17,6 +17,7 @@ import { handleVoiceTranscription } from "./api/voice-transcribe.js";
 import { handleFileUpload } from "./api/file-upload.js";
 import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-state-store.js";
 import { getChatGPTImportStatus, recordChatGPTCollectorCoverage } from "./persistence/chatgpt-archive-importer.js";
+import { migrate } from "./persistence/migrations.js";
 import { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-api.js";
 import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
 import { maybeHandleAndroidCompanionApi } from "./devices/android-companion-api.js";
@@ -458,8 +459,16 @@ export default {
     const cron = String(controller?.cron || '');
     const maintenanceCron = cron === '17 * * * *';
 
+    const schemaMigration = env?.DB
+      ? migrate(env.DB).catch((error) => {
+          console.error('[MEL schema] scheduled migration failed:', error?.code || error?.message || error);
+          return null;
+        })
+      : Promise.resolve(null);
+
     const tasks = maintenanceCron
       ? [
+          schemaMigration,
           runAutonomyMaintenance(env).catch((error) => {
             console.error('[MEL autonomy] hourly maintenance failed:', error?.code || error?.message || error);
             return null;
@@ -484,6 +493,7 @@ export default {
           }),
         ]
       : [
+          schemaMigration,
           runAutonomyRuntimeTick(env).catch((error) => {
             console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
             return null;
