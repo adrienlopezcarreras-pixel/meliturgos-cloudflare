@@ -128,5 +128,9 @@ test('signed Android release pipeline is secret-backed fail-closed and verifies 
   assert.match(workflow,/apksigner.*verify/);
   assert.match(workflow,/zipalign.*-c/);
   assert.match(workflow,/release\/mel-hardware-v0\.1\.0/);
+  assert.match(workflow,/git fetch --no-tags origin release\/mel-hardware-v0\.1\.0/);
+  assert.match(workflow,/EXPECTED_SHA=.*origin\/release\/mel-hardware-v0\.1\.0/);
+  assert.match(workflow,/ACTUAL_SHA=.*git rev-parse HEAD/);
+  assert.match(workflow,/ACTUAL_SHA.*EXPECTED_SHA/);
   assert.match(workflow,/Remove signing material/);
 });
