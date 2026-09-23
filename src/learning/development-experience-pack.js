@@ -625,4 +625,20 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     created_at: 1790165200000,
   }),
 
+  Object.freeze({
+    id: 'bootstrap-android-background-heartbeat-vs-microphone-20260923',
+    source: 'chatgpt-teacher',
+    domain: 'mobile-background-runtime',
+    task: 'Séparer la présence réseau différée d’un compagnon Android de la capture microphone en arrière-plan.',
+    input: 'Un compagnon mobile veut rester joignable, vérifier sa session et éventuellement prévenir l’utilisateur, sans transformer un heartbeat en écoute permanente.',
+    before: 'Utiliser le même mécanisme pour heartbeat, notifications et micro continu; lancer du travail périodique trop fréquent; ou garder le microphone actif en arrière-plan sans service visible et activation utilisateur.',
+    after: 'Utiliser WorkManager pour les tâches réseau différables avec contraintes réseau, travail périodique unique et cadence minimale Android; réserver le microphone arrière-plan à un foreground service de type microphone explicitement démarré par l’utilisateur depuis un contexte autorisé; demander les notifications au moment utile; rester fail-closed si ces conditions ne sont pas réunies.',
+    rationale: 'Heartbeat et microphone ont des contraintes système et de confidentialité différentes. Les séparer évite les contournements Android, réduit batterie/bruit réseau et conserve une activation explicite des capacités sensibles.',
+    tests: ['PR #173 Android 0.5.0', 'android-apk-build 35859247125 SUCCESS', 'source contract: WorkManager 15 min + network, no FOREGROUND_SERVICE_MICROPHONE'],
+    tags: ['android', 'workmanager', 'background', 'heartbeat', 'notifications', 'microphone', 'privacy', 'fail-closed'],
+    validated: true,
+    quality: 1,
+    created_at: 1790168400000,
+  }),
+
 ]);
