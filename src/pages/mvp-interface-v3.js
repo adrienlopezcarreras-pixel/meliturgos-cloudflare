@@ -1,3 +1,5 @@
+import { MEL_FAVICON_DATA_URL } from './mel-favicon.js';
+
 /** Canonical MEL normal mode: one visual owner, themes never affect /professor. */
 const THEMES = [
   { id:'classic', label:'Bibliothèque', avatar:'/assets/avatars/mel-classic.webp', css:"--bg:#08111f;--text:#fff;--ink:#fff;--muted:#d6deea;--panel:rgba(16,27,43,.90);--panel2:rgba(8,16,28,.94);--composer:rgba(9,18,32,.93);--border:#405875;--accent:#2563eb;--accent2:#163f9c;--button:#20324a;--button-text:#fff;--ornament:#6485aa;--mel-bg:url('/assets/backgrounds/mel-bg-library-hd.jpg');--mel-overlay:linear-gradient(180deg,rgba(3,7,14,.05),rgba(3,7,14,.16) 52%,rgba(3,7,14,.31));--avatar-pos:center 23%;--font:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;--radius:18px" },
@@ -17,7 +19,7 @@ export async function onRequestGet() {
   const body = `<!doctype html>
 <html lang="fr" data-theme="classic" data-visual-owner="mel-normal-v3"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>MEL</title>
-<link rel="icon" type="image/webp" href="/assets/avatars/mel-full.webp?v=techno-20260923"><link rel="apple-touch-icon" href="/assets/avatars/mel-full.webp?v=techno-20260923">
+<link rel="icon" type="image/svg+xml" href="${MEL_FAVICON_DATA_URL}"><link rel="shortcut icon" href="${MEL_FAVICON_DATA_URL}"><link rel="apple-touch-icon" href="/assets/avatars/mel-full.webp?v=techno-20260923b">
 <style id="mel-normal-v3-style">
 *{box-sizing:border-box}.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}:root{--bg:#08111f;--text:#fff;--ink:#fff;--muted:#94a3b8;--panel:#d8c08b;--panel2:#c9ad72;--composer:#e6d4ad;--border:#6b4623;--accent:#7a2722;--accent2:#4d1715;--button:#4b2d20;--button-text:#f8e9c2;--radius:12px;--font:Georgia,'Times New Roman',serif;--mel-bg:none;--mel-overlay:linear-gradient(180deg,rgba(7,10,16,.03),rgba(7,10,16,.30));--ornament:#9c742f;--avatar-pos:center 23%}
 ${themeCss}
