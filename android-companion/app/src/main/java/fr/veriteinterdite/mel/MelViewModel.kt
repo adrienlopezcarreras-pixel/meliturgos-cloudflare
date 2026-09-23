@@ -38,7 +38,8 @@ data class MelUiState(
     val busy: Boolean = false,
     val status: String = "",
     val error: String? = null,
-    val messages: List<MelChatMessage> = emptyList()
+    val messages: List<MelChatMessage> = emptyList(),
+    val diagnosticReport: String? = null
 )
 
 class MelViewModel(
@@ -337,6 +338,68 @@ class MelViewModel(
                     _state.value = _state.value.copy(
                         busy = false,
                         status = "Envoi du fichier interrompu",
+                        error = explain(error)
+                    )
+                }
+            }
+        }
+    }
+
+    fun runDiagnostics() {
+        if (_state.value.busy) return
+        if (_state.value.session != SessionStage.CONNECTED) {
+            _state.value = _state.value.copy(
+                diagnosticReport = "Session: NON CONNECTÉE\nAction: reconnecter le téléphone à MEL."
+            )
+            return
+        }
+        val mode = _state.value.mode
+        _state.value = _state.value.copy(
+            busy = true,
+            status = "Auto-diagnostic Android…",
+            error = null,
+            diagnosticReport = "Diagnostic en cours…"
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val response = client.heartbeat(sdkInt = Build.VERSION.SDK_INT)
+                val accepted = response.optJSONObject("accepted")
+                val serverTime = response.optLong("server_time", 0L)
+                val acceptedVersion = accepted?.optString("app_version").orEmpty().ifBlank { "non renvoyée" }
+                val serverDeviceId = response.optString("device_id").ifBlank { "non renvoyé" }
+                val report = buildString {
+                    appendLine("MEL Android ${MelApiClient.APP_VERSION}")
+                    appendLine("Session: OK")
+                    appendLine("Heartbeat: OK")
+                    appendLine("Mode: ${mode.label}")
+                    appendLine("SDK Android: ${Build.VERSION.SDK_INT}")
+                    appendLine("Backend accepte version: $acceptedVersion")
+                    appendLine("Device ID serveur: $serverDeviceId")
+                    appendLine("Heure serveur: " + if (serverTime > 0L) serverTime.toString() else "non renvoyée")
+                    append("Jeton local: Android Keystore")
+                }
+                _state.value = _state.value.copy(
+                    busy = false,
+                    status = "Auto-diagnostic terminé",
+                    diagnosticReport = report,
+                    error = null
+                )
+            } catch (error: Throwable) {
+                if (isInvalidSession(error)) {
+                    vault.clear()
+                    MelBackground.cancel(appContext)
+                    _state.value = _state.value.copy(
+                        session = SessionStage.DISCONNECTED,
+                        busy = false,
+                        status = "Session expirée pendant le diagnostic",
+                        diagnosticReport = "Session: ÉCHEC\nHeartbeat: ÉCHEC\nCause: " + explain(error),
+                        error = explain(error)
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        status = "Auto-diagnostic en échec",
+                        diagnosticReport = "Session: ${_state.value.session}\nHeartbeat: ÉCHEC\nCause: " + explain(error),
                         error = explain(error)
                     )
                 }
