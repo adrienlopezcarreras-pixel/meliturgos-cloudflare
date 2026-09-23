@@ -476,7 +476,9 @@ extern "C" void app_main(void) {
 
     ESP_LOGI(TAG, "STEP 6: WIFI STACK");
     esp_wifi_port_init(nullptr, nullptr);
-    ESP_LOGI(TAG, "STEP 6 OK: WIFI STACK");
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_LOGI(TAG, "STEP 6 OK: WIFI STACK STARTED");
 
     if (lvgl_port_lock(0)) {
         mini_smoke_ui();
