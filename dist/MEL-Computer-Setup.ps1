@@ -40,9 +40,24 @@ try {
   $basic = [Convert]::ToBase64String($basicBytes)
   $authHeaders = @{ Authorization = "Basic $basic" }
 
+  Write-Host "Création d'un code d'appairage à usage unique..." -ForegroundColor Yellow
+  $pairCodeReply = Invoke-RestMethod -Uri "$server/api/computer/v1/pair-code" -Method Post -Headers $authHeaders -ContentType "application/json" -Body "{}" -TimeoutSec 30
+  if (-not $pairCodeReply.ok -or [string]::IsNullOrWhiteSpace([string]$pairCodeReply.code)) {
+    throw "PAIR_CODE_FAILED"
+  }
+  $pairCode = [string]$pairCodeReply.code
+
+  # Le mot de passe propriétaire n'est plus nécessaire après l'émission du code.
+  $pass = $null
+  $secure = $null
+  $credentialText = $null
+  $basic = $null
+  $authHeaders = $null
+
   $computerId = "$($env:COMPUTERNAME)-$([guid]::NewGuid().ToString('N').Substring(0,8))"
   $allowedApps = @("notepad","calculator","explorer","msedge","firefox","chrome")
   $pairBody = @{
+    pair_code = $pairCode
     computer_id = $computerId
     name = "PC $($env:COMPUTERNAME)"
     platform = "windows"
@@ -51,7 +66,7 @@ try {
   } | ConvertTo-Json -Depth 5 -Compress
 
   Write-Host "Appairage avec MEL..." -ForegroundColor Yellow
-  $pair = Invoke-RestMethod -Uri "$server/api/computer/v1/pair" -Method Post -Headers $authHeaders -ContentType "application/json" -Body $pairBody -TimeoutSec 30
+  $pair = Invoke-RestMethod -Uri "$server/api/computer/v1/pair" -Method Post -ContentType "application/json" -Body $pairBody -TimeoutSec 30
   if (-not $pair.ok -or [string]::IsNullOrWhiteSpace([string]$pair.token)) {
     throw "PAIRING_FAILED"
   }
@@ -71,7 +86,11 @@ try {
 
   $companionPath = Join-Path $melDir "MEL-Computer-Companion.ps1"
   Write-Host "Téléchargement du compagnon..." -ForegroundColor Yellow
-  Invoke-WebRequest -Uri "$server/api/computer/v1/companion" -Headers $authHeaders -UseBasicParsing -OutFile $companionPath -TimeoutSec 30
+  $deviceHeaders = @{
+    Authorization = "Bearer $([string]$pair.token)"
+    "X-MEL-Computer-ID" = $computerId
+  }
+  Invoke-WebRequest -Uri "$server/api/computer/v1/companion" -Headers $deviceHeaders -UseBasicParsing -OutFile $companionPath -TimeoutSec 30
 
   $startup = [Environment]::GetFolderPath("Startup")
   $launcher = Join-Path $startup "MEL-Computer-Companion.cmd"
