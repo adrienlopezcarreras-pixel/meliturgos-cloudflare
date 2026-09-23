@@ -62,7 +62,7 @@ async function approvedRepository({ withRevision = false } = {}) {
   return repository;
 }
 
-function fetchImpl() {
+function fetchImpl(completionOverrides = {}) {
   return async (url) => {
     const target = String(url);
     if (target.includes('teacher-bridge/completions.jsonl')) {
@@ -76,6 +76,7 @@ function fetchImpl() {
         ci_run_id: 5151,
         tests: [{ name: 'full candidate suite', passed: true }],
         summary: 'Reprise autonome validée et testée.',
+        ...completionOverrides,
       })}\n`, { status: 200 });
     }
     if (target.includes('/actions/runs/5151')) {
@@ -159,6 +160,104 @@ test('a previous NEEDS_CHANGES Teacher review becomes a validated correction onl
     assert.match(evidence.after, /validée et testée/i);
     assert.match(evidence.rationale, /SHA courant/i);
     assert.ok(evidence.tests.some((row) => /full-candidate-ci#5151:success/.test(row)));
+  } finally {
+    DB.close();
+  }
+});
+
+
+test('verified autonomy completion automatically ingests exact-SHA validated learning handoffs with provenance', async () => {
+  const DB = sqliteD1();
+  try {
+    const repository = await approvedRepository();
+    const learningHandoff = {
+      validated: true,
+      provenance: {
+        path: '.agents/WEEKLY_HANDOFF_20260923.md',
+        sha: SHA,
+        commit: SHA,
+      },
+      experience: {
+        id: 'xp-runtime-handoff-1',
+        source: 'chatgpt-teacher',
+        domain: 'learning-governance',
+        task: 'Ingérer automatiquement un handoff validé dans le cycle autonome.',
+        input: 'Une complétion autonome validée apporte une nouvelle XP prouvée.',
+        before: 'Laisser la XP dans le handoff sans l’injecter dans le LearningEngine.',
+        after: 'Après preuve full-candidate-ci, ingérer automatiquement la XP avec provenance exacte et déduplication.',
+        rationale: 'Le cycle autonome doit transformer les handoffs validés en apprentissage durable sans intervention manuelle.',
+        tests: ['full-candidate-ci#5151:success'],
+        tags: ['handoff', 'autonomy', 'learning'],
+        validated: true,
+        quality: 1,
+        created_at: 1790112000000,
+      },
+    };
+
+    const result = await reconcileRuntimeCompletions({
+      repository,
+      env: { DB, MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+      fetchImpl: fetchImpl({ learning_handoffs: [learningHandoff] }),
+    });
+
+    assert.equal(result.completed.length, 1);
+    assert.equal(result.completed[0].handoffs_ingested, 1);
+
+    const stored = await repository.get(JOB);
+    assert.equal(stored.result_json.autonomy_completion.mentor_learning.handoff_corrections_recorded, 1);
+    assert.equal(stored.result_json.autonomy_completion.mentor_learning.handoff_ingestion.accepted[0].id, 'xp-runtime-handoff-1');
+
+    const correction = await DB.prepare("SELECT * FROM mentor_lessons WHERE kind='TEACHER_CORRECTION'").first();
+    assert.ok(correction);
+    const evidence = JSON.parse(correction.evidence_json);
+    assert.equal(evidence.id, 'xp-runtime-handoff-1');
+    assert.deepEqual(evidence.handoff_provenance, {
+      path: '.agents/WEEKLY_HANDOFF_20260923.md',
+      sha: SHA,
+      commit: SHA,
+    });
+  } finally {
+    DB.close();
+  }
+});
+
+test('autonomy completion rejects a handoff whose provenance SHA is not the CI-verified candidate SHA', async () => {
+  const DB = sqliteD1();
+  try {
+    const repository = await approvedRepository();
+    const result = await reconcileRuntimeCompletions({
+      repository,
+      env: { DB, MEL_GITHUB_REPOSITORY: 'owner/repo', MEL_TEACHER_BRANCH: BRANCH },
+      fetchImpl: fetchImpl({
+        learning_handoffs: [{
+          validated: true,
+          provenance: { path: '.agents/BAD.md', sha: 'c'.repeat(40) },
+          experience: {
+            id: 'xp-runtime-handoff-bad-sha',
+            source: 'chatgpt-teacher',
+            domain: 'learning-governance',
+            task: 'Reject stale handoff provenance.',
+            input: 'A stale handoff is presented.',
+            before: 'Accept stale provenance.',
+            after: 'Reject stale provenance.',
+            rationale: 'Exact-SHA provenance is required.',
+            tests: ['proof'],
+            tags: ['handoff'],
+            validated: true,
+            quality: 1,
+            created_at: 1790112000001,
+          },
+        }],
+      }),
+    });
+
+    assert.equal(result.completed.length, 1);
+    assert.equal(result.completed[0].handoffs_ingested, 0);
+    const stored = await repository.get(JOB);
+    const ingestion = stored.result_json.autonomy_completion.mentor_learning.handoff_ingestion;
+    assert.equal(ingestion.accepted.length, 0);
+    assert.equal(ingestion.rejected.length, 1);
+    assert.ok(ingestion.rejected[0].issues.includes('provenance:sha-mismatch'));
   } finally {
     DB.close();
   }

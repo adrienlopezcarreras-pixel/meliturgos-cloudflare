@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-22.15';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-23.01';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -33,7 +33,7 @@ const normalizeRoadmapText = (value) => String(value || '')
 export const MASTER_ROADMAP = Object.freeze([
   phase('P01', 'Fondations, identité et contrats', [
     item('GEN2-01', 'Core minimal: config, erreurs, HTTP, sécurité, audit', 'DONE_VERIFIED', 'Maintenir les tests de non-régression', 'P0'),
-    item('GEN2-02', 'Identité MEL et System Prompt portable', 'PARTIAL', 'Extraire définitivement la persona hors du legacy worker', 'P1'),
+    item('GEN2-02', 'Identité MEL et System Prompt portable', 'DONE_VERIFIED', 'Persona stable extraite dans mel-persona.js, composée par le systemPrompt runtime et exposée par la façade identity; tests portable-identity inclus dans le lot de réconciliation #153.', 'P1'),
     item('GEN2-03', 'Model Registry provider-neutral', 'DONE_VERIFIED', 'Ajouter les métadonnées de qualité mesurées', 'P0'),
     item('GEN2-04', 'Model Router + fallback', 'DONE_VERIFIED', 'Brancher les scores réels de qualité/latence/coût', 'P0'),
     item('GEN2-51', 'Versioning API', 'PARTIAL', 'Migrer progressivement les anciennes routes', 'P2'),
@@ -58,10 +58,10 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-25', 'Personal Search / RAG', 'DONE_VERIFIED', 'Étendre aux fichiers et connecteurs', 'P0'),
     item('GEN2-56', 'Import contexte ChatGPT', 'DONE_VERIFIED', 'Valider les gros exports réels et la compatibilité entre versions', 'P0'),
     item('MEL-MEM-01', 'Memory Compiler: faits, préférences, décisions, compétences', 'DONE_VERIFIED', 'Maintenir la déduplication canonique, la confiance sans boost de répétition et la provenance; memory.consolidate reste lecture/proposition uniquement', 'P0'),
-    item('MEL-MEM-02', 'Synchronisation continue des nouveaux échanges vers la mémoire', 'PLANNED', 'Créer pipeline incrémental idempotent', 'P1'),
+    item('MEL-MEM-02', 'Synchronisation continue des nouveaux échanges vers la mémoire', 'DONE_VERIFIED', 'ConversationService archive chaque échange puis alimente ExchangeMemorySync vers memory_candidates avec identifiant déterministe et INSERT OR IGNORE; replay post-échec idempotent couvert par memory-live-exchange-sync.', 'P1'),
     item('MEL-MEM-03', 'Export mémoire portable et lisible', 'PARTIAL', 'Ajouter manifeste, checksums et version de schéma', 'P1'),
     item('MEL-MEM-04', 'Complétude des archives ChatGPT récupérables', 'DONE', 'Clôturé par décision owner le 22/09/2026 : l’archive serveur déjà importée est conservée et l’import manuel reste disponible; le Collector Firefox est retiré du parcours cible et aucune preuve Collector supplémentaire n’est requise.', 'P0'),
-    item('MEL-MEM-05', 'Indexation complète messages et pièces jointes', 'IN_PROGRESS', 'Collector 0.6.3 + importeur: messages fichier-seul, descripteurs recherchables et backfill historique idempotent des doublons validés par CI. Reste l’indexation du contenu binaire uniquement pour les pièces jointes dont les octets réels peuvent être récupérés, puis une exécution complète du backfill sur l’archive réelle.', 'P0'),
+    item('MEL-MEM-05', 'Indexation complète messages et pièces jointes', 'IN_PROGRESS', 'Importeur d’archive serveur/manuelle: messages fichier-seul, descripteurs recherchables et backfill historique idempotent validés par CI. Le Collector Firefox est retiré du parcours cible. Reste l’indexation du contenu binaire uniquement pour les pièces jointes dont les octets réels peuvent être récupérés, puis une exécution complète du backfill sur l’archive réelle.', 'P0'),
     item('MEL-MEM-06', 'Pont archives vers mémoire opérationnelle unifiée', 'DONE_VERIFIED', 'MemoryService.retrieve unifie mémoire cognitive, archives ChatGPT, titres de conversations et knowledge artifacts avec provenance, déduplication et top-k borné; conversation-context utilise ce pont. Syntaxe globale + 28/28 tests ciblés validés sur l’intégration actuelle.', 'P0'),
     item('MEL-MEM-07', 'Recherche mémoire hybride sémantique, exacte et filtrable', 'DONE_VERIFIED', 'Recherche exacte + lexicale + sémantique opt-in, filtres date/projet/conversation/source/type de fichier/rôle, fusion et reranking, provenance conservée et fallback lexical si le provider sémantique échoue; validation 28/28 tests ciblés.', 'P0'),
     item('MEL-MEM-08', 'Apprentissage mémoire avec provenance conservée', 'DONE_VERIFIED', 'memory.learn confirme un fait canonique depuis les candidats d’archive en conservant conversation, message, source, date, fragment, confiance et snapshot explicite des contradictions; rejeu idempotent validé.', 'P0'),
@@ -98,7 +98,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-EVOL-05', 'Skill Registry durable', 'PLANNED', 'Compiler les acquis système dans un registre portable', 'P1'),
     item('MEL-EVOL-06', 'Fine-tuning / LoRA open-weight continu', 'IN_PROGRESS', 'Heartbeat MEL supervise la chaîne Kaggle GPU gratuite: relance seulement si aucun run actif, checkpoints immuables, benchmark après chaque cycle, UNCENSORED puis AGENTIC sans écraser le parent, aucun fallback payant', 'P0'),
     item('GEN2-18', 'Self Healing contrôlé', 'PLANNED', 'Limiter à détection, rollback approuvé et réparation testée', 'P2'),
-    item('GEN2-20', 'Learning Engine', 'PARTIAL', 'Corpus XP canonique porté à 72 leçons après réconciliation 21–22/09 (mémoire, approval, release live, observabilité, Council) et handoff technique hebdomadaire ajouté; reste à brancher automatiquement les handoffs validés aux cycles autonomes en conservant provenance et déduplication', 'P1')
+    item('GEN2-20', 'Learning Engine', 'DONE_VERIFIED', 'Les complétions autonomes exact-SHA vérifiées par full-candidate-ci peuvent transporter des learning_handoffs; le reconciler les injecte automatiquement dans LearningEngine avec validation XP, provenance path+SHA, rejet des SHA périmés et déduplication id+sémantique. Tests handoff-ingestion + autonomy-completion-mentor-learning inclus dans le lot de réconciliation #152.', 'P1')
   ]),
 
   phase('P07', 'Work, agents et automatisations', [

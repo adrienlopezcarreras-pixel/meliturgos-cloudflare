@@ -1,5 +1,6 @@
 import { createMentorEngine } from '../learning/mentor-engine.js';
 import { createLearningEngine } from '../learning/learning-engine.js';
+import { ingestValidatedHandoffs } from '../learning/handoff-ingestion.js';
 
 const COMPLETION_KIND = 'MEL_WORK_COMPLETION';
 const SHA_RE = /^[a-f0-9]{40}$/i;
@@ -90,6 +91,7 @@ export function parseCompletionJsonl(text) {
       ci_run_id: ciRunId,
       tests,
       summary: String(value.summary || '').slice(0, 4000),
+      learning_handoffs: Array.isArray(value.learning_handoffs) ? value.learning_handoffs.slice(0, 50) : [],
       created_at: String(value.created_at || '').slice(0, 100),
     });
   }
@@ -264,6 +266,35 @@ async function recordVerifiedTeacherCorrections(env, job, record, proposal, ci) 
   return { recorded, failures };
 }
 
+async function ingestVerifiedCompletionHandoffs(env, record, ci) {
+  if (!env?.DB) return { accepted: [], duplicate: [], rejected: [], reason: 'DB_BINDING_MISSING' };
+  if (!Array.isArray(record?.learning_handoffs) || record.learning_handoffs.length === 0) {
+    return { accepted: [], duplicate: [], rejected: [], reason: 'NO_VALIDATED_HANDOFFS' };
+  }
+  try {
+    const learning = createLearningEngine(env);
+    const result = await ingestValidatedHandoffs({
+      handoffs: record.learning_handoffs,
+      learningEngine: learning,
+      expectedSha: record.candidate_sha,
+    });
+    return {
+      ...result,
+      ci_run_id: ci?.run_id || null,
+      candidate_sha: record.candidate_sha,
+    };
+  } catch (error) {
+    return {
+      accepted: [],
+      duplicate: [],
+      rejected: [],
+      reason: String(error?.code || error?.message || 'HANDOFF_INGESTION_FAILED').slice(0, 160),
+      ci_run_id: ci?.run_id || null,
+      candidate_sha: record.candidate_sha,
+    };
+  }
+}
+
 async function recordVerifiedCompletionLesson(env, job, record, proposal, ci, benchmarkEvaluator = null, benchmarkModelId = '') {
   if (!env?.DB) return { recorded: false, reason: 'DB_BINDING_MISSING', corrections_recorded: 0 };
   try {
@@ -287,11 +318,13 @@ async function recordVerifiedCompletionLesson(env, job, record, proposal, ci, be
       score: 1,
       tags: ['autonomy', 'verified-completion', 'full-candidate-ci'],
     });
-    const [teacherLearning, repairLearning] = await Promise.all([
+    const [teacherLearning, repairLearning, handoffLearning] = await Promise.all([
       recordVerifiedTeacherCorrections(env, job, record, proposal, ci),
       recordVerifiedRepairCorrections(env, job, record, proposal, ci),
+      ingestVerifiedCompletionHandoffs(env, record, ci),
     ]);
-    const correctionsRecorded = (teacherLearning.recorded || 0) + (repairLearning.recorded || 0);
+    const handoffCorrections = Array.isArray(handoffLearning.accepted) ? handoffLearning.accepted.length : 0;
+    const correctionsRecorded = (teacherLearning.recorded || 0) + (repairLearning.recorded || 0) + handoffCorrections;
     let benchmarkCadence;
     try {
       const learning = createLearningEngine(env);
@@ -319,6 +352,8 @@ async function recordVerifiedCompletionLesson(env, job, record, proposal, ci, be
       corrections_recorded: correctionsRecorded,
       teacher_corrections_recorded: teacherLearning.recorded || 0,
       repair_corrections_recorded: repairLearning.recorded || 0,
+      handoff_corrections_recorded: handoffCorrections,
+      handoff_ingestion: handoffLearning,
       correction_failures: [...(teacherLearning.failures || []), ...(repairLearning.failures || [])],
       benchmark_cadence: benchmarkCadence,
     };
@@ -388,6 +423,7 @@ export async function reconcileRuntimeCompletions({ repository, env = {}, fetchI
         ci_run_id: record.ci_run_id,
         mentor_learning: mentorLearning.recorded === true,
         corrections_recorded: mentorLearning.corrections_recorded || 0,
+        handoffs_ingested: mentorLearning.handoff_corrections_recorded || 0,
       });
     } catch (error) {
       rejected.push({ job_id: job.id, request_id: record.request_id, code: error?.code || 'COMPLETION_VERIFY_FAILED' });
