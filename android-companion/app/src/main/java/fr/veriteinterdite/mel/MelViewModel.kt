@@ -1,0 +1,320 @@
+package fr.veriteinterdite.mel
+
+import android.content.Context
+import android.os.Build
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.CreationExtras
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+
+enum class MelMode(val wireValue: String, val label: String) {
+    NORMAL("normal", "Normal"),
+    COMPLETE("complete", "Complet")
+}
+
+enum class SessionStage {
+    DISCONNECTED,
+    VERIFYING,
+    CONNECTED,
+    ERROR
+}
+
+data class MelChatMessage(
+    val role: String,
+    val text: String,
+    val voice: Boolean = false
+)
+
+data class MelUiState(
+    val session: SessionStage = SessionStage.DISCONNECTED,
+    val mode: MelMode = MelMode.NORMAL,
+    val busy: Boolean = false,
+    val status: String = "",
+    val error: String? = null,
+    val messages: List<MelChatMessage> = emptyList()
+)
+
+class MelViewModel(
+    context: Context,
+    private val client: MelApiClient,
+    private val vault: TokenVault,
+    private val conversationId: String
+) : ViewModel() {
+    private val prefs = context.applicationContext.getSharedPreferences("mel_ui", Context.MODE_PRIVATE)
+    private val initialMode = runCatching {
+        MelMode.valueOf(prefs.getString("mode", MelMode.NORMAL.name) ?: MelMode.NORMAL.name)
+    }.getOrDefault(MelMode.NORMAL)
+
+    private val _state = MutableStateFlow(MelUiState(mode = initialMode))
+    val state: StateFlow<MelUiState> = _state.asStateFlow()
+
+    init {
+        verifyExistingSession()
+    }
+
+    fun setMode(mode: MelMode) {
+        prefs.edit().putString("mode", mode.name).apply()
+        _state.value = _state.value.copy(mode = mode, error = null)
+    }
+
+    fun verifyExistingSession() {
+        if (vault.load().isNullOrBlank()) {
+            _state.value = _state.value.copy(
+                session = SessionStage.DISCONNECTED,
+                status = "Connexion requise",
+                error = null
+            )
+            return
+        }
+        _state.value = _state.value.copy(
+            session = SessionStage.VERIFYING,
+            busy = true,
+            status = "Vérification sécurisée…",
+            error = null
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                client.heartbeat(sdkInt = Build.VERSION.SDK_INT)
+                _state.value = _state.value.copy(
+                    session = SessionStage.CONNECTED,
+                    busy = false,
+                    status = "MEL connectée",
+                    error = null
+                )
+            } catch (error: Throwable) {
+                if (isInvalidSession(error)) {
+                    vault.clear()
+                    _state.value = _state.value.copy(
+                        session = SessionStage.DISCONNECTED,
+                        busy = false,
+                        status = "Session expirée",
+                        error = explain(error)
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        session = SessionStage.ERROR,
+                        busy = false,
+                        status = "Serveur momentanément indisponible",
+                        error = explain(error)
+                    )
+                }
+            }
+        }
+    }
+
+    fun pair(username: String, password: String) {
+        if (password.isBlank()) {
+            _state.value = _state.value.copy(error = "Le mot de passe MEL est requis.")
+            return
+        }
+        _state.value = _state.value.copy(
+            session = SessionStage.VERIFYING,
+            busy = true,
+            status = "Association sécurisée du téléphone…",
+            error = null
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                client.pairWithOwnerCredentials(username.trim(), password)
+                client.heartbeat(sdkInt = Build.VERSION.SDK_INT)
+                _state.value = _state.value.copy(
+                    session = SessionStage.CONNECTED,
+                    busy = false,
+                    status = "Téléphone associé et vérifié",
+                    error = null
+                )
+            } catch (error: Throwable) {
+                vault.clear()
+                _state.value = _state.value.copy(
+                    session = SessionStage.DISCONNECTED,
+                    busy = false,
+                    status = "Association refusée",
+                    error = explain(error)
+                )
+            }
+        }
+    }
+
+    fun disconnect() {
+        vault.clear()
+        _state.value = MelUiState(
+            session = SessionStage.DISCONNECTED,
+            mode = _state.value.mode,
+            status = "Téléphone déconnecté"
+        )
+    }
+
+    fun send(text: String, voice: Boolean = false) {
+        val clean = text.trim()
+        if (clean.isBlank() || _state.value.busy) return
+        val mode = _state.value.mode
+        _state.value = _state.value.copy(
+            busy = true,
+            status = "MEL réfléchit…",
+            error = null,
+            messages = _state.value.messages + MelChatMessage("user", clean, voice)
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val response = client.chat(
+                    text = clean,
+                    conversationId = conversationId,
+                    voice = voice,
+                    uiMode = mode.wireValue
+                )
+                val answer = response.optString("text", response.optString("response", "")).trim()
+                if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
+                _state.value = _state.value.copy(
+                    busy = false,
+                    status = "MEL connectée · mode ${mode.label}",
+                    messages = _state.value.messages + MelChatMessage("mel", answer)
+                )
+            } catch (error: Throwable) {
+                if (isInvalidSession(error)) {
+                    vault.clear()
+                    _state.value = _state.value.copy(
+                        session = SessionStage.DISCONNECTED,
+                        busy = false,
+                        status = "Session expirée",
+                        error = explain(error)
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        status = "Envoi interrompu",
+                        error = explain(error)
+                    )
+                }
+            }
+        }
+    }
+
+    fun sendVoice(audioBytes: ByteArray, mimeType: String = "audio/mp4") {
+        if (audioBytes.isEmpty() || _state.value.busy) return
+        _state.value = _state.value.copy(
+            busy = true,
+            status = "Transcription de ta voix…",
+            error = null
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val transcript = client.transcribe(audioBytes, mimeType).optString("text").trim()
+                if (transcript.isBlank()) throw MelApiException("TRANSCRIPTION_EMPTY", 502)
+                val mode = _state.value.mode
+                _state.value = _state.value.copy(
+                    status = "MEL réfléchit…",
+                    messages = _state.value.messages + MelChatMessage("user", transcript, voice = true)
+                )
+                val response = client.chat(
+                    text = transcript,
+                    conversationId = conversationId,
+                    voice = true,
+                    uiMode = mode.wireValue
+                )
+                val answer = response.optString("text", response.optString("response", "")).trim()
+                if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
+                _state.value = _state.value.copy(
+                    busy = false,
+                    status = "MEL connectée · mode ${mode.label}",
+                    messages = _state.value.messages + MelChatMessage("mel", answer)
+                )
+            } catch (error: Throwable) {
+                _state.value = _state.value.copy(
+                    busy = false,
+                    status = "Voix interrompue",
+                    error = explain(error)
+                )
+            }
+        }
+    }
+
+    fun sync() {
+        if (_state.value.busy) return
+        _state.value = _state.value.copy(busy = true, status = "Synchronisation…", error = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val rows = client.syncAndAck(conversationId)
+                val incoming = buildList {
+                    for (i in 0 until rows.length()) {
+                        val row = rows.getJSONObject(i)
+                        val role = row.optString("role").lowercase()
+                        if (role == "user" || role == "assistant" || role == "mel") {
+                            add(
+                                MelChatMessage(
+                                    role = if (role == "user") "user" else "mel",
+                                    text = row.optString("content", row.optString("text"))
+                                )
+                            )
+                        }
+                    }
+                }
+                _state.value = _state.value.copy(
+                    busy = false,
+                    status = if (incoming.isEmpty()) "Déjà synchronisé" else "${incoming.size} message(s) synchronisé(s)",
+                    messages = _state.value.messages + incoming
+                )
+            } catch (error: Throwable) {
+                if (isInvalidSession(error)) {
+                    vault.clear()
+                    _state.value = _state.value.copy(
+                        session = SessionStage.DISCONNECTED,
+                        busy = false,
+                        status = "Session expirée",
+                        error = explain(error)
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        status = "Synchronisation impossible",
+                        error = explain(error)
+                    )
+                }
+            }
+        }
+    }
+
+    private fun isInvalidSession(error: Throwable): Boolean {
+        val code = (error as? MelApiException)?.code ?: return false
+        return code in setOf("DEVICE_AUTH_REQUIRED", "DEVICE_AUTH_INVALID", "DEVICE_NOT_PAIRED")
+    }
+
+    private fun explain(error: Throwable): String {
+        return when (error) {
+            is MelApiException -> when (error.code) {
+                "AUTH_REQUIRED" -> "Identifiant ou mot de passe MEL refusé."
+                "AUTH_NOT_CONFIGURED" -> "L’authentification MEL n’est pas configurée sur le serveur."
+                "PAIR_CODE_INVALID_OR_EXPIRED" -> "Le code d’association a expiré. Relance la connexion."
+                "DEVICE_AUTH_INVALID", "DEVICE_AUTH_REQUIRED", "DEVICE_NOT_PAIRED" ->
+                    "La session de ce téléphone n’est plus valide. Reconnecte-le."
+                "PROTOCOL_UNSUPPORTED" -> "Cette version de l’application n’est pas compatible avec le serveur MEL."
+                "TRANSCRIPTION_EMPTY" -> "Je n’ai pas réussi à comprendre l’enregistrement."
+                "EMPTY_RESPONSE" -> "MEL n’a renvoyé aucune réponse."
+                else -> "Erreur MEL : ${error.code}" + if (error.detail.isNotBlank()) " · ${error.detail}" else ""
+            }
+            is SocketTimeoutException -> "Le serveur met trop de temps à répondre."
+            is UnknownHostException -> "Impossible de joindre MEL. Vérifie la connexion Internet."
+            else -> error.message?.takeIf { it.isNotBlank() } ?: "Erreur inconnue."
+        }
+    }
+
+    companion object {
+        fun factory(
+            context: Context,
+            client: MelApiClient,
+            vault: TokenVault,
+            conversationId: String
+        ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
+                return MelViewModel(context, client, vault, conversationId) as T
+            }
+        }
+    }
+}
