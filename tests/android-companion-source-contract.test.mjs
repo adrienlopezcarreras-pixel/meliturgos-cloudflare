@@ -198,3 +198,23 @@ test('Android voice and background session invalidation are fail-closed and self
   assert.match(background,/vault\.load\(\)\.isNullOrBlank\(\)[\s\S]*stopHeartbeat\(applicationContext\)/);
   assert.match(background,/vault\.clear\(\)[\s\S]*stopHeartbeat\(applicationContext\)[\s\S]*notifySessionExpired\(applicationContext\)/);
 });
+
+
+test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const harness=await readFile(new URL('app/src/debug/java/fr/veriteinterdite/mel/MelUiHarnessActivity.kt',root),'utf8');
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  assert.match(build,/versionCode = 9/);
+  assert.match(build,/versionName = "0\.6\.0"/);
+  assert.match(api,/APP_VERSION = "0\.6\.0"/);
+  assert.match(vm,/val diagnosticReport: String\? = null/);
+  assert.match(vm,/fun runDiagnostics\(\)/);
+  assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
+  assert.match(vm,/Heartbeat: OK/);
+  assert.match(vm,/Backend accepte version/);
+  assert.match(activity,/Text\("Lancer auto-diagnostic"\)/);
+  assert.match(activity,/diagnosticReport = state\.diagnosticReport/);
+  assert.match(harness,/onDiagnostics = \{\}/);
+});
