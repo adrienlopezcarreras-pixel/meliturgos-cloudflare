@@ -157,3 +157,25 @@ test('ShardVault snapshot missing shard count is shown as unavailable, never zer
   assert.match(runtime,/d\.shards==null\?'nombre de fragments indisponible'/);
   assert.doesNotMatch(runtime,/Number\(d\.shards\|\|0\)/);
 });
+
+
+test('Control Center keeps Work as a compatibility alias inside the single IA & Développement surface', async()=>{
+  const html=await (await renderFullMode()).text();
+  const runtime=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+  const panels=[...html.matchAll(/data-panel="([^"]+)"/g)].map(match=>match[1]);
+  assert.ok(panels.includes('multi'));
+  assert.ok(!panels.includes('work'));
+  assert.match(runtime,/multi:\['IA & Développement','Réunion multi-IA et travaux persistants dans une seule surface\.'\]/);
+  assert.match(runtime,/const legacyPanelAliases=\{work:\{panel:'multi',mode:'development'\}\}/);
+  assert.doesNotMatch(runtime,/work:\['Work'/);
+  assert.doesNotMatch(runtime,/work:\(\)=>loadWork\(\)/);
+  assert.match(runtime,/function setUnifiedMode\(mode\)/);
+  assert.match(runtime,/if\(alias\?\.mode\)setUnifiedMode\(alias\.mode\)\.catch/);
+});
+
+test('Control Center navigation fails closed to overview for unknown panels', async()=>{
+  const html=await (await renderFullMode()).text();
+  const runtime=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+  assert.match(runtime,/if\(!titles\[target\]\|\|!qs\('\.view\[data-panel="'\+target\+'"\]'\)\)target='overview'/);
+  assert.doesNotMatch(html,/data-view="work"/);
+});
