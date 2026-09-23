@@ -1018,6 +1018,11 @@ void mel_terminal_ui_init(lv_disp_t *) {
     g_face_timer = lv_timer_create(mini_face_timer_cb, 120, nullptr);
 }
 
+void mel_terminal_bind_external_ui(lv_obj_t *status_label, lv_obj_t *answer_label) {
+    g_status = status_label;
+    g_answer = answer_label;
+}
+
 void mel_terminal_set_hardware(bool camera_ok, bool audio_ok, bool sd_ok) {
     g_camera_ok = camera_ok;
     g_audio_ok = audio_ok;
