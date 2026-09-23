@@ -41,6 +41,8 @@ static esp_io_expander_handle_t expander_handle = nullptr;
 static esp_lcd_touch_handle_t touch_handle = nullptr;
 static lv_display_t *lvgl_disp = nullptr;
 static lv_obj_t *status_label = nullptr;
+static lv_obj_t *runtime_status_label = nullptr;
+static lv_obj_t *answer_label = nullptr;
 static lv_obj_t *face_obj = nullptr;
 static lv_obj_t *left_eye = nullptr;
 static lv_obj_t *right_eye = nullptr;
@@ -680,6 +682,11 @@ static void mini_smoke_ui() {
     lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 28);
 
+    runtime_status_label = lv_label_create(main_panel);
+    lv_label_set_text(runtime_status_label, "");
+    lv_obj_set_style_text_color(runtime_status_label, lv_color_hex(0x94A3B8), 0);
+    lv_obj_align(runtime_status_label, LV_ALIGN_TOP_MID, 0, 56);
+
     lv_obj_t *wifi_btn = lv_btn_create(main_panel);
     lv_obj_set_size(wifi_btn, 48, 38);
     lv_obj_align(wifi_btn, LV_ALIGN_TOP_RIGHT, -10, 16);
@@ -738,6 +745,16 @@ static void mini_smoke_ui() {
     lv_obj_set_style_bg_color(mouth_obj, lv_color_hex(0xA5F3FC), 0);
     lv_obj_set_style_border_width(mouth_obj, 0, 0);
 
+    answer_label = lv_label_create(main_panel);
+    lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(answer_label, 286);
+    lv_obj_set_height(answer_label, 72);
+    lv_obj_set_style_text_align(answer_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(answer_label, lv_color_hex(0xCBD5E1), 0);
+    lv_label_set_text(answer_label, "");
+    lv_obj_align(answer_label, LV_ALIGN_BOTTOM_MID, 0, -104);
+    lv_obj_add_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
+
     lv_obj_t *btn = lv_btn_create(main_panel);
     lv_obj_set_size(btn, 220, 62);
     lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -34);
@@ -751,6 +768,7 @@ static void mini_smoke_ui() {
 
     wifi_ui_create(screen);
     pair_ui_create(screen);
+    mel_terminal_bind_external_ui(runtime_status_label, answer_label);
     anim_timer = lv_timer_create(mini_anim_cb, 120, nullptr);
     ESP_LOGI(TAG, "STEP 6 OK: MINI ANIMATED UI + WIFI READY");
 }
