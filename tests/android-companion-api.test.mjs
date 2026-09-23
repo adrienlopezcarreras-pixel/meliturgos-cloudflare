@@ -96,7 +96,7 @@ test('Android heartbeat, chat, sync ACK and revocation work end-to-end',async()=
 
     const chat=await worker.fetch(new Request('https://mel.test/api/android/v1/chat',{
       method:'POST',headers,
-      body:JSON.stringify({text:'bonjour depuis android',conversation_id:'android-e2e-conv'})
+      body:JSON.stringify({text:'bonjour depuis android',conversation_id:'android-e2e-conv',ui_mode:'complete',ui_theme:'futuristic'})
     }),env);
     assert.equal(chat.status,200);
     const chatBody=await chat.json();
