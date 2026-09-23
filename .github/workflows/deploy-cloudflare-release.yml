@@ -234,7 +234,7 @@ jobs:
             fi
             echo "Launch bootstrap attempt ${attempt} returned HTTP ${HTTP_CODE}."
             if [ -s production-launch-bootstrap.json ]; then
-              node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("production-launch-bootstrap.json","utf8")); console.log(JSON.stringify({status:d?.status||null,blockers:d?.readiness?.blockers||[],restore_status:d?.readiness?.restore?.status||null,shardvault_status:d?.readiness?.shardvault?.status||null,active_external_count:Number(d?.readiness?.shardvault?.active_external_count||0),external_code_status:d?.readiness?.shardvault?.external_code_status||null,external_code_endpoints:Number(d?.readiness?.shardvault?.external_code_endpoints||0),code_sync:d?.code_sync||null},null,2));'
+              node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-bootstrap.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,blockers:d?.readiness?.blockers||[],restore_status:d?.readiness?.restore?.status||null,shardvault_status:d?.readiness?.shardvault?.status||null,active_external_count:Number(d?.readiness?.shardvault?.active_external_count||0),external_code_status:d?.readiness?.shardvault?.external_code_status||null,external_code_endpoints:Number(d?.readiness?.shardvault?.external_code_endpoints||0),code_sync:d?.code_sync||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
             fi
             sleep 5
           done
