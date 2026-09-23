@@ -179,6 +179,130 @@ static void wifi_save_credentials(const char *ssid, const char *pwd) {
     nvs_close(h);
 }
 
+
+static void save_mel_wifi_credentials(const char *ssid, const char *pwd) {
+    nvs_handle_t h;
+    if (nvs_open("mel", NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_str(h, "ssid", ssid ? ssid : "");
+    nvs_set_str(h, "wifi_pass", pwd ? pwd : "");
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+static void show_pair_panel() {
+    if (!pair_panel) return;
+    if (main_panel) lv_obj_add_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
+    if (wifi_panel) lv_obj_add_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
+    if (pair_keyboard) lv_obj_clear_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
+    if (pair_input) lv_keyboard_set_textarea(pair_keyboard, pair_input);
+    if (pair_status) lv_label_set_text(pair_status, "Entre le code genere dans MEL > MINI");
+}
+
+static void start_mel_runtime_after_wifi(const char *ssid, const char *pwd) {
+    char ip[32] = {};
+    esp_wifi_port_get_ip(ip);
+    save_mel_wifi_credentials(ssid, pwd);
+    mel_terminal_set_network_info(ip);
+    mel_terminal_set_hardware(camera_ok, audio_ok, false);
+
+    if (mel_terminal_has_token()) {
+        if (!mel_runtime_started) {
+            mel_runtime_started = true;
+            mel_terminal_start_online();
+            ESP_LOGI(TAG, "MEL runtime starting with stored device token");
+        }
+    } else {
+        show_pair_panel();
+        ESP_LOGI(TAG, "MEL pair code required");
+    }
+}
+
+static void pair_field_focus(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !pair_keyboard) return;
+    lv_keyboard_set_textarea(pair_keyboard, lv_event_get_target(e));
+}
+
+static void pair_submit_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !pair_input) return;
+    const char *code = lv_textarea_get_text(pair_input);
+    if (!code || !code[0]) {
+        if (pair_status) lv_label_set_text(pair_status, "Code requis");
+        return;
+    }
+    mel_terminal_set_pair_code(code);
+    if (pair_status) lv_label_set_text(pair_status, "Appairage en cours...");
+    if (pair_keyboard) lv_obj_add_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
+    if (pair_panel) lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
+    if (main_panel) lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
+    mel_runtime_started = true;
+    mel_terminal_start_online();
+}
+
+static void pair_open_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    show_pair_panel();
+}
+
+static void pair_back_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (pair_panel) lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
+    if (pair_keyboard) lv_obj_add_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
+    if (main_panel) lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void pair_ui_create(lv_obj_t *screen) {
+    pair_panel = lv_obj_create(screen);
+    lv_obj_set_size(pair_panel, 320, 480);
+    lv_obj_center(pair_panel);
+    lv_obj_set_style_bg_color(pair_panel, lv_color_hex(0x07111F), 0);
+    lv_obj_set_style_border_width(pair_panel, 0, 0);
+    lv_obj_set_style_pad_all(pair_panel, 10, 0);
+    lv_obj_clear_flag(pair_panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *title = lv_label_create(pair_panel);
+    lv_label_set_text(title, "LIER MINI A MEL");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
+
+    pair_status = lv_label_create(pair_panel);
+    lv_label_set_long_mode(pair_status, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(pair_status, 270);
+    lv_obj_set_style_text_align(pair_status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(pair_status, "Entre le code genere dans MEL > MINI");
+    lv_obj_align(pair_status, LV_ALIGN_TOP_MID, 0, 58);
+
+    pair_input = lv_textarea_create(pair_panel);
+    lv_obj_set_size(pair_input, 250, 52);
+    lv_obj_align(pair_input, LV_ALIGN_TOP_MID, 0, 108);
+    lv_textarea_set_placeholder_text(pair_input, "CODE MEL");
+    lv_textarea_set_one_line(pair_input, true);
+    lv_obj_add_event_cb(pair_input, pair_field_focus, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *submit = lv_btn_create(pair_panel);
+    lv_obj_set_size(submit, 170, 46);
+    lv_obj_align(submit, LV_ALIGN_TOP_MID, 0, 170);
+    lv_obj_t *submit_label = lv_label_create(submit);
+    lv_label_set_text(submit_label, "APPAIRER");
+    lv_obj_center(submit_label);
+    lv_obj_add_event_cb(submit, pair_submit_clicked, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *back = lv_btn_create(pair_panel);
+    lv_obj_set_size(back, 46, 36);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_t *back_label = lv_label_create(back);
+    lv_label_set_text(back_label, LV_SYMBOL_LEFT);
+    lv_obj_center(back_label);
+    lv_obj_add_event_cb(back, pair_back_clicked, LV_EVENT_CLICKED, nullptr);
+
+    pair_keyboard = lv_keyboard_create(pair_panel);
+    lv_obj_set_size(pair_keyboard, 304, 235);
+    lv_obj_align(pair_keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_keyboard_set_mode(pair_keyboard, LV_KEYBOARD_MODE_TEXT_UPPER);
+    lv_keyboard_set_textarea(pair_keyboard, pair_input);
+}
+
 static void wifi_show_main() {
     if (!main_panel || !wifi_panel) return;
     lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
