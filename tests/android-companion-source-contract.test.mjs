@@ -180,6 +180,9 @@ test('Android owner password state is not saveable and emulator smoke tests are 
   assert.match(workflow,/connectedDebugAndroidTest/);
   assert.match(workflow,/login-screen\.png/);
   assert.match(workflow,/complete-screen\.png/);
+  assert.match(uiTest,/executeShellCommand/);
+  assert.match(screenshotTest,/executeShellCommand/);
+  assert.match(workflow,/\/sdcard\/Download/);
   assert.match(workflow,/adb pull/);
   assert.match(workflow,/test -s android-companion\/dist\/emulator\/login-screen\.png/);
   assert.match(workflow,/test -s android-companion\/dist\/emulator\/complete-screen\.png/);
