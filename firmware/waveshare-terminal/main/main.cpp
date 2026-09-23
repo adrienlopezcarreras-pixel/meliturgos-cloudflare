@@ -729,15 +729,6 @@ static bool wait_for_view(int expected, int timeout_ms) {
     return active_view == expected;
 }
 
-static bool wait_for_view(int expected, int timeout_ms) {
-    const int step_ms = 50;
-    for (int elapsed = 0; elapsed < timeout_ms; elapsed += step_ms) {
-        if (active_view == expected) return true;
-        vTaskDelay(pdMS_TO_TICKS(step_ms));
-    }
-    return active_view == expected;
-}
-
 static void ui_stress_task(void *) {
 #if MINI_UI_STRESS_TEST
     vTaskDelay(pdMS_TO_TICKS(7000));
