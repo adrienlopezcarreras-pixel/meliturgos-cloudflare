@@ -191,7 +191,7 @@ class MainActivity : ComponentActivity() {
                 val type = contentResolver.getType(uri) ?: "application/octet-stream"
                 val bytes = readUriBounded(uri)
                 model.sendFile(name, type, bytes)
-                runOnUiThread { voiceMessage.value = "Micro prêt" }
+                runOnUiThread { voiceMessage.value = "Fichier envoyé à MEL" }
             } catch (error: Throwable) {
                 runOnUiThread {
                     voiceMessage.value = if (error.message == "FILE_TOO_LARGE")
