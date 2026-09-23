@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import worker from '../src/index.js';
 import { classifyHttpAuthSurface } from '../src/security/http-auth-policy.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+import { createConversationService } from '../src/conversations/conversation-service.js';
 
 const ownerAuth='Basic '+Buffer.from('adrien:test').toString('base64');
 
@@ -106,6 +107,18 @@ test('Android heartbeat, chat, sync ACK and revocation work end-to-end',async()=
       .bind('android-e2e-conv').first();
     assert.equal(userRow.device_id,'android-e2e');
     assert.equal(userRow.provenance,'native-chat');
+
+    // The direct chat response is already consumed by this phone and advances
+    // its checkpoint. Sync is for messages that arrive later from another
+    // surface/device.
+    const service=createConversationService(env);
+    await service.archiveMessage({
+      conversationId:'android-e2e-conv',
+      role:'assistant',
+      content:'message externe à synchroniser',
+      timestamp:Date.now()+1000,
+      provenance:'test:external-surface'
+    });
 
     const sync1=await worker.fetch(new Request('https://mel.test/api/android/v1/sync?conversation_id=android-e2e-conv',{
       headers:deviceHeaders(paired.device_id,paired.token)
