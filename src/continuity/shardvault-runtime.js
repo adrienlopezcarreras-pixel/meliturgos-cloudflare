@@ -1723,7 +1723,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       target_count:targetCount,
       target_reached:active.length>=targetCount,
       continue_searching:active.length<targetCount,
-      search_mode:'MAINTAIN_7_EXTERNAL_INCREMENTAL',
+      search_mode:'MAINTAIN_7_EXTERNAL',search_strategy:'INCREMENTAL_BOUNDED',
       activation_cycle
     };
     if(result.target_reached){
