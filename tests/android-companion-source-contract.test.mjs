@@ -220,9 +220,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 12/);
-  assert.match(build,/versionName = "0\.6\.3"/);
-  assert.match(api,/APP_VERSION = "0\.6\.3"/);
+  assert.match(build,/versionCode = 13/);
+  assert.match(build,/versionName = "0\.6\.4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.4"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -243,9 +243,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 12/);
-  assert.match(build,/versionName = "0\.6\.3"/);
-  assert.match(api,/APP_VERSION = "0\.6\.3"/);
+  assert.match(build,/versionCode = 13/);
+  assert.match(build,/versionName = "0\.6\.4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.4"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -276,9 +276,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 12/);
-  assert.match(build,/versionName = "0\.6\.3"/);
-  assert.match(api,/APP_VERSION = "0\.6\.3"/);
+  assert.match(build,/versionCode = 13/);
+  assert.match(build,/versionName = "0\.6\.4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.4"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -286,4 +286,29 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const file=vm.slice(vm.indexOf('fun sendFile('),vm.indexOf('fun runDiagnostics()'));
   const fileMarks=file.match(/appendDiagnosticLine\("Fichier réel: OK"\)/g) || [];
   assert.equal(fileMarks.length,2);
+});
+
+
+test('Android dark UI keeps readable content contrast',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const harness=await readFile(new URL('app/src/debug/java/fr/veriteinterdite/mel/MelUiHarnessActivity.kt',root),'utf8');
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
+
+  assert.match(build,/versionCode = 13/);
+  assert.match(build,/versionName = "0\.6\.4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.4"/);
+
+  assert.match(activity,/contentColor = MelInk/);
+  assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
+  assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanelSoft, contentColor = MelInk\)/);
+  assert.match(activity,/CardDefaults\.cardColors\(containerColor = Color\(0xB30C2940\), contentColor = MelInk\)/);
+  assert.match(activity,/Surface\(color = Color\(0xCC071523\), contentColor = MelInk\)/);
+  assert.match(activity,/Text\("MEL", color = MelInk/);
+  assert.match(activity,/Text\("Connexion sécurisée", color = MelInk/);
+  assert.match(activity,/Text\("Contrôles complets", color = MelInk/);
+  assert.match(activity,/"Validation téléphone",[\s\S]{0,120}color = MelInk/);
+
+  assert.match(harness,/MEL Android \$\{MelApiClient\.APP_VERSION\}/);
+  assert.doesNotMatch(harness,/MEL Android 0\.6\.1/);
 });
