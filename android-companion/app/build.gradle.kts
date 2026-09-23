@@ -23,8 +23,8 @@ android {
         applicationId = "fr.veriteinterdite.mel"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.4.0"
+        versionCode = 6
+        versionName = "0.5.0"
         buildConfigField("String", "MEL_BASE_URL", "\"https://meliturgos.adrien-lopezcarreras.workers.dev\"")
     }
 
@@ -77,5 +77,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.1")
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

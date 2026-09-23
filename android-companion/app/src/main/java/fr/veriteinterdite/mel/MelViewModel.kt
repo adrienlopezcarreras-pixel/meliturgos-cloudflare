@@ -47,7 +47,8 @@ class MelViewModel(
     private val vault: TokenVault,
     private val conversationId: String
 ) : ViewModel() {
-    private val prefs = context.applicationContext.getSharedPreferences("mel_ui", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("mel_ui", Context.MODE_PRIVATE)
     private val initialMode = runCatching {
         MelMode.valueOf(prefs.getString("mode", MelMode.NORMAL.name) ?: MelMode.NORMAL.name)
     }.getOrDefault(MelMode.NORMAL)
@@ -66,6 +67,7 @@ class MelViewModel(
 
     fun verifyExistingSession() {
         if (vault.load().isNullOrBlank()) {
+            MelBackground.cancel(appContext)
             _state.value = _state.value.copy(
                 session = SessionStage.DISCONNECTED,
                 status = "Connexion requise",
@@ -82,6 +84,7 @@ class MelViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 client.heartbeat(sdkInt = Build.VERSION.SDK_INT)
+                MelBackground.schedule(appContext)
                 _state.value = _state.value.copy(
                     session = SessionStage.CONNECTED,
                     busy = false,
@@ -91,6 +94,7 @@ class MelViewModel(
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
                     vault.clear()
+                    MelBackground.cancel(appContext)
                     _state.value = _state.value.copy(
                         session = SessionStage.DISCONNECTED,
                         busy = false,
@@ -124,6 +128,7 @@ class MelViewModel(
             try {
                 client.pairWithOwnerCredentials(username.trim(), password)
                 client.heartbeat(sdkInt = Build.VERSION.SDK_INT)
+                MelBackground.schedule(appContext)
                 _state.value = _state.value.copy(
                     session = SessionStage.CONNECTED,
                     busy = false,
@@ -144,6 +149,7 @@ class MelViewModel(
 
     fun disconnect() {
         vault.clear()
+        MelBackground.cancel(appContext)
         _state.value = MelUiState(
             session = SessionStage.DISCONNECTED,
             mode = _state.value.mode,
@@ -179,6 +185,7 @@ class MelViewModel(
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
                     vault.clear()
+                    MelBackground.cancel(appContext)
                     _state.value = _state.value.copy(
                         session = SessionStage.DISCONNECTED,
                         busy = false,
@@ -307,6 +314,7 @@ class MelViewModel(
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
                     vault.clear()
+                    MelBackground.cancel(appContext)
                     _state.value = _state.value.copy(
                         session = SessionStage.DISCONNECTED,
                         busy = false,
@@ -352,6 +360,7 @@ class MelViewModel(
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
                     vault.clear()
+                    MelBackground.cancel(appContext)
                     _state.value = _state.value.copy(
                         session = SessionStage.DISCONNECTED,
                         busy = false,

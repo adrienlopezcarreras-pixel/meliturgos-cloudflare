@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.provider.Settings
@@ -92,6 +93,18 @@ class MainActivity : ComponentActivity() {
         else voiceMessage.value = "Permission micro refusée"
     }
 
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            MelBackground.schedule(this)
+            MelBackground.showBackgroundEnabled(this)
+            voiceMessage.value = "Notifications MEL activées"
+        } else {
+            voiceMessage.value = "Notifications refusées"
+        }
+    }
+
     private val filePicker = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -124,7 +137,8 @@ class MainActivity : ComponentActivity() {
                     onSync = model::sync,
                     onVoice = ::toggleVoice,
                     onFile = ::pickFile,
-                    onProfessor = ::openProfessor
+                    onProfessor = ::openProfessor,
+                    onNotifications = ::enableNotifications
                 )
             }
         }
@@ -183,6 +197,22 @@ class MainActivity : ComponentActivity() {
     private fun openProfessor() {
         val url = BuildConfig.MEL_BASE_URL.trimEnd('/') + "/professor"
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+
+    private fun enableNotifications() {
+        if (model.state.value.session != SessionStage.CONNECTED) {
+            voiceMessage.value = "Connecte d’abord le téléphone à MEL"
+            return
+        }
+        MelBackground.schedule(this)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        MelBackground.showBackgroundEnabled(this)
+        voiceMessage.value = "Notifications MEL activées"
     }
 
     private fun toggleVoice() {
@@ -306,7 +336,8 @@ private fun MelApp(
     onSync: () -> Unit,
     onVoice: () -> Unit,
     onFile: () -> Unit,
-    onProfessor: () -> Unit
+    onProfessor: () -> Unit,
+    onNotifications: () -> Unit
 ) {
     Box(
         Modifier
@@ -331,7 +362,8 @@ private fun MelApp(
                 onSync = onSync,
                 onVoice = onVoice,
                 onFile = onFile,
-                onProfessor = onProfessor
+                onProfessor = onProfessor,
+                onNotifications = onNotifications
             )
         }
     }
@@ -513,7 +545,8 @@ private fun ConversationScreen(
     onSync: () -> Unit,
     onVoice: () -> Unit,
     onFile: () -> Unit,
-    onProfessor: () -> Unit
+    onProfessor: () -> Unit,
+    onNotifications: () -> Unit
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -567,7 +600,7 @@ private fun ConversationScreen(
             )
             if (state.mode == MelMode.COMPLETE) {
                 Spacer(Modifier.height(10.dp))
-                CompletePanel(state.busy, onSync, onProfessor)
+                CompletePanel(state.busy, onSync, onProfessor, onNotifications)
             }
             Spacer(Modifier.height(10.dp))
 
@@ -718,7 +751,8 @@ private fun ModeSelector(mode: MelMode, onMode: (MelMode) -> Unit) {
 private fun CompletePanel(
     busy: Boolean,
     onSync: () -> Unit,
-    onProfessor: () -> Unit
+    onProfessor: () -> Unit,
+    onNotifications: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -747,6 +781,14 @@ private fun CompletePanel(
                     enabled = !busy,
                     modifier = Modifier.weight(1f)
                 ) { Text("Professor") }
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onNotifications,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Activer notifications arrière-plan")
             }
         }
     }
