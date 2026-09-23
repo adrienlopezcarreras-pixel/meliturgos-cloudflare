@@ -60,7 +60,9 @@ jobs:
         run: |
           set -euo pipefail
           APK="dist/MEL-Android-debug.apk"
-          aapt dump badging "$APK" | tee dist/apk-badging.txt
+          AAPT="$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt"
+          test -x "$AAPT"
+          "$AAPT" dump badging "$APK" | tee dist/apk-badging.txt
           grep -q "package: name='fr.veriteinterdite.mel'" dist/apk-badging.txt
           grep -q "launchable-activity:" dist/apk-badging.txt
 
