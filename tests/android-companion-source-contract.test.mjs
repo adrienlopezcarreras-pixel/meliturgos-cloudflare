@@ -220,9 +220,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 11/);
-  assert.match(build,/versionName = "0\.6\.2"/);
-  assert.match(api,/APP_VERSION = "0\.6\.2"/);
+  assert.match(build,/versionCode = 12/);
+  assert.match(build,/versionName = "0\.6\.3"/);
+  assert.match(api,/APP_VERSION = "0\.6\.3"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -243,9 +243,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 11/);
-  assert.match(build,/versionName = "0\.6\.2"/);
-  assert.match(api,/APP_VERSION = "0\.6\.2"/);
+  assert.match(build,/versionCode = 12/);
+  assert.match(build,/versionName = "0\.6\.3"/);
+  assert.match(api,/APP_VERSION = "0\.6\.3"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -268,4 +268,22 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   assert.match(activity,/Text\("Tester fichier"\)/);
   assert.match(activity,/Text\("Tester arrière-plan"\)/);
   assert.match(activity,/Fichier envoyé à MEL/);
+});
+
+
+test('real mic and file successes feed the diagnostic report',async()=>{
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
+
+  assert.match(build,/versionCode = 12/);
+  assert.match(build,/versionName = "0\.6\.3"/);
+  assert.match(api,/APP_VERSION = "0\.6\.3"/);
+
+  const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
+  assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
+
+  const file=vm.slice(vm.indexOf('fun sendFile('),vm.indexOf('fun runDiagnostics()'));
+  const fileMarks=file.match(/appendDiagnosticLine\("Fichier réel: OK"\)/g) || [];
+  assert.equal(fileMarks.length,2);
 });
