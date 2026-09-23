@@ -1660,7 +1660,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
     const remainingBudget=boundedMode
       ? Math.max(0,boundedMaxNew-Math.max(0,active.length-activeBefore.length))
       : targetCount;
-    if(active.length<targetCount&&remainingBudget>0){
+    if((!boundedMode||active.length<targetCount)&&remainingBudget>0){
       const selectionTarget=boundedMode
         ? Math.min(remainingBudget,targetCount-active.length)
         : targetCount;
