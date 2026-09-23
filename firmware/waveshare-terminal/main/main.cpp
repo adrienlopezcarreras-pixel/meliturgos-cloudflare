@@ -99,7 +99,7 @@ static void camera_boot_probe_task(void *) {
     // UI is already alive before this runs. Camera probing can therefore be slow
     // without starving taskLVGL on CPU0.
     vTaskDelay(pdMS_TO_TICKS(2500));
-    ESP_LOGI(TAG, "SELFTEST CAMERA: init OV5640 on CPU%d", xPortGetCoreID());
+    ESP_LOGI(TAG, "SELFTEST CAMERA: init OV5640 off the LVGL core (CPU%d)", xPortGetCoreID());
     esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
     camera_ok = esp_camera_sensor_get() != nullptr;
 
@@ -972,6 +972,6 @@ extern "C" void app_main(void) {
     }
 
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
-    xTaskCreatePinnedToCore(camera_boot_probe_task, "mini_camera_probe", 8192, nullptr, 2, nullptr, 1);
-    xTaskCreatePinnedToCore(ui_stress_task, "mini_ui_stress", 4096, nullptr, 2, nullptr, 1);
+    xTaskCreatePinnedToCore(camera_boot_probe_task, "mini_camera_probe", 8192, nullptr, 2, nullptr, 0);
+    xTaskCreatePinnedToCore(ui_stress_task, "mini_ui_stress", 4096, nullptr, 2, nullptr, 0);
 }
