@@ -289,30 +289,39 @@ static void wifi_connect_task(void *arg) {
 
     if (connected) wifi_save_credentials(ssid, pwd);
 
-    if (lvgl_port_lock(0)) {
-        if (connected) {
-            char ip[32] = {};
-            esp_wifi_port_get_ip(ip);
+    if (connected) {
+        char ip[32] = {};
+        esp_wifi_port_get_ip(ip);
+
+        if (lvgl_port_lock(0)) {
             if (wifi_status) lv_label_set_text_fmt(wifi_status, "Connecte a %s\nIP %s", ssid, ip);
             if (status_label) lv_label_set_text(status_label, "PARLER");
-            vTaskDelay(pdMS_TO_TICKS(1200));
-            wifi_show_main();
-        } else {
-            if (wifi_status) {
-                if (wifi_disconnect_reason >= 0) {
-                    lv_label_set_text_fmt(
-                        wifi_status,
-                        "Echec: %s\n(code %d)",
-                        wifi_reason_text(wifi_disconnect_reason),
-                        wifi_disconnect_reason
-                    );
-                } else {
-                    lv_label_set_text(wifi_status, "Connexion impossible");
-                }
-            }
-            if (wifi_keyboard) lv_obj_clear_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
-            if (wifi_connect_btn) lv_obj_clear_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
+            lvgl_port_unlock();
         }
+
+        // Never sleep while holding the LVGL mutex: doing so starves taskLVGL
+        // and triggers the task watchdog on this board.
+        vTaskDelay(pdMS_TO_TICKS(700));
+
+        if (lvgl_port_lock(0)) {
+            wifi_show_main();
+            lvgl_port_unlock();
+        }
+    } else if (lvgl_port_lock(0)) {
+        if (wifi_status) {
+            if (wifi_disconnect_reason >= 0) {
+                lv_label_set_text_fmt(
+                    wifi_status,
+                    "Echec: %s\n(code %d)",
+                    wifi_reason_text(wifi_disconnect_reason),
+                    wifi_disconnect_reason
+                );
+            } else {
+                lv_label_set_text(wifi_status, "Connexion impossible");
+            }
+        }
+        if (wifi_keyboard) lv_obj_clear_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
+        if (wifi_connect_btn) lv_obj_clear_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
         lvgl_port_unlock();
     }
     wifi_connect_task_handle = nullptr;
