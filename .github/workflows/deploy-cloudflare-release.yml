@@ -416,6 +416,58 @@ jobs:
           },null,2));
           NODE
 
+          CHATGPT_STATUS_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --output production-chatgpt-archive-status.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/import/chatgpt-status")"
+          if [ "$CHATGPT_STATUS_CODE" != "200" ]; then
+            echo "Production MEL-MEM-05 status returned HTTP ${CHATGPT_STATUS_CODE}."
+            test ! -s production-chatgpt-archive-status.json || cat production-chatgpt-archive-status.json
+            exit 40
+          fi
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('production-chatgpt-archive-status.json','utf8'));
+          if(d?.ok!==true || d?.db_bound!==true || d?.status!=='ONLINE') {
+            throw new Error('MEL_MEM_05_PRODUCTION_STATUS_NOT_ONLINE');
+          }
+          const attachment=d?.attachment_index||{};
+          for(const [key,value] of Object.entries({
+            conversations:d?.conversations,
+            messages:d?.messages,
+            unsynced_messages:d?.unsynced_messages,
+            messages_with_attachments:attachment?.messages_with_attachments,
+            attachment_descriptors:attachment?.descriptors,
+            binary_content_available:attachment?.binary_content_available,
+            indexed_descriptors:attachment?.indexed_descriptors,
+          })) {
+            const n=Number(value||0);
+            if(!Number.isFinite(n) || n<0) throw new Error('MEL_MEM_05_INVALID_COUNT:'+key);
+          }
+          console.log(JSON.stringify({
+            mel_mem_05_status:'OBSERVED',
+            conversations:Number(d.conversations||0),
+            messages:Number(d.messages||0),
+            unsynced_messages:Number(d.unsynced_messages||0),
+            memory_sync_complete:d.memory_sync_complete===true,
+            server_archive_complete:d.server_archive_complete===true,
+            collector_inventory_confirmed:d.collector_inventory_confirmed===true,
+            full_archive_confirmed:d.full_archive_confirmed===true,
+            attachment_index:{
+              messages_with_attachments:Number(attachment.messages_with_attachments||0),
+              descriptors:Number(attachment.descriptors||0),
+              metadata_searchable:attachment.metadata_searchable===true,
+              binary_content_available:Number(attachment.binary_content_available||0),
+              indexed_descriptors:Number(attachment.indexed_descriptors||0),
+              binary_content_indexed:attachment.binary_content_indexed===true,
+            },
+            completeness:d?.stages?.completeness||null,
+          },null,2));
+          NODE
+
           SELF_CODE="$(curl --silent --show-error --max-time 60 \
             --header "x-mel-release-smoke: 1" \
             --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
