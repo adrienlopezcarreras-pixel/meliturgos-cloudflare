@@ -140,7 +140,8 @@ static const char *wifi_reason_text(int reason) {
 }
 
 static void wifi_reconnect_task(void *) {
-    int attempt = ++wifi_reconnect_attempt;
+    int attempt = wifi_reconnect_attempt + 1;
+    wifi_reconnect_attempt = attempt;
     int delay_ms = 1000 << (attempt > 4 ? 4 : attempt - 1);
     if (delay_ms > 15000) delay_ms = 15000;
     ESP_LOGW(TAG, "MINI WIFI RECONNECT attempt=%d in %d ms", attempt, delay_ms);
@@ -473,10 +474,6 @@ static void pair_ui_create(lv_obj_t *screen) {
     lv_keyboard_set_textarea(pair_keyboard, pair_input);
 }
 
-static void wifi_show_main() {
-    request_view(MINI_VIEW_MAIN);
-}
-
 static void wifi_show_password(const char *ssid) {
     snprintf(selected_ssid, sizeof(selected_ssid), "%s", ssid ? ssid : "");
     request_view(MINI_VIEW_WIFI_PASSWORD);
@@ -512,7 +509,7 @@ static void wifi_scan_task(void *) {
             for (uint16_t i = 0; i < count && i < MINI_WIFI_MAX_AP; ++i) {
                 snprintf(wifi_ssids[i], sizeof(wifi_ssids[i]), "%s", (char *)aps[i].ssid);
                 char row[52];
-                snprintf(row, sizeof(row), "%s   %d dBm", wifi_ssids[i], aps[i].rssi);
+                snprintf(row, sizeof(row), "%.32s   %d dBm", wifi_ssids[i], (int)aps[i].rssi);
                 lv_obj_t *btn = lv_list_add_btn(wifi_list, LV_SYMBOL_WIFI, row);
                 lv_obj_add_event_cb(btn, wifi_ap_clicked, LV_EVENT_CLICKED, wifi_ssids[i]);
             }
