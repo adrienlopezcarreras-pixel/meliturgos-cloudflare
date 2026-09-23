@@ -234,6 +234,7 @@ class MelViewModel(
                     status = "MEL connectée · mode ${mode.label}",
                     messages = _state.value.messages + MelChatMessage("mel", answer)
                 )
+                appendDiagnosticLine("Micro réel: OK")
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
                     vault.clear()
@@ -315,6 +316,7 @@ class MelViewModel(
                             "Fichier analysé · mode " + mode.label,
                         messages = _state.value.messages + MelChatMessage("mel", answer)
                     )
+                    appendDiagnosticLine("Fichier réel: OK")
                 } else {
                     _state.value = _state.value.copy(
                         busy = false,
@@ -323,6 +325,7 @@ class MelViewModel(
                         else
                             "Fichier reçu. Aucun texte directement extractible."
                     )
+                    appendDiagnosticLine("Fichier réel: OK")
                 }
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
