@@ -220,9 +220,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 10/);
-  assert.match(build,/versionName = "0\.6\.1"/);
-  assert.match(api,/APP_VERSION = "0\.6\.1"/);
+  assert.match(build,/versionCode = 11/);
+  assert.match(build,/versionName = "0\.6\.2"/);
+  assert.match(api,/APP_VERSION = "0\.6\.2"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -233,4 +233,39 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   assert.match(activity,/Text\("Copier diagnostic"\)/);
   assert.match(activity,/ClipboardManager/);
   assert.match(activity,/ClipData\.newPlainText/);
+});
+
+
+test('Android device validation probes are authenticated and bounded',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  const background=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBackground.kt',root),'utf8');
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
+
+  assert.match(build,/versionCode = 11/);
+  assert.match(build,/versionName = "0\.6\.2"/);
+  assert.match(api,/APP_VERSION = "0\.6\.2"/);
+
+  assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
+  assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
+  assert.match(activity,/ByteArrayOutputStream\(64 \* 1024\)/);
+  assert.match(activity,/if \(total > MAX_FILE_BYTES\)/);
+  assert.doesNotMatch(activity,/openInputStream\(uri\)\?\.use \{ it\.readBytes\(\) \}/);
+
+  assert.match(vm,/fun runNormalProbe\(\)/);
+  assert.match(vm,/uiMode = MelMode\.NORMAL\.wireValue/);
+  assert.match(vm,/conversationId \+ "-android-validation"/);
+  assert.match(vm,/fun runFileProbe\(\)/);
+  assert.match(vm,/client\.uploadFile\(/);
+  assert.match(vm,/MEL_ANDROID_FILE_PROBE_/);
+  assert.match(vm,/fun runBackgroundProbe\(\)/);
+  assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
+  assert.match(vm,/MelBackground\.heartbeatScheduled\(appContext\)/);
+  assert.match(background,/fun heartbeatScheduled\(context: Context\): Boolean/);
+
+  assert.match(activity,/Text\("Tester Normal"\)/);
+  assert.match(activity,/Text\("Tester fichier"\)/);
+  assert.match(activity,/Text\("Tester arrière-plan"\)/);
+  assert.match(activity,/Fichier envoyé à MEL/);
 });
