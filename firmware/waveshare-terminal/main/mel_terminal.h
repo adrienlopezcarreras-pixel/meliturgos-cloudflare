@@ -14,6 +14,7 @@ void mel_terminal_set_hardware(bool camera_ok, bool audio_ok, bool sd_ok);
 bool mel_terminal_has_token(void);
 void mel_terminal_set_pair_code(const char *code);
 void mel_terminal_set_network_info(const char *ip);
+void mel_terminal_set_network_connected(bool connected);
 void mel_terminal_start_online(void);
 
 enum MelTerminalState {
