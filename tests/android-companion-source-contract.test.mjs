@@ -8,7 +8,7 @@ test('Android app uses Compose Material 3 instead of the former imperative minim
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   assert.match(build,/compose\s*=\s*true/);
-  assert.match(build,/compose-bom:2026\.09\.00/);
+  assert.match(build,/compose-bom:2025\.06\.01/);
   assert.match(build,/androidx\.compose\.material3:material3/);
   assert.match(activity,/setContent\s*\{/);
   assert.match(activity,/MaterialTheme/);
