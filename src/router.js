@@ -11,6 +11,7 @@ import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
 import { NORMAL_RUNTIME_SOURCE } from "./pages/mvp-runtime.js";
 import { devRuntime } from "./dev/runtime-api.js";
 import { handleShardVaultStatus } from "./pages/shardvault-status.js";
+import { getLegacyInteractionMigrationStatus, backfillLegacyInteractions } from "./persistence/gen1-interactions-migration.js";
 export { inferNativeCodeCapability as inferCodeCapability } from "./api/native-chat.js";
 
 function capabilityContext(env) {
@@ -41,6 +42,27 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
   if (path === "/api/gen2/roadmap" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });
     return json(await runtime.bus.execute("roadmap.read", {}, capabilityContext(env)));
+  }
+
+  if (path === "/api/gen2/migration/gen1-status" && request.method === "GET") {
+    return json(await getLegacyInteractionMigrationStatus(env));
+  }
+
+  if (path === "/api/gen2/migration/gen1-backfill" && request.method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    try {
+      return json(await backfillLegacyInteractions(env, {
+        afterId: body.after_id,
+        limit: body.limit,
+      }));
+    } catch (error) {
+      return json({
+        ok:false,
+        error:error?.message || "GEN1_MIGRATION_FAILED",
+        code:error?.code || "GEN1_MIGRATION_FAILED",
+        details:error?.details || null,
+      }, Number(error?.status) || 500);
+    }
   }
 
   if (path === "/api/gen2/code/self-check" && request.method === "GET") {
