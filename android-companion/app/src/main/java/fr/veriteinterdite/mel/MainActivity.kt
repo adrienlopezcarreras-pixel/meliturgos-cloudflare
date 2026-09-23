@@ -63,6 +63,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -412,7 +413,7 @@ private fun MelAvatar(size: Int = 84, online: Boolean = true) {
 @Composable
 private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
     var user by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     val focus = LocalFocusManager.current
 
     Column(
@@ -447,7 +448,7 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
                 OutlinedTextField(
                     value = user,
                     onValueChange = { user = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("login-user"),
                     label = { Text("Utilisateur MEL (optionnel)") },
                     singleLine = true
                 )
@@ -455,7 +456,7 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("login-password"),
                     label = { Text("Mot de passe MEL") },
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
@@ -479,7 +480,7 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
                         onLogin(user, password)
                         password = ""
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("login-submit"),
                     enabled = !state.busy && password.isNotBlank(),
                     shape = RoundedCornerShape(14.dp)
                 ) {
