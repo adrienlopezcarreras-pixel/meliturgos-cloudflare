@@ -118,14 +118,15 @@ test('MEL techno avatar is the canonical favicon in normal and Professor modes',
   }
 });
 
-test('Professor skills surface refreshes real health and explains provider state', async () => {
+test('Professor skills surface uses cached health on open and forces a real refresh only on explicit request', async () => {
   const html = await (await renderProfessor()).text();
   assert.match(html, /id="skillsHealthy"/);
   assert.match(html, /id="skillsProtected"/);
   assert.match(html, /id="skillsDegraded"/);
   assert.match(html, /id="skillsUnavailable"/);
   assert.match(html, /id="skillsProviderSummary"/);
-  assert.ok(html.includes('loadCapabilitiesData(true)'));
+  assert.ok(html.includes('loadCapabilitiesData(force)'));
+  assert.ok(html.includes("loadSkills(true)"));
   assert.ok(html.includes('health_detail'));
   assert.ok(html.includes('NON CONFIGURÉ'));
 });
