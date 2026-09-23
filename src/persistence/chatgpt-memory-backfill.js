@@ -105,6 +105,7 @@ export async function backfillChatGPTArchiveToMemory(env,{conversationLimit=MAX_
       const result=await sync.syncToMemory({
         conversationId,
         limit:MAX_MESSAGES_PER_CONVERSATION_BATCH,
+        provenance:'chatgpt_export',
       });
       totals.scanned+=n(result.scanned);
       totals.eligible+=n(result.eligible);
