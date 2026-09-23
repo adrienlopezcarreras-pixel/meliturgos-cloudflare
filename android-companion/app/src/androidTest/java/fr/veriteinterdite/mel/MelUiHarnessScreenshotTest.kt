@@ -3,6 +3,7 @@ package fr.veriteinterdite.mel
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -24,6 +25,10 @@ class MelUiHarnessScreenshotTest {
         compose.onNodeWithText("Synchroniser").assertIsDisplayed()
         compose.onNodeWithText("Professor").assertIsDisplayed()
         compose.onNodeWithText("Lancer auto-diagnostic").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("message-input").assertIsDisplayed()
+        compose.onNodeWithTag("file-button").assertIsDisplayed()
+        compose.onNodeWithTag("micro-button").assertIsDisplayed()
+        compose.onNodeWithTag("send-button").assertIsDisplayed()
         compose.waitForIdle()
     }
 }
