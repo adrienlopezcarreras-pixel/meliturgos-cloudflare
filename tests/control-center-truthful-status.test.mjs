@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import router from '../src/router.js';
 import { onRequestGet as renderFullMode } from '../src/pages/full-interface-v2.js';
+import { FULL_MODE_CONTROL_PATCH } from '../src/pages/full-mode-control-enhancer.js';
 
 const auth='Basic '+Buffer.from('adrien:test').toString('base64');
 
@@ -47,4 +48,29 @@ test('control center renders global health from dashboard state and avoids force
   assert.doesNotMatch(runtime,/loadCapabilitiesData\(true\),caps=Array\.isArray/);
   assert.doesNotMatch(runtime,/ok===total\?'Système prêt'/);
   assert.match(runtime,/Résumé système indisponible/);
+});
+
+
+test('control center never turns missing dashboard metrics into truthful-looking zeros', async()=>{
+  const html=await (await renderFullMode()).text();
+  const runtime=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
+  assert.match(runtime,/function finiteMetric\(value\)/);
+  assert.match(runtime,/function renderCapabilityOverview\(caps\)/);
+  assert.match(runtime,/active===null\?'État indisponible'/);
+  assert.match(runtime,/renderCapabilityOverview\(null\);renderRoadmapSummary\(null\)/);
+  assert.doesNotMatch(runtime,/s\.total\|\|0/);
+  assert.doesNotMatch(runtime,/s\.complete\|\|0/);
+  assert.doesNotMatch(runtime,/Number\(caps\.total\|\|0\)/);
+  assert.doesNotMatch(runtime,/Number\(caps\.active\|\|0\)/);
+});
+
+test('activity panel distinguishes unloaded state from an observed empty state',()=>{
+  assert.match(FULL_MODE_CONTROL_PATCH,/function metricValue\(value\)/);
+  assert.match(FULL_MODE_CONTROL_PATCH,/État des travaux non chargé/);
+  assert.match(FULL_MODE_CONTROL_PATCH,/Journal non chargé\. Actualise pour vérifier les traces récentes\./);
+  assert.match(FULL_MODE_CONTROL_PATCH,/renderActivity\(state,null\)/);
+  assert.doesNotMatch(FULL_MODE_CONTROL_PATCH,/c\.active\|\|0/);
+  assert.doesNotMatch(FULL_MODE_CONTROL_PATCH,/c\.completed\|\|0/);
+  assert.doesNotMatch(FULL_MODE_CONTROL_PATCH,/c\.failed\|\|0/);
+  assert.doesNotMatch(FULL_MODE_CONTROL_PATCH,/renderActivity\(state,\{events:\[\],deployment:null\}\)/);
 });
