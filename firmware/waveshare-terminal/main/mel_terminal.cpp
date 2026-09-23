@@ -62,8 +62,11 @@ static bool g_camera_ok = false;
 static bool g_audio_ok = false;
 static bool g_sd_ok = false;
 static bool g_online = false;
+static volatile bool g_network_connected = false;
 static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
 static TaskHandle_t g_voice_task_handle = nullptr;
+static TaskHandle_t g_online_task_handle = nullptr;
+static TaskHandle_t g_heartbeat_task_handle = nullptr;
 static EventGroupHandle_t g_wifi_bits = nullptr;
 static int g_wifi_retry = 0;
 static lv_obj_t *g_status = nullptr;
@@ -298,7 +301,27 @@ static std::string json_string(cJSON *obj) {
 }
 
 static bool pair_terminal() {
-    if (g_cfg.token[0]) return true;
+    if (g_cfg.token[0]) {
+        std::string probe;
+        int probe_status = 0;
+        const esp_err_t probe_err = http_request(
+            HTTP_METHOD_GET,
+            std::string(SERVER) + "/api/device/v1/manifest",
+            nullptr, nullptr, 0, probe, probe_status
+        );
+        if (probe_err == ESP_OK && probe_status == 200) return true;
+        if (probe_err == ESP_OK && (probe_status == 401 || probe_status == 403)) {
+            ESP_LOGW(TAG, "Stored device token rejected; re-pairing required");
+            save_string("token", "");
+            g_cfg.token[0] = '\0';
+        } else {
+            // Do not destroy a valid token just because the service is temporarily
+            // unreachable. Heartbeat will retry after connectivity recovers.
+            ESP_LOGW(TAG, "Token validation deferred err=%s status=%d",
+                     esp_err_to_name(probe_err), probe_status);
+            return true;
+        }
+    }
     if (!g_cfg.pair_code[0]) return false;
 
     cJSON *root = cJSON_CreateObject();
@@ -675,7 +698,7 @@ int mel_terminal_state(void) {
 }
 
 bool mel_terminal_online(void) {
-    return g_online;
+    return g_online && g_network_connected;
 }
 
 static void audio_test_task(void *) {
@@ -881,7 +904,7 @@ static void update_task(void *) {
 
 static void heartbeat_task(void *) {
     while (true) {
-        if (g_online && g_cfg.token[0]) {
+        if (g_online && g_network_connected && g_cfg.token[0]) {
             wifi_ap_record_t ap = {};
             int rssi = esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0;
             cJSON *root = cJSON_CreateObject();
@@ -900,7 +923,7 @@ static void heartbeat_task(void *) {
             cJSON_Delete(root);
             std::string response;
             int status = 0;
-            http_request(
+            const esp_err_t err = http_request(
                 HTTP_METHOD_POST,
                 std::string(SERVER) + "/api/device/v1/heartbeat",
                 "application/json",
@@ -909,9 +932,20 @@ static void heartbeat_task(void *) {
                 response,
                 status
             );
+            if (err == ESP_OK && (status == 401 || status == 403)) {
+                ESP_LOGW(TAG, "Device token revoked/rejected by heartbeat");
+                save_string("token", "");
+                g_cfg.token[0] = '\0';
+                g_online = false;
+                ui_status("REAPPAIRAGE");
+                ui_answer("Le jeton MINI n'est plus valide. Crée un nouveau code MEL.");
+                break;
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(15000));
     }
+    g_heartbeat_task_handle = nullptr;
+    vTaskDelete(nullptr);
 }
 
 enum Action { ACTION_VOICE = 1, ACTION_CAMERA = 2, ACTION_AUDIO = 3, ACTION_UPDATE = 4 };
@@ -1116,14 +1150,20 @@ void mel_terminal_set_network_info(const char *ip) {
     strlcpy(g_ip, ip ? ip : "", sizeof(g_ip));
 }
 
+void mel_terminal_set_network_connected(bool connected) {
+    g_network_connected = connected;
+}
+
 static void online_runtime_task(void *) {
     make_device_id();
     load_config();
 
     ui_status("APPAIRAGE…");
     if (!pair_terminal()) {
+        g_online = false;
         ui_status("CODE MEL REQUIS");
         ui_answer("Entre un code d'appairage MEL depuis l'icône de liaison.");
+        g_online_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
     }
@@ -1135,12 +1175,22 @@ static void online_runtime_task(void *) {
         mini_face_state(MINI_IDLE);
         lvgl_port_unlock();
     }
-    xTaskCreate(heartbeat_task, "mel_heartbeat", 6144, nullptr, 3, nullptr);
+    if (!g_heartbeat_task_handle) {
+        if (xTaskCreate(heartbeat_task, "mel_heartbeat", 6144, nullptr, 3, &g_heartbeat_task_handle) != pdPASS) {
+            g_heartbeat_task_handle = nullptr;
+            ESP_LOGE(TAG, "Unable to create heartbeat task");
+        }
+    }
+    g_online_task_handle = nullptr;
     vTaskDelete(nullptr);
 }
 
 void mel_terminal_start_online(void) {
-    xTaskCreate(online_runtime_task, "mel_online", 10240, nullptr, 5, nullptr);
+    if (g_online_task_handle || (g_online && g_network_connected)) return;
+    if (xTaskCreate(online_runtime_task, "mel_online", 10240, nullptr, 5, &g_online_task_handle) != pdPASS) {
+        g_online_task_handle = nullptr;
+        ESP_LOGE(TAG, "Unable to create MEL online task");
+    }
 }
 
 void mel_terminal_start(bool force_setup) {
