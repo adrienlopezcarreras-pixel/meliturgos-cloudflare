@@ -40,7 +40,8 @@ class MelUiHarnessActivity : ComponentActivity() {
                     onFile = {},
                     onProfessor = {},
                     onNotifications = {},
-                    onDiagnostics = {}
+                    onDiagnostics = {},
+                    onCopyDiagnostic = {}
                 )
             }
         }
