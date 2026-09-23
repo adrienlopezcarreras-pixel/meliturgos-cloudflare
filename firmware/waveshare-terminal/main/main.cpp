@@ -804,24 +804,24 @@ extern "C" void app_main(void) {
     else ESP_LOGW(TAG, "AXP2101 init warning: %s", esp_err_to_name(pmu_err));
     vTaskDelay(pdMS_TO_TICKS(100));
 
-    ESP_LOGI(TAG, "STEP 4: BACKLIGHT");
-    esp_3inch5_brightness_port_init();
-    esp_3inch5_brightness_port_set(80);
-    ESP_LOGI(TAG, "STEP 4 OK");
-
-    lv_port_init();
-
-    ESP_LOGI(TAG, "STEP 5.5: AUDIO ES8311");
+    // Initialise slow peripherals before LVGL starts so taskLVGL can never
+    // be starved during codec/camera bring-up.
+    ESP_LOGI(TAG, "STEP 4: AUDIO ES8311");
     esp_es8311_port_init(i2c_bus_handle);
     audio_ok = input_dev != nullptr && output_dev != nullptr;
-    ESP_LOGI(TAG, "STEP 5.5 %s", audio_ok ? "OK" : "FAILED");
+    ESP_LOGI(TAG, "STEP 4 %s", audio_ok ? "OK" : "FAILED");
 
-    ESP_LOGI(TAG, "STEP 5.6: CAMERA OV5640");
-    esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
-    camera_ok = esp_camera_sensor_get() != nullptr;
-    ESP_LOGI(TAG, "STEP 5.6 %s", camera_ok ? "OK" : "UNAVAILABLE");
+    ESP_LOGI(TAG, "STEP 5: BACKLIGHT + LVGL");
+    esp_3inch5_brightness_port_init();
+    esp_3inch5_brightness_port_set(80);
+    lv_port_init();
+    ESP_LOGI(TAG, "STEP 5 OK");
 
-    mel_terminal_set_hardware(camera_ok, audio_ok, false);
+    // OV5640 is initialized lazily on first camera request, on core 1.
+    // Keeping it out of the critical boot path prevents long SCCB sensor
+    // probing from starving LVGL and triggering the task watchdog.
+    camera_ok = false;
+    mel_terminal_set_hardware(false, audio_ok, false);
 
     ESP_LOGI(TAG, "STEP 6: WIFI STACK");
     esp_wifi_port_init(nullptr, nullptr);
