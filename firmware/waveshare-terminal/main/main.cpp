@@ -219,7 +219,10 @@ static void start_mel_runtime_after_wifi(const char *ssid, const char *pwd) {
             ESP_LOGI(TAG, "MEL runtime starting with stored device token");
         }
     } else {
-        show_pair_panel();
+        if (lvgl_port_lock(1000)) {
+            show_pair_panel();
+            lvgl_port_unlock();
+        }
         ESP_LOGI(TAG, "MEL pair code required");
     }
 }
@@ -699,7 +702,7 @@ static void mini_smoke_ui() {
     lv_obj_set_size(pair_btn, 48, 38);
     lv_obj_align(pair_btn, LV_ALIGN_TOP_LEFT, 10, 16);
     lv_obj_t *pl = lv_label_create(pair_btn);
-    lv_label_set_text(pl, LV_SYMBOL_LINK);
+    lv_label_set_text(pl, "MEL");
     lv_obj_center(pl);
     lv_obj_add_event_cb(pair_btn, pair_open_clicked, LV_EVENT_CLICKED, nullptr);
 
