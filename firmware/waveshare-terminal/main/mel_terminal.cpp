@@ -227,6 +227,8 @@ static esp_err_t http_request(
 }
 
 
+static std::string json_string(cJSON *obj);
+
 static bool speak_text(const std::string &text) {
     if (!g_audio_ok || !output_dev || !g_cfg.token[0] || text.empty()) return false;
 
