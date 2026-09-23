@@ -31,7 +31,7 @@ Requête minimale:
 {
   "device_id": "mel-A1B2C3",
   "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
-  "firmware": "0.4.5-stability",
+  "firmware": "0.4.6-media-storage",
   "protocol_version": "1.0",
   "pair_code": "ABCDEFGH"
 }
@@ -98,3 +98,7 @@ Trois niveaux sont distincts:
 3. validation physique sur la carte réelle.
 
 Les niveaux 1 et 2 ne doivent jamais être présentés comme une preuve du niveau 3.
+
+### Stockage des ressources MINI
+
+La capacité `storage.internal` désigne la partition FAT interne dédiée aux ressources de MINI. Les téléchargements `assets` utilisent cette partition avec wear levelling ; ils ne dépendent pas d'une carte microSD.
