@@ -476,7 +476,7 @@ static void wifi_scan_task(void *) {
             for (uint16_t i = 0; i < count && i < MINI_WIFI_MAX_AP; ++i) {
                 snprintf(wifi_ssids[i], sizeof(wifi_ssids[i]), "%s", (char *)aps[i].ssid);
                 char row[52];
-                snprintf(row, sizeof(row), "%s   %d dBm", wifi_ssids[i], aps[i].rssi);
+                snprintf(row, sizeof(row), "%.32s   %d dBm", wifi_ssids[i], aps[i].rssi);
                 lv_obj_t *btn = lv_list_add_btn(wifi_list, LV_SYMBOL_WIFI, row);
                 lv_obj_add_event_cb(btn, wifi_ap_clicked, LV_EVENT_CLICKED, wifi_ssids[i]);
             }
