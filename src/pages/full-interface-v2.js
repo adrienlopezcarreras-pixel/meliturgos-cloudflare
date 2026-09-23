@@ -475,11 +475,11 @@ async function loadLearningProgress(){
     put('#learnBenchmark',base+' → '+latest+gain);
     put('#learnTrials',fmtCount(e?.inference_trials));
     put('#learnErrors',fmtCount(e?.repeated_taught_errors));
-    const adapters=fmtCount(e?.active_adapter_count);
+    const adapterCount=finiteMetric(e?.active_adapter_count),adapters=adapterCount===null?'—':adapterCount.toLocaleString('fr-FR');
     put('#learnWeights',e?.neural_weights_changed===true
       ?('modifiés · '+adapters+' adaptateur(s) actif(s)')
       :e?.neural_weights_changed===false
-        ?('inchangés · '+adapters+' adaptateur(s) actif(s)')
+        ?(adapterCount===0?'inchangés · aucun adaptateur actif en runtime':adapterCount===null?'inchangés · état des adaptateurs indisponible':'inchangés · '+adapters+' adaptateur(s) déclaré(s) actif(s)')
         :'état des poids indisponible');
     if(chip)chip.title='Cliquer pour les détails · '+fmtCount(d?.xp)+' XP · roadmap exclue';
     return true;
