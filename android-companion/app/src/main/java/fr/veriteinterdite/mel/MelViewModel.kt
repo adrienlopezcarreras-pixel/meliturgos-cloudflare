@@ -252,9 +252,19 @@ class MelViewModel(
         )
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val upload = client.uploadFile(name, mimeType, bytes)
-                val preview = upload.optString("preview_text").trim()
-                val stored = upload.optBoolean("stored", false)
+                var stored = false
+                var compatibilityFallback = false
+                val preview = try {
+                    val upload = client.uploadFile(name, mimeType, bytes)
+                    stored = upload.optBoolean("stored", false)
+                    upload.optString("preview_text").trim()
+                } catch (error: MelApiException) {
+                    if (error.code != "ANDROID_ROUTE_NOT_FOUND" && error.status != 404) throw error
+                    compatibilityFallback = true
+                    localTextPreview(name, mimeType, bytes)
+                        ?: throw MelApiException("ANDROID_FILE_BACKEND_UPDATE_REQUIRED", 404)
+                }
+
                 _state.value = _state.value.copy(
                     messages = _state.value.messages + MelChatMessage("user", "📎 " + name)
                 )
@@ -263,7 +273,12 @@ class MelViewModel(
                     val mode = _state.value.mode
                     val prompt = "Analyse ce fichier en tenant compte de son contenu.\n\nFichier : " +
                         name + "\n--- contenu extrait ---\n" + preview
-                    _state.value = _state.value.copy(status = "MEL analyse " + name + "…")
+                    _state.value = _state.value.copy(
+                        status = if (compatibilityFallback)
+                            "Analyse locale compatible de " + name + "…"
+                        else
+                            "MEL analyse " + name + "…"
+                    )
                     val response = client.chat(
                         text = prompt,
                         conversationId = conversationId,
@@ -274,7 +289,10 @@ class MelViewModel(
                     if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                     _state.value = _state.value.copy(
                         busy = false,
-                        status = "Fichier analysé · mode " + mode.label,
+                        status = if (compatibilityFallback)
+                            "Fichier texte analysé · serveur ancien compatible"
+                        else
+                            "Fichier analysé · mode " + mode.label,
                         messages = _state.value.messages + MelChatMessage("mel", answer)
                     )
                 } else {
@@ -351,6 +369,18 @@ class MelViewModel(
         }
     }
 
+    private fun localTextPreview(name: String, mimeType: String, bytes: ByteArray): String? {
+        if (bytes.size > 512_000) return null
+        val extension = name.substringAfterLast('.', "").lowercase()
+        val textExtensions = setOf(
+            "txt", "md", "json", "csv", "tsv", "js", "mjs", "cjs", "ts", "tsx", "jsx",
+            "css", "html", "htm", "xml", "yml", "yaml", "toml", "ini", "log", "sql", "py",
+            "sh", "ps1", "java", "c", "h", "cpp", "hpp", "rs", "go", "php", "rb"
+        )
+        if (!mimeType.startsWith("text/", ignoreCase = true) && extension !in textExtensions) return null
+        return bytes.toString(Charsets.UTF_8).take(120_000).trim().takeIf { it.isNotBlank() }
+    }
+
     private fun isInvalidSession(error: Throwable): Boolean {
         val code = (error as? MelApiException)?.code ?: return false
         return code in setOf("DEVICE_AUTH_REQUIRED", "DEVICE_AUTH_INVALID", "DEVICE_NOT_PAIRED")
@@ -368,6 +398,8 @@ class MelViewModel(
                 "TRANSCRIPTION_EMPTY" -> "Je n’ai pas réussi à comprendre l’enregistrement."
                 "FILE_TOO_LARGE" -> "Le fichier dépasse la limite autorisée."
                 "FILE_REQUIRED", "FILE_EMPTY" -> "Le fichier sélectionné est vide ou illisible."
+                "ANDROID_FILE_BACKEND_UPDATE_REQUIRED" ->
+                    "Le serveur MEL doit être mis à jour pour stocker ou analyser ce type de fichier."
                 "EMPTY_RESPONSE" -> "MEL n’a renvoyé aucune réponse."
                 else -> "Erreur MEL : ${error.code}" + if (error.detail.isNotBlank()) " · ${error.detail}" else ""
             }
