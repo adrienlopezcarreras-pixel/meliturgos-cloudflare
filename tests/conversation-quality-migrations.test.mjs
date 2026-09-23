@@ -78,7 +78,7 @@ test('migration v11 provisions Collector coverage state and remains idempotent',
     const first=await migrate(DB);
     const second=await migrate(DB);
     assert.equal(first.currentVersion,12);
-    assert.equal(second.currentVersion,11);
+    assert.equal(second.currentVersion,12);
     const table=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chatgpt_collector_coverage'").first();
     assert.equal(table?.name,'chatgpt_collector_coverage');
     const rows=await DB.prepare('SELECT version,name FROM schema_migrations WHERE version=11').all();
