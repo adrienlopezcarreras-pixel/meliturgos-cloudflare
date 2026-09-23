@@ -6,6 +6,18 @@ import { handleVoiceTranscription } from "../api/voice-transcribe.js";
 export const WAVESHARE_TERMINAL_MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
 export const WAVESHARE_TERMINAL_API = "/api/device/v1";
 export const WAVESHARE_TERMINAL_PROTOCOL = "1.0";
+export const WAVESHARE_TERMINAL_CAPABILITIES = Object.freeze([
+  "display.touch",
+  "camera.ov5640",
+  "audio.microphone",
+  "audio.speaker",
+  "wifi",
+  "chat",
+  "voice.stt",
+  "voice.reply",
+  "download.assets",
+  "ota"
+]);
 const DOWNLOAD_PREFIX = "devices/waveshare-esp32-s3-touch-lcd-3.5-c/";
 const OWNER_PAIR_CODE_PATH = "/api/device/v1/pair-code";
 const OWNER_STATUS_PATH = "/api/device/v1/status";
@@ -74,24 +86,7 @@ async function registerRuntimeDevice(env, body) {
       metadata: {
         model: WAVESHARE_TERMINAL_MODEL,
         firmware: body.firmware || null,
-        capabilities: [
-          "display.touch",
-          "camera.ov5640",
-          "audio.microphone",
-          "audio.speaker",
-          "imu.qmi8658",
-          "rtc.pcf85063",
-          "storage.microsd",
-          "wifi",
-          "bluetooth",
-          "chat",
-          "voice.stt",
-          "voice.reply",
-          "mel.tools.bridge",
-          "environment.digital",
-          "download.assets",
-          "ota"
-        ]
+        capabilities: [...WAVESHARE_TERMINAL_CAPABILITIES]
       }
     }, {
       owner: env.MELITURGOS_USER || "owner",
