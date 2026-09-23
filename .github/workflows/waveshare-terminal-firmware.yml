@@ -81,13 +81,28 @@ jobs:
           path: build/waveshare-mel
           command: >-
             idf.py build &&
-            grep -Fxq 'CONFIG_OV5640_SUPPORT=y' sdkconfig &&
-            grep -Fxq '# CONFIG_OV3660_SUPPORT is not set' sdkconfig &&
-            grep -Fxq 'CONFIG_COMPILER_OPTIMIZATION_PERF=y' sdkconfig &&
-            grep -Fxq 'CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y' sdkconfig &&
-            grep -Fxq 'CONFIG_LV_MEMCPY_MEMSET_STD=y' sdkconfig &&
             idf.py merge-bin -o mini-first-install.bin &&
             cp build/lvgl_system.bin build/mel-terminal.bin
+
+      - name: Verify effective firmware configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          cfg = set(Path("build/waveshare-mel/sdkconfig").read_text().splitlines())
+          required = {
+              "CONFIG_OV5640_SUPPORT=y",
+              "# CONFIG_OV3660_SUPPORT is not set",
+              "CONFIG_COMPILER_OPTIMIZATION_PERF=y",
+              "CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y",
+              "CONFIG_LV_MEMCPY_MEMSET_STD=y",
+          }
+          missing = sorted(required - cfg)
+          if missing:
+              raise SystemExit("Missing effective sdkconfig values: " + ", ".join(missing))
+          print("Effective MINI sdkconfig verified")
+          PY
 
       - name: Build firmware manifest
         shell: bash
