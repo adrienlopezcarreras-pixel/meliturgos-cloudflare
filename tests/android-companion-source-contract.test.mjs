@@ -157,3 +157,21 @@ test('Android background heartbeat uses WorkManager without hidden background mi
   assert.match(activity,/Manifest\.permission\.POST_NOTIFICATIONS/);
   assert.match(activity,/Activer notifications arrière-plan/);
 });
+
+
+test('Android owner password state is not saveable and emulator smoke tests are wired',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  const uiTest=await readFile(new URL('app/src/androidTest/java/fr/veriteinterdite/mel/MainActivitySmokeTest.kt',root),'utf8');
+  const workflow=await readFile(new URL('../.github/workflows/android-emulator-ui-test.yml',import.meta.url),'utf8');
+  assert.match(activity,/var password by remember \{ mutableStateOf\(".*"\) \}/);
+  assert.doesNotMatch(activity,/var password by rememberSaveable/);
+  assert.match(activity,/testTag\("login-user"\)/);
+  assert.match(activity,/testTag\("login-password"\)/);
+  assert.match(build,/testInstrumentationRunner = "androidx\.test\.runner\.AndroidJUnitRunner"/);
+  assert.match(build,/androidx\.compose\.ui:ui-test-junit4/);
+  assert.match(uiTest,/createAndroidComposeRule<MainActivity>/);
+  assert.match(uiTest,/passwordIsNotRestoredAcrossActivityRecreation/);
+  assert.match(workflow,/connectedDebugAndroidTest/);
+  assert.match(workflow,/system-images;android-35;google_apis;x86_64/);
+});
