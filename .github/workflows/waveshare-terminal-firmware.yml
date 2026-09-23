@@ -35,6 +35,42 @@ jobs:
           cp firmware/waveshare-terminal/main/* build/waveshare-mel/main/
           cp firmware/waveshare-terminal/partitions.csv build/waveshare-mel/partitions.csv
           cp firmware/waveshare-terminal/sdkconfig.defaults build/waveshare-mel/sdkconfig.defaults
+
+          # The pinned Waveshare sample ships a complete sdkconfig, so sdkconfig.defaults
+          # alone does not override its values. Apply MINI's audited overrides explicitly.
+          cd build/waveshare-mel
+          set_cfg_y() {
+            local key="$1"
+            sed -i -E "/^${key}=|^# ${key} is not set$/d" sdkconfig
+            printf '%s=y\n' "$key" >> sdkconfig
+          }
+          set_cfg_n() {
+            local key="$1"
+            sed -i -E "/^${key}=|^# ${key} is not set$/d" sdkconfig
+            printf '# %s is not set\n' "$key" >> sdkconfig
+          }
+
+          set_cfg_y CONFIG_COMPILER_OPTIMIZATION_PERF
+          set_cfg_y CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM
+          set_cfg_y CONFIG_LV_MEMCPY_MEMSET_STD
+
+          set_cfg_n CONFIG_OV7670_SUPPORT
+          set_cfg_n CONFIG_OV7725_SUPPORT
+          set_cfg_n CONFIG_NT99141_SUPPORT
+          set_cfg_n CONFIG_OV2640_SUPPORT
+          set_cfg_n CONFIG_OV3660_SUPPORT
+          set_cfg_y CONFIG_OV5640_SUPPORT
+          set_cfg_n CONFIG_GC2145_SUPPORT
+          set_cfg_n CONFIG_GC032A_SUPPORT
+          set_cfg_n CONFIG_GC0308_SUPPORT
+          set_cfg_n CONFIG_BF3005_SUPPORT
+          set_cfg_n CONFIG_BF20A6_SUPPORT
+          set_cfg_n CONFIG_SC101IOT_SUPPORT
+          set_cfg_n CONFIG_SC030IOT_SUPPORT
+          set_cfg_n CONFIG_SC031GS_SUPPORT
+          set_cfg_n CONFIG_MEGA_CCM_SUPPORT
+
+          cd ../..
           printf '%s\n' "$UPSTREAM_SHA" > build/waveshare-mel/WAVESHARE_UPSTREAM_SHA
 
       - name: Build and merge ESP32-S3 image
@@ -43,7 +79,262 @@ jobs:
           esp_idf_version: v5.4.2
           target: esp32s3
           path: build/waveshare-mel
-          command: idf.py build && idf.py merge-bin -o mini-first-install.bin && cp build/lvgl_system.bin build/mel-terminal.bin
+          command: idf.py build && grep -q '^CONFIG_OV5640_SUPPORT=y
+
+      - name: Build firmware manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build/waveshare-mel/build
+          test -s mel-terminal.bin
+          test -s mini-first-install.bin
+          OTA_SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
+          OTA_SIZE="$(stat -c '%s' mel-terminal.bin)"
+          INSTALL_SHA256="$(sha256sum mini-first-install.bin | awk '{print $1}')"
+          INSTALL_SIZE="$(stat -c '%s' mini-first-install.bin)"
+          cat > ../firmware-manifest.json <<JSON
+          {
+            "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
+            "channel": "stable",
+            "firmware": {
+              "version": "0.4.4-hwproof",
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
+              "sha256": "${OTA_SHA256}",
+              "size": ${OTA_SIZE},
+              "source_sha": "${GITHUB_SHA}",
+              "waveshare_upstream_sha": "283ec84c566c096f8c30493b93dcd4b0bb608de7"
+            },
+            "installer": {
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mini-first-install.bin",
+              "sha256": "${INSTALL_SHA256}",
+              "size": ${INSTALL_SIZE}
+            },
+            "assets": { "version": "1", "items": [] }
+          }
+          JSON
+          sha256sum mel-terminal.bin mini-first-install.bin lvgl_system.elf lvgl_system.map ../firmware-manifest.json > ../SHA256SUMS.txt
+
+      - name: Upload flash-ready artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MEL-Waveshare-3.5-C-${{ github.sha }}
+          path: |
+            build/waveshare-mel/build/mel-terminal.bin
+            build/waveshare-mel/build/mini-first-install.bin
+            build/waveshare-mel/build/lvgl_system.elf
+            build/waveshare-mel/build/lvgl_system.map
+            build/waveshare-mel/firmware-manifest.json
+            build/waveshare-mel/SHA256SUMS.txt
+            build/waveshare-mel/WAVESHARE_UPSTREAM_SHA
+          if-no-files-found: error
+          retention-days: 30
+ sdkconfig && grep -q '^# CONFIG_OV3660_SUPPORT is not set
+
+      - name: Build firmware manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build/waveshare-mel/build
+          test -s mel-terminal.bin
+          test -s mini-first-install.bin
+          OTA_SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
+          OTA_SIZE="$(stat -c '%s' mel-terminal.bin)"
+          INSTALL_SHA256="$(sha256sum mini-first-install.bin | awk '{print $1}')"
+          INSTALL_SIZE="$(stat -c '%s' mini-first-install.bin)"
+          cat > ../firmware-manifest.json <<JSON
+          {
+            "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
+            "channel": "stable",
+            "firmware": {
+              "version": "0.4.4-hwproof",
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
+              "sha256": "${OTA_SHA256}",
+              "size": ${OTA_SIZE},
+              "source_sha": "${GITHUB_SHA}",
+              "waveshare_upstream_sha": "283ec84c566c096f8c30493b93dcd4b0bb608de7"
+            },
+            "installer": {
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mini-first-install.bin",
+              "sha256": "${INSTALL_SHA256}",
+              "size": ${INSTALL_SIZE}
+            },
+            "assets": { "version": "1", "items": [] }
+          }
+          JSON
+          sha256sum mel-terminal.bin mini-first-install.bin lvgl_system.elf lvgl_system.map ../firmware-manifest.json > ../SHA256SUMS.txt
+
+      - name: Upload flash-ready artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MEL-Waveshare-3.5-C-${{ github.sha }}
+          path: |
+            build/waveshare-mel/build/mel-terminal.bin
+            build/waveshare-mel/build/mini-first-install.bin
+            build/waveshare-mel/build/lvgl_system.elf
+            build/waveshare-mel/build/lvgl_system.map
+            build/waveshare-mel/firmware-manifest.json
+            build/waveshare-mel/SHA256SUMS.txt
+            build/waveshare-mel/WAVESHARE_UPSTREAM_SHA
+          if-no-files-found: error
+          retention-days: 30
+ sdkconfig && grep -q '^CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+      - name: Build firmware manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build/waveshare-mel/build
+          test -s mel-terminal.bin
+          test -s mini-first-install.bin
+          OTA_SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
+          OTA_SIZE="$(stat -c '%s' mel-terminal.bin)"
+          INSTALL_SHA256="$(sha256sum mini-first-install.bin | awk '{print $1}')"
+          INSTALL_SIZE="$(stat -c '%s' mini-first-install.bin)"
+          cat > ../firmware-manifest.json <<JSON
+          {
+            "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
+            "channel": "stable",
+            "firmware": {
+              "version": "0.4.4-hwproof",
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
+              "sha256": "${OTA_SHA256}",
+              "size": ${OTA_SIZE},
+              "source_sha": "${GITHUB_SHA}",
+              "waveshare_upstream_sha": "283ec84c566c096f8c30493b93dcd4b0bb608de7"
+            },
+            "installer": {
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mini-first-install.bin",
+              "sha256": "${INSTALL_SHA256}",
+              "size": ${INSTALL_SIZE}
+            },
+            "assets": { "version": "1", "items": [] }
+          }
+          JSON
+          sha256sum mel-terminal.bin mini-first-install.bin lvgl_system.elf lvgl_system.map ../firmware-manifest.json > ../SHA256SUMS.txt
+
+      - name: Upload flash-ready artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MEL-Waveshare-3.5-C-${{ github.sha }}
+          path: |
+            build/waveshare-mel/build/mel-terminal.bin
+            build/waveshare-mel/build/mini-first-install.bin
+            build/waveshare-mel/build/lvgl_system.elf
+            build/waveshare-mel/build/lvgl_system.map
+            build/waveshare-mel/firmware-manifest.json
+            build/waveshare-mel/SHA256SUMS.txt
+            build/waveshare-mel/WAVESHARE_UPSTREAM_SHA
+          if-no-files-found: error
+          retention-days: 30
+ sdkconfig && grep -q '^CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y
+
+      - name: Build firmware manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build/waveshare-mel/build
+          test -s mel-terminal.bin
+          test -s mini-first-install.bin
+          OTA_SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
+          OTA_SIZE="$(stat -c '%s' mel-terminal.bin)"
+          INSTALL_SHA256="$(sha256sum mini-first-install.bin | awk '{print $1}')"
+          INSTALL_SIZE="$(stat -c '%s' mini-first-install.bin)"
+          cat > ../firmware-manifest.json <<JSON
+          {
+            "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
+            "channel": "stable",
+            "firmware": {
+              "version": "0.4.4-hwproof",
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
+              "sha256": "${OTA_SHA256}",
+              "size": ${OTA_SIZE},
+              "source_sha": "${GITHUB_SHA}",
+              "waveshare_upstream_sha": "283ec84c566c096f8c30493b93dcd4b0bb608de7"
+            },
+            "installer": {
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mini-first-install.bin",
+              "sha256": "${INSTALL_SHA256}",
+              "size": ${INSTALL_SIZE}
+            },
+            "assets": { "version": "1", "items": [] }
+          }
+          JSON
+          sha256sum mel-terminal.bin mini-first-install.bin lvgl_system.elf lvgl_system.map ../firmware-manifest.json > ../SHA256SUMS.txt
+
+      - name: Upload flash-ready artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MEL-Waveshare-3.5-C-${{ github.sha }}
+          path: |
+            build/waveshare-mel/build/mel-terminal.bin
+            build/waveshare-mel/build/mini-first-install.bin
+            build/waveshare-mel/build/lvgl_system.elf
+            build/waveshare-mel/build/lvgl_system.map
+            build/waveshare-mel/firmware-manifest.json
+            build/waveshare-mel/SHA256SUMS.txt
+            build/waveshare-mel/WAVESHARE_UPSTREAM_SHA
+          if-no-files-found: error
+          retention-days: 30
+ sdkconfig && grep -q '^CONFIG_LV_MEMCPY_MEMSET_STD=y
+
+      - name: Build firmware manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build/waveshare-mel/build
+          test -s mel-terminal.bin
+          test -s mini-first-install.bin
+          OTA_SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
+          OTA_SIZE="$(stat -c '%s' mel-terminal.bin)"
+          INSTALL_SHA256="$(sha256sum mini-first-install.bin | awk '{print $1}')"
+          INSTALL_SIZE="$(stat -c '%s' mini-first-install.bin)"
+          cat > ../firmware-manifest.json <<JSON
+          {
+            "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
+            "channel": "stable",
+            "firmware": {
+              "version": "0.4.4-hwproof",
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
+              "sha256": "${OTA_SHA256}",
+              "size": ${OTA_SIZE},
+              "source_sha": "${GITHUB_SHA}",
+              "waveshare_upstream_sha": "283ec84c566c096f8c30493b93dcd4b0bb608de7"
+            },
+            "installer": {
+              "available": true,
+              "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mini-first-install.bin",
+              "sha256": "${INSTALL_SHA256}",
+              "size": ${INSTALL_SIZE}
+            },
+            "assets": { "version": "1", "items": [] }
+          }
+          JSON
+          sha256sum mel-terminal.bin mini-first-install.bin lvgl_system.elf lvgl_system.map ../firmware-manifest.json > ../SHA256SUMS.txt
+
+      - name: Upload flash-ready artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: MEL-Waveshare-3.5-C-${{ github.sha }}
+          path: |
+            build/waveshare-mel/build/mel-terminal.bin
+            build/waveshare-mel/build/mini-first-install.bin
+            build/waveshare-mel/build/lvgl_system.elf
+            build/waveshare-mel/build/lvgl_system.map
+            build/waveshare-mel/firmware-manifest.json
+            build/waveshare-mel/SHA256SUMS.txt
+            build/waveshare-mel/WAVESHARE_UPSTREAM_SHA
+          if-no-files-found: error
+          retention-days: 30
+ sdkconfig && idf.py merge-bin -o mini-first-install.bin && cp build/lvgl_system.bin build/mel-terminal.bin
 
       - name: Build firmware manifest
         shell: bash
