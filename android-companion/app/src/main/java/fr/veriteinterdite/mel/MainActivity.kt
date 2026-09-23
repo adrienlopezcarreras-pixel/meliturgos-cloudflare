@@ -139,7 +139,8 @@ class MainActivity : ComponentActivity() {
                     onVoice = ::toggleVoice,
                     onFile = ::pickFile,
                     onProfessor = ::openProfessor,
-                    onNotifications = ::enableNotifications
+                    onNotifications = ::enableNotifications,
+                    onDiagnostics = model::runDiagnostics
                 )
             }
         }
@@ -338,7 +339,8 @@ internal fun MelApp(
     onVoice: () -> Unit,
     onFile: () -> Unit,
     onProfessor: () -> Unit,
-    onNotifications: () -> Unit
+    onNotifications: () -> Unit,
+    onDiagnostics: () -> Unit
 ) {
     Box(
         Modifier
@@ -364,7 +366,8 @@ internal fun MelApp(
                 onVoice = onVoice,
                 onFile = onFile,
                 onProfessor = onProfessor,
-                onNotifications = onNotifications
+                onNotifications = onNotifications,
+                onDiagnostics = onDiagnostics
             )
         }
     }
@@ -547,7 +550,8 @@ private fun ConversationScreen(
     onVoice: () -> Unit,
     onFile: () -> Unit,
     onProfessor: () -> Unit,
-    onNotifications: () -> Unit
+    onNotifications: () -> Unit,
+    onDiagnostics: () -> Unit
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -601,7 +605,14 @@ private fun ConversationScreen(
             )
             if (state.mode == MelMode.COMPLETE) {
                 Spacer(Modifier.height(10.dp))
-                CompletePanel(state.busy, onSync, onProfessor, onNotifications)
+                CompletePanel(
+                    busy = state.busy,
+                    diagnosticReport = state.diagnosticReport,
+                    onSync = onSync,
+                    onProfessor = onProfessor,
+                    onNotifications = onNotifications,
+                    onDiagnostics = onDiagnostics
+                )
             }
             Spacer(Modifier.height(10.dp))
 
@@ -751,9 +762,11 @@ private fun ModeSelector(mode: MelMode, onMode: (MelMode) -> Unit) {
 @Composable
 private fun CompletePanel(
     busy: Boolean,
+    diagnosticReport: String?,
     onSync: () -> Unit,
     onProfessor: () -> Unit,
-    onNotifications: () -> Unit
+    onNotifications: () -> Unit,
+    onDiagnostics: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -790,6 +803,30 @@ private fun CompletePanel(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Activer notifications arrière-plan")
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = onDiagnostics,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Lancer auto-diagnostic")
+            }
+            if (!diagnosticReport.isNullOrBlank()) {
+                Spacer(Modifier.height(10.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0x99102131),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(
+                        diagnosticReport,
+                        modifier = Modifier.padding(12.dp),
+                        color = MelInk,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+                }
             }
         }
     }
