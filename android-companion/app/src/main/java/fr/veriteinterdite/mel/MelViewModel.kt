@@ -137,6 +137,7 @@ class MelViewModel(
                 )
             } catch (error: Throwable) {
                 vault.clear()
+                MelBackground.cancel(appContext)
                 _state.value = _state.value.copy(
                     session = SessionStage.DISCONNECTED,
                     busy = false,
@@ -233,11 +234,22 @@ class MelViewModel(
                     messages = _state.value.messages + MelChatMessage("mel", answer)
                 )
             } catch (error: Throwable) {
-                _state.value = _state.value.copy(
-                    busy = false,
-                    status = "Voix interrompue",
-                    error = explain(error)
-                )
+                if (isInvalidSession(error)) {
+                    vault.clear()
+                    MelBackground.cancel(appContext)
+                    _state.value = _state.value.copy(
+                        session = SessionStage.DISCONNECTED,
+                        busy = false,
+                        status = "Session expirée",
+                        error = explain(error)
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        status = "Voix interrompue",
+                        error = explain(error)
+                    )
+                }
             }
         }
     }
