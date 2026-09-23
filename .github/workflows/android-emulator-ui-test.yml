@@ -46,18 +46,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "emulator" "system-images;android-35;google_apis;x86_64"
-
-          AVD_HOME="$RUNNER_TEMP/android-avd"
+          AVD_HOME="$RUNNER_TEMP/mel-avd"
           mkdir -p "$AVD_HOME"
           echo "ANDROID_AVD_HOME=$AVD_HOME" >> "$GITHUB_ENV"
           export ANDROID_AVD_HOME="$AVD_HOME"
 
-          echo "no" | avdmanager create avd --force --name mel-ci --package "system-images;android-35;google_apis;x86_64" --device "pixel_6"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "emulator" \
+            "system-images;android-35;google_apis;x86_64"
 
-          "$ANDROID_SDK_ROOT/emulator/emulator" -list-avds | tee "$RUNNER_TEMP/avd-list.txt"
-          grep -qx "mel-ci" "$RUNNER_TEMP/avd-list.txt"
+          echo "no" | avdmanager create avd \
+            --force \
+            --name mel-ci \
+            --package "system-images;android-35;google_apis;x86_64" \
+            --device "pixel_6"
+
+          echo "AVD home: $ANDROID_AVD_HOME"
+          ls -la "$ANDROID_AVD_HOME"
+          "$ANDROID_SDK_ROOT/emulator/emulator" -list-avds | tee "$RUNNER_TEMP/mel-avd-list.txt"
+          grep -Fxq "mel-ci" "$RUNNER_TEMP/mel-avd-list.txt"
 
       - name: Enable KVM
         shell: bash
