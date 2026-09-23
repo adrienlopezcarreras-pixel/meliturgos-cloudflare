@@ -29,7 +29,9 @@ try {
 
   Write-Host "Vérification du firmware publié..." -ForegroundColor Yellow
   $info = Invoke-RestMethod -Uri "$server/api/device/v1/firmware-info" -Headers $headers -TimeoutSec 30
-  if (-not $info.ok -or $info.firmware.available -ne $true) {
+  $installInfo = $info.firmware
+  if ($info.installer -and $info.installer.available -eq $true) { $installInfo = $info.installer }
+  if (-not $info.ok -or $installInfo.available -ne $true) {
     throw "Le firmware MEL n'est pas encore publié sur le serveur."
   }
 
@@ -40,9 +42,9 @@ try {
   Write-Host "Téléchargement MEL $($info.firmware.version)..." -ForegroundColor Yellow
   Invoke-WebRequest -Uri "$server/api/device/v1/firmware" -Headers $headers -UseBasicParsing -OutFile $bin -TimeoutSec 120
 
-  if ($info.firmware.sha256) {
+  if ($installInfo.sha256) {
     $actual = (Get-FileHash -Algorithm SHA256 $bin).Hash.ToLowerInvariant()
-    $expected = ([string]$info.firmware.sha256).ToLowerInvariant()
+    $expected = ([string]$installInfo.sha256).ToLowerInvariant()
     if ($actual -ne $expected) { throw "Empreinte SHA256 invalide. Flashage annulé." }
     Write-Host "Firmware vérifié : SHA256 OK." -ForegroundColor Green
   }
@@ -102,8 +104,8 @@ try {
   Write-Host ""
   Write-Host "Firmware MEL installé." -ForegroundColor Green
   Write-Host "Débranche/rebranche ou appuie sur RESET."
-  Write-Host "L'écran affichera le Wi-Fi MEL-SETUP, son mot de passe et 192.168.4.1."
-  Write-Host "Dans MEL > Terminal MEL, crée ensuite un code d'appairage."
+  Write-Host "MINI démarre directement sur son interface tactile."
+  Write-Host "Choisis le Wi-Fi sur MINI, saisis le mot de passe à l'écran, puis crée un code dans MEL > MINI et saisis-le sur MINI."
 }
 finally {
   $pass = $null
