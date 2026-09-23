@@ -124,9 +124,23 @@ test('Professor skills surface uses cached health on open and forces a real refr
   assert.match(html, /id="skillsProtected"/);
   assert.match(html, /id="skillsDegraded"/);
   assert.match(html, /id="skillsUnavailable"/);
+  assert.match(html, /id="skillsFailed"/);
   assert.match(html, /id="skillsProviderSummary"/);
   assert.ok(html.includes('loadCapabilitiesData(force)'));
   assert.ok(html.includes("loadSkills(true)"));
   assert.ok(html.includes('health_detail'));
   assert.ok(html.includes('NON CONFIGURÉ'));
+});
+
+
+test('Professor capability health semantics distinguish protected, degraded, non-configured and failed states', async () => {
+  const [html, router] = await Promise.all([(await renderProfessor()).text(), read('src/router.js')]);
+  assert.match(html, /\.tag\.protected,\.tag\.info/);
+  assert.match(html, /\.tag\.neutral/);
+  assert.match(html, /raw==='PROTECTED'\?'protected'/);
+  assert.match(html, /\['UNAVAILABLE','OFFLINE','DISABLED'\]\.includes\(raw\)\?'neutral'/);
+  assert.match(router, /const capabilities = await runtime\.bus\.refreshHealthAll\(\)/);
+  assert.match(router, /const protectedStates = new Set\(\["PROTECTED"\]\)/);
+  assert.doesNotMatch(router, /degradedStates = new Set\(\[[^\]]*"PROTECTED"/);
+  assert.match(router, /unavailable > 0 \? "INFO" : "OK"/);
 });
