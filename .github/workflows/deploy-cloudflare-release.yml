@@ -468,6 +468,71 @@ jobs:
           },null,2));
           NODE
 
+          CHATGPT_MEMORY_STATUS_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --output production-chatgpt-memory-before.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/migration/chatgpt-memory-status")"
+          if [ "$CHATGPT_MEMORY_STATUS_CODE" != "200" ]; then
+            echo "Production MEL-MEM-05 memory status returned HTTP ${CHATGPT_MEMORY_STATUS_CODE}."
+            test ! -s production-chatgpt-memory-before.json || cat production-chatgpt-memory-before.json
+            exit 43
+          fi
+
+          CHATGPT_MEMORY_DONE="$(node -e 'const d=require("./production-chatgpt-memory-before.json"); if(d?.ok!==true) throw new Error("CHATGPT_MEMORY_STATUS_NOT_OK"); process.stdout.write(d?.complete===true?"1":"0")')"
+          if [ "$CHATGPT_MEMORY_DONE" != "1" ]; then
+            for CHATGPT_MEMORY_BATCH in $(seq 1 20); do
+              CHATGPT_MEMORY_CODE="$(curl --silent --show-error --max-time 120 \
+                --header "x-mel-release-smoke: 1" \
+                --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+                --header "content-type: application/json" \
+                --data '{"conversation_limit":50}' \
+                --output production-chatgpt-memory-batch.json \
+                --write-out '%{http_code}' \
+                "${BASE_URL}/api/gen2/migration/chatgpt-memory-backfill")"
+              if [ "$CHATGPT_MEMORY_CODE" != "200" ]; then
+                echo "MEL-MEM-05 memory backfill batch ${CHATGPT_MEMORY_BATCH} returned HTTP ${CHATGPT_MEMORY_CODE}."
+                test ! -s production-chatgpt-memory-batch.json || cat production-chatgpt-memory-batch.json
+                exit 44
+              fi
+              CHATGPT_MEMORY_STATE="$(node -e 'const d=require("./production-chatgpt-memory-batch.json"); if(d?.ok!==true) throw new Error("CHATGPT_MEMORY_BACKFILL_NOT_OK"); const remaining=Number(d?.remaining_eligible_messages); if(!Number.isInteger(remaining)||remaining<0) throw new Error("CHATGPT_MEMORY_REMAINING_INVALID"); process.stdout.write((d?.complete===true?"1":"0")+" "+remaining);')"
+              CHATGPT_MEMORY_DONE="${CHATGPT_MEMORY_STATE%% *}"
+              CHATGPT_MEMORY_REMAINING="${CHATGPT_MEMORY_STATE##* }"
+              echo "MEL-MEM-05 batch ${CHATGPT_MEMORY_BATCH}: remaining eligible messages=${CHATGPT_MEMORY_REMAINING}"
+              if [ "$CHATGPT_MEMORY_DONE" = "1" ]; then
+                break
+              fi
+            done
+            test "$CHATGPT_MEMORY_DONE" = "1"
+          fi
+
+          CHATGPT_MEMORY_FINAL_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --output production-chatgpt-memory-final.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/migration/chatgpt-memory-status")"
+          test "$CHATGPT_MEMORY_FINAL_CODE" = "200"
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('production-chatgpt-memory-final.json','utf8'));
+          if(d?.ok!==true) throw new Error('CHATGPT_MEMORY_FINAL_NOT_OK');
+          if(d?.complete!==true) throw new Error('CHATGPT_MEMORY_FINAL_INCOMPLETE');
+          if(Number(d?.remaining_eligible_messages||0)!==0) throw new Error('CHATGPT_MEMORY_REMAINING_NOT_ZERO');
+          if(Number(d?.synced_eligible_messages||0)!==Number(d?.eligible_messages||0)) throw new Error('CHATGPT_MEMORY_SYNC_COUNT_MISMATCH');
+          console.log(JSON.stringify({
+            mel_mem_05_memory_backfill:'COMPLETE',
+            total_messages:Number(d.total_messages||0),
+            eligible_messages:Number(d.eligible_messages||0),
+            ineligible_messages:Number(d.ineligible_messages||0),
+            synced_eligible_messages:Number(d.synced_eligible_messages||0),
+            remaining_eligible_messages:Number(d.remaining_eligible_messages||0),
+            remaining_conversations:Number(d.remaining_conversations||0),
+          },null,2));
+          NODE
+
           SELF_CODE="$(curl --silent --show-error --max-time 60 \
             --header "x-mel-release-smoke: 1" \
             --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
