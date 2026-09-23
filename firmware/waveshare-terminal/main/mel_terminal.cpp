@@ -24,6 +24,7 @@
 #include "esp_codec_dev.h"
 #include "esp_lvgl_port.h"
 #include "cJSON.h"
+#include "mbedtls/sha256.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -834,7 +835,32 @@ static int sync_assets(cJSON *root) {
     return synced;
 }
 
-static bool ota_download(const std::string &key) {
+static bool parse_sha256_hex(const std::string &hex, uint8_t out[32]) {
+    if (hex.size() != 64) return false;
+    for (size_t i = 0; i < 32; ++i) {
+        const char hi = hex[i * 2];
+        const char lo = hex[i * 2 + 1];
+        auto nibble = [](char c) -> int {
+            if (c >= '0' && c <= '9') return c - '0';
+            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+            return -1;
+        };
+        const int a = nibble(hi);
+        const int b = nibble(lo);
+        if (a < 0 || b < 0) return false;
+        out[i] = (uint8_t)((a << 4) | b);
+    }
+    return true;
+}
+
+static bool ota_download(const std::string &key, const std::string &expected_sha256) {
+    uint8_t expected_digest[32] = {};
+    if (!parse_sha256_hex(expected_sha256, expected_digest)) {
+        ESP_LOGE(TAG, "OTA manifest SHA-256 is missing or invalid");
+        return false;
+    }
+
     std::string url = std::string(SERVER) + "/api/device/v1/download?key=" + key;
     esp_http_client_config_t cfg = {};
     cfg.url = url.c_str();
@@ -842,6 +868,7 @@ static bool ota_download(const std::string &key) {
     cfg.timeout_ms = 60000;
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) return false;
+
     std::string auth = std::string("Bearer ") + g_cfg.token;
     esp_http_client_set_header(client, "Authorization", auth.c_str());
     esp_http_client_set_header(client, "X-MEL-Device-ID", g_device_id);
@@ -850,6 +877,7 @@ static bool ota_download(const std::string &key) {
         esp_http_client_cleanup(client);
         return false;
     }
+
     esp_http_client_fetch_headers(client);
     if (esp_http_client_get_status_code(client) != 200) {
         esp_http_client_close(client);
@@ -858,27 +886,91 @@ static bool ota_download(const std::string &key) {
     }
 
     const esp_partition_t *partition = esp_ota_get_next_update_partition(nullptr);
-    esp_ota_handle_t handle = 0;
-    if (!partition || esp_ota_begin(partition, OTA_SIZE_UNKNOWN, &handle) != ESP_OK) {
+    const int64_t content_length = esp_http_client_get_content_length(client);
+    if (!partition || (content_length > 0 && (uint64_t)content_length > partition->size)) {
+        ESP_LOGE(TAG, "OTA image does not fit target partition");
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
         return false;
     }
 
-    uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(8192, MALLOC_CAP_8BIT));
-    bool ok = buffer != nullptr;
-    while (ok) {
-        int n = esp_http_client_read(client, reinterpret_cast<char *>(buffer), 8192);
-        if (n < 0) { ok = false; break; }
-        if (n == 0) break;
-        if (esp_ota_write(handle, buffer, n) != ESP_OK) { ok = false; break; }
+    esp_ota_handle_t handle = 0;
+    const size_t ota_size = content_length > 0 ? (size_t)content_length : OTA_SIZE_UNKNOWN;
+    const esp_err_t begin_err = esp_ota_begin(partition, ota_size, &handle);
+    if (begin_err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_begin failed: %s", esp_err_to_name(begin_err));
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        return false;
     }
+
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+    bool sha_started = mbedtls_sha256_starts(&sha, 0) == 0;
+    uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(8192, MALLOC_CAP_8BIT));
+    bool ok = buffer != nullptr && sha_started;
+    size_t received = 0;
+
+    while (ok) {
+        const int n = esp_http_client_read(client, reinterpret_cast<char *>(buffer), 8192);
+        if (n < 0) {
+            ESP_LOGE(TAG, "OTA HTTP read failed");
+            ok = false;
+            break;
+        }
+        if (n == 0) break;
+
+        if (esp_ota_write(handle, buffer, (size_t)n) != ESP_OK) {
+            ESP_LOGE(TAG, "OTA flash write failed");
+            ok = false;
+            break;
+        }
+        if (mbedtls_sha256_update(&sha, buffer, (size_t)n) != 0) {
+            ESP_LOGE(TAG, "OTA SHA-256 update failed");
+            ok = false;
+            break;
+        }
+        received += (size_t)n;
+    }
+
     if (buffer) heap_caps_free(buffer);
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
 
-    if (!ok || esp_ota_end(handle) != ESP_OK) return false;
-    if (esp_ota_set_boot_partition(partition) != ESP_OK) return false;
+    uint8_t actual_digest[32] = {};
+    if (ok && mbedtls_sha256_finish(&sha, actual_digest) != 0) ok = false;
+    mbedtls_sha256_free(&sha);
+
+    if (content_length > 0 && received != (size_t)content_length) {
+        ESP_LOGE(TAG, "OTA length mismatch expected=%lld received=%u",
+                 (long long)content_length, (unsigned)received);
+        ok = false;
+    }
+    if (received == 0) ok = false;
+
+    if (ok && memcmp(actual_digest, expected_digest, sizeof(actual_digest)) != 0) {
+        ESP_LOGE(TAG, "OTA SHA-256 mismatch; refusing boot switch");
+        ok = false;
+    }
+
+    if (!ok) {
+        esp_ota_abort(handle);
+        return false;
+    }
+
+    const esp_err_t end_err = esp_ota_end(handle);
+    if (end_err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_end failed: %s", esp_err_to_name(end_err));
+        return false;
+    }
+
+    const esp_err_t boot_err = esp_ota_set_boot_partition(partition);
+    if (boot_err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_set_boot_partition failed: %s", esp_err_to_name(boot_err));
+        return false;
+    }
+
+    ESP_LOGI(TAG, "OTA verified: %u bytes, SHA-256 matches manifest", (unsigned)received);
     return true;
 }
 
@@ -904,7 +996,10 @@ static void update_task(void *) {
     cJSON *available = fw ? cJSON_GetObjectItemCaseSensitive(fw, "available") : nullptr;
     cJSON *version = fw ? cJSON_GetObjectItemCaseSensitive(fw, "version") : nullptr;
     cJSON *key = fw ? cJSON_GetObjectItemCaseSensitive(fw, "key") : nullptr;
-    const bool has = cJSON_IsTrue(available) && cJSON_IsString(key) && key->valuestring;
+    cJSON *sha = fw ? cJSON_GetObjectItemCaseSensitive(fw, "sha256") : nullptr;
+    const bool has = cJSON_IsTrue(available)
+        && cJSON_IsString(key) && key->valuestring
+        && cJSON_IsString(sha) && sha->valuestring && strlen(sha->valuestring) == 64;
     const char *ver = cJSON_IsString(version) && version->valuestring ? version->valuestring : "";
     if (!has || !strcmp(ver, MEL_FW_VERSION)) {
         if (root) cJSON_Delete(root);
@@ -916,11 +1011,12 @@ static void update_task(void *) {
         return;
     }
     std::string update_key = key->valuestring;
+    std::string update_sha = sha->valuestring;
     if (root) cJSON_Delete(root);
 
     ui_status("TÉLÉCHARGEMENT…");
     ui_answer((std::string("Installation de MEL ") + ver + "…").c_str());
-    if (ota_download(update_key)) {
+    if (ota_download(update_key, update_sha)) {
         ui_status("REDÉMARRAGE…");
         ui_answer("Mise à jour installée.");
         vTaskDelay(pdMS_TO_TICKS(1200));
