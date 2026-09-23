@@ -252,6 +252,19 @@ export const MIGRATIONS = [
       received_at INTEGER NOT NULL
     )`).run();
   }},
+  { version: 12, name: 'memory_candidates_runtime_sync', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS memory_candidates (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 0.5,
+      source TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      created_at INTEGER NOT NULL,
+      UNIQUE(message_id,content)
+    )`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
