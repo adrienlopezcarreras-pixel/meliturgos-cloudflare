@@ -220,9 +220,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 13/);
-  assert.match(build,/versionName = "0\.6\.4"/);
-  assert.match(api,/APP_VERSION = "0\.6\.4"/);
+  assert.match(build,/versionCode = 14/);
+  assert.match(build,/versionName = "0\.6\.5"/);
+  assert.match(api,/APP_VERSION = "0\.6\.5"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -243,9 +243,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 13/);
-  assert.match(build,/versionName = "0\.6\.4"/);
-  assert.match(api,/APP_VERSION = "0\.6\.4"/);
+  assert.match(build,/versionCode = 14/);
+  assert.match(build,/versionName = "0\.6\.5"/);
+  assert.match(api,/APP_VERSION = "0\.6\.5"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -267,7 +267,8 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   assert.match(activity,/Text\("Tester Normal"\)/);
   assert.match(activity,/Text\("Tester fichier"\)/);
   assert.match(activity,/Text\("Tester arrière-plan"\)/);
-  assert.match(activity,/Fichier envoyé à MEL/);
+  assert.match(activity,/Fichier sélectionné · envoi en cours…/);
+  assert.doesNotMatch(activity,/Fichier envoyé à MEL/);
 });
 
 
@@ -276,9 +277,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 13/);
-  assert.match(build,/versionName = "0\.6\.4"/);
-  assert.match(api,/APP_VERSION = "0\.6\.4"/);
+  assert.match(build,/versionCode = 14/);
+  assert.match(build,/versionName = "0\.6\.5"/);
+  assert.match(api,/APP_VERSION = "0\.6\.5"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -295,9 +296,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 13/);
-  assert.match(build,/versionName = "0\.6\.4"/);
-  assert.match(api,/APP_VERSION = "0\.6\.4"/);
+  assert.match(build,/versionCode = 14/);
+  assert.match(build,/versionName = "0\.6\.5"/);
+  assert.match(api,/APP_VERSION = "0\.6\.5"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -323,6 +324,21 @@ test('Android Complete panel stays height-bounded and internally scrollable',asy
   assert.match(screenshotTest,/performScrollTo\(\)\.assertIsDisplayed\(\)/);
 });
 
+
+
+test('Android 0.6.5 keeps critical interaction state truthful and stable',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  assert.match(activity,/LaunchedEffect\(state\.messages\.size, state\.busy\)/);
+  assert.match(activity,/ModeSelector\(state\.mode, state\.busy, onMode\)/);
+  assert.match(activity,/testTag\("message-input"\)/);
+  assert.match(activity,/testTag\("file-button"\)/);
+  assert.match(activity,/testTag\("micro-button"\)/);
+  assert.match(activity,/testTag\("send-button"\)/);
+  assert.match(activity,/Voix envoyée · MEL traite…/);
+  assert.match(activity,/Fichier sélectionné · envoi en cours…/);
+  assert.match(vm,/fun setMode\(mode: MelMode\) \{\s*if \(_state\.value\.busy\) return/);
+});
 
 test('Android lint is aligned for AndroidX release checks',async()=>{
   const props=await readFile(new URL('gradle.properties',root),'utf8');
