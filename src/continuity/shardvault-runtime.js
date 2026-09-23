@@ -1621,7 +1621,10 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       }
     }catch{}
     const targetCount=Math.min(7,c.n);
-    const boundedMaxNew=Math.max(1,Math.min(targetCount,Math.trunc(Number(maxNewEndpoints)||1)));
+    const boundedMode=Number(maxNewEndpoints)!==7||probeLimit!==null||Number(probeOffset)!==0;
+    const boundedMaxNew=boundedMode
+      ? Math.max(1,Math.min(targetCount,Math.trunc(Number(maxNewEndpoints)||1)))
+      : targetCount;
     const activeBefore=await reconcileActiveExternalEndpoints(env,c,last);
     let active=activeBefore,activation_cycle=null,cached_staged=0;
     let report={
@@ -1631,7 +1634,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       probe_limit:0,probe_offset:Math.max(0,Math.trunc(Number(probeOffset)||0))
     };
 
-    if(active.length<targetCount){
+    if(boundedMode&&active.length<targetCount){
       const activeIds=new Set(active.map(e=>e.id));
       const validated=(await readValidatedExternalEndpoints(env,requiredBytes))
         .filter(e=>!activeIds.has(e.id))
@@ -1654,9 +1657,13 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       }
     }
 
-    const remainingBudget=Math.max(0,boundedMaxNew-Math.max(0,active.length-activeBefore.length));
+    const remainingBudget=boundedMode
+      ? Math.max(0,boundedMaxNew-Math.max(0,active.length-activeBefore.length))
+      : targetCount;
     if(active.length<targetCount&&remainingBudget>0){
-      const selectionTarget=Math.min(remainingBudget,targetCount-active.length);
+      const selectionTarget=boundedMode
+        ? Math.min(remainingBudget,targetCount-active.length)
+        : targetCount;
       report=await discoverAutonomousRepositories(env,{
         masterKey:c.master,vaultId:c.vaultId,requiredBytes,
         selectionCount:selectionTarget,probeLimit,probeOffset
@@ -1723,7 +1730,8 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       target_count:targetCount,
       target_reached:active.length>=targetCount,
       continue_searching:active.length<targetCount,
-      search_mode:'MAINTAIN_7_EXTERNAL',search_strategy:'INCREMENTAL_BOUNDED',
+      search_mode:'MAINTAIN_7_EXTERNAL',
+      search_strategy:boundedMode?'INCREMENTAL_BOUNDED':'FULL_REVALIDATION',
       activation_cycle
     };
     if(result.target_reached){
