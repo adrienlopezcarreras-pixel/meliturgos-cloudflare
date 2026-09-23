@@ -374,20 +374,9 @@ jobs:
                 test ! -s production-gen1-migration-batch.json || cat production-gen1-migration-batch.json
                 exit 39
               fi
-              read -r GEN1_LAST_ID GEN1_DONE <<EOF
-$(node - <<'NODE'
-const fs=require('fs');
-const d=JSON.parse(fs.readFileSync('production-gen1-migration-batch.json','utf8'));
-if(d?.ok!==true) throw new Error('GEN1_BACKFILL_NOT_OK');
-if(d?.source_preserved!==true) throw new Error('GEN1_BACKFILL_SOURCE_NOT_PRESERVED');
-if(d?.schema?.supported!==true) throw new Error('GEN1_BACKFILL_SCHEMA_UNSUPPORTED');
-const last=d?.batch?.last_id;
-const done=d?.coverage_complete===true;
-if(!done && (!Number.isInteger(Number(last)) || Number(last)<0)) throw new Error('GEN1_BACKFILL_CURSOR_MISSING');
-process.stdout.write(String(last==null?0:Number(last))+' '+(done?'1':'0'));
-NODE
-)
-EOF
+              GEN1_BATCH_STATE="$(node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("production-gen1-migration-batch.json","utf8")); if(d?.ok!==true) throw new Error("GEN1_BACKFILL_NOT_OK"); if(d?.source_preserved!==true) throw new Error("GEN1_BACKFILL_SOURCE_NOT_PRESERVED"); if(d?.schema?.supported!==true) throw new Error("GEN1_BACKFILL_SCHEMA_UNSUPPORTED"); const last=d?.batch?.last_id; const done=d?.coverage_complete===true; if(!done&&(!Number.isInteger(Number(last))||Number(last)<0)) throw new Error("GEN1_BACKFILL_CURSOR_MISSING"); process.stdout.write(String(last==null?0:Number(last))+" "+(done?"1":"0"));')"
+              GEN1_LAST_ID="${GEN1_BATCH_STATE%% *}"
+              GEN1_DONE="${GEN1_BATCH_STATE##* }"
               if [ "$GEN1_DONE" = "1" ]; then
                 break
               fi
