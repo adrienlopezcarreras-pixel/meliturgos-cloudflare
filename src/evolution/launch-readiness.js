@@ -304,70 +304,104 @@ export async function getAutonomyLaunchReadiness(env, {
   };
 }
 
+export function summarizeAutonomyLaunchCodeSync(value) {
+  if (!value) return null;
+  const external = value?.external || {};
+  return {
+    ok: value?.ok === true,
+    complete: value?.complete === true || external?.status === 'COPIED' || value?.status === 'COPIED',
+    status: value?.status || external?.status || null,
+    target_count: Number(external?.target_count || value?.target_count || 7),
+    endpoints: Array.isArray(external?.endpoints) ? external.endpoints.slice(0, 14) : [],
+    successful_endpoints: Array.isArray(external?.successful_endpoints) ? external.successful_endpoints.slice(0, 14) : [],
+    attempted_endpoints: Array.isArray(external?.attempted_endpoints) ? external.attempted_endpoints.slice(0, 28) : [],
+    failures: Array.isArray(external?.failures)
+      ? external.failures.slice(0, 24).map(row => ({
+          shard_index: Number(row?.shard_index),
+          endpoint_id: row?.endpoint_id || null,
+          error: String(row?.error || '').slice(0, 160),
+        }))
+      : [],
+    verified_roundtrip: external?.verified_roundtrip === true,
+    critical_status: value?.critical_status || null,
+  };
+}
+
+export async function prepareAutonomyLaunchBackup(env) {
+  if (isPreview(env)) return { ok: true, status: 'SKIPPED_PREVIEW' };
+  try {
+    const backup = await runScheduledSystemBackup(env, { intervalMs: 15 * 60 * 1000, force: true });
+    return {
+      ok: backup?.ok === true,
+      status: backup?.status || 'BACKUP_PREPARED',
+      id: backup?.id || null,
+      integritySha256: backup?.integritySha256 || null,
+      sourceCount: Number(backup?.sourceCount || 0),
+      nextDueAt: backup?.nextDueAt || null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 'LAUNCH_BACKUP_PREP_FAILED',
+      code: String(error?.code || error?.message || error),
+    };
+  }
+}
+
+export async function prepareAutonomyLaunchCodeSync(env) {
+  if (isPreview(env)) return { ok: true, complete: true, status: 'SKIPPED_PREVIEW', code_sync: null };
+  try {
+    const raw = await syncShardVaultCodeExternally(env);
+    const codeSync = summarizeAutonomyLaunchCodeSync(raw);
+    return {
+      ok: raw?.ok === true,
+      complete: codeSync?.complete === true,
+      status: codeSync?.status || 'UNKNOWN',
+      code_sync: codeSync,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      complete: false,
+      status: 'LAUNCH_EXTERNAL_CODE_SYNC_FAILED',
+      code: String(error?.code || error?.message || error),
+      code_sync: null,
+    };
+  }
+}
+
 export async function prepareAutonomyLaunch(env, {
   repository = null,
 } = {}) {
-  let codeSync = null;
-  const summarizeCodeSync = value => {
-    if (!value) return null;
-    const external = value?.external || {};
+  const backup = await prepareAutonomyLaunchBackup(env);
+  if (backup?.ok !== true) {
     return {
-      ok: value?.ok === true,
-      status: value?.status || external?.status || null,
-      target_count: Number(external?.target_count || value?.target_count || 7),
-      endpoints: Array.isArray(external?.endpoints) ? external.endpoints.slice(0, 14) : [],
-      successful_endpoints: Array.isArray(external?.successful_endpoints) ? external.successful_endpoints.slice(0, 14) : [],
-      attempted_endpoints: Array.isArray(external?.attempted_endpoints) ? external.attempted_endpoints.slice(0, 28) : [],
-      failures: Array.isArray(external?.failures)
-        ? external.failures.slice(0, 24).map(row => ({
-            shard_index: Number(row?.shard_index),
-            endpoint_id: row?.endpoint_id || null,
-            error: String(row?.error || '').slice(0, 160),
-          }))
-        : [],
-      verified_roundtrip: external?.verified_roundtrip === true,
-      critical_status: value?.critical_status || null,
+      ok: false,
+      status: 'LAUNCH_BACKUP_PREP_FAILED',
+      code: backup?.code || backup?.status || 'BACKUP_FAILED',
+      backup,
+      readiness: await getAutonomyLaunchReadiness(env, { repository }),
     };
-  };
+  }
 
-  if (!isPreview(env)) {
-    try {
-      await runScheduledSystemBackup(env, { intervalMs: 15 * 60 * 1000, force: true });
-    } catch (error) {
-      return {
-        ok: false,
-        status: 'LAUNCH_BACKUP_PREP_FAILED',
-        code: String(error?.code || error?.message || error),
-        readiness: await getAutonomyLaunchReadiness(env, { repository }),
-      };
-    }
-
-    try {
-      codeSync = await syncShardVaultCodeExternally(env);
-      if (codeSync?.ok !== true) {
-        return {
-          ok: false,
-          status: 'LAUNCH_EXTERNAL_CODE_SYNC_FAILED',
-          code_sync: summarizeCodeSync(codeSync),
-          readiness: await getAutonomyLaunchReadiness(env, { repository }),
-        };
-      }
-    } catch (error) {
-      return {
-        ok: false,
-        status: 'LAUNCH_EXTERNAL_CODE_SYNC_FAILED',
-        code: String(error?.code || error?.message || error),
-        code_sync: summarizeCodeSync(codeSync),
-        readiness: await getAutonomyLaunchReadiness(env, { repository }),
-      };
-    }
+  const sync = await prepareAutonomyLaunchCodeSync(env);
+  if (sync?.ok !== true) {
+    return {
+      ok: false,
+      status: 'LAUNCH_EXTERNAL_CODE_SYNC_FAILED',
+      code: sync?.code || sync?.status || 'CODE_SYNC_FAILED',
+      backup,
+      code_sync: sync?.code_sync || null,
+      readiness: await getAutonomyLaunchReadiness(env, { repository }),
+    };
   }
 
   const readiness = await getAutonomyLaunchReadiness(env, { repository });
   return {
     ok: readiness.launch_ready === true,
     status: readiness.launch_ready ? 'LAUNCH_EVIDENCE_READY' : 'LAUNCH_EVIDENCE_INCOMPLETE',
-    code_sync: summarizeCodeSync(codeSync),
+    backup,
+    code_sync: sync?.code_sync || null,
     readiness,
   };
 }
