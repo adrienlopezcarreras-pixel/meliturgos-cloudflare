@@ -19,6 +19,7 @@ import { readLastSafeWorkJob, writeLastSafeWorkJob } from "./dev/dev-bridge-stat
 import { getChatGPTImportStatus, recordChatGPTCollectorCoverage } from "./persistence/chatgpt-archive-importer.js";
 import { maybeHandleWaveshareTerminalApi } from "./devices/waveshare-terminal-api.js";
 import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
+import { maybeHandleAndroidCompanionApi } from "./devices/android-companion-api.js";
 import { enforceHttpAuthPolicy } from "./security/http-auth-policy.js";
 import { runShardVaultCycle, searchAutonomousShardVaultRepositories } from "./continuity/shardvault-runtime.js";
 
@@ -367,6 +368,11 @@ export default {
       if (path.startsWith('/api/computer/v1/')) {
         const computerResponse = await maybeHandleComputerApi(request, env);
         if (computerResponse) return computerResponse;
+      }
+
+      if (path.startsWith('/api/android/v1/')) {
+        const androidResponse = await maybeHandleAndroidCompanionApi(request, env);
+        if (androidResponse) return androidResponse;
       }
 
       if (path === '/api/voice/transcribe') {
