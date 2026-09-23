@@ -1,5 +1,6 @@
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -18,4 +19,8 @@ android {
     buildFeatures {
         buildConfig = true
     }
+}
+
+kotlin {
+    jvmToolchain(17)
 }
