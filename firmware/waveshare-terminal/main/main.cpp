@@ -7,6 +7,7 @@
 #include "esp_io_expander_tca9554.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
+#include "esp_event.h"
 #include "esp_wifi.h"
 #include "nvs.h"
 #include "lvgl.h"
@@ -52,6 +53,36 @@ static char selected_ssid[33] = {};
 static bool wifi_manual_mode = false;
 static TaskHandle_t wifi_scan_task_handle = nullptr;
 static TaskHandle_t wifi_connect_task_handle = nullptr;
+static volatile bool wifi_got_ip = false;
+static volatile int wifi_disconnect_reason = -1;
+
+static const char *wifi_reason_text(int reason) {
+    switch (reason) {
+        case WIFI_REASON_NO_AP_FOUND: return "reseau introuvable";
+        case WIFI_REASON_AUTH_FAIL: return "authentification refusee";
+        case WIFI_REASON_HANDSHAKE_TIMEOUT: return "mot de passe/securite";
+        case WIFI_REASON_BEACON_TIMEOUT: return "signal perdu";
+        case WIFI_REASON_ASSOC_FAIL: return "association refusee";
+        default: return "echec Wi-Fi";
+    }
+}
+
+static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void *data) {
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        auto *ev = static_cast<wifi_event_sta_disconnected_t *>(data);
+        wifi_got_ip = false;
+        wifi_disconnect_reason = ev ? (int)ev->reason : -1;
+        ESP_LOGW(TAG, "MINI WIFI DISCONNECTED reason=%d (%s)",
+                 wifi_disconnect_reason, wifi_reason_text(wifi_disconnect_reason));
+    } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        wifi_got_ip = true;
+        wifi_disconnect_reason = -1;
+        auto *ev = static_cast<ip_event_got_ip_t *>(data);
+        if (ev) {
+            ESP_LOGI(TAG, "MINI WIFI GOT IP " IPSTR, IP2STR(&ev->ip_info.ip));
+        }
+    }
+}
 
 static void mini_anim_cb(lv_timer_t *) {
     if (!left_eye || !right_eye || !mouth_obj || !face_obj) return;
@@ -236,12 +267,13 @@ static void wifi_connect_task(void *arg) {
     free(payload);
 
     ESP_LOGI(TAG, "WiFi connect to %s", ssid);
+    wifi_got_ip = false;
+    wifi_disconnect_reason = -1;
     mini_wifi_sta_connect(ssid, pwd);
 
     bool connected = false;
-    wifi_ap_record_t info = {};
     for (int i = 0; i < 30; ++i) {
-        if (esp_wifi_sta_get_ap_info(&info) == ESP_OK) {
+        if (wifi_got_ip) {
             connected = true;
             break;
         }
@@ -259,7 +291,18 @@ static void wifi_connect_task(void *arg) {
             vTaskDelay(pdMS_TO_TICKS(1200));
             wifi_show_main();
         } else {
-            if (wifi_status) lv_label_set_text(wifi_status, "Connexion impossible. Verifie le mot de passe.");
+            if (wifi_status) {
+                if (wifi_disconnect_reason >= 0) {
+                    lv_label_set_text_fmt(
+                        wifi_status,
+                        "Echec: %s\n(code %d)",
+                        wifi_reason_text(wifi_disconnect_reason),
+                        wifi_disconnect_reason
+                    );
+                } else {
+                    lv_label_set_text(wifi_status, "Connexion impossible");
+                }
+            }
             if (wifi_keyboard) lv_obj_clear_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
             if (wifi_connect_btn) lv_obj_clear_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
         }
@@ -550,6 +593,8 @@ extern "C" void app_main(void) {
 
     ESP_LOGI(TAG, "STEP 6: WIFI STACK");
     esp_wifi_port_init(nullptr, nullptr);
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &mini_wifi_event_diag, nullptr));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &mini_wifi_event_diag, nullptr));
     ESP_ERROR_CHECK(esp_wifi_set_country_code("FR", false));
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
