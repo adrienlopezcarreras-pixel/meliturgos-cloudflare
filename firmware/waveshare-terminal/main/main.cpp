@@ -74,6 +74,23 @@ static TaskHandle_t wifi_connect_task_handle = nullptr;
 static volatile bool wifi_got_ip = false;
 static volatile int wifi_disconnect_reason = -1;
 
+enum MiniView {
+    MINI_VIEW_MAIN = 0,
+    MINI_VIEW_WIFI_LIST = 1,
+    MINI_VIEW_WIFI_PASSWORD = 2,
+    MINI_VIEW_WIFI_MANUAL = 3,
+    MINI_VIEW_PAIR = 4,
+};
+
+static volatile int requested_view = MINI_VIEW_MAIN;
+static int active_view = MINI_VIEW_MAIN;
+static volatile bool wifi_scan_requested = false;
+#define MINI_UI_STRESS_TEST 1
+
+static void request_view(MiniView view);
+static void mini_apply_requested_view(void);
+static void ui_stress_task(void *);
+
 static void camera_boot_probe_task(void *) {
     // UI is already alive before this runs. Camera probing can therefore be slow
     // without starving taskLVGL on CPU0.
@@ -137,6 +154,7 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
 }
 
 static void mini_anim_cb(lv_timer_t *) {
+    mini_apply_requested_view();
     if (!left_eye || !right_eye || !mouth_obj || !face_obj) return;
     const uint32_t phase = (lv_tick_get() / 120) % 32;
     const int state = mel_terminal_state();
@@ -222,14 +240,79 @@ static void save_mel_wifi_credentials(const char *ssid, const char *pwd) {
     nvs_close(h);
 }
 
-static void show_pair_panel() {
-    if (!pair_panel) return;
+static void request_view(MiniView view) {
+    requested_view = (int)view;
+}
+
+static void mini_apply_requested_view(void) {
+    const int next = requested_view;
+    if (next == active_view) {
+        if (wifi_scan_requested && active_view == MINI_VIEW_WIFI_LIST) {
+            wifi_scan_requested = false;
+            wifi_start_scan();
+        }
+        return;
+    }
+
+    active_view = next;
+    ESP_LOGI(TAG, "UI VIEW -> %d", active_view);
+
     if (main_panel) lv_obj_add_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
     if (wifi_panel) lv_obj_add_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
-    if (pair_keyboard) lv_obj_clear_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
-    if (pair_input) lv_keyboard_set_textarea(pair_keyboard, pair_input);
-    if (pair_status) lv_label_set_text(pair_status, "Entre le code genere dans MEL > MINI");
+    if (pair_panel) lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
+    if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
+    if (pair_keyboard) lv_obj_add_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
+
+    if (active_view == MINI_VIEW_MAIN) {
+        if (main_panel) lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    if (active_view == MINI_VIEW_PAIR) {
+        if (pair_panel) lv_obj_clear_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
+        if (pair_keyboard) lv_obj_clear_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
+        if (pair_input && pair_keyboard) lv_keyboard_set_textarea(pair_keyboard, pair_input);
+        if (pair_status) lv_label_set_text(pair_status, "Entre le code genere dans MEL > MINI");
+        return;
+    }
+
+    if (wifi_panel) lv_obj_clear_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
+
+    if (active_view == MINI_VIEW_WIFI_LIST) {
+        wifi_manual_mode = false;
+        selected_ssid[0] = '\0';
+        if (wifi_list) lv_obj_clear_flag(wifi_list, LV_OBJ_FLAG_HIDDEN);
+        if (wifi_ssid_input) lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
+        if (wifi_pwd) lv_obj_add_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
+        if (wifi_connect_btn) lv_obj_add_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
+        if (wifi_status) lv_label_set_text(wifi_status, "Choisis un reseau");
+        wifi_scan_requested = true;
+        return;
+    }
+
+    if (wifi_list) lv_obj_add_flag(wifi_list, LV_OBJ_FLAG_HIDDEN);
+    if (wifi_connect_btn) lv_obj_clear_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
+    if (wifi_pwd) {
+        lv_obj_clear_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
+        lv_textarea_set_text(wifi_pwd, "");
+    }
+    if (wifi_keyboard) lv_obj_clear_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
+
+    if (active_view == MINI_VIEW_WIFI_MANUAL) {
+        wifi_manual_mode = true;
+        selected_ssid[0] = '\0';
+        if (wifi_status) lv_label_set_text(wifi_status, "SSID manuel");
+        if (wifi_ssid_input) {
+            lv_obj_clear_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
+            lv_textarea_set_text(wifi_ssid_input, "");
+        }
+        if (wifi_keyboard && wifi_ssid_input) lv_keyboard_set_textarea(wifi_keyboard, wifi_ssid_input);
+    } else if (active_view == MINI_VIEW_WIFI_PASSWORD) {
+        wifi_manual_mode = false;
+        if (wifi_status) lv_label_set_text_fmt(wifi_status, "Reseau: %s", selected_ssid);
+        if (wifi_ssid_input) lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
+        if (wifi_keyboard && wifi_pwd) lv_keyboard_set_textarea(wifi_keyboard, wifi_pwd);
+    }
 }
 
 static void start_mel_runtime_after_wifi(const char *ssid, const char *pwd) {
@@ -246,10 +329,7 @@ static void start_mel_runtime_after_wifi(const char *ssid, const char *pwd) {
             ESP_LOGI(TAG, "MEL runtime starting with stored device token");
         }
     } else {
-        if (lvgl_port_lock(1000)) {
-            show_pair_panel();
-            lvgl_port_unlock();
-        }
+        request_view(MINI_VIEW_PAIR);
         ESP_LOGI(TAG, "MEL pair code required");
     }
 }
@@ -268,23 +348,20 @@ static void pair_submit_clicked(lv_event_t *e) {
     }
     mel_terminal_set_pair_code(code);
     if (pair_status) lv_label_set_text(pair_status, "Appairage en cours...");
-    if (pair_keyboard) lv_obj_add_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
-    if (pair_panel) lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
-    if (main_panel) lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
+    request_view(MINI_VIEW_MAIN);
     mel_runtime_started = true;
     mel_terminal_start_online();
 }
 
 static void pair_open_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    show_pair_panel();
+    ESP_LOGI(TAG, "UI EVENT: MEL clicked");
+    request_view(MINI_VIEW_PAIR);
 }
 
 static void pair_back_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (pair_panel) lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
-    if (pair_keyboard) lv_obj_add_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
-    if (main_panel) lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
+    request_view(MINI_VIEW_MAIN);
 }
 
 static void pair_ui_create(lv_obj_t *screen) {
@@ -340,26 +417,13 @@ static void pair_ui_create(lv_obj_t *screen) {
 }
 
 static void wifi_show_main() {
-    if (!main_panel || !wifi_panel) return;
-    lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
-    if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
+    request_view(MINI_VIEW_MAIN);
 }
 
 static void wifi_show_password(const char *ssid) {
-    wifi_manual_mode = false;
     snprintf(selected_ssid, sizeof(selected_ssid), "%s", ssid ? ssid : "");
-    if (!wifi_status || !wifi_pwd || !wifi_keyboard || !wifi_list) return;
-    lv_label_set_text_fmt(wifi_status, "Reseau: %s", selected_ssid);
-    lv_obj_add_flag(wifi_list, LV_OBJ_FLAG_HIDDEN);
-    if (wifi_ssid_input) lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
-    if (wifi_connect_btn) lv_obj_clear_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
-    lv_textarea_set_text(wifi_pwd, "");
-    lv_keyboard_set_textarea(wifi_keyboard, wifi_pwd);
+    request_view(MINI_VIEW_WIFI_PASSWORD);
 }
-
 
 static void wifi_field_focus(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED || !wifi_keyboard) return;
@@ -369,18 +433,7 @@ static void wifi_field_focus(lv_event_t *e) {
 
 static void wifi_manual_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    wifi_manual_mode = true;
-    selected_ssid[0] = '\0';
-    if (!wifi_status || !wifi_list || !wifi_ssid_input || !wifi_pwd || !wifi_keyboard) return;
-    lv_label_set_text(wifi_status, "SSID manuel");
-    lv_obj_add_flag(wifi_list, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
-    if (wifi_connect_btn) lv_obj_clear_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
-    lv_textarea_set_text(wifi_ssid_input, "");
-    lv_textarea_set_text(wifi_pwd, "");
-    lv_keyboard_set_textarea(wifi_keyboard, wifi_ssid_input);
+    request_view(MINI_VIEW_WIFI_MANUAL);
 }
 
 static void wifi_ap_clicked(lv_event_t *e) {
@@ -433,29 +486,21 @@ static void wifi_start_scan() {
 }
 
 static void wifi_scan_clicked(lv_event_t *e) {
-    if (lv_event_get_code(e) == LV_EVENT_CLICKED) wifi_start_scan();
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    wifi_scan_requested = true;
 }
 
 static void wifi_open_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (main_panel) lv_obj_add_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
-    if (wifi_panel) lv_obj_clear_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
-    wifi_start_scan();
+    request_view(MINI_VIEW_WIFI_LIST);
 }
 
 static void wifi_back_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (wifi_list && lv_obj_has_flag(wifi_list, LV_OBJ_FLAG_HIDDEN)) {
-        lv_obj_clear_flag(wifi_list, LV_OBJ_FLAG_HIDDEN);
-        wifi_manual_mode = false;
-        selected_ssid[0] = '\0';
-        if (wifi_ssid_input) lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
-        if (wifi_pwd) lv_obj_add_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
-        if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
-        if (wifi_connect_btn) lv_obj_add_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
-        if (wifi_status) lv_label_set_text(wifi_status, "Choisis un reseau");
+    if (active_view == MINI_VIEW_WIFI_PASSWORD || active_view == MINI_VIEW_WIFI_MANUAL) {
+        request_view(MINI_VIEW_WIFI_LIST);
     } else {
-        wifi_show_main();
+        request_view(MINI_VIEW_MAIN);
     }
 }
 
@@ -499,10 +544,7 @@ static void wifi_connect_task(void *arg) {
         // and triggers the task watchdog on this board.
         vTaskDelay(pdMS_TO_TICKS(700));
 
-        if (lvgl_port_lock(0)) {
-            wifi_show_main();
-            lvgl_port_unlock();
-        }
+        request_view(MINI_VIEW_MAIN);
     } else if (lvgl_port_lock(0)) {
         if (wifi_status) {
             if (wifi_disconnect_reason >= 0) {
@@ -620,6 +662,22 @@ static void wifi_ui_create(lv_obj_t *screen) {
     lv_obj_align(wifi_keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_keyboard_set_mode(wifi_keyboard, LV_KEYBOARD_MODE_TEXT_LOWER);
     lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void ui_stress_task(void *) {
+#if MINI_UI_STRESS_TEST
+    vTaskDelay(pdMS_TO_TICKS(7000));
+    ESP_LOGI(TAG, "UI STRESS START: pair/main x80");
+    for (int i = 0; i < 80; ++i) {
+        request_view(MINI_VIEW_PAIR);
+        vTaskDelay(pdMS_TO_TICKS(90));
+        request_view(MINI_VIEW_MAIN);
+        vTaskDelay(pdMS_TO_TICKS(90));
+    }
+    request_view(MINI_VIEW_MAIN);
+    ESP_LOGI(TAG, "UI STRESS PASS: pair/main x80");
+#endif
+    vTaskDelete(nullptr);
 }
 
 static void i2c_bus_init() {
@@ -883,4 +941,5 @@ extern "C" void app_main(void) {
 
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
     xTaskCreatePinnedToCore(camera_boot_probe_task, "mini_camera_probe", 8192, nullptr, 2, nullptr, 1);
+    xTaskCreatePinnedToCore(ui_stress_task, "mini_ui_stress", 4096, nullptr, 2, nullptr, 1);
 }
