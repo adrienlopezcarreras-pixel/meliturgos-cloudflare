@@ -37,7 +37,7 @@ try {
 
   $work = Join-Path $env:TEMP "MEL-Waveshare"
   New-Item -ItemType Directory -Force -Path $work | Out-Null
-  $bin = Join-Path $work "mel-terminal.bin"
+  $bin = Join-Path $work "mini-first-install.bin"
 
   Write-Host "Téléchargement MEL $($info.firmware.version)..." -ForegroundColor Yellow
   Invoke-WebRequest -Uri "$server/api/device/v1/firmware" -Headers $headers -UseBasicParsing -OutFile $bin -TimeoutSec 120
@@ -60,14 +60,14 @@ try {
     if (-not $winget) { throw "Python absent et winget indisponible. Installe Python 3 puis relance ce script." }
     Write-Host "Installation de Python pour l'outil de flash..." -ForegroundColor Yellow
     & $winget.Source install --id Python.Python.3.12 -e --scope user --accept-package-agreements --accept-source-agreements
-    $known = Join-Path $env:LOCALAPPDATA "ProgramsPythonPython312python.exe"
+    $known = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
     if (Test-Path $known) { $python = $known }
     if (-not $python) { throw "Python vient d'être installé. Ferme puis relance ce script une fois." }
   }
 
   Write-Host "Préparation d'esptool..." -ForegroundColor Yellow
   if ([IO.Path]::GetFileName($python).ToLowerInvariant() -eq "py.exe") {
-    & $python -3 -m pip install --user --disable-pip-version-check "esptool==4.8.1" | Out-Host
+    & $python -3 -m pip install --user --disable-pip-version-check "esptool==5.4.0" | Out-Host
     $pyArgs = @("-3")
   } else {
     & $python -m pip install --user --disable-pip-version-check "esptool==4.8.1" | Out-Host
