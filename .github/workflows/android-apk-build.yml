@@ -53,6 +53,12 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Validate Android source and API contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/android-companion-source-contract.test.mjs tests/android-companion-api.test.mjs
+
       - name: Build installable debug APK
         working-directory: android-companion
         shell: bash
