@@ -324,6 +324,11 @@ test('Android Complete panel stays height-bounded and internally scrollable',asy
 });
 
 
+test('Android lint is aligned for AndroidX release checks',async()=>{
+  const props=await readFile(new URL('gradle.properties',root),'utf8');
+  assert.match(props,/android\.experimental\.lint\.version=8\.8\.2/);
+});
+
 test('Android CI preflights the unsigned release variant without signing secrets',async()=>{
   const workflow=await readFile(new URL('../.github/workflows/android-apk-build.yml',import.meta.url),'utf8');
 
