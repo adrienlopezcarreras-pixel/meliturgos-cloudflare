@@ -38,6 +38,8 @@ export class SyncService extends ConversationService {
       SELECT a.*
       FROM archive_messages a
       WHERE a.conversation_id = ?
+        AND trim(COALESCE(a.content,'')) <> ''
+        AND lower(COALESCE(a.role,'')) IN ('user','assistant','system','tool')
         AND NOT EXISTS (
           SELECT 1
           FROM memory_candidates c
