@@ -13,8 +13,15 @@ class MelUiHarnessActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val initialMode = if (intent.getStringExtra("mode") == "complete") {
+            MelMode.COMPLETE
+        } else {
+            MelMode.NORMAL
+        }
+        val showDiagnostics = intent.getBooleanExtra("diagnostics", false)
+
         setContent {
-            var mode by remember { mutableStateOf(MelMode.NORMAL) }
+            var mode by remember { mutableStateOf(initialMode) }
             var messages by remember { mutableStateOf(emptyList<MelChatMessage>()) }
             MelTheme {
                 MelApp(
@@ -24,7 +31,12 @@ class MelUiHarnessActivity : ComponentActivity() {
                         busy = false,
                         status = "MEL test · connectée",
                         error = null,
-                        messages = messages
+                        messages = messages,
+                        diagnosticReport = if (showDiagnostics) {
+                            "MEL Android 0.6.1\nSession: CONNECTED\nHeartbeat: OK\nKeystore: OK"
+                        } else {
+                            null
+                        }
                     ),
                     recording = false,
                     voiceMessage = "Micro prêt",
