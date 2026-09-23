@@ -12,6 +12,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -61,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -336,21 +338,42 @@ private fun MelApp(
 }
 
 @Composable
-private fun TechMark(size: Int = 76) {
+private fun MelAvatar(size: Int = 84, online: Boolean = true) {
     Box(
         modifier = Modifier
-            .size(size.dp)
+            .size((size + 8).dp)
             .clip(CircleShape)
             .background(
-                Brush.linearGradient(
-                    listOf(Color(0xFF0D304A), Color(0xFF103A5F), Color(0xFF082238))
+                Brush.radialGradient(
+                    listOf(
+                        MelCyan.copy(alpha = if (online) .28f else .10f),
+                        Color.Transparent
+                    )
                 )
-            )
-            .border(1.dp, MelCyan.copy(alpha = .7f), CircleShape)
-            .semantics { contentDescription = "Logo MEL" },
+            ),
         contentAlignment = Alignment.Center
     ) {
-        Text("M", fontSize = (size * .48f).sp, fontWeight = FontWeight.Black, color = MelCyan)
+        Image(
+            painter = painterResource(R.drawable.ic_mel_avatar),
+            contentDescription = "Avatar de MEL",
+            modifier = Modifier
+                .size(size.dp)
+                .clip(CircleShape)
+                .border(
+                    width = if (online) 2.dp else 1.dp,
+                    color = if (online) MelCyan.copy(alpha = .88f) else MelMuted.copy(alpha = .55f),
+                    shape = CircleShape
+                )
+                .semantics { contentDescription = "Avatar MEL" }
+        )
+        Surface(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .size((size * .20f).dp),
+            shape = CircleShape,
+            color = if (online) Color(0xFF34D399) else Color(0xFF64748B),
+            border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF071523))
+        ) {}
     }
 }
 
@@ -369,10 +392,10 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        TechMark()
+        MelAvatar(92, online = false)
         Spacer(Modifier.height(14.dp))
         Text("MEL", fontSize = 34.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
-        Text("Intelligence personnelle", color = MelMuted)
+        Text("Intelligence personnelle · interface Android native", color = MelMuted, textAlign = TextAlign.Center)
         Spacer(Modifier.height(26.dp))
 
         Card(
@@ -445,7 +468,7 @@ private fun LoadingScreen(label: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        TechMark(64)
+        MelAvatar(68, online = false)
         Spacer(Modifier.height(20.dp))
         CircularProgressIndicator()
         Spacer(Modifier.height(16.dp))
@@ -468,7 +491,7 @@ private fun SessionErrorScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        TechMark(64)
+        MelAvatar(68, online = false)
         Spacer(Modifier.height(20.dp))
         Text("MEL est momentanément inaccessible", fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(8.dp))
@@ -514,7 +537,7 @@ private fun ConversationScreen(
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TechMark(46)
+                    MelAvatar(48, online = true)
                     Spacer(Modifier.width(11.dp))
                     Column(Modifier.weight(1f)) {
                         Text("MEL", fontWeight = FontWeight.Black, fontSize = 20.sp, letterSpacing = 2.sp)
