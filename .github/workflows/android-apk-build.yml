@@ -84,6 +84,26 @@ jobs:
           grep -q "package: name='fr.veriteinterdite.mel'" dist/apk-badging.txt
           grep -q "launchable-activity:" dist/apk-badging.txt
 
+      - name: Validate unsigned release variant
+        working-directory: android-companion
+        env:
+          ANDROID_KEYSTORE_PATH: ""
+          ANDROID_KEYSTORE_PASSWORD: ""
+          ANDROID_KEY_ALIAS: ""
+          ANDROID_KEY_PASSWORD: ""
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace :app:assembleRelease
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          test -s "$APK"
+          AAPT="$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt"
+          "$AAPT" dump badging "$APK" | tee dist/release-preflight-badging.txt
+          grep -q "package: name='fr.veriteinterdite.mel'" dist/release-preflight-badging.txt
+          grep -q "launchable-activity:" dist/release-preflight-badging.txt
+          sha256sum "$APK" | tee dist/release-preflight.apk.sha256
+
       - name: Upload APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -92,5 +112,7 @@ jobs:
             android-companion/dist/MEL-Android-debug.apk
             android-companion/dist/MEL-Android-debug.apk.sha256
             android-companion/dist/apk-badging.txt
+            android-companion/dist/release-preflight-badging.txt
+            android-companion/dist/release-preflight.apk.sha256
           if-no-files-found: error
           retention-days: 14

@@ -220,9 +220,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 10/);
-  assert.match(build,/versionName = "0\.6\.1"/);
-  assert.match(api,/APP_VERSION = "0\.6\.1"/);
+  assert.match(build,/versionCode = 13/);
+  assert.match(build,/versionName = "0\.6\.4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.4"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -233,4 +233,113 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   assert.match(activity,/Text\("Copier diagnostic"\)/);
   assert.match(activity,/ClipboardManager/);
   assert.match(activity,/ClipData\.newPlainText/);
+});
+
+
+test('Android device validation probes are authenticated and bounded',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  const background=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelBackground.kt',root),'utf8');
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
+
+  assert.match(build,/versionCode = 13/);
+  assert.match(build,/versionName = "0\.6\.4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.4"/);
+
+  assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
+  assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
+  assert.match(activity,/ByteArrayOutputStream\(64 \* 1024\)/);
+  assert.match(activity,/if \(total > MAX_FILE_BYTES\)/);
+  assert.doesNotMatch(activity,/openInputStream\(uri\)\?\.use \{ it\.readBytes\(\) \}/);
+
+  assert.match(vm,/fun runNormalProbe\(\)/);
+  assert.match(vm,/uiMode = MelMode\.NORMAL\.wireValue/);
+  assert.match(vm,/conversationId \+ "-android-validation"/);
+  assert.match(vm,/fun runFileProbe\(\)/);
+  assert.match(vm,/client\.uploadFile\(/);
+  assert.match(vm,/MEL_ANDROID_FILE_PROBE_/);
+  assert.match(vm,/fun runBackgroundProbe\(\)/);
+  assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
+  assert.match(vm,/MelBackground\.heartbeatScheduled\(appContext\)/);
+  assert.match(background,/fun heartbeatScheduled\(context: Context\): Boolean/);
+
+  assert.match(activity,/Text\("Tester Normal"\)/);
+  assert.match(activity,/Text\("Tester fichier"\)/);
+  assert.match(activity,/Text\("Tester arrière-plan"\)/);
+  assert.match(activity,/Fichier envoyé à MEL/);
+});
+
+
+test('real mic and file successes feed the diagnostic report',async()=>{
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
+
+  assert.match(build,/versionCode = 13/);
+  assert.match(build,/versionName = "0\.6\.4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.4"/);
+
+  const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
+  assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
+
+  const file=vm.slice(vm.indexOf('fun sendFile('),vm.indexOf('fun runDiagnostics()'));
+  const fileMarks=file.match(/appendDiagnosticLine\("Fichier réel: OK"\)/g) || [];
+  assert.equal(fileMarks.length,2);
+});
+
+
+test('Android dark UI keeps readable content contrast',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const harness=await readFile(new URL('app/src/debug/java/fr/veriteinterdite/mel/MelUiHarnessActivity.kt',root),'utf8');
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
+
+  assert.match(build,/versionCode = 13/);
+  assert.match(build,/versionName = "0\.6\.4"/);
+  assert.match(api,/APP_VERSION = "0\.6\.4"/);
+
+  assert.match(activity,/contentColor = MelInk/);
+  assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
+  assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanelSoft, contentColor = MelInk\)/);
+  assert.match(activity,/CardDefaults\.cardColors\(containerColor = Color\(0xB30C2940\), contentColor = MelInk\)/);
+  assert.match(activity,/Surface\(color = Color\(0xCC071523\), contentColor = MelInk\)/);
+  assert.match(activity,/Text\("MEL", color = MelInk/);
+  assert.match(activity,/Text\("Connexion sécurisée", color = MelInk/);
+  assert.match(activity,/Text\("Contrôles complets", color = MelInk/);
+  assert.match(activity,/"Validation téléphone",[\s\S]{0,120}color = MelInk/);
+
+  assert.match(harness,/MEL Android \$\{MelApiClient\.APP_VERSION\}/);
+  assert.doesNotMatch(harness,/MEL Android 0\.6\.1/);
+});
+
+
+test('Android Complete panel stays height-bounded and internally scrollable',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const screenshotTest=await readFile(new URL('app/src/androidTest/java/fr/veriteinterdite/mel/MelUiHarnessScreenshotTest.kt',root),'utf8');
+
+  assert.match(activity,/heightIn\(max = 340\.dp\)/);
+  assert.match(activity,/verticalScroll\(rememberScrollState\(\)\)/);
+  assert.match(screenshotTest,/performScrollTo\(\)\.assertIsDisplayed\(\)/);
+});
+
+
+test('Android lint is aligned for AndroidX release checks',async()=>{
+  const props=await readFile(new URL('gradle.properties',root),'utf8');
+  assert.match(props,/android\.experimental\.lint\.version=8\.8\.2/);
+});
+
+test('Android CI preflights the unsigned release variant without signing secrets',async()=>{
+  const workflow=await readFile(new URL('../.github/workflows/android-apk-build.yml',import.meta.url),'utf8');
+
+  assert.match(workflow,/name: Validate unsigned release variant/);
+  assert.match(workflow,/:app:assembleRelease/);
+  assert.match(workflow,/ANDROID_KEYSTORE_PATH: ""/);
+  assert.match(workflow,/ANDROID_KEYSTORE_PASSWORD: ""/);
+  assert.match(workflow,/ANDROID_KEY_ALIAS: ""/);
+  assert.match(workflow,/ANDROID_KEY_PASSWORD: ""/);
+  assert.match(workflow,/release-preflight-badging\.txt/);
+  assert.match(workflow,/release-preflight\.apk\.sha256/);
+  assert.match(workflow,/grep -q "package: name='fr\.veriteinterdite\.mel'"/);
+  assert.match(workflow,/grep -q "launchable-activity:"/);
 });
