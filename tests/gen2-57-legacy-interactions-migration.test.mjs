@@ -170,3 +170,54 @@ test('GEN2-57 migration HTTP endpoints remain owner-authenticated and expose bou
     assert.equal(body.coverage_complete,true);
   }finally{DB.close();}
 });
+
+
+test('GEN2-57 release proof token is accepted only on exact migration methods and paths',async()=>{
+  const DB=sqliteD1();
+  try{
+    await createLegacyTable(DB);
+    await insertLegacy(DB,{id:1,createdAt:5000,user:'release proof',assistant:'migration proof'});
+    const token='a'.repeat(64);
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'owner-secret-not-used-by-smoke',
+      MEL_LAUNCH_BOOTSTRAP_TOKEN:token,
+    };
+    const releaseHeaders={
+      'x-mel-release-smoke':'1',
+      'x-mel-launch-bootstrap':token,
+    };
+
+    const status=await app.fetch(new Request('https://mel.test/api/gen2/migration/gen1-status',{
+      headers:releaseHeaders,
+    }),env,{});
+    assert.equal(status.status,200);
+    assert.equal((await status.json()).source_rows,1);
+
+    const backfill=await app.fetch(new Request('https://mel.test/api/gen2/migration/gen1-backfill',{
+      method:'POST',
+      headers:{...releaseHeaders,'content-type':'application/json'},
+      body:JSON.stringify({after_id:0,limit:500}),
+    }),env,{});
+    assert.equal(backfill.status,200);
+    assert.equal((await backfill.json()).coverage_complete,true);
+
+    const wrongMethod=await app.fetch(new Request('https://mel.test/api/gen2/migration/gen1-status',{
+      method:'POST',
+      headers:{...releaseHeaders,'content-type':'application/json'},
+      body:'{}',
+    }),env,{});
+    assert.equal(wrongMethod.status,401);
+
+    const wrongPath=await app.fetch(new Request('https://mel.test/api/gen2/migration/not-allowed',{
+      headers:releaseHeaders,
+    }),env,{});
+    assert.equal(wrongPath.status,401);
+
+    const wrongToken=await app.fetch(new Request('https://mel.test/api/gen2/migration/gen1-status',{
+      headers:{...releaseHeaders,'x-mel-launch-bootstrap':'b'.repeat(64)},
+    }),env,{});
+    assert.equal(wrongToken.status,401);
+  }finally{DB.close();}
+});
