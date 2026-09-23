@@ -163,6 +163,9 @@ test('Android owner password state is not saveable and emulator smoke tests are 
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const uiTest=await readFile(new URL('app/src/androidTest/java/fr/veriteinterdite/mel/MainActivitySmokeTest.kt',root),'utf8');
+  const screenshotTest=await readFile(new URL('app/src/androidTest/java/fr/veriteinterdite/mel/MelUiHarnessScreenshotTest.kt',root),'utf8');
+  const harness=await readFile(new URL('app/src/debug/java/fr/veriteinterdite/mel/MelUiHarnessActivity.kt',root),'utf8');
+  const debugManifest=await readFile(new URL('app/src/debug/AndroidManifest.xml',root),'utf8');
   const workflow=await readFile(new URL('../.github/workflows/android-emulator-ui-test.yml',import.meta.url),'utf8');
   assert.match(activity,/var password by remember \{ mutableStateOf\(".*"\) \}/);
   assert.doesNotMatch(activity,/var password by rememberSaveable/);
@@ -172,7 +175,19 @@ test('Android owner password state is not saveable and emulator smoke tests are 
   assert.match(build,/androidx\.compose\.ui:ui-test-junit4/);
   assert.match(uiTest,/createAndroidComposeRule<MainActivity>/);
   assert.match(uiTest,/passwordIsNotRestoredAcrossActivityRecreation/);
+  assert.match(screenshotTest,/completeModeRendersForVisualProof/);
+  assert.match(harness,/getStringExtra\("mode"\)/);
+  assert.match(harness,/getBooleanExtra\("diagnostics"/);
+  assert.match(debugManifest,/android:exported="true"/);
+  assert.match(debugManifest,/android:permission="android\.permission\.DUMP"/);
   assert.match(workflow,/connectedDebugAndroidTest/);
+  assert.match(workflow,/:app:installDebug/);
+  assert.match(workflow,/fr\.veriteinterdite\.mel\/\.MainActivity/);
+  assert.match(workflow,/fr\.veriteinterdite\.mel\/\.MelUiHarnessActivity/);
+  assert.match(workflow,/login-screen\.png/);
+  assert.match(workflow,/complete-screen\.png/);
+  assert.match(workflow,/screencap -p/);
+  assert.match(workflow,/dumpsys activity activities/);
   assert.match(workflow,/system-images;android-35;google_apis;x86_64/);
 });
 
