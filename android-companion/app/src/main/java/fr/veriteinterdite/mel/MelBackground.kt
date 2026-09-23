@@ -52,6 +52,15 @@ object MelBackground {
             )
     }
 
+    fun heartbeatScheduled(context: Context): Boolean {
+        return runCatching {
+            WorkManager.getInstance(context.applicationContext)
+                .getWorkInfosForUniqueWork(HEARTBEAT_WORK_NAME)
+                .get()
+                .any { !it.state.isFinished }
+        }.getOrDefault(false)
+    }
+
     fun stopHeartbeat(context: Context) {
         WorkManager.getInstance(context.applicationContext)
             .cancelUniqueWork(HEARTBEAT_WORK_NAME)
