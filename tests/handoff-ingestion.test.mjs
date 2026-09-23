@@ -37,3 +37,19 @@ test('deduplicates by id and semantic meaning', async () => {
   assert.equal(learningEngine.stored.length, 0);
   assert.deepEqual(result.duplicate.map(x => x.reason), ['ID', 'SEMANTIC']);
 });
+
+
+test('rejects a validated handoff whose provenance SHA does not match the verified completion SHA', async () => {
+  const learningEngine = engine();
+  const result = await ingestValidatedHandoffs({
+    learningEngine,
+    expectedSha: 'a'.repeat(40),
+    handoffs: [
+      { validated: true, provenance: { path: '.agents/H.md', sha: 'b'.repeat(40) }, experience: xp('xp-sha-mismatch') },
+    ],
+  });
+  assert.equal(result.accepted.length, 0);
+  assert.equal(result.rejected.length, 1);
+  assert.ok(result.rejected[0].issues.includes('provenance:sha-mismatch'));
+  assert.equal(learningEngine.stored.length, 0);
+});
