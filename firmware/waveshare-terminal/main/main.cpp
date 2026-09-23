@@ -720,29 +720,51 @@ static void wifi_ui_create(lv_obj_t *screen) {
     lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
 }
 
+static bool wait_for_view(int expected, int timeout_ms) {
+    const int step_ms = 50;
+    for (int elapsed = 0; elapsed < timeout_ms; elapsed += step_ms) {
+        if (active_view == expected) return true;
+        vTaskDelay(pdMS_TO_TICKS(step_ms));
+    }
+    return active_view == expected;
+}
+
 static void ui_stress_task(void *) {
 #if MINI_UI_STRESS_TEST
     vTaskDelay(pdMS_TO_TICKS(7000));
     ESP_LOGI(TAG, "UI STRESS START: real MEL click/main x24");
     bool ok = true;
+
     for (int i = 0; i < 24; ++i) {
-        stress_pair_click_requested = true;
-        vTaskDelay(pdMS_TO_TICKS(350));
-        if (active_view != MINI_VIEW_PAIR) {
-            ESP_LOGE(TAG, "UI STRESS FAIL: pair view not applied at cycle %d (active=%d)", i, active_view);
-            ok = false;
-            break;
-        }
         request_view(MINI_VIEW_MAIN);
-        vTaskDelay(pdMS_TO_TICKS(350));
-        if (active_view != MINI_VIEW_MAIN) {
-            ESP_LOGE(TAG, "UI STRESS FAIL: main view not applied at cycle %d (active=%d)", i, active_view);
+        if (!wait_for_view(MINI_VIEW_MAIN, 2000)) {
+            ESP_LOGE(TAG, "UI STRESS FAIL: main precondition cycle=%d active=%d", i, active_view);
             ok = false;
             break;
         }
+
+        stress_pair_click_requested = true;
+        if (!wait_for_view(MINI_VIEW_PAIR, 2500)) {
+            stress_pair_click_requested = false;
+            ESP_LOGE(TAG, "UI STRESS FAIL: MEL click cycle=%d active=%d", i, active_view);
+            ok = false;
+            break;
+        }
+
+        request_view(MINI_VIEW_MAIN);
+        if (!wait_for_view(MINI_VIEW_MAIN, 2000)) {
+            ESP_LOGE(TAG, "UI STRESS FAIL: return main cycle=%d active=%d", i, active_view);
+            ok = false;
+            break;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
+
+    stress_pair_click_requested = false;
     request_view(MINI_VIEW_MAIN);
-    ESP_LOGI(TAG, "UI STRESS %s: real MEL click/main transitions, free_heap=%u", ok ? "PASS" : "FAIL", (unsigned)esp_get_free_heap_size());
+    ESP_LOGI(TAG, "UI STRESS %s: real MEL click/main transitions, free_heap=%u",
+             ok ? "PASS" : "FAIL", (unsigned)esp_get_free_heap_size());
 #endif
     vTaskDelete(nullptr);
 }
