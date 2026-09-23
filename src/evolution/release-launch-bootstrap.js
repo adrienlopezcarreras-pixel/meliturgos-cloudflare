@@ -1,7 +1,23 @@
-import { prepareAutonomyLaunch } from './launch-readiness.js';
+import {
+  getAutonomyLaunchReadiness,
+  prepareAutonomyLaunch,
+  prepareAutonomyLaunchBackup,
+  prepareAutonomyLaunchCodeSync,
+} from './launch-readiness.js';
 import { setAutonomyControl } from './autonomy-control.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
+const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness']);
+
+async function requestPhase(request) {
+  try {
+    const body = await request.json();
+    const phase = String(body?.phase || 'all').trim().toLowerCase();
+    return PHASES.has(phase) ? phase : null;
+  } catch {
+    return 'all';
+  }
+}
 
 function equalToken(expected, supplied) {
   const a = new TextEncoder().encode(String(expected || ''));
@@ -51,6 +67,9 @@ function safeReadiness(value) {
 
 export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   prepare = prepareAutonomyLaunch,
+  prepareBackup = prepareAutonomyLaunchBackup,
+  prepareCodeSync = prepareAutonomyLaunchCodeSync,
+  readReadiness = getAutonomyLaunchReadiness,
   setControl = setAutonomyControl,
 } = {}) {
   const url = new URL(request.url);
@@ -63,6 +82,11 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   const supplied = String(request.headers.get('x-mel-launch-bootstrap') || '');
   if (!equalToken(expected, supplied)) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_AUTH_REQUIRED' }, { status: 401, headers: { 'cache-control': 'no-store' } });
+  }
+
+  const phase = await requestPhase(request);
+  if (!phase) {
+    return Response.json({ ok: false, code: 'BOOTSTRAP_PHASE_INVALID' }, { status: 400, headers: { 'cache-control': 'no-store' } });
   }
 
   // A deployment may inherit RUNNING/MAX control state from the previous SHA.
@@ -78,14 +102,73 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     launch_gate_digest: null,
   });
 
+  if (phase === 'pause') {
+    return Response.json({
+      ok: true,
+      status: 'RELEASE_PAUSED',
+      phase,
+      autonomy_started: false,
+      owner_launch_required: true,
+    }, { status: 200, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'backup') {
+    const backup = await prepareBackup(env);
+    return Response.json({
+      ok: backup?.ok === true,
+      status: backup?.status || (backup?.ok === true ? 'BACKUP_PREPARED' : 'LAUNCH_BACKUP_PREP_FAILED'),
+      phase,
+      backup,
+      autonomy_started: false,
+      owner_launch_required: true,
+    }, {
+      status: backup?.ok === true ? 200 : 503,
+      headers: { 'cache-control': 'no-store' },
+    });
+  }
+
+  if (phase === 'code-sync') {
+    const sync = await prepareCodeSync(env);
+    return Response.json({
+      ok: sync?.ok === true,
+      complete: sync?.complete === true,
+      status: sync?.status || (sync?.ok === true ? 'CODE_SYNC_PROGRESS' : 'LAUNCH_EXTERNAL_CODE_SYNC_FAILED'),
+      phase,
+      code_sync: sync?.code_sync || null,
+      autonomy_started: false,
+      owner_launch_required: true,
+    }, {
+      status: sync?.ok === true ? 200 : 503,
+      headers: { 'cache-control': 'no-store' },
+    });
+  }
+
+  if (phase === 'readiness') {
+    const readiness = safeReadiness(await readReadiness(env));
+    return Response.json({
+      ok: readiness.launch_ready === true,
+      status: readiness.launch_ready ? 'LAUNCH_EVIDENCE_READY' : 'LAUNCH_EVIDENCE_INCOMPLETE',
+      phase,
+      readiness,
+      autonomy_started: false,
+      owner_launch_required: true,
+    }, {
+      status: readiness.launch_ready === true ? 200 : 409,
+      headers: { 'cache-control': 'no-store' },
+    });
+  }
+
   const prepared = await prepare(env);
   const readiness = safeReadiness(prepared?.readiness);
   return Response.json({
     ok: prepared?.ok === true && readiness.launch_ready === true,
     status: prepared?.status || (readiness.launch_ready ? 'LAUNCH_EVIDENCE_READY' : 'LAUNCH_EVIDENCE_INCOMPLETE'),
+    phase,
     readiness,
+    backup: prepared?.backup || null,
     code_sync: prepared?.code_sync ? {
       ok: prepared.code_sync.ok === true,
+      complete: prepared.code_sync.complete === true,
       status: prepared.code_sync.status || null,
       target_count: Number(prepared.code_sync.target_count || 7),
       endpoints: Array.isArray(prepared.code_sync.endpoints) ? prepared.code_sync.endpoints.slice(0, 14) : [],
@@ -103,4 +186,4 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   });
 }
 
-export const __launchBootstrapTest = Object.freeze({ equalToken, safeReadiness });
+export const __launchBootstrapTest = Object.freeze({ equalToken, safeReadiness, requestPhase });
