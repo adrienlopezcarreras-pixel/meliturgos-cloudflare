@@ -69,7 +69,7 @@ async function registerRuntimeDevice(env, body) {
     await runtime.bus.execute("device.register", {
       id: body.device_id,
       owner: env.MELITURGOS_USER || "owner",
-      name: body.name || "MEL Terminal",
+      name: body.name || "MINI",
       kind: "waveshare-terminal",
       metadata: {
         model: WAVESHARE_TERMINAL_MODEL,
@@ -86,6 +86,9 @@ async function registerRuntimeDevice(env, body) {
           "bluetooth",
           "chat",
           "voice.stt",
+          "voice.reply",
+          "mel.tools.bridge",
+          "environment.digital",
           "download.assets",
           "ota"
         ]
@@ -147,7 +150,7 @@ async function issueDeviceToken(env, body) {
   await env.DB.prepare(`INSERT INTO device_status(device_id,payload_json,updated_at) VALUES(?,?,?)
     ON CONFLICT(device_id) DO UPDATE SET payload_json=excluded.payload_json, updated_at=excluded.updated_at`)
     .bind(deviceId, JSON.stringify({
-      name: body.name || "MEL Terminal",
+      name: body.name || "MINI",
       firmware: body.firmware || null,
       phase: "PAIRED",
       protocol_version: protocolVersion
