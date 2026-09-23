@@ -88,13 +88,83 @@ jobs:
               feature/mel-waveshare-terminal|feature/mel-device-and-computer-interface)
                 branch_ref="refs/remotes/origin/$branch"
                 base="$(git merge-base "$branch_ref" "$canonical")"
-                unexpected="$(git diff --name-only "$base" "$branch_ref" | grep -Ev '^(assets/MEL-Computer-[A-Za-z0-9._-]+[.]ps1|src/devices/[A-Za-z0-9._/-]+[.]js|src/capabilities/computer-runtime-capabilities[.]js|tests/[A-Za-z0-9._/-]*(computer|waveshare)[A-Za-z0-9._/-]*[.]test[.]mjs|scripts/[A-Za-z0-9._/-]*(computer|waveshare)[A-Za-z0-9._/-]*)$' || true)"
+                unexpected="$(git diff --name-only "$base" "$branch_ref" | grep -Ev '^(assets/MEL-Computer-[A-Za-z0-9._-]+[.]ps1|src/devices/[A-Za-z0-9._/-]+[.]js|src/capabilities/computer-runtime-capabilities[.]js|tests/[A-Za-z0-9._/-]*(computer|waveshare)[A-Za-z0-9._/-]*[.]test[.]mjs|scripts/[A-Za-z0-9._/-]*(computer|waveshare)[A-Za-z0-9._/-]*)
+              godot-private-test-*)
+                branch_ref="refs/remotes/origin/$branch"
+                base="$(git merge-base "$branch_ref" "$canonical")"
+                unexpected="$(git diff --name-only "$base" "$branch_ref" | grep -Ev '^(\.github/workflows/godot-private-test\.yml|ci-godot-test/)' || true)"
+                if [[ -n "$unexpected" ]]; then
+                  echo "GODOT_LAB_SCOPE_VIOLATION:$branch"
+                  printf '%s\n' "$unexpected"
+                  divergent+=("$branch")
+                else
+                  echo "Isolated Godot lab branch accepted: $branch"
+                fi
+                continue
+                ;;
+            esac
+
+            if ! git merge-base --is-ancestor "refs/remotes/origin/$branch" "$canonical"; then
+              divergent+=("$branch")
+            fi
+          done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin)
+
+          if (( ${#divergent[@]} )); then
+            printf 'DIVERGENT_NON_EXEMPT_BRANCHES:\n'
+            printf ' - %s\n' "${divergent[@]}"
+            exit 1
+          fi
+
+          echo "Canonical unicity verified: every active branch is convergent or strictly isolated."
+ || true)"
                 if [[ -n "$unexpected" ]]; then
                   echo "HARDWARE_LAB_SCOPE_VIOLATION:$branch"
                   printf '%s\n' "$unexpected"
                   divergent+=("$branch")
                 else
                   echo "Isolated hardware lab branch accepted: $branch"
+                fi
+                continue
+                ;;
+
+              feature/mini-physical-companion-v0.2)
+                branch_ref="refs/remotes/origin/$branch"
+                base="$(git merge-base "$branch_ref" "$canonical")"
+                unexpected="$(git diff --name-only "$base" "$branch_ref" | grep -Ev '^(firmware/waveshare-terminal/[A-Za-z0-9._/-]+|src/devices/waveshare-terminal-api[.]js|src/pages/full-interface-v2[.]js)
+              godot-private-test-*)
+                branch_ref="refs/remotes/origin/$branch"
+                base="$(git merge-base "$branch_ref" "$canonical")"
+                unexpected="$(git diff --name-only "$base" "$branch_ref" | grep -Ev '^(\.github/workflows/godot-private-test\.yml|ci-godot-test/)' || true)"
+                if [[ -n "$unexpected" ]]; then
+                  echo "GODOT_LAB_SCOPE_VIOLATION:$branch"
+                  printf '%s\n' "$unexpected"
+                  divergent+=("$branch")
+                else
+                  echo "Isolated Godot lab branch accepted: $branch"
+                fi
+                continue
+                ;;
+            esac
+
+            if ! git merge-base --is-ancestor "refs/remotes/origin/$branch" "$canonical"; then
+              divergent+=("$branch")
+            fi
+          done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin)
+
+          if (( ${#divergent[@]} )); then
+            printf 'DIVERGENT_NON_EXEMPT_BRANCHES:\n'
+            printf ' - %s\n' "${divergent[@]}"
+            exit 1
+          fi
+
+          echo "Canonical unicity verified: every active branch is convergent or strictly isolated."
+ || true)"
+                if [[ -n "$unexpected" ]]; then
+                  echo "MINI_LAB_SCOPE_VIOLATION:$branch"
+                  printf '%s\n' "$unexpected"
+                  divergent+=("$branch")
+                else
+                  echo "Isolated MINI hardware lab branch accepted: $branch"
                 fi
                 continue
                 ;;
