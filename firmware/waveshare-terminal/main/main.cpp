@@ -989,6 +989,10 @@ extern "C" void app_main(void) {
     lv_port_init();
     ESP_LOGI(TAG, "STEP 5 OK");
 
+    ESP_LOGI(TAG, "STEP 5.2: INTERNAL STORAGE");
+    const bool storage_ok = mel_terminal_init_storage();
+    ESP_LOGI(TAG, "STEP 5.2 %s", storage_ok ? "OK" : "FAILED");
+
     // OV5640 is initialized lazily on first camera request, on core 1.
     // Keeping it out of the critical boot path prevents long SCCB sensor
     // probing from starving LVGL and triggering the task watchdog.
