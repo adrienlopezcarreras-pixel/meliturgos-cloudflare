@@ -729,39 +729,43 @@ static bool wait_for_view(int expected, int timeout_ms) {
     return active_view == expected;
 }
 
+static bool wait_for_view(int expected, int timeout_ms) {
+    const int step_ms = 50;
+    for (int elapsed = 0; elapsed < timeout_ms; elapsed += step_ms) {
+        if (active_view == expected) return true;
+        vTaskDelay(pdMS_TO_TICKS(step_ms));
+    }
+    return active_view == expected;
+}
+
 static void ui_stress_task(void *) {
 #if MINI_UI_STRESS_TEST
     vTaskDelay(pdMS_TO_TICKS(7000));
     ESP_LOGI(TAG, "UI STRESS START: real MEL click/main x24");
     bool ok = true;
 
-    for (int i = 0; i < 24; ++i) {
-        request_view(MINI_VIEW_MAIN);
-        if (!wait_for_view(MINI_VIEW_MAIN, 2000)) {
-            ESP_LOGE(TAG, "UI STRESS FAIL: main precondition cycle=%d active=%d", i, active_view);
-            ok = false;
-            break;
-        }
-
-        stress_pair_click_requested = true;
-        if (!wait_for_view(MINI_VIEW_PAIR, 2500)) {
-            stress_pair_click_requested = false;
-            ESP_LOGE(TAG, "UI STRESS FAIL: MEL click cycle=%d active=%d", i, active_view);
-            ok = false;
-            break;
-        }
-
-        request_view(MINI_VIEW_MAIN);
-        if (!wait_for_view(MINI_VIEW_MAIN, 2000)) {
-            ESP_LOGE(TAG, "UI STRESS FAIL: return main cycle=%d active=%d", i, active_view);
-            ok = false;
-            break;
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(100));
+    request_view(MINI_VIEW_MAIN);
+    if (!wait_for_view(MINI_VIEW_MAIN, 1500)) {
+        ESP_LOGE(TAG, "UI STRESS FAIL: could not enter main view (active=%d)", active_view);
+        ok = false;
     }
 
-    stress_pair_click_requested = false;
+    for (int i = 0; ok && i < 24; ++i) {
+        stress_pair_click_requested = true;
+        if (!wait_for_view(MINI_VIEW_PAIR, 1500)) {
+            ESP_LOGE(TAG, "UI STRESS FAIL: real MEL click did not open pair view at cycle %d (active=%d)", i, active_view);
+            ok = false;
+            break;
+        }
+
+        request_view(MINI_VIEW_MAIN);
+        if (!wait_for_view(MINI_VIEW_MAIN, 1500)) {
+            ESP_LOGE(TAG, "UI STRESS FAIL: main view not restored at cycle %d (active=%d)", i, active_view);
+            ok = false;
+            break;
+        }
+    }
+
     request_view(MINI_VIEW_MAIN);
     ESP_LOGI(TAG, "UI STRESS %s: real MEL click/main transitions, free_heap=%u",
              ok ? "PASS" : "FAIL", (unsigned)esp_get_free_heap_size());
