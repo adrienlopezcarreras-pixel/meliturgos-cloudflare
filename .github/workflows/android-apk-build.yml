@@ -9,6 +9,7 @@ on:
       - ".github/workflows/android-apk-build.yml"
       - "tests/android-companion-*.test.mjs"
       - "src/devices/android-companion-api.js"
+      - "src/api/file-upload.js"
   pull_request:
     branches:
       - candidate/mel-clean-autonomy
@@ -17,6 +18,7 @@ on:
       - ".github/workflows/android-apk-build.yml"
       - "tests/android-companion-*.test.mjs"
       - "src/devices/android-companion-api.js"
+      - "src/api/file-upload.js"
   workflow_dispatch:
 
 permissions:
