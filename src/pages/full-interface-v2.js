@@ -81,17 +81,37 @@ async function loadRoadmapData(force=false){
   roadmapCacheAt=Date.now();
   return roadmapCache;
 }
+function finiteMetric(value){
+  if(value===null||value===undefined||value==='')return null;
+  const n=Number(value);return Number.isFinite(n)?n:null;
+}
+function setMetric(selector,value,suffix=''){
+  const node=qs(selector),n=finiteMetric(value);if(!node)return n;
+  node.textContent=n===null?'—':String(n)+suffix;return n;
+}
 function renderRoadmapSummary(d){
-  const s=d?.summary||{},bs=s.by_status||{};
-  qs('#rmTotal').textContent=s.total||0;qs('#rmDone').textContent=s.complete||0;qs('#rmActive').textContent=(bs.IN_PROGRESS||0)+(bs.PARTIAL||0);qs('#rmPercent').textContent=(s.percent_complete||0)+'%';qs('#roadPercent').textContent=s.percent_complete||0;qs('#roadBar').style.width=(s.percent_complete||0)+'%';
+  const s=d?.summary&&typeof d.summary==='object'?d.summary:null;
+  const bs=s?.by_status&&typeof s.by_status==='object'?s.by_status:null;
+  const total=setMetric('#rmTotal',s?.total),done=setMetric('#rmDone',s?.complete);
+  const inProgress=finiteMetric(bs?.IN_PROGRESS),partial=finiteMetric(bs?.PARTIAL);
+  qs('#rmActive').textContent=inProgress===null||partial===null?'—':String(inProgress+partial);
+  const percent=finiteMetric(s?.percent_complete);
+  qs('#rmPercent').textContent=percent===null?'—':percent+'%';
+  qs('#roadPercent').textContent=percent===null?'—':String(percent);
+  qs('#roadBar').style.width=percent===null?'0%':Math.max(0,Math.min(100,percent))+'%';
+  return total!==null&&done!==null&&inProgress!==null&&partial!==null&&percent!==null;
+}
+function renderCapabilityOverview(caps){
+  const total=setMetric('#capCount',caps?.total),active=finiteMetric(caps?.active);
+  qs('#capSummary').textContent=active===null?'État indisponible':active+' actives';
+  return total!==null&&active!==null;
 }
 async function loadRoadmapSummary(force=false){const d=await loadRoadmapData(force);renderRoadmapSummary(d);return d}
 async function loadDashboardSummary(){
   const d=await jfetch('/api/gen2/dashboard-summary');
-  const caps=d?.capabilities||{};
-  qs('#capCount').textContent=Number(caps.total||0);
-  qs('#capSummary').textContent=Number(caps.active||0)+' actives';
-  renderRoadmapSummary({summary:d?.roadmap||{}});
+  const caps=d?.capabilities&&typeof d.capabilities==='object'?d.capabilities:null;
+  renderCapabilityOverview(caps);
+  renderRoadmapSummary({summary:d?.roadmap});
   const state=String(d?.state||'WARN').toUpperCase();
   qs('#globalState').textContent=state==='OK'?'Système prêt':state==='ERROR'?'Attention requise':'Partiellement prêt';
   qs('#globalDot').className='dot '+(state==='OK'?'good':state==='ERROR'?'bad':'warn');
@@ -233,10 +253,16 @@ async function autonomyAction(button,url,body,label,feedback=qs('#mobileAutonomy
   finally{button.disabled=false;if(!['melFullMax','melFullStop'].includes(button.id))button.textContent=previous;renderAutonomy(autonomyControl)}
 }
 function activityMarkup(state){
-  const items=Array.isArray(state?.recent_activity)?state.recent_activity.slice(0,8):[];
-  const counts=state?.counts||{};
-  const summary='<div><b>Actifs :</b> '+Number(counts.active||0)+' · <b>Terminés :</b> '+Number(counts.completed||0)+' · <b>Échecs :</b> '+Number(counts.failed||0)+'</div>';
-  const rows=items.length?items.map(x=>'<div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.06)"><b>'+esc(x.roadmap_id||x.id||'activité')+'</b> · '+esc(x.status||'—')+'</div>').join(''):'<div style="margin-top:7px">Aucune activité récente.</div>';
+  const activityKnown=Array.isArray(state?.recent_activity);
+  const items=activityKnown?state.recent_activity.slice(0,8):[];
+  const counts=state?.counts&&typeof state.counts==='object'?state.counts:null;
+  const metric=value=>{const n=finiteMetric(value);return n===null?'—':String(n)};
+  const summary='<div><b>Actifs :</b> '+metric(counts?.active)+' · <b>Terminés :</b> '+metric(counts?.completed)+' · <b>Échecs :</b> '+metric(counts?.failed)+'</div>';
+  const rows=!activityKnown
+    ?'<div style="margin-top:7px">Historique d’activité non chargé.</div>'
+    :items.length
+      ?items.map(x=>'<div style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.06)"><b>'+esc(x.roadmap_id||x.id||'activité')+'</b> · '+esc(x.status||'—')+'</div>').join('')
+      :'<div style="margin-top:7px">Aucune activité récente observée.</div>';
   return summary+rows;
 }
 async function showActivity(panel){
@@ -412,7 +438,7 @@ qs('#terminalPairCreate').onclick=async()=>{
 };
 qs('#terminalRefresh').onclick=()=>loadTerminal();
 
-async function boot(){qs('#codeMetric').textContent='MANUEL';qs('#codeSummary').textContent='Test à la demande pour accélérer l’ouverture.';const tasks=await Promise.allSettled([loadDashboardSummary(),loadAutonomy()]);const dashboard=tasks[0];if(dashboard.status!=='fulfilled'){qs('#globalState').textContent='Diagnostic requis';qs('#globalDot').className='dot bad';qs('#healthRows').textContent='Résumé système indisponible.'}}
+async function boot(){qs('#codeMetric').textContent='MANUEL';qs('#codeSummary').textContent='Test à la demande pour accélérer l’ouverture.';const tasks=await Promise.allSettled([loadDashboardSummary(),loadAutonomy()]);const dashboard=tasks[0];if(dashboard.status!=='fulfilled'){renderCapabilityOverview(null);renderRoadmapSummary(null);qs('#globalState').textContent='Diagnostic requis';qs('#globalDot').className='dot bad';qs('#healthRows').textContent='Résumé système indisponible.'}}
 
 function toggleLearningDetails(){
   const chip=qs('#learningChip'),details=qs('#learningDetails'),arrow=qs('#learnArrow');
@@ -425,29 +451,41 @@ function toggleLearningDetails(){
 async function loadLearningProgress(){
   const level=qs('#learnLevel'),rank=qs('#learnRank'),bar=qs('#learnBar'),xp=qs('#learnXp'),meta=qs('#learnMeta'),chip=qs('#learningChip');
   if(!level||!rank||!bar||!xp||!meta)return false;
+  const fmtCount=value=>{const n=finiteMetric(value);return n===null?'—':n.toLocaleString('fr-FR')};
+  const fmtPercent=value=>{const n=finiteMetric(value);return n===null?null:Math.max(0,Math.min(100,n))};
   try{
-    const d=await jfetch('/api/learning/progress'),e=d.evidence||{};
-    const p=Math.max(0,Math.min(100,Number(d.level_progress_percent||0)));
-    level.textContent=d.level??'—'; rank.textContent=(d.rank||'')+' · '+p.toFixed(0)+'%'; bar.style.width=p+'%';
-    xp.textContent=Number(d.xp||0).toLocaleString('fr-FR')+' XP';
-    const bench=e.benchmark_latest_score==null?'bench —':('bench '+(Math.round(Number(e.benchmark_latest_score)*1000)/10)+'%');
-    const loraState=String(d.lora_status?.state||'').toUpperCase();
-    const lora=loraState==='ACTIVE'?'LoRA actif':loraState==='TECHNICALLY_VALIDATED'?'LoRA validé techniquement':loraState==='EVALUATED'?'LoRA benchmarké':loraState==='READY'?'LoRA prêt':loraState==='TRAINING'?'LoRA en entraînement':loraState==='BLOCKED'?'LoRA bloqué':'LoRA non actif';
-    meta.textContent=Number(e.corrections_validated||0)+' corr. · '+bench+' · '+lora;
+    const d=await jfetch('/api/learning/progress'),e=d?.evidence&&typeof d.evidence==='object'?d.evidence:null;
+    const p=fmtPercent(d?.level_progress_percent);
+    level.textContent=d?.level??'—';
+    rank.textContent=(d?.rank||'mesure indisponible')+(p===null?'':' · '+p.toFixed(0)+'%');
+    bar.style.width=p===null?'0%':p+'%';
+    bar.setAttribute('aria-valuetext',p===null?'mesure indisponible':p.toFixed(0)+'%');
+    xp.textContent=fmtCount(d?.xp)+' XP';
+    const bench=e?.benchmark_latest_score==null?'bench —':('bench '+(Math.round(Number(e.benchmark_latest_score)*1000)/10)+'%');
+    const loraState=String(d?.lora_status?.state||'').toUpperCase();
+    const lora=loraState==='ACTIVE'?'LoRA actif':loraState==='TECHNICALLY_VALIDATED'?'LoRA validé techniquement':loraState==='EVALUATED'?'LoRA benchmarké':loraState==='READY'?'LoRA prêt':loraState==='TRAINING'?'LoRA en entraînement':loraState==='BLOCKED'?'LoRA bloqué':'LoRA état indisponible';
+    meta.textContent=fmtCount(e?.corrections_validated)+' corr. · '+bench+' · '+lora;
     const put=(id,v)=>{const n=qs(id);if(n)n.textContent=v;};
-    put('#learnNext',Number(d.xp_to_next_level||0).toLocaleString('fr-FR')+' XP');
-    put('#learnCorrections',Number(e.corrections_validated||0)+' validées / '+Number(e.corrections_recorded||0));
-    put('#learnTraining',Number(e.corrections_available_for_training||0));
-    const base=e.benchmark_baseline_score==null?'—':(Math.round(Number(e.benchmark_baseline_score)*1000)/10)+'%';
-    const latest=e.benchmark_latest_score==null?'—':(Math.round(Number(e.benchmark_latest_score)*1000)/10)+'%';
-    const gain=e.benchmark_gain==null?'':(' · Δ '+(Number(e.benchmark_gain)>=0?'+':'')+(Math.round(Number(e.benchmark_gain)*1000)/10)+' pts');
+    put('#learnNext',fmtCount(d?.xp_to_next_level)+' XP');
+    put('#learnCorrections',fmtCount(e?.corrections_validated)+' validées / '+fmtCount(e?.corrections_recorded));
+    put('#learnTraining',fmtCount(e?.corrections_available_for_training));
+    const base=e?.benchmark_baseline_score==null?'—':(Math.round(Number(e.benchmark_baseline_score)*1000)/10)+'%';
+    const latest=e?.benchmark_latest_score==null?'—':(Math.round(Number(e.benchmark_latest_score)*1000)/10)+'%';
+    const gain=e?.benchmark_gain==null?'':(' · Δ '+(Number(e.benchmark_gain)>=0?'+':'')+(Math.round(Number(e.benchmark_gain)*1000)/10)+' pts');
     put('#learnBenchmark',base+' → '+latest+gain);
-    put('#learnTrials',Number(e.inference_trials||0));
-    put('#learnErrors',Number(e.repeated_taught_errors||0));
-    put('#learnWeights',e.neural_weights_changed?('modifiés · '+Number(e.active_adapter_count||0)+' adaptateur(s) actif(s)'):'inchangés · aucun adaptateur actif en runtime');
-    if(chip)chip.title='Cliquer pour les détails · '+Number(d.xp||0).toLocaleString('fr-FR')+' XP · roadmap exclue';
+    put('#learnTrials',fmtCount(e?.inference_trials));
+    put('#learnErrors',fmtCount(e?.repeated_taught_errors));
+    const adapterCount=finiteMetric(e?.active_adapter_count),adapters=adapterCount===null?'—':adapterCount.toLocaleString('fr-FR');
+    put('#learnWeights',e?.neural_weights_changed===true
+      ?('modifiés · '+adapters+' adaptateur(s) actif(s)')
+      :e?.neural_weights_changed===false
+        ?(adapterCount===0?'inchangés · aucun adaptateur actif en runtime':adapterCount===null?'inchangés · état des adaptateurs indisponible':'inchangés · '+adapters+' adaptateur(s) déclaré(s) actif(s)')
+        :'état des poids indisponible');
+    if(chip)chip.title='Cliquer pour les détails · '+fmtCount(d?.xp)+' XP · roadmap exclue';
     return true;
-  }catch(err){level.textContent='—';rank.textContent='indisponible';bar.style.width='0%';xp.textContent='— XP';meta.textContent='mesure indisponible';return false;}
+  }catch(err){
+    level.textContent='—';rank.textContent='indisponible';bar.style.width='0%';bar.setAttribute('aria-valuetext','mesure indisponible');xp.textContent='— XP';meta.textContent='mesure indisponible';return false;
+  }
 }
 async function runLearningAction(button,url,busy){
   const state=qs('#melLearningActionState');if(!button)return;button.disabled=true;if(state)state.textContent=busy;

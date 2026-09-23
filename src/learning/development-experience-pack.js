@@ -593,4 +593,20 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     created_at: 1790082360000,
   }),
 
+  Object.freeze({
+    id: 'bootstrap-client-backend-version-gap-fallback-20260923',
+    source: 'chatgpt-teacher',
+    domain: 'mobile-release-compatibility',
+    task: 'Maintenir un client mobile testable quand le binaire avance avant le backend déployé, sans contourner l’authentification.',
+    input: 'Une APK candidate peut appeler une nouvelle route encore absente de main/release alors que les routes authentifiées plus anciennes restent disponibles.',
+    before: 'Laisser toute la fonctionnalité échouer sur 404, ou contourner le serveur avec un fallback trop large qui stocke, interprète ou transmet des données sans les mêmes bornes et garanties.',
+    after: 'Garder la nouvelle route authentifiée comme voie principale; détecter explicitement l’absence de route; n’autoriser qu’un fallback local borné, non sensible et sémantiquement équivalent via une route déjà authentifiée; rester fail-closed pour les formats qui nécessitent réellement la nouvelle capacité serveur; retirer ou réduire le fallback après promotion backend.',
+    rationale: 'La compatibilité temporaire ne doit jamais devenir une deuxième architecture ni affaiblir la frontière de sécurité. Le fallback doit préserver l’auth, les limites de taille, la provenance et l’absence de faux traitement.',
+    tests: ['Android 0.3.1 PR #169', 'android-apk-build 35851622122 SUCCESS', 'fichiers texte <=512 Ko seulement; binaires fail-closed'],
+    tags: ['android', 'compatibility', 'backend-version', 'fallback', 'fail-closed', 'authentication'],
+    validated: true,
+    quality: 1,
+    created_at: 1790158800000,
+  }),
+
 ]);

@@ -1,6 +1,7 @@
 import { requireAuth } from "../core/security.js";
 import { handleNativeChat } from "../api/native-chat.js";
 import { handleVoiceTranscription } from "../api/voice-transcribe.js";
+import { handleFileUpload } from "../api/file-upload.js";
 import { createConversationService } from "../conversations/conversation-service.js";
 
 export const ANDROID_API_BASE = "/api/android/v1";
@@ -125,7 +126,7 @@ async function pairDevice(request,env) {
     metadata:{
       protocol_version:ANDROID_PROTOCOL_VERSION,
       app_version:appVersion,
-      capabilities:["chat","conversation.sync","voice.stt","heartbeat"],
+      capabilities:["chat","conversation.sync","voice.stt","files.upload","heartbeat"],
     },
   });
 
@@ -214,6 +215,7 @@ async function deviceChat(request,env,auth) {
   const text = safe(body.text ?? body.message,100000);
   if (!text) return json({ok:false,code:"MESSAGE_REQUIRED"},400);
   const inputSource = body.input_source === "voice-server-transcription" ? "voice-server-transcription" : "text";
+  const uiMode = safe(body.ui_mode,20).toLowerCase() === "complete" ? "complete" : "normal";
   const internal = new Request(new URL("/api/chat",request.url),{
     method:"POST",
     headers:{"content-type":"application/json"},
@@ -221,8 +223,14 @@ async function deviceChat(request,env,auth) {
       text,
       conversation_id:conversationIdFor(auth,body),
       device_id:auth.deviceId,
-      ui_theme:safe(body.ui_theme,40)||"classic",
+      ui_theme:safe(body.ui_theme,40)||"futuristic",
+      ui_mode:uiMode,
       input_source:inputSource,
+      intent_context:{
+        surface:uiMode === "complete" ? "mel-android-complete" : "mel-android-normal",
+        ui_mode:uiMode,
+        device:"android-companion",
+      },
     }),
   });
   return handleNativeChat(internal,env,{authorized:true,source:"android-companion",device_id:auth.deviceId});
@@ -258,6 +266,18 @@ async function deviceVoice(request,env,auth) {
   return handleVoiceTranscription(internal,env,{authorized:true,source:"android-companion",device_id:auth.deviceId});
 }
 
+async function deviceFileUpload(request,env,auth) {
+  const type = String(request.headers.get("content-type")||"");
+  if (!type.toLowerCase().includes("multipart/form-data")) return json({ok:false,code:"FILE_REQUIRED"},415);
+  const bytes = await request.arrayBuffer();
+  const internal = new Request(new URL("/api/files/upload",request.url),{
+    method:"POST",
+    headers:{"content-type":type},
+    body:bytes,
+  });
+  return handleFileUpload(internal,env,{authorized:true,source:"android-companion",device_id:auth.deviceId});
+}
+
 export async function maybeHandleAndroidCompanionApi(request,env) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith(ANDROID_API_BASE+"/")) return null;
@@ -274,5 +294,6 @@ export async function maybeHandleAndroidCompanionApi(request,env) {
   if (url.pathname === ANDROID_API_BASE+"/sync" && request.method === "GET") return syncMessages(request,env,auth,url);
   if (url.pathname === ANDROID_API_BASE+"/sync/ack" && request.method === "POST") return ackMessages(request,env,auth);
   if (url.pathname === ANDROID_API_BASE+"/voice/transcribe" && request.method === "POST") return deviceVoice(request,env,auth);
+  if (url.pathname === ANDROID_API_BASE+"/files/upload" && request.method === "POST") return deviceFileUpload(request,env,auth);
   return json({ok:false,code:"ANDROID_ROUTE_NOT_FOUND"},404);
 }
