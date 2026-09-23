@@ -1,6 +1,9 @@
 package fr.veriteinterdite.mel
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
@@ -9,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -139,7 +143,9 @@ class MainActivity : ComponentActivity() {
                     onVoice = ::toggleVoice,
                     onFile = ::pickFile,
                     onProfessor = ::openProfessor,
-                    onNotifications = ::enableNotifications
+                    onNotifications = ::enableNotifications,
+                    onDiagnostics = model::runDiagnostics,
+                    onCopyDiagnostic = ::copyDiagnostic
                 )
             }
         }
@@ -198,6 +204,12 @@ class MainActivity : ComponentActivity() {
     private fun openProfessor() {
         val url = BuildConfig.MEL_BASE_URL.trimEnd('/') + "/professor"
         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+
+    private fun copyDiagnostic(report: String) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Diagnostic MEL Android", report))
+        Toast.makeText(this, "Diagnostic MEL copié", Toast.LENGTH_SHORT).show()
     }
 
     private fun enableNotifications() {
@@ -338,7 +350,9 @@ internal fun MelApp(
     onVoice: () -> Unit,
     onFile: () -> Unit,
     onProfessor: () -> Unit,
-    onNotifications: () -> Unit
+    onNotifications: () -> Unit,
+    onDiagnostics: () -> Unit,
+    onCopyDiagnostic: (String) -> Unit
 ) {
     Box(
         Modifier
@@ -364,7 +378,9 @@ internal fun MelApp(
                 onVoice = onVoice,
                 onFile = onFile,
                 onProfessor = onProfessor,
-                onNotifications = onNotifications
+                onNotifications = onNotifications,
+                onDiagnostics = onDiagnostics,
+                onCopyDiagnostic = onCopyDiagnostic
             )
         }
     }
@@ -547,7 +563,9 @@ private fun ConversationScreen(
     onVoice: () -> Unit,
     onFile: () -> Unit,
     onProfessor: () -> Unit,
-    onNotifications: () -> Unit
+    onNotifications: () -> Unit,
+    onDiagnostics: () -> Unit,
+    onCopyDiagnostic: (String) -> Unit
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -601,7 +619,15 @@ private fun ConversationScreen(
             )
             if (state.mode == MelMode.COMPLETE) {
                 Spacer(Modifier.height(10.dp))
-                CompletePanel(state.busy, onSync, onProfessor, onNotifications)
+                CompletePanel(
+                    busy = state.busy,
+                    diagnosticReport = state.diagnosticReport,
+                    onSync = onSync,
+                    onProfessor = onProfessor,
+                    onNotifications = onNotifications,
+                    onDiagnostics = onDiagnostics,
+                    onCopyDiagnostic = onCopyDiagnostic
+                )
             }
             Spacer(Modifier.height(10.dp))
 
@@ -751,9 +777,12 @@ private fun ModeSelector(mode: MelMode, onMode: (MelMode) -> Unit) {
 @Composable
 private fun CompletePanel(
     busy: Boolean,
+    diagnosticReport: String?,
     onSync: () -> Unit,
     onProfessor: () -> Unit,
-    onNotifications: () -> Unit
+    onNotifications: () -> Unit,
+    onDiagnostics: () -> Unit,
+    onCopyDiagnostic: (String) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -790,6 +819,37 @@ private fun CompletePanel(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Activer notifications arrière-plan")
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = onDiagnostics,
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Lancer auto-diagnostic")
+            }
+            if (!diagnosticReport.isNullOrBlank()) {
+                Spacer(Modifier.height(10.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0x99102131),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(
+                        diagnosticReport,
+                        modifier = Modifier.padding(12.dp),
+                        color = MelInk,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { onCopyDiagnostic(diagnosticReport) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Copier diagnostic")
+                }
             }
         }
     }
