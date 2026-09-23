@@ -44,17 +44,17 @@ extern esp_codec_dev_handle_t input_dev;
 extern esp_codec_dev_handle_t output_dev;
 
 struct MelConfig {
-    char ssid[33] = {};
-    char password[65] = {};
-    char pair_code[17] = {};
-    char token[96] = {};
+    char ssid[33];
+    char password[65];
+    char pair_code[17];
+    char token[96];
 };
 
 struct HttpBuffer {
     std::string body;
 };
 
-static MelConfig g_cfg;
+static MelConfig g_cfg = {};
 static char g_device_id[40] = {};
 static char g_ip[20] = {};
 static bool g_camera_ok = false;
