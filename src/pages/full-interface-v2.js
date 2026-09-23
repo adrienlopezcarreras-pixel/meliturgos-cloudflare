@@ -108,8 +108,8 @@ function renderRoadmapSummary(d){
 function renderCapabilityOverview(caps){
   const total=setMetric('#capCount',caps?.total),active=finiteMetric(caps?.usable??caps?.active);
   const protectedCount=finiteMetric(caps?.protected),degraded=finiteMetric(caps?.degraded),unavailable=finiteMetric(caps?.unavailable),failed=finiteMetric(caps?.failed);
-  if(active===null)qs('#capSummary').textContent='État indisponible';
-  else{
+  qs('#capSummary').textContent=active===null?'État indisponible':active+' utilisables';
+  if(active!==null){
     const parts=[active+' utilisables'];
     if(protectedCount>0)parts.push(protectedCount+' protégées');
     if(degraded>0)parts.push(degraded+' dégradées');
