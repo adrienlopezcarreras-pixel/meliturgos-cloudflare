@@ -538,7 +538,7 @@ static void wifi_start_scan() {
     if (wifi_connect_btn) lv_obj_add_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
     if (wifi_status) lv_label_set_text(wifi_status, "Recherche des reseaux...");
     if (!wifi_scan_task_handle) {
-        xTaskCreate(wifi_scan_task, "mini_wifi_scan", 6144, nullptr, 3, &wifi_scan_task_handle);
+        xTaskCreatePinnedToCore(wifi_scan_task, "mini_wifi_scan", 6144, nullptr, 3, &wifi_scan_task_handle, 0);
     }
 }
 
@@ -642,7 +642,7 @@ static void wifi_connect_clicked(lv_event_t *e) {
     if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
     if (wifi_connect_btn) lv_obj_add_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
     if (!wifi_connect_task_handle) {
-        xTaskCreate(wifi_connect_task, "mini_wifi_connect", 6144, payload, 3, &wifi_connect_task_handle);
+        xTaskCreatePinnedToCore(wifi_connect_task, "mini_wifi_connect", 6144, payload, 3, &wifi_connect_task_handle, 0);
     } else {
         free(payload);
     }
