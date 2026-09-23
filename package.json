@@ -20,7 +20,8 @@
     "test:routes": "node --test tests/gen2/route-integration.test.mjs",
     "test:connections": "node scripts/test-connections.mjs",
     "test:bindings": "node scripts/test-bindings.mjs",
-    "test:stress": "node --test tests/shardvault-reconstruction-stress.test.mjs"
+    "test:stress": "node --test tests/shardvault-reconstruction-stress.test.mjs",
+    "check:attribution": "node scripts/check-attribution.mjs"
   },
   "devDependencies": {
     "jsdom": "^30.0.1",
@@ -28,5 +29,6 @@
   },
   "dependencies": {
     "tsx": "^4.23.13"
-  }
+  },
+  "author": "Adrien Lopez"
 }
