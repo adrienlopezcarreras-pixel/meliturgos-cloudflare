@@ -609,4 +609,20 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     created_at: 1790158800000,
   }),
 
+  Object.freeze({
+    id: 'bootstrap-mobile-signed-release-exact-sha-20260923',
+    source: 'chatgpt-teacher',
+    domain: 'mobile-release-security',
+    task: 'Construire une release mobile signée sans exposer la clé et sans signer un SHA différent de la release canonique.',
+    input: 'Une APK peut compiler correctement en debug tout en restant impropre à une vraie distribution: clé absente ou exposée, branche non canonique, artifact non vérifié ou matériau de signature laissé sur le runner.',
+    before: 'Considérer le pipeline release terminé parce que assembleRelease existe, embarquer un keystore dans le dépôt, ou autoriser une exécution manuelle depuis n’importe quel SHA.',
+    after: 'Injecter keystore/alias/mots de passe uniquement depuis des secrets protégés; refuser si un secret manque; exiger que HEAD égale exactement la branche release canonique; vérifier la signature et l’alignement du paquet final; supprimer le keystore temporaire même en cas d’échec; ne déclarer la release prouvée qu’après une exécution réelle signée.',
+    rationale: 'La preuve de compilation et la preuve de distribution sont distinctes. Une release mobile exige à la fois provenance exacte du code, secret hors dépôt et vérification cryptographique de l’artefact final.',
+    tests: ['PR #171 Android 0.4.0', 'android-apk-build 35857944756 SUCCESS', 'android-release-build exact-SHA + apksigner + zipalign + cleanup; vraie exécution signée encore requise'],
+    tags: ['android', 'release', 'signing', 'keystore', 'exact-sha', 'secrets', 'fail-closed'],
+    validated: true,
+    quality: 1,
+    created_at: 1790165200000,
+  }),
+
 ]);
