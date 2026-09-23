@@ -68,7 +68,21 @@ test('Normal and Complete are visible app modes and are sent to MEL chat',async(
   assert.match(api,/uiMode: String = "normal"/);
 });
 
-test('Android native client exposes pairing chat sync ACK and voice transports',async()=>{
+test('Android app exposes native file selection and a useful Complete control surface',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  assert.match(activity,/ActivityResultContracts\.OpenDocument/);
+  assert.match(activity,/Text\("Fichier"\)/);
+  assert.match(activity,/Text\("Professor"\)/);
+  assert.match(activity,/\/professor/);
+  assert.match(api,/fun uploadFile\(/);
+  assert.match(api,/\/api\/android\/v1\/files\/upload/);
+  assert.match(vm,/fun sendFile\(/);
+  assert.match(vm,/Aucun texte directement extractible/);
+});
+
+test('Android native client exposes pairing chat sync ACK voice and file transports',async()=>{
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const routes=[
     '/api/android/v1/pair',
@@ -76,7 +90,8 @@ test('Android native client exposes pairing chat sync ACK and voice transports',
     '/api/android/v1/chat',
     '/api/android/v1/sync?conversation_id=',
     '/api/android/v1/sync/ack',
-    '/api/android/v1/voice/transcribe'
+    '/api/android/v1/voice/transcribe',
+    '/api/android/v1/files/upload'
   ];
   for(const route of routes) assert.ok(api.includes(route),route);
 });

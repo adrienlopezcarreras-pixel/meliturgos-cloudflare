@@ -15,10 +15,13 @@ function isTextual(type, name) {
     || /\.(?:txt|md|json|csv|tsv|js|mjs|cjs|ts|tsx|jsx|css|html|htm|xml|yml|yaml|toml|ini|log|sql|py|sh|ps1|java|c|h|cpp|hpp|rs|go|php|rb)$/i.test(name);
 }
 
-export async function handleFileUpload(request, env) {
-  if (request.method !== 'POST' || new URL(request.url).pathname !== '/api/files/upload') return null;
-  const auth = requireAuth(request, env);
-  if (!auth.ok) return auth.response;
+export async function handleFileUpload(request, env, options = {}) {
+  const pathname = new URL(request.url).pathname;
+  if (request.method !== 'POST' || (pathname !== '/api/files/upload' && options?.authorized !== true)) return null;
+  if (options?.authorized !== true) {
+    const auth = requireAuth(request, env);
+    if (!auth.ok) return auth.response;
+  }
 
   const type = String(request.headers.get('content-type') || '').toLowerCase();
   if (!type.includes('multipart/form-data')) {

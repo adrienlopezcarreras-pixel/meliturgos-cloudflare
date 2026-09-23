@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.2.0"
+        const val APP_VERSION = "0.3.0"
     }
 
     init {
@@ -163,6 +163,35 @@ class MelApiClient(
                 .put("ui_theme", "futuristic")
                 .put("input_source", if (voice) "voice-server-transcription" else "text")
         )
+    }
+
+    fun uploadFile(
+        name: String,
+        mimeType: String,
+        bytes: ByteArray
+    ): JSONObject {
+        require(bytes.isNotEmpty()) { "FILE_EMPTY" }
+        require(bytes.size <= 25_000_000) { "FILE_TOO_LARGE" }
+        val boundary = "mel-file-" + UUID.randomUUID().toString()
+        val connection = connection("/api/android/v1/files/upload", "POST")
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        val safeName = name
+            .replace("\"", "_")
+            .replace("\r", "_")
+            .replace("\n", "_")
+            .take(180)
+            .ifBlank { "file" }
+        val safeType = mimeType.take(160).ifBlank { "application/octet-stream" }
+        connection.outputStream.use { output ->
+            fun text(value: String) = output.write(value.toByteArray(Charsets.UTF_8))
+            text("--$boundary\r\n")
+            text("Content-Disposition: form-data; name=\"file\"; filename=\"$safeName\"\r\n")
+            text("Content-Type: $safeType\r\n\r\n")
+            output.write(bytes)
+            text("\r\n--$boundary--\r\n")
+        }
+        return readJson(connection)
     }
 
     fun sync(conversationId: String): JSONObject {

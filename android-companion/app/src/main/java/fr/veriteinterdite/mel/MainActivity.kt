@@ -1,9 +1,12 @@
 package fr.veriteinterdite.mel
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
+import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -87,6 +90,12 @@ class MainActivity : ComponentActivity() {
         else voiceMessage.value = "Permission micro refusée"
     }
 
+    private val filePicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) handlePickedFile(uri)
+    }
+
     private val conversationId by lazy { "android-" + deviceId() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -111,7 +120,9 @@ class MainActivity : ComponentActivity() {
                     onMode = model::setMode,
                     onSend = { model.send(it) },
                     onSync = model::sync,
-                    onVoice = ::toggleVoice
+                    onVoice = ::toggleVoice,
+                    onFile = ::pickFile,
+                    onProfessor = ::openProfessor
                 )
             }
         }
@@ -125,6 +136,51 @@ class MainActivity : ComponentActivity() {
     private fun deviceId(): String {
         val raw = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         return "android-" + (raw ?: "unknown").take(64)
+    }
+
+    private fun pickFile() {
+        if (model.state.value.session != SessionStage.CONNECTED) {
+            voiceMessage.value = "Connecte d’abord le téléphone à MEL"
+            return
+        }
+        filePicker.launch(arrayOf("*/*"))
+    }
+
+    private fun handlePickedFile(uri: Uri) {
+        Thread {
+            try {
+                val length = contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+                if (length > 25_000_000L) {
+                    runOnUiThread { voiceMessage.value = "Fichier trop volumineux · limite 25 Mo" }
+                    return@Thread
+                }
+                var name = "fichier"
+                contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (index >= 0) name = cursor.getString(index) ?: name
+                    }
+                }
+                val type = contentResolver.getType(uri) ?: "application/octet-stream"
+                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: throw IllegalStateException("Fichier illisible")
+                if (bytes.size > 25_000_000) {
+                    runOnUiThread { voiceMessage.value = "Fichier trop volumineux · limite 25 Mo" }
+                    return@Thread
+                }
+                model.sendFile(name, type, bytes)
+                runOnUiThread { voiceMessage.value = "Micro prêt" }
+            } catch (error: Throwable) {
+                runOnUiThread {
+                    voiceMessage.value = "Fichier : " + (error.message ?: "lecture impossible")
+                }
+            }
+        }.start()
+    }
+
+    private fun openProfessor() {
+        val url = BuildConfig.MEL_BASE_URL.trimEnd('/') + "/professor"
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     }
 
     private fun toggleVoice() {
@@ -246,7 +302,9 @@ private fun MelApp(
     onMode: (MelMode) -> Unit,
     onSend: (String) -> Unit,
     onSync: () -> Unit,
-    onVoice: () -> Unit
+    onVoice: () -> Unit,
+    onFile: () -> Unit,
+    onProfessor: () -> Unit
 ) {
     Box(
         Modifier
@@ -269,7 +327,9 @@ private fun MelApp(
                 onMode = onMode,
                 onSend = onSend,
                 onSync = onSync,
-                onVoice = onVoice
+                onVoice = onVoice,
+                onFile = onFile,
+                onProfessor = onProfessor
             )
         }
     }
@@ -428,7 +488,9 @@ private fun ConversationScreen(
     onMode: (MelMode) -> Unit,
     onSend: (String) -> Unit,
     onSync: () -> Unit,
-    onVoice: () -> Unit
+    onVoice: () -> Unit,
+    onFile: () -> Unit,
+    onProfessor: () -> Unit
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -482,7 +544,7 @@ private fun ConversationScreen(
             )
             if (state.mode == MelMode.COMPLETE) {
                 Spacer(Modifier.height(10.dp))
-                CompletePanel(state.busy, onSync)
+                CompletePanel(state.busy, onSync, onProfessor)
             }
             Spacer(Modifier.height(10.dp))
 
@@ -564,11 +626,18 @@ private fun ConversationScreen(
             Spacer(Modifier.height(8.dp))
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
                 OutlinedButton(
+                    onClick = onFile,
+                    modifier = Modifier.weight(.28f),
+                    enabled = !state.busy
+                ) {
+                    Text("Fichier")
+                }
+                OutlinedButton(
                     onClick = onVoice,
-                    modifier = Modifier.weight(.42f),
+                    modifier = Modifier.weight(.28f),
                     enabled = !state.busy || recording
                 ) {
                     Text(if (recording) "Arrêter" else "Micro")
@@ -582,7 +651,7 @@ private fun ConversationScreen(
                             onSend(outgoing)
                         }
                     },
-                    modifier = Modifier.weight(.58f),
+                    modifier = Modifier.weight(.44f),
                     enabled = draft.isNotBlank() && !state.busy,
                     colors = ButtonDefaults.buttonColors(containerColor = MelBlue)
                 ) {
@@ -623,22 +692,39 @@ private fun ModeSelector(mode: MelMode, onMode: (MelMode) -> Unit) {
 }
 
 @Composable
-private fun CompletePanel(busy: Boolean, onSync: () -> Unit) {
+private fun CompletePanel(
+    busy: Boolean,
+    onSync: () -> Unit,
+    onProfessor: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color(0xB30C2940)),
         shape = RoundedCornerShape(18.dp)
     ) {
-        Row(
-            Modifier.padding(13.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Contrôles complets", fontWeight = FontWeight.Bold)
-                Text("Synchronise les messages reçus depuis les autres surfaces MEL.", color = MelMuted, fontSize = 12.sp)
+        Column(Modifier.padding(13.dp)) {
+            Text("Contrôles complets", fontWeight = FontWeight.Bold)
+            Text(
+                "Synchronisation multi-surface et accès au centre de contrôle Professor.",
+                color = MelMuted,
+                fontSize = 12.sp
+            )
+            Spacer(Modifier.height(9.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onSync,
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Synchroniser") }
+                Button(
+                    onClick = onProfessor,
+                    enabled = !busy,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Professor") }
             }
-            Spacer(Modifier.width(10.dp))
-            OutlinedButton(onClick = onSync, enabled = !busy) { Text("Synchroniser") }
         }
     }
 }

@@ -235,6 +235,77 @@ class MelViewModel(
         }
     }
 
+    fun sendFile(name: String, mimeType: String, bytes: ByteArray) {
+        if (_state.value.busy) return
+        if (bytes.isEmpty()) {
+            _state.value = _state.value.copy(error = "Le fichier est vide.")
+            return
+        }
+        if (bytes.size > 25_000_000) {
+            _state.value = _state.value.copy(error = "Le fichier dépasse la limite de 25 Mo.")
+            return
+        }
+        _state.value = _state.value.copy(
+            busy = true,
+            status = "Envoi de " + name + "…",
+            error = null
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val upload = client.uploadFile(name, mimeType, bytes)
+                val preview = upload.optString("preview_text").trim()
+                val stored = upload.optBoolean("stored", false)
+                _state.value = _state.value.copy(
+                    messages = _state.value.messages + MelChatMessage("user", "📎 " + name)
+                )
+
+                if (preview.isNotBlank()) {
+                    val mode = _state.value.mode
+                    val prompt = "Analyse ce fichier en tenant compte de son contenu.\n\nFichier : " +
+                        name + "\n--- contenu extrait ---\n" + preview
+                    _state.value = _state.value.copy(status = "MEL analyse " + name + "…")
+                    val response = client.chat(
+                        text = prompt,
+                        conversationId = conversationId,
+                        voice = false,
+                        uiMode = mode.wireValue
+                    )
+                    val answer = response.optString("text", response.optString("response", "")).trim()
+                    if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        status = "Fichier analysé · mode " + mode.label,
+                        messages = _state.value.messages + MelChatMessage("mel", answer)
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        status = if (stored)
+                            "Fichier privé chargé. Aucun texte directement extractible."
+                        else
+                            "Fichier reçu. Aucun texte directement extractible."
+                    )
+                }
+            } catch (error: Throwable) {
+                if (isInvalidSession(error)) {
+                    vault.clear()
+                    _state.value = _state.value.copy(
+                        session = SessionStage.DISCONNECTED,
+                        busy = false,
+                        status = "Session expirée",
+                        error = explain(error)
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        status = "Envoi du fichier interrompu",
+                        error = explain(error)
+                    )
+                }
+            }
+        }
+    }
+
     fun sync() {
         if (_state.value.busy) return
         _state.value = _state.value.copy(busy = true, status = "Synchronisation…", error = null)
@@ -295,6 +366,8 @@ class MelViewModel(
                     "La session de ce téléphone n’est plus valide. Reconnecte-le."
                 "PROTOCOL_UNSUPPORTED" -> "Cette version de l’application n’est pas compatible avec le serveur MEL."
                 "TRANSCRIPTION_EMPTY" -> "Je n’ai pas réussi à comprendre l’enregistrement."
+                "FILE_TOO_LARGE" -> "Le fichier dépasse la limite autorisée."
+                "FILE_REQUIRED", "FILE_EMPTY" -> "Le fichier sélectionné est vide ou illisible."
                 "EMPTY_RESPONSE" -> "MEL n’a renvoyé aucune réponse."
                 else -> "Erreur MEL : ${error.code}" + if (error.detail.isNotBlank()) " · ${error.detail}" else ""
             }
