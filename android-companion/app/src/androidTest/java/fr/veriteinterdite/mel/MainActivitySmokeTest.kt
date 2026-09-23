@@ -1,5 +1,6 @@
 package fr.veriteinterdite.mel
 
+import android.graphics.Bitmap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
@@ -11,9 +12,11 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class MainActivitySmokeTest {
@@ -28,6 +31,22 @@ class MainActivitySmokeTest {
         compose.onNodeWithTag("login-user").assertIsDisplayed()
         compose.onNodeWithTag("login-password").assertIsDisplayed()
         compose.onNodeWithTag("login-submit").assertIsDisplayed()
+        saveScreenshot("login-screen.png")
+    }
+
+    private fun saveScreenshot(name: String) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val bitmap = instrumentation.uiAutomation.takeScreenshot()
+            ?: error("SCREENSHOT_UNAVAILABLE")
+        val dir = instrumentation.targetContext.getExternalFilesDir(null)
+            ?: error("EXTERNAL_FILES_DIR_UNAVAILABLE")
+        val file = File(dir, name)
+        file.outputStream().use { output ->
+            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                "SCREENSHOT_WRITE_FAILED"
+            }
+        }
+        check(file.isFile && file.length() > 0L) { "SCREENSHOT_NOT_WRITTEN" }
     }
 
     @Test
