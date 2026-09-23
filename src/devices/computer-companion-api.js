@@ -58,10 +58,13 @@ async function consumePairCode(env,raw){
 }
 
 async function pair(request,env){
- await tables(env);const b=await request.json().catch(()=>({}));
+ const b=await request.json().catch(()=>({}));
  const owner=requireAuth(request,env);
+ const requestedPairCode=safe(b.pair_code,32);
+ if(!owner.ok&&!requestedPairCode)return owner.response;
+ await tables(env);
  if(!owner.ok){
-   const valid=await consumePairCode(env,b.pair_code);
+   const valid=await consumePairCode(env,requestedPairCode);
    if(!valid)return json({ok:false,code:"COMPUTER_PAIR_CODE_INVALID_OR_EXPIRED"},401);
  }
  const id=safe(b.computer_id)||crypto.randomUUID();
