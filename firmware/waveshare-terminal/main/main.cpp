@@ -246,13 +246,11 @@ static void clock_timer_cb(lv_timer_t *) {
     time(&now);
     struct tm local_tm = {};
     localtime_r(&now, &local_tm);
-    if (local_tm.tm_year + 1900 < 2024) {
-        lv_label_set_text(time_label, "--:--");
-        return;
-    }
     char buf[8] = {};
-    strftime(buf, sizeof(buf), "%H:%M", &local_tm);
-    lv_label_set_text(time_label, buf);
+    if (local_tm.tm_year + 1900 < 2024) snprintf(buf, sizeof(buf), "--:--");
+    else strftime(buf, sizeof(buf), "%H:%M", &local_tm);
+    const char *current = lv_label_get_text(time_label);
+    if (!current || strcmp(current, buf) != 0) lv_label_set_text(time_label, buf);
 }
 
 static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void *data) {
@@ -331,11 +329,10 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 
     if (talk_button) {
-        if (online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) {
-            lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
-        } else {
-            lv_obj_add_state(talk_button, LV_STATE_DISABLED);
-        }
+        const bool should_enable = online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING);
+        const bool is_disabled = lv_obj_has_state(talk_button, LV_STATE_DISABLED);
+        if (should_enable && is_disabled) lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
+        else if (!should_enable && !is_disabled) lv_obj_add_state(talk_button, LV_STATE_DISABLED);
     }
 
     if (state == MEL_TERMINAL_LISTENING) {
@@ -1297,17 +1294,6 @@ static void mini_smoke_ui() {
     lv_obj_set_style_pad_all(main_panel, 0, 0);
     lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *wifi_indicator = lv_label_create(main_panel);
-    lv_label_set_text(wifi_indicator, LV_SYMBOL_WIFI);
-    lv_obj_set_style_text_color(wifi_indicator, lv_color_hex(0x22D3EE), 0);
-    lv_obj_align(wifi_indicator, LV_ALIGN_TOP_LEFT, 18, 20);
-
-    time_label = lv_label_create(main_panel);
-    lv_label_set_text(time_label, "--:--");
-    lv_obj_set_style_text_font(time_label, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(time_label, lv_color_hex(0xF8FAFC), 0);
-    lv_obj_align(time_label, LV_ALIGN_TOP_RIGHT, -66, 16);
-
     runtime_status_label = lv_label_create(main_panel);
     lv_label_set_text(runtime_status_label, "");
     lv_obj_set_style_text_color(runtime_status_label, lv_color_hex(0x22D3EE), 0);
@@ -1349,25 +1335,36 @@ static void mini_smoke_ui() {
     lv_obj_set_style_border_color(talk_button, lv_color_hex(0x22D3EE), 0);
     lv_obj_add_event_cb(talk_button, touch_cb, LV_EVENT_CLICKED, nullptr);
 
-    // Header controls must remain above the full-height avatar layer.
-    // The avatar is created later than the header, so explicitly restore z-order.
-    lv_obj_move_foreground(time_label);
-    lv_obj_move_foreground(wifi_indicator);
-
     status_label = lv_label_create(talk_button);
     lv_label_set_text(status_label, "PARLER");
     lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(status_label);
 
-    wifi_ui_create(screen);
-    pair_ui_create(screen);
-    settings_ui_create(screen);
+    // Stable header: opaque, entirely above the avatar (avatar begins at y=50),
+    // and created after the portrait so the original controls always remain visible.
+    lv_obj_t *header_bar = lv_obj_create(main_panel);
+    lv_obj_set_size(header_bar, 320, 50);
+    lv_obj_set_pos(header_bar, 0, 0);
+    lv_obj_set_style_bg_color(header_bar, lv_color_hex(0x07111F), 0);
+    lv_obj_set_style_bg_opa(header_bar, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(header_bar, 0, 0);
+    lv_obj_set_style_pad_all(header_bar, 0, 0);
+    lv_obj_clear_flag(header_bar, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Options lives on the screen root and is created LAST: avatar/panels can
-    // never cover it. Visuals intentionally match the original button.
-    settings_btn = lv_btn_create(lv_layer_top());
+    lv_obj_t *wifi_indicator = lv_label_create(header_bar);
+    lv_label_set_text(wifi_indicator, LV_SYMBOL_WIFI);
+    lv_obj_set_style_text_color(wifi_indicator, lv_color_hex(0x22D3EE), 0);
+    lv_obj_align(wifi_indicator, LV_ALIGN_LEFT_MID, 18, 0);
+
+    time_label = lv_label_create(header_bar);
+    lv_label_set_text(time_label, "--:--");
+    lv_obj_set_style_text_font(time_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(time_label, lv_color_hex(0xF8FAFC), 0);
+    lv_obj_align(time_label, LV_ALIGN_RIGHT_MID, -66, 0);
+
+    settings_btn = lv_btn_create(header_bar);
     lv_obj_set_size(settings_btn, 46, 40);
-    lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -10, 6);
+    lv_obj_align(settings_btn, LV_ALIGN_RIGHT_MID, -10, 0);
     lv_obj_set_style_radius(settings_btn, 12, 0);
     lv_obj_set_style_bg_color(settings_btn, lv_color_hex(0x0B2238), 0);
     lv_obj_set_style_border_width(settings_btn, 1, 0);
@@ -1377,6 +1374,10 @@ static void mini_smoke_ui() {
     lv_obj_center(settings_icon);
     lv_obj_clear_flag(settings_icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(settings_btn, settings_open_clicked, LV_EVENT_PRESSED, nullptr);
+
+    wifi_ui_create(screen);
+    pair_ui_create(screen);
+    settings_ui_create(screen);
 
     mel_terminal_bind_external_ui(runtime_status_label, answer_label);
     anim_timer = lv_timer_create(mini_anim_cb, 250, nullptr);
