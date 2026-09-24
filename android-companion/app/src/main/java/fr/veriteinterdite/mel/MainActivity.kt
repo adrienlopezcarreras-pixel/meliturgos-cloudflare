@@ -736,6 +736,15 @@ private fun MelAvatar(
         MelFaceState.ERROR -> MelDanger
         MelFaceState.IDLE -> MelCyan
     }
+    val mouthPhase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (faceState == MelFaceState.SPEAKING) 210 else 700),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mel-photo-mouth"
+    )
     val scale = when (faceState) {
         MelFaceState.LISTENING -> breathe + voiceLevel.coerceIn(0f, 1f) * .018f
         MelFaceState.THINKING -> breathe + .008f
@@ -1469,6 +1478,24 @@ private fun MelPortraitStage(
                         topLeft = Offset(size.width * .535f, size.height * .375f),
                         size = Size(size.width * .145f, size.height * .075f),
                         style = Stroke(width = lidStroke)
+                    )
+                }
+
+                if (faceState == MelFaceState.SPEAKING) {
+                    drawArc(
+                        color = Color(0xFF7A3948).copy(alpha = .28f + mouthPhase * .20f),
+                        startAngle = 16f,
+                        sweepAngle = 148f,
+                        useCenter = false,
+                        topLeft = Offset(
+                            size.width * (.438f - mouthPhase * .004f),
+                            size.height * (.590f + mouthPhase * .002f)
+                        ),
+                        size = Size(
+                            size.width * (.124f + mouthPhase * .008f),
+                            size.height * (.060f + mouthPhase * .006f)
+                        ),
+                        style = Stroke(width = (size.width * (.0035f + mouthPhase * .0015f)).coerceAtLeast(1.2f))
                     )
                 }
             }
