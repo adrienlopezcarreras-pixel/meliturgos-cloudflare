@@ -1440,7 +1440,8 @@ extern "C" void app_main(void) {
         }
         ESP_LOGI(TAG, "Saved WiFi requested: %s", saved_ssid);
     } else {
-        request_view(MINI_VIEW_WIFI_LIST);
+        // Stay on the validated main UI at boot. Wi-Fi setup opens only on user request.
+        ESP_LOGI(TAG, "No saved WiFi; staying on main view");
     }
 
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
