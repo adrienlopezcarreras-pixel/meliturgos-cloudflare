@@ -5,6 +5,8 @@ Base de départ de ce lot : main df021a63694e98582a816db5c1bc95cc41f29eaa.
 
 ## Règle de lecture
 
+> Instantané historique arrêté au 22 septembre 2026. Pour tout état courant, `src/roadmap/master-roadmap.js` au HEAD de `main` prévaut; ce document ne doit jamais rétrograder un statut ou une version plus récente déjà intégrée.
+
 Ce document décrit l’état de développement et les décisions techniques partageables dans le dépôt public. Les données personnelles, médicales, familiales, autobiographiques détaillées et les contenus privés des archives sont volontairement exclus : ils sont conservés dans un handoff privé Drive séparé.
 
 ## État canonique au 22 septembre
