@@ -10,6 +10,9 @@ import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.widget.Toast
@@ -17,6 +20,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -85,6 +89,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     private lateinit var client: MelApiClient
@@ -92,6 +97,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var model: MelViewModel
     private var recorder: MediaRecorder? = null
     private var recordingFile: File? = null
+    private var recordingMimeType: String = "audio/mp4"
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var nativeSpeechListening = false
     private val recording = mutableStateOf(false)
     private val voiceMessage = mutableStateOf("Micro prêt")
 
@@ -168,6 +176,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        stopSpeechQuietly()
         stopRecorderQuietly()
         super.onDestroy()
     }
@@ -264,7 +273,12 @@ class MainActivity : ComponentActivity() {
 
     private fun toggleVoice() {
         if (recording.value) {
-            finishVoice()
+            if (nativeSpeechListening) {
+                voiceMessage.value = "Finalisation de la dictée…"
+                runCatching { speechRecognizer?.stopListening() }
+            } else {
+                finishVoice()
+            }
             return
         }
         if (model.state.value.session != SessionStage.CONNECTED) {
@@ -278,23 +292,121 @@ class MainActivity : ComponentActivity() {
         startVoice()
     }
 
-    @Suppress("DEPRECATION")
     private fun startVoice() {
-        val file = File.createTempFile("mel-voice-", ".m4a", cacheDir)
+        if (SpeechRecognizer.isRecognitionAvailable(this)) {
+            startNativeSpeech()
+        } else {
+            startRecorderFallback("Reconnaissance Android indisponible · secours serveur")
+        }
+    }
+
+    private fun startNativeSpeech() {
+        stopSpeechQuietly()
+        val recognizer = runCatching { SpeechRecognizer.createSpeechRecognizer(this) }.getOrNull()
+        if (recognizer == null) {
+            startRecorderFallback("Reconnaissance Android indisponible · secours serveur")
+            return
+        }
+        speechRecognizer = recognizer
+        nativeSpeechListening = true
+        recording.value = true
+        voiceMessage.value = "J’écoute… parle normalement"
+
+        recognizer.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) {
+                voiceMessage.value = "J’écoute…"
+            }
+
+            override fun onBeginningOfSpeech() {
+                voiceMessage.value = "Je t’entends…"
+            }
+
+            override fun onRmsChanged(rmsdB: Float) = Unit
+            override fun onBufferReceived(buffer: ByteArray?) = Unit
+
+            override fun onEndOfSpeech() {
+                voiceMessage.value = "Transcription locale…"
+            }
+
+            override fun onError(error: Int) {
+                val permissionError = error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
+                stopSpeechQuietly()
+                if (permissionError) {
+                    voiceMessage.value = "Permission micro refusée"
+                    return
+                }
+                startRecorderFallback("Reconnaissance locale indisponible · secours serveur")
+            }
+
+            override fun onResults(results: Bundle?) {
+                val text = results
+                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()
+                    ?.trim()
+                    .orEmpty()
+                stopSpeechQuietly()
+                if (text.isBlank()) {
+                    startRecorderFallback("Aucune dictée reconnue · secours serveur")
+                    return
+                }
+                voiceMessage.value = "Voix comprise · envoi à MEL…"
+                model.send(text, voice = true)
+            }
+
+            override fun onPartialResults(partialResults: Bundle?) {
+                val partial = partialResults
+                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()
+                    ?.trim()
+                    .orEmpty()
+                voiceMessage.value = if (partial.isBlank()) "J’écoute…" else "J’écoute · ${partial.take(42)}"
+            }
+
+            override fun onEvent(eventType: Int, params: Bundle?) = Unit
+        })
+
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.FRENCH.toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, Locale.FRENCH.toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+        }
+        runCatching { recognizer.startListening(intent) }
+            .onFailure {
+                stopSpeechQuietly()
+                startRecorderFallback("Dictée Android impossible · secours serveur")
+            }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun startRecorderFallback(reason: String) {
+        stopRecorderQuietly()
+        val useWebm = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        val file = File.createTempFile("mel-voice-", if (useWebm) ".webm" else ".m4a", cacheDir)
         recordingFile = file
-        val media = MediaRecorder()
+        recordingMimeType = if (useWebm) "audio/webm" else "audio/mp4"
+        val media = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(this) else MediaRecorder()
         recorder = media
         runCatching {
             media.setAudioSource(MediaRecorder.AudioSource.MIC)
-            media.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            media.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            media.setAudioEncodingBitRate(96_000)
-            media.setAudioSamplingRate(44_100)
+            if (useWebm) {
+                media.setOutputFormat(MediaRecorder.OutputFormat.WEBM)
+                media.setAudioEncoder(MediaRecorder.AudioEncoder.OPUS)
+                media.setAudioEncodingBitRate(64_000)
+                media.setAudioSamplingRate(48_000)
+            } else {
+                media.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                media.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                media.setAudioEncodingBitRate(96_000)
+                media.setAudioSamplingRate(44_100)
+            }
             media.setOutputFile(file.absolutePath)
             media.prepare()
             media.start()
             recording.value = true
-            voiceMessage.value = "J’écoute… touche à nouveau pour envoyer"
+            voiceMessage.value = "$reason · touche Micro pour envoyer"
         }.onFailure {
             stopRecorderQuietly()
             voiceMessage.value = "Micro indisponible : " + (it.message ?: "erreur")
@@ -305,6 +417,7 @@ class MainActivity : ComponentActivity() {
         val media = recorder ?: return
         recorder = null
         val file = recordingFile
+        val mimeType = recordingMimeType
         recordingFile = null
         val stopped = runCatching { media.stop() }.isSuccess
         runCatching { media.release() }
@@ -312,16 +425,16 @@ class MainActivity : ComponentActivity() {
 
         if (!stopped || file == null || !file.exists() || file.length() == 0L) {
             file?.delete()
-            voiceMessage.value = "Enregistrement trop court"
+            voiceMessage.value = "Enregistrement trop court · réessaie"
             return
         }
 
-        voiceMessage.value = "Transcription…"
+        voiceMessage.value = "Transcription serveur…"
         Thread {
             try {
                 val bytes = file.readBytes()
                 file.delete()
-                model.sendVoice(bytes, "audio/mp4")
+                model.sendVoice(bytes, mimeType)
                 runOnUiThread { voiceMessage.value = "Voix envoyée · MEL traite…" }
             } catch (error: Throwable) {
                 file.delete()
@@ -330,6 +443,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun stopSpeechQuietly() {
+        val recognizer = speechRecognizer
+        speechRecognizer = null
+        nativeSpeechListening = false
+        if (recognizer != null) {
+            runCatching { recognizer.cancel() }
+            runCatching { recognizer.destroy() }
+        }
+        recording.value = false
     }
 
     private fun stopRecorderQuietly() {
