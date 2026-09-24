@@ -6,7 +6,7 @@ import java.util.Locale
 import kotlin.math.round
 
 enum class MelAppTarget {
-    BROWSER, CALCULATOR, CALENDAR, CONTACTS, EMAIL, FILES, GALLERY, MAPS, MESSAGING, MUSIC
+    CALCULATOR, CALENDAR, CONTACTS, EMAIL, FILES, GALLERY, MAPS, MESSAGING, MUSIC
 }
 
 sealed class MelCompanionCommand {
