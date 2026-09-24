@@ -1008,7 +1008,13 @@ internal fun MelApp(
     cameraPhoto: Bitmap? = null,
     onCamera: () -> Unit = {},
     onSendCamera: () -> Unit = {},
-    onRefreshCompanions: () -> Unit = {}
+    onRefreshCompanions: () -> Unit = {},
+    miniBleState: MiniBleState = MiniBleState(),
+    onMiniBleConnect: () -> Unit = {},
+    onMiniBleDisconnect: () -> Unit = {},
+    onMiniBleForget: () -> Unit = {},
+    onMiniBlePing: () -> Boolean = { false },
+    onMiniBleVoice: () -> Boolean = { false }
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -1049,7 +1055,13 @@ internal fun MelApp(
                 cameraPhoto = cameraPhoto,
                 onCamera = onCamera,
                 onSendCamera = onSendCamera,
-                onRefreshCompanions = onRefreshCompanions
+                onRefreshCompanions = onRefreshCompanions,
+                miniBleState = miniBleState,
+                onMiniBleConnect = onMiniBleConnect,
+                onMiniBleDisconnect = onMiniBleDisconnect,
+                onMiniBleForget = onMiniBleForget,
+                onMiniBlePing = onMiniBlePing,
+                onMiniBleVoice = onMiniBleVoice
             )
         }
     }
@@ -1419,7 +1431,13 @@ private fun ConversationScreen(
     cameraPhoto: Bitmap?,
     onCamera: () -> Unit,
     onSendCamera: () -> Unit,
-    onRefreshCompanions: () -> Unit
+    onRefreshCompanions: () -> Unit,
+    miniBleState: MiniBleState,
+    onMiniBleConnect: () -> Unit,
+    onMiniBleDisconnect: () -> Unit,
+    onMiniBleForget: () -> Unit,
+    onMiniBlePing: () -> Boolean,
+    onMiniBleVoice: () -> Boolean
 ) {
     var section by rememberSaveable { mutableStateOf(MobileSection.MEL) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
@@ -1435,7 +1453,10 @@ private fun ConversationScreen(
     }
     LaunchedEffect(section) {
         settingsOpen = false
-        if (section == MobileSection.COMPANION) onRefreshCompanions()
+        if (section == MobileSection.COMPANION) {
+            onRefreshCompanions()
+            onMiniBleConnect()
+        }
     }
 
     val faceState = when {
@@ -1485,7 +1506,16 @@ private fun ConversationScreen(
                 CameraPanel(photo = cameraPhoto, onCamera = onCamera, onSend = onSendCamera)
             }
             MobileSection.COMPANION -> SectionSurface("COMPAGNON // MINI") {
-                CompanionPanel(state = state, onRefresh = onRefreshCompanions)
+                CompanionPanel(
+                    state = state,
+                    ble = miniBleState,
+                    onRefresh = onRefreshCompanions,
+                    onBleConnect = onMiniBleConnect,
+                    onBleDisconnect = onMiniBleDisconnect,
+                    onBleForget = onMiniBleForget,
+                    onBlePing = onMiniBlePing,
+                    onBleVoice = onMiniBleVoice
+                )
             }
             MobileSection.WEB -> SectionSurface("NAVIGATION // WEB") {
                 WebPanel()
