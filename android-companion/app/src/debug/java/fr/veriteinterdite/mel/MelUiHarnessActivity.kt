@@ -51,7 +51,6 @@ class MelUiHarnessActivity : ComponentActivity() {
                     onSync = {},
                     onVoice = {},
                     onFile = {},
-                    onProfessor = {},
                     onNotifications = {},
                     onDiagnostics = {},
                     onCopyDiagnostic = {},

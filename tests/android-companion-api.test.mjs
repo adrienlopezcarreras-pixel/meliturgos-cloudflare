@@ -212,6 +212,42 @@ test('Android voice fallback accepts M4A audio multipart as well as WebM',async(
   }finally{DB.close();}
 });
 
+test('Android companion route exposes paired MINI status to the phone without owner credentials',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+    const paired=await pair(env,'android-companion-view');
+    await DB.prepare(`CREATE TABLE IF NOT EXISTS device_tokens (
+      device_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, model TEXT NOT NULL,
+      created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, revoked_at INTEGER
+    )`).run();
+    await DB.prepare(`CREATE TABLE IF NOT EXISTS device_status (
+      device_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL
+    )`).run();
+    const now=Date.now();
+    await DB.prepare('INSERT INTO device_tokens(device_id,token_hash,model,created_at,last_seen_at,revoked_at) VALUES(?,?,?,?,?,NULL)')
+      .bind('mini-test','hash','waveshare-esp32-s3-touch-lcd-3.5-c',now,now).run();
+    await DB.prepare('INSERT INTO device_status(device_id,payload_json,updated_at) VALUES(?,?,?)')
+      .bind('mini-test',JSON.stringify({name:'MINI salon',phase:'ONLINE',battery:91,camera:true,microphone:true,wifi_rssi:-48}),now).run();
+
+    const response=await worker.fetch(new Request('https://mel.test/api/android/v1/companions',{
+      headers:deviceHeaders(paired.device_id,paired.token)
+    }),env);
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.devices.length,1);
+    assert.equal(body.devices[0].name,'MINI salon');
+    assert.equal(body.devices[0].online,true);
+    assert.equal(body.devices[0].camera,true);
+    assert.equal(body.devices[0].microphone,true);
+
+    const denied=await worker.fetch(new Request('https://mel.test/api/android/v1/companions',{
+      headers:deviceHeaders(paired.device_id,'wrong-token')
+    }),env);
+    assert.equal(denied.status,401);
+  }finally{DB.close();}
+});
+
 test('Android file route accepts device-token uploads without owner credentials',async()=>{
   const DB=sqliteD1();
   try{

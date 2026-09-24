@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -18,31 +19,31 @@ class MelUiSmokeTest {
     val compose = createAndroidComposeRule<MelUiHarnessActivity>()
 
     @Test
-    fun normalModeShowsCoreNativeControls() {
-        compose.onNodeWithText("MEL // CORE").assertIsDisplayed()
-        compose.onNodeWithText("Normal").assertIsDisplayed()
-        compose.onNodeWithText("Complet").assertIsDisplayed()
-        compose.onNodeWithText("VOICE LINK").assertIsDisplayed()
-        compose.onNodeWithText("Fichier").assertIsDisplayed()
-        compose.onNodeWithText("Micro").assertIsDisplayed()
-        compose.onNodeWithText("Envoyer").assertIsDisplayed()
+    fun miniHomeShowsNativeMobileNavigation() {
+        compose.onNodeWithTag("mini-stage").assertIsDisplayed()
+        compose.onNodeWithTag("mini-talk-button").assertIsDisplayed()
+        compose.onNodeWithTag("nav-keyboard").assertIsDisplayed()
+        compose.onNodeWithTag("nav-camera").assertIsDisplayed()
+        compose.onNodeWithTag("nav-companion").assertIsDisplayed()
+        compose.onNodeWithTag("nav-tools").assertIsDisplayed()
     }
 
     @Test
-    fun completeModeExposesAdvancedControls() {
+    fun completeModeIsNativeAndExposesToolsWithoutBrowser() {
+        compose.onNodeWithTag("nav-tools").performClick()
         compose.onNodeWithText("Complet").performClick()
-        compose.onNodeWithText("MEL // FULL ACCESS").assertIsDisplayed()
-        compose.onNodeWithText("Ouvrir les outils").performClick()
-        compose.onNodeWithText("SYSTEM TOOLS").assertIsDisplayed()
+        compose.onNodeWithText("PROFESSOR / MODE COMPLET NATIF").assertIsDisplayed()
         compose.onNodeWithText("Synchroniser").assertIsDisplayed()
-        compose.onNodeWithText("Professor").assertIsDisplayed()
-        compose.onNodeWithText("Notifications arrière-plan").assertIsDisplayed()
+        compose.onNodeWithText("Arrière-plan / notifications").assertIsDisplayed()
+        compose.onNodeWithText("AUTO-DIAGNOSTIC").assertIsDisplayed()
     }
 
     @Test
-    fun composerAcceptsTextAndCanSendLocally() {
+    fun keyboardScreenAcceptsTextAndCanSendLocally() {
+        compose.onNodeWithTag("nav-keyboard").performClick()
         compose.onNodeWithText("Message à MEL").performTextInput("bonjour MEL")
         compose.onNodeWithText("Envoyer").assertIsEnabled().performClick()
         compose.onNodeWithText("bonjour MEL").assertIsDisplayed()
     }
+
 }

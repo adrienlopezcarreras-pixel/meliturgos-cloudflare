@@ -19,20 +19,18 @@ class MelUiHarnessScreenshotTest {
 
     @Test
     fun completeModeRendersForVisualProof() {
-        compose.onNodeWithText("Complet").performClick()
-        compose.onNodeWithText("MEL // CORE").assertIsDisplayed()
-        compose.onNodeWithText("MEL // FULL ACCESS").assertIsDisplayed()
-        compose.onNodeWithText("Ouvrir les outils").assertIsDisplayed()
-        compose.onNodeWithTag("message-input").assertIsDisplayed()
-        compose.onNodeWithTag("file-button").assertIsDisplayed()
-        compose.onNodeWithTag("micro-button").assertIsDisplayed()
-        compose.onNodeWithTag("send-button").assertIsDisplayed()
+        compose.onNodeWithTag("mini-stage").assertIsDisplayed()
+        compose.onNodeWithTag("mel-animated-avatar").assertIsDisplayed()
+        compose.onNodeWithTag("nav-keyboard").assertIsDisplayed()
+        compose.onNodeWithTag("nav-camera").assertIsDisplayed()
+        compose.onNodeWithTag("nav-companion").assertIsDisplayed()
+        compose.onNodeWithTag("nav-tools").assertIsDisplayed()
 
-        compose.onNodeWithText("Ouvrir les outils").performClick()
-        compose.onNodeWithText("SYSTEM TOOLS").assertIsDisplayed()
+        compose.onNodeWithTag("nav-tools").performClick()
+        compose.onNodeWithText("PROFESSOR / MODE COMPLET NATIF").assertIsDisplayed()
         compose.onNodeWithText("Synchroniser").assertIsDisplayed()
-        compose.onNodeWithText("Professor").assertIsDisplayed()
-        compose.onNodeWithText("Lancer auto-diagnostic").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("AUTO-DIAGNOSTIC").assertIsDisplayed()
         compose.waitForIdle()
     }
+
 }

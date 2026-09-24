@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.7"
+        const val APP_VERSION = "0.6.8"
     }
 
     init {
@@ -143,6 +143,11 @@ class MelApiClient(
                 .put("charging", charging)
                 .put("phase", "ONLINE")
         )
+    }
+
+    fun companions(): JSONArray {
+        val response = readJson(connection("/api/android/v1/companions", "GET"))
+        return response.optJSONArray("devices") ?: JSONArray()
     }
 
     fun chat(

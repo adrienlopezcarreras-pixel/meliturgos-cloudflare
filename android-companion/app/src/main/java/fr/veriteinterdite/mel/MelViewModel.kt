@@ -32,6 +32,20 @@ data class MelChatMessage(
     val voice: Boolean = false
 )
 
+data class MelCompanionDevice(
+    val deviceId: String,
+    val name: String,
+    val model: String,
+    val online: Boolean,
+    val phase: String?,
+    val firmware: String?,
+    val battery: Int?,
+    val wifiRssi: Int?,
+    val camera: Boolean?,
+    val microphone: Boolean?,
+    val speaker: Boolean?
+)
+
 data class MelUiState(
     val session: SessionStage = SessionStage.DISCONNECTED,
     val mode: MelMode = MelMode.NORMAL,
@@ -39,6 +53,8 @@ data class MelUiState(
     val status: String = "",
     val error: String? = null,
     val messages: List<MelChatMessage> = emptyList(),
+    val companions: List<MelCompanionDevice> = emptyList(),
+    val companionStatus: String = "",
     val diagnosticReport: String? = null
 )
 
@@ -503,6 +519,47 @@ class MelViewModel(
                 status = label + " en échec",
                 error = explain(error)
             )
+        }
+    }
+
+    fun refreshCompanions() {
+        if (_state.value.session != SessionStage.CONNECTED || _state.value.busy) return
+        _state.value = _state.value.copy(companionStatus = "Recherche des compagnons…", error = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val rows = client.companions()
+                val devices = buildList {
+                    for (i in 0 until rows.length()) {
+                        val row = rows.getJSONObject(i)
+                        fun nullableBoolean(key: String): Boolean? =
+                            if (row.has(key) && !row.isNull(key)) row.optBoolean(key) else null
+                        add(
+                            MelCompanionDevice(
+                                deviceId = row.optString("device_id"),
+                                name = row.optString("name").ifBlank { "MINI" },
+                                model = row.optString("model").ifBlank { "waveshare-terminal" },
+                                online = row.optBoolean("online", false),
+                                phase = row.optString("phase").takeIf { it.isNotBlank() },
+                                firmware = row.optString("firmware").takeIf { it.isNotBlank() },
+                                battery = if (row.has("battery") && !row.isNull("battery")) row.optInt("battery") else null,
+                                wifiRssi = if (row.has("wifi_rssi") && !row.isNull("wifi_rssi")) row.optInt("wifi_rssi") else null,
+                                camera = nullableBoolean("camera"),
+                                microphone = nullableBoolean("microphone"),
+                                speaker = nullableBoolean("speaker")
+                            )
+                        )
+                    }
+                }
+                _state.value = _state.value.copy(
+                    companions = devices,
+                    companionStatus = if (devices.isEmpty()) "Aucun MINI appairé" else "${devices.size} compagnon(s) détecté(s)"
+                )
+            } catch (error: Throwable) {
+                _state.value = _state.value.copy(
+                    companionStatus = "Compagnon indisponible",
+                    error = explain(error)
+                )
+            }
         }
     }
 

@@ -210,6 +210,41 @@ function conversationIdFor(auth,bodyOrUrl) {
   return safe(bodyOrUrl?.conversation_id,200) || `android-${auth.deviceId}`;
 }
 
+async function companionDevices(env) {
+  try {
+    const rows = await env.DB.prepare(`SELECT t.device_id,t.model,t.last_seen_at,t.revoked_at,
+      s.payload_json,s.updated_at
+      FROM device_tokens t
+      LEFT JOIN device_status s ON s.device_id=t.device_id
+      ORDER BY t.last_seen_at DESC LIMIT 20`).all();
+    const now = Date.now();
+    return json({
+      ok:true,
+      devices:(rows.results||[]).map(row=>{
+        let status={};
+        try{ status=JSON.parse(row.payload_json||"{}"); }catch{}
+        return {
+          device_id:row.device_id,
+          name:safe(status.name,80)||"MINI",
+          model:safe(row.model,120)||"waveshare-terminal",
+          online:row.revoked_at == null && now-Number(row.last_seen_at||0)<30000,
+          last_seen_at:Number(row.last_seen_at||0),
+          phase:safe(status.phase,40)||null,
+          firmware:safe(status.firmware,80)||null,
+          battery:Number.isFinite(Number(status.battery))?Number(status.battery):null,
+          wifi_rssi:Number.isFinite(Number(status.wifi_rssi))?Number(status.wifi_rssi):null,
+          camera:status.camera ?? null,
+          microphone:status.microphone ?? null,
+          speaker:status.speaker ?? null
+        };
+      })
+    });
+  } catch {
+    // MINI may not have been paired yet. Keep Android usable and return an empty list.
+    return json({ok:true,devices:[]});
+  }
+}
+
 async function deviceChat(request,env,auth) {
   const body = await request.json().catch(()=>({}));
   const text = safe(body.text ?? body.message,100000);
@@ -290,6 +325,7 @@ export async function maybeHandleAndroidCompanionApi(request,env) {
   const auth = await authorizeDevice(request,env);
   if (!auth.ok) return auth.response;
   if (url.pathname === ANDROID_API_BASE+"/heartbeat" && request.method === "POST") return heartbeat(request,env,auth);
+  if (url.pathname === ANDROID_API_BASE+"/companions" && request.method === "GET") return companionDevices(env);
   if (url.pathname === ANDROID_API_BASE+"/chat" && request.method === "POST") return deviceChat(request,env,auth);
   if (url.pathname === ANDROID_API_BASE+"/sync" && request.method === "GET") return syncMessages(request,env,auth,url);
   if (url.pathname === ANDROID_API_BASE+"/sync/ack" && request.method === "POST") return ackMessages(request,env,auth);
