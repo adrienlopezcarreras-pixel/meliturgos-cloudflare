@@ -185,6 +185,7 @@ class MelViewModel(
                     status = "MEL connectée · mode ${mode.label}",
                     messages = _state.value.messages + MelChatMessage("mel", answer)
                 )
+                if (voice) appendDiagnosticLine("Micro réel: OK · reconnaissance Android")
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
                     vault.clear()

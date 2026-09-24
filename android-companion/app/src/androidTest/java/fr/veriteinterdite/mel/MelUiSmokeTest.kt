@@ -19,11 +19,10 @@ class MelUiSmokeTest {
 
     @Test
     fun normalModeShowsCoreNativeControls() {
-        compose.onNodeWithContentDescription("Avatar MEL").assertIsDisplayed()
+        compose.onNodeWithText("MEL // CORE").assertIsDisplayed()
         compose.onNodeWithText("Normal").assertIsDisplayed()
         compose.onNodeWithText("Complet").assertIsDisplayed()
-        compose.onNodeWithText("Mode Normal · conversation simple, rapide et lisible.")
-            .assertIsDisplayed()
+        compose.onNodeWithText("VOICE LINK").assertIsDisplayed()
         compose.onNodeWithText("Fichier").assertIsDisplayed()
         compose.onNodeWithText("Micro").assertIsDisplayed()
         compose.onNodeWithText("Envoyer").assertIsDisplayed()
@@ -32,11 +31,12 @@ class MelUiSmokeTest {
     @Test
     fun completeModeExposesAdvancedControls() {
         compose.onNodeWithText("Complet").performClick()
-        compose.onNodeWithText("Mode Complet · conversation + synchronisation et contrôles avancés.")
-            .assertIsDisplayed()
+        compose.onNodeWithText("MEL // FULL ACCESS").assertIsDisplayed()
+        compose.onNodeWithText("Ouvrir les outils").performClick()
+        compose.onNodeWithText("SYSTEM TOOLS").assertIsDisplayed()
         compose.onNodeWithText("Synchroniser").assertIsDisplayed()
         compose.onNodeWithText("Professor").assertIsDisplayed()
-        compose.onNodeWithText("Activer notifications arrière-plan").assertIsDisplayed()
+        compose.onNodeWithText("Notifications arrière-plan").assertIsDisplayed()
     }
 
     @Test
