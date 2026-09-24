@@ -122,6 +122,13 @@ test('Android app uses the MEL techno portrait for launcher and Compose UI',asyn
   assert.match(activity,/MelPortraitStage\(/);
 });
 
+
+test('Android and MINI use the exact same canonical MEL techno image bytes',async()=>{
+  const android=await readFile(new URL('app/src/main/res/drawable-nodpi/mel_futuristic_new.webp',root));
+  const mini=await readFile(new URL('../dist/assets/avatars/mel-full.webp',import.meta.url));
+  assert.deepEqual(android,mini);
+});
+
 test('signed Android release pipeline is secret-backed fail-closed and verifies the APK signature',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const workflow=await readFile(new URL('../.github/workflows/android-release-build.yml',import.meta.url),'utf8');
