@@ -20,7 +20,7 @@ class MelUiHarnessScreenshotTest {
     @Test
     fun completeModeRendersForVisualProof() {
         compose.onNodeWithText("Complet").performClick()
-        compose.onNodeWithContentDescription("Avatar MEL").assertIsDisplayed()
+        compose.onNodeWithText("MEL // CORE").assertIsDisplayed()
         compose.onNodeWithText("MEL // FULL ACCESS").assertIsDisplayed()
         compose.onNodeWithText("Ouvrir les outils").assertIsDisplayed()
         compose.onNodeWithTag("message-input").assertIsDisplayed()
