@@ -437,8 +437,8 @@ static esp_err_t setup_get(httpd_req_t *req) {
         "<!doctype html><html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
         "<title>MINI Setup</title><style>body{font-family:system-ui;background:#07111f;color:#fff;padding:22px;max-width:520px;margin:auto}"
         "input,button{width:100%;padding:14px;margin:8px 0;border-radius:10px;border:1px solid #334155;box-sizing:border-box}"
-        "button{background:#2563eb;color:white;font-weight:700}</style><h1>MINI · premier démarrage</h1>"
-        "<p>Saisis ton Wi-Fi et le code créé dans MEL &gt; MINI.</p>"
+        "button{background:#2563eb;color:white;font-weight:700}</style><h1>MINI  premier demarrage</h1>"
+        "<p>Saisis ton Wi-Fi et le code cree dans MEL &gt; MINI.</p>"
         "<form method=post action=/save><input name=ssid maxlength=32 placeholder='Nom Wi-Fi' required>"
         "<input name=password type=password maxlength=64 placeholder='Mot de passe Wi-Fi'>"
         "<input name=pair_code maxlength=16 placeholder='Code MEL' required autocomplete=off>"
@@ -468,7 +468,7 @@ static esp_err_t setup_save(httpd_req_t *req) {
     std::string code = form_value(body, "pair_code");
     if (ssid.empty() || code.empty() || ssid.size() > 32 || password.size() > 64 || code.size() > 16) {
         httpd_resp_set_status(req, "400 Bad Request");
-        return httpd_resp_sendstr(req, "Paramètres invalides.");
+        return httpd_resp_sendstr(req, "Parametres invalides.");
     }
 
     save_string("ssid", ssid.c_str());
@@ -477,7 +477,7 @@ static esp_err_t setup_save(httpd_req_t *req) {
     save_string("token", "");
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
-    httpd_resp_sendstr(req, "<html><meta charset=utf-8><body><h2>Configuration enregistrée.</h2><p>MEL redémarre et se connecte…</p></body></html>");
+    httpd_resp_sendstr(req, "<html><meta charset=utf-8><body><h2>Configuration enregistree.</h2><p>MEL redemarre et se connecte...</p></body></html>");
     xTaskCreate(restart_task, "mel_restart", 2048, nullptr, 3, nullptr);
     return ESP_OK;
 }
@@ -486,7 +486,7 @@ static void show_setup_ui(const char *ssid, const char *pass) {
     char message[420];
     snprintf(
         message, sizeof(message),
-        "Premier démarrage\n\n1. Wi-Fi : %s\n2. Mot de passe : %s\n3. Ouvre http://192.168.4.1\n4. Dans MEL > MINI, crée un code puis saisis-le.\n\nBOOT au démarrage = réinitialiser.",
+        "Premier demarrage\n\n1. Wi-Fi : %s\n2. Mot de passe : %s\n3. Ouvre http://192.168.4.1\n4. Dans MEL > MINI, cree un code puis saisis-le.\n\nBOOT au demarrage = reinitialiser.",
         ssid, pass
     );
     ui_status("CONFIGURATION");
@@ -564,7 +564,7 @@ static std::string chat_with_mel(const std::string &text) {
     );
     if (err != ESP_OK || status != 200) return "Connexion chat impossible.";
     std::string answer = parse_json_text(response, "text");
-    return answer.empty() ? "MEL n'a pas renvoyé de texte." : answer;
+    return answer.empty() ? "MEL n'a pas renvoye de texte." : answer;
 }
 
 static void wav_header(uint8_t *h, uint32_t data_size) {
@@ -584,14 +584,14 @@ static std::string record_and_transcribe() {
     if (!g_audio_ok || !input_dev) return "Micro indisponible.";
     auto *pcm = static_cast<uint8_t *>(heap_caps_malloc(VOICE_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!pcm) pcm = static_cast<uint8_t *>(heap_caps_malloc(VOICE_BYTES, MALLOC_CAP_8BIT));
-    if (!pcm) return "Mémoire insuffisante pour enregistrer.";
+    if (!pcm) return "Memoire insuffisante pour enregistrer.";
 
     esp_codec_dev_set_in_gain(input_dev, 38.0);
     int rc = esp_codec_dev_read(input_dev, pcm, VOICE_BYTES);
     esp_codec_dev_set_in_gain(input_dev, 0.0);
     if (rc != ESP_CODEC_DEV_OK) {
         heap_caps_free(pcm);
-        return "Échec de l'enregistrement micro.";
+        return "Echec de l'enregistrement micro.";
     }
 
     const int16_t *samples = reinterpret_cast<const int16_t *>(pcm);
@@ -627,7 +627,7 @@ static std::string record_and_transcribe() {
     if (!multipart) multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_8BIT));
     if (!multipart) {
         heap_caps_free(pcm);
-        return "Mémoire insuffisante pour envoyer la voix.";
+        return "Memoire insuffisante pour envoyer la voix.";
     }
 
     size_t off = 0;
@@ -656,13 +656,13 @@ static std::string record_and_transcribe() {
 
 static void voice_task(void *) {
     g_runtime_state = MEL_TERMINAL_LISTENING;
-    ui_status("ÉCOUTE…");
+    ui_status("ECOUTE...");
     ui_answer("Parle maintenant.");
     std::string text = record_and_transcribe();
     if (text.empty()) {
         g_runtime_state = MEL_TERMINAL_ERROR;
         ui_status("MICRO");
-        ui_answer("Je n'ai pas réussi à transcrire. Réessaie.");
+        ui_answer("Je n'ai pas reussi a transcrire. Reessaie.");
         vTaskDelay(pdMS_TO_TICKS(1800));
         g_runtime_state = MEL_TERMINAL_IDLE;
         g_voice_task_handle = nullptr;
@@ -670,7 +670,7 @@ static void voice_task(void *) {
         return;
     }
     g_runtime_state = MEL_TERMINAL_THINKING;
-    ui_status("RÉFLEXION…");
+    ui_status("REFLEXION...");
     ui_answer("");
     std::string answer = chat_with_mel(text);
     g_runtime_state = MEL_TERMINAL_SPEAKING;
@@ -706,12 +706,12 @@ static void audio_test_task(void *) {
     ui_answer("Parle pendant 2 secondes : MEL va te le rejouer.");
     esp_es8311_test();
     ui_status("EN LIGNE");
-    ui_answer("Test micro + haut-parleur terminé.");
+    ui_answer("Test micro + haut-parleur termine.");
     vTaskDelete(nullptr);
 }
 
 static void camera_task(void *) {
-    ui_status("CAMÉRA…");
+    ui_status("CAMERA...");
 
     if (!g_camera_ok) {
         ESP_LOGI(TAG, "Lazy OV5640 init on core %d", xPortGetCoreID());
@@ -721,7 +721,7 @@ static void camera_task(void *) {
     }
 
     if (!g_camera_ok) {
-        ui_status("CAMÉRA ERREUR");
+        ui_status("CAMERA ERREUR");
         ui_answer("OV5640 indisponible.");
         vTaskDelete(nullptr);
         return;
@@ -729,12 +729,12 @@ static void camera_task(void *) {
 
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
-        ui_status("CAMÉRA ERREUR");
-        ui_answer("Aucune image reçue de l'OV5640.");
+        ui_status("CAMERA ERREUR");
+        ui_answer("Aucune image recue de l'OV5640.");
     } else {
         char msg[180];
-        snprintf(msg, sizeof(msg), "Caméra OK : %ux%u · %u octets.\nLe flux complet sera utilisé par les fonctions visuelles MEL.", fb->width, fb->height, fb->len);
-        ui_status("CAMÉRA OK");
+        snprintf(msg, sizeof(msg), "Camera OK : %ux%u  %u octets.\nLe flux complet sera utilise par les fonctions visuelles MEL.", fb->width, fb->height, fb->len);
+        ui_status("CAMERA OK");
         ui_answer(msg);
         esp_camera_fb_return(fb);
     }
@@ -900,7 +900,7 @@ static bool ota_download(const std::string &key, const std::string &expected_sha
 }
 
 static void update_task(void *) {
-    ui_status("RECHERCHE MAJ…");
+    ui_status("RECHERCHE MAJ...");
     std::string response;
     int status = 0;
     esp_err_t err = http_request(
@@ -910,7 +910,7 @@ static void update_task(void *) {
     );
     if (err != ESP_OK || status != 200) {
         ui_status("MAJ INDISPONIBLE");
-        ui_answer("Impossible de lire le manifeste de mise à jour.");
+        ui_answer("Impossible de lire le manifeste de mise a jour.");
         vTaskDelete(nullptr);
         return;
     }
@@ -929,9 +929,9 @@ static void update_task(void *) {
     const char *ver = cJSON_IsString(version) && version->valuestring ? version->valuestring : "";
     if (!has || !strcmp(ver, MEL_FW_VERSION)) {
         if (root) cJSON_Delete(root);
-        ui_status("À JOUR");
+        ui_status("A JOUR");
         char msg[180];
-        snprintf(msg, sizeof(msg), "Aucune mise à jour plus récente publiée.%s", assets_synced > 0 ? " Ressources téléchargées sur la microSD." : "");
+        snprintf(msg, sizeof(msg), "Aucune mise a jour plus recente publiee.%s", assets_synced > 0 ? " Ressources telechargees sur la microSD." : "");
         ui_answer(msg);
         vTaskDelete(nullptr);
         return;
@@ -940,16 +940,16 @@ static void update_task(void *) {
     std::string update_sha256 = sha256->valuestring;
     if (root) cJSON_Delete(root);
 
-    ui_status("TÉLÉCHARGEMENT…");
-    ui_answer((std::string("Installation vérifiée de MEL ") + ver + "…").c_str());
+    ui_status("TELECHARGEMENT...");
+    ui_answer((std::string("Installation verifiee de MEL ") + ver + "...").c_str());
     if (ota_download(update_key, update_sha256)) {
-        ui_status("REDÉMARRAGE…");
-        ui_answer("Mise à jour installée.");
+        ui_status("REDEMARRAGE...");
+        ui_answer("Mise a jour installee.");
         vTaskDelay(pdMS_TO_TICKS(1200));
         esp_restart();
     } else {
-        ui_status("ÉCHEC MAJ");
-        ui_answer("Le firmware actuel est conservé.");
+        ui_status("ECHEC MAJ");
+        ui_answer("Le firmware actuel est conserve.");
     }
     vTaskDelete(nullptr);
 }
@@ -1136,19 +1136,19 @@ static void network_task(void *arg) {
         return;
     }
 
-    ui_status("CONNEXION WI-FI…");
+    ui_status("CONNEXION WI-FI...");
     ui_answer(g_cfg.ssid);
     if (!connect_wifi()) {
-        ui_status("WI-FI ÉCHEC");
-        ui_answer("Connexion impossible. Redémarre en maintenant BOOT pour reconfigurer.");
+        ui_status("WI-FI ECHEC");
+        ui_answer("Connexion impossible. Redemarre en maintenant BOOT pour reconfigurer.");
         vTaskDelete(nullptr);
         return;
     }
 
-    ui_status("APPAIRAGE…");
+    ui_status("APPAIRAGE...");
     if (!pair_terminal()) {
-        ui_status("CODE À RENOUVELER");
-        ui_answer("Le Wi-Fi fonctionne mais le code MEL est invalide ou expiré. Maintiens BOOT au prochain démarrage puis recrée un code.");
+        ui_status("CODE A RENOUVELER");
+        ui_answer("Le Wi-Fi fonctionne mais le code MEL est invalide ou expire. Maintiens BOOT au prochain demarrage puis recree un code.");
         vTaskDelete(nullptr);
         return;
     }
@@ -1158,9 +1158,9 @@ static void network_task(void *arg) {
     char ready[420];
     snprintf(
         ready, sizeof(ready),
-        "MINI prête · %s · %s",
+        "MINI prete  %s  %s",
         g_audio_ok ? "micro OK" : "micro indisponible",
-        g_camera_ok ? "caméra OK" : "caméra indisponible"
+        g_camera_ok ? "camera OK" : "camera indisponible"
     );
     ui_answer("");
     xTaskCreate(heartbeat_task, "mel_heartbeat", 6144, nullptr, 3, nullptr);
@@ -1198,7 +1198,7 @@ void mel_terminal_set_wifi_connected(bool connected) {
         ui_status("WI-FI PERDU");
         return;
     }
-    ui_status(g_online ? "" : "WI-FI CONNECTÉ");
+    ui_status(g_online ? "" : "WI-FI CONNECTE");
 }
 
 static int device_session_status() {
@@ -1221,11 +1221,11 @@ static void online_runtime_task(void *) {
     make_device_id();
     load_config();
 
-    ui_status("APPAIRAGE…");
+    ui_status("APPAIRAGE...");
     if (!pair_terminal()) {
         g_online = false;
         ui_status("CODE MEL REQUIS");
-        ui_answer("Entre un code d'appairage MEL depuis l'icône de liaison.");
+        ui_answer("Entre un code d'appairage MEL depuis l'icone de liaison.");
         g_online_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
@@ -1237,8 +1237,8 @@ static void online_runtime_task(void *) {
         g_online = false;
         g_cfg.token[0] = '\0';
         save_string("token", "");
-        ui_status("RÉAPPARIAGE REQUIS");
-        ui_answer("La liaison MEL a été révoquée. Entre un nouveau code d'appairage.");
+        ui_status("REAPPARIAGE REQUIS");
+        ui_answer("La liaison MEL a ete revoquee. Entre un nouveau code d'appairage.");
         g_online_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
@@ -1247,7 +1247,7 @@ static void online_runtime_task(void *) {
         ESP_LOGW(TAG, "MEL session check returned %d; preserving persistent pairing", session_status);
         g_online = false;
         ui_status("MEL TEMPORAIREMENT INDISPONIBLE");
-        ui_answer("Appairage conservé. MEL se reconnectera sans nouveau code.");
+        ui_answer("Appairage conserve. MEL se reconnectera sans nouveau code.");
         g_online_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
