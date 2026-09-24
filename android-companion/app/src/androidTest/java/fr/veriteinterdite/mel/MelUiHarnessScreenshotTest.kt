@@ -21,12 +21,18 @@ class MelUiHarnessScreenshotTest {
     fun completeModeRendersForVisualProof() {
         compose.onNodeWithTag("mini-stage").assertIsDisplayed()
         compose.onNodeWithTag("mel-animated-avatar").assertIsDisplayed()
-        compose.onNodeWithTag("nav-keyboard").assertIsDisplayed()
-        compose.onNodeWithTag("nav-camera").assertIsDisplayed()
-        compose.onNodeWithTag("nav-companion").assertIsDisplayed()
-        compose.onNodeWithTag("nav-tools").assertIsDisplayed()
+        compose.onNodeWithTag("mini-talk-button").assertIsDisplayed()
+        compose.onNodeWithTag("voice-waveform").assertIsDisplayed()
+        compose.onNodeWithTag("settings-button").assertIsDisplayed()
 
-        compose.onNodeWithTag("nav-tools").performClick()
+        compose.onNodeWithTag("settings-button").performClick()
+        compose.onNodeWithTag("settings-panel").assertIsDisplayed()
+        compose.onNodeWithTag("settings-keyboard").assertIsDisplayed()
+        compose.onNodeWithTag("settings-camera").assertIsDisplayed()
+        compose.onNodeWithTag("settings-companion").assertIsDisplayed()
+        compose.onNodeWithTag("settings-web").assertIsDisplayed()
+        compose.onNodeWithTag("settings-tools").performClick()
+
         compose.onNodeWithText("PROFESSOR / MODE COMPLET NATIF").assertIsDisplayed()
         compose.onNodeWithText("Synchroniser").assertIsDisplayed()
         compose.onNodeWithText("AUTO-DIAGNOSTIC").assertIsDisplayed()
