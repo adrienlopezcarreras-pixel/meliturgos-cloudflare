@@ -1029,6 +1029,9 @@ private fun ConversationScreen(
                             }
                         }
                     }
+                    item {
+                        MelCoreVisual()
+                    }
                 }
 
                 itemsIndexed(state.messages) { _, message ->
@@ -1360,6 +1363,63 @@ private fun CompletePanel(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun MelCoreVisual() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(210.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier
+                .size(156.dp)
+                .clip(CircleShape)
+                .border(1.dp, MelViolet.copy(alpha = .18f), CircleShape)
+        )
+        Box(
+            Modifier
+                .size(126.dp)
+                .clip(CircleShape)
+                .border(1.dp, MelCyan.copy(alpha = .24f), CircleShape)
+        )
+        Box(
+            Modifier
+                .size(96.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(MelCyan.copy(alpha = .24f), MelViolet.copy(alpha = .08f), Color.Transparent)
+                    )
+                )
+                .border(1.dp, MelCyan.copy(alpha = .38f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "MEL",
+                    color = MelInk,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.6.sp
+                )
+                Text(
+                    "READY",
+                    color = MelSuccess,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.7.sp
+                )
+            }
+        }
+        HudLabel(
+            primary = "VOICE · FILES · SYNC",
+            secondary = "CORE SERVICES READY",
+            accent = MelCyan
+        )
     }
 }
 
