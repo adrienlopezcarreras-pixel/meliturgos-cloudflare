@@ -39,7 +39,7 @@ static const char *MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
 static const int WIFI_CONNECTED_BIT = BIT0;
 static const int WIFI_FAIL_BIT = BIT1;
 static const size_t MAX_HTTP_RESPONSE = 64 * 1024;
-static const int VOICE_SECONDS = 5;
+static const int VOICE_SECONDS = 10;
 static const int VOICE_CAPTURE_RATE = 48000;
 static const int VOICE_STT_RATE = 16000;
 static const int VOICE_CAPTURE_SAMPLES = VOICE_SECONDS * VOICE_CAPTURE_RATE;
@@ -71,6 +71,12 @@ static bool g_online = false;
 static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
 static TaskHandle_t g_voice_task_handle = nullptr;
 static volatile bool g_voice_stop_requested = false;
+static const char *g_last_voice_error = nullptr;
+
+static void voice_error(const char *reason) {
+    g_last_voice_error = reason;
+    if (reason) ESP_LOGW(TAG, "VOICE ERROR: %s", reason);
+}
 static TaskHandle_t g_online_task_handle = nullptr;
 static TaskHandle_t g_heartbeat_task_handle = nullptr;
 static EventGroupHandle_t g_wifi_bits = nullptr;
@@ -586,8 +592,10 @@ static void wav_header(uint8_t *h, uint32_t data_size, uint32_t sample_rate) {
 }
 
 static std::string record_and_transcribe() {
+    g_last_voice_error = nullptr;
     if (!g_audio_ok || !input_dev) {
         ESP_LOGE(TAG, "VOICE: input codec unavailable");
+        voice_error("MICRO INDISPONIBLE");
         return "";
     }
 
@@ -595,11 +603,12 @@ static std::string record_and_transcribe() {
     if (!capture) capture = static_cast<int16_t *>(heap_caps_malloc(VOICE_CAPTURE_BYTES, MALLOC_CAP_8BIT));
     if (!capture) {
         ESP_LOGE(TAG, "VOICE: capture allocation failed");
+        voice_error("MEMOIRE AUDIO");
         return "";
     }
 
     // Read in short chunks so a second press on PARLER can stop recording
-    // immediately instead of waiting for a blocking five-second read.
+    // immediately instead of waiting for the maximum recording duration.
     constexpr int CAPTURE_CHUNK_MS = 100;
     constexpr int CAPTURE_CHUNK_SAMPLES = (VOICE_CAPTURE_RATE * CAPTURE_CHUNK_MS) / 1000;
     int captured_samples = 0;
@@ -628,17 +637,19 @@ static std::string record_and_transcribe() {
     if (rc != ESP_CODEC_DEV_OK) {
         ESP_LOGE(TAG, "VOICE: esp_codec_dev_read failed rc=%d after %d samples", rc, captured_samples);
         heap_caps_free(capture);
+        voice_error("LECTURE MICRO");
         return "";
     }
-    if (captured_samples < 3) {
+    if (captured_samples < (VOICE_CAPTURE_RATE / 4)) {
         ESP_LOGW(TAG, "VOICE: recording too short (%d samples)", captured_samples);
         heap_caps_free(capture);
+        voice_error("ENREG. TROP COURT");
         return "";
     }
 
     // Recording is now finished. The second press means STOP + transcribe,
     // never "cancel and discard".
-    g_runtime_state = MEL_TERMINAL_THINKING;
+    g_runtime_state = MEL_TERMINAL_TRANSCRIBING;
     ui_status("TRANSCRIPTION...");
 
     int64_t dc_sum = 0;
@@ -668,6 +679,7 @@ static std::string record_and_transcribe() {
     if (!speech) {
         heap_caps_free(capture);
         ESP_LOGE(TAG, "VOICE: STT buffer allocation failed");
+        voice_error("MEMOIRE STT");
         return "";
     }
 
@@ -692,6 +704,7 @@ static std::string record_and_transcribe() {
         ESP_LOGW(TAG, "MIC SILENCE: peak=%ld mean_abs=%u samples=%d",
                  (long)peak, (unsigned)speech_mean_abs, speech_samples);
         heap_caps_free(speech);
+        voice_error("AUCUNE VOIX");
         return "";
     }
 
@@ -727,6 +740,7 @@ static std::string record_and_transcribe() {
     if (!multipart) {
         heap_caps_free(speech);
         ESP_LOGE(TAG, "VOICE: multipart allocation failed");
+        voice_error("MEMOIRE REQUETE");
         return "";
     }
 
@@ -743,24 +757,44 @@ static std::string record_and_transcribe() {
     ESP_LOGI(TAG, "STT UPLOAD: bytes=%u wav_bytes=%d rate=%d duration_ms=%d",
              (unsigned)total, speech_bytes + 44, VOICE_STT_RATE,
              (speech_samples * 1000) / VOICE_STT_RATE);
-    esp_err_t err = http_request(
-        HTTP_METHOD_POST,
-        std::string(SERVER) + "/api/device/v1/voice/transcribe",
-        content_type.c_str(),
-        reinterpret_cast<const char *>(multipart),
-        (int)total,
-        response,
-        status
-    );
+
+    esp_err_t err = ESP_FAIL;
+    for (int attempt = 1; attempt <= 2; ++attempt) {
+        response.clear();
+        status = 0;
+        err = http_request(
+            HTTP_METHOD_POST,
+            std::string(SERVER) + "/api/device/v1/voice/transcribe",
+            content_type.c_str(),
+            reinterpret_cast<const char *>(multipart),
+            (int)total,
+            response,
+            status
+        );
+        ESP_LOGI(TAG, "STT RESULT attempt=%d err=%s status=%d body=%.*s",
+                 attempt, esp_err_to_name(err), status,
+                 (int)std::min<size_t>(response.size(), 240), response.c_str());
+        if (err == ESP_OK && status == 200) break;
+        if (status > 0 && status < 500) break;
+        if (attempt == 1) {
+            ui_status("STT RETRY...");
+            vTaskDelay(pdMS_TO_TICKS(300));
+        }
+    }
     heap_caps_free(multipart);
 
-    ESP_LOGI(TAG, "STT RESULT: err=%s status=%d body=%.*s",
-             esp_err_to_name(err), status,
-             (int)std::min<size_t>(response.size(), 240), response.c_str());
-    if (err != ESP_OK || status != 200) return "";
+    if (err != ESP_OK) {
+        voice_error("RESEAU STT");
+        return "";
+    }
+    if (status != 200) {
+        voice_error(status == 401 ? "SESSION MEL" : "SERVEUR STT");
+        return "";
+    }
 
     std::string text = parse_json_text(response, "text");
     ESP_LOGI(TAG, "STT TEXT: %s", text.empty() ? "<empty>" : text.c_str());
+    if (text.empty()) voice_error("TRANSCRIPTION VIDE");
     return text;
 }
 
@@ -772,8 +806,8 @@ static void voice_task(void *) {
     std::string text = record_and_transcribe();
     if (text.empty()) {
         g_runtime_state = MEL_TERMINAL_ERROR;
-        ui_status("MICRO");
-        ui_answer("Je n'ai pas reussi a transcrire. Reessaie.");
+        ui_status(g_last_voice_error ? g_last_voice_error : "ERREUR STT");
+        ui_answer(g_last_voice_error ? g_last_voice_error : "Je n'ai pas reussi a transcrire.");
         vTaskDelay(pdMS_TO_TICKS(1800));
         g_runtime_state = MEL_TERMINAL_IDLE;
         g_voice_stop_requested = false;
@@ -848,12 +882,14 @@ static TaskHandle_t g_stt_test_task_handle = nullptr;
 static mel_terminal_test_status_cb_t g_stt_test_cb = nullptr;
 
 static void stt_test_task(void *) {
-    if (g_stt_test_cb) g_stt_test_cb("VOIX/STT : parle maintenant pendant 5 secondes...");
+    if (g_stt_test_cb) g_stt_test_cb("VOIX/STT : parle maintenant, jusqu'a 10 secondes...");
     g_runtime_state = MEL_TERMINAL_LISTENING;
     vTaskDelay(pdMS_TO_TICKS(250));
     std::string text = record_and_transcribe();
     if (text.empty()) {
-        if (g_stt_test_cb) g_stt_test_cb("VOIX/STT FAIL : aucune transcription.");
+        std::string msg = std::string("VOIX/STT FAIL : ") +
+                          (g_last_voice_error ? g_last_voice_error : "aucune transcription");
+        if (g_stt_test_cb) g_stt_test_cb(msg.c_str());
     } else {
         std::string msg = std::string("VOIX/STT PASS : \"") + text + "\"";
         if (g_stt_test_cb) g_stt_test_cb(msg.c_str());

@@ -20,9 +20,10 @@ void mel_terminal_start_online(void);
 enum MelTerminalState {
   MEL_TERMINAL_IDLE = 0,
   MEL_TERMINAL_LISTENING = 1,
-  MEL_TERMINAL_THINKING = 2,
-  MEL_TERMINAL_SPEAKING = 3,
-  MEL_TERMINAL_ERROR = 4
+  MEL_TERMINAL_TRANSCRIBING = 2,
+  MEL_TERMINAL_THINKING = 3,
+  MEL_TERMINAL_SPEAKING = 4,
+  MEL_TERMINAL_ERROR = 5
 };
 
 void mel_terminal_request_voice(void);
