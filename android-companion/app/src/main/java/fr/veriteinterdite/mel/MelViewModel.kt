@@ -178,6 +178,43 @@ class MelViewModel(
         )
     }
 
+    fun localCompanionReply(userText: String, answer: String, voice: Boolean) {
+        val cleanUser = userText.trim()
+        val cleanAnswer = answer.trim()
+        if (cleanUser.isBlank() || cleanAnswer.isBlank() || _state.value.busy || _state.value.speaking) return
+        val mode = _state.value.mode
+        _state.value = _state.value.copy(
+            busy = voice,
+            speaking = voice,
+            status = if (voice) "MEL répond…" else "Commande locale exécutée",
+            error = null,
+            messages = _state.value.messages +
+                MelChatMessage("user", cleanUser, voice) +
+                MelChatMessage("mel", cleanAnswer)
+        )
+        if (!voice) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                MelVoicePlayer.playSystemFrench(appContext, cleanAnswer)
+                _state.value = _state.value.copy(
+                    busy = false,
+                    speaking = false,
+                    status = "MEL connectée · mode ${mode.label}",
+                    error = null
+                )
+                appendDiagnosticLine("Compagnon local: OK · TTS Android français")
+            } catch (error: Throwable) {
+                _state.value = _state.value.copy(
+                    busy = false,
+                    speaking = false,
+                    status = "Commande locale exécutée",
+                    error = null
+                )
+                appendDiagnosticLine("Compagnon local: action OK · voix locale indisponible")
+            }
+        }
+    }
+
     fun send(text: String, voice: Boolean = false) {
         val clean = text.trim()
         if (clean.isBlank() || _state.value.busy || _state.value.speaking) return
