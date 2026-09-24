@@ -3,6 +3,13 @@ package fr.veriteinterdite.mel
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.content.Context
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Plays MEL's canonical MINI-compatible TTS stream:
@@ -73,6 +80,69 @@ object MelVoicePlayer {
             }
         }
         return durationMs
+    }
+
+    fun playSystemFrench(context: Context, text: String): Long {
+        require(text.isNotBlank()) { "TTS_TEXT_EMPTY" }
+        val startedAt = System.currentTimeMillis()
+        val initLatch = CountDownLatch(1)
+        var initStatus = TextToSpeech.ERROR
+        val tts = TextToSpeech(context.applicationContext) { status ->
+            initStatus = status
+            initLatch.countDown()
+        }
+
+        if (!initLatch.await(4, TimeUnit.SECONDS) || initStatus != TextToSpeech.SUCCESS) {
+            runCatching { tts.shutdown() }
+            throw IllegalStateException("ANDROID_TTS_INIT_FAILED")
+        }
+
+        val languages = listOf(Locale.FRANCE, Locale.FRENCH, Locale.getDefault())
+        var languageReady = false
+        for (locale in languages.distinct()) {
+            val result = tts.setLanguage(locale)
+            if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
+                languageReady = true
+                break
+            }
+        }
+        if (!languageReady) {
+            tts.shutdown()
+            throw IllegalStateException("ANDROID_TTS_FRENCH_UNAVAILABLE")
+        }
+
+        tts.setSpeechRate(1.08f)
+        tts.setPitch(1.0f)
+        val done = CountDownLatch(1)
+        var failed = false
+        val utteranceId = "mel-" + UUID.randomUUID().toString()
+        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(id: String?) = Unit
+            override fun onDone(id: String?) { done.countDown() }
+            @Deprecated("Deprecated in Java")
+            override fun onError(id: String?) {
+                failed = true
+                done.countDown()
+            }
+            override fun onError(id: String?, errorCode: Int) {
+                failed = true
+                done.countDown()
+            }
+        })
+
+        val speakResult = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+        if (speakResult == TextToSpeech.ERROR) {
+            tts.shutdown()
+            throw IllegalStateException("ANDROID_TTS_SPEAK_FAILED")
+        }
+
+        val timeoutSeconds = (text.length / 12L + 8L).coerceIn(10L, 45L)
+        val completed = done.await(timeoutSeconds, TimeUnit.SECONDS)
+        runCatching { tts.stop() }
+        tts.shutdown()
+        if (!completed) throw IllegalStateException("ANDROID_TTS_TIMEOUT")
+        if (failed) throw IllegalStateException("ANDROID_TTS_PLAYBACK_FAILED")
+        return (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
     }
 
     fun stop() {
