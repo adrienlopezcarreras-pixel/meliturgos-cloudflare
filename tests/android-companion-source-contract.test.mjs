@@ -168,7 +168,7 @@ test('Android 0.6.8 prefers on-device speech, exposes live level, and keeps spee
   assert.match(activity,/MelFaceState\.LISTENING -> 1f \+ voiceLevel\.coerceIn/);
   assert.match(activity,/StatusPill\("VOICE", MelCyan\)/);
   assert.match(activity,/StatusPill\("CAMERA", MelBlue\)/);
-  assert.match(activity,/StatusPill\("SYNC", MelViolet\)/);
+  assert.match(activity,/StatusPill\("MINI", MelViolet\)/);
 });
 
 test('Android native microphone uses SpeechRecognizer with declared package visibility and WebM fallback',async()=>{
