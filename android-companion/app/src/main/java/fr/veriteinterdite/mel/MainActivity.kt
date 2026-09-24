@@ -88,6 +88,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
@@ -1373,14 +1374,14 @@ private fun MelPortraitStage(
 ) {
     val transition = rememberInfiniteTransition(label = "mel-photo-motion")
     val breathe by transition.animateFloat(
-        initialValue = 1.005f,
-        targetValue = 1.025f,
+        initialValue = .995f,
+        targetValue = 1.012f,
         animationSpec = infiniteRepeatable(animation = tween(3200), repeatMode = RepeatMode.Reverse),
         label = "mel-photo-breathe"
     )
     val sway by transition.animateFloat(
-        initialValue = -1.1f,
-        targetValue = 1.1f,
+        initialValue = -1.0f,
+        targetValue = 1.0f,
         animationSpec = infiniteRepeatable(animation = tween(4800), repeatMode = RepeatMode.Reverse),
         label = "mel-photo-sway"
     )
@@ -1389,78 +1390,116 @@ private fun MelPortraitStage(
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = keyframes {
-                durationMillis = 6200
+                durationMillis = 6500
                 0f at 0
-                0f at 2450
-                1f at 2510
-                0f at 2580
-                0f at 4680
-                1f at 4740
-                0f at 4820
-                0f at 6200
+                0f at 2620
+                1f at 2675
+                0f at 2745
+                0f at 5050
+                1f at 5105
+                0f at 5180
+                0f at 6500
             }
         ),
         label = "mel-photo-blink"
     )
-    val mouth by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(220), repeatMode = RepeatMode.Reverse),
-        label = "mel-photo-mouth"
-    )
     val scale = when (faceState) {
-        MelFaceState.LISTENING -> breathe + voiceLevel.coerceIn(0f, 1f) * .012f
-        MelFaceState.THINKING -> breathe + .008f
+        MelFaceState.LISTENING -> breathe + voiceLevel.coerceIn(0f, 1f) * .008f
+        MelFaceState.THINKING -> breathe + .006f
         else -> breathe
     }
+    val portraitTop = 54.dp
 
-    Box(Modifier.fillMaxSize().testTag("mel-animated-avatar")) {
-        Image(
-            painter = painterResource(R.drawable.mel_futuristic_new),
-            contentDescription = "MEL",
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    translationX = sway * 1.4f
-                    translationY = if (faceState == MelFaceState.IDLE) sway * .8f else 0f
-                    rotationZ = if (faceState == MelFaceState.THINKING) sway * .18f else 0f
-                },
-            contentScale = ContentScale.Crop
-        )
-
-        Canvas(Modifier.fillMaxSize()) {
-            if (blink > .04f) {
-                val y = size.height * .405f
-                val half = size.width * .058f
-                val stroke = (size.height * .012f * blink).coerceAtLeast(1f)
-                val lid = Color(0xFF8A594B).copy(alpha = .58f * blink)
-                drawLine(lid, Offset(size.width * .405f - half, y), Offset(size.width * .405f + half, y), stroke)
-                drawLine(lid, Offset(size.width * .595f - half, y), Offset(size.width * .595f + half, y), stroke)
-            }
-            if (faceState == MelFaceState.SPEAKING) {
-                val y = size.height * .535f
-                val half = size.width * (.045f + .022f * mouth)
-                drawLine(
-                    Color(0xFF7E3E42).copy(alpha = .46f),
-                    Offset(size.width * .50f - half, y),
-                    Offset(size.width * .50f + half, y),
-                    (size.height * (.003f + .004f * mouth)).coerceAtLeast(1f)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF020812),
+                        Color(0xFF06101C),
+                        Color(0xFF020812)
+                    )
                 )
+            )
+            .testTag("mel-animated-avatar")
+    ) {
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = portraitTop)
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(bottomStart = 34.dp, bottomEnd = 34.dp))
+        ) {
+            Image(
+                painter = painterResource(R.drawable.mel_futuristic_new),
+                contentDescription = "MEL",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = sway * 1.2f
+                        translationY = if (faceState == MelFaceState.IDLE) sway * .55f else 0f
+                        rotationZ = if (faceState == MelFaceState.THINKING) sway * .12f else 0f
+                    },
+                contentScale = ContentScale.Fit
+            )
+
+            Canvas(Modifier.fillMaxSize()) {
+                if (blink > .08f) {
+                    val lidColor = Color(0xFF4B2928).copy(alpha = .72f * blink)
+                    val lidStroke = (size.width * .0065f).coerceAtLeast(1.5f)
+
+                    drawArc(
+                        color = lidColor,
+                        startAngle = 12f,
+                        sweepAngle = 156f,
+                        useCenter = false,
+                        topLeft = Offset(size.width * .315f, size.height * .385f),
+                        size = Size(size.width * .145f, size.height * .075f),
+                        style = Stroke(width = lidStroke)
+                    )
+                    drawArc(
+                        color = lidColor,
+                        startAngle = 12f,
+                        sweepAngle = 156f,
+                        useCenter = false,
+                        topLeft = Offset(size.width * .535f, size.height * .375f),
+                        size = Size(size.width * .145f, size.height * .075f),
+                        style = Stroke(width = lidStroke)
+                    )
+                }
             }
+
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.Transparent,
+                                Color(0x08030A12),
+                                Color(0xA8030912)
+                            )
+                        )
+                    )
+            )
         }
 
         Box(
             Modifier
-                .fillMaxSize()
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(350.dp)
                 .background(
                     Brush.verticalGradient(
                         listOf(
-                            Color(0x2200060C),
                             Color.Transparent,
-                            Color(0x2200060C),
-                            Color(0xE6030912)
+                            Color(0x88030912),
+                            Color(0xFF030912)
                         )
                     )
                 )
