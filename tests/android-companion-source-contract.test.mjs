@@ -62,7 +62,7 @@ test('Normal and Complete are visible app modes and are sent to MEL chat',async(
   assert.match(vm,/NORMAL\("normal", "Normal"\)/);
   assert.match(vm,/COMPLETE\("complete", "Complet"\)/);
   assert.match(vm,/NORMAL\("normal", "Normal"\)/);
-  assert.match(activity,/Mode Complet/);
+  assert.match(activity,/MEL \/\/ FULL ACCESS/);
   assert.match(activity,/CompletePanel/);
   assert.match(api,/\.put\("ui_mode", mode\)/);
   assert.match(api,/uiMode: String = "normal"/);
@@ -356,7 +356,7 @@ test('Android 0.6.6 keeps critical interaction state truthful and stable',async(
   assert.match(activity,/MediaRecorder\.AudioEncoder\.OPUS/);
   assert.match(activity,/recordingMimeType = if \(useWebm\) "audio\/webm" else "audio\/mp4"/);
   assert.match(activity,/Ouvrir les outils/);
-  assert.match(activity,/MICRO ANDROID/);
+  assert.match(activity,/VOICE LINK/);
   assert.match(vm,/Micro réel: OK · reconnaissance Android/);
   assert.match(vm,/fun setMode\(mode: MelMode\) \{\s*if \(_state\.value\.busy\) return/);
 });
