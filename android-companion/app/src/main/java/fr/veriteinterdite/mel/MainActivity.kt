@@ -20,6 +20,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -38,6 +44,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -74,6 +81,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -91,6 +99,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
     private lateinit var client: MelApiClient
@@ -645,20 +654,135 @@ private fun HudLabel(
     }
 }
 
+private enum class MelFaceState { IDLE, LISTENING, THINKING, SPEAKING, ERROR }
+
 @Composable
-private fun MelAvatar(size: Int = 84, online: Boolean = true) {
+private fun MelAvatar(
+    size: Int = 84,
+    online: Boolean = true,
+    faceState: MelFaceState = if (online) MelFaceState.IDLE else MelFaceState.ERROR,
+    voiceLevel: Float = 0f
+) {
+    val transition = rememberInfiniteTransition(label = "mel-face")
+    val breathe by transition.animateFloat(
+        initialValue = .985f,
+        targetValue = 1.018f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2600),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mel-breathe"
+    )
+    val sway by transition.animateFloat(
+        initialValue = -1.2f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4300),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mel-sway"
+    )
+    val gaze by transition.animateFloat(
+        initialValue = -1.8f,
+        targetValue = 1.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3600),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mel-gaze"
+    )
+    val blink by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 6200
+                0f at 0
+                0f at 2350
+                1f at 2420
+                0f at 2500
+                0f at 4520
+                1f at 4590
+                0f at 4680
+                0f at 6200
+            }
+        ),
+        label = "mel-blink"
+    )
+    val pulse by transition.animateFloat(
+        initialValue = .34f,
+        targetValue = .72f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (faceState == MelFaceState.THINKING) 680 else 1300),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mel-pulse"
+    )
+    val mouthPhase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (faceState == MelFaceState.SPEAKING) 220 else 680),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mel-mouth"
+    )
+
+    val accent = when (faceState) {
+        MelFaceState.LISTENING -> MelSuccess
+        MelFaceState.THINKING -> MelViolet
+        MelFaceState.SPEAKING -> MelBlue
+        MelFaceState.ERROR -> MelDanger
+        MelFaceState.IDLE -> MelCyan
+    }
+    val liveScale = when (faceState) {
+        MelFaceState.LISTENING -> 1f + voiceLevel.coerceIn(0f, 1f) * .025f
+        MelFaceState.THINKING -> breathe + .008f
+        else -> breathe
+    }
+    val tilt = when (faceState) {
+        MelFaceState.LISTENING -> sway * .35f
+        MelFaceState.THINKING -> sway * 1.4f
+        MelFaceState.SPEAKING -> sway * .55f
+        MelFaceState.ERROR -> 0f
+        MelFaceState.IDLE -> sway
+    }
+    val blinkHeight = (size * .042f * blink).dp
+    val eyeY = (-size * .062f).dp
+    val pupilShift = (gaze * if (faceState == MelFaceState.THINKING) 1.5f else 1f).dp
+    val mouthY = (size * .105f).dp
+    val mouthWidth = when (faceState) {
+        MelFaceState.SPEAKING -> (size * (.14f + mouthPhase * .08f)).dp
+        MelFaceState.LISTENING -> (size * (.13f + voiceLevel.coerceIn(0f, 1f) * .05f)).dp
+        else -> (size * .14f).dp
+    }
+    val mouthHeight = when (faceState) {
+        MelFaceState.SPEAKING -> (size * (.025f + mouthPhase * .035f)).dp
+        MelFaceState.LISTENING -> (size * .026f).dp
+        MelFaceState.ERROR -> 2.dp
+        else -> (size * .024f).dp
+    }
+
     Box(
         modifier = Modifier
-            .size((size + 8).dp)
+            .size((size + 14).dp)
+            .graphicsLayer {
+                scaleX = liveScale
+                scaleY = liveScale
+                rotationZ = tilt
+                translationY = if (faceState == MelFaceState.IDLE) sway * .7f else 0f
+            }
             .clip(CircleShape)
             .background(
                 Brush.radialGradient(
                     listOf(
-                        MelCyan.copy(alpha = if (online) .28f else .10f),
+                        accent.copy(alpha = if (online) pulse else .10f),
+                        accent.copy(alpha = .08f),
                         Color.Transparent
                     )
                 )
-            ),
+            )
+            .testTag("mel-animated-avatar"),
         contentAlignment = Alignment.Center
     ) {
         Image(
@@ -669,18 +793,71 @@ private fun MelAvatar(size: Int = 84, online: Boolean = true) {
                 .clip(CircleShape)
                 .border(
                     width = if (online) 2.dp else 1.dp,
-                    color = if (online) MelCyan.copy(alpha = .88f) else MelMuted.copy(alpha = .55f),
+                    color = if (online) accent.copy(alpha = .92f) else MelMuted.copy(alpha = .55f),
                     shape = CircleShape
                 )
                 .semantics { contentDescription = "Avatar MEL" }
         )
+
+        if (online) {
+            Row(
+                modifier = Modifier.offset(y = eyeY),
+                horizontalArrangement = Arrangement.spacedBy((size * .10f).dp)
+            ) {
+                repeat(2) {
+                    Box(
+                        Modifier
+                            .size((size * .078f).dp, (size * .038f).dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF14212A))
+                    ) {
+                        Box(
+                            Modifier
+                                .align(Alignment.Center)
+                                .offset(x = pupilShift)
+                                .size((size * .020f).dp)
+                                .clip(CircleShape)
+                                .background(accent.copy(alpha = .95f))
+                        )
+                        if (blink > .02f) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.Center)
+                                    .fillMaxWidth()
+                                    .height(blinkHeight)
+                                    .background(Color(0xFFD7A382))
+                            )
+                        }
+                    }
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .offset(y = mouthY)
+                    .size((size * .22f).dp, (size * .085f).dp)
+                    .background(Color(0xFFD7A382)),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    Modifier
+                        .size(mouthWidth, mouthHeight)
+                        .clip(CircleShape)
+                        .background(
+                            if (faceState == MelFaceState.ERROR) MelDanger.copy(alpha = .85f)
+                            else Color(0xFFB87867)
+                        )
+                )
+            }
+        }
+
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .size((size * .20f).dp),
             shape = CircleShape,
-            color = if (online) Color(0xFF34D399) else Color(0xFF64748B),
-            border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF071523))
+            color = if (online) accent else Color(0xFF64748B),
+            border = BorderStroke(2.dp, Color(0xFF071523))
         ) {}
     }
 }
@@ -901,8 +1078,24 @@ private fun ConversationScreen(
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
     var toolsExpanded by rememberSaveable { mutableStateOf(false) }
+    var speaking by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val focus = LocalFocusManager.current
+
+    LaunchedEffect(state.messages.size) {
+        if (state.messages.lastOrNull()?.role == "mel") {
+            speaking = true
+            delay(1800)
+            speaking = false
+        }
+    }
+    val faceState = when {
+        !state.error.isNullOrBlank() -> MelFaceState.ERROR
+        recording -> MelFaceState.LISTENING
+        state.busy -> MelFaceState.THINKING
+        speaking -> MelFaceState.SPEAKING
+        else -> MelFaceState.IDLE
+    }
 
     LaunchedEffect(state.messages.size, state.busy) {
         val target = when {
@@ -931,7 +1124,7 @@ private fun ConversationScreen(
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    MelAvatar(46, online = true)
+                    MelAvatar(46, online = true, faceState = faceState, voiceLevel = voiceLevel)
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1030,7 +1223,7 @@ private fun ConversationScreen(
                         }
                     }
                     item {
-                        MelCoreVisual()
+                        MelCoreVisual(faceState, voiceLevel)
                     }
                 }
 
@@ -1367,62 +1560,56 @@ private fun CompletePanel(
 }
 
 @Composable
-private fun MelCoreVisual() {
-    Box(
+private fun MelCoreVisual(faceState: MelFaceState, voiceLevel: Float) {
+    val label = when (faceState) {
+        MelFaceState.LISTENING -> "ÉCOUTE"
+        MelFaceState.THINKING -> "RÉFLEXION"
+        MelFaceState.SPEAKING -> "MEL"
+        MelFaceState.ERROR -> "ERREUR"
+        MelFaceState.IDLE -> "PARLER"
+    }
+    val accent = when (faceState) {
+        MelFaceState.LISTENING -> MelSuccess
+        MelFaceState.THINKING -> MelViolet
+        MelFaceState.SPEAKING -> MelBlue
+        MelFaceState.ERROR -> MelDanger
+        MelFaceState.IDLE -> MelCyan
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(210.dp),
-        contentAlignment = Alignment.Center
+            .padding(vertical = 8.dp)
+            .testTag("mini-stage"),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            Modifier
-                .size(156.dp)
-                .clip(CircleShape)
-                .border(1.dp, MelViolet.copy(alpha = .18f), CircleShape)
+        Text(
+            "MINI // MEL",
+            color = MelMuted,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 2.sp
         )
-        Box(
-            Modifier
-                .size(126.dp)
-                .clip(CircleShape)
-                .border(1.dp, MelCyan.copy(alpha = .24f), CircleShape)
+        Spacer(Modifier.height(8.dp))
+        MelAvatar(
+            size = 176,
+            online = true,
+            faceState = faceState,
+            voiceLevel = voiceLevel
         )
-        Box(
-            Modifier
-                .size(96.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        listOf(MelCyan.copy(alpha = .24f), MelViolet.copy(alpha = .08f), Color.Transparent)
-                    )
-                )
-                .border(1.dp, MelCyan.copy(alpha = .38f), CircleShape),
-            contentAlignment = Alignment.Center
+        Spacer(Modifier.height(10.dp))
+        Surface(
+            color = accent.copy(alpha = .12f),
+            border = BorderStroke(1.dp, accent.copy(alpha = .34f)),
+            shape = RoundedCornerShape(18.dp)
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    "MEL",
-                    color = MelInk,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 2.6.sp
-                )
-                Text(
-                    "READY",
-                    color = MelSuccess,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.7.sp
-                )
-            }
-        }
-        Column(
-            modifier = Modifier.align(Alignment.BottomCenter),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            HudLabel(
-                primary = "VOICE · FILES · SYNC",
-                secondary = "CORE SERVICES READY",
-                accent = MelCyan
+            Text(
+                label,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 9.dp),
+                color = accent,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 2.2.sp
             )
         }
     }
