@@ -198,25 +198,23 @@ object MelCompanionCommands {
         if (!Regex("""\b(?:ouvre|lance|affiche)\b""").containsMatchIn(lower)) return null
         return when {
             Regex("""\b(?:calculatrice|calculette)\b""").containsMatchIn(lower) ->
-                MelAppTarget.CALCULATOR to "la calculatrice"
+                Pair(MelAppTarget.CALCULATOR, "la calculatrice")
             Regex("""\b(?:calendrier|agenda)\b""").containsMatchIn(lower) ->
-                MelAppTarget.CALENDAR to "le calendrier"
+                Pair(MelAppTarget.CALENDAR, "le calendrier")
             Regex("""\bcontacts?\b""").containsMatchIn(lower) ->
-                MelAppTarget.CONTACTS to "les contacts"
+                Pair(MelAppTarget.CONTACTS, "les contacts")
             Regex("""\b(?:e[- ]?mail|mails?|courriels?)\b""").containsMatchIn(lower) ->
-                MelAppTarget.EMAIL to "les e-mails"
+                Pair(MelAppTarget.EMAIL, "les e-mails")
             Regex("""\b(?:fichiers?|gestionnaire\s+de\s+fichiers?)\b""").containsMatchIn(lower) ->
-                MelAppTarget.FILES to "les fichiers"
+                Pair(MelAppTarget.FILES, "les fichiers")
             Regex("""\b(?:galerie|photos?)\b""").containsMatchIn(lower) ->
-                MelAppTarget.GALLERY to "la galerie"
+                Pair(MelAppTarget.GALLERY, "la galerie")
             Regex("""\b(?:cartes?|maps?)\b""").containsMatchIn(lower) ->
-                MelAppTarget.MAPS to "les cartes"
+                Pair(MelAppTarget.MAPS, "les cartes")
             Regex("""\b(?:messages?|messagerie|sms)\b""").containsMatchIn(lower) ->
-                MelAppTarget.MESSAGING to "la messagerie"
+                Pair(MelAppTarget.MESSAGING, "la messagerie")
             Regex("""\b(?:musique|lecteur\s+audio)\b""").containsMatchIn(lower) ->
-                MelAppTarget.MUSIC to "la musique"
-            Regex("""\b(?:navigateur|browser)\b""").containsMatchIn(lower) ->
-                MelAppTarget.BROWSER to "le navigateur"
+                Pair(MelAppTarget.MUSIC, "la musique")
             else -> null
         }
     }
