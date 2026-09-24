@@ -45,6 +45,9 @@ static esp_lcd_panel_io_handle_t io_handle = nullptr;
 static esp_lcd_panel_handle_t panel_handle = nullptr;
 static esp_io_expander_handle_t expander_handle = nullptr;
 static esp_lcd_touch_handle_t touch_handle = nullptr;
+static lv_indev_t *touch_indev = nullptr;
+static lv_indev_drv_t touch_indev_drv;
+static bool touch_was_pressed = false;
 static lv_display_t *lvgl_disp = nullptr;
 static lv_obj_t *status_label = nullptr;
 static lv_obj_t *runtime_status_label = nullptr;
@@ -1233,6 +1236,31 @@ static void io_expander_init() {
     ESP_LOGI(TAG, "STEP 2 OK");
 }
 
+static void mini_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
+    (void)indev_drv;
+    uint16_t x[1] = {0};
+    uint16_t y[1] = {0};
+    uint8_t count = 0;
+    esp_lcd_touch_read_data(touch_handle);
+    const bool pressed = esp_lcd_touch_get_coordinates(touch_handle, x, y, nullptr, &count, 1);
+    if (pressed && count > 0) {
+        data->point.x = x[0];
+        data->point.y = y[0];
+        data->state = LV_INDEV_STATE_PRESSED;
+        if (!touch_was_pressed) {
+            ESP_LOGI(TAG, "TOUCH RAW x=%u y=%u", (unsigned)x[0], (unsigned)y[0]);
+            if (x[0] >= 240 && y[0] <= 90) {
+                ESP_LOGI(TAG, "TOUCH RAW -> SETTINGS");
+                request_view(MINI_VIEW_SETTINGS);
+            }
+        }
+        touch_was_pressed = true;
+    } else {
+        data->state = LV_INDEV_STATE_RELEASED;
+        touch_was_pressed = false;
+    }
+}
+
 static void lv_port_init() {
     ESP_LOGI(TAG, "STEP 5: LVGL");
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
@@ -1262,11 +1290,12 @@ static void lv_port_init() {
 
     lvgl_disp = lvgl_port_add_disp(&display_cfg);
 
-    lvgl_port_touch_cfg_t touch_cfg = {};
-    touch_cfg.disp = lvgl_disp;
-    touch_cfg.handle = touch_handle;
-    lvgl_port_add_touch(&touch_cfg);
-    ESP_LOGI(TAG, "STEP 5 OK");
+    lv_indev_drv_init(&touch_indev_drv);
+    touch_indev_drv.type = LV_INDEV_TYPE_POINTER;
+    touch_indev_drv.disp = lvgl_disp;
+    touch_indev_drv.read_cb = mini_touch_read;
+    touch_indev = lv_indev_drv_register(&touch_indev_drv);
+    ESP_LOGI(TAG, "STEP 5 OK: direct FT6336 touch driver");
 }
 
 static void touch_cb(lv_event_t *e) {
@@ -1304,7 +1333,7 @@ static void mini_smoke_ui() {
     // Canonical Mode Complet avatar, edge-to-edge and unframed.
     face_obj = lv_obj_create(main_panel);
     lv_obj_set_size(face_obj, 320, 320);
-    lv_obj_set_pos(face_obj, 0, 50);
+    lv_obj_set_pos(face_obj, 0, 60);
     lv_obj_set_style_bg_opa(face_obj, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(face_obj, 0, 0);
     lv_obj_set_style_pad_all(face_obj, 0, 0);
@@ -1340,10 +1369,10 @@ static void mini_smoke_ui() {
     lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(status_label);
 
-    // Stable header: opaque, entirely above the avatar (avatar begins at y=50),
+    // Stable header: opaque, entirely above the avatar (avatar begins at y=60),
     // and created after the portrait so the original controls always remain visible.
     lv_obj_t *header_bar = lv_obj_create(main_panel);
-    lv_obj_set_size(header_bar, 320, 50);
+    lv_obj_set_size(header_bar, 320, 60);
     lv_obj_set_pos(header_bar, 0, 0);
     lv_obj_set_style_bg_color(header_bar, lv_color_hex(0x07111F), 0);
     lv_obj_set_style_bg_opa(header_bar, LV_OPA_COVER, 0);
