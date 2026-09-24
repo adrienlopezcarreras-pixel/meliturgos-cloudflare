@@ -1364,9 +1364,9 @@ static void mini_smoke_ui() {
 
     // Options lives on the screen root and is created LAST: avatar/panels can
     // never cover it. Visuals intentionally match the original button.
-    settings_btn = lv_btn_create(screen);
+    settings_btn = lv_btn_create(lv_layer_top());
     lv_obj_set_size(settings_btn, 46, 40);
-    lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -10, 10);
+    lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -10, 6);
     lv_obj_set_style_radius(settings_btn, 12, 0);
     lv_obj_set_style_bg_color(settings_btn, lv_color_hex(0x0B2238), 0);
     lv_obj_set_style_border_width(settings_btn, 1, 0);
