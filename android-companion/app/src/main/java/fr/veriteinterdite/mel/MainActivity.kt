@@ -85,6 +85,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -1113,7 +1114,6 @@ private fun ConversationScreen(
         MiniReferenceTopBar(
             modifier = Modifier.align(Alignment.TopCenter),
             time = clock,
-            mode = state.mode,
             onHome = { section = MobileSection.MEL },
             onSettings = { settingsOpen = !settingsOpen }
         )
@@ -1158,14 +1158,13 @@ private fun SectionSurface(
 private fun MiniReferenceTopBar(
     modifier: Modifier = Modifier,
     time: String,
-    mode: MelMode,
     onHome: () -> Unit,
     onSettings: () -> Unit
 ) {
     Surface(
         modifier = modifier,
-        color = Color(0x8A020914),
-        border = BorderStroke(.5.dp, MelCyan.copy(alpha = .16f))
+        color = Color(0xC7030A13),
+        border = BorderStroke(.5.dp, MelCyan.copy(alpha = .15f))
     ) {
         Row(
             Modifier.fillMaxWidth().height(62.dp).padding(horizontal = 12.dp),
@@ -1174,37 +1173,60 @@ private fun MiniReferenceTopBar(
             TextButton(onClick = onHome, modifier = Modifier.testTag("home-button")) {
                 Text("◈", color = MelCyan, fontSize = 23.sp, fontWeight = FontWeight.Black)
                 Spacer(Modifier.width(6.dp))
-                Text("MEL", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-            }
-            Spacer(Modifier.weight(1f))
-            Text("⌁", color = MelCyan, fontSize = 24.sp)
-            Spacer(Modifier.width(8.dp))
-            Text(time, color = MelInk, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(8.dp))
-            Surface(
-                color = if (mode == MelMode.COMPLETE) MelViolet.copy(alpha = .16f) else MelCyan.copy(alpha = .10f),
-                border = BorderStroke(1.dp, if (mode == MelMode.COMPLETE) MelViolet else MelCyan),
-                shape = RoundedCornerShape(14.dp)
-            ) {
                 Text(
-                    if (mode == MelMode.COMPLETE) "C" else "N",
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                    color = if (mode == MelMode.COMPLETE) MelViolet else MelCyan,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Black
+                    "MEL",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp
                 )
             }
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.weight(1f))
+            WifiGlyph()
+            Spacer(Modifier.width(10.dp))
+            Text(time, color = MelInk, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(10.dp))
             OutlinedButton(
                 onClick = onSettings,
                 modifier = Modifier.size(46.dp).testTag("settings-button"),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
                 shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, MelCyan.copy(alpha = .65f))
+                border = BorderStroke(1.dp, MelCyan.copy(alpha = .72f))
             ) {
                 Text("⚙", color = Color.White, fontSize = 22.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun WifiGlyph() {
+    Canvas(Modifier.size(28.dp)) {
+        val stroke = size.width * .075f
+        val color = Color.White.copy(alpha = .94f)
+        drawArc(
+            color = color,
+            startAngle = 218f,
+            sweepAngle = 104f,
+            useCenter = false,
+            topLeft = Offset(size.width * .06f, size.height * .04f),
+            size = Size(size.width * .88f, size.height * .72f),
+            style = Stroke(width = stroke)
+        )
+        drawArc(
+            color = color,
+            startAngle = 218f,
+            sweepAngle = 104f,
+            useCenter = false,
+            topLeft = Offset(size.width * .23f, size.height * .27f),
+            size = Size(size.width * .54f, size.height * .44f),
+            style = Stroke(width = stroke)
+        )
+        drawCircle(
+            color = MelCyan,
+            radius = size.width * .065f,
+            center = Offset(size.width * .50f, size.height * .72f)
+        )
     }
 }
 
@@ -1336,43 +1358,121 @@ private fun MiniHomePanel(
             active = recording || faceState == MelFaceState.SPEAKING,
             level = if (recording) voiceLevel else if (faceState == MelFaceState.SPEAKING) .58f else .12f,
             accent = accent,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 112.dp)
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 176.dp)
         )
 
-        Button(
-            onClick = onVoice,
+        ReferenceVoiceButton(
+            label = if (recording) "ARRÊTER" else stateLabel,
+            accent = accent,
             enabled = !state.busy || recording,
+            onClick = onVoice,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 82.dp)
-                .size(142.dp)
-                .testTag("mini-talk-button"),
-            shape = CircleShape,
-            border = BorderStroke(2.dp, accent),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xE6081828),
-                contentColor = Color.White
-            ),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("🎙", fontSize = 34.sp)
-                Text(
-                    if (recording) "ARRÊTER" else stateLabel,
-                    color = Color.White,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 13.sp,
-                    letterSpacing = 1.2.sp
-                )
-            }
-        }
+                .padding(bottom = 145.dp)
+        )
 
         Text(
             voiceMessage,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 108.dp),
             color = if (recording) accent else MelMuted,
             fontSize = 10.sp,
             maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun ReferenceVoiceButton(
+    label: String,
+    accent: Color,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(158.dp)
+            .testTag("mini-talk-button")
+            .background(
+                Brush.radialGradient(
+                    listOf(
+                        accent.copy(alpha = .20f),
+                        Color(0xF0081828),
+                        Color(0xE6040B14)
+                    )
+                ),
+                CircleShape
+            )
+            .border(2.dp, accent.copy(alpha = .92f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier
+                .size(142.dp)
+                .border(1.5.dp, accent.copy(alpha = .78f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Button(
+                onClick = onClick,
+                enabled = enabled,
+                modifier = Modifier.size(126.dp),
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xDA071522),
+                    contentColor = Color.White,
+                    disabledContainerColor = Color(0xAA071522),
+                    disabledContentColor = Color.White.copy(alpha = .60f)
+                ),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    MicrophoneGlyph(accent)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        label,
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 13.sp,
+                        letterSpacing = 1.4.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MicrophoneGlyph(accent: Color) {
+    Canvas(Modifier.size(40.dp)) {
+        val stroke = size.width * .075f
+        val white = Color.White
+        drawRoundRect(
+            color = white,
+            topLeft = Offset(size.width * .36f, size.height * .08f),
+            size = Size(size.width * .28f, size.height * .48f),
+            cornerRadius = CornerRadius(size.width * .14f, size.width * .14f),
+            style = Stroke(width = stroke)
+        )
+        drawArc(
+            color = accent,
+            startAngle = 0f,
+            sweepAngle = 180f,
+            useCenter = false,
+            topLeft = Offset(size.width * .23f, size.height * .28f),
+            size = Size(size.width * .54f, size.height * .48f),
+            style = Stroke(width = stroke)
+        )
+        drawLine(
+            color = white,
+            start = Offset(size.width * .50f, size.height * .75f),
+            end = Offset(size.width * .50f, size.height * .90f),
+            strokeWidth = stroke
+        )
+        drawLine(
+            color = white,
+            start = Offset(size.width * .36f, size.height * .90f),
+            end = Offset(size.width * .64f, size.height * .90f),
+            strokeWidth = stroke
         )
     }
 }
@@ -1448,7 +1548,7 @@ private fun MelPortraitStage(
                 .align(Alignment.TopCenter)
                 .padding(top = portraitTop)
                 .fillMaxWidth()
-                .aspectRatio(1f)
+                .aspectRatio(.78f)
                 .clip(RoundedCornerShape(bottomStart = 34.dp, bottomEnd = 34.dp))
         ) {
             Image(
@@ -1463,31 +1563,30 @@ private fun MelPortraitStage(
                         translationY = if (faceState == MelFaceState.IDLE) sway * .55f else 0f
                         rotationZ = if (faceState == MelFaceState.THINKING) sway * .12f else 0f
                     },
-                contentScale = ContentScale.Fit
+                contentScale = ContentScale.Crop
             )
 
             Canvas(Modifier.fillMaxSize()) {
                 if (blink > .08f) {
-                    val lidColor = Color(0xFF4B2928).copy(alpha = .72f * blink)
-                    val lidStroke = (size.width * .0065f).coerceAtLeast(1.5f)
+                    val skin = Color(0xFFB97D70).copy(alpha = .90f * blink)
+                    val lash = Color(0xFF4B2928).copy(alpha = .66f * blink)
+                    val leftTop = Offset(size.width * .285f, size.height * .397f)
+                    val rightTop = Offset(size.width * .565f, size.height * .386f)
+                    val eyeSize = Size(size.width * .150f, size.height * .052f)
 
-                    drawArc(
-                        color = lidColor,
-                        startAngle = 12f,
-                        sweepAngle = 156f,
-                        useCenter = false,
-                        topLeft = Offset(size.width * .315f, size.height * .385f),
-                        size = Size(size.width * .145f, size.height * .075f),
-                        style = Stroke(width = lidStroke)
+                    drawOval(color = skin, topLeft = leftTop, size = eyeSize)
+                    drawOval(color = skin, topLeft = rightTop, size = eyeSize)
+                    drawLine(
+                        color = lash,
+                        start = Offset(leftTop.x + eyeSize.width * .10f, leftTop.y + eyeSize.height * .55f),
+                        end = Offset(leftTop.x + eyeSize.width * .90f, leftTop.y + eyeSize.height * .55f),
+                        strokeWidth = (size.width * .004f).coerceAtLeast(1f)
                     )
-                    drawArc(
-                        color = lidColor,
-                        startAngle = 12f,
-                        sweepAngle = 156f,
-                        useCenter = false,
-                        topLeft = Offset(size.width * .535f, size.height * .375f),
-                        size = Size(size.width * .145f, size.height * .075f),
-                        style = Stroke(width = lidStroke)
+                    drawLine(
+                        color = lash,
+                        start = Offset(rightTop.x + eyeSize.width * .10f, rightTop.y + eyeSize.height * .55f),
+                        end = Offset(rightTop.x + eyeSize.width * .90f, rightTop.y + eyeSize.height * .55f),
+                        strokeWidth = (size.width * .004f).coerceAtLeast(1f)
                     )
                 }
 
