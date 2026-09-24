@@ -606,6 +606,25 @@ class MainActivity : ComponentActivity() {
                     voice
                 )
             }
+            is MelCompanionCommand.Email -> {
+                val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${command.address}")).apply {
+                    putExtra(Intent.EXTRA_TEXT, command.body)
+                }
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "Je prépare l’e-mail. Tu gardes la validation de l’envoi.",
+                    voice
+                )
+            }
+            MelCompanionCommand.OpenDialer -> {
+                launchCompanionIntent(
+                    Intent(Intent.ACTION_DIAL),
+                    raw,
+                    "J’ouvre le téléphone.",
+                    voice
+                )
+            }
             is MelCompanionCommand.Navigate -> {
                 val uri = Uri.parse("geo:0,0?q=" + Uri.encode(command.query))
                 launchCompanionIntent(
