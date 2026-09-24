@@ -174,7 +174,7 @@ static void microphone_boot_probe_task(void *) {
 static void camera_boot_probe_task(void *) {
     // UI is already alive before this runs. Camera probing can therefore be slow
     // without starving taskLVGL on CPU0.
-    vTaskDelay(pdMS_TO_TICKS(150));
+    vTaskDelay(pdMS_TO_TICKS(2500));
     ESP_LOGI(TAG, "SELFTEST CAMERA: init OV5640 off the LVGL core (CPU%d)", xPortGetCoreID());
     esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
     camera_ok = esp_camera_sensor_get() != nullptr;
@@ -196,7 +196,6 @@ static void camera_boot_probe_task(void *) {
     ESP_LOGI(TAG, "SELFTEST SUMMARY: display=OK touch=OK audio=%s camera=%s wifi=READY",
              audio_ok ? "OK" : "FAIL", camera_ok ? "OK" : "FAIL");
     camera_probe_done = true;
-    ESP_LOGI(TAG, "CAMERA DMA READY -> BLE may start now");
     vTaskDelete(nullptr);
 }
 
@@ -245,11 +244,13 @@ static void clock_timer_cb(lv_timer_t *) {
     time(&now);
     struct tm local_tm = {};
     localtime_r(&now, &local_tm);
+    if (local_tm.tm_year + 1900 < 2024) {
+        lv_label_set_text(time_label, "--:--");
+        return;
+    }
     char buf[8] = {};
-    if (local_tm.tm_year + 1900 < 2024) snprintf(buf, sizeof(buf), "--:--");
-    else strftime(buf, sizeof(buf), "%H:%M", &local_tm);
-    const char *current = lv_label_get_text(time_label);
-    if (!current || strcmp(current, buf) != 0) lv_label_set_text(time_label, buf);
+    strftime(buf, sizeof(buf), "%H:%M", &local_tm);
+    lv_label_set_text(time_label, buf);
 }
 
 static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void *data) {
@@ -304,15 +305,18 @@ static void mini_anim_cb(lv_timer_t *) {
     const bool online = mel_terminal_online();
     listening = state == MEL_TERMINAL_LISTENING;
 
-    // Portrait is static: do not invalidate the 320x320 image every 250 ms.
+    // Keep the portrait completely static. Moving the whole photo looked
+    // artificial; future animation should use dedicated facial frames instead.
+    if (avatar_obj) {
+        lv_obj_set_x(avatar_obj, 0);
+        lv_obj_set_y(avatar_obj, 0);
+        lv_img_set_zoom(avatar_obj, 256);
+    }
+
     if (talk_button) {
-        static int last_ring = -1;
         const int level = mel_terminal_voice_level();
         const int ring = state == MEL_TERMINAL_LISTENING ? (3 + (level * 5) / 100) : 3;
-        if (ring != last_ring) {
-            last_ring = ring;
-            lv_obj_set_style_border_width(talk_button, ring, 0);
-        }
+        lv_obj_set_style_border_width(talk_button, ring, 0);
     }
 
     if (state != last_face_state && talk_button) {
@@ -326,10 +330,11 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 
     if (talk_button) {
-        const bool should_enable = online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING);
-        const bool is_disabled = lv_obj_has_state(talk_button, LV_STATE_DISABLED);
-        if (should_enable && is_disabled) lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
-        else if (!should_enable && !is_disabled) lv_obj_add_state(talk_button, LV_STATE_DISABLED);
+        if (online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) {
+            lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
+        } else {
+            lv_obj_add_state(talk_button, LV_STATE_DISABLED);
+        }
     }
 
     if (state == MEL_TERMINAL_LISTENING) {
@@ -1300,6 +1305,18 @@ static void mini_smoke_ui() {
     lv_obj_set_style_text_color(time_label, lv_color_hex(0xF8FAFC), 0);
     lv_obj_align(time_label, LV_ALIGN_TOP_RIGHT, -66, 16);
 
+    lv_obj_t *settings_btn = lv_btn_create(main_panel);
+    lv_obj_set_size(settings_btn, 46, 40);
+    lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -10, 10);
+    lv_obj_set_style_radius(settings_btn, 12, 0);
+    lv_obj_set_style_bg_color(settings_btn, lv_color_hex(0x0B2238), 0);
+    lv_obj_set_style_border_width(settings_btn, 1, 0);
+    lv_obj_set_style_border_color(settings_btn, lv_color_hex(0x22D3EE), 0);
+    lv_obj_t *settings_icon = lv_label_create(settings_btn);
+    lv_label_set_text(settings_icon, LV_SYMBOL_SETTINGS);
+    lv_obj_center(settings_icon);
+    lv_obj_add_event_cb(settings_btn, settings_open_clicked, LV_EVENT_CLICKED, nullptr);
+
     runtime_status_label = lv_label_create(main_panel);
     lv_label_set_text(runtime_status_label, "");
     lv_obj_set_style_text_color(runtime_status_label, lv_color_hex(0x22D3EE), 0);
@@ -1315,12 +1332,10 @@ static void mini_smoke_ui() {
     lv_obj_set_style_border_width(face_obj, 0, 0);
     lv_obj_set_style_pad_all(face_obj, 0, 0);
     lv_obj_clear_flag(face_obj, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(face_obj, LV_OBJ_FLAG_CLICKABLE);
 
     avatar_obj = lv_img_create(face_obj);
     lv_img_set_src(avatar_obj, &mel_avatar_mode_complet);
     lv_obj_set_pos(avatar_obj, 0, 0);
-    lv_obj_clear_flag(avatar_obj, LV_OBJ_FLAG_CLICKABLE);
 
     answer_label = lv_label_create(main_panel);
     lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
@@ -1346,21 +1361,6 @@ static void mini_smoke_ui() {
     lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(status_label);
 
-    // Original Options control, created after the portrait so it is visually above it.
-    // Keep a 4 px gap before the avatar starts at y=50.
-    lv_obj_t *settings_btn = lv_btn_create(main_panel);
-    lv_obj_set_size(settings_btn, 46, 40);
-    lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -10, 6);
-    lv_obj_set_style_radius(settings_btn, 12, 0);
-    lv_obj_set_style_bg_color(settings_btn, lv_color_hex(0x0B2238), 0);
-    lv_obj_set_style_border_width(settings_btn, 1, 0);
-    lv_obj_set_style_border_color(settings_btn, lv_color_hex(0x22D3EE), 0);
-    lv_obj_t *settings_icon = lv_label_create(settings_btn);
-    lv_label_set_text(settings_icon, LV_SYMBOL_SETTINGS);
-    lv_obj_center(settings_icon);
-    lv_obj_clear_flag(settings_icon, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(settings_btn, settings_open_clicked, LV_EVENT_CLICKED, nullptr);
-
     wifi_ui_create(screen);
     pair_ui_create(screen);
     settings_ui_create(screen);
@@ -1372,19 +1372,16 @@ static void mini_smoke_ui() {
 }
 
 static void mobile_bridge_watch_task(void *) {
-    ESP_LOGI(TAG, "MEL MOBILE: waiting only for camera DMA reservation");
     while (!camera_probe_done) vTaskDelay(pdMS_TO_TICKS(20));
-    ESP_LOGI(TAG, "STEP 6.5: MEL MOBILE BLE starting immediately after camera DMA");
+    ESP_LOGI(TAG, "MEL MOBILE BLE START");
     mel_mobile_bridge_start();
-
     bool previous = false;
     while (true) {
         const bool ready = mel_mobile_bridge_ready();
         if (ready != previous) {
             previous = ready;
             mel_terminal_set_mobile_connected(ready);
-            ESP_LOGI(TAG, "MEL Mobile transport %s (MTU=%u)", ready ? "READY" : "OFFLINE",
-                     (unsigned)mel_mobile_bridge_mtu());
+            ESP_LOGI(TAG, "MEL MOBILE %s", ready ? "READY" : "OFFLINE");
             if (ready && mel_terminal_has_token()) mel_terminal_start_online();
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -1447,7 +1444,6 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_LOGI(TAG, "STEP 6 OK: WIFI STACK STARTED (FR channels 1-13)");
 
-    // BLE starts asynchronously after the camera has reserved its DMA block.
     xTaskCreatePinnedToCore(mobile_bridge_watch_task, "mel_mobile_watch", 4096, nullptr, 2, nullptr, 0);
 
     if (lvgl_port_lock(0)) {
