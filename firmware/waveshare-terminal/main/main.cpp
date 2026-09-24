@@ -50,8 +50,10 @@ static lv_obj_t *runtime_status_label = nullptr;
 static lv_obj_t *time_label = nullptr;
 static lv_obj_t *answer_label = nullptr;
 static lv_obj_t *face_obj = nullptr;
+static lv_obj_t *avatar_obj = nullptr;
 static lv_obj_t *left_eye = nullptr;
 static lv_obj_t *right_eye = nullptr;
+static lv_obj_t *talk_button = nullptr;
 static lv_obj_t *mouth_obj = nullptr;
 static lv_timer_t *anim_timer = nullptr;
 static bool listening = false;
@@ -290,22 +292,45 @@ static void mini_anim_cb(lv_timer_t *) {
         lv_event_send(pair_button, LV_EVENT_CLICKED, nullptr);
     }
 
-    // Main screen state animation is intentionally minimal: the avatar is a
-    // single native RGB565 image. Only status text and the cyan frame change.
     if (active_view != MINI_VIEW_MAIN) return;
-    if (!face_obj) return;
+    if (!face_obj || !avatar_obj) return;
 
+    const uint32_t now = lv_tick_get();
     const int state = mel_terminal_state();
     const bool online = mel_terminal_online();
     listening = state == MEL_TERMINAL_LISTENING;
 
-    if (state != last_face_state) {
+    // Slow 1-pixel breathing motion. Update only once per second to keep the
+    // 320x320 portrait cheap to redraw on SPI.
+    static uint32_t last_motion_second = UINT32_MAX;
+    const uint32_t motion_second = now / 1000U;
+    if (motion_second != last_motion_second) {
+        last_motion_second = motion_second;
+        static const int8_t motion[4] = {0, -1, 0, 1};
+        lv_obj_set_y(face_obj, 50 + motion[motion_second & 3U]);
+    }
+
+    // Natural short blink every ~5 seconds. Only two tiny eye patches redraw.
+    const uint32_t blink_phase = now % 5200U;
+    const bool blink = blink_phase < 130U;
+    if (left_eye && right_eye && blink != last_blink) {
+        if (blink) {
+            lv_obj_clear_flag(left_eye, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(right_eye, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(left_eye, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(right_eye, LV_OBJ_FLAG_HIDDEN);
+        }
+        last_blink = blink;
+    }
+
+    if (state != last_face_state && talk_button) {
         lv_color_t accent = lv_color_hex(0x22D3EE);
         if (state == MEL_TERMINAL_LISTENING) accent = lv_color_hex(0x34D399);
         else if (state == MEL_TERMINAL_THINKING) accent = lv_color_hex(0xA78BFA);
         else if (state == MEL_TERMINAL_SPEAKING) accent = lv_color_hex(0x60A5FA);
         else if (state == MEL_TERMINAL_ERROR) accent = lv_color_hex(0xFB7185);
-        lv_obj_set_style_border_color(face_obj, accent, 0);
+        lv_obj_set_style_border_color(talk_button, accent, 0);
     }
 
     if (state == MEL_TERMINAL_LISTENING) {
@@ -313,7 +338,7 @@ static void mini_anim_cb(lv_timer_t *) {
     } else if (state == MEL_TERMINAL_THINKING) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "REFLEXION");
     } else if (state == MEL_TERMINAL_SPEAKING) {
-        if (state != last_face_state && status_label) lv_label_set_text(status_label, "MEL");
+        if (state != last_face_state && status_label) lv_label_set_text(status_label, "MEL PARLE");
     } else if (state == MEL_TERMINAL_ERROR) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "ERREUR");
     } else if (state != last_face_state || online != last_online) {
@@ -1144,23 +1169,44 @@ static void mini_smoke_ui() {
     lv_obj_set_style_text_color(runtime_status_label, lv_color_hex(0x22D3EE), 0);
     lv_obj_set_style_text_align(runtime_status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(runtime_status_label, 280);
-    lv_obj_align(runtime_status_label, LV_ALIGN_BOTTOM_MID, 0, -108);
+    lv_obj_align(runtime_status_label, LV_ALIGN_BOTTOM_MID, 0, -112);
 
-    // Canonical Mode Complet avatar. One native RGB565 image + one frame keeps
-    // LVGL fast and avoids the watchdog caused by a deep object tree.
+    // Canonical Mode Complet avatar, edge-to-edge and unframed.
     face_obj = lv_obj_create(main_panel);
-    lv_obj_set_size(face_obj, 290, 290);
-    lv_obj_align(face_obj, LV_ALIGN_TOP_MID, 0, 58);
-    lv_obj_set_style_radius(face_obj, 22, 0);
-    lv_obj_set_style_bg_color(face_obj, lv_color_hex(0x06101D), 0);
-    lv_obj_set_style_border_width(face_obj, 2, 0);
-    lv_obj_set_style_border_color(face_obj, lv_color_hex(0x22D3EE), 0);
-    lv_obj_set_style_pad_all(face_obj, 3, 0);
+    lv_obj_set_size(face_obj, 320, 320);
+    lv_obj_set_pos(face_obj, 0, 50);
+    lv_obj_set_style_bg_opa(face_obj, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(face_obj, 0, 0);
+    lv_obj_set_style_pad_all(face_obj, 0, 0);
     lv_obj_clear_flag(face_obj, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *avatar = lv_img_create(face_obj);
-    lv_img_set_src(avatar, &mel_avatar_mode_complet);
-    lv_obj_center(avatar);
+    avatar_obj = lv_img_create(face_obj);
+    lv_img_set_src(avatar_obj, &mel_avatar_mode_complet);
+    lv_obj_set_pos(avatar_obj, 0, 0);
+
+    // Tiny eyelid overlays are hidden except for a 130 ms blink.
+    // They redraw only the eye regions, not the full portrait.
+    left_eye = lv_obj_create(face_obj);
+    lv_obj_set_size(left_eye, 38, 11);
+    lv_obj_set_pos(left_eye, 105, 143);
+    lv_obj_set_style_radius(left_eye, 6, 0);
+    lv_obj_set_style_bg_color(left_eye, lv_color_hex(0x9E6257), 0);
+    lv_obj_set_style_border_width(left_eye, 2, 0);
+    lv_obj_set_style_border_side(left_eye, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_color(left_eye, lv_color_hex(0x3B211F), 0);
+    lv_obj_clear_flag(left_eye, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(left_eye, LV_OBJ_FLAG_HIDDEN);
+
+    right_eye = lv_obj_create(face_obj);
+    lv_obj_set_size(right_eye, 38, 11);
+    lv_obj_set_pos(right_eye, 174, 124);
+    lv_obj_set_style_radius(right_eye, 6, 0);
+    lv_obj_set_style_bg_color(right_eye, lv_color_hex(0xA86B60), 0);
+    lv_obj_set_style_border_width(right_eye, 2, 0);
+    lv_obj_set_style_border_side(right_eye, LV_BORDER_SIDE_BOTTOM, 0);
+    lv_obj_set_style_border_color(right_eye, lv_color_hex(0x3B211F), 0);
+    lv_obj_clear_flag(right_eye, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(right_eye, LV_OBJ_FLAG_HIDDEN);
 
     answer_label = lv_label_create(main_panel);
     lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
@@ -1172,17 +1218,18 @@ static void mini_smoke_ui() {
     lv_obj_align(answer_label, LV_ALIGN_BOTTOM_MID, 0, -104);
     lv_obj_add_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t *btn = lv_btn_create(main_panel);
-    lv_obj_set_size(btn, 236, 64);
-    lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -34);
-    lv_obj_set_style_radius(btn, 24, 0);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(0x0D304A), 0);
-    lv_obj_set_style_border_width(btn, 2, 0);
-    lv_obj_set_style_border_color(btn, lv_color_hex(0x22D3EE), 0);
-    lv_obj_add_event_cb(btn, touch_cb, LV_EVENT_CLICKED, nullptr);
+    talk_button = lv_btn_create(main_panel);
+    lv_obj_set_size(talk_button, 96, 96);
+    lv_obj_align(talk_button, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_set_style_radius(talk_button, 48, 0);
+    lv_obj_set_style_bg_color(talk_button, lv_color_hex(0x08233C), 0);
+    lv_obj_set_style_border_width(talk_button, 3, 0);
+    lv_obj_set_style_border_color(talk_button, lv_color_hex(0x22D3EE), 0);
+    lv_obj_add_event_cb(talk_button, touch_cb, LV_EVENT_CLICKED, nullptr);
 
-    status_label = lv_label_create(btn);
-    lv_label_set_text(status_label, "PARLER A MEL");
+    status_label = lv_label_create(talk_button);
+    lv_label_set_text(status_label, "PARLER");
+    lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(status_label);
 
     wifi_ui_create(screen);
