@@ -1304,7 +1304,7 @@ private fun MiniHomePanel(
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 18.dp, bottom = 260.dp)
+                    .padding(start = 18.dp, end = 18.dp, bottom = 260.dp)
                     .fillMaxWidth(),
                 color = Color(0xB8051322),
                 border = BorderStroke(1.dp, accent.copy(alpha = .30f)),
