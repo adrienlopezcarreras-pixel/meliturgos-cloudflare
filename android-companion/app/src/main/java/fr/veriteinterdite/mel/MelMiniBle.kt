@@ -13,6 +13,7 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
@@ -54,9 +55,15 @@ class MelMiniBle(
     private var manualDisconnect = false
     private var scanCallback: ScanCallback? = null
     private var reconnectAttempts = 0
+    private var legacyMonitorStarted = false
+    private var legacyConnected = false
 
     fun requiredPermissions(): Array<String> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        arrayOf(
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.BLUETOOTH_ADVERTISE
+        )
     } else {
         arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
     }
@@ -76,6 +83,11 @@ class MelMiniBle(
             publish(state.copy(scanning = false, connected = false, phase = "Active le Bluetooth Android"))
             return
         }
+
+        // Compatibility with rollbacked MINI firmware 4818df9: that firmware
+        // is the BLE central and looks for MEL Mobile service ABF0/ABF1/ABF2.
+        ContextCompat.startForegroundService(context, Intent(context, MelBleBridgeService::class.java))
+        startLegacyMonitor()
 
         val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PREF_ADDRESS, null)
         if (!saved.isNullOrBlank() && reconnectAttempts < 2) {
@@ -97,6 +109,9 @@ class MelMiniBle(
         gatt?.close()
         gatt = null
         reconnectAttempts = 0
+        context.stopService(Intent(context, MelBleBridgeService::class.java))
+        stopLegacyMonitor()
+        legacyConnected = false
         publish(MiniBleState(phase = "MINI déconnectée"))
     }
 
@@ -109,6 +124,9 @@ class MelMiniBle(
 
     @SuppressLint("MissingPermission")
     fun send(command: String): Boolean {
+        if (MelBleBridgeService.bridgeState.value == "MINI CONNECTÉE") {
+            return command.equals("ping", ignoreCase = true)
+        }
         val active = gatt ?: return false
         val characteristic = commandCharacteristic ?: return false
         val bytes = command.toByteArray(Charsets.UTF_8)
@@ -278,6 +296,54 @@ class MelMiniBle(
                 parseStatus(value)
             }
         }
+    }
+
+    private val legacyMonitor = object : Runnable {
+        override fun run() {
+            val bridge = MelBleBridgeService.bridgeState.value
+            if (bridge == "MINI CONNECTÉE") {
+                legacyConnected = true
+                stopScan()
+                if (!state.connected || state.deviceName != "MINI") {
+                    publish(
+                        state.copy(
+                            scanning = false,
+                            connected = true,
+                            phase = "MINI connectée via MEL Mobile",
+                            deviceName = "MINI",
+                            deviceAddress = null
+                        )
+                    )
+                }
+            } else if (legacyConnected) {
+                legacyConnected = false
+                if (gatt == null) {
+                    publish(
+                        state.copy(
+                            scanning = false,
+                            connected = false,
+                            phase = if (bridge == "PRÊT") "MEL prêt · attente de MINI…" else "Liaison MINI perdue",
+                            deviceName = null,
+                            deviceAddress = null
+                        )
+                    )
+                }
+            } else if (!state.connected && !state.scanning && bridge == "PRÊT") {
+                publish(state.copy(phase = "MEL prêt · attente de MINI…"))
+            }
+            if (legacyMonitorStarted) main.postDelayed(this, 250)
+        }
+    }
+
+    private fun startLegacyMonitor() {
+        if (legacyMonitorStarted) return
+        legacyMonitorStarted = true
+        main.post(legacyMonitor)
+    }
+
+    private fun stopLegacyMonitor() {
+        legacyMonitorStarted = false
+        main.removeCallbacks(legacyMonitor)
     }
 
     private fun parseStatus(value: ByteArray) {
