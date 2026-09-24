@@ -530,10 +530,11 @@ internal fun MelApp(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color(0xFF030912), Color(0xFF07192B), Color(0xFF080E1D))
+                        listOf(Color(0xFF02050A), Color(0xFF061322), Color(0xFF090B18))
                     )
                 )
         ) {
+        TechBackdrop()
         when (state.session) {
             SessionStage.DISCONNECTED -> LoginScreen(state, onLogin)
             SessionStage.VERIFYING -> LoadingScreen(state.status)
@@ -558,6 +559,62 @@ internal fun MelApp(
             )
         }
     }
+    }
+}
+
+@Composable
+private fun TechBackdrop() {
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(220.dp)
+                .background(
+                    Brush.radialGradient(
+                        listOf(MelCyan.copy(alpha = .13f), Color.Transparent)
+                    )
+                )
+        )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(320.dp)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.radialGradient(
+                        listOf(MelViolet.copy(alpha = .10f), Color.Transparent)
+                    )
+                )
+        )
+    }
+}
+
+@Composable
+private fun HudLabel(
+    primary: String,
+    secondary: String,
+    accent: Color = MelCyan
+) {
+    Surface(
+        color = Color(0x99040A12),
+        border = BorderStroke(1.dp, accent.copy(alpha = .24f)),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+            Text(
+                primary,
+                color = accent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.4.sp
+            )
+            Text(
+                secondary,
+                color = MelMuted,
+                fontSize = 9.sp,
+                letterSpacing = .5.sp
+            )
+        }
     }
 }
 
@@ -616,15 +673,24 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        StatusPill("APPAREIL PRIVÉ", MelViolet)
+        HudLabel("MEL // SECURE NODE", "ANDROID TERMINAL", MelViolet)
         Spacer(Modifier.height(18.dp))
-        MelAvatar(104, online = false)
+        MelAvatar(112, online = false)
         Spacer(Modifier.height(14.dp))
-        Text("MEL", color = MelInk, fontSize = 38.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
+        Text("MEL", color = MelInk, fontSize = 40.sp, fontWeight = FontWeight.Black, letterSpacing = 6.sp)
         Text(
-            "Ton intelligence personnelle, partout avec toi.",
+            "PERSONAL INTELLIGENCE SYSTEM",
+            color = MelCyan,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 2.2.sp,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Interface Android sécurisée",
             color = MelMuted,
-            fontSize = 15.sp,
+            fontSize = 13.sp,
             textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(24.dp))
@@ -636,6 +702,12 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
             shape = RoundedCornerShape(28.dp)
         ) {
             Column(Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("MEL // LINK", color = MelCyan, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
+                    Spacer(Modifier.width(8.dp))
+                    StatusPill("CHIFFRÉ", MelSuccess)
+                }
+                Spacer(Modifier.height(10.dp))
                 Text("Connexion à MEL", color = MelInk, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(5.dp))
                 Text(
@@ -835,14 +907,15 @@ private fun ConversationScreen(
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("MEL", color = MelInk, fontWeight = FontWeight.Black, fontSize = 21.sp, letterSpacing = 2.sp)
+                            Text("MEL // CORE", color = MelInk, fontWeight = FontWeight.Black, fontSize = 20.sp, letterSpacing = 1.8.sp)
                             Spacer(Modifier.width(8.dp))
-                            StatusPill("EN LIGNE")
+                            StatusPill("ONLINE", MelSuccess)
                         }
                         Text(
-                            state.status.ifBlank { "Prête" },
+                            "NEURAL LINK · " + state.status.ifBlank { "Prête" },
                             color = MelMuted,
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
+                            letterSpacing = .5.sp,
                             maxLines = 1
                         )
                     }
@@ -902,17 +975,25 @@ private fun ConversationScreen(
                                 Spacer(Modifier.width(13.dp))
                                 Column {
                                     Text(
+                                        "MEL CORE ONLINE",
+                                        color = MelCyan,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Black,
+                                        letterSpacing = 1.4.sp
+                                    )
+                                    Spacer(Modifier.height(5.dp))
+                                    Text(
                                         "Bonjour Adrien.",
                                         color = MelInk,
-                                        fontSize = 19.sp,
+                                        fontSize = 18.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Spacer(Modifier.height(3.dp))
                                     Text(
                                         if (state.mode == MelMode.NORMAL)
-                                            "Écris-moi ou appuie sur Micro pour me parler."
+                                            "Parle ou écris. MEL traite la conversation en temps réel."
                                         else
-                                            "Je suis prête. Les outils avancés restent disponibles sans encombrer la conversation.",
+                                            "Canal complet actif. Les outils avancés restent disponibles sans encombrer l’échange.",
                                         color = MelMuted,
                                         fontSize = 13.sp,
                                         lineHeight = 18.sp
@@ -970,7 +1051,7 @@ private fun ConversationScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        StatusPill(if (recording) "MICRO ACTIF" else "MICRO ANDROID", if (recording) MelCyan else MelViolet)
+                        StatusPill(if (recording) "VOICE LINK ACTIVE" else "VOICE LINK", if (recording) MelCyan else MelViolet)
                         Spacer(Modifier.width(8.dp))
                         Text(
                             voiceMessage,
@@ -985,7 +1066,7 @@ private fun ConversationScreen(
                         value = draft,
                         onValueChange = { draft = it },
                         modifier = Modifier.fillMaxWidth().testTag("message-input"),
-                        placeholder = { Text("Écris à MEL…") },
+                        placeholder = { Text("Message / commande pour MEL…") },
                         minLines = 1,
                         maxLines = 4,
                         shape = RoundedCornerShape(18.dp),
@@ -1116,9 +1197,9 @@ private fun CompletePanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Mode Complet", color = MelInk, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("MEL // FULL ACCESS", color = MelViolet, fontWeight = FontWeight.Black, fontSize = 12.sp, letterSpacing = 1.2.sp)
                     Text(
-                        "Synchronisation, Professor et diagnostic",
+                        "Synchronisation · Professor · diagnostic système",
                         color = MelMuted,
                         fontSize = 11.sp
                     )
@@ -1140,7 +1221,7 @@ private fun CompletePanel(
                         .heightIn(max = 300.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    Text("Contrôles complets", color = MelInk, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("SYSTEM TOOLS", color = MelCyan, fontWeight = FontWeight.Black, fontSize = 11.sp, letterSpacing = 1.2.sp)
                     Spacer(Modifier.height(7.dp))
                     Row(
                         Modifier.fillMaxWidth(),
