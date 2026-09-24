@@ -9,6 +9,7 @@
 #include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/ble_uuid.h"
+#include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "os/os_mbuf.h"
@@ -74,8 +75,8 @@ static const struct ble_gatt_chr_def GATT_CHARACTERISTICS[] = {
     {
         .uuid = &STATUS_UUID.u,
         .access_cb = gatt_access,
-        .val_handle = &g_status_handle,
         .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .val_handle = &g_status_handle,
     },
     {
         .uuid = &COMMAND_UUID.u,
