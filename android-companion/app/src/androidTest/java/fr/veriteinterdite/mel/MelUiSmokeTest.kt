@@ -2,14 +2,15 @@ package fr.veriteinterdite.mel
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -50,8 +51,8 @@ class MelUiSmokeTest {
     @Test
     fun multimediaWebIsHiddenUntilExplicitlyRequested() {
         compose.onNodeWithTag("settings-button").performClick()
-        compose.onNodeWithTag("settings-web").assertDoesNotExist()
-        compose.onNodeWithTag("web-url").assertDoesNotExist()
-        compose.onNodeWithTag("web-go").assertDoesNotExist()
+        assertTrue(compose.onAllNodesWithTag("settings-web").fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithTag("web-url").fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithTag("web-go").fetchSemanticsNodes().isEmpty())
     }
 }
