@@ -14,6 +14,7 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.provider.AlarmClock
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.webkit.WebView
@@ -199,7 +200,7 @@ class MainActivity : ComponentActivity() {
                     onRetrySession = model::verifyExistingSession,
                     onDisconnect = model::disconnect,
                     onMode = model::setMode,
-                    onSend = { model.send(it) },
+                    onSend = { dispatchCompanionText(it, voice = false) },
                     onSync = model::sync,
                     onVoice = ::toggleVoice,
                     onFile = ::pickFile,
@@ -423,8 +424,8 @@ class MainActivity : ComponentActivity() {
                     startRecorderFallback("Aucune dictée reconnue · secours serveur")
                     return
                 }
-                voiceMessage.value = "Voix comprise · envoi à MEL…"
-                model.send(text, voice = true)
+                voiceMessage.value = "Voix comprise · traitement…"
+                dispatchCompanionText(text, voice = true)
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
@@ -510,8 +511,12 @@ class MainActivity : ComponentActivity() {
             try {
                 val bytes = file.readBytes()
                 file.delete()
-                model.sendVoice(bytes, mimeType)
-                runOnUiThread { voiceMessage.value = "Voix envoyée · MEL traite…" }
+                val transcript = client.transcribe(bytes, mimeType).optString("text").trim()
+                if (transcript.isBlank()) throw IllegalStateException("TRANSCRIPTION_EMPTY")
+                runOnUiThread {
+                    voiceMessage.value = "Voix comprise · traitement…"
+                    dispatchCompanionText(transcript, voice = true)
+                }
             } catch (error: Throwable) {
                 file.delete()
                 runOnUiThread {
@@ -519,6 +524,166 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun dispatchCompanionText(text: String, voice: Boolean) {
+        val clean = text.trim()
+        if (clean.isBlank()) return
+        val command = MelCompanionCommands.parse(clean)
+        if (command == null) {
+            model.send(clean, voice = voice)
+            return
+        }
+        executeCompanionCommand(clean, command, voice)
+    }
+
+    private fun executeCompanionCommand(
+        raw: String,
+        command: MelCompanionCommand,
+        voice: Boolean
+    ) {
+        when (command) {
+            is MelCompanionCommand.Reply -> {
+                model.localCompanionReply(raw, command.text, voice)
+            }
+            is MelCompanionCommand.SetTimer -> {
+                val intent = Intent(AlarmClock.ACTION_SET_TIMER).apply {
+                    putExtra(AlarmClock.EXTRA_LENGTH, command.seconds)
+                    putExtra(AlarmClock.EXTRA_MESSAGE, command.label)
+                    putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                }
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "Minuteur lancé pour ${spokenDuration(command.seconds)}.",
+                    voice
+                )
+            }
+            is MelCompanionCommand.SetAlarm -> {
+                val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
+                    putExtra(AlarmClock.EXTRA_HOUR, command.hour)
+                    putExtra(AlarmClock.EXTRA_MINUTES, command.minute)
+                    putExtra(AlarmClock.EXTRA_MESSAGE, command.label)
+                    putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                }
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "Alarme réglée pour %02d:%02d.".format(command.hour, command.minute),
+                    voice
+                )
+            }
+            MelCompanionCommand.ShowAlarms -> {
+                launchCompanionIntent(
+                    Intent(AlarmClock.ACTION_SHOW_ALARMS),
+                    raw,
+                    "J’ouvre tes alarmes.",
+                    voice
+                )
+            }
+            is MelCompanionCommand.Dial -> {
+                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${command.number}"))
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "J’ouvre le téléphone avec le numéro prêt. Tu gardes la validation de l’appel.",
+                    voice
+                )
+            }
+            is MelCompanionCommand.Sms -> {
+                val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${command.number}")).apply {
+                    putExtra("sms_body", command.body)
+                }
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "Je prépare le SMS. Tu gardes la validation de l’envoi.",
+                    voice
+                )
+            }
+            is MelCompanionCommand.Navigate -> {
+                val uri = Uri.parse("geo:0,0?q=" + Uri.encode(command.query))
+                launchCompanionIntent(
+                    Intent(Intent.ACTION_VIEW, uri),
+                    raw,
+                    "J’ouvre l’itinéraire vers ${command.query}.",
+                    voice
+                )
+            }
+            MelCompanionCommand.WifiSettings -> {
+                launchCompanionIntent(
+                    Intent(Settings.ACTION_WIFI_SETTINGS),
+                    raw,
+                    "J’ouvre les réglages Wi-Fi.",
+                    voice
+                )
+            }
+            MelCompanionCommand.BluetoothSettings -> {
+                launchCompanionIntent(
+                    Intent(Settings.ACTION_BLUETOOTH_SETTINGS),
+                    raw,
+                    "J’ouvre les réglages Bluetooth.",
+                    voice
+                )
+            }
+            MelCompanionCommand.LocationSettings -> {
+                launchCompanionIntent(
+                    Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS),
+                    raw,
+                    "J’ouvre les réglages de localisation.",
+                    voice
+                )
+            }
+            MelCompanionCommand.Camera -> {
+                openCamera()
+                model.localCompanionReply(raw, "J’ouvre la caméra.", voice)
+            }
+            MelCompanionCommand.FilePicker -> {
+                pickFile()
+                model.localCompanionReply(raw, "J’ouvre les fichiers.", voice)
+            }
+            MelCompanionCommand.EnableNotifications -> {
+                enableNotifications()
+                model.localCompanionReply(raw, "J’active les notifications MEL.", voice)
+            }
+        }
+    }
+
+    private fun launchCompanionIntent(
+        intent: Intent,
+        raw: String,
+        confirmation: String,
+        voice: Boolean
+    ) {
+        if (intent.resolveActivity(packageManager) == null) {
+            model.localCompanionReply(
+                raw,
+                "Je n’ai trouvé aucune application Android compatible pour cette action.",
+                voice
+            )
+            return
+        }
+        runCatching { startActivity(intent) }
+            .onSuccess { model.localCompanionReply(raw, confirmation, voice) }
+            .onFailure {
+                model.localCompanionReply(
+                    raw,
+                    "Android a refusé d’ouvrir cette action.",
+                    voice
+                )
+            }
+    }
+
+    private fun spokenDuration(seconds: Int): String = when {
+        seconds % 3600 == 0 -> {
+            val hours = seconds / 3600
+            if (hours == 1) "une heure" else "$hours heures"
+        }
+        seconds % 60 == 0 -> {
+            val minutes = seconds / 60
+            if (minutes == 1) "une minute" else "$minutes minutes"
+        }
+        else -> if (seconds == 1) "une seconde" else "$seconds secondes"
     }
 
     private fun stopSpeechQuietly() {
