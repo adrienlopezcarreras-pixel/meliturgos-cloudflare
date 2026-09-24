@@ -136,14 +136,15 @@ test('signed Android release pipeline is secret-backed fail-closed and verifies 
 });
 
 
-test('Android 0.6.7 keeps the MEL techno core visible in empty conversation state',async()=>{
+test('Android 0.6.8 keeps the MINI-style MEL stage visible in empty conversation state',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
-  assert.match(activity,/private fun MelCoreVisual\(\)/);
-  assert.match(activity,/Text\(\s*"MEL"/);
-  assert.match(activity,/"READY"/);
-  assert.match(activity,/"VOICE · FILES · SYNC"/);
-  assert.match(activity,/"CORE SERVICES READY"/);
-  assert.match(activity,/item \{\s*MelCoreVisual\(\)\s*\}/);
+  assert.match(activity,/private fun MelCoreVisual\(faceState: MelFaceState, voiceLevel: Float\)/);
+  assert.match(activity,/"MINI \/\/ MEL"/);
+  assert.match(activity,/MelFaceState\.IDLE -> "PARLER"/);
+  assert.match(activity,/MelFaceState\.LISTENING -> "ÉCOUTE"/);
+  assert.match(activity,/MelFaceState\.THINKING -> "RÉFLEXION"/);
+  assert.match(activity,/MelFaceState\.SPEAKING -> "MEL"/);
+  assert.match(activity,/MelCoreVisual\(faceState, voiceLevel\)/);
 });
 
 test('Android 0.6.8 prefers on-device speech, exposes live level, and keeps speech errors explicit',async()=>{
