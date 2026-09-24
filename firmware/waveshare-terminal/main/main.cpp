@@ -45,9 +45,6 @@ static esp_lcd_panel_io_handle_t io_handle = nullptr;
 static esp_lcd_panel_handle_t panel_handle = nullptr;
 static esp_io_expander_handle_t expander_handle = nullptr;
 static esp_lcd_touch_handle_t touch_handle = nullptr;
-static lv_indev_t *touch_indev = nullptr;
-static lv_indev_drv_t touch_indev_drv;
-static bool touch_was_pressed = false;
 static lv_display_t *lvgl_disp = nullptr;
 static lv_obj_t *status_label = nullptr;
 static lv_obj_t *runtime_status_label = nullptr;
@@ -76,7 +73,6 @@ static lv_obj_t *wifi_keyboard = nullptr;
 static lv_obj_t *wifi_connect_btn = nullptr;
 static lv_obj_t *main_panel = nullptr;
 static lv_obj_t *settings_panel = nullptr;
-static lv_obj_t *settings_btn = nullptr;
 static volatile bool camera_probe_done = false;
 static lv_obj_t *settings_status = nullptr;
 static lv_obj_t *pair_panel = nullptr;
@@ -249,11 +245,13 @@ static void clock_timer_cb(lv_timer_t *) {
     time(&now);
     struct tm local_tm = {};
     localtime_r(&now, &local_tm);
+    if (local_tm.tm_year + 1900 < 2024) {
+        lv_label_set_text(time_label, "--:--");
+        return;
+    }
     char buf[8] = {};
-    if (local_tm.tm_year + 1900 < 2024) snprintf(buf, sizeof(buf), "--:--");
-    else strftime(buf, sizeof(buf), "%H:%M", &local_tm);
-    const char *current = lv_label_get_text(time_label);
-    if (!current || strcmp(current, buf) != 0) lv_label_set_text(time_label, buf);
+    strftime(buf, sizeof(buf), "%H:%M", &local_tm);
+    lv_label_set_text(time_label, buf);
 }
 
 static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void *data) {
@@ -308,17 +306,18 @@ static void mini_anim_cb(lv_timer_t *) {
     const bool online = mel_terminal_online();
     listening = state == MEL_TERMINAL_LISTENING;
 
-    // The portrait is intentionally static. Never re-apply x/y/zoom from this
-    // 250 ms timer: doing so invalidates a 320x320 image and can starve LVGL.
+    // Keep the portrait completely static. Moving the whole photo looked
+    // artificial; future animation should use dedicated facial frames instead.
+    if (avatar_obj) {
+        lv_obj_set_x(avatar_obj, 0);
+        lv_obj_set_y(avatar_obj, 0);
+        lv_img_set_zoom(avatar_obj, 256);
+    }
 
     if (talk_button) {
-        static int last_ring = -1;
         const int level = mel_terminal_voice_level();
         const int ring = state == MEL_TERMINAL_LISTENING ? (3 + (level * 5) / 100) : 3;
-        if (ring != last_ring) {
-            last_ring = ring;
-            lv_obj_set_style_border_width(talk_button, ring, 0);
-        }
+        lv_obj_set_style_border_width(talk_button, ring, 0);
     }
 
     if (state != last_face_state && talk_button) {
@@ -332,10 +331,11 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 
     if (talk_button) {
-        const bool should_enable = online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING);
-        const bool is_disabled = lv_obj_has_state(talk_button, LV_STATE_DISABLED);
-        if (should_enable && is_disabled) lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
-        else if (!should_enable && !is_disabled) lv_obj_add_state(talk_button, LV_STATE_DISABLED);
+        if (online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) {
+            lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
+        } else {
+            lv_obj_add_state(talk_button, LV_STATE_DISABLED);
+        }
     }
 
     if (state == MEL_TERMINAL_LISTENING) {
@@ -425,13 +425,11 @@ static void mini_apply_requested_view(void) {
     if (wifi_panel) lv_obj_add_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
     if (pair_panel) lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
     if (settings_panel) lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
-    if (settings_btn) lv_obj_add_flag(settings_btn, LV_OBJ_FLAG_HIDDEN);
     if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
     if (pair_keyboard) lv_obj_add_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
 
     if (active_view == MINI_VIEW_MAIN) {
         if (main_panel) lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
-        if (settings_btn) lv_obj_clear_flag(settings_btn, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
@@ -526,8 +524,8 @@ static void settings_refresh_status(void) {
 }
 
 static void settings_open_clicked(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_PRESSED) return;
-    ESP_LOGI(TAG, "UI BUTTON: SETTINGS PRESSED");
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ESP_LOGI(TAG, "UI BUTTON: SETTINGS");
     request_view(MINI_VIEW_SETTINGS);
 }
 
@@ -1236,31 +1234,6 @@ static void io_expander_init() {
     ESP_LOGI(TAG, "STEP 2 OK");
 }
 
-static void mini_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
-    (void)indev_drv;
-    uint16_t x[1] = {0};
-    uint16_t y[1] = {0};
-    uint8_t count = 0;
-    esp_lcd_touch_read_data(touch_handle);
-    const bool pressed = esp_lcd_touch_get_coordinates(touch_handle, x, y, nullptr, &count, 1);
-    if (pressed && count > 0) {
-        data->point.x = x[0];
-        data->point.y = y[0];
-        data->state = LV_INDEV_STATE_PRESSED;
-        if (!touch_was_pressed) {
-            ESP_LOGI(TAG, "TOUCH RAW x=%u y=%u", (unsigned)x[0], (unsigned)y[0]);
-            if (x[0] >= 240 && y[0] <= 90) {
-                ESP_LOGI(TAG, "TOUCH RAW -> SETTINGS");
-                request_view(MINI_VIEW_SETTINGS);
-            }
-        }
-        touch_was_pressed = true;
-    } else {
-        data->state = LV_INDEV_STATE_RELEASED;
-        touch_was_pressed = false;
-    }
-}
-
 static void lv_port_init() {
     ESP_LOGI(TAG, "STEP 5: LVGL");
     lvgl_port_cfg_t port_cfg = ESP_LVGL_PORT_INIT_CONFIG();
@@ -1290,12 +1263,11 @@ static void lv_port_init() {
 
     lvgl_disp = lvgl_port_add_disp(&display_cfg);
 
-    lv_indev_drv_init(&touch_indev_drv);
-    touch_indev_drv.type = LV_INDEV_TYPE_POINTER;
-    touch_indev_drv.disp = lvgl_disp;
-    touch_indev_drv.read_cb = mini_touch_read;
-    touch_indev = lv_indev_drv_register(&touch_indev_drv);
-    ESP_LOGI(TAG, "STEP 5 OK: direct FT6336 touch driver");
+    lvgl_port_touch_cfg_t touch_cfg = {};
+    touch_cfg.disp = lvgl_disp;
+    touch_cfg.handle = touch_handle;
+    lvgl_port_add_touch(&touch_cfg);
+    ESP_LOGI(TAG, "STEP 5 OK");
 }
 
 static void touch_cb(lv_event_t *e) {
@@ -1323,6 +1295,29 @@ static void mini_smoke_ui() {
     lv_obj_set_style_pad_all(main_panel, 0, 0);
     lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_SCROLLABLE);
 
+    lv_obj_t *wifi_indicator = lv_label_create(main_panel);
+    lv_label_set_text(wifi_indicator, LV_SYMBOL_WIFI);
+    lv_obj_set_style_text_color(wifi_indicator, lv_color_hex(0x22D3EE), 0);
+    lv_obj_align(wifi_indicator, LV_ALIGN_TOP_LEFT, 18, 20);
+
+    time_label = lv_label_create(main_panel);
+    lv_label_set_text(time_label, "--:--");
+    lv_obj_set_style_text_font(time_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(time_label, lv_color_hex(0xF8FAFC), 0);
+    lv_obj_align(time_label, LV_ALIGN_TOP_RIGHT, -66, 16);
+
+    lv_obj_t *settings_btn = lv_btn_create(main_panel);
+    lv_obj_set_size(settings_btn, 46, 40);
+    lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -10, 10);
+    lv_obj_set_style_radius(settings_btn, 12, 0);
+    lv_obj_set_style_bg_color(settings_btn, lv_color_hex(0x0B2238), 0);
+    lv_obj_set_style_border_width(settings_btn, 1, 0);
+    lv_obj_set_style_border_color(settings_btn, lv_color_hex(0x22D3EE), 0);
+    lv_obj_t *settings_icon = lv_label_create(settings_btn);
+    lv_label_set_text(settings_icon, LV_SYMBOL_SETTINGS);
+    lv_obj_center(settings_icon);
+    lv_obj_add_event_cb(settings_btn, settings_open_clicked, LV_EVENT_CLICKED, nullptr);
+
     runtime_status_label = lv_label_create(main_panel);
     lv_label_set_text(runtime_status_label, "");
     lv_obj_set_style_text_color(runtime_status_label, lv_color_hex(0x22D3EE), 0);
@@ -1333,17 +1328,15 @@ static void mini_smoke_ui() {
     // Canonical Mode Complet avatar, edge-to-edge and unframed.
     face_obj = lv_obj_create(main_panel);
     lv_obj_set_size(face_obj, 320, 320);
-    lv_obj_set_pos(face_obj, 0, 60);
+    lv_obj_set_pos(face_obj, 0, 50);
     lv_obj_set_style_bg_opa(face_obj, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(face_obj, 0, 0);
     lv_obj_set_style_pad_all(face_obj, 0, 0);
     lv_obj_clear_flag(face_obj, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(face_obj, LV_OBJ_FLAG_CLICKABLE);
 
     avatar_obj = lv_img_create(face_obj);
     lv_img_set_src(avatar_obj, &mel_avatar_mode_complet);
     lv_obj_set_pos(avatar_obj, 0, 0);
-    lv_obj_clear_flag(avatar_obj, LV_OBJ_FLAG_CLICKABLE);
 
     answer_label = lv_label_create(main_panel);
     lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
@@ -1369,45 +1362,9 @@ static void mini_smoke_ui() {
     lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(status_label);
 
-    // Stable header: opaque, entirely above the avatar (avatar begins at y=60),
-    // and created after the portrait so the original controls always remain visible.
-    lv_obj_t *header_bar = lv_obj_create(main_panel);
-    lv_obj_set_size(header_bar, 320, 60);
-    lv_obj_set_pos(header_bar, 0, 0);
-    lv_obj_set_style_bg_color(header_bar, lv_color_hex(0x07111F), 0);
-    lv_obj_set_style_bg_opa(header_bar, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(header_bar, 0, 0);
-    lv_obj_set_style_pad_all(header_bar, 0, 0);
-    lv_obj_clear_flag(header_bar, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *wifi_indicator = lv_label_create(header_bar);
-    lv_label_set_text(wifi_indicator, LV_SYMBOL_WIFI);
-    lv_obj_set_style_text_color(wifi_indicator, lv_color_hex(0x22D3EE), 0);
-    lv_obj_align(wifi_indicator, LV_ALIGN_LEFT_MID, 18, 0);
-
-    time_label = lv_label_create(header_bar);
-    lv_label_set_text(time_label, "--:--");
-    lv_obj_set_style_text_font(time_label, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(time_label, lv_color_hex(0xF8FAFC), 0);
-    lv_obj_align(time_label, LV_ALIGN_RIGHT_MID, -66, 0);
-
-    settings_btn = lv_btn_create(header_bar);
-    lv_obj_set_size(settings_btn, 46, 40);
-    lv_obj_align(settings_btn, LV_ALIGN_RIGHT_MID, -10, 0);
-    lv_obj_set_style_radius(settings_btn, 12, 0);
-    lv_obj_set_style_bg_color(settings_btn, lv_color_hex(0x0B2238), 0);
-    lv_obj_set_style_border_width(settings_btn, 1, 0);
-    lv_obj_set_style_border_color(settings_btn, lv_color_hex(0x22D3EE), 0);
-    lv_obj_t *settings_icon = lv_label_create(settings_btn);
-    lv_label_set_text(settings_icon, LV_SYMBOL_SETTINGS);
-    lv_obj_center(settings_icon);
-    lv_obj_clear_flag(settings_icon, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(settings_btn, settings_open_clicked, LV_EVENT_PRESSED, nullptr);
-
     wifi_ui_create(screen);
     pair_ui_create(screen);
     settings_ui_create(screen);
-
     mel_terminal_bind_external_ui(runtime_status_label, answer_label);
     anim_timer = lv_timer_create(mini_anim_cb, 250, nullptr);
     lv_timer_create(clock_timer_cb, 1000, nullptr);
@@ -1416,8 +1373,6 @@ static void mini_smoke_ui() {
 }
 
 static void mobile_bridge_watch_task(void *) {
-    // Start BLE as soon as OV5640 has reserved its contiguous DMA block.
-    // This preserves camera stability while avoiding the old fixed 6.5 s wait.
     ESP_LOGI(TAG, "MEL MOBILE: waiting only for camera DMA reservation");
     while (!camera_probe_done) vTaskDelay(pdMS_TO_TICKS(20));
     ESP_LOGI(TAG, "STEP 6.5: MEL MOBILE BLE starting immediately after camera DMA");
