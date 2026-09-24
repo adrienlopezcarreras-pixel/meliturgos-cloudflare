@@ -471,13 +471,16 @@ class MainActivity : ComponentActivity() {
 
 private const val MAX_FILE_BYTES = 25_000_000
 
-private val MelInk = Color(0xFFE6F7FF)
-private val MelMuted = Color(0xFF9FB5C8)
-private val MelCyan = Color(0xFF22D3EE)
-private val MelBlue = Color(0xFF2563EB)
-private val MelPanel = Color(0xE6122235)
-private val MelPanelSoft = Color(0xCC0B1B2A)
-private val MelDanger = Color(0xFFFF8A9A)
+private val MelInk = Color(0xFFF2F8FF)
+private val MelMuted = Color(0xFFA8B8CA)
+private val MelCyan = Color(0xFF39E7FF)
+private val MelBlue = Color(0xFF367CFF)
+private val MelViolet = Color(0xFF8B7CFF)
+private val MelSuccess = Color(0xFF59E6B1)
+private val MelPanel = Color(0xEA0B1726)
+private val MelPanelSoft = Color(0xD9142337)
+private val MelGlass = Color(0xB8142940)
+private val MelDanger = Color(0xFFFF879B)
 
 @Composable
 internal fun MelTheme(content: @Composable () -> Unit) {
@@ -527,7 +530,7 @@ internal fun MelApp(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color(0xFF06101D), Color(0xFF0A1F34), Color(0xFF05111C))
+                        listOf(Color(0xFF030912), Color(0xFF07192B), Color(0xFF080E1D))
                     )
                 )
         ) {
@@ -609,38 +612,48 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(24.dp),
+            .padding(horizontal = 22.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        MelAvatar(92, online = false)
+        StatusPill("APPAREIL PRIVÉ", MelViolet)
+        Spacer(Modifier.height(18.dp))
+        MelAvatar(104, online = false)
         Spacer(Modifier.height(14.dp))
-        Text("MEL", color = MelInk, fontSize = 34.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
-        Text("Intelligence personnelle · interface Android native", color = MelMuted, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(26.dp))
+        Text("MEL", color = MelInk, fontSize = 38.sp, fontWeight = FontWeight.Black, letterSpacing = 5.sp)
+        Text(
+            "Ton intelligence personnelle, partout avec toi.",
+            color = MelMuted,
+            fontSize = 15.sp,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(24.dp))
 
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MelPanel, contentColor = MelInk),
-            shape = RoundedCornerShape(24.dp)
+            border = BorderStroke(1.dp, MelCyan.copy(alpha = .18f)),
+            shape = RoundedCornerShape(28.dp)
         ) {
             Column(Modifier.padding(20.dp)) {
-                Text("Connexion sécurisée", color = MelInk, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
+                Text("Connexion à MEL", color = MelInk, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(5.dp))
                 Text(
-                    "Le mot de passe sert uniquement à associer ce téléphone. Il n’est jamais enregistré.",
+                    "Association sécurisée de ce téléphone. Ton mot de passe n’est jamais conservé.",
                     color = MelMuted,
-                    lineHeight = 20.sp
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp
                 )
                 Spacer(Modifier.height(18.dp))
                 OutlinedTextField(
                     value = user,
                     onValueChange = { user = it },
                     modifier = Modifier.fillMaxWidth().testTag("login-user"),
-                    label = { Text("Utilisateur MEL (optionnel)") },
-                    singleLine = true
+                    label = { Text("Utilisateur (optionnel)") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(18.dp)
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(11.dp))
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
@@ -648,6 +661,7 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
                     label = { Text("Mot de passe MEL") },
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
+                    shape = RoundedCornerShape(18.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = {
                         focus.clearFocus()
@@ -658,22 +672,37 @@ private fun LoginScreen(state: MelUiState, onLogin: (String, String) -> Unit) {
                     })
                 )
                 if (!state.error.isNullOrBlank()) {
-                    Spacer(Modifier.height(12.dp))
-                    Text(state.error, color = MelDanger)
+                    Spacer(Modifier.height(10.dp))
+                    Surface(
+                        color = MelDanger.copy(alpha = .10f),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, MelDanger.copy(alpha = .28f))
+                    ) {
+                        Text(state.error, modifier = Modifier.padding(11.dp), color = MelDanger, fontSize = 12.sp)
+                    }
                 }
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(16.dp))
                 Button(
                     onClick = {
                         focus.clearFocus()
                         onLogin(user, password)
                         password = ""
                     },
-                    modifier = Modifier.fillMaxWidth().testTag("login-submit"),
+                    modifier = Modifier.fillMaxWidth().height(54.dp).testTag("login-submit"),
                     enabled = !state.busy && password.isNotBlank(),
-                    shape = RoundedCornerShape(14.dp)
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MelCyan, contentColor = Color(0xFF001419))
                 ) {
-                    Text(if (state.busy) "Connexion…" else "Connecter ce téléphone")
+                    Text(if (state.busy) "Connexion…" else "Entrer dans MEL", fontWeight = FontWeight.Bold)
                 }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Jeton local protégé par Android Keystore",
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MelMuted,
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center
+                )
             }
         }
     }
@@ -689,9 +718,9 @@ private fun LoadingScreen(label: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        MelAvatar(68, online = false)
+        MelAvatar(82, online = false)
         Spacer(Modifier.height(20.dp))
-        CircularProgressIndicator()
+        CircularProgressIndicator(color = MelCyan)
         Spacer(Modifier.height(16.dp))
         Text(label.ifBlank { "Connexion à MEL…" }, color = MelMuted)
     }
@@ -712,14 +741,42 @@ private fun SessionErrorScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        MelAvatar(68, online = false)
+        MelAvatar(82, online = false)
         Spacer(Modifier.height(20.dp))
-        Text("MEL est momentanément inaccessible", color = MelInk, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Text(
+            "MEL est momentanément inaccessible",
+            color = MelInk,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
         Spacer(Modifier.height(8.dp))
         Text(state.error ?: state.status, color = MelMuted, textAlign = TextAlign.Center)
         Spacer(Modifier.height(20.dp))
-        Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text("Réessayer") }
+        Button(
+            onClick = onRetry,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(17.dp)
+        ) { Text("Réessayer") }
         TextButton(onClick = onReset) { Text("Réassocier le téléphone") }
+    }
+}
+
+@Composable
+private fun StatusPill(label: String, accent: Color = MelSuccess) {
+    Surface(
+        color = accent.copy(alpha = .10f),
+        contentColor = accent,
+        border = BorderStroke(1.dp, accent.copy(alpha = .26f)),
+        shape = CircleShape
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp
+        )
     }
 }
 
@@ -743,6 +800,7 @@ private fun ConversationScreen(
     onBackgroundProbe: () -> Unit
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
+    var toolsExpanded by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val focus = LocalFocusManager.current
 
@@ -762,20 +820,33 @@ private fun ConversationScreen(
             .navigationBarsPadding()
             .imePadding(),
         topBar = {
-            Surface(color = Color(0xCC071523), contentColor = MelInk) {
+            Surface(
+                color = Color(0xE605111F),
+                contentColor = MelInk,
+                border = BorderStroke(0.5.dp, MelCyan.copy(alpha = .10f))
+            ) {
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    MelAvatar(48, online = true)
-                    Spacer(Modifier.width(11.dp))
+                    MelAvatar(46, online = true)
+                    Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("MEL", color = MelInk, fontWeight = FontWeight.Black, fontSize = 20.sp, letterSpacing = 2.sp)
-                        Text(state.status.ifBlank { "Connectée" }, color = MelMuted, fontSize = 12.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("MEL", color = MelInk, fontWeight = FontWeight.Black, fontSize = 21.sp, letterSpacing = 2.sp)
+                            Spacer(Modifier.width(8.dp))
+                            StatusPill("EN LIGNE")
+                        }
+                        Text(
+                            state.status.ifBlank { "Prête" },
+                            color = MelMuted,
+                            fontSize = 11.sp,
+                            maxLines = 1
+                        )
                     }
-                    TextButton(onClick = onDisconnect) { Text("Déconnexion") }
+                    TextButton(onClick = onDisconnect) { Text("Quitter", color = MelMuted) }
                 }
             }
         }
@@ -784,22 +855,16 @@ private fun ConversationScreen(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 14.dp)
+                .padding(horizontal = 12.dp)
         ) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             ModeSelector(state.mode, state.busy, onMode)
-            Spacer(Modifier.height(9.dp))
-            Text(
-                if (state.mode == MelMode.NORMAL)
-                    "Mode Normal · conversation simple, rapide et lisible."
-                else
-                    "Mode Complet · conversation + synchronisation et contrôles avancés.",
-                color = MelMuted,
-                fontSize = 13.sp
-            )
+
             if (state.mode == MelMode.COMPLETE) {
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 CompletePanel(
+                    expanded = toolsExpanded,
+                    onToggle = { toolsExpanded = !toolsExpanded },
                     busy = state.busy,
                     diagnosticReport = state.diagnosticReport,
                     onSync = onSync,
@@ -812,8 +877,8 @@ private fun ConversationScreen(
                     onBackgroundProbe = onBackgroundProbe
                 )
             }
-            Spacer(Modifier.height(10.dp))
 
+            Spacer(Modifier.height(8.dp))
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -823,136 +888,201 @@ private fun ConversationScreen(
             ) {
                 if (state.messages.isEmpty()) {
                     item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MelPanelSoft, contentColor = MelInk),
-                            shape = RoundedCornerShape(20.dp)
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MelGlass,
+                            border = BorderStroke(1.dp, MelViolet.copy(alpha = .18f)),
+                            shape = RoundedCornerShape(24.dp)
                         ) {
-                            Column(Modifier.padding(18.dp)) {
-                                Text(
-                                    if (state.mode == MelMode.NORMAL) "Bonjour Adrien." else "Mode complet actif.",
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(Modifier.height(5.dp))
-                                Text(
-                                    if (state.mode == MelMode.NORMAL)
-                                        "Écris ou utilise le micro pour parler à MEL."
-                                    else
-                                        "Le mode complet conserve le même dialogue et ajoute les fonctions avancées.",
-                                    color = MelMuted
-                                )
+                            Row(
+                                Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                MelAvatar(54, online = true)
+                                Spacer(Modifier.width(13.dp))
+                                Column {
+                                    Text(
+                                        "Bonjour Adrien.",
+                                        color = MelInk,
+                                        fontSize = 19.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(Modifier.height(3.dp))
+                                    Text(
+                                        if (state.mode == MelMode.NORMAL)
+                                            "Écris-moi ou appuie sur Micro pour me parler."
+                                        else
+                                            "Je suis prête. Les outils avancés restent disponibles sans encombrer la conversation.",
+                                        color = MelMuted,
+                                        fontSize = 13.sp,
+                                        lineHeight = 18.sp
+                                    )
+                                }
                             }
                         }
                     }
                 }
+
                 itemsIndexed(state.messages) { _, message ->
                     MessageBubble(message)
                 }
+
                 if (state.busy) {
                     item {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(9.dp))
-                            Text(state.status, color = MelMuted, fontSize = 13.sp)
+                        Surface(
+                            color = MelPanelSoft,
+                            shape = RoundedCornerShape(18.dp),
+                            border = BorderStroke(1.dp, MelCyan.copy(alpha = .12f))
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 13.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(17.dp), strokeWidth = 2.dp, color = MelCyan)
+                                Spacer(Modifier.width(9.dp))
+                                Text(state.status, color = MelMuted, fontSize = 12.sp)
+                            }
                         }
                     }
                 }
             }
 
             if (!state.error.isNullOrBlank()) {
-                Text(
-                    state.error,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 7.dp),
-                    color = MelDanger,
-                    fontSize = 13.sp
-                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    color = MelDanger.copy(alpha = .10f),
+                    border = BorderStroke(1.dp, MelDanger.copy(alpha = .22f)),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(state.error, modifier = Modifier.padding(10.dp), color = MelDanger, fontSize = 12.sp)
+                }
             }
 
-            Text(voiceMessage, color = if (recording) MelCyan else MelMuted, fontSize = 12.sp)
-            Spacer(Modifier.height(6.dp))
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                modifier = Modifier.fillMaxWidth().testTag("message-input"),
-                label = { Text("Message à MEL") },
-                minLines = 2,
-                maxLines = 6,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = {
-                    if (draft.isNotBlank() && !state.busy) {
-                        val outgoing = draft
-                        draft = ""
-                        focus.clearFocus()
-                        onSend(outgoing)
-                    }
-                })
-            )
             Spacer(Modifier.height(8.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = Color(0xF20A1625),
+                border = BorderStroke(1.dp, if (recording) MelCyan.copy(alpha = .55f) else Color.White.copy(alpha = .10f)),
+                shape = RoundedCornerShape(26.dp)
             ) {
-                OutlinedButton(
-                    onClick = onFile,
-                    modifier = Modifier.weight(.28f).testTag("file-button"),
-                    enabled = !state.busy
-                ) {
-                    Text("Fichier")
-                }
-                OutlinedButton(
-                    onClick = onVoice,
-                    modifier = Modifier.weight(.28f).testTag("micro-button"),
-                    enabled = !state.busy || recording
-                ) {
-                    Text(if (recording) "Arrêter" else "Micro")
-                }
-                Button(
-                    onClick = {
-                        if (draft.isNotBlank()) {
-                            val outgoing = draft
-                            draft = ""
-                            focus.clearFocus()
-                            onSend(outgoing)
+                Column(Modifier.padding(10.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        StatusPill(if (recording) "MICRO ACTIF" else "MICRO ANDROID", if (recording) MelCyan else MelViolet)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            voiceMessage,
+                            modifier = Modifier.weight(1f),
+                            color = if (recording) MelCyan else MelMuted,
+                            fontSize = 11.sp,
+                            maxLines = 1
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        modifier = Modifier.fillMaxWidth().testTag("message-input"),
+                        placeholder = { Text("Écris à MEL…") },
+                        minLines = 1,
+                        maxLines = 4,
+                        shape = RoundedCornerShape(18.dp),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = {
+                            if (draft.isNotBlank() && !state.busy) {
+                                val outgoing = draft
+                                draft = ""
+                                focus.clearFocus()
+                                onSend(outgoing)
+                            }
+                        })
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onFile,
+                            modifier = Modifier.weight(.27f).height(48.dp).testTag("file-button"),
+                            enabled = !state.busy,
+                            shape = RoundedCornerShape(16.dp)
+                        ) { Text("Fichier") }
+
+                        Button(
+                            onClick = onVoice,
+                            modifier = Modifier.weight(.30f).height(48.dp).testTag("micro-button"),
+                            enabled = !state.busy || recording,
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (recording) MelDanger else MelCyan,
+                                contentColor = Color(0xFF001419)
+                            )
+                        ) {
+                            Text(if (recording) "Arrêter" else "Micro", fontWeight = FontWeight.Bold)
                         }
-                    },
-                    modifier = Modifier.weight(.44f).testTag("send-button"),
-                    enabled = draft.isNotBlank() && !state.busy,
-                    colors = ButtonDefaults.buttonColors(containerColor = MelBlue)
-                ) {
-                    Text("Envoyer")
+
+                        Button(
+                            onClick = {
+                                if (draft.isNotBlank()) {
+                                    val outgoing = draft
+                                    draft = ""
+                                    focus.clearFocus()
+                                    onSend(outgoing)
+                                }
+                            },
+                            modifier = Modifier.weight(.43f).height(48.dp).testTag("send-button"),
+                            enabled = draft.isNotBlank() && !state.busy,
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MelBlue)
+                        ) {
+                            Text("Envoyer", fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
 
 @Composable
 private fun ModeSelector(mode: MelMode, busy: Boolean, onMode: (MelMode) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MelPanelSoft,
+        border = BorderStroke(1.dp, Color.White.copy(alpha = .08f)),
+        shape = RoundedCornerShape(20.dp)
     ) {
-        MelMode.entries.forEach { item ->
-            if (item == mode) {
-                Button(
-                    onClick = { onMode(item) },
-                    modifier = Modifier.weight(1f).testTag("mode-${item.wireValue}"),
-                    enabled = !busy,
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text(item.label, fontWeight = FontWeight.Bold)
-                }
-            } else {
-                OutlinedButton(
-                    onClick = { onMode(item) },
-                    modifier = Modifier.weight(1f).testTag("mode-${item.wireValue}"),
-                    enabled = !busy,
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text(item.label)
+        Row(
+            Modifier.padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            MelMode.entries.forEach { item ->
+                if (item == mode) {
+                    Button(
+                        onClick = { onMode(item) },
+                        modifier = Modifier.weight(1f).height(44.dp).testTag("mode-${item.wireValue}"),
+                        enabled = !busy,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (item == MelMode.NORMAL) MelBlue else MelViolet,
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text(item.label, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    TextButton(
+                        onClick = { onMode(item) },
+                        modifier = Modifier.weight(1f).height(44.dp).testTag("mode-${item.wireValue}"),
+                        enabled = !busy,
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(item.label, color = MelMuted)
+                    }
                 }
             }
         }
@@ -961,6 +1091,8 @@ private fun ModeSelector(mode: MelMode, busy: Boolean, onMode: (MelMode) -> Unit
 
 @Composable
 private fun CompletePanel(
+    expanded: Boolean,
+    onToggle: () -> Unit,
     busy: Boolean,
     diagnosticReport: String?,
     onSync: () -> Unit,
@@ -974,108 +1106,127 @@ private fun CompletePanel(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().testTag("complete-panel"),
-        colors = CardDefaults.cardColors(containerColor = Color(0xB30C2940), contentColor = MelInk),
-        shape = RoundedCornerShape(18.dp)
+        colors = CardDefaults.cardColors(containerColor = MelGlass, contentColor = MelInk),
+        border = BorderStroke(1.dp, MelViolet.copy(alpha = .20f)),
+        shape = RoundedCornerShape(22.dp)
     ) {
-        Column(
-            Modifier
-                .heightIn(max = 340.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(11.dp)
-        ) {
-            Text("Contrôles complets", color = MelInk, fontWeight = FontWeight.Bold)
-            Text(
-                "Synchronisation multi-surface et accès au centre de contrôle Professor.",
-                color = MelMuted,
-                fontSize = 12.sp
-            )
-            Spacer(Modifier.height(9.dp))
+        Column(Modifier.padding(13.dp)) {
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedButton(
-                    onClick = onSync,
-                    enabled = !busy,
-                    modifier = Modifier.weight(1f)
-                ) { Text("Synchroniser") }
-                Button(
-                    onClick = onProfessor,
-                    enabled = !busy,
-                    modifier = Modifier.weight(1f)
-                ) { Text("Professor") }
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = onNotifications,
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Activer notifications arrière-plan")
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Validation téléphone",
-                color = MelInk,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onNormalProbe,
-                    enabled = !busy,
-                    modifier = Modifier.weight(1f)
-                ) { Text("Tester Normal") }
-                OutlinedButton(
-                    onClick = onFileProbe,
-                    enabled = !busy,
-                    modifier = Modifier.weight(1f)
-                ) { Text("Tester fichier") }
-            }
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = onBackgroundProbe,
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Tester arrière-plan") }
-            Text(
-                "Micro : utilise le bouton Micro puis parle quelques secondes pour valider le matériel réel.",
-                color = MelMuted,
-                fontSize = 11.sp
-            )
-            Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = onDiagnostics,
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Lancer auto-diagnostic")
-            }
-            if (!diagnosticReport.isNullOrBlank()) {
-                Spacer(Modifier.height(10.dp))
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = Color(0x99102131),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Mode Complet", color = MelInk, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     Text(
-                        diagnosticReport,
-                        modifier = Modifier.padding(12.dp),
-                        color = MelInk,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp
+                        "Synchronisation, Professor et diagnostic",
+                        color = MelMuted,
+                        fontSize = 11.sp
                     )
                 }
-                Spacer(Modifier.height(8.dp))
                 OutlinedButton(
-                    onClick = { onCopyDiagnostic(diagnosticReport) },
-                    modifier = Modifier.fillMaxWidth()
+                    onClick = onToggle,
+                    enabled = !busy,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.testTag("tools-toggle")
                 ) {
-                    Text("Copier diagnostic")
+                    Text(if (expanded) "Masquer" else "Ouvrir les outils")
+                }
+            }
+
+            if (expanded) {
+                Spacer(Modifier.height(10.dp))
+                Column(
+                    Modifier
+                        .heightIn(max = 300.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text("Contrôles complets", color = MelInk, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Spacer(Modifier.height(7.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onSync,
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp)
+                        ) { Text("Synchroniser") }
+                        Button(
+                            onClick = onProfessor,
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MelViolet)
+                        ) { Text("Professor") }
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    OutlinedButton(
+                        onClick = onNotifications,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp)
+                    ) { Text("Notifications arrière-plan") }
+
+                    Spacer(Modifier.height(10.dp))
+                    Text("Validation téléphone", color = MelInk, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onNormalProbe,
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp)
+                        ) { Text("Tester Normal") }
+                        OutlinedButton(
+                            onClick = onFileProbe,
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(14.dp)
+                        ) { Text("Tester fichier") }
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    OutlinedButton(
+                        onClick = onBackgroundProbe,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp)
+                    ) { Text("Tester arrière-plan") }
+                    Spacer(Modifier.height(7.dp))
+                    Button(
+                        onClick = onDiagnostics,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MelBlue)
+                    ) { Text("Lancer auto-diagnostic") }
+
+                    if (!diagnosticReport.isNullOrBlank()) {
+                        Spacer(Modifier.height(9.dp))
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Color(0xB30A1625),
+                            border = BorderStroke(1.dp, MelCyan.copy(alpha = .14f)),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Text(
+                                diagnosticReport,
+                                modifier = Modifier.padding(11.dp),
+                                color = MelInk,
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp
+                            )
+                        }
+                        Spacer(Modifier.height(7.dp))
+                        OutlinedButton(
+                            onClick = { onCopyDiagnostic(diagnosticReport) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(14.dp)
+                        ) { Text("Copier diagnostic") }
+                    }
                 }
             }
         }
@@ -1090,25 +1241,29 @@ private fun MessageBubble(message: MelChatMessage) {
         horizontalArrangement = if (user) Arrangement.End else Arrangement.Start
     ) {
         Surface(
-            color = if (user) Color(0xFF173B63) else Color(0xE6122235),
-            shape = RoundedCornerShape(
-                topStart = 18.dp,
-                topEnd = 18.dp,
-                bottomStart = if (user) 18.dp else 5.dp,
-                bottomEnd = if (user) 5.dp else 18.dp
+            color = if (user) Color(0xE621436E) else MelPanel,
+            border = BorderStroke(
+                1.dp,
+                if (user) MelBlue.copy(alpha = .18f) else MelCyan.copy(alpha = .14f)
             ),
-            tonalElevation = 2.dp,
-            modifier = Modifier.fillMaxWidth(.88f)
+            shape = RoundedCornerShape(
+                topStart = 20.dp,
+                topEnd = 20.dp,
+                bottomStart = if (user) 20.dp else 6.dp,
+                bottomEnd = if (user) 6.dp else 20.dp
+            ),
+            modifier = Modifier.fillMaxWidth(.90f)
         ) {
             Column(Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
                 Text(
                     if (user) if (message.voice) "Adrien · voix" else "Adrien" else "MEL",
-                    color = if (user) Color(0xFFBEE3FF) else MelCyan,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
+                    color = if (user) Color(0xFFC8E4FF) else MelCyan,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = .5.sp
                 )
                 Spacer(Modifier.height(3.dp))
-                Text(message.text, color = MelInk, lineHeight = 20.sp)
+                Text(message.text, color = MelInk, lineHeight = 20.sp, fontSize = 14.sp)
             }
         }
     }
