@@ -1415,11 +1415,16 @@ private fun MelCoreVisual() {
                 )
             }
         }
-        HudLabel(
-            primary = "VOICE · FILES · SYNC",
-            secondary = "CORE SERVICES READY",
-            accent = MelCyan
-        )
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            HudLabel(
+                primary = "VOICE · FILES · SYNC",
+                secondary = "CORE SERVICES READY",
+                accent = MelCyan
+            )
+        }
     }
 }
 
