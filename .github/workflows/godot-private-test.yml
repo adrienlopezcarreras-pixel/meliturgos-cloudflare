@@ -1,5 +1,5 @@
 name: Godot private five-game test
-# unified gamedev runtime run 61 c621-contract-fix
+# unified gamedev runtime run 62 c621-contract-fix2
 
 on:
   push:
@@ -206,18 +206,17 @@ jobs:
             c615_rc=$?
             "$GODOT" --headless --path "$proj" --script "res://tests/visual_assets_c620_test.gd" > "/tmp/${name}-c620-test.log" 2>&1
             c620_rc=$?
-            cat > "$proj/tests/ui_assets_c621_test.gd" <<'GDSCRIPT'
-            extends SceneTree
-            func _init() -> void:
-                var top = load("res://art/c621/hud_top.svg")
-                var bottom = load("res://art/c621/hud_bottom.svg")
-                if top == null or bottom == null:
-                    print("UI_ASSETS_C621_FAIL")
-                    quit(1)
-                    return
-                print("UI_ASSETS_C621_PASS")
-                quit(0)
-            GDSCRIPT
+            printf '%s\n' \
+              'extends SceneTree' \
+              'func _init() -> void:' \
+              '    var top = load("res://art/c621/hud_top.svg")' \
+              '    var bottom = load("res://art/c621/hud_bottom.svg")' \
+              '    if top == null or bottom == null:' \
+              '        print("UI_ASSETS_C621_FAIL")' \
+              '        quit(1)' \
+              '        return' \
+              '    print("UI_ASSETS_C621_PASS")' \
+              '    quit(0)' > "$proj/tests/ui_assets_c621_test.gd"
             "$GODOT" --headless --path "$proj" --script "res://tests/ui_assets_c621_test.gd" > "/tmp/${name}-c621-test.log" 2>&1
             c621_rc=$?
             cat "/tmp/${name}-save-test.log"
