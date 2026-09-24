@@ -298,6 +298,46 @@ test('Android natural current-information question automatically uses public Int
   }finally{DB.close();}
 });
 
+test('Android nearby-information question uses web research and only an approximate network location hint',async()=>{
+  const DB=sqliteD1();
+  try{
+    const webCalls=[];
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'test',
+      MEL_WEB_MIN_INTERVAL_MS:0,
+      MEL_WEB_FETCH:async url=>{
+        webCalls.push(String(url));
+        return new Response(
+          '<html><head><title>Pharmacie proche</title><meta name="description" content="Pharmacie ouverte à proximité"></head><body>ouverte</body></html>',
+          {status:200,headers:{'content-type':'text/html; charset=utf-8'}}
+        );
+      },
+      AI:{async run(){ return {response:'J’ai trouvé des pharmacies proches dans la zone approximative.'}; }}
+    };
+    const paired=await pair(env,'android-nearby');
+    const headers=deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'});
+    const request=new Request('https://mel.test/api/android/v1/chat',{
+      method:'POST',
+      headers,
+      body:JSON.stringify({text:'Trouve une pharmacie près de moi',conversation_id:'android-nearby-conv'})
+    });
+    Object.defineProperty(request,'cf',{
+      value:{city:'Nîmes',region:'Occitanie',country:'FR'},
+      configurable:true
+    });
+    const response=await worker.fetch(request,env);
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.match(body.text,/pharmacies proches/i);
+    assert.equal(webCalls.length,2);
+    const combined=decodeURIComponent(webCalls.join('\n'));
+    assert.match(combined,/pharmacie près de moi/i);
+    assert.match(combined,/zone réseau approximative: Nîmes, Occitanie, FR/i);
+  }finally{DB.close();}
+});
+
 test('Android companion route exposes paired MINI status to the phone without owner credentials',async()=>{
   const DB=sqliteD1();
   try{

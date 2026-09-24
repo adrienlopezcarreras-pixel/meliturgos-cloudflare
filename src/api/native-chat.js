@@ -503,15 +503,20 @@ export async function runNativeInference({ env, messages, text, parallel = false
   }, { source: 'native-chat', inference_settings: inferenceSettings || null });
 }
 
-function inferDirectCurrentWebCapability(text) {
+function inferDirectCurrentWebCapability(text, intentContext = {}) {
   const value = String(text || '').trim();
   if (!value) return null;
   if (/\b(?:mes\s+(?:mails?|emails?|fichiers?|documents?|photos?|messages?|contacts?|calendriers?|agendas?)|gmail|outlook|onedrive|google\s+drive|agenda|calendrier)\b/i.test(value)) return null;
 
   const currentInfo = /\b(?:m[ée]t[ée]o|quel\s+temps|temp[ée]rature|pluie|vent|pr[ée]visions?|actualit[ée]s?|news|aujourd['’]hui|demain|ce\s+soir|maintenant|actuellement|en\s+ce\s+moment|derni[eè]res?\s+(?:infos?|nouvelles?|donn[ée]es?)|latest|r[ée]cent(?:e|es|s)?|prix|tarif|cours|cotation|bourse|bitcoin|crypto|taux\s+de\s+change|horaires?|ouvert|ouverte|fermeture|trafic|score|r[ée]sultat|classement|programme|disponibilit[ée]|disponible|date\s+de\s+sortie|pr[ée]sident\s+actuel|ministre\s+actuel|maire\s+actuel|pdg\s+actuel|ceo\s+actuel)\b/i.test(value);
-  if (!currentInfo) return null;
+  const nearbyInfo = /\b(?:pr[eè]s\s+de\s+moi|proche\s+de\s+moi|[àa]\s+proximit[ée]|aux\s+alentours|le\s+plus\s+proche|la\s+plus\s+proche|restaurants?|pizzerias?|pharmacies?|caf[ée]s?|stations?\s+service|supermarch[ée]s?|magasins?)\b/i.test(value);
+  if (!currentInfo && !nearbyInfo) return null;
 
-  return { id: 'web.research', input: { query: value.slice(0, 2000), depth: 2 } };
+  const approximateLocation = String(intentContext?.approximate_location || '').trim().slice(0, 240);
+  const query = nearbyInfo && approximateLocation
+    ? `${value} — zone réseau approximative: ${approximateLocation}`
+    : value;
+  return { id: 'web.research', input: { query: query.slice(0, 2000), depth: 2 } };
 }
 
 export async function handleNativeChat(request, env, options = {}) {
@@ -562,7 +567,7 @@ export async function handleNativeChat(request, env, options = {}) {
     ? inferNativeCodeCapability(text, [])
     : inferNativeComputerCapability(text)
       || (!personalProfileIntent ? inferChatGPTHistoryCapability(text) : null)
-      || inferDirectCurrentWebCapability(text)
+      || inferDirectCurrentWebCapability(text, body.intent_context || {})
       || inferKnowledgeCapability(text)
       || inferNativeCodeCapability(text, recent);
   if (conversationFocus.needs_clarification && !body.capability?.id && !inferredCapability) {
