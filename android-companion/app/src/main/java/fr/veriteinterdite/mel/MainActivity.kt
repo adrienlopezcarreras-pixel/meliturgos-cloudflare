@@ -369,11 +369,8 @@ class MainActivity : ComponentActivity() {
 
     private fun startNativeSpeech() {
         stopSpeechQuietly()
-        val onDevice = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
         val recognizer = runCatching {
-            if (onDevice) SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
-            else SpeechRecognizer.createSpeechRecognizer(this)
+            SpeechRecognizer.createSpeechRecognizer(this)
         }.getOrNull()
         if (recognizer == null) {
             startRecorderFallback("Reconnaissance Android indisponible · secours serveur")
@@ -383,7 +380,7 @@ class MainActivity : ComponentActivity() {
         nativeSpeechListening = true
         recording.value = true
         voiceLevel.value = .08f
-        voiceMessage.value = if (onDevice) "J’écoute · moteur local" else "J’écoute · moteur système"
+        voiceMessage.value = "J’écoute · français système"
 
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
@@ -406,7 +403,13 @@ class MainActivity : ComponentActivity() {
 
             override fun onError(error: Int) {
                 stopSpeechQuietly()
-                voiceMessage.value = speechErrorMessage(error)
+                if (error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
+                    error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
+                ) {
+                    startRecorderFallback("Français Android indisponible · secours MEL")
+                } else {
+                    voiceMessage.value = speechErrorMessage(error)
+                }
             }
 
             override fun onResults(results: Bundle?) {
@@ -440,6 +443,7 @@ class MainActivity : ComponentActivity() {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.FRENCH.toLanguageTag())
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, Locale.FRENCH.toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
@@ -2168,4 +2172,4 @@ private fun MessageBubble(message: MelChatMessage) {
     }
 }
 
-// VISUAL_SHELL: 0.6.9-mini-reference-refined
+// VISUAL_SHELL: 0.6.10-mini-reference-voice-fallback
