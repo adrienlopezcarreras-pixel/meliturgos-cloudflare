@@ -1100,6 +1100,7 @@ private fun ConversationScreen(
         }
 
         MiniReferenceTopBar(
+            modifier = Modifier.align(Alignment.TopCenter),
             time = clock,
             mode = state.mode,
             onHome = { section = MobileSection.MEL },
@@ -1108,6 +1109,7 @@ private fun ConversationScreen(
 
         if (settingsOpen) {
             MiniSettingsPanel(
+                modifier = Modifier.align(Alignment.TopEnd),
                 state = state,
                 onClose = { settingsOpen = false },
                 onMode = onMode,
@@ -1143,13 +1145,14 @@ private fun SectionSurface(
 
 @Composable
 private fun MiniReferenceTopBar(
+    modifier: Modifier = Modifier,
     time: String,
     mode: MelMode,
     onHome: () -> Unit,
     onSettings: () -> Unit
 ) {
     Surface(
-        modifier = Modifier.align(Alignment.TopCenter),
+        modifier = modifier,
         color = Color(0x8A020914),
         border = BorderStroke(.5.dp, MelCyan.copy(alpha = .16f))
     ) {
@@ -1196,6 +1199,7 @@ private fun MiniReferenceTopBar(
 
 @Composable
 private fun MiniSettingsPanel(
+    modifier: Modifier = Modifier,
     state: MelUiState,
     onClose: () -> Unit,
     onMode: (MelMode) -> Unit,
@@ -1203,8 +1207,7 @@ private fun MiniSettingsPanel(
     onDisconnect: () -> Unit
 ) {
     Surface(
-        modifier = Modifier
-            .align(Alignment.TopEnd)
+        modifier = modifier
             .padding(top = 66.dp, end = 10.dp)
             .width(304.dp)
             .heightIn(max = 620.dp)
