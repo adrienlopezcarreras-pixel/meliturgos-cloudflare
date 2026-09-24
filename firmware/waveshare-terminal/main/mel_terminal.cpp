@@ -912,6 +912,7 @@ static void stt_test_task(void *) {
         if (g_stt_test_cb) g_stt_test_cb(msg.c_str());
     }
     g_runtime_state = MEL_TERMINAL_IDLE;
+    g_voice_stop_requested = false;
     g_stt_test_task_handle = nullptr;
     vTaskDelete(nullptr);
 }
@@ -927,9 +928,15 @@ void mel_terminal_test_stt(mel_terminal_test_status_cb_t cb) {
         return;
     }
     if (g_stt_test_task_handle) {
-        if (g_stt_test_cb) g_stt_test_cb("VOIX/STT : test deja en cours...");
+        if (g_runtime_state == MEL_TERMINAL_LISTENING) {
+            g_voice_stop_requested = true;
+            if (g_stt_test_cb) g_stt_test_cb("VOIX/STT : STOP -> transcription...");
+        } else if (g_stt_test_cb) {
+            g_stt_test_cb("VOIX/STT : transcription deja en cours...");
+        }
         return;
     }
+    g_voice_stop_requested = false;
     xTaskCreatePinnedToCore(stt_test_task, "mel_stt_test", 12288, nullptr, 5, &g_stt_test_task_handle, 0);
 }
 
