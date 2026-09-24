@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.12"
+        const val APP_VERSION = "0.6.13"
     }
 
     init {
@@ -186,6 +186,7 @@ class MelApiClient(
                 .put("ui_mode", mode)
                 .put("ui_theme", "futuristic")
                 .put("input_source", if (voice) "voice-server-transcription" else "text")
+                .put("voice_reply", voice)
         )
     }
 
@@ -238,6 +239,8 @@ class MelApiClient(
     fun tts(text: String, speaker: String = "luna"): ByteArray {
         require(text.isNotBlank()) { "TEXT_REQUIRED" }
         val connection = connection("/api/android/v1/voice/tts", "POST")
+        connection.connectTimeout = 4_000
+        connection.readTimeout = 7_000
         connection.doOutput = true
         connection.setRequestProperty("Accept", "application/octet-stream")
         connection.setRequestProperty("Content-Type", "application/json")
