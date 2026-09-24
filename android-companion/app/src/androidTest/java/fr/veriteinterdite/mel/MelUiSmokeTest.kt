@@ -3,7 +3,6 @@ package fr.veriteinterdite.mel
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -19,18 +18,18 @@ class MelUiSmokeTest {
     val compose = createAndroidComposeRule<MelUiHarnessActivity>()
 
     @Test
-    fun miniHomeShowsNativeMobileNavigation() {
+    fun miniHomeMatchesReferenceShell() {
         compose.onNodeWithTag("mini-stage").assertIsDisplayed()
+        compose.onNodeWithTag("mel-animated-avatar").assertIsDisplayed()
         compose.onNodeWithTag("mini-talk-button").assertIsDisplayed()
-        compose.onNodeWithTag("nav-keyboard").assertIsDisplayed()
-        compose.onNodeWithTag("nav-camera").assertIsDisplayed()
-        compose.onNodeWithTag("nav-companion").assertIsDisplayed()
-        compose.onNodeWithTag("nav-tools").assertIsDisplayed()
+        compose.onNodeWithTag("voice-waveform").assertIsDisplayed()
+        compose.onNodeWithTag("settings-button").assertIsDisplayed()
     }
 
     @Test
     fun completeModeIsNativeAndExposesToolsWithoutBrowser() {
-        compose.onNodeWithTag("nav-tools").performClick()
+        compose.onNodeWithTag("settings-button").performClick()
+        compose.onNodeWithTag("settings-tools").performClick()
         compose.onNodeWithText("Complet").performClick()
         compose.onNodeWithText("PROFESSOR / MODE COMPLET NATIF").assertIsDisplayed()
         compose.onNodeWithText("Synchroniser").assertIsDisplayed()
@@ -40,10 +39,18 @@ class MelUiSmokeTest {
 
     @Test
     fun keyboardScreenAcceptsTextAndCanSendLocally() {
-        compose.onNodeWithTag("nav-keyboard").performClick()
+        compose.onNodeWithTag("settings-button").performClick()
+        compose.onNodeWithTag("settings-keyboard").performClick()
         compose.onNodeWithText("Message à MEL").performTextInput("bonjour MEL")
         compose.onNodeWithText("Envoyer").assertIsEnabled().performClick()
         compose.onNodeWithText("bonjour MEL").assertIsDisplayed()
     }
 
+    @Test
+    fun nativeWebSurfaceIsReachableFromSettings() {
+        compose.onNodeWithTag("settings-button").performClick()
+        compose.onNodeWithTag("settings-web").performClick()
+        compose.onNodeWithTag("web-url").assertIsDisplayed()
+        compose.onNodeWithTag("web-go").assertIsDisplayed()
+    }
 }
