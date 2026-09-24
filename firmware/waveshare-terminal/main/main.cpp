@@ -399,6 +399,7 @@ static void pair_field_focus(lv_event_t *e) {
 
 static void pair_submit_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED || !pair_input) return;
+    ESP_LOGI(TAG, "UI BUTTON: APPAIRER");
     const char *code = lv_textarea_get_text(pair_input);
     if (!code || !code[0]) {
         if (pair_status) lv_label_set_text(pair_status, "Code requis");
@@ -419,6 +420,7 @@ static void pair_open_clicked(lv_event_t *e) {
 
 static void pair_back_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ESP_LOGI(TAG, "UI BUTTON: PAIR BACK");
     request_view(MINI_VIEW_MAIN);
 }
 
@@ -487,26 +489,78 @@ static void wifi_field_focus(lv_event_t *e) {
 
 static void wifi_manual_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ESP_LOGI(TAG, "UI BUTTON: WIFI MANUAL");
     request_view(MINI_VIEW_WIFI_MANUAL);
 }
 
 static void wifi_ap_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     const char *ssid = (const char *)lv_event_get_user_data(e);
+    ESP_LOGI(TAG, "UI BUTTON: WIFI AP ssid=%s", ssid ? ssid : "");
     wifi_show_password(ssid);
 }
 
 static void wifi_scan_task(void *) {
     wifi_ap_record_t aps[MINI_WIFI_MAX_AP] = {};
-    uint16_t count = 0;
-    const bool ok = esp_wifi_port_scan(aps, &count, MINI_WIFI_MAX_AP);
+    uint16_t count = MINI_WIFI_MAX_AP;
+    wifi_scan_config_t scan_cfg = {};
+    scan_cfg.show_hidden = true;
+    scan_cfg.scan_type = WIFI_SCAN_TYPE_ACTIVE;
+
+    ESP_LOGI(TAG, "UI ACTION: WIFI SCAN start");
+    esp_err_t scan_err = esp_wifi_scan_start(&scan_cfg, true);
+
+    // A pending STA connection can temporarily reject a scan. Cancel that
+    // attempt and retry once instead of incorrectly showing "no network".
+    if (scan_err == ESP_ERR_WIFI_STATE) {
+        ESP_LOGW(TAG, "WIFI SCAN busy with STA state; cancelling connect and retrying");
+        wifi_auto_reconnect_enabled = false;
+        esp_wifi_disconnect();
+        vTaskDelay(pdMS_TO_TICKS(200));
+        scan_err = esp_wifi_scan_start(&scan_cfg, true);
+    }
+
+    bool ok = scan_err == ESP_OK;
+    if (ok) {
+        uint16_t total = 0;
+        esp_err_t nerr = esp_wifi_scan_get_ap_num(&total);
+        count = total > MINI_WIFI_MAX_AP ? MINI_WIFI_MAX_AP : total;
+        if (nerr != ESP_OK) {
+            ESP_LOGE(TAG, "WIFI SCAN ap_num failed: %s", esp_err_to_name(nerr));
+            ok = false;
+            count = 0;
+        } else if (count > 0) {
+            uint16_t wanted = count;
+            esp_err_t rerr = esp_wifi_scan_get_ap_records(&wanted, aps);
+            if (rerr != ESP_OK) {
+                ESP_LOGE(TAG, "WIFI SCAN records failed: %s", esp_err_to_name(rerr));
+                ok = false;
+                count = 0;
+            } else {
+                count = wanted;
+            }
+        }
+    } else {
+        ESP_LOGE(TAG, "WIFI SCAN start failed: %s", esp_err_to_name(scan_err));
+        count = 0;
+    }
+
+    ESP_LOGI(TAG, "WIFI SCAN result ok=%d count=%u", ok ? 1 : 0, count);
+    for (uint16_t i = 0; i < count; ++i) {
+        ESP_LOGI(TAG, "WIFI AP %u ssid=%s rssi=%d ch=%u auth=%d",
+                 (unsigned)i, (char *)aps[i].ssid, (int)aps[i].rssi,
+                 (unsigned)aps[i].primary, (int)aps[i].authmode);
+    }
+
     if (lvgl_port_lock(0)) {
         if (wifi_list) lv_obj_clean(wifi_list);
-        if (!ok || count == 0) {
-            if (wifi_status) lv_label_set_text(wifi_status, "Aucun reseau detecte");
+        if (!ok) {
+            if (wifi_status) lv_label_set_text_fmt(wifi_status, "Erreur scan Wi-Fi\n%s", esp_err_to_name(scan_err));
+        } else if (count == 0) {
+            if (wifi_status) lv_label_set_text(wifi_status, "Aucun reseau detecte\nAppuie sur rafraichir");
         } else {
             if (wifi_status) lv_label_set_text_fmt(wifi_status, "%u reseaux detectes", count);
-            for (uint16_t i = 0; i < count && i < MINI_WIFI_MAX_AP; ++i) {
+            for (uint16_t i = 0; i < count; ++i) {
                 snprintf(wifi_ssids[i], sizeof(wifi_ssids[i]), "%s", (char *)aps[i].ssid);
                 char row[52];
                 snprintf(row, sizeof(row), "%.32s   %d dBm", wifi_ssids[i], (int)aps[i].rssi);
@@ -541,16 +595,19 @@ static void wifi_start_scan() {
 
 static void wifi_scan_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ESP_LOGI(TAG, "UI BUTTON: WIFI REFRESH");
     wifi_scan_requested = true;
 }
 
 static void wifi_open_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ESP_LOGI(TAG, "UI BUTTON: WIFI OPEN");
     request_view(MINI_VIEW_WIFI_LIST);
 }
 
 static void wifi_back_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ESP_LOGI(TAG, "UI BUTTON: WIFI BACK active_view=%d", active_view);
     if (active_view == MINI_VIEW_WIFI_PASSWORD || active_view == MINI_VIEW_WIFI_MANUAL) {
         request_view(MINI_VIEW_WIFI_LIST);
     } else {
@@ -624,6 +681,7 @@ static void wifi_connect_task(void *arg) {
 
 static void wifi_connect_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED || !wifi_pwd) return;
+    ESP_LOGI(TAG, "UI BUTTON: WIFI CONNECT");
     const char *ssid = selected_ssid;
     if (wifi_manual_mode && wifi_ssid_input) ssid = lv_textarea_get_text(wifi_ssid_input);
     if (!ssid || !ssid[0]) {
@@ -830,6 +888,7 @@ static void lv_port_init() {
 
 static void touch_cb(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED || !status_label) return;
+    ESP_LOGI(TAG, "UI BUTTON: PARLER");
     if (!mel_terminal_online()) {
         lv_label_set_text(status_label, "MEL HORS LIGNE");
         ESP_LOGW(TAG, "Talk requested while MEL runtime is offline");
