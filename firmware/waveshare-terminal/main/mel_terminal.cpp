@@ -594,6 +594,29 @@ static std::string record_and_transcribe() {
         return "Échec de l'enregistrement micro.";
     }
 
+    const int16_t *samples = reinterpret_cast<const int16_t *>(pcm);
+    const size_t sample_count = VOICE_BYTES / sizeof(int16_t);
+    int16_t min_sample = 32767;
+    int16_t max_sample = -32768;
+    uint64_t abs_sum = 0;
+    size_t transitions = 0;
+    int16_t previous = samples[0];
+    for (size_t i = 0; i < sample_count; ++i) {
+        const int16_t sample = samples[i];
+        if (sample < min_sample) min_sample = sample;
+        if (sample > max_sample) max_sample = sample;
+        const int32_t magnitude = sample < 0 ? -(int32_t)sample : (int32_t)sample;
+        abs_sum += (uint32_t)magnitude;
+        if (i > 0 && sample != previous) ++transitions;
+        previous = sample;
+    }
+    const int32_t span = (int32_t)max_sample - (int32_t)min_sample;
+    const uint32_t mean_abs = (uint32_t)(abs_sum / sample_count);
+    ESP_LOGI(TAG,
+             "MIC VOICE CAPTURE: samples=%u min=%d max=%d span=%ld mean_abs=%u transitions=%u",
+             (unsigned)sample_count, (int)min_sample, (int)max_sample, (long)span,
+             (unsigned)mean_abs, (unsigned)transitions);
+
     const char *boundary = "----MEL-ESP32-VOICE";
     std::string prefix = std::string("--") + boundary +
         "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n"
