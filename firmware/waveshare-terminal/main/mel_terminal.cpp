@@ -39,9 +39,13 @@ static const char *MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
 static const int WIFI_CONNECTED_BIT = BIT0;
 static const int WIFI_FAIL_BIT = BIT1;
 static const size_t MAX_HTTP_RESPONSE = 64 * 1024;
-static const int VOICE_SECONDS = 4;
-static const int VOICE_RATE = 48000;
-static const int VOICE_BYTES = VOICE_SECONDS * VOICE_RATE * 2;
+static const int VOICE_SECONDS = 5;
+static const int VOICE_CAPTURE_RATE = 48000;
+static const int VOICE_STT_RATE = 16000;
+static const int VOICE_CAPTURE_SAMPLES = VOICE_SECONDS * VOICE_CAPTURE_RATE;
+static const int VOICE_CAPTURE_BYTES = VOICE_CAPTURE_SAMPLES * 2;
+static const int VOICE_STT_SAMPLES = VOICE_SECONDS * VOICE_STT_RATE;
+static const int VOICE_STT_BYTES = VOICE_STT_SAMPLES * 2;
 
 extern esp_codec_dev_handle_t input_dev;
 extern esp_codec_dev_handle_t output_dev;
@@ -567,79 +571,140 @@ static std::string chat_with_mel(const std::string &text) {
     return answer.empty() ? "MEL n'a pas renvoye de texte." : answer;
 }
 
-static void wav_header(uint8_t *h, uint32_t data_size) {
-    const uint32_t byte_rate = VOICE_RATE * 2;
+static void wav_header(uint8_t *h, uint32_t data_size, uint32_t sample_rate) {
+    const uint32_t byte_rate = sample_rate * 2;
     const uint32_t riff_size = 36 + data_size;
     memcpy(h, "RIFF", 4); memcpy(h + 8, "WAVEfmt ", 8);
     h[4]=(uint8_t)riff_size; h[5]=(uint8_t)(riff_size>>8); h[6]=(uint8_t)(riff_size>>16); h[7]=(uint8_t)(riff_size>>24);
     h[16]=16; h[17]=h[18]=h[19]=0;
     h[20]=1; h[21]=0; h[22]=1; h[23]=0;
-    h[24]=(uint8_t)VOICE_RATE; h[25]=(uint8_t)(VOICE_RATE>>8); h[26]=(uint8_t)(VOICE_RATE>>16); h[27]=(uint8_t)(VOICE_RATE>>24);
+    h[24]=(uint8_t)sample_rate; h[25]=(uint8_t)(sample_rate>>8); h[26]=(uint8_t)(sample_rate>>16); h[27]=(uint8_t)(sample_rate>>24);
     h[28]=(uint8_t)byte_rate; h[29]=(uint8_t)(byte_rate>>8); h[30]=(uint8_t)(byte_rate>>16); h[31]=(uint8_t)(byte_rate>>24);
     h[32]=2; h[33]=0; h[34]=16; h[35]=0; memcpy(h+36,"data",4);
     h[40]=(uint8_t)data_size; h[41]=(uint8_t)(data_size>>8); h[42]=(uint8_t)(data_size>>16); h[43]=(uint8_t)(data_size>>24);
 }
 
 static std::string record_and_transcribe() {
-    if (!g_audio_ok || !input_dev) return "Micro indisponible.";
-    auto *pcm = static_cast<uint8_t *>(heap_caps_malloc(VOICE_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!pcm) pcm = static_cast<uint8_t *>(heap_caps_malloc(VOICE_BYTES, MALLOC_CAP_8BIT));
-    if (!pcm) return "Memoire insuffisante pour enregistrer.";
+    if (!g_audio_ok || !input_dev) {
+        ESP_LOGE(TAG, "VOICE: input codec unavailable");
+        return "";
+    }
 
-    esp_codec_dev_set_in_gain(input_dev, 38.0);
-    int rc = esp_codec_dev_read(input_dev, pcm, VOICE_BYTES);
+    auto *capture = static_cast<int16_t *>(heap_caps_malloc(VOICE_CAPTURE_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!capture) capture = static_cast<int16_t *>(heap_caps_malloc(VOICE_CAPTURE_BYTES, MALLOC_CAP_8BIT));
+    if (!capture) {
+        ESP_LOGE(TAG, "VOICE: capture allocation failed");
+        return "";
+    }
+
+    // Waveshare reference uses 40 dB input gain. Give the UI a short moment
+    // to enter LISTENING before the actual five-second capture begins.
+    esp_codec_dev_set_in_gain(input_dev, 40.0);
+    int rc = esp_codec_dev_read(input_dev, capture, VOICE_CAPTURE_BYTES);
     esp_codec_dev_set_in_gain(input_dev, 0.0);
     if (rc != ESP_CODEC_DEV_OK) {
-        heap_caps_free(pcm);
-        return "Echec de l'enregistrement micro.";
+        ESP_LOGE(TAG, "VOICE: esp_codec_dev_read failed rc=%d", rc);
+        heap_caps_free(capture);
+        return "";
     }
 
-    const int16_t *samples = reinterpret_cast<const int16_t *>(pcm);
-    const size_t sample_count = VOICE_BYTES / sizeof(int16_t);
-    int16_t min_sample = 32767;
-    int16_t max_sample = -32768;
-    uint64_t abs_sum = 0;
-    size_t transitions = 0;
-    int16_t previous = samples[0];
-    for (size_t i = 0; i < sample_count; ++i) {
-        const int16_t sample = samples[i];
-        if (sample < min_sample) min_sample = sample;
-        if (sample > max_sample) max_sample = sample;
-        const int32_t magnitude = sample < 0 ? -(int32_t)sample : (int32_t)sample;
-        abs_sum += (uint32_t)magnitude;
-        if (i > 0 && sample != previous) ++transitions;
-        previous = sample;
+    int64_t dc_sum = 0;
+    int16_t raw_min = 32767;
+    int16_t raw_max = -32768;
+    uint64_t raw_abs_sum = 0;
+    for (int i = 0; i < VOICE_CAPTURE_SAMPLES; ++i) {
+        const int16_t s = capture[i];
+        dc_sum += s;
+        if (s < raw_min) raw_min = s;
+        if (s > raw_max) raw_max = s;
+        raw_abs_sum += (uint32_t)(s < 0 ? -(int32_t)s : (int32_t)s);
     }
-    const int32_t span = (int32_t)max_sample - (int32_t)min_sample;
-    const uint32_t mean_abs = (uint32_t)(abs_sum / sample_count);
+    const int32_t dc = (int32_t)(dc_sum / VOICE_CAPTURE_SAMPLES);
+    const uint32_t raw_mean_abs = (uint32_t)(raw_abs_sum / VOICE_CAPTURE_SAMPLES);
     ESP_LOGI(TAG,
-             "MIC VOICE CAPTURE: samples=%u min=%d max=%d span=%ld mean_abs=%u transitions=%u",
-             (unsigned)sample_count, (int)min_sample, (int)max_sample, (long)span,
-             (unsigned)mean_abs, (unsigned)transitions);
+             "MIC RAW: samples=%d min=%d max=%d span=%ld mean_abs=%u dc=%ld",
+             VOICE_CAPTURE_SAMPLES, (int)raw_min, (int)raw_max,
+             (long)((int32_t)raw_max - (int32_t)raw_min),
+             (unsigned)raw_mean_abs, (long)dc);
+
+    auto *speech = static_cast<int16_t *>(heap_caps_malloc(VOICE_STT_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!speech) speech = static_cast<int16_t *>(heap_caps_malloc(VOICE_STT_BYTES, MALLOC_CAP_8BIT));
+    if (!speech) {
+        heap_caps_free(capture);
+        ESP_LOGE(TAG, "VOICE: STT buffer allocation failed");
+        return "";
+    }
+
+    // 48 kHz -> 16 kHz mono: average each group of three samples while
+    // removing the measured DC offset. This also attenuates high-frequency noise.
+    int32_t peak = 0;
+    uint64_t speech_abs_sum = 0;
+    for (int i = 0; i < VOICE_STT_SAMPLES; ++i) {
+        const int j = i * 3;
+        int32_t v = ((int32_t)capture[j] + capture[j + 1] + capture[j + 2]) / 3 - dc;
+        if (v > 32767) v = 32767;
+        if (v < -32768) v = -32768;
+        speech[i] = (int16_t)v;
+        const int32_t a = v < 0 ? -v : v;
+        if (a > peak) peak = a;
+        speech_abs_sum += (uint32_t)a;
+    }
+    heap_caps_free(capture);
+
+    uint32_t speech_mean_abs = (uint32_t)(speech_abs_sum / VOICE_STT_SAMPLES);
+    if (peak < 90 || speech_mean_abs < 18) {
+        ESP_LOGW(TAG, "MIC SILENCE: peak=%ld mean_abs=%u", (long)peak, (unsigned)speech_mean_abs);
+        heap_caps_free(speech);
+        return "";
+    }
+
+    // Normalize conversational speech without excessive amplification of noise.
+    int32_t scale_q15 = (int32_t)(((int64_t)16000 * 32768) / peak);
+    const int32_t max_scale_q15 = 8 * 32768;
+    if (scale_q15 > max_scale_q15) scale_q15 = max_scale_q15;
+    if (scale_q15 < 8192) scale_q15 = 8192;
+    peak = 0;
+    speech_abs_sum = 0;
+    for (int i = 0; i < VOICE_STT_SAMPLES; ++i) {
+        int32_t v = (int32_t)(((int64_t)speech[i] * scale_q15) >> 15);
+        if (v > 30000) v = 30000;
+        if (v < -30000) v = -30000;
+        speech[i] = (int16_t)v;
+        const int32_t a = v < 0 ? -v : v;
+        if (a > peak) peak = a;
+        speech_abs_sum += (uint32_t)a;
+    }
+    speech_mean_abs = (uint32_t)(speech_abs_sum / VOICE_STT_SAMPLES);
+    ESP_LOGI(TAG, "MIC STT READY: rate=%d samples=%d peak=%ld mean_abs=%u scale_q15=%ld",
+             VOICE_STT_RATE, VOICE_STT_SAMPLES, (long)peak,
+             (unsigned)speech_mean_abs, (long)scale_q15);
 
     const char *boundary = "----MEL-ESP32-VOICE";
     std::string prefix = std::string("--") + boundary +
         "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n"
         "Content-Type: audio/wav\r\n\r\n";
     std::string suffix = std::string("\r\n--") + boundary + "--\r\n";
-    const size_t total = prefix.size() + 44 + VOICE_BYTES + suffix.size();
+    const size_t total = prefix.size() + 44 + VOICE_STT_BYTES + suffix.size();
     auto *multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!multipart) multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_8BIT));
     if (!multipart) {
-        heap_caps_free(pcm);
-        return "Memoire insuffisante pour envoyer la voix.";
+        heap_caps_free(speech);
+        ESP_LOGE(TAG, "VOICE: multipart allocation failed");
+        return "";
     }
 
     size_t off = 0;
     memcpy(multipart + off, prefix.data(), prefix.size()); off += prefix.size();
-    wav_header(multipart + off, VOICE_BYTES); off += 44;
-    memcpy(multipart + off, pcm, VOICE_BYTES); off += VOICE_BYTES;
+    wav_header(multipart + off, VOICE_STT_BYTES, VOICE_STT_RATE); off += 44;
+    memcpy(multipart + off, speech, VOICE_STT_BYTES); off += VOICE_STT_BYTES;
     memcpy(multipart + off, suffix.data(), suffix.size());
-    heap_caps_free(pcm);
+    heap_caps_free(speech);
 
     std::string response;
     int status = 0;
     std::string content_type = std::string("multipart/form-data; boundary=") + boundary;
+    ESP_LOGI(TAG, "STT UPLOAD: bytes=%u wav_bytes=%d rate=%d",
+             (unsigned)total, VOICE_STT_BYTES + 44, VOICE_STT_RATE);
     esp_err_t err = http_request(
         HTTP_METHOD_POST,
         std::string(SERVER) + "/api/device/v1/voice/transcribe",
@@ -650,14 +715,22 @@ static std::string record_and_transcribe() {
         status
     );
     heap_caps_free(multipart);
+
+    ESP_LOGI(TAG, "STT RESULT: err=%s status=%d body=%.*s",
+             esp_err_to_name(err), status,
+             (int)std::min<size_t>(response.size(), 240), response.c_str());
     if (err != ESP_OK || status != 200) return "";
-    return parse_json_text(response, "text");
+
+    std::string text = parse_json_text(response, "text");
+    ESP_LOGI(TAG, "STT TEXT: %s", text.empty() ? "<empty>" : text.c_str());
+    return text;
 }
 
 static void voice_task(void *) {
     g_runtime_state = MEL_TERMINAL_LISTENING;
     ui_status("ECOUTE...");
     ui_answer("Parle maintenant.");
+    vTaskDelay(pdMS_TO_TICKS(350));
     std::string text = record_and_transcribe();
     if (text.empty()) {
         g_runtime_state = MEL_TERMINAL_ERROR;
