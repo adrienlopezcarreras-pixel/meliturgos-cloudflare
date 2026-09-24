@@ -1031,7 +1031,6 @@ private fun ConversationScreen(
     var section by rememberSaveable { mutableStateOf(MobileSection.MEL) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
-    var speaking by remember { mutableStateOf(false) }
     var clock by remember { mutableStateOf(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())) }
     val focus = LocalFocusManager.current
 
@@ -1039,13 +1038,6 @@ private fun ConversationScreen(
         while (true) {
             clock = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
             delay(30_000)
-        }
-    }
-    LaunchedEffect(state.messages.size) {
-        if (state.messages.lastOrNull()?.role == "mel") {
-            speaking = true
-            delay(1800)
-            speaking = false
         }
     }
     LaunchedEffect(section) {
@@ -1056,8 +1048,8 @@ private fun ConversationScreen(
     val faceState = when {
         !state.error.isNullOrBlank() -> MelFaceState.ERROR
         recording -> MelFaceState.LISTENING
+        state.speaking -> MelFaceState.SPEAKING
         state.busy -> MelFaceState.THINKING
-        speaking -> MelFaceState.SPEAKING
         else -> MelFaceState.IDLE
     }
 
@@ -2172,4 +2164,4 @@ private fun MessageBubble(message: MelChatMessage) {
     }
 }
 
-// VISUAL_SHELL: 0.6.10-mini-reference-voice-fallback
+// VISUAL_SHELL: 0.6.11-mini-reference-luna-audio
