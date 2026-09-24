@@ -322,38 +322,32 @@ async function deviceTts(request,env,auth) {
   }
 
   const speaker = safe(body.speaker,32) || "luna";
+  const format = safe(body.format,16).toLowerCase() === "mp3" ? "mp3" : "pcm";
   const model = String(env.MEL_TTS_MODEL || "@cf/deepgram/aura-1");
+  const ttsInput = format === "mp3"
+    ? { text, speaker, encoding:"mp3" }
+    : { text, speaker, encoding:"linear16", container:"none", sample_rate:48000 };
   try {
-    const result = await env.AI.run(model,{
-      text,
-      speaker,
-      encoding:"linear16",
-      container:"none",
-      sample_rate:48000
-    },{returnRawResponse:true});
+    const result = await env.AI.run(model,ttsInput,{returnRawResponse:true});
+
+    const audioHeaders = {
+      "content-type": format === "mp3" ? "audio/mpeg" : "application/octet-stream",
+      "cache-control":"no-store",
+      "x-mel-audio-format": format === "mp3" ? "mp3" : "pcm-s16le",
+      "x-mel-speaker":speaker
+    };
+    if (format !== "mp3") {
+      audioHeaders["x-mel-audio-rate"]="48000";
+      audioHeaders["x-mel-audio-channels"]="1";
+    }
 
     if (result instanceof Response) {
       const headers = new Headers(result.headers);
-      headers.set("content-type","application/octet-stream");
-      headers.set("cache-control","no-store");
-      headers.set("x-mel-audio-format","pcm-s16le");
-      headers.set("x-mel-audio-rate","48000");
-      headers.set("x-mel-audio-channels","1");
-      headers.set("x-mel-speaker",speaker);
+      Object.entries(audioHeaders).forEach(([key,value])=>headers.set(key,value));
       return new Response(result.body,{status:result.status,headers});
     }
     if (result?.body) {
-      return new Response(result.body,{
-        status:200,
-        headers:{
-          "content-type":"application/octet-stream",
-          "cache-control":"no-store",
-          "x-mel-audio-format":"pcm-s16le",
-          "x-mel-audio-rate":"48000",
-          "x-mel-audio-channels":"1",
-          "x-mel-speaker":speaker
-        }
-      });
+      return new Response(result.body,{status:200,headers:audioHeaders});
     }
     return json({ok:false,code:"TTS_EMPTY_RESPONSE"},503);
   } catch (error) {
