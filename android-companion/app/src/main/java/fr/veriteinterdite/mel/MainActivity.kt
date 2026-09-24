@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
@@ -81,6 +82,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
@@ -90,6 +92,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -113,12 +116,20 @@ class MainActivity : ComponentActivity() {
     private val recording = mutableStateOf(false)
     private val voiceLevel = mutableStateOf(0f)
     private val voiceMessage = mutableStateOf("Micro prêt")
+    private val cameraPhoto = mutableStateOf<Bitmap?>(null)
 
     private val microphonePermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startVoice()
         else voiceMessage.value = "Permission micro refusée"
+    }
+
+    private val cameraCapture = registerForActivityResult(
+        ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        cameraPhoto.value = bitmap
+        voiceMessage.value = if (bitmap != null) "Photo prête · envoie-la à MEL" else "Caméra annulée"
     }
 
     private val notificationPermission = registerForActivityResult(
@@ -181,7 +192,11 @@ class MainActivity : ComponentActivity() {
                     onCopyDiagnostic = ::copyDiagnostic,
                     onNormalProbe = model::runNormalProbe,
                     onFileProbe = model::runFileProbe,
-                    onBackgroundProbe = model::runBackgroundProbe
+                    onBackgroundProbe = model::runBackgroundProbe,
+                    cameraPhoto = cameraPhoto.value,
+                    onCamera = ::openCamera,
+                    onSendCamera = ::sendCameraPhoto,
+                    onRefreshCompanions = model::refreshCompanions
                 )
             }
         }
@@ -254,6 +269,35 @@ class MainActivity : ComponentActivity() {
             }
             return output.toByteArray()
         }
+    }
+
+    private fun openCamera() {
+        if (model.state.value.session != SessionStage.CONNECTED) {
+            voiceMessage.value = "Connecte d’abord le téléphone à MEL"
+            return
+        }
+        cameraCapture.launch(null)
+    }
+
+    private fun sendCameraPhoto() {
+        val bitmap = cameraPhoto.value ?: run {
+            voiceMessage.value = "Prends d’abord une photo"
+            return
+        }
+        val output = ByteArrayOutputStream()
+        val ok = bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
+        if (!ok) {
+            voiceMessage.value = "Impossible de préparer la photo"
+            return
+        }
+        val bytes = output.toByteArray()
+        model.sendFile(
+            "mel-camera-" + System.currentTimeMillis() + ".jpg",
+            "image/jpeg",
+            bytes
+        )
+        cameraPhoto.value = null
+        voiceMessage.value = "Photo envoyée à MEL"
     }
 
     private fun openProfessor() {
