@@ -3,9 +3,11 @@ package fr.veriteinterdite.mel
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.media.MediaPlayer
 import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import java.io.File
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
@@ -19,6 +21,7 @@ object MelVoicePlayer {
     private const val SAMPLE_RATE = 48_000
     private val lock = Any()
     private var activeTrack: AudioTrack? = null
+    private var activePlayer: MediaPlayer? = null
 
     fun playPcm48kMono(bytes: ByteArray): Long {
         require(bytes.isNotEmpty()) { "TTS_AUDIO_EMPTY" }
@@ -80,6 +83,53 @@ object MelVoicePlayer {
             }
         }
         return durationMs
+    }
+
+    fun playMp3(context: Context, bytes: ByteArray): Long {
+        require(bytes.isNotEmpty()) { "TTS_AUDIO_EMPTY" }
+        val startedAt = System.currentTimeMillis()
+        val file = File.createTempFile("mel-voice-", ".mp3", context.cacheDir)
+        file.writeBytes(bytes)
+        val done = CountDownLatch(1)
+        var failed = false
+
+        val player = MediaPlayer().apply {
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            setDataSource(file.absolutePath)
+            setVolume(1f, 1f)
+            setOnCompletionListener { done.countDown() }
+            setOnErrorListener { _, _, _ ->
+                failed = true
+                done.countDown()
+                true
+            }
+            prepare()
+        }
+
+        synchronized(lock) {
+            stopLocked()
+            activePlayer = player
+            player.start()
+        }
+
+        val timeoutSeconds = ((player.duration.coerceAtLeast(1) / 1000L) + 8L).coerceIn(10L, 60L)
+        val completed = done.await(timeoutSeconds, TimeUnit.SECONDS)
+        synchronized(lock) {
+            if (activePlayer === player) {
+                activePlayer = null
+                runCatching { player.stop() }
+                player.release()
+            }
+        }
+        file.delete()
+        if (!completed) throw IllegalStateException("MP3_PLAYBACK_TIMEOUT")
+        if (failed) throw IllegalStateException("MP3_PLAYBACK_FAILED")
+        return (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
     }
 
     fun playSystemFrench(context: Context, text: String): Long {
@@ -152,9 +202,15 @@ object MelVoicePlayer {
     }
 
     private fun stopLocked() {
-        val track = activeTrack ?: return
-        activeTrack = null
-        runCatching { track.stop() }
-        track.release()
+        activeTrack?.let { track ->
+            activeTrack = null
+            runCatching { track.stop() }
+            track.release()
+        }
+        activePlayer?.let { player ->
+            activePlayer = null
+            runCatching { player.stop() }
+            player.release()
+        }
     }
 }
