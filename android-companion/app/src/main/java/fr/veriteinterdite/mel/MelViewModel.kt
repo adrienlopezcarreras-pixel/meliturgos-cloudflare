@@ -50,6 +50,7 @@ data class MelUiState(
     val session: SessionStage = SessionStage.DISCONNECTED,
     val mode: MelMode = MelMode.NORMAL,
     val busy: Boolean = false,
+    val speaking: Boolean = false,
     val status: String = "",
     val error: String? = null,
     val messages: List<MelChatMessage> = emptyList(),
@@ -167,6 +168,7 @@ class MelViewModel(
     }
 
     fun disconnect() {
+        MelVoicePlayer.stop()
         vault.clear()
         MelBackground.cancel(appContext)
         _state.value = MelUiState(
@@ -176,9 +178,40 @@ class MelViewModel(
         )
     }
 
+    fun localCompanionReply(userText: String, answer: String, voice: Boolean) {
+        val cleanUser = userText.trim()
+        val cleanAnswer = answer.trim()
+        if (cleanUser.isBlank() || cleanAnswer.isBlank() || _state.value.busy || _state.value.speaking) return
+        val mode = _state.value.mode
+        _state.value = _state.value.copy(
+            busy = voice,
+            speaking = voice,
+            status = if (voice) "MEL répond…" else "Commande locale exécutée",
+            error = null,
+            messages = _state.value.messages +
+                MelChatMessage("user", cleanUser, voice) +
+                MelChatMessage("mel", cleanAnswer)
+        )
+        if (!voice) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                speakAnswer(cleanAnswer, mode)
+                appendDiagnosticLine("Compagnon local: OK · voix MEL")
+            } catch (error: Throwable) {
+                _state.value = _state.value.copy(
+                    busy = false,
+                    speaking = false,
+                    status = "Commande locale exécutée",
+                    error = null
+                )
+                appendDiagnosticLine("Compagnon local: action OK · voix locale indisponible")
+            }
+        }
+    }
+
     fun send(text: String, voice: Boolean = false) {
         val clean = text.trim()
-        if (clean.isBlank() || _state.value.busy) return
+        if (clean.isBlank() || _state.value.busy || _state.value.speaking) return
         val mode = _state.value.mode
         _state.value = _state.value.copy(
             busy = true,
@@ -197,10 +230,12 @@ class MelViewModel(
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 _state.value = _state.value.copy(
-                    busy = false,
-                    status = "MEL connectée · mode ${mode.label}",
+                    busy = true,
+                    speaking = false,
+                    status = "MEL prépare sa voix…",
                     messages = _state.value.messages + MelChatMessage("mel", answer)
                 )
+                speakAnswer(answer, mode)
                 if (voice) appendDiagnosticLine("Micro réel: OK · reconnaissance Android")
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
@@ -224,7 +259,7 @@ class MelViewModel(
     }
 
     fun sendVoice(audioBytes: ByteArray, mimeType: String = "audio/mp4") {
-        if (audioBytes.isEmpty() || _state.value.busy) return
+        if (audioBytes.isEmpty() || _state.value.busy || _state.value.speaking) return
         _state.value = _state.value.copy(
             busy = true,
             status = "Transcription de ta voix…",
@@ -248,10 +283,12 @@ class MelViewModel(
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 _state.value = _state.value.copy(
-                    busy = false,
-                    status = "MEL connectée · mode ${mode.label}",
+                    busy = true,
+                    speaking = false,
+                    status = "MEL prépare sa voix…",
                     messages = _state.value.messages + MelChatMessage("mel", answer)
                 )
+                speakAnswer(answer, mode)
                 appendDiagnosticLine("Micro réel: OK")
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
@@ -271,6 +308,58 @@ class MelViewModel(
                     )
                 }
             }
+        }
+    }
+
+    private fun speakAnswer(answer: String, mode: MelMode) {
+        var lunaFailure: Throwable? = null
+        try {
+            val audio = client.tts(answer, speaker = "luna", format = "mp3")
+            if (audio.isEmpty()) throw MelApiException("TTS_AUDIO_EMPTY", 502)
+            _state.value = _state.value.copy(
+                busy = true,
+                speaking = true,
+                status = "MEL parle…",
+                error = null
+            )
+            MelVoicePlayer.playMp3(appContext, audio)
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "MEL connectée · mode ${mode.label}",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: OK · luna mp3")
+            return
+        } catch (error: Throwable) {
+            lunaFailure = error
+            MelVoicePlayer.stop()
+        }
+
+        try {
+            _state.value = _state.value.copy(
+                busy = true,
+                speaking = true,
+                status = "MEL parle…",
+                error = null
+            )
+            MelVoicePlayer.playSystemFrench(appContext, answer)
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "MEL connectée · mode ${mode.label}",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: OK · secours Android français")
+        } catch (fallbackError: Throwable) {
+            MelVoicePlayer.stop()
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "MEL connectée · audio indisponible",
+                error = "Réponse reçue · audio indisponible · " +
+                    explain(lunaFailure ?: fallbackError)
+            )
         }
     }
 
