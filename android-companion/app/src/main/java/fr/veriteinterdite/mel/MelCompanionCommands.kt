@@ -172,8 +172,8 @@ object MelCompanionCommands {
     private fun convert(match: MatchResult): String? {
         val value = number(match.groupValues[1]) ?: return null
         val from = canonicalUnit(match.groupValues[2])
-        val to = canonicalUnit(match.groupValues[3])
-        val result = when (from to to) {
+        val target = canonicalUnit(match.groupValues[3])
+        val result = when (from to target) {
             "km" to "m" -> value * 1000
             "m" to "km" -> value / 1000
             "m" to "cm" -> value * 100
@@ -186,7 +186,7 @@ object MelCompanionCommands {
             "f" to "c" -> (value - 32) * 5 / 9
             else -> return null
         }
-        return "${format(value)} ${spokenUnit(from)} font ${format(result)} ${spokenUnit(to)}."
+        return "${format(value)} ${spokenUnit(from)} font ${format(result)} ${spokenUnit(target)}."
     }
 
     private fun canonicalUnit(raw: String): String {
