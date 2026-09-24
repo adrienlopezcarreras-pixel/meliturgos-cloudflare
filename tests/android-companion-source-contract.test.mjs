@@ -136,6 +136,34 @@ test('signed Android release pipeline is secret-backed fail-closed and verifies 
 });
 
 
+test('Android 0.6.7 keeps the MEL techno core visible in empty conversation state',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  assert.match(activity,/private fun MelCoreVisual\(\)/);
+  assert.match(activity,/Text\(\s*"MEL"/);
+  assert.match(activity,/"READY"/);
+  assert.match(activity,/"VOICE · FILES · SYNC"/);
+  assert.match(activity,/"CORE SERVICES READY"/);
+  assert.match(activity,/item \{\s*MelCoreVisual\(\)\s*\}/);
+});
+
+test('Android 0.6.7 prefers on-device speech, exposes live level, and keeps speech errors explicit',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  assert.match(activity,/SpeechRecognizer\.isOnDeviceRecognitionAvailable/);
+  assert.match(activity,/SpeechRecognizer\.createOnDeviceSpeechRecognizer/);
+  assert.match(activity,/private val voiceLevel = mutableStateOf\(0f\)/);
+  assert.match(activity,/override fun onRmsChanged\(rmsdB: Float\)/);
+  assert.match(activity,/voiceLevel\.value = \(\(rmsdB \+ 2f\) \/ 12f\)\.coerceIn/);
+  assert.match(activity,/speechErrorMessage\(error\)/);
+  assert.match(activity,/ERROR_NO_MATCH -> "Je n’ai pas compris · retouche Micro"/);
+  assert.match(activity,/ERROR_SPEECH_TIMEOUT -> "Je n’ai rien entendu · retouche Micro"/);
+  const errorBlock=activity.slice(activity.indexOf('override fun onError(error: Int)'),activity.indexOf('override fun onResults',activity.indexOf('override fun onError(error: Int)')));
+  assert.doesNotMatch(errorBlock,/startRecorderFallback/);
+  assert.match(activity,/fillMaxWidth\(voiceLevel\.coerceIn/);
+  assert.match(activity,/StatusPill\("VOICE", MelCyan\)/);
+  assert.match(activity,/StatusPill\("FILES", MelBlue\)/);
+  assert.match(activity,/StatusPill\("SYNC", MelViolet\)/);
+});
+
 test('Android native microphone uses SpeechRecognizer with declared package visibility and WebM fallback',async()=>{
   const manifest=await readFile(new URL('app/src/main/AndroidManifest.xml',root),'utf8');
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
@@ -233,9 +261,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 15/);
-  assert.match(build,/versionName = "0\.6\.6"/);
-  assert.match(api,/APP_VERSION = "0\.6\.6"/);
+  assert.match(build,/versionCode = 16/);
+  assert.match(build,/versionName = "0\.6\.7"/);
+  assert.match(api,/APP_VERSION = "0\.6\.7"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -256,9 +284,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 15/);
-  assert.match(build,/versionName = "0\.6\.6"/);
-  assert.match(api,/APP_VERSION = "0\.6\.6"/);
+  assert.match(build,/versionCode = 16/);
+  assert.match(build,/versionName = "0\.6\.7"/);
+  assert.match(api,/APP_VERSION = "0\.6\.7"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -290,9 +318,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 15/);
-  assert.match(build,/versionName = "0\.6\.6"/);
-  assert.match(api,/APP_VERSION = "0\.6\.6"/);
+  assert.match(build,/versionCode = 16/);
+  assert.match(build,/versionName = "0\.6\.7"/);
+  assert.match(api,/APP_VERSION = "0\.6\.7"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -309,9 +337,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 15/);
-  assert.match(build,/versionName = "0\.6\.6"/);
-  assert.match(api,/APP_VERSION = "0\.6\.6"/);
+  assert.match(build,/versionCode = 16/);
+  assert.match(build,/versionName = "0\.6\.7"/);
+  assert.match(api,/APP_VERSION = "0\.6\.7"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -339,7 +367,7 @@ test('Android Complete panel stays height-bounded and internally scrollable',asy
 
 
 
-test('Android 0.6.6 keeps critical interaction state truthful and stable',async()=>{
+test('Android 0.6.7 keeps critical interaction state truthful and stable',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   assert.match(activity,/LaunchedEffect\(state\.messages\.size, state\.busy\)/);

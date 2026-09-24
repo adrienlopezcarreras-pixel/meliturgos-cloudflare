@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -101,6 +102,7 @@ class MainActivity : ComponentActivity() {
     private var speechRecognizer: SpeechRecognizer? = null
     private var nativeSpeechListening = false
     private val recording = mutableStateOf(false)
+    private val voiceLevel = mutableStateOf(0f)
     private val voiceMessage = mutableStateOf("Micro prêt")
 
     private val microphonePermission = registerForActivityResult(
@@ -154,6 +156,7 @@ class MainActivity : ComponentActivity() {
                 MelApp(
                     state = state,
                     recording = recording.value,
+                    voiceLevel = voiceLevel.value,
                     voiceMessage = voiceMessage.value,
                     onLogin = model::pair,
                     onRetrySession = model::verifyExistingSession,
@@ -302,7 +305,12 @@ class MainActivity : ComponentActivity() {
 
     private fun startNativeSpeech() {
         stopSpeechQuietly()
-        val recognizer = runCatching { SpeechRecognizer.createSpeechRecognizer(this) }.getOrNull()
+        val onDevice = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+        val recognizer = runCatching {
+            if (onDevice) SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+            else SpeechRecognizer.createSpeechRecognizer(this)
+        }.getOrNull()
         if (recognizer == null) {
             startRecorderFallback("Reconnaissance Android indisponible · secours serveur")
             return
@@ -310,7 +318,8 @@ class MainActivity : ComponentActivity() {
         speechRecognizer = recognizer
         nativeSpeechListening = true
         recording.value = true
-        voiceMessage.value = "J’écoute… parle normalement"
+        voiceLevel.value = .08f
+        voiceMessage.value = if (onDevice) "J’écoute · moteur local" else "J’écoute · moteur système"
 
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
@@ -321,21 +330,19 @@ class MainActivity : ComponentActivity() {
                 voiceMessage.value = "Je t’entends…"
             }
 
-            override fun onRmsChanged(rmsdB: Float) = Unit
+            override fun onRmsChanged(rmsdB: Float) {
+                voiceLevel.value = ((rmsdB + 2f) / 12f).coerceIn(.05f, 1f)
+            }
             override fun onBufferReceived(buffer: ByteArray?) = Unit
 
             override fun onEndOfSpeech() {
+                voiceLevel.value = .18f
                 voiceMessage.value = "Transcription locale…"
             }
 
             override fun onError(error: Int) {
-                val permissionError = error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
                 stopSpeechQuietly()
-                if (permissionError) {
-                    voiceMessage.value = "Permission micro refusée"
-                    return
-                }
-                startRecorderFallback("Reconnaissance locale indisponible · secours serveur")
+                voiceMessage.value = speechErrorMessage(error)
             }
 
             override fun onResults(results: Bundle?) {
@@ -406,6 +413,7 @@ class MainActivity : ComponentActivity() {
             media.prepare()
             media.start()
             recording.value = true
+            voiceLevel.value = .55f
             voiceMessage.value = "$reason · touche Micro pour envoyer"
         }.onFailure {
             stopRecorderQuietly()
@@ -454,6 +462,22 @@ class MainActivity : ComponentActivity() {
             runCatching { recognizer.destroy() }
         }
         recording.value = false
+        voiceLevel.value = 0f
+    }
+
+    private fun speechErrorMessage(error: Int): String = when (error) {
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Permission micro refusée"
+        SpeechRecognizer.ERROR_NO_MATCH -> "Je n’ai pas compris · retouche Micro"
+        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Je n’ai rien entendu · retouche Micro"
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Micro occupé · réessaie dans un instant"
+        SpeechRecognizer.ERROR_NETWORK,
+        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Reconnaissance vocale hors ligne · vérifie Internet"
+        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED,
+        SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "Français indisponible dans le moteur vocal"
+        SpeechRecognizer.ERROR_SERVER,
+        SpeechRecognizer.ERROR_SERVER_DISCONNECTED -> "Service vocal Android indisponible · réessaie"
+        SpeechRecognizer.ERROR_TOO_MANY_REQUESTS -> "Trop de requêtes vocales · attends un instant"
+        else -> "Micro Android interrompu · code $error"
     }
 
     private fun stopRecorderQuietly() {
@@ -466,6 +490,7 @@ class MainActivity : ComponentActivity() {
         recordingFile?.delete()
         recordingFile = null
         recording.value = false
+        voiceLevel.value = 0f
     }
 }
 
@@ -503,6 +528,7 @@ internal fun MelTheme(content: @Composable () -> Unit) {
 internal fun MelApp(
     state: MelUiState,
     recording: Boolean,
+    voiceLevel: Float,
     voiceMessage: String,
     onLogin: (String, String) -> Unit,
     onRetrySession: () -> Unit,
@@ -542,6 +568,7 @@ internal fun MelApp(
             SessionStage.CONNECTED -> ConversationScreen(
                 state = state,
                 recording = recording,
+                voiceLevel = voiceLevel,
                 voiceMessage = voiceMessage,
                 onDisconnect = onDisconnect,
                 onMode = onMode,
@@ -856,6 +883,7 @@ private fun StatusPill(label: String, accent: Color = MelSuccess) {
 private fun ConversationScreen(
     state: MelUiState,
     recording: Boolean,
+    voiceLevel: Float,
     voiceMessage: String,
     onDisconnect: () -> Unit,
     onMode: (MelMode) -> Unit,
@@ -967,40 +995,42 @@ private fun ConversationScreen(
                             border = BorderStroke(1.dp, MelViolet.copy(alpha = .18f)),
                             shape = RoundedCornerShape(24.dp)
                         ) {
-                            Row(
-                                Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                MelAvatar(54, online = true)
-                                Spacer(Modifier.width(13.dp))
-                                Column {
-                                    Text(
-                                        "MEL CORE ONLINE",
-                                        color = MelCyan,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Black,
-                                        letterSpacing = 1.4.sp
-                                    )
-                                    Spacer(Modifier.height(5.dp))
-                                    Text(
-                                        "Bonjour Adrien.",
-                                        color = MelInk,
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(Modifier.height(3.dp))
-                                    Text(
-                                        if (state.mode == MelMode.NORMAL)
-                                            "Parle ou écris. MEL traite la conversation en temps réel."
-                                        else
-                                            "Canal complet actif. Les outils avancés restent disponibles sans encombrer l’échange.",
-                                        color = MelMuted,
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp
-                                    )
+                            Column(Modifier.padding(16.dp)) {
+                                Text(
+                                    "MEL CORE ONLINE",
+                                    color = MelCyan,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Black,
+                                    letterSpacing = 1.4.sp
+                                )
+                                Spacer(Modifier.height(5.dp))
+                                Text(
+                                    "Bonjour Adrien.",
+                                    color = MelInk,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    if (state.mode == MelMode.NORMAL)
+                                        "Parle ou écris. MEL traite la conversation en temps réel."
+                                    else
+                                        "Canal complet actif. Les outils avancés restent disponibles sans encombrer l’échange.",
+                                    color = MelMuted,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    StatusPill("VOICE", MelCyan)
+                                    StatusPill("FILES", MelBlue)
+                                    StatusPill("SYNC", MelViolet)
                                 }
                             }
                         }
+                    }
+                    item {
+                        MelCoreVisual()
                     }
                 }
 
@@ -1060,6 +1090,27 @@ private fun ConversationScreen(
                             fontSize = 11.sp,
                             maxLines = 1
                         )
+                    }
+                    if (recording) {
+                        Spacer(Modifier.height(6.dp))
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(3.dp)
+                                .clip(CircleShape)
+                                .background(MelCyan.copy(alpha = .12f))
+                        ) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth(voiceLevel.coerceIn(.03f, 1f))
+                                    .fillMaxHeight()
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(MelViolet, MelCyan, MelSuccess)
+                                        )
+                                    )
+                            )
+                        }
                     }
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(
@@ -1311,6 +1362,68 @@ private fun CompletePanel(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MelCoreVisual() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(210.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier
+                .size(156.dp)
+                .clip(CircleShape)
+                .border(1.dp, MelViolet.copy(alpha = .18f), CircleShape)
+        )
+        Box(
+            Modifier
+                .size(126.dp)
+                .clip(CircleShape)
+                .border(1.dp, MelCyan.copy(alpha = .24f), CircleShape)
+        )
+        Box(
+            Modifier
+                .size(96.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(MelCyan.copy(alpha = .24f), MelViolet.copy(alpha = .08f), Color.Transparent)
+                    )
+                )
+                .border(1.dp, MelCyan.copy(alpha = .38f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "MEL",
+                    color = MelInk,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.6.sp
+                )
+                Text(
+                    "READY",
+                    color = MelSuccess,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 1.7.sp
+                )
+            }
+        }
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            HudLabel(
+                primary = "VOICE · FILES · SYNC",
+                secondary = "CORE SERVICES READY",
+                accent = MelCyan
+            )
         }
     }
 }
