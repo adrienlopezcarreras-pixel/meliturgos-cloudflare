@@ -172,9 +172,13 @@ class MelBleBridgeService : Service() {
         service.addCharacteristic(rx)
         service.addCharacteristic(tx)
         txCharacteristic = tx
-        server.addService(service)
-        startAdvertising()
-        Log.i(TAG, "MEL Mobile BLE bridge ready")
+        bridgeState.value = "INITIALISATION MEL"
+        if (!server.addService(service)) {
+            bridgeState.value = "ERREUR SERVICE BLE"
+            Log.e(TAG, "Unable to queue MEL GATT service")
+            return
+        }
+        Log.i(TAG, "MEL GATT service queued; waiting for onServiceAdded")
     }
 
     private fun startAdvertising() {
@@ -213,6 +217,17 @@ class MelBleBridgeService : Service() {
     }
 
     private val gattCallback = object : BluetoothGattServerCallback() {
+        override fun onServiceAdded(status: Int, service: BluetoothGattService) {
+            if (service.uuid != SERVICE_UUID) return
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.i(TAG, "MEL GATT service ready; starting advertising")
+                startAdvertising()
+            } else {
+                bridgeState.value = "ERREUR SERVICE BLE $status"
+                Log.e(TAG, "MEL GATT service add failed status=$status")
+            }
+        }
+
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             Log.i(TAG, "MINI BLE state=${device.address} status=$status newState=$newState")
             if (newState == BluetoothGatt.STATE_CONNECTED) {
