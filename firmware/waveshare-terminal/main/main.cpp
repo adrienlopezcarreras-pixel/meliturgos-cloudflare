@@ -89,6 +89,8 @@ static volatile int wifi_disconnect_reason = -1;
 static volatile bool wifi_auto_reconnect_enabled = false;
 static volatile int wifi_reconnect_attempt = 0;
 static TaskHandle_t wifi_reconnect_task_handle = nullptr;
+static TaskHandle_t settings_audio_test_task_handle = nullptr;
+static TaskHandle_t settings_camera_test_task_handle = nullptr;
 
 enum MiniView {
     MINI_VIEW_MAIN = 0,
@@ -543,16 +545,152 @@ static void settings_pair_clicked(lv_event_t *e) {
     request_view(MINI_VIEW_PAIR);
 }
 
+static void settings_set_status(const char *text) {
+    if (!text) return;
+    if (lvgl_port_lock(0)) {
+        if (settings_status) lv_label_set_text(settings_status, text);
+        lvgl_port_unlock();
+    }
+}
+
+static void settings_audio_test_task(void *) {
+    if (!audio_ok || !input_dev || !output_dev) {
+        settings_set_status("AUDIO FAIL : codec micro/HP indisponible.");
+        settings_audio_test_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    constexpr size_t sample_count = 48000; // 1 s @ 48 kHz mono
+    constexpr size_t byte_count = sample_count * sizeof(int16_t);
+    auto *pcm = static_cast<int16_t *>(heap_caps_malloc(byte_count, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!pcm) pcm = static_cast<int16_t *>(malloc(byte_count));
+    if (!pcm) {
+        settings_set_status("MIC FAIL : memoire insuffisante.");
+        settings_audio_test_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    settings_set_status("MIC : mesure du bruit de fond pendant 1 seconde...");
+    esp_codec_dev_set_in_gain(input_dev, 38.0);
+    const int rc = esp_codec_dev_read(input_dev, pcm, byte_count);
+    esp_codec_dev_set_in_gain(input_dev, 0.0);
+
+    if (rc != ESP_CODEC_DEV_OK) {
+        heap_caps_free(pcm);
+        settings_set_status("MIC FAIL : aucune capture PCM.");
+        settings_audio_test_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    int16_t min_s = 32767, max_s = -32768;
+    uint64_t abs_sum = 0;
+    uint64_t sq_sum = 0;
+    uint32_t clips = 0;
+    uint32_t transitions = 0;
+    int16_t prev = pcm[0];
+    for (size_t i = 0; i < sample_count; ++i) {
+        const int16_t v = pcm[i];
+        if (v < min_s) min_s = v;
+        if (v > max_s) max_s = v;
+        const int32_t a = v < 0 ? -(int32_t)v : (int32_t)v;
+        abs_sum += (uint32_t)a;
+        sq_sum += (uint64_t)((int32_t)v * (int32_t)v);
+        if (a >= 32000) clips++;
+        if (i && v != prev) transitions++;
+        prev = v;
+    }
+
+    const uint32_t mean_abs = (uint32_t)(abs_sum / sample_count);
+    uint32_t rem_sq = (uint32_t)(sq_sum / sample_count);
+    uint32_t rms = 0;
+    uint32_t bit = 1U << 30;
+    while (bit > rem_sq) bit >>= 2;
+    while (bit != 0) {
+        if (rem_sq >= rms + bit) {
+            rem_sq -= rms + bit;
+            rms = (rms >> 1) + bit;
+        } else {
+            rms >>= 1;
+        }
+        bit >>= 2;
+    }
+    const int32_t span = (int32_t)max_s - (int32_t)min_s;
+    const bool signal_ok = span > 20 && transitions > (sample_count / 200);
+
+    char msg[260];
+    snprintf(msg, sizeof(msg),
+             "MIC %s | bruit: RMS %u | moyen %u | min %d max %d | span %ld | clipping %u",
+             signal_ok ? "PASS" : "FAIL/PLAT",
+             (unsigned)rms, (unsigned)mean_abs, (int)min_s, (int)max_s,
+             (long)span, (unsigned)clips);
+    ESP_LOGI(TAG, "%s transitions=%u", msg, (unsigned)transitions);
+    settings_set_status(msg);
+
+    // Short 880 Hz speaker tone after microphone measurement.
+    constexpr int tone_samples = 12000; // 250 ms at 48 kHz
+    auto *tone = static_cast<int16_t *>(heap_caps_malloc(tone_samples * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!tone) tone = static_cast<int16_t *>(malloc(tone_samples * sizeof(int16_t)));
+    if (tone) {
+        for (int i = 0; i < tone_samples; ++i) {
+            const int phase = (i * 880) % 48000;
+            tone[i] = phase < 24000 ? 4500 : -4500;
+        }
+        esp_codec_dev_set_out_vol(output_dev, 55.0);
+        const int wrc = esp_codec_dev_write(output_dev, tone, tone_samples * sizeof(int16_t));
+        esp_codec_dev_set_out_vol(output_dev, 0.0);
+        ESP_LOGI(TAG, "SPEAKER TEST rc=%d", wrc);
+        heap_caps_free(tone);
+    }
+
+    heap_caps_free(pcm);
+    settings_audio_test_task_handle = nullptr;
+    vTaskDelete(nullptr);
+}
+
 static void settings_audio_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (settings_status) lv_label_set_text(settings_status, "Test micro + haut-parleur en cours...");
-    mel_terminal_test_audio();
+    ESP_LOGI(TAG, "UI BUTTON: TEST MICRO + HP");
+    if (settings_audio_test_task_handle) {
+        settings_set_status("Test audio deja en cours...");
+        return;
+    }
+    xTaskCreatePinnedToCore(settings_audio_test_task, "settings_audio_test", 8192, nullptr, 4, &settings_audio_test_task_handle, 0);
+}
+
+static void settings_camera_test_task(void *) {
+    if (!camera_ok) {
+        esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
+        camera_ok = esp_camera_sensor_get() != nullptr;
+    }
+    if (!camera_ok) {
+        settings_set_status("CAMERA FAIL : OV5640 indisponible.");
+    } else {
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (!fb) {
+            settings_set_status("CAMERA FAIL : aucune image recue.");
+        } else {
+            char msg[180];
+            snprintf(msg, sizeof(msg), "CAMERA PASS : %ux%u | %u octets", fb->width, fb->height, (unsigned)fb->len);
+            settings_set_status(msg);
+            esp_camera_fb_return(fb);
+        }
+    }
+    settings_camera_test_task_handle = nullptr;
+    vTaskDelete(nullptr);
 }
 
 static void settings_camera_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    if (settings_status) lv_label_set_text(settings_status, "Test camera en cours...");
-    mel_terminal_test_camera();
+    ESP_LOGI(TAG, "UI BUTTON: TEST CAMERA");
+    if (settings_camera_test_task_handle) {
+        settings_set_status("Test camera deja en cours...");
+        return;
+    }
+    settings_set_status("CAMERA : capture en cours...");
+    xTaskCreatePinnedToCore(settings_camera_test_task, "settings_camera_test", 8192, nullptr, 3, &settings_camera_test_task_handle, 0);
 }
 
 static void settings_network_clicked(lv_event_t *e) {
@@ -608,7 +746,7 @@ static void settings_ui_create(lv_obj_t *screen) {
 
     settings_add_button(settings_panel, "CONNEXION WI-FI", 118, settings_wifi_clicked);
     settings_add_button(settings_panel, "APPAIRAGE MEL", 170, settings_pair_clicked);
-    settings_add_button(settings_panel, "TEST MICRO + HP", 222, settings_audio_clicked);
+    settings_add_button(settings_panel, "TEST MICRO BRUIT + HP", 222, settings_audio_clicked);
     settings_add_button(settings_panel, "TEST CAMERA", 274, settings_camera_clicked);
     settings_add_button(settings_panel, "ETAT WI-FI + MEL", 326, settings_network_clicked);
 
