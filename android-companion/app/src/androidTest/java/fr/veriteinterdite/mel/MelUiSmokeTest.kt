@@ -2,6 +2,7 @@ package fr.veriteinterdite.mel
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -47,10 +48,10 @@ class MelUiSmokeTest {
     }
 
     @Test
-    fun nativeWebSurfaceIsReachableFromSettings() {
+    fun multimediaWebIsHiddenUntilExplicitlyRequested() {
         compose.onNodeWithTag("settings-button").performClick()
-        compose.onNodeWithTag("settings-web").performClick()
-        compose.onNodeWithTag("web-url").assertIsDisplayed()
-        compose.onNodeWithTag("web-go").assertIsDisplayed()
+        compose.onNodeWithTag("settings-web").assertDoesNotExist()
+        compose.onNodeWithTag("web-url").assertDoesNotExist()
+        compose.onNodeWithTag("web-go").assertDoesNotExist()
     }
 }
