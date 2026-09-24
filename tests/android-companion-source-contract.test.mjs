@@ -221,6 +221,8 @@ test('Android 0.6.14 handles everyday assistant commands locally before the netw
   assert.match(activity,/AlarmClock\.ACTION_SHOW_ALARMS/);
   assert.match(activity,/Intent\.ACTION_DIAL/);
   assert.match(activity,/Intent\.ACTION_SENDTO/);
+  assert.match(activity,/mailto:/);
+  assert.match(activity,/Intent\.ACTION_DIAL/);
   assert.match(activity,/geo:0,0\?q=/);
   assert.match(activity,/Settings\.ACTION_WIFI_SETTINGS/);
   assert.match(activity,/Settings\.ACTION_BLUETOOTH_SETTINGS/);
@@ -251,6 +253,8 @@ test('Android 0.6.14 handles everyday assistant commands locally before the netw
   assert.match(commands,/arithmetic/);
   assert.match(commands,/conversion/);
   assert.match(commands,/MelCompanionCommand\.Navigate/);
+  assert.match(commands,/MelCompanionCommand\.Email/);
+  assert.match(commands,/MelCompanionCommand\.OpenDialer/);
   assert.match(commands,/MelCompanionCommand\.Camera/);
   assert.match(commands,/MelCompanionCommand\.EnableNotifications/);
   assert.match(commands,/MelCompanionCommand\.OpenApp/);
