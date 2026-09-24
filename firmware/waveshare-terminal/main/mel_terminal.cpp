@@ -710,6 +710,15 @@ static void audio_test_task(void *) {
     vTaskDelete(nullptr);
 }
 
+void mel_terminal_test_audio(void) {
+    if (!g_audio_ok || !input_dev || !output_dev) {
+        ui_status("AUDIO ERREUR");
+        ui_answer("Micro ou haut-parleur indisponible.");
+        return;
+    }
+    xTaskCreatePinnedToCore(audio_test_task, "mel_audio_test", 6144, nullptr, 4, nullptr, 0);
+}
+
 static void camera_task(void *) {
     ui_status("CAMERA...");
 
@@ -739,6 +748,10 @@ static void camera_task(void *) {
         esp_camera_fb_return(fb);
     }
     vTaskDelete(nullptr);
+}
+
+void mel_terminal_test_camera(void) {
+    xTaskCreatePinnedToCore(camera_task, "mel_camera_test", 6144, nullptr, 4, nullptr, 0);
 }
 
 static std::string safe_asset_name(const char *name) {
