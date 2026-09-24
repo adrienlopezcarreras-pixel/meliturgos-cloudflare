@@ -313,14 +313,25 @@ static void mini_anim_cb(lv_timer_t *) {
     if (state != last_face_state && talk_button) {
         lv_color_t accent = lv_color_hex(0x22D3EE);
         if (state == MEL_TERMINAL_LISTENING) accent = lv_color_hex(0x34D399);
+        else if (state == MEL_TERMINAL_TRANSCRIBING) accent = lv_color_hex(0xF59E0B);
         else if (state == MEL_TERMINAL_THINKING) accent = lv_color_hex(0xA78BFA);
         else if (state == MEL_TERMINAL_SPEAKING) accent = lv_color_hex(0x60A5FA);
         else if (state == MEL_TERMINAL_ERROR) accent = lv_color_hex(0xFB7185);
         lv_obj_set_style_border_color(talk_button, accent, 0);
     }
 
+    if (talk_button) {
+        if (online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) {
+            lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
+        } else {
+            lv_obj_add_state(talk_button, LV_STATE_DISABLED);
+        }
+    }
+
     if (state == MEL_TERMINAL_LISTENING) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "STOP");
+    } else if (state == MEL_TERMINAL_TRANSCRIBING) {
+        if (state != last_face_state && status_label) lv_label_set_text(status_label, "TRANSCRIPTION");
     } else if (state == MEL_TERMINAL_THINKING) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "REFLEXION");
     } else if (state == MEL_TERMINAL_SPEAKING) {
