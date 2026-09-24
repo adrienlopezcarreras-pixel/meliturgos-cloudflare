@@ -1272,7 +1272,6 @@ private fun MiniSettingsPanel(
             SettingsAction("Clavier / Chat", "⌨", "settings-keyboard") { onSelect(MobileSection.KEYBOARD) }
             SettingsAction("Caméra", "◉", "settings-camera") { onSelect(MobileSection.CAMERA) }
             SettingsAction("Compagnon MINI", "◇", "settings-companion") { onSelect(MobileSection.COMPANION) }
-            SettingsAction("Espace multimédia / Web", "▣", "settings-web") { onSelect(MobileSection.WEB) }
             SettingsAction("Tests / Outils", "⌁", "settings-tools") { onSelect(MobileSection.TOOLS) }
             SettingsAction(
                 if (state.mode == MelMode.COMPLETE) "Passer en mode Normal" else "Activer le mode Complet",
