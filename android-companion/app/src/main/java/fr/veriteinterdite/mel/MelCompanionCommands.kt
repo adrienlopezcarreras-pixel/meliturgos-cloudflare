@@ -1,6 +1,7 @@
 package fr.veriteinterdite.mel
 
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.round
@@ -33,6 +34,13 @@ sealed class MelCompanionCommand {
     data object AirplaneSettings : MelCompanionCommand()
     data object DisplaySettings : MelCompanionCommand()
     data object SoundSettings : MelCompanionCommand()
+    data class CalendarEvent(val title: String, val beginMillis: Long, val endMillis: Long) : MelCompanionCommand()
+    data class AddShoppingItem(val item: String) : MelCompanionCommand()
+    data object ShowShoppingList : MelCompanionCommand()
+    data object ClearShoppingList : MelCompanionCommand()
+    data class AddNote(val note: String) : MelCompanionCommand()
+    data object ShowNotes : MelCompanionCommand()
+    data object ClearNotes : MelCompanionCommand()
 }
 
 object MelCompanionCommands {
@@ -126,6 +134,10 @@ object MelCompanionCommands {
             return MelCompanionCommand.EnableNotifications
         }
 
+        shoppingCommand(text, lower)?.let { return it }
+        notesCommand(text, lower)?.let { return it }
+        calendarCommand(text, lower, now)?.let { return it }
+
         if (Regex("""\b(?:batterie|niveau\s+de\s+batterie|charge\s+du\s+t[eé]l[eé]phone)\b""").containsMatchIn(lower) &&
             Regex("""\b(?:combien|niveau|reste|est|charge)\b""").containsMatchIn(lower)) {
             return MelCompanionCommand.BatteryStatus
@@ -192,6 +204,81 @@ object MelCompanionCommands {
         }
 
         return null
+    }
+
+    private fun shoppingCommand(text: String, lower: String): MelCompanionCommand? {
+        if (!Regex("""\bliste\s+(?:de\s+)?courses?\b""").containsMatchIn(lower)) return null
+
+        if (Regex("""\b(?:vide|efface|supprime|r[eé]initialise)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.ClearShoppingList
+        }
+        if (Regex("""\b(?:montre|affiche|lis|relis|qu['’]?(?:est[- ]ce\s+qu['’])?il\s+y\s+a)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.ShowShoppingList
+        }
+
+        val patterns = listOf(
+            Regex("""(?:ajoute|mets?)\s+(.+?)\s+(?:[àa]|dans|sur)\s+(?:ma\s+)?liste\s+(?:de\s+)?courses?\b""", RegexOption.IGNORE_CASE),
+            Regex("""(?:ajoute|mets?)\s+(?:[àa]|dans|sur)\s+(?:ma\s+)?liste\s+(?:de\s+)?courses?\s+(.+)""", RegexOption.IGNORE_CASE)
+        )
+        for (pattern in patterns) {
+            val item = pattern.find(text)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+            if (item.isNotBlank()) return MelCompanionCommand.AddShoppingItem(item.take(160))
+        }
+        return null
+    }
+
+    private fun notesCommand(text: String, lower: String): MelCompanionCommand? {
+        if (Regex("""\b(?:efface|supprime|vide)\s+(?:toutes?\s+)?mes\s+notes?\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.ClearNotes
+        }
+        if (Regex("""\b(?:montre|affiche|lis|relis)\s+(?:toutes?\s+)?mes\s+notes?\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.ShowNotes
+        }
+        val match = Regex(
+            """^(?:note\s+que|note|prends?\s+note\s+(?:que|de)?)\s+(.+)$""",
+            RegexOption.IGNORE_CASE
+        ).find(text)
+        val note = match?.groupValues?.getOrNull(1)?.trim().orEmpty()
+        return if (note.isNotBlank()) MelCompanionCommand.AddNote(note.take(500)) else null
+    }
+
+    private fun calendarCommand(text: String, lower: String, now: Date): MelCompanionCommand? {
+        val hasCalendarWord = Regex("""\b(?:agenda|calendrier|rendez[- ]?vous|[ée]v[eé]nement)\b""").containsMatchIn(lower)
+        val createVerb = Regex("""\b(?:ajoute|cr[eé]e|programme|planifie|mets?)\b""").containsMatchIn(lower)
+        if (!hasCalendarWord || !createVerb) return null
+
+        val timeMatch = alarmTime.find(lower) ?: return null
+        val hour = timeMatch.groupValues[1].toInt()
+        val minute = timeMatch.groupValues.getOrNull(2)?.takeIf { it.isNotBlank() }?.toInt() ?: 0
+
+        val calendar = Calendar.getInstance().apply { time = now }
+        val explicitToday = Regex("""\baujourd['’]hui\b""").containsMatchIn(lower)
+        val tomorrow = Regex("""\bdemain\b""").containsMatchIn(lower)
+        if (tomorrow) calendar.add(Calendar.DAY_OF_YEAR, 1)
+        calendar.set(Calendar.HOUR_OF_DAY, hour)
+        calendar.set(Calendar.MINUTE, minute)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        if (!tomorrow && !explicitToday && calendar.timeInMillis <= now.time) {
+            calendar.add(Calendar.DAY_OF_YEAR, 1)
+        }
+
+        var title = text
+            .replace(Regex("""\b(?:ajoute|cr[eé]e|programme|planifie|mets?)\b""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\b(?:dans|[àa])\s+(?:mon\s+)?(?:agenda|calendrier)\b""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\b(?:un|une)\s+(?:rendez[- ]?vous|[ée]v[eé]nement)\b""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\b(?:aujourd['’]hui|demain)\b""", RegexOption.IGNORE_CASE), " ")
+            .replace(timeMatch.value, " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim(' ', ',', ':', '-', '.')
+        if (title.isBlank()) title = "Événement MEL"
+
+        val begin = calendar.timeInMillis
+        return MelCompanionCommand.CalendarEvent(
+            title = title.take(180),
+            beginMillis = begin,
+            endMillis = begin + 60 * 60 * 1000L
+        )
     }
 
     private fun openAppTarget(lower: String): Pair<MelAppTarget, String>? {
