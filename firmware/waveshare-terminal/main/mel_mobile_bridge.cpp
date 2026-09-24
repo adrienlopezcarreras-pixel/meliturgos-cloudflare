@@ -1,4 +1,4 @@
-﻿#include "mel_mobile_bridge.h"
+#include "mel_mobile_bridge.h"
 
 #include <algorithm>
 #include <atomic>
@@ -22,6 +22,10 @@ static const char *TAG = "mel_mobile_bridge";
 static const uint16_t MEL_BRIDGE_SERVICE = 0xABF0;
 static const uint16_t MEL_BRIDGE_RX = 0xABF1;
 static const uint16_t MEL_BRIDGE_TX = 0xABF2;
+static const ble_uuid16_t UUID_SERVICE = BLE_UUID16_INIT(MEL_BRIDGE_SERVICE);
+static const ble_uuid16_t UUID_RX = BLE_UUID16_INIT(MEL_BRIDGE_RX);
+static const ble_uuid16_t UUID_TX = BLE_UUID16_INIT(MEL_BRIDGE_TX);
+static const ble_uuid16_t UUID_CCCD = BLE_UUID16_INIT(BLE_GATT_DSC_CLT_CFG_UUID16);
 
 static const uint8_t OP_BEGIN = 0x01;
 static const uint8_t OP_BODY = 0x02;
@@ -66,7 +70,7 @@ static std::string json_string(cJSON *root) {
 static bool adv_has_service(const struct ble_gap_disc_desc *disc) {
     struct ble_hs_adv_fields fields = {};
     if (ble_hs_adv_parse_fields(&fields, disc->data, disc->length_data) != 0) return false;
-    const ble_uuid_t *wanted = BLE_UUID16_DECLARE(MEL_BRIDGE_SERVICE);
+    const ble_uuid_t *wanted = &UUID_SERVICE.u;
     for (int i = 0; i < fields.num_uuids16; ++i) {
         if (ble_uuid_cmp(&fields.uuids16[i].u, wanted) == 0) return true;
     }
@@ -171,16 +175,16 @@ static void on_discovery_complete(const struct peer *peer, int status, void *arg
         return;
     }
     const struct peer_chr *rx = peer_chr_find_uuid(
-        peer, BLE_UUID16_DECLARE(MEL_BRIDGE_SERVICE), BLE_UUID16_DECLARE(MEL_BRIDGE_RX)
+        peer, &UUID_SERVICE.u, &UUID_RX.u
     );
     const struct peer_chr *tx = peer_chr_find_uuid(
-        peer, BLE_UUID16_DECLARE(MEL_BRIDGE_SERVICE), BLE_UUID16_DECLARE(MEL_BRIDGE_TX)
+        peer, &UUID_SERVICE.u, &UUID_TX.u
     );
     const struct peer_dsc *cccd = peer_dsc_find_uuid(
         peer,
-        BLE_UUID16_DECLARE(MEL_BRIDGE_SERVICE),
-        BLE_UUID16_DECLARE(MEL_BRIDGE_TX),
-        BLE_UUID16_DECLARE(BLE_GATT_DSC_CLT_CFG_UUID16)
+        &UUID_SERVICE.u,
+        &UUID_TX.u,
+        &UUID_CCCD.u
     );
     if (!rx || !tx || !cccd) {
         ESP_LOGW(TAG, "MEL Mobile GATT layout incomplete");
@@ -210,7 +214,7 @@ static int mtu_complete(uint16_t conn_handle, const struct ble_gatt_error *error
         ESP_LOGI(TAG, "MEL Mobile MTU=%u", mtu);
     }
     int rc = peer_disc_svc_by_uuid(
-        conn_handle, BLE_UUID16_DECLARE(MEL_BRIDGE_SERVICE), on_discovery_complete, nullptr
+        conn_handle, &UUID_SERVICE.u, on_discovery_complete, nullptr
     );
     if (rc != 0) {
         ESP_LOGW(TAG, "MEL Mobile service discovery start failed rc=%d", rc);
