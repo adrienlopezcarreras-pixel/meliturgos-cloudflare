@@ -1198,11 +1198,11 @@ void mel_terminal_set_wifi_connected(bool connected) {
         ui_status("WI-FI PERDU");
         return;
     }
-    ui_status(g_online ? "" : "WI-FI CONNECTE");
+    ui_status(g_online ? "" : "WI-FI CONNECTÉ");
 }
 
-static bool device_session_valid() {
-    if (!g_cfg.token[0]) return false;
+static int device_session_status() {
+    if (!g_cfg.token[0]) return 401;
     std::string response;
     int status = 0;
     esp_err_t err = http_request(
@@ -1210,7 +1210,11 @@ static bool device_session_valid() {
         std::string(SERVER) + "/api/device/v1/manifest",
         nullptr, nullptr, 0, response, status
     );
-    return err == ESP_OK && status == 200;
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "MEL session validation unavailable: %s; keeping stored token", esp_err_to_name(err));
+        return -1;
+    }
+    return status;
 }
 
 static void online_runtime_task(void *) {
@@ -1227,13 +1231,23 @@ static void online_runtime_task(void *) {
         return;
     }
 
-    if (!device_session_valid()) {
-        ESP_LOGW(TAG, "Stored or newly paired MEL token did not validate");
+    const int session_status = device_session_status();
+    if (session_status == 401 || session_status == 403) {
+        ESP_LOGW(TAG, "Stored MEL token explicitly rejected with HTTP %d; clearing token", session_status);
         g_online = false;
         g_cfg.token[0] = '\0';
         save_string("token", "");
-        ui_status("REAPPARIAGE REQUIS");
-        ui_answer("La liaison MEL n'est plus valide. Entre un nouveau code d'appairage.");
+        ui_status("RÉAPPARIAGE REQUIS");
+        ui_answer("La liaison MEL a été révoquée. Entre un nouveau code d'appairage.");
+        g_online_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+    if (session_status != 200) {
+        ESP_LOGW(TAG, "MEL session check returned %d; preserving persistent pairing", session_status);
+        g_online = false;
+        ui_status("MEL TEMPORAIREMENT INDISPONIBLE");
+        ui_answer("Appairage conservé. MEL se reconnectera sans nouveau code.");
         g_online_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;

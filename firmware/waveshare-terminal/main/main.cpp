@@ -282,11 +282,11 @@ static void mini_anim_cb(lv_timer_t *) {
 
     if (state == MEL_TERMINAL_LISTENING) {
         lv_obj_set_height(mouth_obj, (phase % 3 == 0) ? 11 : 5);
-        if (state != last_face_state && status_label) lv_label_set_text(status_label, "ECOUTE");
+        if (state != last_face_state && status_label) lv_label_set_text(status_label, "ÉCOUTE");
     } else if (state == MEL_TERMINAL_THINKING) {
         lv_obj_set_height(mouth_obj, 4);
         lv_obj_set_width(mouth_obj, 28 + (phase % 5) * 4);
-        if (state != last_face_state && status_label) lv_label_set_text(status_label, "REFLEXION");
+        if (state != last_face_state && status_label) lv_label_set_text(status_label, "RÉFLEXION");
     } else if (state == MEL_TERMINAL_SPEAKING) {
         lv_obj_set_width(mouth_obj, 42);
         lv_obj_set_height(mouth_obj, (phase % 3 == 0) ? 14 : 6);
@@ -472,6 +472,14 @@ static void pair_submit_clicked(lv_event_t *e) {
 static void pair_open_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     ESP_LOGI(TAG, "UI EVENT: MEL clicked");
+    if (mel_terminal_has_token()) {
+        if (runtime_status_label) {
+            lv_label_set_text(runtime_status_label,
+                              mel_terminal_online() ? "MEL APPARIÉE · EN LIGNE" : "MEL APPARIÉE · RECONNEXION");
+        }
+        ESP_LOGI(TAG, "MEL pairing already stored in NVS; pair screen suppressed");
+        return;
+    }
     request_view(MINI_VIEW_PAIR);
 }
 
