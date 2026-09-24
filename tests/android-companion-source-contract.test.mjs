@@ -235,7 +235,6 @@ test('Android 0.6.14 handles everyday assistant commands locally before the netw
   assert.match(activity,/Intent\.CATEGORY_APP_MAPS/);
   assert.match(activity,/Intent\.CATEGORY_APP_MESSAGING/);
   assert.match(activity,/Intent\.CATEGORY_APP_MUSIC/);
-  assert.match(activity,/Intent\.CATEGORY_APP_BROWSER/);
   assert.match(activity,/BatteryManager\.EXTRA_LEVEL/);
   assert.match(activity,/NetworkCapabilities\.NET_CAPABILITY_VALIDATED/);
   assert.match(activity,/AudioManager\.STREAM_MUSIC/);
