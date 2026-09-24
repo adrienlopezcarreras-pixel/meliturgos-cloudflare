@@ -317,7 +317,7 @@ test('Android dark UI keeps readable content contrast',async()=>{
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelGlass, contentColor = MelInk\)/);
   assert.match(activity,/border = BorderStroke\(1\.dp, MelCyan\.copy\(alpha = \.18f\)\)/);
-  assert.match(activity,/StatusPill\("EN LIGNE"\)/);
+  assert.match(activity,/StatusPill\("ONLINE", MelSuccess\)/);
   assert.match(activity,/Text\("MEL", color = MelInk/);
   assert.match(activity,/Text\("Connexion à MEL", color = MelInk/);
   assert.match(activity,/Text\("Contrôles complets", color = MelInk/);
