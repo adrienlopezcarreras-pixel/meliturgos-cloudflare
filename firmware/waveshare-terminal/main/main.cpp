@@ -75,8 +75,6 @@ static lv_obj_t *main_panel = nullptr;
 static lv_obj_t *settings_panel = nullptr;
 static volatile bool camera_probe_done = false;
 static lv_obj_t *settings_status = nullptr;
-static lv_obj_t *bluetooth_page = nullptr;
-static lv_obj_t *bluetooth_status = nullptr;
 static lv_obj_t *pair_panel = nullptr;
 static lv_obj_t *pair_button = nullptr;
 static volatile bool stress_pair_click_requested = false;
@@ -709,40 +707,13 @@ static void settings_stt_clicked(lv_event_t *e) {
 
 static void settings_network_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    settings_refresh_status();
-}
-
-static void bluetooth_refresh_status(void) {
-    if (!bluetooth_status) return;
-    if (mel_mobile_bridge_ready()) {
-        lv_label_set_text_fmt(bluetooth_status,
-                              "REDMI CONNECTE\nMEL Mobile actif\nMTU BLE : %u",
-                              (unsigned)mel_mobile_bridge_mtu());
-    } else {
-        lv_label_set_text(bluetooth_status,
-                          "RECHERCHE DU REDMI...\nActive Bluetooth et ouvre MEL sur le telephone.");
-    }
-}
-
-static void bluetooth_open_clicked(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !bluetooth_page) return;
-    ESP_LOGI(TAG, "UI BUTTON: BLUETOOTH");
-    bluetooth_refresh_status();
-    lv_obj_clear_flag(bluetooth_page, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(bluetooth_page);
-}
-
-static void bluetooth_back_clicked(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !bluetooth_page) return;
-    lv_obj_add_flag(bluetooth_page, LV_OBJ_FLAG_HIDDEN);
-    settings_refresh_status();
-}
-
-static void bluetooth_rescan_clicked(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    ESP_LOGI(TAG, "UI BUTTON: BLUETOOTH RESCAN");
+    ESP_LOGI(TAG, "UI BUTTON: BLUETOOTH / MEL MOBILE");
     mel_mobile_bridge_rescan();
-    if (bluetooth_status) lv_label_set_text(bluetooth_status, "RECHERCHE DU REDMI...");
+    if (settings_status) {
+        lv_label_set_text(settings_status,
+                          mel_mobile_bridge_ready() ? "Bluetooth : MEL Mobile connecte"
+                                                    : "Bluetooth : recherche du Redmi...");
+    }
 }
 
 static lv_obj_t *settings_add_button(lv_obj_t *parent, const char *text, int y, lv_event_cb_t cb) {
@@ -793,56 +764,7 @@ static void settings_ui_create(lv_obj_t *screen) {
 
     settings_add_button(settings_panel, "CONNEXION WI-FI", 106, settings_wifi_clicked);
     settings_add_button(settings_panel, "APPAIRAGE MEL", 156, settings_pair_clicked);
-    settings_add_button(settings_panel, "TEST MICRO BRUIT + HP", 206, settings_audio_clicked);
-    settings_add_button(settings_panel, "TEST VOIX / STT", 256, settings_stt_clicked);
-    settings_add_button(settings_panel, "TEST CAMERA", 306, settings_camera_clicked);
-    settings_add_button(settings_panel, "BLUETOOTH / MEL MOBILE", 356, bluetooth_open_clicked);
-
-    bluetooth_page = lv_obj_create(settings_panel);
-    lv_obj_set_size(bluetooth_page, 276, 382);
-    lv_obj_align(bluetooth_page, LV_ALIGN_BOTTOM_MID, 0, -4);
-    lv_obj_set_style_radius(bluetooth_page, 14, 0);
-    lv_obj_set_style_bg_color(bluetooth_page, lv_color_hex(0x07111F), 0);
-    lv_obj_set_style_bg_opa(bluetooth_page, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(bluetooth_page, 1, 0);
-    lv_obj_set_style_border_color(bluetooth_page, lv_color_hex(0x22D3EE), 0);
-    lv_obj_set_style_pad_all(bluetooth_page, 8, 0);
-    lv_obj_clear_flag(bluetooth_page, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *bt_title = lv_label_create(bluetooth_page);
-    lv_label_set_text(bt_title, "BLUETOOTH / MEL MOBILE");
-    lv_obj_set_style_text_font(bt_title, &lv_font_montserrat_16, 0);
-    lv_obj_align(bt_title, LV_ALIGN_TOP_MID, 0, 12);
-
-    bluetooth_status = lv_label_create(bluetooth_page);
-    lv_label_set_long_mode(bluetooth_status, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(bluetooth_status, 238);
-    lv_obj_set_style_text_align(bluetooth_status, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(bluetooth_status, lv_color_hex(0xE2E8F0), 0);
-    lv_obj_align(bluetooth_status, LV_ALIGN_TOP_MID, 0, 78);
-
-    lv_obj_t *bt_scan = lv_btn_create(bluetooth_page);
-    lv_obj_set_size(bt_scan, 238, 50);
-    lv_obj_align(bt_scan, LV_ALIGN_TOP_MID, 0, 190);
-    lv_obj_set_style_radius(bt_scan, 12, 0);
-    lv_obj_set_style_bg_color(bt_scan, lv_color_hex(0x0B2238), 0);
-    lv_obj_set_style_border_width(bt_scan, 1, 0);
-    lv_obj_set_style_border_color(bt_scan, lv_color_hex(0x22D3EE), 0);
-    lv_obj_t *bt_scan_label = lv_label_create(bt_scan);
-    lv_label_set_text(bt_scan_label, "RECHERCHER / RECONNECTER");
-    lv_obj_center(bt_scan_label);
-    lv_obj_add_event_cb(bt_scan, bluetooth_rescan_clicked, LV_EVENT_CLICKED, nullptr);
-
-    lv_obj_t *bt_back = lv_btn_create(bluetooth_page);
-    lv_obj_set_size(bt_back, 238, 46);
-    lv_obj_align(bt_back, LV_ALIGN_BOTTOM_MID, 0, -14);
-    lv_obj_t *bt_back_label = lv_label_create(bt_back);
-    lv_label_set_text(bt_back_label, "RETOUR OPTIONS");
-    lv_obj_center(bt_back_label);
-    lv_obj_add_event_cb(bt_back, bluetooth_back_clicked, LV_EVENT_CLICKED, nullptr);
-
-    lv_obj_add_flag(bluetooth_page, LV_OBJ_FLAG_HIDDEN);
-    bluetooth_refresh_status();
+    settings_add_button(settings_panel, "BLUETOOTH / MEL MOBILE", 356, settings_network_clicked);
 
     lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
     settings_refresh_status();
