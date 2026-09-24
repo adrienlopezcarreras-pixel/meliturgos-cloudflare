@@ -186,13 +186,13 @@ static void camera_boot_probe_task(void *) {
 
 static const char *wifi_reason_text(int reason) {
     switch (reason) {
-        case WIFI_REASON_NO_AP_FOUND: return "réseau introuvable";
-        case WIFI_REASON_AUTH_FAIL: return "authentification refusée";
+        case WIFI_REASON_NO_AP_FOUND: return "reseau introuvable";
+        case WIFI_REASON_AUTH_FAIL: return "authentification refusee";
         case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT: return "mot de passe / WPA";
         case WIFI_REASON_HANDSHAKE_TIMEOUT: return "mot de passe / WPA";
         case WIFI_REASON_BEACON_TIMEOUT: return "signal perdu";
-        case WIFI_REASON_ASSOC_FAIL: return "association refusée";
-        default: return "échec Wi-Fi";
+        case WIFI_REASON_ASSOC_FAIL: return "association refusee";
+        default: return "echec Wi-Fi";
     }
 }
 
@@ -282,11 +282,11 @@ static void mini_anim_cb(lv_timer_t *) {
 
     if (state == MEL_TERMINAL_LISTENING) {
         lv_obj_set_height(mouth_obj, (phase % 3 == 0) ? 11 : 5);
-        if (state != last_face_state && status_label) lv_label_set_text(status_label, "ÉCOUTE");
+        if (state != last_face_state && status_label) lv_label_set_text(status_label, "ECOUTE");
     } else if (state == MEL_TERMINAL_THINKING) {
         lv_obj_set_height(mouth_obj, 4);
         lv_obj_set_width(mouth_obj, 28 + (phase % 5) * 4);
-        if (state != last_face_state && status_label) lv_label_set_text(status_label, "RÉFLEXION");
+        if (state != last_face_state && status_label) lv_label_set_text(status_label, "REFLEXION");
     } else if (state == MEL_TERMINAL_SPEAKING) {
         lv_obj_set_width(mouth_obj, 42);
         lv_obj_set_height(mouth_obj, (phase % 3 == 0) ? 14 : 6);
@@ -387,7 +387,7 @@ static void mini_apply_requested_view(void) {
         if (pair_panel) lv_obj_clear_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
         if (pair_keyboard) lv_obj_clear_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
         if (pair_input && pair_keyboard) lv_keyboard_set_textarea(pair_keyboard, pair_input);
-        if (pair_status) lv_label_set_text(pair_status, "Entre le code généré dans MEL > MINI");
+        if (pair_status) lv_label_set_text(pair_status, "Entre le code genere dans MEL > MINI");
         return;
     }
 
@@ -400,7 +400,7 @@ static void mini_apply_requested_view(void) {
         if (wifi_ssid_input) lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
         if (wifi_pwd) lv_obj_add_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
         if (wifi_connect_btn) lv_obj_add_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
-        if (wifi_status) lv_label_set_text(wifi_status, "Choisis un réseau");
+        if (wifi_status) lv_label_set_text(wifi_status, "Choisis un reseau");
         wifi_scan_requested = true;
         return;
     }
@@ -424,7 +424,7 @@ static void mini_apply_requested_view(void) {
         if (wifi_keyboard && wifi_ssid_input) lv_keyboard_set_textarea(wifi_keyboard, wifi_ssid_input);
     } else if (active_view == MINI_VIEW_WIFI_PASSWORD) {
         wifi_manual_mode = false;
-        if (wifi_status) lv_label_set_text_fmt(wifi_status, "Réseau : %s", selected_ssid);
+        if (wifi_status) lv_label_set_text_fmt(wifi_status, "Reseau : %s", selected_ssid);
         if (wifi_ssid_input) lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
         if (wifi_keyboard && wifi_pwd) lv_keyboard_set_textarea(wifi_keyboard, wifi_pwd);
     }
@@ -475,7 +475,7 @@ static void pair_open_clicked(lv_event_t *e) {
     if (mel_terminal_has_token()) {
         if (runtime_status_label) {
             lv_label_set_text(runtime_status_label,
-                              mel_terminal_online() ? "MEL APPARIÉE · EN LIGNE" : "MEL APPARIÉE · RECONNEXION");
+                              mel_terminal_online() ? "MEL APPARIEE  EN LIGNE" : "MEL APPARIEE  RECONNEXION");
         }
         ESP_LOGI(TAG, "MEL pairing already stored in NVS; pair screen suppressed");
         return;
@@ -500,7 +500,7 @@ static void pair_ui_create(lv_obj_t *screen) {
     lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t *title = lv_label_create(pair_panel);
-    lv_label_set_text(title, "LIER MINI À MEL");
+    lv_label_set_text(title, "LIER MINI A MEL");
     lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
 
@@ -508,7 +508,7 @@ static void pair_ui_create(lv_obj_t *screen) {
     lv_label_set_long_mode(pair_status, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(pair_status, 270);
     lv_obj_set_style_text_align(pair_status, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(pair_status, "Entre le code généré dans MEL > MINI");
+    lv_label_set_text(pair_status, "Entre le code genere dans MEL > MINI");
     lv_obj_align(pair_status, LV_ALIGN_TOP_MID, 0, 58);
 
     pair_input = lv_textarea_create(pair_panel);
@@ -622,9 +622,9 @@ static void wifi_scan_task(void *) {
         if (!ok) {
             if (wifi_status) lv_label_set_text_fmt(wifi_status, "Erreur scan Wi-Fi\n%s", esp_err_to_name(scan_err));
         } else if (count == 0) {
-            if (wifi_status) lv_label_set_text(wifi_status, "Aucun réseau détecté\nAppuie sur Actualiser");
+            if (wifi_status) lv_label_set_text(wifi_status, "Aucun reseau detecte\nAppuie sur Actualiser");
         } else {
-            if (wifi_status) lv_label_set_text_fmt(wifi_status, "%u réseaux détectés", count);
+            if (wifi_status) lv_label_set_text_fmt(wifi_status, "%u reseaux detectes", count);
             for (uint16_t i = 0; i < count; ++i) {
                 snprintf(wifi_ssids[i], sizeof(wifi_ssids[i]), "%s", (char *)aps[i].ssid);
                 char row[52];
@@ -633,7 +633,7 @@ static void wifi_scan_task(void *) {
                 lv_obj_add_event_cb(btn, wifi_ap_clicked, LV_EVENT_CLICKED, wifi_ssids[i]);
             }
         }
-        lv_obj_t *manual_btn = lv_list_add_btn(wifi_list, LV_SYMBOL_EDIT, "AUTRE RÉSEAU / SSID MANUEL");
+        lv_obj_t *manual_btn = lv_list_add_btn(wifi_list, LV_SYMBOL_EDIT, "AUTRE RESEAU / SSID MANUEL");
         lv_obj_add_event_cb(manual_btn, wifi_manual_clicked, LV_EVENT_CLICKED, nullptr);
         lvgl_port_unlock();
     }
@@ -652,7 +652,7 @@ static void wifi_start_scan() {
     if (wifi_pwd) lv_obj_add_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
     if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
     if (wifi_connect_btn) lv_obj_add_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
-    if (wifi_status) lv_label_set_text(wifi_status, "Recherche des réseaux…");
+    if (wifi_status) lv_label_set_text(wifi_status, "Recherche des reseaux...");
     if (!wifi_scan_task_handle) {
         xTaskCreatePinnedToCore(wifi_scan_task, "mini_wifi_scan", 6144, nullptr, 3, &wifi_scan_task_handle, 0);
     }
@@ -711,7 +711,7 @@ static void wifi_connect_task(void *arg) {
         esp_wifi_port_get_ip(ip);
 
         if (lvgl_port_lock(0)) {
-            if (wifi_status) lv_label_set_text_fmt(wifi_status, "Connecté à %s\nIP %s", ssid, ip);
+            if (wifi_status) lv_label_set_text_fmt(wifi_status, "Connecte a %s\nIP %s", ssid, ip);
             if (status_label) lv_label_set_text(status_label, "MEL...");
             lvgl_port_unlock();
         }
@@ -728,7 +728,7 @@ static void wifi_connect_task(void *arg) {
             if (wifi_disconnect_reason >= 0) {
                 lv_label_set_text_fmt(
                     wifi_status,
-                    "Échec : %s\n(code %d)",
+                    "Echec : %s\n(code %d)",
                     wifi_reason_text(wifi_disconnect_reason),
                     wifi_disconnect_reason
                 );
@@ -750,7 +750,7 @@ static void wifi_connect_clicked(lv_event_t *e) {
     const char *ssid = selected_ssid;
     if (wifi_manual_mode && wifi_ssid_input) ssid = lv_textarea_get_text(wifi_ssid_input);
     if (!ssid || !ssid[0]) {
-        if (wifi_status) lv_label_set_text(wifi_status, "Entre le nom du réseau");
+        if (wifi_status) lv_label_set_text(wifi_status, "Entre le nom du reseau");
         return;
     }
     const char *pwd = lv_textarea_get_text(wifi_pwd);
@@ -779,7 +779,7 @@ static void wifi_ui_create(lv_obj_t *screen) {
     lv_obj_clear_flag(wifi_panel, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(wifi_panel);
-    lv_label_set_text(title, "MINI · Wi-Fi");
+    lv_label_set_text(title, "MINI  Wi-Fi");
     lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 2);
 
@@ -813,7 +813,7 @@ static void wifi_ui_create(lv_obj_t *screen) {
     wifi_ssid_input = lv_textarea_create(wifi_panel);
     lv_obj_set_size(wifi_ssid_input, 282, 46);
     lv_obj_align(wifi_ssid_input, LV_ALIGN_TOP_MID, 0, 66);
-    lv_textarea_set_placeholder_text(wifi_ssid_input, "Nom du réseau (SSID)");
+    lv_textarea_set_placeholder_text(wifi_ssid_input, "Nom du reseau (SSID)");
     lv_textarea_set_one_line(wifi_ssid_input, true);
     lv_obj_add_event_cb(wifi_ssid_input, wifi_field_focus, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
@@ -977,13 +977,13 @@ static void mini_smoke_ui() {
     lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(main_panel);
-    lv_label_set_text(title, "MINI");
+    lv_label_set_text(title, "MEL // MINI");
     lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 28);
 
     runtime_status_label = lv_label_create(main_panel);
     lv_label_set_text(runtime_status_label, "");
-    lv_obj_set_style_text_color(runtime_status_label, lv_color_hex(0x94A3B8), 0);
+    lv_obj_set_style_text_color(runtime_status_label, lv_color_hex(0x22D3EE), 0);
     lv_obj_align(runtime_status_label, LV_ALIGN_TOP_MID, 0, 56);
 
     lv_obj_t *wifi_btn = lv_btn_create(main_panel);
@@ -1002,47 +1002,110 @@ static void mini_smoke_ui() {
     lv_obj_center(pl);
     lv_obj_add_event_cb(pair_button, pair_open_clicked, LV_EVENT_CLICKED, nullptr);
 
+    // MEL Techno: canonical brunette/cyan identity, rendered with LVGL
+    // primitives so the MINI does not depend on an external image decoder.
     face_obj = lv_obj_create(main_panel);
-    lv_obj_set_size(face_obj, 210, 210);
-    lv_obj_align(face_obj, LV_ALIGN_CENTER, 0, -52);
-    lv_obj_set_style_radius(face_obj, 105, 0);
-    lv_obj_set_style_bg_color(face_obj, lv_color_hex(0x0B1628), 0);
+    lv_obj_set_size(face_obj, 226, 226);
+    lv_obj_align(face_obj, LV_ALIGN_CENTER, 0, -48);
+    lv_obj_set_style_radius(face_obj, 113, 0);
+    lv_obj_set_style_bg_color(face_obj, lv_color_hex(0x06101D), 0);
     lv_obj_set_style_border_width(face_obj, 4, 0);
     lv_obj_set_style_border_color(face_obj, lv_color_hex(0x22D3EE), 0);
-    lv_obj_set_style_shadow_width(face_obj, 10, 0);
+    lv_obj_set_style_shadow_width(face_obj, 18, 0);
     lv_obj_set_style_shadow_color(face_obj, lv_color_hex(0x0EA5E9), 0);
-    lv_obj_set_style_shadow_opa(face_obj, LV_OPA_20, 0);
+    lv_obj_set_style_shadow_opa(face_obj, LV_OPA_30, 0);
     lv_obj_clear_flag(face_obj, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *inner = lv_obj_create(face_obj);
-    lv_obj_set_size(inner, 160, 170);
-    lv_obj_center(inner);
-    lv_obj_set_style_radius(inner, 70, 0);
-    lv_obj_set_style_bg_color(inner, lv_color_hex(0x111C30), 0);
-    lv_obj_set_style_border_width(inner, 1, 0);
-    lv_obj_set_style_border_color(inner, lv_color_hex(0x334155), 0);
-    lv_obj_clear_flag(inner, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *halo = lv_obj_create(face_obj);
+    lv_obj_set_size(halo, 198, 198);
+    lv_obj_center(halo);
+    lv_obj_set_style_radius(halo, 99, 0);
+    lv_obj_set_style_bg_opa(halo, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(halo, 2, 0);
+    lv_obj_set_style_border_color(halo, lv_color_hex(0x0D304A), 0);
+    lv_obj_clear_flag(halo, LV_OBJ_FLAG_SCROLLABLE);
 
-    left_eye = lv_obj_create(inner);
-    lv_obj_set_size(left_eye, 30, 10);
-    lv_obj_align(left_eye, LV_ALIGN_CENTER, -38, -24);
-    lv_obj_set_style_radius(left_eye, 5, 0);
-    lv_obj_set_style_bg_color(left_eye, lv_color_hex(0x7DD3FC), 0);
+    lv_obj_t *hair = lv_obj_create(face_obj);
+    lv_obj_set_size(hair, 148, 174);
+    lv_obj_align(hair, LV_ALIGN_CENTER, 0, -2);
+    lv_obj_set_style_radius(hair, 62, 0);
+    lv_obj_set_style_bg_color(hair, lv_color_hex(0x2B1A14), 0);
+    lv_obj_set_style_border_width(hair, 0, 0);
+    lv_obj_clear_flag(hair, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *skin = lv_obj_create(hair);
+    lv_obj_set_size(skin, 108, 140);
+    lv_obj_align(skin, LV_ALIGN_CENTER, 0, 4);
+    lv_obj_set_style_radius(skin, 48, 0);
+    lv_obj_set_style_bg_color(skin, lv_color_hex(0xD7A382), 0);
+    lv_obj_set_style_border_width(skin, 0, 0);
+    lv_obj_clear_flag(skin, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *bangs = lv_obj_create(hair);
+    lv_obj_set_size(bangs, 116, 48);
+    lv_obj_align(bangs, LV_ALIGN_TOP_MID, 0, 13);
+    lv_obj_set_style_radius(bangs, 24, 0);
+    lv_obj_set_style_bg_color(bangs, lv_color_hex(0x3B241B), 0);
+    lv_obj_set_style_border_width(bangs, 0, 0);
+    lv_obj_clear_flag(bangs, LV_OBJ_FLAG_SCROLLABLE);
+
+    left_eye = lv_obj_create(skin);
+    lv_obj_set_size(left_eye, 20, 6);
+    lv_obj_align(left_eye, LV_ALIGN_CENTER, -25, -18);
+    lv_obj_set_style_radius(left_eye, 3, 0);
+    lv_obj_set_style_bg_color(left_eye, lv_color_hex(0x14212A), 0);
     lv_obj_set_style_border_width(left_eye, 0, 0);
 
-    right_eye = lv_obj_create(inner);
-    lv_obj_set_size(right_eye, 30, 10);
-    lv_obj_align(right_eye, LV_ALIGN_CENTER, 38, -24);
-    lv_obj_set_style_radius(right_eye, 5, 0);
-    lv_obj_set_style_bg_color(right_eye, lv_color_hex(0x7DD3FC), 0);
+    right_eye = lv_obj_create(skin);
+    lv_obj_set_size(right_eye, 20, 6);
+    lv_obj_align(right_eye, LV_ALIGN_CENTER, 25, -18);
+    lv_obj_set_style_radius(right_eye, 3, 0);
+    lv_obj_set_style_bg_color(right_eye, lv_color_hex(0x14212A), 0);
     lv_obj_set_style_border_width(right_eye, 0, 0);
 
-    mouth_obj = lv_obj_create(inner);
-    lv_obj_set_size(mouth_obj, 42, 5);
-    lv_obj_align(mouth_obj, LV_ALIGN_CENTER, 0, 42);
-    lv_obj_set_style_radius(mouth_obj, 7, 0);
-    lv_obj_set_style_bg_color(mouth_obj, lv_color_hex(0xA5F3FC), 0);
+    lv_obj_t *left_iris = lv_obj_create(skin);
+    lv_obj_set_size(left_iris, 5, 5);
+    lv_obj_align(left_iris, LV_ALIGN_CENTER, -25, -18);
+    lv_obj_set_style_radius(left_iris, 3, 0);
+    lv_obj_set_style_bg_color(left_iris, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_border_width(left_iris, 0, 0);
+
+    lv_obj_t *right_iris = lv_obj_create(skin);
+    lv_obj_set_size(right_iris, 5, 5);
+    lv_obj_align(right_iris, LV_ALIGN_CENTER, 25, -18);
+    lv_obj_set_style_radius(right_iris, 3, 0);
+    lv_obj_set_style_bg_color(right_iris, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_border_width(right_iris, 0, 0);
+
+    mouth_obj = lv_obj_create(skin);
+    lv_obj_set_size(mouth_obj, 34, 4);
+    lv_obj_align(mouth_obj, LV_ALIGN_CENTER, 0, 34);
+    lv_obj_set_style_radius(mouth_obj, 5, 0);
+    lv_obj_set_style_bg_color(mouth_obj, lv_color_hex(0xB87867), 0);
     lv_obj_set_style_border_width(mouth_obj, 0, 0);
+
+    lv_obj_t *tech_left = lv_obj_create(face_obj);
+    lv_obj_set_size(tech_left, 7, 52);
+    lv_obj_align(tech_left, LV_ALIGN_LEFT_MID, 12, 8);
+    lv_obj_set_style_radius(tech_left, 4, 0);
+    lv_obj_set_style_bg_color(tech_left, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_border_width(tech_left, 0, 0);
+
+    lv_obj_t *tech_right = lv_obj_create(face_obj);
+    lv_obj_set_size(tech_right, 7, 52);
+    lv_obj_align(tech_right, LV_ALIGN_RIGHT_MID, -12, 8);
+    lv_obj_set_style_radius(tech_right, 4, 0);
+    lv_obj_set_style_bg_color(tech_right, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_border_width(tech_right, 0, 0);
+
+    lv_obj_t *collar = lv_obj_create(face_obj);
+    lv_obj_set_size(collar, 118, 28);
+    lv_obj_align(collar, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_set_style_radius(collar, 12, 0);
+    lv_obj_set_style_bg_color(collar, lv_color_hex(0x0B2238), 0);
+    lv_obj_set_style_border_width(collar, 2, 0);
+    lv_obj_set_style_border_color(collar, lv_color_hex(0x22D3EE), 0);
+    lv_obj_clear_flag(collar, LV_OBJ_FLAG_SCROLLABLE);
 
     answer_label = lv_label_create(main_panel);
     lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
@@ -1055,14 +1118,19 @@ static void mini_smoke_ui() {
     lv_obj_add_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t *btn = lv_btn_create(main_panel);
-    lv_obj_set_size(btn, 220, 62);
+    lv_obj_set_size(btn, 236, 64);
     lv_obj_align(btn, LV_ALIGN_BOTTOM_MID, 0, -34);
     lv_obj_set_style_radius(btn, 24, 0);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(0x1D4ED8), 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0x0D304A), 0);
+    lv_obj_set_style_border_width(btn, 2, 0);
+    lv_obj_set_style_border_color(btn, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_shadow_width(btn, 16, 0);
+    lv_obj_set_style_shadow_color(btn, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_shadow_opa(btn, LV_OPA_20, 0);
     lv_obj_add_event_cb(btn, touch_cb, LV_EVENT_CLICKED, nullptr);
 
     status_label = lv_label_create(btn);
-    lv_label_set_text(status_label, "PARLER");
+    lv_label_set_text(status_label, "PARLER A MEL");
     lv_obj_center(status_label);
 
     wifi_ui_create(screen);
