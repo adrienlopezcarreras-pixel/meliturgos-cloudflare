@@ -1,4 +1,4 @@
-package fr.veriteinterdite.mel
+﻿package fr.veriteinterdite.mel
 
 import android.util.Base64
 import org.json.JSONArray
@@ -11,7 +11,7 @@ class MelApiException(
     val code: String,
     val status: Int,
     val detail: String = ""
-) : Exception(listOf(code, detail).filter { it.isNotBlank() }.joinToString(" · "))
+) : Exception(listOf(code, detail).filter { it.isNotBlank() }.joinToString(" Â· "))
 
 class MelApiClient(
     private val baseUrl: String,
@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.8"
+        const val APP_VERSION = "0.6.9"
     }
 
     init {
@@ -243,3 +243,4 @@ class MelApiClient(
         return messages
     }
 }
+
