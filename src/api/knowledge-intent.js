@@ -36,12 +36,6 @@ export function inferKnowledgeCapability(text){
   const codeTarget=/\b(?:ton\s+code|code\s+source|repo|repository|github|branche|branch|commit|src\/|tests\/|\.github\/)\b/i.test(value);
   if(codeTarget&&!explicitWeb)return null;
 
-  const privateConnectedData=/\b(?:mes\s+(?:mails?|emails?|fichiers?|documents?|photos?|messages?|contacts?|calendriers?|agendas?)|gmail|outlook|onedrive|google\s+drive|drive\s+priv[ée]|agenda|calendrier)\b/i.test(value);
-  const currentWorldInfo=/\b(?:m[ée]t[ée]o|quel\s+temps|temp[ée]rature|pluie|vent|pr[ée]visions?|actualit[ée]s?|news|aujourd['’]hui|demain|ce\s+soir|maintenant|actuellement|en\s+ce\s+moment|derni[eè]res?\s+(?:infos?|nouvelles?|donn[ée]es?)|latest|r[ée]cent(?:e|es|s)?|prix|tarif|cours|cotation|bourse|bitcoin|crypto|taux\s+de\s+change|horaire|horaires|ouvert|ouverte|fermeture|trafic|score|r[ée]sultat|classement|programme|disponibilit[ée]|disponible|sortie|date\s+de\s+sortie|pr[ée]sident\s+actuel|ministre\s+actuel|maire\s+actuel|pdg\s+actuel|ceo\s+actuel)\b/i.test(value);
-  if(currentWorldInfo && !privateConnectedData){
-    return {id:'web.research',input:{query:clean(value,2000),depth:2}};
-  }
-
   const explicitFile=fileCreate(value);
   if(explicitFile)return explicitFile;
 
