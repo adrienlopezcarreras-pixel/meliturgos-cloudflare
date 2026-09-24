@@ -106,6 +106,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.io.ByteArrayOutputStream
@@ -165,6 +167,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.statusBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
         enableEdgeToEdge()
 
         vault = TokenVault(this)
@@ -1563,30 +1569,37 @@ private fun MelPortraitStage(
                         translationY = if (faceState == MelFaceState.IDLE) sway * .55f else 0f
                         rotationZ = if (faceState == MelFaceState.THINKING) sway * .12f else 0f
                     },
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.TopCenter
             )
 
             Canvas(Modifier.fillMaxSize()) {
                 if (blink > .08f) {
-                    val skin = Color(0xFFB97D70).copy(alpha = .90f * blink)
-                    val lash = Color(0xFF4B2928).copy(alpha = .66f * blink)
-                    val leftTop = Offset(size.width * .285f, size.height * .397f)
-                    val rightTop = Offset(size.width * .565f, size.height * .386f)
-                    val eyeSize = Size(size.width * .150f, size.height * .052f)
+                    val skin = Color(0xFFB97D70).copy(alpha = .82f * blink)
+                    val lash = Color(0xFF3C2227).copy(alpha = .82f * blink)
+                    val leftTop = Offset(size.width * .327f, size.height * .404f)
+                    val rightTop = Offset(size.width * .574f, size.height * .398f)
+                    val eyeSize = Size(size.width * .102f, size.height * .018f)
 
                     drawOval(color = skin, topLeft = leftTop, size = eyeSize)
                     drawOval(color = skin, topLeft = rightTop, size = eyeSize)
-                    drawLine(
+                    drawArc(
                         color = lash,
-                        start = Offset(leftTop.x + eyeSize.width * .10f, leftTop.y + eyeSize.height * .55f),
-                        end = Offset(leftTop.x + eyeSize.width * .90f, leftTop.y + eyeSize.height * .55f),
-                        strokeWidth = (size.width * .004f).coerceAtLeast(1f)
+                        startAngle = 8f,
+                        sweepAngle = 164f,
+                        useCenter = false,
+                        topLeft = leftTop,
+                        size = eyeSize,
+                        style = Stroke(width = (size.width * .0032f).coerceAtLeast(1f))
                     )
-                    drawLine(
+                    drawArc(
                         color = lash,
-                        start = Offset(rightTop.x + eyeSize.width * .10f, rightTop.y + eyeSize.height * .55f),
-                        end = Offset(rightTop.x + eyeSize.width * .90f, rightTop.y + eyeSize.height * .55f),
-                        strokeWidth = (size.width * .004f).coerceAtLeast(1f)
+                        startAngle = 8f,
+                        sweepAngle = 164f,
+                        useCenter = false,
+                        topLeft = rightTop,
+                        size = eyeSize,
+                        style = Stroke(width = (size.width * .0032f).coerceAtLeast(1f))
                     )
                 }
 
