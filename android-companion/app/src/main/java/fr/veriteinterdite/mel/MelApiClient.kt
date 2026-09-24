@@ -83,7 +83,7 @@ class MelApiClient(
                 val body = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
                 val json = runCatching { JSONObject(body) }.getOrNull()
                 throw MelApiException(
-                    code = json?.optString("code", json.optString("error", "HTTP_$status"))
+                    code = json?.let { it.optString("code", it.optString("error", "HTTP_$status")) }
                         ?: "HTTP_$status",
                     status = status,
                     detail = json?.optString("detail").orEmpty()
