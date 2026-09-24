@@ -2253,59 +2253,154 @@ private fun CameraPanel(
 @Composable
 private fun CompanionPanel(
     state: MelUiState,
-    onRefresh: () -> Unit
+    ble: MiniBleState,
+    onRefresh: () -> Unit,
+    onBleConnect: () -> Unit,
+    onBleDisconnect: () -> Unit,
+    onBleForget: () -> Unit,
+    onBlePing: () -> Boolean,
+    onBleVoice: () -> Boolean
 ) {
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            HudLabel("COMPAGNON // MINI", state.companionStatus.ifBlank { "APPAREILS MEL" }, MelViolet)
+            HudLabel(
+                "COMPAGNON // MINI",
+                if (ble.connected) "BLUETOOTH LOCAL ACTIF" else ble.phase.uppercase(Locale.FRENCH),
+                if (ble.connected) MelSuccess else MelViolet
+            )
             Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = onRefresh, shape = RoundedCornerShape(14.dp)) { Text("Actualiser") }
+            OutlinedButton(onClick = onRefresh, shape = RoundedCornerShape(14.dp)) { Text("Cloud") }
         }
+
         Spacer(Modifier.height(10.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth().testTag("mini-ble-card"),
+            color = MelPanel,
+            border = BorderStroke(
+                1.dp,
+                (if (ble.connected) MelSuccess else MelCyan).copy(alpha = .34f)
+            ),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        ble.deviceName ?: "MEL-MINI",
+                        color = MelInk,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    StatusPill(
+                        when {
+                            ble.connected -> "BLE CONNECTÉ"
+                            ble.scanning -> "RECHERCHE"
+                            else -> "BLE PRÊT"
+                        },
+                        if (ble.connected) MelSuccess else MelCyan
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(ble.phase, color = MelMuted, fontSize = 11.sp)
+                ble.deviceAddress?.let {
+                    Text("Adresse BLE · $it", color = MelMuted, fontSize = 10.sp)
+                }
+                if (ble.connected) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ble.miniOnline?.let {
+                            StatusPill(
+                                if (it) "MINI INTERNET OK" else "MINI HORS INTERNET",
+                                if (it) MelSuccess else MelMuted
+                            )
+                        }
+                        ble.miniState?.let { StatusPill("ÉTAT $it", MelBlue) }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                if (!ble.connected) {
+                    Button(
+                        onClick = onBleConnect,
+                        modifier = Modifier.fillMaxWidth().height(46.dp),
+                        enabled = !ble.scanning,
+                        colors = ButtonDefaults.buttonColors(containerColor = MelBlue)
+                    ) {
+                        Text(if (ble.scanning) "RECHERCHE DE MINI…" else "CONNECTER MINI EN BLUETOOTH")
+                    }
+                } else {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        OutlinedButton(
+                            onClick = { onBlePing() },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("PING") }
+                        Button(
+                            onClick = { onBleVoice() },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = MelBlue)
+                        ) { Text("PARLER MINI") }
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    OutlinedButton(
+                        onClick = onBleDisconnect,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Déconnecter Bluetooth") }
+                }
+                if (!ble.deviceAddress.isNullOrBlank()) {
+                    TextButton(onClick = onBleForget, modifier = Modifier.align(Alignment.End)) {
+                        Text("Oublier cette MINI", color = MelMuted, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "État MINI via MEL / Internet",
+            color = MelInk,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp
+        )
+        Spacer(Modifier.height(7.dp))
+
         if (state.companions.isEmpty()) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MelGlass,
                 border = BorderStroke(1.dp, MelViolet.copy(alpha = .22f)),
-                shape = RoundedCornerShape(22.dp)
+                shape = RoundedCornerShape(18.dp)
             ) {
-                Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    MelAvatar(104, online = false, faceState = MelFaceState.IDLE)
-                    Spacer(Modifier.height(10.dp))
-                    Text("Aucun MINI détecté", color = MelInk, fontWeight = FontWeight.Bold)
-                    Text("Appaire MINI à MEL puis actualise.", color = MelMuted, fontSize = 12.sp)
+                Column(Modifier.padding(14.dp)) {
+                    Text("Aucun état cloud reçu", color = MelInk, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Le Bluetooth local peut quand même fonctionner. L’état cloud apparaît quand MINI a Internet.",
+                        color = MelMuted,
+                        fontSize = 11.sp
+                    )
                 }
             }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                itemsIndexed(state.companions) { _, device ->
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MelPanel,
-                        border = BorderStroke(
-                            1.dp,
-                            (if (device.online) MelSuccess else MelMuted).copy(alpha = .24f)
-                        ),
-                        shape = RoundedCornerShape(20.dp)
-                    ) {
-                        Column(Modifier.padding(14.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(device.name, color = MelInk, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                StatusPill(if (device.online) "ONLINE" else "OFFLINE",
-                                    if (device.online) MelSuccess else MelMuted)
-                            }
-                            Spacer(Modifier.height(6.dp))
-                            Text(device.phase ?: device.model, color = MelMuted, fontSize = 11.sp)
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                StatusPill("CAM " + hardwareState(device.camera), if (device.camera == true) MelSuccess else MelMuted)
-                                StatusPill("MIC " + hardwareState(device.microphone), if (device.microphone == true) MelSuccess else MelMuted)
-                                device.battery?.let { StatusPill("BAT $it%", MelBlue) }
-                            }
+            state.companions.forEach { device ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 7.dp),
+                    color = MelPanel,
+                    border = BorderStroke(
+                        1.dp,
+                        (if (device.online) MelSuccess else MelMuted).copy(alpha = .24f)
+                    ),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(device.name, color = MelInk, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            StatusPill(
+                                if (device.online) "ONLINE" else "OFFLINE",
+                                if (device.online) MelSuccess else MelMuted
+                            )
                         }
+                        Spacer(Modifier.height(5.dp))
+                        Text(device.phase ?: device.model, color = MelMuted, fontSize = 11.sp)
                     }
                 }
             }
