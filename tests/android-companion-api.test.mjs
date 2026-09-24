@@ -214,40 +214,50 @@ test('Android voice fallback accepts M4A audio multipart as well as WebM',async(
 });
 
 
-test('Android TTS route matches MINI Luna PCM contract and rejects invalid device auth',async()=>{
+test('Android TTS route preserves legacy PCM and adds MP3 for reliable phone playback',async()=>{
   const DB=sqliteD1();
   try{
-    let aiCall=null;
+    const aiCalls=[];
     const env={
       DB,
       MELITURGOS_USER:'adrien',
       MELITURGOS_PASSWORD:'test',
       AI:{
         async run(model,input,options){
-          aiCall={model,input,options};
+          aiCalls.push({model,input,options});
           return new Response(new Uint8Array([1,2,3,4,5,6]),{status:200});
         }
       }
     };
     const paired=await pair(env,'android-tts');
     const headers=deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'});
-    const response=await worker.fetch(new Request('https://mel.test/api/android/v1/voice/tts',{
+
+    const legacy=await worker.fetch(new Request('https://mel.test/api/android/v1/voice/tts',{
       method:'POST',headers,body:JSON.stringify({text:'Bonjour Adrien',speaker:'luna'})
     }),env);
-    assert.equal(response.status,200);
-    assert.equal(response.headers.get('x-mel-audio-format'),'pcm-s16le');
-    assert.equal(response.headers.get('x-mel-audio-rate'),'48000');
-    assert.equal(response.headers.get('x-mel-audio-channels'),'1');
-    assert.equal(response.headers.get('x-mel-speaker'),'luna');
-    assert.deepEqual([...new Uint8Array(await response.arrayBuffer())],[1,2,3,4,5,6]);
-    assert.equal(aiCall.model,'@cf/deepgram/aura-1');
-    assert.deepEqual(aiCall.input,{text:'Bonjour Adrien',speaker:'luna',encoding:'linear16',container:'none',sample_rate:48000});
-    assert.deepEqual(aiCall.options,{returnRawResponse:true});
+    assert.equal(legacy.status,200);
+    assert.equal(legacy.headers.get('x-mel-audio-format'),'pcm-s16le');
+    assert.equal(legacy.headers.get('x-mel-audio-rate'),'48000');
+    assert.equal(legacy.headers.get('x-mel-audio-channels'),'1');
+    assert.deepEqual(aiCalls.at(-1).input,{text:'Bonjour Adrien',speaker:'luna',encoding:'linear16',container:'none',sample_rate:48000});
+
+    const mp3=await worker.fetch(new Request('https://mel.test/api/android/v1/voice/tts',{
+      method:'POST',headers,body:JSON.stringify({text:'Bonjour Adrien',speaker:'luna',format:'mp3'})
+    }),env);
+    assert.equal(mp3.status,200);
+    assert.equal(mp3.headers.get('content-type'),'audio/mpeg');
+    assert.equal(mp3.headers.get('x-mel-audio-format'),'mp3');
+    assert.equal(mp3.headers.get('x-mel-speaker'),'luna');
+    assert.equal(mp3.headers.get('x-mel-audio-rate'),null);
+    assert.deepEqual([...new Uint8Array(await mp3.arrayBuffer())],[1,2,3,4,5,6]);
+    assert.equal(aiCalls.at(-1).model,'@cf/deepgram/aura-1');
+    assert.deepEqual(aiCalls.at(-1).input,{text:'Bonjour Adrien',speaker:'luna',encoding:'mp3'});
+    assert.deepEqual(aiCalls.at(-1).options,{returnRawResponse:true});
 
     const denied=await worker.fetch(new Request('https://mel.test/api/android/v1/voice/tts',{
       method:'POST',
       headers:deviceHeaders(paired.device_id,'wrong-token',{'content-type':'application/json'}),
-      body:JSON.stringify({text:'test'})
+      body:JSON.stringify({text:'test',format:'mp3'})
     }),env);
     assert.equal(denied.status,401);
   }finally{DB.close();}
