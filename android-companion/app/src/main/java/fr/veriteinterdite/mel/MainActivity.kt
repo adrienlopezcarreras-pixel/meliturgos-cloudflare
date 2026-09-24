@@ -138,6 +138,18 @@ class MainActivity : ComponentActivity() {
     private val voiceLevel = mutableStateOf(0f)
     private val voiceMessage = mutableStateOf("Micro prêt")
     private val cameraPhoto = mutableStateOf<Bitmap?>(null)
+    private val miniBleState = mutableStateOf(MiniBleState())
+    private lateinit var miniBle: MelMiniBle
+
+    private val bluetoothPermissions = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.all { it }) {
+            miniBle.connect()
+        } else {
+            miniBleState.value = miniBleState.value.copy(phase = "Permissions Bluetooth refusées")
+        }
+    }
 
     private val microphonePermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -185,6 +197,7 @@ class MainActivity : ComponentActivity() {
         client = MelApiClient(BuildConfig.MEL_BASE_URL, deviceId(), vault)
         val factory = MelViewModel.factory(this, client, vault, conversationId)
         model = ViewModelProvider(this, factory)[MelViewModel::class.java]
+        miniBle = MelMiniBle(this) { miniBleState.value = it }
 
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
@@ -220,7 +233,13 @@ class MainActivity : ComponentActivity() {
                     cameraPhoto = cameraPhoto.value,
                     onCamera = ::openCamera,
                     onSendCamera = ::sendCameraPhoto,
-                    onRefreshCompanions = model::refreshCompanions
+                    onRefreshCompanions = model::refreshCompanions,
+                    miniBleState = miniBleState.value,
+                    onMiniBleConnect = ::connectMiniBle,
+                    onMiniBleDisconnect = { miniBle.disconnect() },
+                    onMiniBleForget = { miniBle.forget() },
+                    onMiniBlePing = { miniBle.send("ping") },
+                    onMiniBleVoice = { miniBle.send("voice") }
                 )
             }
         }
@@ -229,7 +248,17 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         stopSpeechQuietly()
         stopRecorderQuietly()
+        if (::miniBle.isInitialized) miniBle.disconnect()
         super.onDestroy()
+    }
+
+    private fun connectMiniBle() {
+        if (!::miniBle.isInitialized) return
+        if (miniBle.permissionsGranted()) {
+            miniBle.connect()
+        } else {
+            bluetoothPermissions.launch(miniBle.requiredPermissions())
+        }
     }
 
     private fun deviceId(): String {
