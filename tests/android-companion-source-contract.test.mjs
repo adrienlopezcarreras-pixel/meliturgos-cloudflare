@@ -146,7 +146,7 @@ test('signed Android release pipeline is secret-backed fail-closed and verifies 
 });
 
 
-test('Android 0.6.10 matches the MINI reference shell with realistic MEL portrait',async()=>{
+test('Android 0.6.11 matches the MINI reference shell with realistic MEL portrait',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   assert.match(activity,/private fun MelPortraitStage\(/);
   assert.match(activity,/painterResource\(R\.drawable\.mel_futuristic_new\)/);
@@ -163,7 +163,7 @@ test('Android 0.6.10 matches the MINI reference shell with realistic MEL portrai
   assert.match(activity,/MelFaceState\.SPEAKING -> "MEL"/);
 });
 
-test('Android 0.6.10 uses French system speech with automatic MEL fallback',async()=>{
+test('Android 0.6.11 uses French system speech with automatic MEL fallback',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   assert.match(activity,/SpeechRecognizer\.createSpeechRecognizer/);
   assert.doesNotMatch(activity,/SpeechRecognizer\.createOnDeviceSpeechRecognizer/);
@@ -198,7 +198,7 @@ test('Android native microphone uses SpeechRecognizer with declared package visi
   assert.match(activity,/MediaRecorder\.AudioEncoder\.OPUS/);
 });
 
-test('Android 0.6.10 animates the realistic MEL portrait and voice waveform',async()=>{
+test('Android 0.6.11 animates the realistic MEL portrait and voice waveform',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   assert.match(activity,/enum class MelFaceState \{ IDLE, LISTENING, THINKING, SPEAKING, ERROR \}/);
   assert.match(activity,/rememberInfiniteTransition\(label = "mel-photo-motion"\)/);
@@ -299,9 +299,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 19/);
-  assert.match(build,/versionName = "0\.6\.10"/);
-  assert.match(api,/APP_VERSION = "0\.6\.10"/);
+  assert.match(build,/versionCode = 20/);
+  assert.match(build,/versionName = "0\.6\.11"/);
+  assert.match(api,/APP_VERSION = "0\.6\.11"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -322,9 +322,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 19/);
-  assert.match(build,/versionName = "0\.6\.10"/);
-  assert.match(api,/APP_VERSION = "0\.6\.10"/);
+  assert.match(build,/versionCode = 20/);
+  assert.match(build,/versionName = "0\.6\.11"/);
+  assert.match(api,/APP_VERSION = "0\.6\.11"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -356,9 +356,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 19/);
-  assert.match(build,/versionName = "0\.6\.10"/);
-  assert.match(api,/APP_VERSION = "0\.6\.10"/);
+  assert.match(build,/versionCode = 20/);
+  assert.match(build,/versionName = "0\.6\.11"/);
+  assert.match(api,/APP_VERSION = "0\.6\.11"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -375,9 +375,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 19/);
-  assert.match(build,/versionName = "0\.6\.10"/);
-  assert.match(api,/APP_VERSION = "0\.6\.10"/);
+  assert.match(build,/versionCode = 20/);
+  assert.match(build,/versionName = "0\.6\.11"/);
+  assert.match(api,/APP_VERSION = "0\.6\.11"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -417,10 +417,12 @@ test('Android MINI mobile shell keeps settings-driven native navigation and comp
 
 
 
-test('Android 0.6.10 keeps critical interaction state truthful and stable',async()=>{
+test('Android 0.6.11 keeps critical interaction state truthful and stable',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
-  assert.match(activity,/LaunchedEffect\(state\.messages\.size\)/);
+  assert.doesNotMatch(activity,/LaunchedEffect\(state\.messages\.size\)/);
+  assert.match(vm,/val speaking: Boolean = false/);
+  assert.match(activity,/state\.speaking -> MelFaceState\.SPEAKING/);
   assert.match(activity,/ModeSelector\(state\.mode, state\.busy, onMode\)/);
   assert.match(activity,/testTag\("message-input"\)/);
   assert.match(activity,/testTag\("file-button"\)/);
@@ -439,7 +441,7 @@ test('Android 0.6.10 keeps critical interaction state truthful and stable',async
   assert.match(vm,/fun setMode\(mode: MelMode\) \{\s*if \(_state\.value\.busy\) return/);
 });
 
-test('Android 0.6.10 exposes native keyboard camera companion and tools surfaces',async()=>{
+test('Android 0.6.11 exposes native keyboard camera companion and tools surfaces',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
@@ -458,6 +460,32 @@ test('Android 0.6.10 exposes native keyboard camera companion and tools surfaces
   assert.match(vm,/data class MelCompanionDevice/);
   assert.match(vm,/fun refreshCompanions\(\)/);
   assert.doesNotMatch(activity,/Intent\.ACTION_VIEW/);
+});
+
+test('Android 0.6.11 plays the same Luna PCM voice contract as MINI for chat and microphone replies',async()=>{
+  const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const player=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelVoicePlayer.kt',root),'utf8');
+  const server=await readFile(new URL('../src/devices/android-companion-api.js',import.meta.url),'utf8');
+
+  assert.match(api,/fun tts\(text: String, speaker: String = "luna"\): ByteArray/);
+  assert.match(api,/\/api\/android\/v1\/voice\/tts/);
+  assert.match(server,/@cf\/deepgram\/aura-1/);
+  assert.match(server,/speaker = safe\(body\.speaker,32\) \|\| "luna"/);
+  assert.match(server,/encoding:"linear16"/);
+  assert.match(server,/sample_rate:48000/);
+  assert.match(server,/x-mel-audio-format","pcm-s16le"/);
+  assert.match(server,/x-mel-audio-rate","48000"/);
+  assert.match(player,/AudioTrack\.Builder\(\)/);
+  assert.match(player,/AudioFormat\.ENCODING_PCM_16BIT/);
+  assert.match(player,/AudioFormat\.CHANNEL_OUT_MONO/);
+  assert.match(player,/SAMPLE_RATE = 48_000/);
+  assert.match(vm,/client\.tts\(answer, speaker = "luna"\)/);
+  assert.match(vm,/MelVoicePlayer\.playPcm48kMono\(pcm\)/);
+  assert.match(vm,/status = "MEL parle…"/);
+  assert.match(vm,/Audio MEL: OK · luna/);
+  assert.match(activity,/state\.speaking -> MelFaceState\.SPEAKING/);
 });
 
 test('Android lint is aligned for AndroidX release checks',async()=>{
