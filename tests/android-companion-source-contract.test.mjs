@@ -246,6 +246,12 @@ test('Android 0.6.15 handles everyday assistant commands locally before the netw
   assert.match(activity,/Settings\.ACTION_AIRPLANE_MODE_SETTINGS/);
   assert.match(activity,/Settings\.ACTION_DISPLAY_SETTINGS/);
   assert.match(activity,/Settings\.ACTION_SOUND_SETTINGS/);
+  assert.match(activity,/CalendarContract\.Events\.CONTENT_URI/);
+  assert.match(activity,/CalendarContract\.EXTRA_EVENT_BEGIN_TIME/);
+  assert.match(activity,/getSharedPreferences\("mel_companion_local"/);
+  assert.match(activity,/JSONArray/);
+  assert.match(activity,/appendLocalItem\("shopping"/);
+  assert.match(activity,/appendLocalItem\("notes"/);
   assert.match(activity,/client\.transcribe\(bytes, mimeType\)/);
   assert.match(activity,/dispatchCompanionText\(transcript, voice = true\)/);
   assert.match(vm,/fun localCompanionReply\(/);
@@ -264,11 +270,19 @@ test('Android 0.6.15 handles everyday assistant commands locally before the netw
   assert.match(commands,/MelCompanionCommand\.BatteryStatus/);
   assert.match(commands,/MelCompanionCommand\.InternetStatus/);
   assert.match(commands,/MelCompanionCommand\.VolumeStatus/);
+  assert.match(commands,/MelCompanionCommand\.CalendarEvent/);
+  assert.match(commands,/MelCompanionCommand\.AddShoppingItem/);
+  assert.match(commands,/MelCompanionCommand\.ShowShoppingList/);
+  assert.match(commands,/MelCompanionCommand\.AddNote/);
+  assert.match(commands,/MelCompanionCommand\.ShowNotes/);
   assert.match(build,/testImplementation\("junit:junit:4\.13\.2"\)/);
   assert.match(workflow,/:app:testDebugUnitTest/);
   assert.match(unit,/fun arithmeticIsLocal\(\)/);
   assert.match(unit,/fun timerAndRelativeReminderAreLocal\(\)/);
   assert.match(unit,/fun communicationActionsRequireAndroidHandoff\(\)/);
+  assert.match(unit,/fun calendarEventIsPreparedLocally\(\)/);
+  assert.match(unit,/fun shoppingListCommandsAreLocal\(\)/);
+  assert.match(unit,/fun notesCommandsAreLocal\(\)/);
   assert.match(unit,/fun unknownRequestFallsBackToMel\(\)/);
 });
 
