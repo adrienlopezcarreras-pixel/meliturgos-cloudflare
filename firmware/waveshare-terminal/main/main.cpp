@@ -1301,18 +1301,25 @@ static void mini_smoke_ui() {
     lv_label_set_text(time_label, "--:--");
     lv_obj_set_style_text_font(time_label, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(time_label, lv_color_hex(0xF8FAFC), 0);
-    lv_obj_align(time_label, LV_ALIGN_TOP_RIGHT, -66, 16);
+    lv_obj_align(time_label, LV_ALIGN_TOP_RIGHT, -82, 16);
 
+    // Large, inset hit target: the previous 46x40 button was too close to the
+    // top-right edge of the FT6336 active area and the icon glyph could render
+    // inconsistently. Keep the control deliberately simple and robust.
     lv_obj_t *settings_btn = lv_btn_create(main_panel);
-    lv_obj_set_size(settings_btn, 46, 40);
-    lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -10, 10);
-    lv_obj_set_style_radius(settings_btn, 12, 0);
+    lv_obj_set_size(settings_btn, 62, 48);
+    lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -8, 7);
+    lv_obj_set_style_radius(settings_btn, 14, 0);
     lv_obj_set_style_bg_color(settings_btn, lv_color_hex(0x0B2238), 0);
-    lv_obj_set_style_border_width(settings_btn, 1, 0);
+    lv_obj_set_style_border_width(settings_btn, 2, 0);
     lv_obj_set_style_border_color(settings_btn, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_pad_all(settings_btn, 0, 0);
     lv_obj_t *settings_icon = lv_label_create(settings_btn);
-    lv_label_set_text(settings_icon, LV_SYMBOL_SETTINGS);
+    lv_label_set_text(settings_icon, "...");
+    lv_obj_set_style_text_font(settings_icon, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(settings_icon, lv_color_hex(0xF8FAFC), 0);
     lv_obj_center(settings_icon);
+    lv_obj_clear_flag(settings_icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(settings_btn, settings_open_clicked, LV_EVENT_CLICKED, nullptr);
 
     runtime_status_label = lv_label_create(main_panel);
