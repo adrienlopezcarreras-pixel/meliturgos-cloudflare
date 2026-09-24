@@ -1474,24 +1474,6 @@ private fun MelPortraitStage(
         animationSpec = infiniteRepeatable(animation = tween(4800), repeatMode = RepeatMode.Reverse),
         label = "mel-photo-sway"
     )
-    val blink by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = keyframes {
-                durationMillis = 9000
-                0f at 0
-                0f at 4300
-                1f at 4360
-                0f at 4435
-                0f at 7700
-                1f at 7760
-                0f at 7835
-                0f at 9000
-            }
-        ),
-        label = "mel-photo-blink"
-    )
     val mouthPhase by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
@@ -1548,42 +1530,6 @@ private fun MelPortraitStage(
 
             Canvas(Modifier.fillMaxSize()) {
                 val imageSide = size.width
-
-                if (blink > .08f) {
-                    val lash = Color(0xFF3C2227).copy(alpha = .82f * blink)
-                    val eyeSize = Size(imageSide * .112f, imageSide * .046f)
-                    val leftTop = Offset(imageSide * .322f, imageSide * .382f)
-                    val rightTop = Offset(imageSide * .532f, imageSide * .382f)
-                    val eyelid = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFFD7A090).copy(alpha = .92f * blink),
-                            Color(0xFFC78375).copy(alpha = .96f * blink)
-                        ),
-                        startY = leftTop.y,
-                        endY = leftTop.y + eyeSize.height
-                    )
-
-                    drawOval(brush = eyelid, topLeft = leftTop, size = eyeSize)
-                    drawOval(brush = eyelid, topLeft = rightTop, size = eyeSize)
-                    drawArc(
-                        color = lash,
-                        startAngle = 10f,
-                        sweepAngle = 160f,
-                        useCenter = false,
-                        topLeft = leftTop,
-                        size = eyeSize,
-                        style = Stroke(width = (imageSide * .0030f).coerceAtLeast(1f))
-                    )
-                    drawArc(
-                        color = lash,
-                        startAngle = 10f,
-                        sweepAngle = 160f,
-                        useCenter = false,
-                        topLeft = rightTop,
-                        size = eyeSize,
-                        style = Stroke(width = (imageSide * .0030f).coerceAtLeast(1f))
-                    )
-                }
 
                 if (faceState == MelFaceState.SPEAKING) {
                     drawArc(
