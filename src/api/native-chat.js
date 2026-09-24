@@ -503,6 +503,17 @@ export async function runNativeInference({ env, messages, text, parallel = false
   }, { source: 'native-chat', inference_settings: inferenceSettings || null });
 }
 
+function inferDirectCurrentWebCapability(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  if (/\b(?:mes\s+(?:mails?|emails?|fichiers?|documents?|photos?|messages?|contacts?|calendriers?|agendas?)|gmail|outlook|onedrive|google\s+drive|agenda|calendrier)\b/i.test(value)) return null;
+
+  const currentInfo = /\b(?:m[ée]t[ée]o|quel\s+temps|temp[ée]rature|pluie|vent|pr[ée]visions?|actualit[ée]s?|news|aujourd['’]hui|demain|ce\s+soir|maintenant|actuellement|en\s+ce\s+moment|derni[eè]res?\s+(?:infos?|nouvelles?|donn[ée]es?)|latest|r[ée]cent(?:e|es|s)?|prix|tarif|cours|cotation|bourse|bitcoin|crypto|taux\s+de\s+change|horaires?|ouvert|ouverte|fermeture|trafic|score|r[ée]sultat|classement|programme|disponibilit[ée]|disponible|date\s+de\s+sortie|pr[ée]sident\s+actuel|ministre\s+actuel|maire\s+actuel|pdg\s+actuel|ceo\s+actuel)\b/i.test(value);
+  if (!currentInfo) return null;
+
+  return { id: 'web.research', input: { query: value.slice(0, 2000), depth: 2 } };
+}
+
 export async function handleNativeChat(request, env, options = {}) {
   const trustedInternal = options?.authorized === true;
   const releaseSmoke = isReleaseSmokeRequest(request, env);
@@ -551,6 +562,7 @@ export async function handleNativeChat(request, env, options = {}) {
     ? inferNativeCodeCapability(text, [])
     : inferNativeComputerCapability(text)
       || (!personalProfileIntent ? inferChatGPTHistoryCapability(text) : null)
+      || inferDirectCurrentWebCapability(text)
       || inferKnowledgeCapability(text)
       || inferNativeCodeCapability(text, recent);
   if (conversationFocus.needs_clarification && !body.capability?.id && !inferredCapability) {
