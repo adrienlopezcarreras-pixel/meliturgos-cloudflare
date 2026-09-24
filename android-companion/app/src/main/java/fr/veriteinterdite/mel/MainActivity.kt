@@ -703,7 +703,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun appCategory(target: MelAppTarget): String = when (target) {
-        MelAppTarget.BROWSER -> Intent.CATEGORY_APP_BROWSER
         MelAppTarget.CALCULATOR -> Intent.CATEGORY_APP_CALCULATOR
         MelAppTarget.CALENDAR -> Intent.CATEGORY_APP_CALENDAR
         MelAppTarget.CONTACTS -> Intent.CATEGORY_APP_CONTACTS
