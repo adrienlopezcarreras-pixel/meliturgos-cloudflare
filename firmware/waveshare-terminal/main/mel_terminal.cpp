@@ -804,7 +804,7 @@ static void stt_test_task(void *) {
     if (text.empty()) {
         if (g_stt_test_cb) g_stt_test_cb("VOIX/STT FAIL : aucune transcription.");
     } else {
-        std::string msg = std::string("VOIX/STT PASS : "") + text + """;
+        std::string msg = std::string("VOIX/STT PASS : \"") + text + "\"";
         if (g_stt_test_cb) g_stt_test_cb(msg.c_str());
     }
     g_runtime_state = MEL_TERMINAL_IDLE;
