@@ -281,7 +281,7 @@ static bool speak_text(const std::string &text) {
             if (status == 200) {
                 uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4097, MALLOC_CAP_8BIT));
                 if (buffer) {
-                    esp_codec_dev_set_out_vol(output_dev, 72.0);
+                    esp_codec_dev_set_out_vol(output_dev, 92.0);
                     ok = true;
                     bool have_carry = false;
                     uint8_t carry = 0;
@@ -560,6 +560,9 @@ static std::string chat_with_mel(const std::string &text) {
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "text", text.c_str());
     cJSON_AddStringToObject(root, "conversation_id", g_device_id);
+    cJSON_AddStringToObject(root, "input_source", "voice-server-transcription");
+    cJSON_AddBoolToObject(root, "voice_mode", true);
+    cJSON_AddBoolToObject(root, "parallel", false);
     std::string body = json_string(root);
     cJSON_Delete(root);
 
@@ -814,13 +817,15 @@ static std::string record_and_transcribe() {
 static void voice_task(void *) {
     g_runtime_state = MEL_TERMINAL_LISTENING;
     ui_status("ECOUTE...");
-    ui_answer("Parle maintenant.");
-    vTaskDelay(pdMS_TO_TICKS(350));
+    ui_answer("");
+    vTaskDelay(pdMS_TO_TICKS(100));
+    const int64_t stt_started_us = esp_timer_get_time();
     std::string text = record_and_transcribe();
+    ESP_LOGI(TAG, "VOICE PERF: STT total=%lld ms", (long long)((esp_timer_get_time() - stt_started_us) / 1000));
     if (text.empty()) {
         g_runtime_state = MEL_TERMINAL_ERROR;
         ui_status(g_last_voice_error ? g_last_voice_error : "ERREUR STT");
-        ui_answer(g_last_voice_error ? g_last_voice_error : "Je n'ai pas reussi a transcrire.");
+        ui_answer("");
         vTaskDelay(pdMS_TO_TICKS(1800));
         g_runtime_state = MEL_TERMINAL_IDLE;
         g_voice_stop_requested = false;
@@ -831,14 +836,19 @@ static void voice_task(void *) {
     g_runtime_state = MEL_TERMINAL_THINKING;
     ui_status("REFLEXION...");
     ui_answer("");
+    const int64_t chat_started_us = esp_timer_get_time();
     std::string answer = chat_with_mel(text);
+    ESP_LOGI(TAG, "VOICE PERF: CHAT=%lld ms chars=%u", (long long)((esp_timer_get_time() - chat_started_us) / 1000), (unsigned)answer.size());
     g_runtime_state = MEL_TERMINAL_SPEAKING;
-    ui_status("MINI");
-    ui_answer(answer.c_str());
+    ui_status("MEL PARLE");
+    ui_answer("");
+    const int64_t tts_started_us = esp_timer_get_time();
     const bool spoken = speak_text(answer);
+    ESP_LOGI(TAG, "VOICE PERF: TTS+PLAY=%lld ms", (long long)((esp_timer_get_time() - tts_started_us) / 1000));
     if (!spoken) {
-        ESP_LOGW(TAG, "Voice reply unavailable; keeping text response on screen");
-        vTaskDelay(pdMS_TO_TICKS(900));
+        ESP_LOGW(TAG, "Voice reply unavailable");
+        ui_status("TTS ERREUR");
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
     ui_status("");
     g_runtime_state = MEL_TERMINAL_IDLE;
