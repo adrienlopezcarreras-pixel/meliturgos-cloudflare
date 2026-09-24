@@ -188,6 +188,30 @@ test('Android voice route uses the canonical Whisper endpoint and returns chat h
 });
 
 
+test('Android voice fallback accepts M4A audio multipart as well as WebM',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'test',
+      AI:{async run(model,input){
+        assert.equal(model,'@cf/openai/whisper-large-v3-turbo');
+        assert.ok(input.audio instanceof Uint8Array);
+        return {text:'dictée m4a android'};
+      }}
+    };
+    const paired=await pair(env,'android-voice-m4a');
+    const form=new FormData();
+    form.append('audio',new Blob(['fake-m4a'],{type:'audio/mp4'}),'voice.m4a');
+    const response=await worker.fetch(new Request('https://mel.test/api/android/v1/voice/transcribe',{
+      method:'POST',headers:deviceHeaders(paired.device_id,paired.token),body:form
+    }),env);
+    assert.equal(response.status,200);
+    assert.equal((await response.json()).text,'dictée m4a android');
+  }finally{DB.close();}
+});
+
 test('Android file route accepts device-token uploads without owner credentials',async()=>{
   const DB=sqliteD1();
   try{
