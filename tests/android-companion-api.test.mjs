@@ -197,7 +197,8 @@ test('Android voice fallback accepts M4A audio multipart as well as WebM',async(
       MELITURGOS_PASSWORD:'test',
       AI:{async run(model,input){
         assert.equal(model,'@cf/openai/whisper-large-v3-turbo');
-        assert.ok(input.audio instanceof Uint8Array);
+        assert.equal(typeof input.audio,'string');
+        assert.ok(input.audio.length>0);
         return {text:'dictée m4a android'};
       }}
     };
