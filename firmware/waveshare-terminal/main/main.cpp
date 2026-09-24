@@ -1370,6 +1370,12 @@ static void mini_smoke_ui() {
 }
 
 static void mobile_bridge_watch_task(void *) {
+    // Let OV5640 reserve its contiguous internal DMA block first. Starting
+    // NimBLE before the camera fragmented the DMA heap on the S3.
+    vTaskDelay(pdMS_TO_TICKS(6500));
+    ESP_LOGI(TAG, "STEP 6.5: MEL MOBILE BLE (deferred after camera DMA)");
+    mel_mobile_bridge_start();
+
     bool previous = false;
     while (true) {
         const bool ready = mel_mobile_bridge_ready();
@@ -1440,10 +1446,8 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_LOGI(TAG, "STEP 6 OK: WIFI STACK STARTED (FR channels 1-13)");
 
-    ESP_LOGI(TAG, "STEP 6.5: MEL MOBILE BLE");
-    mel_mobile_bridge_start();
+    // BLE starts asynchronously after the camera has reserved its DMA block.
     xTaskCreatePinnedToCore(mobile_bridge_watch_task, "mel_mobile_watch", 4096, nullptr, 2, nullptr, 0);
-    ESP_LOGI(TAG, "STEP 6.5 OK: BLE bridge scanner started");
 
     if (lvgl_port_lock(0)) {
         mini_smoke_ui();
