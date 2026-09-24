@@ -5,10 +5,15 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.media.AudioManager
 import android.media.MediaRecorder
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
@@ -646,7 +651,92 @@ class MainActivity : ComponentActivity() {
                 enableNotifications()
                 model.localCompanionReply(raw, "J’active les notifications MEL.", voice)
             }
+            is MelCompanionCommand.OpenApp -> {
+                val intent = Intent.makeMainSelectorActivity(
+                    Intent.ACTION_MAIN,
+                    appCategory(command.target)
+                )
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "J’ouvre ${command.label}.",
+                    voice
+                )
+            }
+            MelCompanionCommand.BatteryStatus -> {
+                val percent = batteryPercent()
+                val answer = if (percent == null)
+                    "Je n’arrive pas à lire la batterie."
+                else
+                    "La batterie est à $percent pour cent."
+                model.localCompanionReply(raw, answer, voice)
+            }
+            MelCompanionCommand.InternetStatus -> {
+                val connected = internetValidated()
+                val answer = if (connected)
+                    "Oui, Android confirme une connexion Internet active."
+                else
+                    "Non, Android ne confirme pas de connexion Internet utilisable."
+                model.localCompanionReply(raw, answer, voice)
+            }
+            MelCompanionCommand.VolumeStatus -> {
+                val percent = mediaVolumePercent()
+                val answer = if (percent == null)
+                    "Je n’arrive pas à lire le volume multimédia."
+                else
+                    "Le volume multimédia est à $percent pour cent."
+                model.localCompanionReply(raw, answer, voice)
+            }
+            MelCompanionCommand.GeneralSettings -> {
+                launchCompanionIntent(Intent(Settings.ACTION_SETTINGS), raw, "J’ouvre les réglages Android.", voice)
+            }
+            MelCompanionCommand.AirplaneSettings -> {
+                launchCompanionIntent(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS), raw, "J’ouvre le mode avion.", voice)
+            }
+            MelCompanionCommand.DisplaySettings -> {
+                launchCompanionIntent(Intent(Settings.ACTION_DISPLAY_SETTINGS), raw, "J’ouvre les réglages d’écran.", voice)
+            }
+            MelCompanionCommand.SoundSettings -> {
+                launchCompanionIntent(Intent(Settings.ACTION_SOUND_SETTINGS), raw, "J’ouvre les réglages du son.", voice)
+            }
         }
+    }
+
+    private fun appCategory(target: MelAppTarget): String = when (target) {
+        MelAppTarget.BROWSER -> Intent.CATEGORY_APP_BROWSER
+        MelAppTarget.CALCULATOR -> Intent.CATEGORY_APP_CALCULATOR
+        MelAppTarget.CALENDAR -> Intent.CATEGORY_APP_CALENDAR
+        MelAppTarget.CONTACTS -> Intent.CATEGORY_APP_CONTACTS
+        MelAppTarget.EMAIL -> Intent.CATEGORY_APP_EMAIL
+        MelAppTarget.FILES -> Intent.CATEGORY_APP_FILES
+        MelAppTarget.GALLERY -> Intent.CATEGORY_APP_GALLERY
+        MelAppTarget.MAPS -> Intent.CATEGORY_APP_MAPS
+        MelAppTarget.MESSAGING -> Intent.CATEGORY_APP_MESSAGING
+        MelAppTarget.MUSIC -> Intent.CATEGORY_APP_MUSIC
+    }
+
+    private fun batteryPercent(): Int? {
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null
+        val level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        if (level < 0 || scale <= 0) return null
+        return ((level * 100f) / scale).toInt().coerceIn(0, 100)
+    }
+
+    private fun internetValidated(): Boolean {
+        val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private fun mediaVolumePercent(): Int? {
+        val manager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val max = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (max <= 0) return null
+        val current = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        return ((current * 100f) / max).toInt().coerceIn(0, 100)
     }
 
     private fun launchCompanionIntent(
