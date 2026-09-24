@@ -693,6 +693,16 @@ static void settings_camera_clicked(lv_event_t *e) {
     xTaskCreatePinnedToCore(settings_camera_test_task, "settings_camera_test", 8192, nullptr, 3, &settings_camera_test_task_handle, 0);
 }
 
+static void settings_stt_status_cb(const char *text) {
+    settings_set_status(text);
+}
+
+static void settings_stt_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ESP_LOGI(TAG, "UI BUTTON: TEST VOIX/STT");
+    mel_terminal_test_stt(settings_stt_status_cb);
+}
+
 static void settings_network_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     settings_refresh_status();
@@ -715,8 +725,8 @@ static lv_obj_t *settings_add_button(lv_obj_t *parent, const char *text, int y, 
 
 static void settings_ui_create(lv_obj_t *screen) {
     settings_panel = lv_obj_create(screen);
-    lv_obj_set_size(settings_panel, 300, 420);
-    lv_obj_align(settings_panel, LV_ALIGN_CENTER, 0, 8);
+    lv_obj_set_size(settings_panel, 300, 460);
+    lv_obj_align(settings_panel, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_radius(settings_panel, 18, 0);
     lv_obj_set_style_bg_color(settings_panel, lv_color_hex(0x07111F), 0);
     lv_obj_set_style_bg_opa(settings_panel, LV_OPA_COVER, 0);
@@ -744,11 +754,12 @@ static void settings_ui_create(lv_obj_t *screen) {
     lv_obj_set_style_text_color(settings_status, lv_color_hex(0x94A3B8), 0);
     lv_obj_align(settings_status, LV_ALIGN_TOP_MID, 0, 50);
 
-    settings_add_button(settings_panel, "CONNEXION WI-FI", 118, settings_wifi_clicked);
-    settings_add_button(settings_panel, "APPAIRAGE MEL", 170, settings_pair_clicked);
-    settings_add_button(settings_panel, "TEST MICRO BRUIT + HP", 222, settings_audio_clicked);
-    settings_add_button(settings_panel, "TEST CAMERA", 274, settings_camera_clicked);
-    settings_add_button(settings_panel, "ETAT WI-FI + MEL", 326, settings_network_clicked);
+    settings_add_button(settings_panel, "CONNEXION WI-FI", 106, settings_wifi_clicked);
+    settings_add_button(settings_panel, "APPAIRAGE MEL", 156, settings_pair_clicked);
+    settings_add_button(settings_panel, "TEST MICRO BRUIT + HP", 206, settings_audio_clicked);
+    settings_add_button(settings_panel, "TEST VOIX / STT", 256, settings_stt_clicked);
+    settings_add_button(settings_panel, "TEST CAMERA", 306, settings_camera_clicked);
+    settings_add_button(settings_panel, "ETAT WI-FI + MEL", 356, settings_network_clicked);
 
     lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
     settings_refresh_status();
