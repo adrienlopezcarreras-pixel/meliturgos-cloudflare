@@ -71,6 +71,7 @@ static bool g_online = false;
 static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
 static TaskHandle_t g_voice_task_handle = nullptr;
 static volatile bool g_voice_stop_requested = false;
+static volatile int g_voice_level = 0;
 static const char *g_last_voice_error = nullptr;
 
 static void voice_error(const char *reason) {
@@ -626,6 +627,17 @@ static std::string record_and_transcribe() {
         if (rc != ESP_CODEC_DEV_OK) break;
         captured_samples += chunk_samples;
 
+        uint64_t chunk_abs_sum = 0;
+        for (int i = 0; i < chunk_samples; i += 4) {
+            const int32_t v = capture[captured_samples - chunk_samples + i];
+            chunk_abs_sum += (uint32_t)(v < 0 ? -v : v);
+        }
+        const int sampled = (chunk_samples + 3) / 4;
+        const uint32_t chunk_mean_abs = sampled > 0 ? (uint32_t)(chunk_abs_sum / sampled) : 0;
+        int visual_level = (int)(chunk_mean_abs / 24U);
+        if (visual_level > 100) visual_level = 100;
+        g_voice_level = visual_level;
+
         if (g_voice_stop_requested) {
             ESP_LOGI(TAG, "VOICE STOP: manual stop after %d ms (%d samples)",
                      (captured_samples * 1000) / VOICE_CAPTURE_RATE, captured_samples);
@@ -633,6 +645,7 @@ static std::string record_and_transcribe() {
         }
     }
     esp_codec_dev_set_in_gain(input_dev, 0.0);
+    g_voice_level = 0;
 
     if (rc != ESP_CODEC_DEV_OK) {
         ESP_LOGE(TAG, "VOICE: esp_codec_dev_read failed rc=%d after %d samples", rc, captured_samples);
@@ -857,6 +870,10 @@ int mel_terminal_state(void) {
 
 bool mel_terminal_online(void) {
     return g_online;
+}
+
+int mel_terminal_voice_level(void) {
+    return g_voice_level;
 }
 
 static void audio_test_task(void *) {

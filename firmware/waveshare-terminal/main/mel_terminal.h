@@ -29,6 +29,7 @@ enum MelTerminalState {
 void mel_terminal_request_voice(void);
 int mel_terminal_state(void);
 bool mel_terminal_online(void);
+int mel_terminal_voice_level(void);
 void mel_terminal_test_audio(void);
 void mel_terminal_test_camera(void);
 typedef void (*mel_terminal_test_status_cb_t)(const char *text);

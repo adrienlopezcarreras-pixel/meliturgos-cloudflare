@@ -310,6 +310,12 @@ static void mini_anim_cb(lv_timer_t *) {
         lv_img_set_zoom(avatar_obj, 256);
     }
 
+    if (talk_button) {
+        const int level = mel_terminal_voice_level();
+        const int ring = state == MEL_TERMINAL_LISTENING ? (3 + (level * 5) / 100) : 3;
+        lv_obj_set_style_border_width(talk_button, ring, 0);
+    }
+
     if (state != last_face_state && talk_button) {
         lv_color_t accent = lv_color_hex(0x22D3EE);
         if (state == MEL_TERMINAL_LISTENING) accent = lv_color_hex(0x34D399);
