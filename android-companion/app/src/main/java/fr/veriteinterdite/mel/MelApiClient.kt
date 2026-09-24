@@ -239,8 +239,8 @@ class MelApiClient(
     fun tts(text: String, speaker: String = "luna"): ByteArray {
         require(text.isNotBlank()) { "TEXT_REQUIRED" }
         val connection = connection("/api/android/v1/voice/tts", "POST")
-        connection.connectTimeout = 4_000
-        connection.readTimeout = 7_000
+        connection.connectTimeout = 2_500
+        connection.readTimeout = 4_500
         connection.doOutput = true
         connection.setRequestProperty("Accept", "application/octet-stream")
         connection.setRequestProperty("Content-Type", "application/json")
