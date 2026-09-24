@@ -172,7 +172,7 @@ test('Android 0.6.9 prefers on-device speech, exposes live level, and keeps spee
   assert.match(activity,/ERROR_SPEECH_TIMEOUT -> "Je n’ai rien entendu · retouche Micro"/);
   const errorBlock=activity.slice(activity.indexOf('override fun onError(error: Int)'),activity.indexOf('override fun onResults',activity.indexOf('override fun onError(error: Int)')));
   assert.doesNotMatch(errorBlock,/startRecorderFallback/);
-  assert.match(activity,/MelFaceState\.LISTENING -> 1f \+ voiceLevel\.coerceIn/);
+  assert.match(activity,/MelFaceState\.LISTENING -> breathe \+ voiceLevel\.coerceIn/);
   assert.match(activity,/SettingsAction\("Clavier \/ Chat"/);
   assert.match(activity,/SettingsAction\("Caméra"/);
   assert.match(activity,/SettingsAction\("Compagnon MINI"/);
@@ -385,7 +385,7 @@ test('Android dark UI keeps readable content contrast',async()=>{
 });
 
 
-test('Android MINI mobile shell keeps native navigation and complete tools inside the app',async()=>{
+test('Android MINI mobile shell keeps settings-driven native navigation and complete tools inside the app',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const screenshotTest=await readFile(new URL('app/src/androidTest/java/fr/veriteinterdite/mel/MelUiHarnessScreenshotTest.kt',root),'utf8');
 
@@ -394,13 +394,16 @@ test('Android MINI mobile shell keeps native navigation and complete tools insid
   assert.match(activity,/KEYBOARD\("Clavier"\)/);
   assert.match(activity,/CAMERA\("Caméra"\)/);
   assert.match(activity,/COMPANION\("MINI"\)/);
+  assert.match(activity,/WEB\("Web"\)/);
   assert.match(activity,/TOOLS\("Outils"\)/);
-  assert.match(activity,/testTag\("nav-" \+ item\.name\.lowercase\(\)\)/);
-  assert.match(activity,/KEYBOARD\("Clavier"\)/);
-  assert.match(activity,/CAMERA\("Caméra"\)/);
-  assert.match(activity,/COMPANION\("MINI"\)/);
-  assert.match(activity,/TOOLS\("Outils"\)/);
-  assert.match(screenshotTest,/nav-tools/);
+  assert.match(activity,/private fun MiniSettingsPanel\(/);
+  assert.match(activity,/testTag\("settings-button"\)/);
+  assert.match(activity,/"settings-keyboard"/);
+  assert.match(activity,/"settings-camera"/);
+  assert.match(activity,/"settings-companion"/);
+  assert.match(activity,/"settings-web"/);
+  assert.match(activity,/"settings-tools"/);
+  assert.match(screenshotTest,/settings-tools/);
   assert.doesNotMatch(activity,/Intent\.ACTION_VIEW/);
 });
 
@@ -441,7 +444,7 @@ test('Android 0.6.9 exposes native keyboard camera companion and tools surfaces'
   assert.match(activity,/WebPanel\(/);
   assert.match(activity,/AndroidView\(/);
   assert.match(activity,/WebView\(context\)/);
-  assert.match(activity,/testTag\("settings-web"\)/);
+  assert.match(activity,/"settings-web"/);
   assert.match(api,/fun companions\(\): JSONArray/);
   assert.match(api,/\/api\/android\/v1\/companions/);
   assert.match(vm,/data class MelCompanionDevice/);
