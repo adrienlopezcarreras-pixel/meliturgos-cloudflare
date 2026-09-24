@@ -77,8 +77,8 @@ test('Android app exposes native file selection and a useful Complete control su
   assert.match(activity,/ActivityResultContracts\.OpenDocument/);
   assert.match(activity,/Text\("Fichier"\)/);
   assert.match(activity,/Text\("PROFESSOR \/ MODE COMPLET NATIF"/);
-  assert.match(activity,/testTag\("nav-camera"\)/);
-  assert.match(activity,/testTag\("nav-companion"\)/);
+  assert.match(activity,/CAMERA\("Caméra"\)/);
+  assert.match(activity,/COMPANION\("MINI"\)/);
   assert.match(activity,/ActivityResultContracts\.TakePicturePreview/);
   assert.doesNotMatch(activity,/Intent\.ACTION_VIEW/);
   assert.match(api,/fun uploadFile\(/);
@@ -165,7 +165,7 @@ test('Android 0.6.8 prefers on-device speech, exposes live level, and keeps spee
   assert.match(activity,/ERROR_SPEECH_TIMEOUT -> "Je n’ai rien entendu · retouche Micro"/);
   const errorBlock=activity.slice(activity.indexOf('override fun onError(error: Int)'),activity.indexOf('override fun onResults',activity.indexOf('override fun onError(error: Int)')));
   assert.doesNotMatch(errorBlock,/startRecorderFallback/);
-  assert.match(activity,/fillMaxWidth\(voiceLevel\.coerceIn/);
+  assert.match(activity,/MelFaceState\.LISTENING -> 1f \+ voiceLevel\.coerceIn/);
   assert.match(activity,/StatusPill\("VOICE", MelCyan\)/);
   assert.match(activity,/StatusPill\("FILES", MelBlue\)/);
   assert.match(activity,/StatusPill\("SYNC", MelViolet\)/);
@@ -368,7 +368,7 @@ test('Android dark UI keeps readable content contrast',async()=>{
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
-  assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelGlass, contentColor = MelInk\)/);
+  assert.match(activity,/color = MelGlass/);
   assert.match(activity,/border = BorderStroke\(1\.dp, MelCyan\.copy\(alpha = \.18f\)\)/);
   assert.match(activity,/Text\("MINI \/\/ MEL"/);
   assert.match(activity,/Text\("Connexion à MEL", color = MelInk/);
@@ -390,10 +390,11 @@ test('Android MINI mobile shell keeps native navigation and complete tools insid
   assert.match(activity,/CAMERA\("Caméra"\)/);
   assert.match(activity,/COMPANION\("MINI"\)/);
   assert.match(activity,/TOOLS\("Outils"\)/);
-  assert.match(activity,/testTag\("nav-keyboard"\)/);
-  assert.match(activity,/testTag\("nav-camera"\)/);
-  assert.match(activity,/testTag\("nav-companion"\)/);
-  assert.match(activity,/testTag\("nav-tools"\)/);
+  assert.match(activity,/testTag\("nav-" \+ item\.name\.lowercase\(\)\)/);
+  assert.match(activity,/KEYBOARD\("Clavier"\)/);
+  assert.match(activity,/CAMERA\("Caméra"\)/);
+  assert.match(activity,/COMPANION\("MINI"\)/);
+  assert.match(activity,/TOOLS\("Outils"\)/);
   assert.match(screenshotTest,/nav-tools/);
   assert.doesNotMatch(activity,/Intent\.ACTION_VIEW/);
 });
