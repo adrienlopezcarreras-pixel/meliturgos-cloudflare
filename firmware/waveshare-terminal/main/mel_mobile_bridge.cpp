@@ -364,18 +364,15 @@ void mel_mobile_bridge_rescan(void) {
         mel_mobile_bridge_start();
         return;
     }
-    if (g_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
-        ESP_LOGI(TAG, "Manual MEL Mobile rescan requested");
-        start_scan();
+    if (g_conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+        ble_gap_terminate(g_conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+        return;
     }
+    start_scan();
 }
 
 bool mel_mobile_bridge_ready(void) {
     return g_ready.load();
-}
-
-bool mel_mobile_bridge_started(void) {
-    return g_started.load();
 }
 
 uint16_t mel_mobile_bridge_mtu(void) {

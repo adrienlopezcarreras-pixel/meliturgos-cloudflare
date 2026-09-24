@@ -11,7 +11,6 @@ typedef bool (*mel_mobile_bridge_chunk_cb)(const uint8_t *data, size_t len, void
 void mel_mobile_bridge_start(void);
 void mel_mobile_bridge_rescan(void);
 bool mel_mobile_bridge_ready(void);
-bool mel_mobile_bridge_started(void);
 uint16_t mel_mobile_bridge_mtu(void);
 
 esp_err_t mel_mobile_bridge_request(
