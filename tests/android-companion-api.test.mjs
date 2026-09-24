@@ -253,6 +253,51 @@ test('Android TTS route matches MINI Luna PCM contract and rejects invalid devic
   }finally{DB.close();}
 });
 
+
+test('Android natural current-information question automatically uses public Internet research',async()=>{
+  const DB=sqliteD1();
+  try{
+    const webCalls=[];
+    const aiCalls=[];
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'test',
+      MEL_WEB_MIN_INTERVAL_MS:0,
+      MEL_WEB_FETCH:async url=>{
+        webCalls.push(String(url));
+        if(String(url).startsWith('https://www.google.com/search?')){
+          return new Response('<html><head><title>Météo Nîmes</title><meta name="description" content="Météo actuelle Nîmes 24 degrés"></head><body>24 degrés</body></html>',{status:200,headers:{'content-type':'text/html; charset=utf-8'}});
+        }
+        if(String(url).startsWith('https://duckduckgo.com/html/?q=')){
+          return new Response('<html><head><title>Prévisions Nîmes</title><meta name="description" content="Prévisions actuelles Nîmes"></head><body>Prévisions</body></html>',{status:200,headers:{'content-type':'text/html; charset=utf-8'}});
+        }
+        return new Response('not found',{status:404,headers:{'content-type':'text/plain'}});
+      },
+      AI:{async run(model,input){
+        aiCalls.push({model,input});
+        return {response:'À Nîmes, les données web indiquent environ 24 °C.'};
+      }}
+    };
+    const paired=await pair(env,'android-internet');
+    const headers=deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'});
+    const response=await worker.fetch(new Request('https://mel.test/api/android/v1/chat',{
+      method:'POST',
+      headers,
+      body:JSON.stringify({text:'Quel temps fait-il à Nîmes ?',conversation_id:'android-internet-conv'})
+    }),env);
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.text,'À Nîmes, les données web indiquent environ 24 °C.');
+    assert.equal(webCalls.length,2);
+    assert.ok(webCalls.some(url=>url.startsWith('https://www.google.com/search?')));
+    assert.ok(webCalls.some(url=>url.startsWith('https://duckduckgo.com/html/?q=')));
+    const system=String(aiCalls.at(-1)?.input?.messages?.find(message=>message.role==='system')?.content||'');
+    assert.match(system,/web\.research/);
+    assert.match(system,/Météo actuelle Nîmes 24 degrés/);
+  }finally{DB.close();}
+});
+
 test('Android companion route exposes paired MINI status to the phone without owner credentials',async()=>{
   const DB=sqliteD1();
   try{
