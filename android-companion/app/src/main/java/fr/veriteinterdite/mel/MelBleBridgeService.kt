@@ -1,4 +1,4 @@
-﻿package fr.veriteinterdite.mel
+package fr.veriteinterdite.mel
 
 import android.Manifest
 import android.app.NotificationChannel
@@ -40,7 +40,7 @@ import java.util.concurrent.TimeUnit
  * BLE transport used by MINI when no 2.4 GHz Wi-Fi is available.
  *
  * This is deliberately not a generic Internet proxy: it only relays authenticated
- * /api/device/v1/* calls to MEL_BASE_URL. The MINI keeps its own device token.
+ * MEL device API calls to MEL_BASE_URL. The MINI keeps its own device token.
  */
 class MelBleBridgeService : Service() {
     companion object {
@@ -49,9 +49,9 @@ class MelBleBridgeService : Service() {
         private const val NOTIFICATION_ID = 604
         private const val MAX_REQUEST_BYTES = 512 * 1024
 
-        val SERVICE_UUID: UUID = UUID.fromString("6d656c00-6d6f-6269-6c65-627269646765")
-        val RX_UUID: UUID = UUID.fromString("6d656c01-6d6f-6269-6c65-627269646765")
-        val TX_UUID: UUID = UUID.fromString("6d656c02-6d6f-6269-6c65-627269646765")
+        val SERVICE_UUID: UUID = UUID.fromString("0000abf0-0000-1000-8000-00805f9b34fb")
+        val RX_UUID: UUID = UUID.fromString("0000abf1-0000-1000-8000-00805f9b34fb")
+        val TX_UUID: UUID = UUID.fromString("0000abf2-0000-1000-8000-00805f9b34fb")
         private val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
         private const val OP_BEGIN = 0x01
@@ -131,7 +131,7 @@ class MelBleBridgeService : Service() {
         bluetoothManager = getSystemService(BluetoothManager::class.java)
         adapter = bluetoothManager?.adapter
         val activeAdapter = adapter
-        if (activeAdapter == null || !activeAdapter.isEnabled || !activeAdapter.isMultipleAdvertisementSupported) {
+        if (activeAdapter == null || !activeAdapter.isEnabled) {
             Log.w(TAG, "BLE advertising unavailable")
             return
         }
@@ -276,7 +276,7 @@ class MelBleBridgeService : Service() {
             require(method == "POST" || method == "GET") { "METHOD" }
             require(path.startsWith("/api/device/v1/")) { "PATH" }
             require(!path.contains("..")) { "PATH" }
-            require(token.length in 16..4096) { "TOKEN" }
+            require((path == "/api/device/v1/pair" && token.isEmpty()) || token.length in 16..4096) { "TOKEN" }
             require(deviceId.length in 3..128) { "DEVICE_ID" }
             require(length in 0..MAX_REQUEST_BYTES) { "SIZE" }
             requests[device.address] = PendingRequest(requestId, method, path, contentType, token, deviceId, length)
@@ -312,7 +312,7 @@ class MelBleBridgeService : Service() {
                 requestMethod = request.method
                 connectTimeout = 15_000
                 readTimeout = 90_000
-                setRequestProperty("Authorization", "Bearer ${request.token}")
+                if (request.token.isNotEmpty()) setRequestProperty("Authorization", "Bearer ${request.token}")
                 setRequestProperty("X-MEL-Device-ID", request.deviceId)
                 setRequestProperty("X-MEL-Mobile-Bridge", BuildConfig.VERSION_NAME)
                 setRequestProperty("Accept", "*/*")
