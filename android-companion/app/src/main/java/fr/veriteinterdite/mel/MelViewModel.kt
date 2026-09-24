@@ -195,14 +195,8 @@ class MelViewModel(
         if (!voice) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                MelVoicePlayer.playSystemFrench(appContext, cleanAnswer)
-                _state.value = _state.value.copy(
-                    busy = false,
-                    speaking = false,
-                    status = "MEL connectée · mode ${mode.label}",
-                    error = null
-                )
-                appendDiagnosticLine("Compagnon local: OK · TTS Android français")
+                speakAnswer(cleanAnswer, mode)
+                appendDiagnosticLine("Compagnon local: OK · voix MEL")
             } catch (error: Throwable) {
                 _state.value = _state.value.copy(
                     busy = false,
@@ -320,22 +314,22 @@ class MelViewModel(
     private fun speakAnswer(answer: String, mode: MelMode) {
         var lunaFailure: Throwable? = null
         try {
-            val pcm = client.tts(answer, speaker = "luna")
-            if (pcm.isEmpty()) throw MelApiException("TTS_AUDIO_EMPTY", 502)
+            val audio = client.tts(answer, speaker = "luna", format = "mp3")
+            if (audio.isEmpty()) throw MelApiException("TTS_AUDIO_EMPTY", 502)
             _state.value = _state.value.copy(
                 busy = true,
                 speaking = true,
                 status = "MEL parle…",
                 error = null
             )
-            MelVoicePlayer.playPcm48kMono(pcm)
+            MelVoicePlayer.playMp3(appContext, audio)
             _state.value = _state.value.copy(
                 busy = false,
                 speaking = false,
                 status = "MEL connectée · mode ${mode.label}",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: OK · luna")
+            appendDiagnosticLine("Audio MEL: OK · luna mp3")
             return
         } catch (error: Throwable) {
             lunaFailure = error
