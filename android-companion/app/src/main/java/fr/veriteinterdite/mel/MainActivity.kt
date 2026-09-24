@@ -2180,3 +2180,5 @@ private fun MessageBubble(message: MelChatMessage) {
         }
     }
 }
+
+// VISUAL_SHELL: 0.6.9-mini-reference-refined
