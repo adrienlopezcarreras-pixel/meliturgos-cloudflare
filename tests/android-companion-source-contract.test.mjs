@@ -212,6 +212,7 @@ test('Android 0.6.14 handles everyday assistant commands locally before the netw
   const commands=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelCompanionCommands.kt',root),'utf8');
 
   assert.match(manifest,/com\.android\.alarm\.permission\.SET_ALARM/);
+  assert.match(manifest,/android\.permission\.ACCESS_NETWORK_STATE/);
   assert.match(manifest,/android\.intent\.action\.TTS_SERVICE/);
   assert.match(activity,/private fun dispatchCompanionText\(/);
   assert.match(activity,/MelCompanionCommands\.parse\(clean\)/);
@@ -224,6 +225,23 @@ test('Android 0.6.14 handles everyday assistant commands locally before the netw
   assert.match(activity,/Settings\.ACTION_WIFI_SETTINGS/);
   assert.match(activity,/Settings\.ACTION_BLUETOOTH_SETTINGS/);
   assert.match(activity,/Settings\.ACTION_LOCATION_SOURCE_SETTINGS/);
+  assert.match(activity,/Intent\.makeMainSelectorActivity/);
+  assert.match(activity,/Intent\.CATEGORY_APP_CALCULATOR/);
+  assert.match(activity,/Intent\.CATEGORY_APP_CALENDAR/);
+  assert.match(activity,/Intent\.CATEGORY_APP_CONTACTS/);
+  assert.match(activity,/Intent\.CATEGORY_APP_EMAIL/);
+  assert.match(activity,/Intent\.CATEGORY_APP_FILES/);
+  assert.match(activity,/Intent\.CATEGORY_APP_GALLERY/);
+  assert.match(activity,/Intent\.CATEGORY_APP_MAPS/);
+  assert.match(activity,/Intent\.CATEGORY_APP_MESSAGING/);
+  assert.match(activity,/Intent\.CATEGORY_APP_MUSIC/);
+  assert.match(activity,/Intent\.CATEGORY_APP_BROWSER/);
+  assert.match(activity,/BatteryManager\.EXTRA_LEVEL/);
+  assert.match(activity,/NetworkCapabilities\.NET_CAPABILITY_VALIDATED/);
+  assert.match(activity,/AudioManager\.STREAM_MUSIC/);
+  assert.match(activity,/Settings\.ACTION_AIRPLANE_MODE_SETTINGS/);
+  assert.match(activity,/Settings\.ACTION_DISPLAY_SETTINGS/);
+  assert.match(activity,/Settings\.ACTION_SOUND_SETTINGS/);
   assert.match(activity,/client\.transcribe\(bytes, mimeType\)/);
   assert.match(activity,/dispatchCompanionText\(transcript, voice = true\)/);
   assert.match(vm,/fun localCompanionReply\(/);
@@ -236,6 +254,10 @@ test('Android 0.6.14 handles everyday assistant commands locally before the netw
   assert.match(commands,/MelCompanionCommand\.Navigate/);
   assert.match(commands,/MelCompanionCommand\.Camera/);
   assert.match(commands,/MelCompanionCommand\.EnableNotifications/);
+  assert.match(commands,/MelCompanionCommand\.OpenApp/);
+  assert.match(commands,/MelCompanionCommand\.BatteryStatus/);
+  assert.match(commands,/MelCompanionCommand\.InternetStatus/);
+  assert.match(commands,/MelCompanionCommand\.VolumeStatus/);
 });
 
 test('Android 0.6.14 animates the realistic MEL portrait and voice waveform',async()=>{
