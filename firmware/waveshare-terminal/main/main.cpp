@@ -302,22 +302,12 @@ static void mini_anim_cb(lv_timer_t *) {
     const bool online = mel_terminal_online();
     listening = state == MEL_TERMINAL_LISTENING;
 
-    // Slow 1-pixel breathing motion. Update only once per second to keep the
-    // 320x320 portrait cheap to redraw on SPI.
-    static uint32_t last_motion_second = UINT32_MAX;
-    const uint32_t motion_second = now / 1000U;
-    if (motion_second != last_motion_second) {
-        last_motion_second = motion_second;
-        static const int8_t motion[4] = {0, -1, 0, 1};
-        lv_obj_set_y(face_obj, 50 + motion[motion_second & 3U]);
-    }
-
-    // Slightly livelier motion while MEL is listening/speaking, still cheap.
-    if (state == MEL_TERMINAL_LISTENING || state == MEL_TERMINAL_SPEAKING) {
-        const int8_t pulse[4] = {0, 1, 0, -1};
-        lv_obj_set_x(avatar_obj, pulse[(now / 250U) & 3U]);
-    } else {
+    // Keep the portrait completely static. Moving the whole photo looked
+    // artificial; future animation should use dedicated facial frames instead.
+    if (avatar_obj) {
         lv_obj_set_x(avatar_obj, 0);
+        lv_obj_set_y(avatar_obj, 0);
+        lv_img_set_zoom(avatar_obj, 256);
     }
 
     if (state != last_face_state && talk_button) {
@@ -330,7 +320,7 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 
     if (state == MEL_TERMINAL_LISTENING) {
-        if (state != last_face_state && status_label) lv_label_set_text(status_label, "ECOUTE");
+        if (state != last_face_state && status_label) lv_label_set_text(status_label, "STOP");
     } else if (state == MEL_TERMINAL_THINKING) {
         if (state != last_face_state && status_label) lv_label_set_text(status_label, "REFLEXION");
     } else if (state == MEL_TERMINAL_SPEAKING) {
