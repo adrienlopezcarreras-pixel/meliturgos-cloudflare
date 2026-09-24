@@ -359,8 +359,23 @@ void mel_mobile_bridge_start(void) {
     ESP_LOGI(TAG, "MEL Mobile BLE client started");
 }
 
+void mel_mobile_bridge_rescan(void) {
+    if (!g_started.load()) {
+        mel_mobile_bridge_start();
+        return;
+    }
+    if (g_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        ESP_LOGI(TAG, "Manual MEL Mobile rescan requested");
+        start_scan();
+    }
+}
+
 bool mel_mobile_bridge_ready(void) {
     return g_ready.load();
+}
+
+bool mel_mobile_bridge_started(void) {
+    return g_started.load();
 }
 
 uint16_t mel_mobile_bridge_mtu(void) {

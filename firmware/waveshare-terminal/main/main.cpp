@@ -75,6 +75,8 @@ static lv_obj_t *main_panel = nullptr;
 static lv_obj_t *settings_panel = nullptr;
 static volatile bool camera_probe_done = false;
 static lv_obj_t *settings_status = nullptr;
+static lv_obj_t *bluetooth_panel = nullptr;
+static lv_obj_t *bluetooth_status = nullptr;
 static lv_obj_t *pair_panel = nullptr;
 static lv_obj_t *pair_button = nullptr;
 static volatile bool stress_pair_click_requested = false;
@@ -101,6 +103,7 @@ enum MiniView {
     MINI_VIEW_WIFI_MANUAL = 3,
     MINI_VIEW_PAIR = 4,
     MINI_VIEW_SETTINGS = 5,
+    MINI_VIEW_BLUETOOTH = 6,
 };
 
 static volatile int requested_view = MINI_VIEW_MAIN;
@@ -113,6 +116,7 @@ static bool last_online = false;
 
 static void request_view(MiniView view);
 static void mini_apply_requested_view(void);
+static void bluetooth_refresh_status(void);
 static void wifi_start_scan(void);
 static void ui_stress_task(void *);
 
@@ -290,6 +294,7 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
 
 static void mini_anim_cb(lv_timer_t *) {
     mini_apply_requested_view();
+    if (active_view == MINI_VIEW_BLUETOOTH) bluetooth_refresh_status();
 
     if (stress_pair_click_requested && pair_button && active_view == MINI_VIEW_MAIN) {
         stress_pair_click_requested = false;
@@ -424,6 +429,7 @@ static void mini_apply_requested_view(void) {
     if (wifi_panel) lv_obj_add_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
     if (pair_panel) lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
     if (settings_panel) lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
+    if (bluetooth_panel) lv_obj_add_flag(bluetooth_panel, LV_OBJ_FLAG_HIDDEN);
     if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
     if (pair_keyboard) lv_obj_add_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
 
@@ -441,6 +447,12 @@ static void mini_apply_requested_view(void) {
                                   wifi_got_ip ? (ip[0] ? ip : "OK") : "OFF",
                                   mel_terminal_online() ? "EN LIGNE" : "HORS LIGNE");
         }
+        return;
+    }
+
+    if (active_view == MINI_VIEW_BLUETOOTH) {
+        if (bluetooth_panel) lv_obj_clear_flag(bluetooth_panel, LV_OBJ_FLAG_HIDDEN);
+        bluetooth_refresh_status();
         return;
     }
 
@@ -710,6 +722,98 @@ static void settings_network_clicked(lv_event_t *e) {
     settings_refresh_status();
 }
 
+static void bluetooth_refresh_status(void) {
+    if (!bluetooth_status) return;
+    char msg[220] = {};
+    if (mel_mobile_bridge_ready()) {
+        snprintf(msg, sizeof(msg),
+                 "ETAT : CONNECTE AU REDMI\nMEL Mobile actif\nMTU BLE : %u\nMINI <-> Redmi <-> 4G/5G",
+                 (unsigned)mel_mobile_bridge_mtu());
+    } else if (mel_mobile_bridge_started()) {
+        snprintf(msg, sizeof(msg),
+                 "ETAT : RECHERCHE DU REDMI\nOuvre MEL Mobile sur le telephone.\nLa MINI se connecte automatiquement.");
+    } else {
+        snprintf(msg, sizeof(msg),
+                 "ETAT : DEMARRAGE BLUETOOTH\nLe BLE demarre apres l'initialisation camera.");
+    }
+    const char *current = lv_label_get_text(bluetooth_status);
+    if (!current || strcmp(current, msg) != 0) lv_label_set_text(bluetooth_status, msg);
+}
+
+static void settings_bluetooth_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ESP_LOGI(TAG, "UI BUTTON: BLUETOOTH");
+    request_view(MINI_VIEW_BLUETOOTH);
+}
+
+static void bluetooth_scan_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ESP_LOGI(TAG, "UI BUTTON: BLUETOOTH RESCAN");
+    mel_mobile_bridge_rescan();
+    bluetooth_refresh_status();
+}
+
+static void bluetooth_back_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    request_view(MINI_VIEW_SETTINGS);
+}
+
+static void bluetooth_ui_create(lv_obj_t *screen) {
+    bluetooth_panel = lv_obj_create(screen);
+    lv_obj_set_size(bluetooth_panel, 300, 460);
+    lv_obj_align(bluetooth_panel, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_radius(bluetooth_panel, 18, 0);
+    lv_obj_set_style_bg_color(bluetooth_panel, lv_color_hex(0x07111F), 0);
+    lv_obj_set_style_bg_opa(bluetooth_panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(bluetooth_panel, 2, 0);
+    lv_obj_set_style_border_color(bluetooth_panel, lv_color_hex(0x22D3EE), 0);
+    lv_obj_set_style_pad_all(bluetooth_panel, 8, 0);
+    lv_obj_clear_flag(bluetooth_panel, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = lv_label_create(bluetooth_panel);
+    lv_label_set_text(title, "BLUETOOTH / MEL MOBILE");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_18, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 12, 10);
+
+    lv_obj_t *back = lv_btn_create(bluetooth_panel);
+    lv_obj_set_size(back, 42, 36);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, -2, 0);
+    lv_obj_t *back_label = lv_label_create(back);
+    lv_label_set_text(back_label, LV_SYMBOL_LEFT);
+    lv_obj_center(back_label);
+    lv_obj_add_event_cb(back, bluetooth_back_clicked, LV_EVENT_CLICKED, nullptr);
+
+    bluetooth_status = lv_label_create(bluetooth_panel);
+    lv_label_set_long_mode(bluetooth_status, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(bluetooth_status, 260);
+    lv_obj_set_style_text_align(bluetooth_status, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(bluetooth_status, lv_color_hex(0xE2E8F0), 0);
+    lv_obj_align(bluetooth_status, LV_ALIGN_TOP_MID, 0, 90);
+
+    lv_obj_t *scan = lv_btn_create(bluetooth_panel);
+    lv_obj_set_size(scan, 250, 52);
+    lv_obj_align(scan, LV_ALIGN_TOP_MID, 0, 230);
+    lv_obj_set_style_radius(scan, 14, 0);
+    lv_obj_set_style_bg_color(scan, lv_color_hex(0x0B2238), 0);
+    lv_obj_set_style_border_width(scan, 1, 0);
+    lv_obj_set_style_border_color(scan, lv_color_hex(0x22D3EE), 0);
+    lv_obj_t *scan_label = lv_label_create(scan);
+    lv_label_set_text(scan_label, "RECHERCHER LE REDMI");
+    lv_obj_center(scan_label);
+    lv_obj_add_event_cb(scan, bluetooth_scan_clicked, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *note = lv_label_create(bluetooth_panel);
+    lv_label_set_text(note, "Le Wi-Fi reste prioritaire.\nMEL Mobile prend le relais en itinerance.");
+    lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(note, 250);
+    lv_obj_set_style_text_align(note, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(note, lv_color_hex(0x94A3B8), 0);
+    lv_obj_align(note, LV_ALIGN_TOP_MID, 0, 310);
+
+    lv_obj_add_flag(bluetooth_panel, LV_OBJ_FLAG_HIDDEN);
+    bluetooth_refresh_status();
+}
+
 static lv_obj_t *settings_add_button(lv_obj_t *parent, const char *text, int y, lv_event_cb_t cb) {
     lv_obj_t *btn = lv_btn_create(parent);
     lv_obj_set_size(btn, 258, 46);
@@ -762,6 +866,7 @@ static void settings_ui_create(lv_obj_t *screen) {
     settings_add_button(settings_panel, "TEST VOIX / STT", 256, settings_stt_clicked);
     settings_add_button(settings_panel, "TEST CAMERA", 306, settings_camera_clicked);
     settings_add_button(settings_panel, "ETAT WI-FI + MEL", 356, settings_network_clicked);
+    settings_add_button(settings_panel, "BLUETOOTH / MEL MOBILE", 406, settings_bluetooth_clicked);
 
     lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
     settings_refresh_status();
@@ -1364,6 +1469,7 @@ static void mini_smoke_ui() {
     wifi_ui_create(screen);
     pair_ui_create(screen);
     settings_ui_create(screen);
+    bluetooth_ui_create(screen);
     mel_terminal_bind_external_ui(runtime_status_label, answer_label);
     anim_timer = lv_timer_create(mini_anim_cb, 250, nullptr);
     lv_timer_create(clock_timer_cb, 1000, nullptr);
