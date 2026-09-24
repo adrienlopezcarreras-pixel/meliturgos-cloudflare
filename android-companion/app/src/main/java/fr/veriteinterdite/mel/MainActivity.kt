@@ -16,6 +16,8 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.provider.OpenableColumns
 import android.provider.Settings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -28,6 +30,7 @@ import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -81,6 +84,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -96,11 +101,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 
@@ -711,67 +719,15 @@ private fun MelAvatar(
     val breathe by transition.animateFloat(
         initialValue = .985f,
         targetValue = 1.018f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2600),
-            repeatMode = RepeatMode.Reverse
-        ),
+        animationSpec = infiniteRepeatable(animation = tween(2600), repeatMode = RepeatMode.Reverse),
         label = "mel-breathe"
     )
     val sway by transition.animateFloat(
-        initialValue = -1.2f,
-        targetValue = 1.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(4300),
-            repeatMode = RepeatMode.Reverse
-        ),
+        initialValue = -1.1f,
+        targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(animation = tween(4300), repeatMode = RepeatMode.Reverse),
         label = "mel-sway"
     )
-    val gaze by transition.animateFloat(
-        initialValue = -1.8f,
-        targetValue = 1.8f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3600),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "mel-gaze"
-    )
-    val blink by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = keyframes {
-                durationMillis = 6200
-                0f at 0
-                0f at 2350
-                1f at 2420
-                0f at 2500
-                0f at 4520
-                1f at 4590
-                0f at 4680
-                0f at 6200
-            }
-        ),
-        label = "mel-blink"
-    )
-    val pulse by transition.animateFloat(
-        initialValue = .34f,
-        targetValue = .72f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(if (faceState == MelFaceState.THINKING) 680 else 1300),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "mel-pulse"
-    )
-    val mouthPhase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(if (faceState == MelFaceState.SPEAKING) 220 else 680),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "mel-mouth"
-    )
-
     val accent = when (faceState) {
         MelFaceState.LISTENING -> MelSuccess
         MelFaceState.THINKING -> MelViolet
@@ -779,126 +735,44 @@ private fun MelAvatar(
         MelFaceState.ERROR -> MelDanger
         MelFaceState.IDLE -> MelCyan
     }
-    val liveScale = when (faceState) {
-        MelFaceState.LISTENING -> 1f + voiceLevel.coerceIn(0f, 1f) * .025f
+    val scale = when (faceState) {
+        MelFaceState.LISTENING -> breathe + voiceLevel.coerceIn(0f, 1f) * .018f
         MelFaceState.THINKING -> breathe + .008f
         else -> breathe
     }
-    val tilt = when (faceState) {
-        MelFaceState.LISTENING -> sway * .35f
-        MelFaceState.THINKING -> sway * 1.4f
-        MelFaceState.SPEAKING -> sway * .55f
-        MelFaceState.ERROR -> 0f
-        MelFaceState.IDLE -> sway
-    }
-    val blinkHeight = (size * .042f * blink).dp
-    val eyeY = (-size * .062f).dp
-    val pupilShift = (gaze * if (faceState == MelFaceState.THINKING) 1.5f else 1f).dp
-    val mouthY = (size * .105f).dp
-    val mouthWidth = when (faceState) {
-        MelFaceState.SPEAKING -> (size * (.14f + mouthPhase * .08f)).dp
-        MelFaceState.LISTENING -> (size * (.13f + voiceLevel.coerceIn(0f, 1f) * .05f)).dp
-        else -> (size * .14f).dp
-    }
-    val mouthHeight = when (faceState) {
-        MelFaceState.SPEAKING -> (size * (.025f + mouthPhase * .035f)).dp
-        MelFaceState.LISTENING -> (size * .026f).dp
-        MelFaceState.ERROR -> 2.dp
-        else -> (size * .024f).dp
-    }
-
     Box(
         modifier = Modifier
             .size((size + 14).dp)
             .graphicsLayer {
-                scaleX = liveScale
-                scaleY = liveScale
-                rotationZ = tilt
-                translationY = if (faceState == MelFaceState.IDLE) sway * .7f else 0f
+                scaleX = scale
+                scaleY = scale
+                rotationZ = if (faceState == MelFaceState.ERROR) 0f else sway * .35f
             }
             .clip(CircleShape)
             .background(
                 Brush.radialGradient(
-                    listOf(
-                        accent.copy(alpha = if (online) pulse else .10f),
-                        accent.copy(alpha = .08f),
-                        Color.Transparent
-                    )
+                    listOf(accent.copy(alpha = if (online) .48f else .12f), Color.Transparent)
                 )
             )
             .testTag("mel-animated-avatar"),
         contentAlignment = Alignment.Center
     ) {
         Image(
-            painter = painterResource(R.drawable.ic_mel_avatar),
+            painter = painterResource(R.drawable.mel_futuristic_new),
             contentDescription = "Avatar de MEL",
             modifier = Modifier
                 .size(size.dp)
                 .clip(CircleShape)
                 .border(
                     width = if (online) 2.dp else 1.dp,
-                    color = if (online) accent.copy(alpha = .92f) else MelMuted.copy(alpha = .55f),
+                    color = if (online) accent.copy(alpha = .88f) else MelMuted.copy(alpha = .45f),
                     shape = CircleShape
                 )
-                .semantics { contentDescription = "Avatar MEL" }
+                .semantics { contentDescription = "Avatar MEL" },
+            contentScale = ContentScale.Crop
         )
-
-        if (online) {
-            Row(
-                modifier = Modifier.offset(y = eyeY),
-                horizontalArrangement = Arrangement.spacedBy((size * .10f).dp)
-            ) {
-                repeat(2) {
-                    Box(
-                        Modifier
-                            .size((size * .078f).dp, (size * .038f).dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF14212A))
-                    ) {
-                        Box(
-                            Modifier
-                                .align(Alignment.Center)
-                                .offset(x = pupilShift)
-                                .size((size * .020f).dp)
-                                .clip(CircleShape)
-                                .background(accent.copy(alpha = .95f))
-                        )
-                        if (blink > .02f) {
-                            Box(
-                                Modifier
-                                    .align(Alignment.Center)
-                                    .fillMaxWidth()
-                                    .height(blinkHeight)
-                                    .background(Color(0xFFD7A382))
-                            )
-                        }
-                    }
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .offset(y = mouthY)
-                    .size((size * .22f).dp, (size * .085f).dp)
-                    .background(Color(0xFFD7A382)),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    Modifier
-                        .size(mouthWidth, mouthHeight)
-                        .clip(CircleShape)
-                        .background(
-                            if (faceState == MelFaceState.ERROR) MelDanger.copy(alpha = .85f)
-                            else Color(0xFFB87867)
-                        )
-                )
-            }
-        }
-
         Surface(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .size((size * .20f).dp),
+            modifier = Modifier.align(Alignment.BottomEnd).size((size * .20f).dp),
             shape = CircleShape,
             color = if (online) accent else Color(0xFF64748B),
             border = BorderStroke(2.dp, Color(0xFF071523))
@@ -1105,6 +979,7 @@ private enum class MobileSection(val label: String) {
     KEYBOARD("Clavier"),
     CAMERA("Caméra"),
     COMPANION("MINI"),
+    WEB("Web"),
     TOOLS("Outils")
 }
 
@@ -1132,10 +1007,18 @@ private fun ConversationScreen(
     onRefreshCompanions: () -> Unit
 ) {
     var section by rememberSaveable { mutableStateOf(MobileSection.MEL) }
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
     var speaking by remember { mutableStateOf(false) }
+    var clock by remember { mutableStateOf(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())) }
     val focus = LocalFocusManager.current
 
+    LaunchedEffect(Unit) {
+        while (true) {
+            clock = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+            delay(30_000)
+        }
+    }
     LaunchedEffect(state.messages.size) {
         if (state.messages.lastOrNull()?.role == "mel") {
             speaking = true
@@ -1144,6 +1027,7 @@ private fun ConversationScreen(
         }
     }
     LaunchedEffect(section) {
+        settingsOpen = false
         if (section == MobileSection.COMPANION) onRefreshCompanions()
     }
 
@@ -1155,67 +1039,24 @@ private fun ConversationScreen(
         else -> MelFaceState.IDLE
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        modifier = Modifier
+    Box(
+        Modifier
+            .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .imePadding(),
-        topBar = {
-            Surface(
-                color = Color(0xE605111F),
-                contentColor = MelInk,
-                border = BorderStroke(.5.dp, MelCyan.copy(alpha = .10f))
-            ) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "MINI // MEL",
-                            color = MelInk,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 19.sp,
-                            letterSpacing = 1.8.sp
-                        )
-                        Text(
-                            state.status.ifBlank { "PARLER" },
-                            color = MelMuted,
-                            fontSize = 10.sp,
-                            maxLines = 1
-                        )
-                    }
-                    StatusPill(if (state.mode == MelMode.COMPLETE) "COMPLET" else "NORMAL",
-                        if (state.mode == MelMode.COMPLETE) MelViolet else MelCyan)
-                    Spacer(Modifier.width(6.dp))
-                    TextButton(onClick = onDisconnect) { Text("Quitter", color = MelMuted) }
-                }
-            }
-        },
-        bottomBar = {
-            MobileNavigationBar(section) { section = it }
-        }
-    ) { padding ->
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            when (section) {
-                MobileSection.MEL -> MiniHomePanel(
-                    state = state,
-                    faceState = faceState,
-                    voiceLevel = voiceLevel,
-                    voiceMessage = voiceMessage,
-                    recording = recording,
-                    onVoice = onVoice,
-                    onKeyboard = { section = MobileSection.KEYBOARD }
-                )
-                MobileSection.KEYBOARD -> KeyboardPanel(
+            .imePadding()
+    ) {
+        when (section) {
+            MobileSection.MEL -> MiniHomePanel(
+                state = state,
+                faceState = faceState,
+                voiceLevel = voiceLevel,
+                voiceMessage = voiceMessage,
+                recording = recording,
+                onVoice = onVoice
+            )
+            MobileSection.KEYBOARD -> SectionSurface("CLAVIER // CHAT") {
+                KeyboardPanel(
                     state = state,
                     draft = draft,
                     onDraft = { draft = it },
@@ -1232,16 +1073,18 @@ private fun ConversationScreen(
                     recording = recording,
                     voiceMessage = voiceMessage
                 )
-                MobileSection.CAMERA -> CameraPanel(
-                    photo = cameraPhoto,
-                    onCamera = onCamera,
-                    onSend = onSendCamera
-                )
-                MobileSection.COMPANION -> CompanionPanel(
-                    state = state,
-                    onRefresh = onRefreshCompanions
-                )
-                MobileSection.TOOLS -> NativeToolsPanel(
+            }
+            MobileSection.CAMERA -> SectionSurface("CAMERA // MEL") {
+                CameraPanel(photo = cameraPhoto, onCamera = onCamera, onSend = onSendCamera)
+            }
+            MobileSection.COMPANION -> SectionSurface("COMPAGNON // MINI") {
+                CompanionPanel(state = state, onRefresh = onRefreshCompanions)
+            }
+            MobileSection.WEB -> SectionSurface("NAVIGATION // WEB") {
+                WebPanel()
+            }
+            MobileSection.TOOLS -> SectionSurface("OUTILS // MEL") {
+                NativeToolsPanel(
                     state = state,
                     onMode = onMode,
                     onSync = onSync,
@@ -1255,40 +1098,174 @@ private fun ConversationScreen(
                 )
             }
         }
+
+        MiniReferenceTopBar(
+            time = clock,
+            mode = state.mode,
+            onHome = { section = MobileSection.MEL },
+            onSettings = { settingsOpen = !settingsOpen }
+        )
+
+        if (settingsOpen) {
+            MiniSettingsPanel(
+                state = state,
+                onClose = { settingsOpen = false },
+                onMode = onMode,
+                onSelect = { section = it },
+                onDisconnect = onDisconnect
+            )
+        }
     }
 }
 
 @Composable
-private fun MobileNavigationBar(
-    selected: MobileSection,
-    onSelect: (MobileSection) -> Unit
+private fun SectionSurface(
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xFF030914))
+            .padding(top = 70.dp, start = 12.dp, end = 12.dp, bottom = 10.dp)
+    ) {
+        Text(
+            title,
+            color = MelCyan,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.4.sp,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        Box(Modifier.weight(1f).fillMaxWidth()) { content() }
+    }
+}
+
+@Composable
+private fun MiniReferenceTopBar(
+    time: String,
+    mode: MelMode,
+    onHome: () -> Unit,
+    onSettings: () -> Unit
 ) {
     Surface(
-        color = Color(0xF505111F),
-        border = BorderStroke(.5.dp, MelCyan.copy(alpha = .10f))
+        modifier = Modifier.align(Alignment.TopCenter),
+        color = Color(0x8A020914),
+        border = BorderStroke(.5.dp, MelCyan.copy(alpha = .16f))
     ) {
         Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
+            Modifier.fillMaxWidth().height(62.dp).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            MobileSection.entries.forEach { item ->
-                val active = item == selected
-                TextButton(
-                    onClick = { onSelect(item) },
-                    modifier = Modifier.weight(1f).testTag("nav-" + item.name.lowercase()),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text(
-                        item.label,
-                        color = if (active) MelCyan else MelMuted,
-                        fontSize = 10.sp,
-                        fontWeight = if (active) FontWeight.Black else FontWeight.Medium
-                    )
-                }
+            TextButton(onClick = onHome, modifier = Modifier.testTag("home-button")) {
+                Text("◈", color = MelCyan, fontSize = 23.sp, fontWeight = FontWeight.Black)
+                Spacer(Modifier.width(6.dp))
+                Text("MEL", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+            }
+            Spacer(Modifier.weight(1f))
+            Text("⌁", color = MelCyan, fontSize = 24.sp)
+            Spacer(Modifier.width(8.dp))
+            Text(time, color = MelInk, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(8.dp))
+            Surface(
+                color = if (mode == MelMode.COMPLETE) MelViolet.copy(alpha = .16f) else MelCyan.copy(alpha = .10f),
+                border = BorderStroke(1.dp, if (mode == MelMode.COMPLETE) MelViolet else MelCyan),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text(
+                    if (mode == MelMode.COMPLETE) "C" else "N",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                    color = if (mode == MelMode.COMPLETE) MelViolet else MelCyan,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            OutlinedButton(
+                onClick = onSettings,
+                modifier = Modifier.size(46.dp).testTag("settings-button"),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, MelCyan.copy(alpha = .65f))
+            ) {
+                Text("⚙", color = Color.White, fontSize = 22.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun MiniSettingsPanel(
+    state: MelUiState,
+    onClose: () -> Unit,
+    onMode: (MelMode) -> Unit,
+    onSelect: (MobileSection) -> Unit,
+    onDisconnect: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .padding(top = 66.dp, end = 10.dp)
+            .width(304.dp)
+            .heightIn(max = 620.dp)
+            .testTag("settings-panel"),
+        color = Color(0xF20A1626),
+        border = BorderStroke(1.dp, MelCyan.copy(alpha = .72f)),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(
+            Modifier.padding(12.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Paramètres", modifier = Modifier.weight(1f), color = MelInk, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                TextButton(onClick = onClose) { Text("×", color = MelCyan, fontSize = 25.sp) }
+            }
+            Surface(
+                color = MelSuccess.copy(alpha = .08f),
+                border = BorderStroke(1.dp, MelSuccess.copy(alpha = .24f)),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(11.dp)) {
+                    Text("Connexion", color = MelInk, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(state.status.ifBlank { "MEL connectée" }, color = MelSuccess, fontSize = 11.sp)
+                }
+            }
+            SettingsAction("Clavier / Chat", "⌨", "settings-keyboard") { onSelect(MobileSection.KEYBOARD) }
+            SettingsAction("Caméra", "◉", "settings-camera") { onSelect(MobileSection.CAMERA) }
+            SettingsAction("Compagnon MINI", "◇", "settings-companion") { onSelect(MobileSection.COMPANION) }
+            SettingsAction("Espace multimédia / Web", "▣", "settings-web") { onSelect(MobileSection.WEB) }
+            SettingsAction("Tests / Outils", "⌁", "settings-tools") { onSelect(MobileSection.TOOLS) }
+            SettingsAction(
+                if (state.mode == MelMode.COMPLETE) "Passer en mode Normal" else "Activer le mode Complet",
+                if (state.mode == MelMode.COMPLETE) "N" else "C",
+                "settings-mode"
+            ) {
+                onMode(if (state.mode == MelMode.COMPLETE) MelMode.NORMAL else MelMode.COMPLETE)
+            }
+            SettingsAction("Déconnexion", "×", "settings-disconnect", MelDanger) { onDisconnect() }
+        }
+    }
+}
+
+@Composable
+private fun SettingsAction(
+    label: String,
+    symbol: String,
+    tag: String,
+    accent: Color = MelCyan,
+    onClick: () -> Unit
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().height(50.dp).testTag(tag),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = .42f))
+    ) {
+        Text(symbol, color = accent, fontSize = 18.sp)
+        Spacer(Modifier.width(9.dp))
+        Text(label, modifier = Modifier.weight(1f), color = MelInk, textAlign = TextAlign.Start, fontSize = 12.sp)
+        Text("›", color = accent, fontSize = 18.sp)
     }
 }
 
@@ -1299,71 +1276,279 @@ private fun MiniHomePanel(
     voiceLevel: Float,
     voiceMessage: String,
     recording: Boolean,
-    onVoice: () -> Unit,
-    onKeyboard: () -> Unit
+    onVoice: () -> Unit
 ) {
     val lastMel = state.messages.lastOrNull { it.role == "mel" }?.text
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(Modifier.height(8.dp))
-        MelCoreVisual(faceState, voiceLevel)
-        Spacer(Modifier.height(8.dp))
+    val accent = when (faceState) {
+        MelFaceState.LISTENING -> MelSuccess
+        MelFaceState.THINKING -> MelViolet
+        MelFaceState.SPEAKING -> MelBlue
+        MelFaceState.ERROR -> MelDanger
+        MelFaceState.IDLE -> MelCyan
+    }
+    val stateLabel = when (faceState) {
+        MelFaceState.LISTENING -> "ÉCOUTE"
+        MelFaceState.THINKING -> "RÉFLEXION"
+        MelFaceState.SPEAKING -> "MEL"
+        MelFaceState.ERROR -> "ERREUR"
+        MelFaceState.IDLE -> "PARLER"
+    }
+
+    Box(Modifier.fillMaxSize().testTag("mini-stage")) {
+        MelPortraitStage(faceState = faceState, voiceLevel = voiceLevel)
 
         if (!lastMel.isNullOrBlank()) {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MelGlass,
-                border = BorderStroke(1.dp, MelCyan.copy(alpha = .14f)),
-                shape = RoundedCornerShape(20.dp)
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 18.dp, bottom = 260.dp)
+                    .fillMaxWidth(),
+                color = Color(0xB8051322),
+                border = BorderStroke(1.dp, accent.copy(alpha = .30f)),
+                shape = RoundedCornerShape(18.dp)
             ) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("MEL", color = MelCyan, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Spacer(Modifier.height(4.dp))
-                    Text(lastMel, color = MelInk, fontSize = 14.sp, lineHeight = 20.sp, maxLines = 5)
-                }
+                Text(
+                    lastMel,
+                    modifier = Modifier.padding(12.dp),
+                    color = MelInk,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    maxLines = 4
+                )
             }
-            Spacer(Modifier.height(10.dp))
         }
+
+        VoiceWaveform(
+            active = recording || faceState == MelFaceState.SPEAKING,
+            level = if (recording) voiceLevel else if (faceState == MelFaceState.SPEAKING) .58f else .12f,
+            accent = accent,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 112.dp)
+        )
 
         Button(
             onClick = onVoice,
-            modifier = Modifier
-                .fillMaxWidth(.74f)
-                .height(62.dp)
-                .testTag("mini-talk-button"),
             enabled = !state.busy || recording,
-            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 82.dp)
+                .size(142.dp)
+                .testTag("mini-talk-button"),
+            shape = CircleShape,
+            border = BorderStroke(2.dp, accent),
             colors = ButtonDefaults.buttonColors(
-                containerColor = if (recording) MelDanger else MelBlue,
+                containerColor = Color(0xE6081828),
                 contentColor = Color.White
-            )
+            ),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
         ) {
-            Text(
-                if (recording) "ARRÊTER" else "PARLER",
-                fontWeight = FontWeight.Black,
-                fontSize = 16.sp,
-                letterSpacing = 2.sp
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("🎙", fontSize = 34.sp)
+                Text(
+                    if (recording) "ARRÊTER" else stateLabel,
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 13.sp,
+                    letterSpacing = 1.2.sp
+                )
+            }
+        }
+
+        Text(
+            voiceMessage,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp),
+            color = if (recording) accent else MelMuted,
+            fontSize = 10.sp,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun MelPortraitStage(
+    faceState: MelFaceState,
+    voiceLevel: Float
+) {
+    val transition = rememberInfiniteTransition(label = "mel-photo-motion")
+    val breathe by transition.animateFloat(
+        initialValue = 1.005f,
+        targetValue = 1.025f,
+        animationSpec = infiniteRepeatable(animation = tween(3200), repeatMode = RepeatMode.Reverse),
+        label = "mel-photo-breathe"
+    )
+    val sway by transition.animateFloat(
+        initialValue = -1.1f,
+        targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(animation = tween(4800), repeatMode = RepeatMode.Reverse),
+        label = "mel-photo-sway"
+    )
+    val blink by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 6200
+                0f at 0
+                0f at 2450
+                1f at 2510
+                0f at 2580
+                0f at 4680
+                1f at 4740
+                0f at 4820
+                0f at 6200
+            }
+        ),
+        label = "mel-photo-blink"
+    )
+    val mouth by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(220), repeatMode = RepeatMode.Reverse),
+        label = "mel-photo-mouth"
+    )
+    val scale = when (faceState) {
+        MelFaceState.LISTENING -> breathe + voiceLevel.coerceIn(0f, 1f) * .012f
+        MelFaceState.THINKING -> breathe + .008f
+        else -> breathe
+    }
+
+    Box(Modifier.fillMaxSize().testTag("mel-animated-avatar")) {
+        Image(
+            painter = painterResource(R.drawable.mel_futuristic_new),
+            contentDescription = "MEL",
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = sway * 1.4f
+                    translationY = if (faceState == MelFaceState.IDLE) sway * .8f else 0f
+                    rotationZ = if (faceState == MelFaceState.THINKING) sway * .18f else 0f
+                },
+            contentScale = ContentScale.Crop
+        )
+
+        Canvas(Modifier.fillMaxSize()) {
+            if (blink > .04f) {
+                val y = size.height * .405f
+                val half = size.width * .058f
+                val stroke = (size.height * .012f * blink).coerceAtLeast(1f)
+                val lid = Color(0xFF8A594B).copy(alpha = .58f * blink)
+                drawLine(lid, Offset(size.width * .405f - half, y), Offset(size.width * .405f + half, y), stroke)
+                drawLine(lid, Offset(size.width * .595f - half, y), Offset(size.width * .595f + half, y), stroke)
+            }
+            if (faceState == MelFaceState.SPEAKING) {
+                val y = size.height * .535f
+                val half = size.width * (.045f + .022f * mouth)
+                drawLine(
+                    Color(0xFF7E3E42).copy(alpha = .46f),
+                    Offset(size.width * .50f - half, y),
+                    Offset(size.width * .50f + half, y),
+                    (size.height * (.003f + .004f * mouth)).coerceAtLeast(1f)
+                )
+            }
+        }
+
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0x2200060C),
+                            Color.Transparent,
+                            Color(0x2200060C),
+                            Color(0xE6030912)
+                        )
+                    )
+                )
+        )
+    }
+}
+
+@Composable
+private fun VoiceWaveform(
+    active: Boolean,
+    level: Float,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    val transition = rememberInfiniteTransition(label = "mel-wave")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(900), repeatMode = RepeatMode.Restart),
+        label = "mel-wave-phase"
+    )
+    Canvas(modifier.size(width = 330.dp, height = 86.dp).testTag("voice-waveform")) {
+        val bars = 35
+        val step = size.width / bars
+        val center = size.height / 2f
+        for (i in 0 until bars) {
+            val x = step * (i + .5f)
+            val distance = kotlin.math.abs(i - (bars - 1) / 2f) / (bars / 2f)
+            val envelope = (1f - distance * .70f).coerceIn(.18f, 1f)
+            val oscillation = ((kotlin.math.sin((i * .72f + phase * 6.28318f).toDouble()) + 1.0) / 2.0).toFloat()
+            val signal = if (active) (.30f + level.coerceIn(0f, 1f) * .70f) else (.13f + oscillation * .10f)
+            val h = center * envelope * signal
+            drawLine(
+                color = accent.copy(alpha = if (active) .92f else .46f),
+                start = Offset(x, center - h),
+                end = Offset(x, center + h),
+                strokeWidth = if (active) 3.2f else 2.2f
             )
+        }
+    }
+}
+
+@Composable
+private fun WebPanel() {
+    var input by rememberSaveable { mutableStateOf("https://www.google.com") }
+    var target by rememberSaveable { mutableStateOf("https://www.google.com") }
+    Column(Modifier.fillMaxSize()) {
+        HudLabel("WEB // MEL", "NAVIGATION NATIVE · AUCUN NAVIGATEUR EXTERNE", MelCyan)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = { input = it },
+                modifier = Modifier.weight(1f).testTag("web-url"),
+                singleLine = true,
+                label = { Text("Adresse") }
+            )
+            Button(
+                onClick = {
+                    val clean = input.trim()
+                    target = when {
+                        clean.startsWith("https://") -> clean
+                        clean.startsWith("http://") -> "https://" + clean.removePrefix("http://")
+                        else -> "https://" + clean
+                    }
+                },
+                modifier = Modifier.height(56.dp).testTag("web-go"),
+                shape = RoundedCornerShape(14.dp)
+            ) { Text("GO") }
         }
         Spacer(Modifier.height(8.dp))
-        Text(voiceMessage, color = if (recording) MelCyan else MelMuted, fontSize = 11.sp)
-        Spacer(Modifier.height(10.dp))
-        OutlinedButton(
-            onClick = onKeyboard,
-            modifier = Modifier.fillMaxWidth(.74f),
+        Surface(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            color = Color.Black,
+            border = BorderStroke(1.dp, MelCyan.copy(alpha = .28f)),
             shape = RoundedCornerShape(18.dp)
         ) {
-            Text("CLAVIER", letterSpacing = 1.2.sp)
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatusPill("VOICE", MelCyan)
-            StatusPill("CAMERA", MelBlue)
-            StatusPill("MINI", MelViolet)
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { context ->
+                    WebView(context).apply {
+                        webViewClient = WebViewClient()
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        loadUrl(target)
+                    }
+                },
+                update = { web ->
+                    if (web.url != target) web.loadUrl(target)
+                }
+            )
         }
     }
 }
