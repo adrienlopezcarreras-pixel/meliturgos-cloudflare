@@ -310,18 +310,20 @@ static void mini_anim_cb(lv_timer_t *) {
         lv_obj_set_y(face_obj, 50 + motion[motion_second & 3U]);
     }
 
-    // Natural short blink every ~5 seconds. Only two tiny eye patches redraw.
+    // Natural blink every ~5 seconds using a second frame of the exact portrait.
     const uint32_t blink_phase = now % 5200U;
     const bool blink = blink_phase < 130U;
-    if (left_eye && right_eye && blink != last_blink) {
-        if (blink) {
-            lv_obj_clear_flag(left_eye, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(right_eye, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(left_eye, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(right_eye, LV_OBJ_FLAG_HIDDEN);
-        }
+    if (blink != last_blink) {
+        lv_img_set_src(avatar_obj, blink ? &mel_avatar_mode_complet_blink : &mel_avatar_mode_complet);
         last_blink = blink;
+    }
+
+    // Slightly livelier motion while MEL is listening/speaking, still cheap.
+    if (state == MEL_TERMINAL_LISTENING || state == MEL_TERMINAL_SPEAKING) {
+        const int8_t pulse[4] = {0, 1, 0, -1};
+        lv_obj_set_x(avatar_obj, pulse[(now / 250U) & 3U]);
+    } else {
+        lv_obj_set_x(avatar_obj, 0);
     }
 
     if (state != last_face_state && talk_button) {
@@ -1183,30 +1185,6 @@ static void mini_smoke_ui() {
     avatar_obj = lv_img_create(face_obj);
     lv_img_set_src(avatar_obj, &mel_avatar_mode_complet);
     lv_obj_set_pos(avatar_obj, 0, 0);
-
-    // Tiny eyelid overlays are hidden except for a 130 ms blink.
-    // They redraw only the eye regions, not the full portrait.
-    left_eye = lv_obj_create(face_obj);
-    lv_obj_set_size(left_eye, 38, 11);
-    lv_obj_set_pos(left_eye, 105, 143);
-    lv_obj_set_style_radius(left_eye, 6, 0);
-    lv_obj_set_style_bg_color(left_eye, lv_color_hex(0x9E6257), 0);
-    lv_obj_set_style_border_width(left_eye, 2, 0);
-    lv_obj_set_style_border_side(left_eye, LV_BORDER_SIDE_BOTTOM, 0);
-    lv_obj_set_style_border_color(left_eye, lv_color_hex(0x3B211F), 0);
-    lv_obj_clear_flag(left_eye, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(left_eye, LV_OBJ_FLAG_HIDDEN);
-
-    right_eye = lv_obj_create(face_obj);
-    lv_obj_set_size(right_eye, 38, 11);
-    lv_obj_set_pos(right_eye, 174, 124);
-    lv_obj_set_style_radius(right_eye, 6, 0);
-    lv_obj_set_style_bg_color(right_eye, lv_color_hex(0xA86B60), 0);
-    lv_obj_set_style_border_width(right_eye, 2, 0);
-    lv_obj_set_style_border_side(right_eye, LV_BORDER_SIDE_BOTTOM, 0);
-    lv_obj_set_style_border_color(right_eye, lv_color_hex(0x3B211F), 0);
-    lv_obj_clear_flag(right_eye, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(right_eye, LV_OBJ_FLAG_HIDDEN);
 
     answer_label = lv_label_create(main_panel);
     lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
