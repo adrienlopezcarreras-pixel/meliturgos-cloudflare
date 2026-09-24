@@ -136,6 +136,16 @@ test('signed Android release pipeline is secret-backed fail-closed and verifies 
 });
 
 
+test('Android 0.6.7 keeps the MEL techno core visible in empty conversation state',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  assert.match(activity,/private fun MelCoreVisual\(\)/);
+  assert.match(activity,/Text\(\s*"MEL"/);
+  assert.match(activity,/"READY"/);
+  assert.match(activity,/"VOICE · FILES · SYNC"/);
+  assert.match(activity,/"CORE SERVICES READY"/);
+  assert.match(activity,/item \{\s*MelCoreVisual\(\)\s*\}/);
+});
+
 test('Android 0.6.7 prefers on-device speech, exposes live level, and keeps speech errors explicit',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   assert.match(activity,/SpeechRecognizer\.isOnDeviceRecognitionAvailable/);
