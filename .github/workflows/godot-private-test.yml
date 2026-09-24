@@ -1,5 +1,5 @@
 name: Godot private five-game test
-# unified gamedev runtime run 59 c621-ui
+# unified gamedev runtime run 60 c621-manual-validation
 
 on:
   push:
