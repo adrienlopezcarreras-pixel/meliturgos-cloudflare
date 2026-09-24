@@ -39,6 +39,7 @@ class MelUiHarnessActivity : ComponentActivity() {
                         }
                     ),
                     recording = false,
+                    voiceLevel = 0f,
                     voiceMessage = "Micro prêt",
                     onLogin = { _, _ -> },
                     onRetrySession = {},
