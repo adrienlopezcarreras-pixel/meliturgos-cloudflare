@@ -168,7 +168,7 @@ test('Android background heartbeat uses WorkManager without hidden background mi
   assert.match(vm,/MelBackground\.schedule\(appContext\)/);
   assert.match(vm,/MelBackground\.cancel\(appContext\)/);
   assert.match(activity,/Manifest\.permission\.POST_NOTIFICATIONS/);
-  assert.match(activity,/Activer notifications arrière-plan/);
+  assert.match(activity,/Notifications arrière-plan/);
 });
 
 
@@ -315,11 +315,11 @@ test('Android dark UI keeps readable content contrast',async()=>{
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
-  assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanelSoft, contentColor = MelInk\)/);
-  assert.match(activity,/CardDefaults\.cardColors\(containerColor = Color\(0xB30C2940\), contentColor = MelInk\)/);
-  assert.match(activity,/Surface\(color = Color\(0xCC071523\), contentColor = MelInk\)/);
+  assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelGlass, contentColor = MelInk\)/);
+  assert.match(activity,/border = BorderStroke\(1\.dp, MelCyan\.copy\(alpha = \.18f\)\)/);
+  assert.match(activity,/StatusPill\("EN LIGNE"\)/);
   assert.match(activity,/Text\("MEL", color = MelInk/);
-  assert.match(activity,/Text\("Connexion sécurisée", color = MelInk/);
+  assert.match(activity,/Text\("Connexion à MEL", color = MelInk/);
   assert.match(activity,/Text\("Contrôles complets", color = MelInk/);
   assert.match(activity,/"Validation téléphone",[\s\S]{0,120}color = MelInk/);
 
