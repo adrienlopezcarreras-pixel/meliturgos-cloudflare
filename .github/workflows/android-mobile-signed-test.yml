@@ -75,21 +75,21 @@ jobs:
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
           mkdir -p dist
-          cp "$APK" dist/MEL-Android-0.6.10-mobile-signed.apk
-          sha256sum dist/MEL-Android-0.6.10-mobile-signed.apk | tee dist/MEL-Android-0.6.10-mobile-signed.apk.sha256
+          cp "$APK" dist/MEL-Android-0.6.11-mobile-signed.apk
+          sha256sum dist/MEL-Android-0.6.11-mobile-signed.apk | tee dist/MEL-Android-0.6.11-mobile-signed.apk.sha256
       - name: Verify signature and package
         working-directory: android-companion
         shell: bash
         run: |
           set -euo pipefail
-          APK="dist/MEL-Android-0.6.10-mobile-signed.apk"
+          APK="dist/MEL-Android-0.6.11-mobile-signed.apk"
           TOOLS="$ANDROID_SDK_ROOT/build-tools/35.0.0"
           "$TOOLS/apksigner" verify --verbose --print-certs "$APK" | tee dist/apk-signature.txt
           "$TOOLS/zipalign" -c -v 4 "$APK"
           "$TOOLS/aapt" dump badging "$APK" | tee dist/apk-badging.txt
           grep -q "package: name='fr.veriteinterdite.mel'" dist/apk-badging.txt
-          grep -q "versionCode='19'" dist/apk-badging.txt
-          grep -q "versionName='0.6.10'" dist/apk-badging.txt
+          grep -q "versionCode='20'" dist/apk-badging.txt
+          grep -q "versionName='0.6.11'" dist/apk-badging.txt
       - name: Remove signing material
         if: always()
         shell: bash
@@ -99,8 +99,8 @@ jobs:
         with:
           name: MEL-Android-mobile-signed-${{ github.sha }}
           path: |
-            android-companion/dist/MEL-Android-0.6.10-mobile-signed.apk
-            android-companion/dist/MEL-Android-0.6.10-mobile-signed.apk.sha256
+            android-companion/dist/MEL-Android-0.6.11-mobile-signed.apk
+            android-companion/dist/MEL-Android-0.6.11-mobile-signed.apk.sha256
             android-companion/dist/apk-signature.txt
             android-companion/dist/apk-badging.txt
           if-no-files-found: error

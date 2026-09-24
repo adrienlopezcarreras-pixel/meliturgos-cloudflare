@@ -142,7 +142,7 @@ test('signed Android release pipeline is secret-backed fail-closed and verifies 
 });
 
 
-test('Android 0.6.10 keeps the MINI-style MEL stage visible in empty conversation state',async()=>{
+test('Android 0.6.11 keeps the MINI-style MEL stage visible in empty conversation state',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   assert.match(activity,/private fun MelCoreVisual\(faceState: MelFaceState, voiceLevel: Float\)/);
   assert.match(activity,/"MINI \/\/ MEL"/);
@@ -153,7 +153,7 @@ test('Android 0.6.10 keeps the MINI-style MEL stage visible in empty conversatio
   assert.match(activity,/MelCoreVisual\(faceState, voiceLevel\)/);
 });
 
-test('Android 0.6.10 prefers on-device speech, exposes live level, and keeps speech errors explicit',async()=>{
+test('Android 0.6.11 prefers on-device speech, exposes live level, and keeps speech errors explicit',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   assert.match(activity,/SpeechRecognizer\.isOnDeviceRecognitionAvailable/);
   assert.match(activity,/SpeechRecognizer\.createOnDeviceSpeechRecognizer/);
@@ -184,7 +184,7 @@ test('Android native microphone uses SpeechRecognizer with declared package visi
   assert.match(activity,/MediaRecorder\.AudioEncoder\.OPUS/);
 });
 
-test('Android 0.6.10 animates MEL like MINI with state-driven face motion',async()=>{
+test('Android 0.6.11 animates MEL like MINI with state-driven face motion',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   assert.match(activity,/enum class MelFaceState \{ IDLE, LISTENING, THINKING, SPEAKING, ERROR \}/);
   assert.match(activity,/rememberInfiniteTransition\(label = "mel-face"\)/);
@@ -286,9 +286,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 19/);
-  assert.match(build,/versionName = "0\.6\.10"/);
-  assert.match(api,/APP_VERSION = "0\.6\.10"/);
+  assert.match(build,/versionCode = 20/);
+  assert.match(build,/versionName = "0\.6\.11"/);
+  assert.match(api,/APP_VERSION = "0\.6\.11"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -309,9 +309,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 19/);
-  assert.match(build,/versionName = "0\.6\.10"/);
-  assert.match(api,/APP_VERSION = "0\.6\.10"/);
+  assert.match(build,/versionCode = 20/);
+  assert.match(build,/versionName = "0\.6\.11"/);
+  assert.match(api,/APP_VERSION = "0\.6\.11"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -343,9 +343,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 19/);
-  assert.match(build,/versionName = "0\.6\.10"/);
-  assert.match(api,/APP_VERSION = "0\.6\.10"/);
+  assert.match(build,/versionCode = 20/);
+  assert.match(build,/versionName = "0\.6\.11"/);
+  assert.match(api,/APP_VERSION = "0\.6\.11"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -362,9 +362,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 19/);
-  assert.match(build,/versionName = "0\.6\.10"/);
-  assert.match(api,/APP_VERSION = "0\.6\.10"/);
+  assert.match(build,/versionCode = 20/);
+  assert.match(build,/versionName = "0\.6\.11"/);
+  assert.match(api,/APP_VERSION = "0\.6\.11"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -401,7 +401,7 @@ test('Android MINI mobile shell keeps native navigation and complete tools insid
 
 
 
-test('Android 0.6.10 keeps critical interaction state truthful and stable',async()=>{
+test('Android 0.6.11 keeps critical interaction state truthful and stable',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   assert.match(activity,/LaunchedEffect\(state\.messages\.size\)/);
@@ -423,7 +423,7 @@ test('Android 0.6.10 keeps critical interaction state truthful and stable',async
   assert.match(vm,/fun setMode\(mode: MelMode\) \{\s*if \(_state\.value\.busy\) return/);
 });
 
-test('Android 0.6.10 exposes native keyboard camera companion and tools surfaces',async()=>{
+test('Android 0.6.11 exposes native keyboard camera companion and tools surfaces',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');

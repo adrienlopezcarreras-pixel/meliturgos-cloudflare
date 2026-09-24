@@ -35,6 +35,7 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * BLE transport used by MINI when no 2.4 GHz Wi-Fi is available.
@@ -62,6 +63,8 @@ class MelBleBridgeService : Service() {
         private const val OP_RESPONSE_BODY = 0x12
         private const val OP_RESPONSE_END = 0x13
         private const val OP_ERROR = 0x1f
+
+        val bridgeState = MutableStateFlow("OFF")
     }
 
     private data class PendingRequest(
@@ -89,6 +92,7 @@ class MelBleBridgeService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        bridgeState.value = "DÉMARRAGE"
         startForeground(
             NOTIFICATION_ID,
             NotificationCompat.Builder(this, CHANNEL_ID)
@@ -113,6 +117,7 @@ class MelBleBridgeService : Service() {
         stopAdvertising()
         runCatching { gattServer?.close() }
         gattServer = null
+        bridgeState.value = "OFF"
         executor.shutdownNow()
         super.onDestroy()
     }
@@ -125,14 +130,21 @@ class MelBleBridgeService : Service() {
 
     private fun startBridge() {
         if (!hasBluetoothPermissions()) {
+            bridgeState.value = "AUTORISATION REQUISE"
             Log.w(TAG, "Bluetooth permissions missing")
             return
         }
         bluetoothManager = getSystemService(BluetoothManager::class.java)
         adapter = bluetoothManager?.adapter
         val activeAdapter = adapter
-        if (activeAdapter == null || !activeAdapter.isEnabled) {
-            Log.w(TAG, "BLE advertising unavailable")
+        if (activeAdapter == null) {
+            bridgeState.value = "BLUETOOTH INDISPONIBLE"
+            Log.w(TAG, "BLE adapter unavailable")
+            return
+        }
+        if (!activeAdapter.isEnabled) {
+            bridgeState.value = "BLUETOOTH OFF"
+            Log.w(TAG, "BLE adapter disabled")
             return
         }
 
@@ -181,9 +193,11 @@ class MelBleBridgeService : Service() {
             .build()
         val callback = object : AdvertiseCallback() {
             override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+                bridgeState.value = "PRÊT"
                 Log.i(TAG, "MEL Mobile advertising started")
             }
             override fun onStartFailure(errorCode: Int) {
+                bridgeState.value = "ERREUR BLE $errorCode"
                 Log.e(TAG, "MEL Mobile advertising failed code=$errorCode")
             }
         }
@@ -201,7 +215,10 @@ class MelBleBridgeService : Service() {
     private val gattCallback = object : BluetoothGattServerCallback() {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             Log.i(TAG, "MINI BLE state=${device.address} status=$status newState=$newState")
-            if (newState != BluetoothGatt.STATE_CONNECTED) {
+            if (newState == BluetoothGatt.STATE_CONNECTED) {
+                bridgeState.value = "MINI CONNECTÉE"
+            } else {
+                bridgeState.value = if (adapter?.isEnabled == true) "PRÊT" else "BLUETOOTH OFF"
                 requests.remove(device.address)
                 mtus.remove(device.address)
             }

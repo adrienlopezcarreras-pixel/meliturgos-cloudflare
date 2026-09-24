@@ -1,6 +1,8 @@
 package fr.veriteinterdite.mel
 
 import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -142,6 +144,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val enableBluetooth = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        ensureMobileBridge()
+    }
+
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -174,6 +182,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
+            val mobileBridgeState by MelBleBridgeService.bridgeState.collectAsStateWithLifecycle()
             LaunchedEffect(state.busy, state.error, recording.value) {
                 if (!state.busy && !recording.value &&
                     (voiceMessage.value.startsWith("Fichier") ||
@@ -206,7 +215,9 @@ class MainActivity : ComponentActivity() {
                     cameraPhoto = cameraPhoto.value,
                     onCamera = ::openCamera,
                     onSendCamera = ::sendCameraPhoto,
-                    onRefreshCompanions = model::refreshCompanions
+                    onRefreshCompanions = model::refreshCompanions,
+                    mobileBridgeState = mobileBridgeState,
+                    onMobileBridge = ::ensureMobileBridge
                 )
             }
         }
@@ -232,7 +243,19 @@ class MainActivity : ComponentActivity() {
                 return
             }
         }
+        val manager = getSystemService(BluetoothManager::class.java)
+        val adapter = manager?.adapter
+        if (adapter == null) {
+            voiceMessage.value = "Bluetooth indisponible sur ce téléphone"
+            return
+        }
+        if (!adapter.isEnabled) {
+            voiceMessage.value = "Active le Bluetooth pour MEL Mobile"
+            enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            return
+        }
         startMobileBridge()
+        voiceMessage.value = "MEL Mobile · pont Bluetooth activé"
     }
 
     private fun startMobileBridge() {
@@ -626,7 +649,9 @@ internal fun MelApp(
     cameraPhoto: Bitmap? = null,
     onCamera: () -> Unit = {},
     onSendCamera: () -> Unit = {},
-    onRefreshCompanions: () -> Unit = {}
+    onRefreshCompanions: () -> Unit = {},
+    mobileBridgeState: String = "OFF",
+    onMobileBridge: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -667,7 +692,9 @@ internal fun MelApp(
                 cameraPhoto = cameraPhoto,
                 onCamera = onCamera,
                 onSendCamera = onSendCamera,
-                onRefreshCompanions = onRefreshCompanions
+                onRefreshCompanions = onRefreshCompanions,
+                mobileBridgeState = mobileBridgeState,
+                onMobileBridge = onMobileBridge
             )
         }
     }
@@ -1161,7 +1188,9 @@ private fun ConversationScreen(
     cameraPhoto: Bitmap?,
     onCamera: () -> Unit,
     onSendCamera: () -> Unit,
-    onRefreshCompanions: () -> Unit
+    onRefreshCompanions: () -> Unit,
+    mobileBridgeState: String,
+    onMobileBridge: () -> Unit
 ) {
     var section by rememberSaveable { mutableStateOf(MobileSection.MEL) }
     var draft by rememberSaveable { mutableStateOf("") }
@@ -1271,7 +1300,9 @@ private fun ConversationScreen(
                 )
                 MobileSection.COMPANION -> CompanionPanel(
                     state = state,
-                    onRefresh = onRefreshCompanions
+                    onRefresh = onRefreshCompanions,
+                    mobileBridgeState = mobileBridgeState,
+                    onMobileBridge = onMobileBridge
                 )
                 MobileSection.TOOLS -> NativeToolsPanel(
                     state = state,
@@ -1558,7 +1589,9 @@ private fun CameraPanel(
 @Composable
 private fun CompanionPanel(
     state: MelUiState,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    mobileBridgeState: String,
+    onMobileBridge: () -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -1568,6 +1601,38 @@ private fun CompanionPanel(
             HudLabel("COMPAGNON // MINI", state.companionStatus.ifBlank { "APPAREILS MEL" }, MelViolet)
             Spacer(Modifier.weight(1f))
             OutlinedButton(onClick = onRefresh, shape = RoundedCornerShape(14.dp)) { Text("Actualiser") }
+        }
+        Spacer(Modifier.height(10.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MelGlass,
+            border = BorderStroke(1.dp, MelCyan.copy(alpha = .30f)),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(Modifier.padding(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("MEL MOBILE // BLUETOOTH", color = MelInk, fontWeight = FontWeight.Black)
+                        Text("Redmi ⇄ MINI ⇄ 4G/5G", color = MelMuted, fontSize = 11.sp)
+                    }
+                    StatusPill(
+                        mobileBridgeState,
+                        if (mobileBridgeState == "MINI CONNECTÉE") MelSuccess else MelCyan
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = onMobileBridge,
+                    modifier = Modifier.fillMaxWidth().height(52.dp).testTag("mobile-bridge-connect"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MelBlue)
+                ) {
+                    Text(
+                        if (mobileBridgeState == "MINI CONNECTÉE") "BLUETOOTH CONNECTÉ" else "ACTIVER MEL MOBILE",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(10.dp))
         if (state.companions.isEmpty()) {
