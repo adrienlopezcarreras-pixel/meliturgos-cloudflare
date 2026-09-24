@@ -307,18 +307,17 @@ static void mini_anim_cb(lv_timer_t *) {
     const bool online = mel_terminal_online();
     listening = state == MEL_TERMINAL_LISTENING;
 
-    // Keep the portrait completely static. Moving the whole photo looked
-    // artificial; future animation should use dedicated facial frames instead.
-    if (avatar_obj) {
-        lv_obj_set_x(avatar_obj, 0);
-        lv_obj_set_y(avatar_obj, 0);
-        lv_img_set_zoom(avatar_obj, 256);
-    }
+    // The portrait is intentionally static. Never re-apply x/y/zoom from this
+    // 250 ms timer: doing so invalidates a 320x320 image and can starve LVGL.
 
     if (talk_button) {
+        static int last_ring = -1;
         const int level = mel_terminal_voice_level();
         const int ring = state == MEL_TERMINAL_LISTENING ? (3 + (level * 5) / 100) : 3;
-        lv_obj_set_style_border_width(talk_button, ring, 0);
+        if (ring != last_ring) {
+            last_ring = ring;
+            lv_obj_set_style_border_width(talk_button, ring, 0);
+        }
     }
 
     if (state != last_face_state && talk_button) {
@@ -527,8 +526,8 @@ static void settings_refresh_status(void) {
 }
 
 static void settings_open_clicked(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    ESP_LOGI(TAG, "UI BUTTON: SETTINGS");
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) return;
+    ESP_LOGI(TAG, "UI BUTTON: SETTINGS PRESSED");
     request_view(MINI_VIEW_SETTINGS);
 }
 
@@ -1324,10 +1323,12 @@ static void mini_smoke_ui() {
     lv_obj_set_style_border_width(face_obj, 0, 0);
     lv_obj_set_style_pad_all(face_obj, 0, 0);
     lv_obj_clear_flag(face_obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(face_obj, LV_OBJ_FLAG_CLICKABLE);
 
     avatar_obj = lv_img_create(face_obj);
     lv_img_set_src(avatar_obj, &mel_avatar_mode_complet);
     lv_obj_set_pos(avatar_obj, 0, 0);
+    lv_obj_clear_flag(avatar_obj, LV_OBJ_FLAG_CLICKABLE);
 
     answer_label = lv_label_create(main_panel);
     lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
@@ -1375,7 +1376,7 @@ static void mini_smoke_ui() {
     lv_label_set_text(settings_icon, LV_SYMBOL_SETTINGS);
     lv_obj_center(settings_icon);
     lv_obj_clear_flag(settings_icon, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(settings_btn, settings_open_clicked, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(settings_btn, settings_open_clicked, LV_EVENT_PRESSED, nullptr);
 
     mel_terminal_bind_external_ui(runtime_status_label, answer_label);
     anim_timer = lv_timer_create(mini_anim_cb, 250, nullptr);
