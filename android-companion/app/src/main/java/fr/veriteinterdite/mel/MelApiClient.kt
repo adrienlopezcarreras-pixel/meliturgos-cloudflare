@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.15"
+        const val APP_VERSION = "0.6.16"
     }
 
     init {
@@ -236,17 +236,18 @@ class MelApiClient(
         )
     }
 
-    fun tts(text: String, speaker: String = "luna"): ByteArray {
+    fun tts(text: String, speaker: String = "luna", format: String = "mp3"): ByteArray {
         require(text.isNotBlank()) { "TEXT_REQUIRED" }
         val connection = connection("/api/android/v1/voice/tts", "POST")
         connection.connectTimeout = 2_500
         connection.readTimeout = 4_500
         connection.doOutput = true
-        connection.setRequestProperty("Accept", "application/octet-stream")
+        connection.setRequestProperty("Accept", "audio/mpeg, application/octet-stream")
         connection.setRequestProperty("Content-Type", "application/json")
         val payload = JSONObject()
             .put("text", text.take(1200))
             .put("speaker", speaker)
+            .put("format", if (format == "mp3") "mp3" else "pcm")
         connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
         return readBytes(connection)
     }
