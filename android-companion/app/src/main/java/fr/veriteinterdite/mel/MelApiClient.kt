@@ -145,6 +145,11 @@ class MelApiClient(
         )
     }
 
+    fun companions(): JSONArray {
+        val response = readJson(connection("/api/android/v1/companions", "GET"))
+        return response.optJSONArray("devices") ?: JSONArray()
+    }
+
     fun chat(
         text: String,
         conversationId: String,
