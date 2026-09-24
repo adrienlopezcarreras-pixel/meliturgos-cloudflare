@@ -50,6 +50,7 @@ data class MelUiState(
     val session: SessionStage = SessionStage.DISCONNECTED,
     val mode: MelMode = MelMode.NORMAL,
     val busy: Boolean = false,
+    val speaking: Boolean = false,
     val status: String = "",
     val error: String? = null,
     val messages: List<MelChatMessage> = emptyList(),
@@ -167,6 +168,7 @@ class MelViewModel(
     }
 
     fun disconnect() {
+        MelVoicePlayer.stop()
         vault.clear()
         MelBackground.cancel(appContext)
         _state.value = MelUiState(
@@ -178,7 +180,7 @@ class MelViewModel(
 
     fun send(text: String, voice: Boolean = false) {
         val clean = text.trim()
-        if (clean.isBlank() || _state.value.busy) return
+        if (clean.isBlank() || _state.value.busy || _state.value.speaking) return
         val mode = _state.value.mode
         _state.value = _state.value.copy(
             busy = true,
@@ -197,10 +199,12 @@ class MelViewModel(
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 _state.value = _state.value.copy(
-                    busy = false,
-                    status = "MEL connectée · mode ${mode.label}",
+                    busy = true,
+                    speaking = false,
+                    status = "MEL prépare sa voix…",
                     messages = _state.value.messages + MelChatMessage("mel", answer)
                 )
+                speakAnswer(answer, mode)
                 if (voice) appendDiagnosticLine("Micro réel: OK · reconnaissance Android")
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
@@ -224,7 +228,7 @@ class MelViewModel(
     }
 
     fun sendVoice(audioBytes: ByteArray, mimeType: String = "audio/mp4") {
-        if (audioBytes.isEmpty() || _state.value.busy) return
+        if (audioBytes.isEmpty() || _state.value.busy || _state.value.speaking) return
         _state.value = _state.value.copy(
             busy = true,
             status = "Transcription de ta voix…",
@@ -248,10 +252,12 @@ class MelViewModel(
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 _state.value = _state.value.copy(
-                    busy = false,
-                    status = "MEL connectée · mode ${mode.label}",
+                    busy = true,
+                    speaking = false,
+                    status = "MEL prépare sa voix…",
                     messages = _state.value.messages + MelChatMessage("mel", answer)
                 )
+                speakAnswer(answer, mode)
                 appendDiagnosticLine("Micro réel: OK")
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
@@ -271,6 +277,35 @@ class MelViewModel(
                     )
                 }
             }
+        }
+    }
+
+    private fun speakAnswer(answer: String, mode: MelMode) {
+        try {
+            val pcm = client.tts(answer, speaker = "luna")
+            if (pcm.isEmpty()) throw MelApiException("TTS_AUDIO_EMPTY", 502)
+            _state.value = _state.value.copy(
+                busy = true,
+                speaking = true,
+                status = "MEL parle…",
+                error = null
+            )
+            MelVoicePlayer.playPcm48kMono(pcm)
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "MEL connectée · mode ${mode.label}",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: OK · luna")
+        } catch (error: Throwable) {
+            MelVoicePlayer.stop()
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "MEL connectée · audio indisponible",
+                error = "Réponse reçue mais audio MEL indisponible · " + explain(error)
+            )
         }
     }
 
