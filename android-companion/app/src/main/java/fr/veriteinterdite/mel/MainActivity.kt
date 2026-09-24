@@ -1574,32 +1574,34 @@ private fun MelPortraitStage(
             )
 
             Canvas(Modifier.fillMaxSize()) {
+                val imageSide = size.width
+
                 if (blink > .08f) {
-                    val skin = Color(0xFFB97D70).copy(alpha = .82f * blink)
-                    val lash = Color(0xFF3C2227).copy(alpha = .82f * blink)
-                    val leftTop = Offset(size.width * .327f, size.height * .404f)
-                    val rightTop = Offset(size.width * .574f, size.height * .398f)
-                    val eyeSize = Size(size.width * .102f, size.height * .018f)
+                    val skin = Color(0xFFB97D70).copy(alpha = .78f * blink)
+                    val lash = Color(0xFF3C2227).copy(alpha = .84f * blink)
+                    val eyeSize = Size(imageSide * .104f, imageSide * .028f)
+                    val leftTop = Offset(imageSide * .326f, imageSide * .392f)
+                    val rightTop = Offset(imageSide * .538f, imageSide * .392f)
 
                     drawOval(color = skin, topLeft = leftTop, size = eyeSize)
                     drawOval(color = skin, topLeft = rightTop, size = eyeSize)
                     drawArc(
                         color = lash,
-                        startAngle = 8f,
-                        sweepAngle = 164f,
+                        startAngle = 10f,
+                        sweepAngle = 160f,
                         useCenter = false,
                         topLeft = leftTop,
                         size = eyeSize,
-                        style = Stroke(width = (size.width * .0032f).coerceAtLeast(1f))
+                        style = Stroke(width = (imageSide * .0031f).coerceAtLeast(1f))
                     )
                     drawArc(
                         color = lash,
-                        startAngle = 8f,
-                        sweepAngle = 164f,
+                        startAngle = 10f,
+                        sweepAngle = 160f,
                         useCenter = false,
                         topLeft = rightTop,
                         size = eyeSize,
-                        style = Stroke(width = (size.width * .0032f).coerceAtLeast(1f))
+                        style = Stroke(width = (imageSide * .0031f).coerceAtLeast(1f))
                     )
                 }
 
@@ -1610,14 +1612,14 @@ private fun MelPortraitStage(
                         sweepAngle = 148f,
                         useCenter = false,
                         topLeft = Offset(
-                            size.width * (.438f - mouthPhase * .004f),
-                            size.height * (.590f + mouthPhase * .002f)
+                            imageSide * (.438f - mouthPhase * .004f),
+                            imageSide * (.604f + mouthPhase * .002f)
                         ),
                         size = Size(
-                            size.width * (.124f + mouthPhase * .008f),
-                            size.height * (.060f + mouthPhase * .006f)
+                            imageSide * (.124f + mouthPhase * .008f),
+                            imageSide * (.052f + mouthPhase * .006f)
                         ),
-                        style = Stroke(width = (size.width * (.0035f + mouthPhase * .0015f)).coerceAtLeast(1.2f))
+                        style = Stroke(width = (imageSide * (.0035f + mouthPhase * .0015f)).coerceAtLeast(1.2f))
                     )
                 }
             }
