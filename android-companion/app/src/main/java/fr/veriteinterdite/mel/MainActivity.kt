@@ -37,6 +37,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -1411,6 +1412,15 @@ private fun MelPortraitStage(
             }
         ),
         label = "mel-photo-blink"
+    )
+    val mouthPhase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(if (faceState == MelFaceState.SPEAKING) 210 else 700),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "mel-photo-mouth"
     )
     val scale = when (faceState) {
         MelFaceState.LISTENING -> breathe + voiceLevel.coerceIn(0f, 1f) * .008f
