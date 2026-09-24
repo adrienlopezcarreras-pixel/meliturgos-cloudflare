@@ -1307,8 +1307,8 @@ static void mini_smoke_ui() {
     // top-right edge of the FT6336 active area and the icon glyph could render
     // inconsistently. Keep the control deliberately simple and robust.
     lv_obj_t *settings_btn = lv_btn_create(main_panel);
-    lv_obj_set_size(settings_btn, 62, 48);
-    lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -8, 7);
+    lv_obj_set_size(settings_btn, 58, 42);
+    lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -8, 4);
     lv_obj_set_style_radius(settings_btn, 14, 0);
     lv_obj_set_style_bg_color(settings_btn, lv_color_hex(0x0B2238), 0);
     lv_obj_set_style_border_width(settings_btn, 2, 0);
@@ -1360,6 +1360,12 @@ static void mini_smoke_ui() {
     lv_obj_set_style_border_width(talk_button, 3, 0);
     lv_obj_set_style_border_color(talk_button, lv_color_hex(0x22D3EE), 0);
     lv_obj_add_event_cb(talk_button, touch_cb, LV_EVENT_CLICKED, nullptr);
+
+    // Header controls must remain above the full-height avatar layer.
+    // The avatar is created later than the header, so explicitly restore z-order.
+    lv_obj_move_foreground(settings_btn);
+    lv_obj_move_foreground(time_label);
+    lv_obj_move_foreground(wifi_indicator);
 
     status_label = lv_label_create(talk_button);
     lv_label_set_text(status_label, "PARLER");
