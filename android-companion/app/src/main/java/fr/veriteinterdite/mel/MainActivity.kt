@@ -168,7 +168,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.statusBars())
+            hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         enableEdgeToEdge()
@@ -1506,15 +1506,15 @@ private fun MelPortraitStage(
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
             animation = keyframes {
-                durationMillis = 6500
+                durationMillis = 9000
                 0f at 0
-                0f at 2620
-                1f at 2675
-                0f at 2745
-                0f at 5050
-                1f at 5105
-                0f at 5180
-                0f at 6500
+                0f at 4300
+                1f at 4360
+                0f at 4435
+                0f at 7700
+                1f at 7760
+                0f at 7835
+                0f at 9000
             }
         ),
         label = "mel-photo-blink"
@@ -1577,14 +1577,21 @@ private fun MelPortraitStage(
                 val imageSide = size.width
 
                 if (blink > .08f) {
-                    val skin = Color(0xFFB97D70).copy(alpha = .78f * blink)
-                    val lash = Color(0xFF3C2227).copy(alpha = .84f * blink)
-                    val eyeSize = Size(imageSide * .104f, imageSide * .028f)
-                    val leftTop = Offset(imageSide * .326f, imageSide * .392f)
-                    val rightTop = Offset(imageSide * .538f, imageSide * .392f)
+                    val lash = Color(0xFF3C2227).copy(alpha = .82f * blink)
+                    val eyeSize = Size(imageSide * .112f, imageSide * .046f)
+                    val leftTop = Offset(imageSide * .322f, imageSide * .382f)
+                    val rightTop = Offset(imageSide * .532f, imageSide * .382f)
+                    val eyelid = Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFFD7A090).copy(alpha = .92f * blink),
+                            Color(0xFFC78375).copy(alpha = .96f * blink)
+                        ),
+                        startY = leftTop.y,
+                        endY = leftTop.y + eyeSize.height
+                    )
 
-                    drawOval(color = skin, topLeft = leftTop, size = eyeSize)
-                    drawOval(color = skin, topLeft = rightTop, size = eyeSize)
+                    drawOval(brush = eyelid, topLeft = leftTop, size = eyeSize)
+                    drawOval(brush = eyelid, topLeft = rightTop, size = eyeSize)
                     drawArc(
                         color = lash,
                         startAngle = 10f,
@@ -1592,7 +1599,7 @@ private fun MelPortraitStage(
                         useCenter = false,
                         topLeft = leftTop,
                         size = eyeSize,
-                        style = Stroke(width = (imageSide * .0031f).coerceAtLeast(1f))
+                        style = Stroke(width = (imageSide * .0030f).coerceAtLeast(1f))
                     )
                     drawArc(
                         color = lash,
@@ -1601,7 +1608,7 @@ private fun MelPortraitStage(
                         useCenter = false,
                         topLeft = rightTop,
                         size = eyeSize,
-                        style = Stroke(width = (imageSide * .0031f).coerceAtLeast(1f))
+                        style = Stroke(width = (imageSide * .0030f).coerceAtLeast(1f))
                     )
                 }
 
