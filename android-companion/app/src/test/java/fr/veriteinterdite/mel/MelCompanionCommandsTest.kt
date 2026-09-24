@@ -80,6 +80,36 @@ class MelCompanionCommandsTest {
     }
 
     @Test
+    fun calendarEventIsPreparedLocally() {
+        val event = MelCompanionCommands.parse(
+            "ajoute un rendez-vous chez le dentiste à mon agenda demain à 14h",
+            Date(0)
+        )
+        assertTrue(event is MelCompanionCommand.CalendarEvent)
+        event as MelCompanionCommand.CalendarEvent
+        assertTrue(event.title.contains("dentiste"))
+        assertTrue(event.endMillis > event.beginMillis)
+    }
+
+    @Test
+    fun shoppingListCommandsAreLocal() {
+        val add = MelCompanionCommands.parse("ajoute du lait à ma liste de courses")
+        assertTrue(add is MelCompanionCommand.AddShoppingItem)
+        assertEquals("du lait", (add as MelCompanionCommand.AddShoppingItem).item)
+        assertTrue(MelCompanionCommands.parse("lis ma liste de courses") is MelCompanionCommand.ShowShoppingList)
+        assertTrue(MelCompanionCommands.parse("vide ma liste de courses") is MelCompanionCommand.ClearShoppingList)
+    }
+
+    @Test
+    fun notesCommandsAreLocal() {
+        val add = MelCompanionCommands.parse("note que le colis arrive vendredi")
+        assertTrue(add is MelCompanionCommand.AddNote)
+        assertTrue((add as MelCompanionCommand.AddNote).note.contains("colis"))
+        assertTrue(MelCompanionCommands.parse("lis mes notes") is MelCompanionCommand.ShowNotes)
+        assertTrue(MelCompanionCommands.parse("efface mes notes") is MelCompanionCommand.ClearNotes)
+    }
+
+    @Test
     fun unknownRequestFallsBackToMel() {
         assertNull(MelCompanionCommands.parse("explique-moi la relativité générale"))
     }
