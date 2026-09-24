@@ -1,5 +1,5 @@
 idf_component_register(
-  SRCS "main.cpp" "mel_terminal.cpp" "mel_avatar_mode_complet.c"
+  SRCS "main.cpp" "mel_terminal.cpp" "mel_mobile_bridge.cpp" "nimble_peer.c" "mel_avatar_mode_complet.c"
   INCLUDE_DIRS "."
   REQUIRES
     nvs_flash
@@ -15,4 +15,5 @@ idf_component_register(
     mbedtls
     esp_port
     esp32-camera
+    bt
 )

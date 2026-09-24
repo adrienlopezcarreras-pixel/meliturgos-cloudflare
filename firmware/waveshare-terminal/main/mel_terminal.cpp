@@ -1,4 +1,5 @@
 #include "mel_terminal.h"
+#include "mel_mobile_bridge.h"
 
 #include <algorithm>
 #include <cstring>
@@ -68,6 +69,8 @@ static bool g_camera_ok = false;
 static bool g_audio_ok = false;
 static bool g_sd_ok = false;
 static bool g_online = false;
+static bool g_wifi_connected = false;
+static bool g_mobile_connected = false;
 static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
 static TaskHandle_t g_voice_task_handle = nullptr;
 static volatile bool g_voice_stop_requested = false;
@@ -219,6 +222,28 @@ static esp_err_t http_request(
     std::string &response,
     int &status
 ) {
+    auto mobile_request = [&]() -> esp_err_t {
+        const std::string prefix = SERVER;
+        if (!mel_mobile_bridge_ready() || url.rfind(prefix, 0) != 0) return ESP_ERR_INVALID_STATE;
+        const std::string path = url.substr(prefix.size());
+        ESP_LOGI(TAG, "HTTP via MEL MOBILE: %s", path.c_str());
+        return mel_mobile_bridge_request(
+            method,
+            path.c_str(),
+            content_type,
+            g_cfg.token,
+            g_device_id,
+            reinterpret_cast<const uint8_t *>(body),
+            body_len > 0 ? (size_t)body_len : 0,
+            response,
+            status
+        );
+    };
+
+    if (!g_wifi_connected && mel_mobile_bridge_ready()) {
+        return mobile_request();
+    }
+
     HttpBuffer buffer;
     esp_http_client_config_t cfg = {};
     cfg.url = url.c_str();
@@ -227,7 +252,7 @@ static esp_err_t http_request(
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms = 45000;
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) return ESP_FAIL;
+    if (!client) return mel_mobile_bridge_ready() ? mobile_request() : ESP_FAIL;
 
     esp_http_client_set_method(client, method);
     if (content_type) esp_http_client_set_header(client, "Content-Type", content_type);
@@ -242,11 +267,61 @@ static esp_err_t http_request(
     status = esp_http_client_get_status_code(client);
     response = buffer.body;
     esp_http_client_cleanup(client);
+
+    if (err != ESP_OK && mel_mobile_bridge_ready()) {
+        ESP_LOGW(TAG, "Wi-Fi HTTP failed (%s), falling back to MEL MOBILE", esp_err_to_name(err));
+        response.clear();
+        status = 0;
+        return mobile_request();
+    }
     return err;
 }
 
 
 static std::string json_string(cJSON *obj);
+
+struct MobileTtsContext {
+    bool ok = true;
+    bool have_carry = false;
+    uint8_t carry = 0;
+    bool first_audio = true;
+    int64_t started_us = 0;
+};
+
+static bool mobile_tts_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
+    auto *ctx = static_cast<MobileTtsContext *>(ctx_ptr);
+    if (!ctx || !data || len == 0 || !ctx->ok) return ctx && ctx->ok;
+    uint8_t buffer[520];
+    size_t offset = 0;
+    if (ctx->have_carry) {
+        buffer[0] = ctx->carry;
+        offset = 1;
+        ctx->have_carry = false;
+    }
+    if (offset + len > sizeof(buffer)) {
+        ctx->ok = false;
+        return false;
+    }
+    memcpy(buffer + offset, data, len);
+    size_t total = offset + len;
+    if (total & 1U) {
+        ctx->carry = buffer[total - 1];
+        ctx->have_carry = true;
+        total--;
+    }
+    if (total > 0) {
+        if (ctx->first_audio) {
+            ctx->first_audio = false;
+            ESP_LOGI(TAG, "VOICE PERF: TTS first-audio=%lld ms (MOBILE)",
+                     (long long)((esp_timer_get_time() - ctx->started_us) / 1000));
+        }
+        if (esp_codec_dev_write(output_dev, buffer, total) != ESP_CODEC_DEV_OK) {
+            ctx->ok = false;
+            return false;
+        }
+    }
+    return true;
+}
 
 static bool speak_text(const std::string &text) {
     if (!g_audio_ok || !output_dev || !g_cfg.token[0] || text.empty()) return false;
@@ -256,6 +331,29 @@ static bool speak_text(const std::string &text) {
     cJSON_AddStringToObject(root, "speaker", "luna");
     std::string body = json_string(root);
     cJSON_Delete(root);
+
+    if (!g_wifi_connected && mel_mobile_bridge_ready()) {
+        MobileTtsContext ctx;
+        ctx.started_us = esp_timer_get_time();
+        int status = 0;
+        esp_codec_dev_set_out_vol(output_dev, 100.0);
+        esp_err_t err = mel_mobile_bridge_request_stream(
+            HTTP_METHOD_POST,
+            "/api/device/v1/voice/tts",
+            "application/json",
+            g_cfg.token,
+            g_device_id,
+            reinterpret_cast<const uint8_t *>(body.data()),
+            body.size(),
+            status,
+            mobile_tts_chunk,
+            &ctx
+        );
+        esp_codec_dev_set_out_vol(output_dev, 0.0);
+        const bool ok = err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry;
+        if (!ok) ESP_LOGW(TAG, "MOBILE TTS failed err=%s status=%d", esp_err_to_name(err), status);
+        return ok;
+    }
 
     std::string url = std::string(SERVER) + "/api/device/v1/voice/tts";
     esp_http_client_config_t cfg = {};
@@ -273,6 +371,7 @@ static bool speak_text(const std::string &text) {
     esp_http_client_set_header(client, "X-MEL-Device-ID", g_device_id);
 
     bool ok = false;
+    const int64_t tts_request_us = esp_timer_get_time();
     if (esp_http_client_open(client, (int)body.size()) == ESP_OK) {
         int written = esp_http_client_write(client, body.data(), (int)body.size());
         if (written == (int)body.size()) {
@@ -281,10 +380,11 @@ static bool speak_text(const std::string &text) {
             if (status == 200) {
                 uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4097, MALLOC_CAP_8BIT));
                 if (buffer) {
-                    esp_codec_dev_set_out_vol(output_dev, 92.0);
+                    esp_codec_dev_set_out_vol(output_dev, 100.0);
                     ok = true;
                     bool have_carry = false;
                     uint8_t carry = 0;
+                    bool first_audio = true;
                     while (true) {
                         const size_t offset = have_carry ? 1 : 0;
                         if (have_carry) buffer[0] = carry;
@@ -308,9 +408,16 @@ static bool speak_text(const std::string &text) {
                             carry = buffer[total - 1];
                             total -= 1;
                         }
-                        if (total > 0 && esp_codec_dev_write(output_dev, buffer, total) != ESP_CODEC_DEV_OK) {
-                            ok = false;
-                            break;
+                        if (total > 0) {
+                            if (first_audio) {
+                                first_audio = false;
+                                ESP_LOGI(TAG, "VOICE PERF: TTS first-audio=%lld ms",
+                                         (long long)((esp_timer_get_time() - tts_request_us) / 1000));
+                            }
+                            if (esp_codec_dev_write(output_dev, buffer, total) != ESP_CODEC_DEV_OK) {
+                                ok = false;
+                                break;
+                            }
                         }
                     }
                     esp_codec_dev_set_out_vol(output_dev, 0.0);
@@ -1059,10 +1166,94 @@ static bool valid_sha256_hex(const std::string &value) {
     return true;
 }
 
+struct MobileOtaContext {
+    esp_ota_handle_t handle = 0;
+    mbedtls_sha256_context *sha = nullptr;
+    bool ok = true;
+    size_t bytes = 0;
+};
+
+static bool mobile_ota_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
+    auto *ctx = static_cast<MobileOtaContext *>(ctx_ptr);
+    if (!ctx || !ctx->ok || !data || len == 0) return ctx && ctx->ok;
+    if (mbedtls_sha256_update(ctx->sha, data, len) != 0) {
+        ctx->ok = false;
+        return false;
+    }
+    if (esp_ota_write(ctx->handle, data, len) != ESP_OK) {
+        ctx->ok = false;
+        return false;
+    }
+    ctx->bytes += len;
+    return true;
+}
+
+static bool ota_download_mobile(const std::string &key, const std::string &expected_sha256) {
+    const esp_partition_t *partition = esp_ota_get_next_update_partition(nullptr);
+    esp_ota_handle_t handle = 0;
+    if (!partition || esp_ota_begin(partition, OTA_SIZE_UNKNOWN, &handle) != ESP_OK) return false;
+
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+    if (mbedtls_sha256_starts(&sha, 0) != 0) {
+        mbedtls_sha256_free(&sha);
+        esp_ota_abort(handle);
+        return false;
+    }
+
+    MobileOtaContext ctx;
+    ctx.handle = handle;
+    ctx.sha = &sha;
+    int status = 0;
+    const std::string path = "/api/device/v1/download?key=" + key;
+    esp_err_t err = mel_mobile_bridge_request_stream(
+        HTTP_METHOD_GET,
+        path.c_str(),
+        nullptr,
+        g_cfg.token,
+        g_device_id,
+        nullptr,
+        0,
+        status,
+        mobile_ota_chunk,
+        &ctx
+    );
+
+    uint8_t digest[32] = {};
+    bool ok = err == ESP_OK && status == 200 && ctx.ok && ctx.bytes > 0;
+    if (ok && mbedtls_sha256_finish(&sha, digest) != 0) ok = false;
+    mbedtls_sha256_free(&sha);
+    if (!ok) {
+        ESP_LOGE(TAG, "MOBILE OTA failed err=%s status=%d bytes=%u",
+                 esp_err_to_name(err), status, (unsigned)ctx.bytes);
+        esp_ota_abort(handle);
+        return false;
+    }
+
+    char actual_hex[65] = {};
+    for (int i = 0; i < 32; ++i) snprintf(actual_hex + (i * 2), 3, "%02x", digest[i]);
+    std::string expected = expected_sha256;
+    std::transform(expected.begin(), expected.end(), expected.begin(),
+                   [](unsigned char c) { return (char)std::tolower(c); });
+    if (expected != actual_hex) {
+        ESP_LOGE(TAG, "MOBILE OTA SHA-256 mismatch; refusing boot partition switch");
+        esp_ota_abort(handle);
+        return false;
+    }
+    if (esp_ota_end(handle) != ESP_OK) return false;
+    if (esp_ota_set_boot_partition(partition) != ESP_OK) return false;
+    ESP_LOGI(TAG, "MOBILE OTA verified: %u bytes", (unsigned)ctx.bytes);
+    return true;
+}
+
 static bool ota_download(const std::string &key, const std::string &expected_sha256) {
     if (!valid_sha256_hex(expected_sha256)) {
         ESP_LOGE(TAG, "OTA refused: missing/invalid manifest SHA-256");
         return false;
+    }
+    if (!g_wifi_connected && mel_mobile_bridge_ready()) {
+        ESP_LOGI(TAG, "OTA via MEL MOBILE");
+        return ota_download_mobile(key, expected_sha256);
     }
 
     std::string url = std::string(SERVER) + "/api/device/v1/download?key=" + key;
@@ -1437,12 +1628,29 @@ void mel_terminal_set_network_info(const char *ip) {
 }
 
 void mel_terminal_set_wifi_connected(bool connected) {
+    g_wifi_connected = connected;
     if (!connected) {
+        if (g_mobile_connected && mel_mobile_bridge_ready()) {
+            ui_status(g_online ? "MEL MOBILE" : "MOBILE CONNECTE");
+            return;
+        }
         g_online = false;
         ui_status("WI-FI PERDU");
         return;
     }
     ui_status(g_online ? "" : "WI-FI CONNECTE");
+}
+
+void mel_terminal_set_mobile_connected(bool connected) {
+    g_mobile_connected = connected;
+    if (connected) {
+        if (!g_wifi_connected) ui_status(g_online ? "MEL MOBILE" : "MOBILE CONNECTE");
+        return;
+    }
+    if (!g_wifi_connected) {
+        g_online = false;
+        ui_status("HORS LIGNE");
+    }
 }
 
 static int device_session_status() {

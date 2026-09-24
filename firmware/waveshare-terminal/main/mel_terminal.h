@@ -4,7 +4,7 @@
 
 #define MEL_LCD_H_RES 320
 #define MEL_LCD_V_RES 480
-#define MEL_FW_VERSION "0.4.5-stability"
+#define MEL_FW_VERSION "0.4.6-mobile"
 #define MEL_PROTOCOL_VERSION "1.0"
 
 void mel_terminal_ui_init(lv_disp_t *display);
@@ -15,6 +15,7 @@ bool mel_terminal_has_token(void);
 void mel_terminal_set_pair_code(const char *code);
 void mel_terminal_set_network_info(const char *ip);
 void mel_terminal_set_wifi_connected(bool connected);
+void mel_terminal_set_mobile_connected(bool connected);
 void mel_terminal_start_online(void);
 
 enum MelTerminalState {

@@ -24,6 +24,7 @@
 #include "esp_camera.h"
 #include "esp_codec_dev.h"
 #include "mel_terminal.h"
+#include "mel_mobile_bridge.h"
 #include "mel_avatar_mode_complet.h"
 
 extern esp_codec_dev_handle_t input_dev;
@@ -1368,6 +1369,21 @@ static void mini_smoke_ui() {
     ESP_LOGI(TAG, "STEP 6 OK: MINI ANIMATED UI + WIFI READY");
 }
 
+static void mobile_bridge_watch_task(void *) {
+    bool previous = false;
+    while (true) {
+        const bool ready = mel_mobile_bridge_ready();
+        if (ready != previous) {
+            previous = ready;
+            mel_terminal_set_mobile_connected(ready);
+            ESP_LOGI(TAG, "MEL Mobile transport %s (MTU=%u)", ready ? "READY" : "OFFLINE",
+                     (unsigned)mel_mobile_bridge_mtu());
+            if (ready && mel_terminal_has_token()) mel_terminal_start_online();
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
 extern "C" void app_main(void) {
     ESP_LOGI(TAG, "MINI ULTRA SAFE BOOT");
 
@@ -1423,6 +1439,11 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_LOGI(TAG, "STEP 6 OK: WIFI STACK STARTED (FR channels 1-13)");
+
+    ESP_LOGI(TAG, "STEP 6.5: MEL MOBILE BLE");
+    mel_mobile_bridge_start();
+    xTaskCreatePinnedToCore(mobile_bridge_watch_task, "mel_mobile_watch", 4096, nullptr, 2, nullptr, 0);
+    ESP_LOGI(TAG, "STEP 6.5 OK: BLE bridge scanner started");
 
     if (lvgl_port_lock(0)) {
         mini_smoke_ui();

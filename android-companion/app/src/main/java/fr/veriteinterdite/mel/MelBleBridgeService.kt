@@ -267,12 +267,12 @@ class MelBleBridgeService : Service() {
     private fun beginRequest(device: BluetoothDevice, requestId: Int, payload: ByteArray) {
         runCatching {
             val meta = JSONObject(payload.toString(Charsets.UTF_8))
-            val method = meta.optString("method", "POST").uppercase()
-            val path = meta.getString("path")
-            val contentType = meta.optString("contentType", "application/json")
-            val token = meta.getString("token")
-            val deviceId = meta.getString("deviceId")
-            val length = meta.optInt("length", 0)
+            val method = meta.optString("m", meta.optString("method", "POST")).uppercase()
+            val path = meta.optString("p", meta.optString("path"))
+            val contentType = meta.optString("c", meta.optString("contentType", "application/json"))
+            val token = meta.optString("t", meta.optString("token"))
+            val deviceId = meta.optString("d", meta.optString("deviceId"))
+            val length = if (meta.has("l")) meta.optInt("l", 0) else meta.optInt("length", 0)
             require(method == "POST" || method == "GET") { "METHOD" }
             require(path.startsWith("/api/device/v1/")) { "PATH" }
             require(!path.contains("..")) { "PATH" }
