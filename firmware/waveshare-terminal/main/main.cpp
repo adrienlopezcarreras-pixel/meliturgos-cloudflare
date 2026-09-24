@@ -73,6 +73,8 @@ static lv_obj_t *wifi_keyboard = nullptr;
 static lv_obj_t *wifi_connect_btn = nullptr;
 static lv_obj_t *main_panel = nullptr;
 static lv_obj_t *settings_panel = nullptr;
+static lv_obj_t *settings_btn = nullptr;
+static volatile bool camera_probe_done = false;
 static lv_obj_t *settings_status = nullptr;
 static lv_obj_t *pair_panel = nullptr;
 static lv_obj_t *pair_button = nullptr;
@@ -173,7 +175,7 @@ static void microphone_boot_probe_task(void *) {
 static void camera_boot_probe_task(void *) {
     // UI is already alive before this runs. Camera probing can therefore be slow
     // without starving taskLVGL on CPU0.
-    vTaskDelay(pdMS_TO_TICKS(2500));
+    vTaskDelay(pdMS_TO_TICKS(150));
     ESP_LOGI(TAG, "SELFTEST CAMERA: init OV5640 off the LVGL core (CPU%d)", xPortGetCoreID());
     esp_camera_port_init((i2c_port_num_t)I2C_PORT_NUM);
     camera_ok = esp_camera_sensor_get() != nullptr;
@@ -194,6 +196,8 @@ static void camera_boot_probe_task(void *) {
     mel_terminal_set_hardware(camera_ok, audio_ok, false);
     ESP_LOGI(TAG, "SELFTEST SUMMARY: display=OK touch=OK audio=%s camera=%s wifi=READY",
              audio_ok ? "OK" : "FAIL", camera_ok ? "OK" : "FAIL");
+    camera_probe_done = true;
+    ESP_LOGI(TAG, "CAMERA DMA READY -> BLE may start now");
     vTaskDelete(nullptr);
 }
 
@@ -422,11 +426,13 @@ static void mini_apply_requested_view(void) {
     if (wifi_panel) lv_obj_add_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
     if (pair_panel) lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
     if (settings_panel) lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
+    if (settings_btn) lv_obj_add_flag(settings_btn, LV_OBJ_FLAG_HIDDEN);
     if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
     if (pair_keyboard) lv_obj_add_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
 
     if (active_view == MINI_VIEW_MAIN) {
         if (main_panel) lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
+        if (settings_btn) lv_obj_clear_flag(settings_btn, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
@@ -1303,18 +1309,6 @@ static void mini_smoke_ui() {
     lv_obj_set_style_text_color(time_label, lv_color_hex(0xF8FAFC), 0);
     lv_obj_align(time_label, LV_ALIGN_TOP_RIGHT, -66, 16);
 
-    lv_obj_t *settings_btn = lv_btn_create(main_panel);
-    lv_obj_set_size(settings_btn, 46, 40);
-    lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -10, 10);
-    lv_obj_set_style_radius(settings_btn, 12, 0);
-    lv_obj_set_style_bg_color(settings_btn, lv_color_hex(0x0B2238), 0);
-    lv_obj_set_style_border_width(settings_btn, 1, 0);
-    lv_obj_set_style_border_color(settings_btn, lv_color_hex(0x22D3EE), 0);
-    lv_obj_t *settings_icon = lv_label_create(settings_btn);
-    lv_label_set_text(settings_icon, LV_SYMBOL_SETTINGS);
-    lv_obj_center(settings_icon);
-    lv_obj_add_event_cb(settings_btn, settings_open_clicked, LV_EVENT_CLICKED, nullptr);
-
     runtime_status_label = lv_label_create(main_panel);
     lv_label_set_text(runtime_status_label, "");
     lv_obj_set_style_text_color(runtime_status_label, lv_color_hex(0x22D3EE), 0);
@@ -1356,7 +1350,6 @@ static void mini_smoke_ui() {
 
     // Header controls must remain above the full-height avatar layer.
     // The avatar is created later than the header, so explicitly restore z-order.
-    lv_obj_move_foreground(settings_btn);
     lv_obj_move_foreground(time_label);
     lv_obj_move_foreground(wifi_indicator);
 
@@ -1368,6 +1361,22 @@ static void mini_smoke_ui() {
     wifi_ui_create(screen);
     pair_ui_create(screen);
     settings_ui_create(screen);
+
+    // Options lives on the screen root and is created LAST: avatar/panels can
+    // never cover it. Visuals intentionally match the original button.
+    settings_btn = lv_btn_create(screen);
+    lv_obj_set_size(settings_btn, 46, 40);
+    lv_obj_align(settings_btn, LV_ALIGN_TOP_RIGHT, -10, 10);
+    lv_obj_set_style_radius(settings_btn, 12, 0);
+    lv_obj_set_style_bg_color(settings_btn, lv_color_hex(0x0B2238), 0);
+    lv_obj_set_style_border_width(settings_btn, 1, 0);
+    lv_obj_set_style_border_color(settings_btn, lv_color_hex(0x22D3EE), 0);
+    lv_obj_t *settings_icon = lv_label_create(settings_btn);
+    lv_label_set_text(settings_icon, LV_SYMBOL_SETTINGS);
+    lv_obj_center(settings_icon);
+    lv_obj_clear_flag(settings_icon, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(settings_btn, settings_open_clicked, LV_EVENT_CLICKED, nullptr);
+
     mel_terminal_bind_external_ui(runtime_status_label, answer_label);
     anim_timer = lv_timer_create(mini_anim_cb, 250, nullptr);
     lv_timer_create(clock_timer_cb, 1000, nullptr);
@@ -1376,10 +1385,11 @@ static void mini_smoke_ui() {
 }
 
 static void mobile_bridge_watch_task(void *) {
-    // Let OV5640 reserve its contiguous internal DMA block first. Starting
-    // NimBLE before the camera fragmented the DMA heap on the S3.
-    vTaskDelay(pdMS_TO_TICKS(6500));
-    ESP_LOGI(TAG, "STEP 6.5: MEL MOBILE BLE (deferred after camera DMA)");
+    // Start BLE as soon as OV5640 has reserved its contiguous DMA block.
+    // This preserves camera stability while avoiding the old fixed 6.5 s wait.
+    ESP_LOGI(TAG, "MEL MOBILE: waiting only for camera DMA reservation");
+    while (!camera_probe_done) vTaskDelay(pdMS_TO_TICKS(20));
+    ESP_LOGI(TAG, "STEP 6.5: MEL MOBILE BLE starting immediately after camera DMA");
     mel_mobile_bridge_start();
 
     bool previous = false;
