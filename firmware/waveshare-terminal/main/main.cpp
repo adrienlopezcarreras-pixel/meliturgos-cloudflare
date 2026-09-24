@@ -312,14 +312,6 @@ static void mini_anim_cb(lv_timer_t *) {
         lv_obj_set_y(face_obj, 50 + motion[motion_second & 3U]);
     }
 
-    // Natural blink every ~5 seconds using a second frame of the exact portrait.
-    const uint32_t blink_phase = now % 5200U;
-    const bool blink = blink_phase < 130U;
-    if (blink != last_blink) {
-        lv_img_set_src(avatar_obj, blink ? &mel_avatar_mode_complet_blink : &mel_avatar_mode_complet);
-        last_blink = blink;
-    }
-
     // Slightly livelier motion while MEL is listening/speaking, still cheap.
     if (state == MEL_TERMINAL_LISTENING || state == MEL_TERMINAL_SPEAKING) {
         const int8_t pulse[4] = {0, 1, 0, -1};
