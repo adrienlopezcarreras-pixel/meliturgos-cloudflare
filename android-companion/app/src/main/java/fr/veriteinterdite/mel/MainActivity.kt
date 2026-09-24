@@ -1320,7 +1320,6 @@ private fun MiniHomePanel(
     recording: Boolean,
     onVoice: () -> Unit
 ) {
-    val lastMel = state.messages.lastOrNull { it.role == "mel" }?.text
     val accent = when (faceState) {
         MelFaceState.LISTENING -> MelSuccess
         MelFaceState.THINKING -> MelViolet
@@ -1338,27 +1337,6 @@ private fun MiniHomePanel(
 
     Box(Modifier.fillMaxSize().testTag("mini-stage")) {
         MelPortraitStage(faceState = faceState, voiceLevel = voiceLevel)
-
-        if (!lastMel.isNullOrBlank()) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 18.dp, end = 18.dp, bottom = 260.dp)
-                    .fillMaxWidth(),
-                color = Color(0xB8051322),
-                border = BorderStroke(1.dp, accent.copy(alpha = .30f)),
-                shape = RoundedCornerShape(18.dp)
-            ) {
-                Text(
-                    lastMel,
-                    modifier = Modifier.padding(12.dp),
-                    color = MelInk,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                    maxLines = 4
-                )
-            }
-        }
 
         VoiceWaveform(
             active = recording || faceState == MelFaceState.SPEAKING,
