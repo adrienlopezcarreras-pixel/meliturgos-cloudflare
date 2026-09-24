@@ -62,8 +62,10 @@ test('Normal and Complete are visible app modes and are sent to MEL chat',async(
   assert.match(vm,/NORMAL\("normal", "Normal"\)/);
   assert.match(vm,/COMPLETE\("complete", "Complet"\)/);
   assert.match(vm,/NORMAL\("normal", "Normal"\)/);
-  assert.match(activity,/MEL \/\/ FULL ACCESS/);
-  assert.match(activity,/CompletePanel/);
+  assert.match(activity,/MobileSection\(val label: String\)/);
+  assert.match(activity,/PROFESSOR \/ MODE COMPLET NATIF/);
+  assert.doesNotMatch(activity,/Intent\.ACTION_VIEW/);
+  assert.doesNotMatch(activity,/\/professor/);
   assert.match(api,/\.put\("ui_mode", mode\)/);
   assert.match(api,/uiMode: String = "normal"/);
 });
@@ -74,8 +76,11 @@ test('Android app exposes native file selection and a useful Complete control su
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   assert.match(activity,/ActivityResultContracts\.OpenDocument/);
   assert.match(activity,/Text\("Fichier"\)/);
-  assert.match(activity,/Text\("Professor"\)/);
-  assert.match(activity,/\/professor/);
+  assert.match(activity,/Text\("PROFESSOR \/ MODE COMPLET NATIF"/);
+  assert.match(activity,/testTag\("nav-camera"\)/);
+  assert.match(activity,/testTag\("nav-companion"\)/);
+  assert.match(activity,/ActivityResultContracts\.TakePicturePreview/);
+  assert.doesNotMatch(activity,/Intent\.ACTION_VIEW/);
   assert.match(api,/fun uploadFile\(/);
   assert.match(api,/\/api\/android\/v1\/files\/upload/);
   assert.match(vm,/fun sendFile\(/);
@@ -94,7 +99,8 @@ test('Android native client exposes pairing chat sync ACK voice and file transpo
     '/api/android/v1/sync?conversation_id=',
     '/api/android/v1/sync/ack',
     '/api/android/v1/voice/transcribe',
-    '/api/android/v1/files/upload'
+    '/api/android/v1/files/upload',
+    '/api/android/v1/companions'
   ];
   for(const route of routes) assert.ok(api.includes(route),route);
 });
@@ -215,7 +221,7 @@ test('Android background heartbeat uses WorkManager without hidden background mi
   assert.match(vm,/MelBackground\.schedule\(appContext\)/);
   assert.match(vm,/MelBackground\.cancel\(appContext\)/);
   assert.match(activity,/Manifest\.permission\.POST_NOTIFICATIONS/);
-  assert.match(activity,/Notifications arrière-plan/);
+  assert.match(activity,/Arrière-plan \/ notifications/);
 });
 
 
@@ -288,8 +294,8 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
   assert.match(vm,/Heartbeat: OK/);
   assert.match(vm,/Backend accepte version/);
-  assert.match(activity,/Text\("Lancer auto-diagnostic"\)/);
-  assert.match(activity,/diagnosticReport = state\.diagnosticReport/);
+  assert.match(activity,/Text\("AUTO-DIAGNOSTIC"\)/);
+  assert.match(activity,/state\.diagnosticReport/);
   assert.match(activity,/Text\("Copier diagnostic"\)/);
   assert.match(activity,/ClipboardManager/);
   assert.match(activity,/ClipData\.newPlainText/);
@@ -324,9 +330,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   assert.match(vm,/MelBackground\.heartbeatScheduled\(appContext\)/);
   assert.match(background,/fun heartbeatScheduled\(context: Context\): Boolean/);
 
-  assert.match(activity,/Text\("Tester Normal"\)/);
-  assert.match(activity,/Text\("Tester fichier"\)/);
-  assert.match(activity,/Text\("Tester arrière-plan"\)/);
+  assert.match(activity,/onClick = onNormalProbe/);
+  assert.match(activity,/onClick = onFileProbe/);
+  assert.match(activity,/onClick = onBackgroundProbe/);
   assert.match(activity,/Fichier sélectionné · envoi en cours…/);
   assert.doesNotMatch(activity,/Fichier envoyé à MEL/);
 });
@@ -364,24 +370,32 @@ test('Android dark UI keeps readable content contrast',async()=>{
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelGlass, contentColor = MelInk\)/);
   assert.match(activity,/border = BorderStroke\(1\.dp, MelCyan\.copy\(alpha = \.18f\)\)/);
-  assert.match(activity,/StatusPill\("ONLINE", MelSuccess\)/);
-  assert.match(activity,/Text\("MEL", color = MelInk/);
+  assert.match(activity,/Text\("MINI \/\/ MEL"/);
   assert.match(activity,/Text\("Connexion à MEL", color = MelInk/);
-  assert.match(activity,/Text\("SYSTEM TOOLS", color = MelCyan/);
-  assert.match(activity,/"Validation téléphone",[\s\S]{0,120}color = MelInk/);
+  assert.match(activity,/HudLabel\("OUTILS \/\/ MEL", "MODE COMPLET NATIF", MelViolet\)/);
+  assert.match(activity,/HudLabel\("CAMERA \/\/ MEL", "CAPTURE NATIVE ANDROID", MelBlue\)/);
 
   assert.match(harness,/MEL Android \$\{MelApiClient\.APP_VERSION\}/);
   assert.doesNotMatch(harness,/MEL Android 0\.6\.1/);
 });
 
 
-test('Android Complete panel stays height-bounded and internally scrollable',async()=>{
+test('Android MINI mobile shell keeps native navigation and complete tools inside the app',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const screenshotTest=await readFile(new URL('app/src/androidTest/java/fr/veriteinterdite/mel/MelUiHarnessScreenshotTest.kt',root),'utf8');
 
-  assert.match(activity,/heightIn\(max = 300\.dp\)/);
-  assert.match(activity,/verticalScroll\(rememberScrollState\(\)\)/);
-  assert.match(screenshotTest,/performScrollTo\(\)\.assertIsDisplayed\(\)/);
+  assert.match(activity,/enum class MobileSection/);
+  assert.match(activity,/MEL\("MEL"\)/);
+  assert.match(activity,/KEYBOARD\("Clavier"\)/);
+  assert.match(activity,/CAMERA\("Caméra"\)/);
+  assert.match(activity,/COMPANION\("MINI"\)/);
+  assert.match(activity,/TOOLS\("Outils"\)/);
+  assert.match(activity,/testTag\("nav-keyboard"\)/);
+  assert.match(activity,/testTag\("nav-camera"\)/);
+  assert.match(activity,/testTag\("nav-companion"\)/);
+  assert.match(activity,/testTag\("nav-tools"\)/);
+  assert.match(screenshotTest,/nav-tools/);
+  assert.doesNotMatch(activity,/Intent\.ACTION_VIEW/);
 });
 
 
@@ -389,7 +403,7 @@ test('Android Complete panel stays height-bounded and internally scrollable',asy
 test('Android 0.6.8 keeps critical interaction state truthful and stable',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
-  assert.match(activity,/LaunchedEffect\(state\.messages\.size, state\.busy\)/);
+  assert.match(activity,/LaunchedEffect\(state\.messages\.size\)/);
   assert.match(activity,/ModeSelector\(state\.mode, state\.busy, onMode\)/);
   assert.match(activity,/testTag\("message-input"\)/);
   assert.match(activity,/testTag\("file-button"\)/);
@@ -402,10 +416,27 @@ test('Android 0.6.8 keeps critical interaction state truthful and stable',async(
   assert.match(activity,/MediaRecorder\.OutputFormat\.WEBM/);
   assert.match(activity,/MediaRecorder\.AudioEncoder\.OPUS/);
   assert.match(activity,/recordingMimeType = if \(useWebm\) "audio\/webm" else "audio\/mp4"/);
-  assert.match(activity,/Ouvrir les outils/);
-  assert.match(activity,/VOICE LINK/);
+  assert.match(activity,/testTag\("mini-talk-button"\)/);
+  assert.match(activity,/PROFESSOR \/ MODE COMPLET NATIF/);
   assert.match(vm,/Micro réel: OK · reconnaissance Android/);
   assert.match(vm,/fun setMode\(mode: MelMode\) \{\s*if \(_state\.value\.busy\) return/);
+});
+
+test('Android 0.6.8 exposes native keyboard camera companion and tools surfaces',async()=>{
+  const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
+  const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
+  const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
+  assert.match(activity,/ActivityResultContracts\.TakePicturePreview/);
+  assert.match(activity,/private fun sendCameraPhoto\(\)/);
+  assert.match(activity,/CameraPanel\(/);
+  assert.match(activity,/KeyboardPanel\(/);
+  assert.match(activity,/CompanionPanel\(/);
+  assert.match(activity,/NativeToolsPanel\(/);
+  assert.match(api,/fun companions\(\): JSONArray/);
+  assert.match(api,/\/api\/android\/v1\/companions/);
+  assert.match(vm,/data class MelCompanionDevice/);
+  assert.match(vm,/fun refreshCompanions\(\)/);
+  assert.doesNotMatch(activity,/Intent\.ACTION_VIEW/);
 });
 
 test('Android lint is aligned for AndroidX release checks',async()=>{
