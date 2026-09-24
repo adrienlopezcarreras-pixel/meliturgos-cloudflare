@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.media.MediaRecorder
@@ -186,7 +185,6 @@ class MainActivity : ComponentActivity() {
                     onSync = model::sync,
                     onVoice = ::toggleVoice,
                     onFile = ::pickFile,
-                    onProfessor = ::openProfessor,
                     onNotifications = ::enableNotifications,
                     onDiagnostics = model::runDiagnostics,
                     onCopyDiagnostic = ::copyDiagnostic,
@@ -298,11 +296,6 @@ class MainActivity : ComponentActivity() {
         )
         cameraPhoto.value = null
         voiceMessage.value = "Photo envoyée à MEL"
-    }
-
-    private fun openProfessor() {
-        val url = BuildConfig.MEL_BASE_URL.trimEnd('/') + "/professor"
-        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     }
 
     private fun copyDiagnostic(report: String) {
@@ -591,7 +584,6 @@ internal fun MelApp(
     onSync: () -> Unit,
     onVoice: () -> Unit,
     onFile: () -> Unit,
-    onProfessor: () -> Unit,
     onNotifications: () -> Unit,
     onDiagnostics: () -> Unit,
     onCopyDiagnostic: (String) -> Unit,
@@ -1715,150 +1707,6 @@ private fun ModeSelector(mode: MelMode, busy: Boolean, onMode: (MelMode) -> Unit
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Text(item.label, color = MelMuted)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CompletePanel(
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    busy: Boolean,
-    diagnosticReport: String?,
-    onSync: () -> Unit,
-    onProfessor: () -> Unit,
-    onNotifications: () -> Unit,
-    onDiagnostics: () -> Unit,
-    onCopyDiagnostic: (String) -> Unit,
-    onNormalProbe: () -> Unit,
-    onFileProbe: () -> Unit,
-    onBackgroundProbe: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth().testTag("complete-panel"),
-        colors = CardDefaults.cardColors(containerColor = MelGlass, contentColor = MelInk),
-        border = BorderStroke(1.dp, MelViolet.copy(alpha = .20f)),
-        shape = RoundedCornerShape(22.dp)
-    ) {
-        Column(Modifier.padding(13.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("MEL // FULL ACCESS", color = MelViolet, fontWeight = FontWeight.Black, fontSize = 12.sp, letterSpacing = 1.2.sp)
-                    Text(
-                        "Synchronisation · Professor · diagnostic système",
-                        color = MelMuted,
-                        fontSize = 11.sp
-                    )
-                }
-                OutlinedButton(
-                    onClick = onToggle,
-                    enabled = !busy,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.testTag("tools-toggle")
-                ) {
-                    Text(if (expanded) "Masquer" else "Ouvrir les outils")
-                }
-            }
-
-            if (expanded) {
-                Spacer(Modifier.height(10.dp))
-                Column(
-                    Modifier
-                        .heightIn(max = 300.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Text("SYSTEM TOOLS", color = MelCyan, fontWeight = FontWeight.Black, fontSize = 11.sp, letterSpacing = 1.2.sp)
-                    Spacer(Modifier.height(7.dp))
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(7.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onSync,
-                            enabled = !busy,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp)
-                        ) { Text("Synchroniser") }
-                        Button(
-                            onClick = onProfessor,
-                            enabled = !busy,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MelViolet)
-                        ) { Text("Professor") }
-                    }
-                    Spacer(Modifier.height(7.dp))
-                    OutlinedButton(
-                        onClick = onNotifications,
-                        enabled = !busy,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp)
-                    ) { Text("Notifications arrière-plan") }
-
-                    Spacer(Modifier.height(10.dp))
-                    Text("Validation téléphone", color = MelInk, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    Spacer(Modifier.height(6.dp))
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(7.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onNormalProbe,
-                            enabled = !busy,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp)
-                        ) { Text("Tester Normal") }
-                        OutlinedButton(
-                            onClick = onFileProbe,
-                            enabled = !busy,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp)
-                        ) { Text("Tester fichier") }
-                    }
-                    Spacer(Modifier.height(7.dp))
-                    OutlinedButton(
-                        onClick = onBackgroundProbe,
-                        enabled = !busy,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp)
-                    ) { Text("Tester arrière-plan") }
-                    Spacer(Modifier.height(7.dp))
-                    Button(
-                        onClick = onDiagnostics,
-                        enabled = !busy,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MelBlue)
-                    ) { Text("Lancer auto-diagnostic") }
-
-                    if (!diagnosticReport.isNullOrBlank()) {
-                        Spacer(Modifier.height(9.dp))
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = Color(0xB30A1625),
-                            border = BorderStroke(1.dp, MelCyan.copy(alpha = .14f)),
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Text(
-                                diagnosticReport,
-                                modifier = Modifier.padding(11.dp),
-                                color = MelInk,
-                                fontSize = 11.sp,
-                                lineHeight = 16.sp
-                            )
-                        }
-                        Spacer(Modifier.height(7.dp))
-                        OutlinedButton(
-                            onClick = { onCopyDiagnostic(diagnosticReport) },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp)
-                        ) { Text("Copier diagnostic") }
                     }
                 }
             }
