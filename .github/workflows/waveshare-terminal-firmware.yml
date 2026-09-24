@@ -49,6 +49,12 @@ jobs:
             sed -i -E "/^${key}=|^# ${key} is not set/d" sdkconfig
             printf '# %s is not set\n' "$key" >> sdkconfig
           }
+          set_cfg_value() {
+            local key="$1"
+            local value="$2"
+            sed -i -E "/^${key}=|^# ${key} is not set/d" sdkconfig
+            printf '%s=%s\n' "$key" "$value" >> sdkconfig
+          }
 
           set_cfg_y CONFIG_COMPILER_OPTIMIZATION_PERF
           set_cfg_y CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM
@@ -62,6 +68,13 @@ jobs:
           set_cfg_y CONFIG_BT_NIMBLE_ROLE_BROADCASTER
           set_cfg_y CONFIG_BT_NIMBLE_GATT_SERVER
           set_cfg_y CONFIG_BT_NIMBLE_SECURITY_ENABLE
+          # Keep camera DMA-capable internal RAM free: place NimBLE host allocations in 8 MB PSRAM.
+          set_cfg_y CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL
+          set_cfg_n CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_INTERNAL
+          set_cfg_n CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_DEFAULT
+          set_cfg_n CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_IRAM_8BIT
+          set_cfg_value CONFIG_BT_NIMBLE_MAX_CONNECTIONS 1
+          set_cfg_value CONFIG_BT_NIMBLE_MAX_BONDS 1
           set_cfg_n CONFIG_BT_BLUEDROID_ENABLED
           set_cfg_n CONFIG_BT_CONTROLLER_ONLY
 
@@ -113,6 +126,9 @@ jobs:
               "CONFIG_BT_NIMBLE_ENABLED=y",
               "CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y",
               "CONFIG_BT_NIMBLE_GATT_SERVER=y",
+              "CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y",
+              "CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1",
+              "CONFIG_BT_NIMBLE_MAX_BONDS=1",
           }
           missing = sorted(required - cfg)
           if missing:
@@ -136,7 +152,7 @@ jobs:
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.4.6-ble",
+              "version": "0.4.7-ble",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",
