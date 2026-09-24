@@ -5,6 +5,10 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.round
 
+enum class MelAppTarget {
+    BROWSER, CALCULATOR, CALENDAR, CONTACTS, EMAIL, FILES, GALLERY, MAPS, MESSAGING, MUSIC
+}
+
 sealed class MelCompanionCommand {
     data class Reply(val text: String) : MelCompanionCommand()
     data class SetTimer(val seconds: Int, val label: String) : MelCompanionCommand()
@@ -19,6 +23,14 @@ sealed class MelCompanionCommand {
     data object Camera : MelCompanionCommand()
     data object FilePicker : MelCompanionCommand()
     data object EnableNotifications : MelCompanionCommand()
+    data class OpenApp(val target: MelAppTarget, val label: String) : MelCompanionCommand()
+    data object BatteryStatus : MelCompanionCommand()
+    data object InternetStatus : MelCompanionCommand()
+    data object VolumeStatus : MelCompanionCommand()
+    data object GeneralSettings : MelCompanionCommand()
+    data object AirplaneSettings : MelCompanionCommand()
+    data object DisplaySettings : MelCompanionCommand()
+    data object SoundSettings : MelCompanionCommand()
 }
 
 object MelCompanionCommands {
@@ -111,6 +123,30 @@ object MelCompanionCommands {
             return MelCompanionCommand.EnableNotifications
         }
 
+        if (Regex("""\b(?:batterie|niveau\s+de\s+batterie|charge\s+du\s+t[eé]l[eé]phone)\b""").containsMatchIn(lower) &&
+            Regex("""\b(?:combien|niveau|reste|est|charge)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.BatteryStatus
+        }
+
+        if (Regex("""\b(?:connexion\s+internet|internet\s+(?:marche|fonctionne|disponible)|est[- ]ce\s+que\s+j['’]ai\s+internet|suis[- ]je\s+connect[eé])\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.InternetStatus
+        }
+
+        if (Regex("""\b(?:quel\s+est\s+le\s+volume|niveau\s+du\s+volume|volume\s+actuel)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.VolumeStatus
+        }
+
+        if (Regex("""\b(?:ouvre|affiche)\b.*\b(?:param[eè]tres?|r[eé]glages?)\b""").containsMatchIn(lower)) {
+            when {
+                lower.contains("avion") -> return MelCompanionCommand.AirplaneSettings
+                lower.contains("luminos") || lower.contains("écran") || lower.contains("ecran") -> return MelCompanionCommand.DisplaySettings
+                lower.contains("son") || lower.contains("volume") -> return MelCompanionCommand.SoundSettings
+                else -> return MelCompanionCommand.GeneralSettings
+            }
+        }
+
+        openAppTarget(lower)?.let { return MelCompanionCommand.OpenApp(it.first, it.second) }
+
         if (Regex("""\b(?:appelle|compose)\b""").containsMatchIn(lower)) {
             phone.find(text)?.value?.let { number ->
                 return MelCompanionCommand.Dial(cleanPhone(number))
@@ -139,6 +175,33 @@ object MelCompanionCommands {
         }
 
         return null
+    }
+
+    private fun openAppTarget(lower: String): Pair<MelAppTarget, String>? {
+        if (!Regex("""\b(?:ouvre|lance|affiche)\b""").containsMatchIn(lower)) return null
+        return when {
+            Regex("""\b(?:calculatrice|calculette)\b""").containsMatchIn(lower) ->
+                MelAppTarget.CALCULATOR to "la calculatrice"
+            Regex("""\b(?:calendrier|agenda)\b""").containsMatchIn(lower) ->
+                MelAppTarget.CALENDAR to "le calendrier"
+            Regex("""\bcontacts?\b""").containsMatchIn(lower) ->
+                MelAppTarget.CONTACTS to "les contacts"
+            Regex("""\b(?:e[- ]?mail|mails?|courriels?)\b""").containsMatchIn(lower) ->
+                MelAppTarget.EMAIL to "les e-mails"
+            Regex("""\b(?:fichiers?|gestionnaire\s+de\s+fichiers?)\b""").containsMatchIn(lower) ->
+                MelAppTarget.FILES to "les fichiers"
+            Regex("""\b(?:galerie|photos?)\b""").containsMatchIn(lower) ->
+                MelAppTarget.GALLERY to "la galerie"
+            Regex("""\b(?:cartes?|maps?)\b""").containsMatchIn(lower) ->
+                MelAppTarget.MAPS to "les cartes"
+            Regex("""\b(?:messages?|messagerie|sms)\b""").containsMatchIn(lower) ->
+                MelAppTarget.MESSAGING to "la messagerie"
+            Regex("""\b(?:musique|lecteur\s+audio)\b""").containsMatchIn(lower) ->
+                MelAppTarget.MUSIC to "la musique"
+            Regex("""\b(?:navigateur|browser)\b""").containsMatchIn(lower) ->
+                MelAppTarget.BROWSER to "le navigateur"
+            else -> null
+        }
     }
 
     private fun reminderLabel(text: String, start: Int): String {
