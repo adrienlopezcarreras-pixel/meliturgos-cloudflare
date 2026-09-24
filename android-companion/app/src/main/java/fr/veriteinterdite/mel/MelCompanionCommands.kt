@@ -16,6 +16,8 @@ sealed class MelCompanionCommand {
     data object ShowAlarms : MelCompanionCommand()
     data class Dial(val number: String) : MelCompanionCommand()
     data class Sms(val number: String, val body: String) : MelCompanionCommand()
+    data class Email(val address: String, val body: String) : MelCompanionCommand()
+    data object OpenDialer : MelCompanionCommand()
     data class Navigate(val query: String) : MelCompanionCommand()
     data object WifiSettings : MelCompanionCommand()
     data object BluetoothSettings : MelCompanionCommand()
@@ -37,6 +39,7 @@ object MelCompanionCommands {
     private val duration = Regex("""(\d{1,4})\s*(secondes?|minutes?|heures?)""", RegexOption.IGNORE_CASE)
     private val alarmTime = Regex("""\b([01]?\d|2[0-3])\s*(?:h|:|heures?)\s*([0-5]?\d)?\b""", RegexOption.IGNORE_CASE)
     private val phone = Regex("""\+?[0-9][0-9 .-]{5,}[0-9]""")
+    private val email = Regex("""[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}""", RegexOption.IGNORE_CASE)
     private val arithmetic = Regex(
         """(-?\d+(?:[.,]\d+)?)\s*(\+|-|\*|x|×|/|plus|moins|fois|multipli(?:é|e)\s+par|divis(?:é|e)\s+par)\s*(-?\d+(?:[.,]\d+)?)""",
         RegexOption.IGNORE_CASE
@@ -150,6 +153,20 @@ object MelCompanionCommands {
         if (Regex("""\b(?:appelle|compose)\b""").containsMatchIn(lower)) {
             phone.find(text)?.value?.let { number ->
                 return MelCompanionCommand.Dial(cleanPhone(number))
+            }
+        }
+
+        if (Regex("""\b(?:ouvre|lance)\b.*\b(?:t[eé]l[eé]phone|composeur|num[eé]roteur)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.OpenDialer
+        }
+
+        if (Regex("""\b(?:mail|e[- ]?mail|courriel)\b""").containsMatchIn(lower) &&
+            Regex("""\b(?:envoie|pr[eé]pare|[ée]cris)\b""").containsMatchIn(lower)) {
+            email.find(text)?.let { match ->
+                val body = text.substring(match.range.last + 1)
+                    .replace(Regex("""^\s*(?:disant|avec|message|:|-)?\s*""", RegexOption.IGNORE_CASE), "")
+                    .trim()
+                return MelCompanionCommand.Email(match.value, body)
             }
         }
 
