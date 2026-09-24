@@ -106,17 +106,20 @@ test('Android native client exposes pairing chat sync ACK voice and file transpo
 });
 
 
-test('Android app surfaces the native MEL avatar in launcher and Compose UI',async()=>{
+test('Android app uses the MEL techno portrait for launcher and Compose UI',async()=>{
   const manifest=await readFile(new URL('app/src/main/AndroidManifest.xml',root),'utf8');
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
-  const avatar=await readFile(new URL('app/src/main/res/drawable/ic_mel_avatar.xml',root),'utf8');
-  assert.match(manifest,/android:icon="@drawable\/ic_mel_avatar"/);
-  assert.match(manifest,/android:roundIcon="@drawable\/ic_mel_avatar"/);
+  const foreground=await readFile(new URL('app/src/main/res/drawable/ic_mel_techno_foreground.xml',root),'utf8');
+  const adaptive=await readFile(new URL('app/src/main/res/mipmap-anydpi-v26/ic_mel_techno.xml',root),'utf8');
+  const adaptiveRound=await readFile(new URL('app/src/main/res/mipmap-anydpi-v26/ic_mel_techno_round.xml',root),'utf8');
+  assert.match(manifest,/android:icon="@mipmap\/ic_mel_techno"/);
+  assert.match(manifest,/android:roundIcon="@mipmap\/ic_mel_techno_round"/);
+  assert.match(foreground,/@drawable\/mel_futuristic_new/);
+  assert.match(adaptive,/@drawable\/ic_mel_techno_foreground/);
+  assert.match(adaptiveRound,/@drawable\/ic_mel_techno_foreground/);
   assert.match(activity,/painterResource\(R\.drawable\.mel_futuristic_new\)/);
   assert.match(activity,/MelAvatar\(/);
   assert.match(activity,/MelPortraitStage\(/);
-  assert.match(avatar,/#22D3EE/);
-  assert.match(avatar,/#3B241B/);
 });
 
 test('signed Android release pipeline is secret-backed fail-closed and verifies the APK signature',async()=>{
