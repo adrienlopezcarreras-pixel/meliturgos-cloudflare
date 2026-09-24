@@ -167,7 +167,7 @@ test('Android 0.6.8 prefers on-device speech, exposes live level, and keeps spee
   assert.doesNotMatch(errorBlock,/startRecorderFallback/);
   assert.match(activity,/MelFaceState\.LISTENING -> 1f \+ voiceLevel\.coerceIn/);
   assert.match(activity,/StatusPill\("VOICE", MelCyan\)/);
-  assert.match(activity,/StatusPill\("FILES", MelBlue\)/);
+  assert.match(activity,/StatusPill\("CAMERA", MelBlue\)/);
   assert.match(activity,/StatusPill\("SYNC", MelViolet\)/);
 });
 
@@ -370,7 +370,7 @@ test('Android dark UI keeps readable content contrast',async()=>{
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
   assert.match(activity,/color = MelGlass/);
   assert.match(activity,/border = BorderStroke\(1\.dp, MelCyan\.copy\(alpha = \.18f\)\)/);
-  assert.match(activity,/Text\("MINI \/\/ MEL"/);
+  assert.match(activity,/Text\(\s*"MINI \/\/ MEL"/);
   assert.match(activity,/Text\("Connexion à MEL", color = MelInk/);
   assert.match(activity,/HudLabel\("OUTILS \/\/ MEL", "MODE COMPLET NATIF", MelViolet\)/);
   assert.match(activity,/HudLabel\("CAMERA \/\/ MEL", "CAPTURE NATIVE ANDROID", MelBlue\)/);
