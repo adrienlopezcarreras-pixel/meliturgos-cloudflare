@@ -281,6 +281,7 @@ class MelViewModel(
     }
 
     private fun speakAnswer(answer: String, mode: MelMode) {
+        var lunaFailure: Throwable? = null
         try {
             val pcm = client.tts(answer, speaker = "luna")
             if (pcm.isEmpty()) throw MelApiException("TTS_AUDIO_EMPTY", 502)
@@ -298,13 +299,35 @@ class MelViewModel(
                 error = null
             )
             appendDiagnosticLine("Audio MEL: OK · luna")
+            return
         } catch (error: Throwable) {
+            lunaFailure = error
+            MelVoicePlayer.stop()
+        }
+
+        try {
+            _state.value = _state.value.copy(
+                busy = true,
+                speaking = true,
+                status = "MEL parle…",
+                error = null
+            )
+            MelVoicePlayer.playSystemFrench(appContext, answer)
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "MEL connectée · mode ${mode.label}",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: OK · secours Android français")
+        } catch (fallbackError: Throwable) {
             MelVoicePlayer.stop()
             _state.value = _state.value.copy(
                 busy = false,
                 speaking = false,
                 status = "MEL connectée · audio indisponible",
-                error = "Réponse reçue mais audio MEL indisponible · " + explain(error)
+                error = "Réponse reçue · audio indisponible · " +
+                    explain(lunaFailure ?: fallbackError)
             )
         }
     }
