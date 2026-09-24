@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
@@ -100,6 +102,61 @@ static void mini_apply_requested_view(void);
 static void wifi_start_scan(void);
 static void ui_stress_task(void *);
 
+static void microphone_boot_probe_task(void *) {
+    // Capture a short raw sample after boot to prove the microphone path
+    // returns real PCM data, not merely that the ES8311 codec initialized.
+    vTaskDelay(pdMS_TO_TICKS(6500));
+    if (!audio_ok || !input_dev) {
+        ESP_LOGE(TAG, "SELFTEST MICRO FAIL: input codec unavailable");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    constexpr size_t sample_count = 24000; // 0.5 s at 48 kHz, mono, 16-bit
+    constexpr size_t byte_count = sample_count * sizeof(int16_t);
+    auto *pcm = static_cast<int16_t *>(malloc(byte_count));
+    if (!pcm) {
+        ESP_LOGE(TAG, "SELFTEST MICRO FAIL: allocation");
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    esp_codec_dev_set_in_gain(input_dev, 38.0);
+    int rc = esp_codec_dev_read(input_dev, pcm, byte_count);
+    esp_codec_dev_set_in_gain(input_dev, 0.0);
+    if (rc != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(TAG, "SELFTEST MICRO FAIL: read rc=%d", rc);
+        free(pcm);
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    int16_t min_sample = 32767;
+    int16_t max_sample = -32768;
+    uint64_t abs_sum = 0;
+    size_t transitions = 0;
+    int16_t previous = pcm[0];
+    for (size_t i = 0; i < sample_count; ++i) {
+        const int16_t sample = pcm[i];
+        if (sample < min_sample) min_sample = sample;
+        if (sample > max_sample) max_sample = sample;
+        int32_t magnitude = sample < 0 ? -(int32_t)sample : (int32_t)sample;
+        abs_sum += (uint32_t)magnitude;
+        if (i > 0 && sample != previous) ++transitions;
+        previous = sample;
+    }
+
+    const int32_t span = (int32_t)max_sample - (int32_t)min_sample;
+    const uint32_t mean_abs = (uint32_t)(abs_sum / sample_count);
+    const bool varying_signal = span > 8 && transitions > (sample_count / 100);
+    ESP_LOGI(TAG,
+             "SELFTEST MICRO CAPTURE PASS: samples=%u min=%d max=%d span=%ld mean_abs=%u transitions=%u signal=%s",
+             (unsigned)sample_count, (int)min_sample, (int)max_sample, (long)span,
+             (unsigned)mean_abs, (unsigned)transitions, varying_signal ? "YES" : "FLAT");
+    free(pcm);
+    vTaskDelete(nullptr);
+}
+
 static void camera_boot_probe_task(void *) {
     // UI is already alive before this runs. Camera probing can therefore be slow
     // without starving taskLVGL on CPU0.
@@ -129,13 +186,13 @@ static void camera_boot_probe_task(void *) {
 
 static const char *wifi_reason_text(int reason) {
     switch (reason) {
-        case WIFI_REASON_NO_AP_FOUND: return "reseau introuvable";
-        case WIFI_REASON_AUTH_FAIL: return "authentification refusee";
+        case WIFI_REASON_NO_AP_FOUND: return "réseau introuvable";
+        case WIFI_REASON_AUTH_FAIL: return "authentification refusée";
         case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT: return "mot de passe / WPA";
         case WIFI_REASON_HANDSHAKE_TIMEOUT: return "mot de passe / WPA";
         case WIFI_REASON_BEACON_TIMEOUT: return "signal perdu";
-        case WIFI_REASON_ASSOC_FAIL: return "association refusee";
-        default: return "echec Wi-Fi";
+        case WIFI_REASON_ASSOC_FAIL: return "association refusée";
+        default: return "échec Wi-Fi";
     }
 }
 
@@ -330,7 +387,7 @@ static void mini_apply_requested_view(void) {
         if (pair_panel) lv_obj_clear_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
         if (pair_keyboard) lv_obj_clear_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
         if (pair_input && pair_keyboard) lv_keyboard_set_textarea(pair_keyboard, pair_input);
-        if (pair_status) lv_label_set_text(pair_status, "Entre le code genere dans MEL > MINI");
+        if (pair_status) lv_label_set_text(pair_status, "Entre le code généré dans MEL > MINI");
         return;
     }
 
@@ -343,7 +400,7 @@ static void mini_apply_requested_view(void) {
         if (wifi_ssid_input) lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
         if (wifi_pwd) lv_obj_add_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
         if (wifi_connect_btn) lv_obj_add_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
-        if (wifi_status) lv_label_set_text(wifi_status, "Choisis un reseau");
+        if (wifi_status) lv_label_set_text(wifi_status, "Choisis un réseau");
         wifi_scan_requested = true;
         return;
     }
@@ -367,7 +424,7 @@ static void mini_apply_requested_view(void) {
         if (wifi_keyboard && wifi_ssid_input) lv_keyboard_set_textarea(wifi_keyboard, wifi_ssid_input);
     } else if (active_view == MINI_VIEW_WIFI_PASSWORD) {
         wifi_manual_mode = false;
-        if (wifi_status) lv_label_set_text_fmt(wifi_status, "Reseau: %s", selected_ssid);
+        if (wifi_status) lv_label_set_text_fmt(wifi_status, "Réseau : %s", selected_ssid);
         if (wifi_ssid_input) lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
         if (wifi_keyboard && wifi_pwd) lv_keyboard_set_textarea(wifi_keyboard, wifi_pwd);
     }
@@ -435,7 +492,7 @@ static void pair_ui_create(lv_obj_t *screen) {
     lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t *title = lv_label_create(pair_panel);
-    lv_label_set_text(title, "LIER MINI A MEL");
+    lv_label_set_text(title, "LIER MINI À MEL");
     lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 18);
 
@@ -443,7 +500,7 @@ static void pair_ui_create(lv_obj_t *screen) {
     lv_label_set_long_mode(pair_status, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(pair_status, 270);
     lv_obj_set_style_text_align(pair_status, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(pair_status, "Entre le code genere dans MEL > MINI");
+    lv_label_set_text(pair_status, "Entre le code généré dans MEL > MINI");
     lv_obj_align(pair_status, LV_ALIGN_TOP_MID, 0, 58);
 
     pair_input = lv_textarea_create(pair_panel);
@@ -557,9 +614,9 @@ static void wifi_scan_task(void *) {
         if (!ok) {
             if (wifi_status) lv_label_set_text_fmt(wifi_status, "Erreur scan Wi-Fi\n%s", esp_err_to_name(scan_err));
         } else if (count == 0) {
-            if (wifi_status) lv_label_set_text(wifi_status, "Aucun reseau detecte\nAppuie sur rafraichir");
+            if (wifi_status) lv_label_set_text(wifi_status, "Aucun réseau détecté\nAppuie sur Actualiser");
         } else {
-            if (wifi_status) lv_label_set_text_fmt(wifi_status, "%u reseaux detectes", count);
+            if (wifi_status) lv_label_set_text_fmt(wifi_status, "%u réseaux détectés", count);
             for (uint16_t i = 0; i < count; ++i) {
                 snprintf(wifi_ssids[i], sizeof(wifi_ssids[i]), "%s", (char *)aps[i].ssid);
                 char row[52];
@@ -568,7 +625,7 @@ static void wifi_scan_task(void *) {
                 lv_obj_add_event_cb(btn, wifi_ap_clicked, LV_EVENT_CLICKED, wifi_ssids[i]);
             }
         }
-        lv_obj_t *manual_btn = lv_list_add_btn(wifi_list, LV_SYMBOL_EDIT, "AUTRE RESEAU / SSID MANUEL");
+        lv_obj_t *manual_btn = lv_list_add_btn(wifi_list, LV_SYMBOL_EDIT, "AUTRE RÉSEAU / SSID MANUEL");
         lv_obj_add_event_cb(manual_btn, wifi_manual_clicked, LV_EVENT_CLICKED, nullptr);
         lvgl_port_unlock();
     }
@@ -587,7 +644,7 @@ static void wifi_start_scan() {
     if (wifi_pwd) lv_obj_add_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
     if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
     if (wifi_connect_btn) lv_obj_add_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
-    if (wifi_status) lv_label_set_text(wifi_status, "Recherche des reseaux...");
+    if (wifi_status) lv_label_set_text(wifi_status, "Recherche des réseaux…");
     if (!wifi_scan_task_handle) {
         xTaskCreatePinnedToCore(wifi_scan_task, "mini_wifi_scan", 6144, nullptr, 3, &wifi_scan_task_handle, 0);
     }
@@ -646,7 +703,7 @@ static void wifi_connect_task(void *arg) {
         esp_wifi_port_get_ip(ip);
 
         if (lvgl_port_lock(0)) {
-            if (wifi_status) lv_label_set_text_fmt(wifi_status, "Connecte a %s\nIP %s", ssid, ip);
+            if (wifi_status) lv_label_set_text_fmt(wifi_status, "Connecté à %s\nIP %s", ssid, ip);
             if (status_label) lv_label_set_text(status_label, "MEL...");
             lvgl_port_unlock();
         }
@@ -663,7 +720,7 @@ static void wifi_connect_task(void *arg) {
             if (wifi_disconnect_reason >= 0) {
                 lv_label_set_text_fmt(
                     wifi_status,
-                    "Echec: %s\n(code %d)",
+                    "Échec : %s\n(code %d)",
                     wifi_reason_text(wifi_disconnect_reason),
                     wifi_disconnect_reason
                 );
@@ -685,7 +742,7 @@ static void wifi_connect_clicked(lv_event_t *e) {
     const char *ssid = selected_ssid;
     if (wifi_manual_mode && wifi_ssid_input) ssid = lv_textarea_get_text(wifi_ssid_input);
     if (!ssid || !ssid[0]) {
-        if (wifi_status) lv_label_set_text(wifi_status, "Entre le nom du reseau");
+        if (wifi_status) lv_label_set_text(wifi_status, "Entre le nom du réseau");
         return;
     }
     const char *pwd = lv_textarea_get_text(wifi_pwd);
@@ -748,7 +805,7 @@ static void wifi_ui_create(lv_obj_t *screen) {
     wifi_ssid_input = lv_textarea_create(wifi_panel);
     lv_obj_set_size(wifi_ssid_input, 282, 46);
     lv_obj_align(wifi_ssid_input, LV_ALIGN_TOP_MID, 0, 66);
-    lv_textarea_set_placeholder_text(wifi_ssid_input, "Nom du reseau (SSID)");
+    lv_textarea_set_placeholder_text(wifi_ssid_input, "Nom du réseau (SSID)");
     lv_textarea_set_one_line(wifi_ssid_input, true);
     lv_obj_add_event_cb(wifi_ssid_input, wifi_field_focus, LV_EVENT_CLICKED, nullptr);
     lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
@@ -1084,6 +1141,7 @@ extern "C" void app_main(void) {
 
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
     xTaskCreatePinnedToCore(camera_boot_probe_task, "mini_camera_probe", 8192, nullptr, 2, nullptr, 0);
+    xTaskCreatePinnedToCore(microphone_boot_probe_task, "mini_micro_probe", 4096, nullptr, 2, nullptr, 0);
 #if MINI_UI_STRESS_TEST
     xTaskCreatePinnedToCore(ui_stress_task, "mini_ui_stress", 4096, nullptr, 2, nullptr, 0);
 #endif
