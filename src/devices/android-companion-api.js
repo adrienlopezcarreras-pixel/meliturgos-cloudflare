@@ -126,7 +126,7 @@ async function pairDevice(request,env) {
     metadata:{
       protocol_version:ANDROID_PROTOCOL_VERSION,
       app_version:appVersion,
-      capabilities:["chat","conversation.sync","voice.stt","files.upload","heartbeat"],
+      capabilities:["chat","conversation.sync","voice.stt","voice.tts","files.upload","heartbeat"],
     },
   });
 
@@ -301,6 +301,54 @@ async function deviceVoice(request,env,auth) {
   return handleVoiceTranscription(internal,env,{authorized:true,source:"android-companion",device_id:auth.deviceId});
 }
 
+async function deviceTts(request,env,auth) {
+  const body = await request.json().catch(()=>({}));
+  const text = safe(body.text,1200);
+  if (!text) return json({ok:false,code:"TEXT_REQUIRED"},400);
+  if (!env?.AI || typeof env.AI.run !== "function") {
+    return json({ok:false,code:"TTS_UNAVAILABLE",reason:"AI_BINDING_MISSING"},503);
+  }
+
+  const speaker = safe(body.speaker,32) || "luna";
+  const model = String(env.MEL_TTS_MODEL || "@cf/deepgram/aura-1");
+  try {
+    const result = await env.AI.run(model,{
+      text,
+      speaker,
+      encoding:"linear16",
+      container:"none",
+      sample_rate:48000
+    },{returnRawResponse:true});
+
+    if (result instanceof Response) {
+      const headers = new Headers(result.headers);
+      headers.set("content-type","application/octet-stream");
+      headers.set("cache-control","no-store");
+      headers.set("x-mel-audio-format","pcm-s16le");
+      headers.set("x-mel-audio-rate","48000");
+      headers.set("x-mel-audio-channels","1");
+      headers.set("x-mel-speaker",speaker);
+      return new Response(result.body,{status:result.status,headers});
+    }
+    if (result?.body) {
+      return new Response(result.body,{
+        status:200,
+        headers:{
+          "content-type":"application/octet-stream",
+          "cache-control":"no-store",
+          "x-mel-audio-format":"pcm-s16le",
+          "x-mel-audio-rate":"48000",
+          "x-mel-audio-channels":"1",
+          "x-mel-speaker":speaker
+        }
+      });
+    }
+    return json({ok:false,code:"TTS_EMPTY_RESPONSE"},503);
+  } catch (error) {
+    return json({ok:false,code:"TTS_FAILED",detail:String(error?.message||error).slice(0,180)},503);
+  }
+}
+
 async function deviceFileUpload(request,env,auth) {
   const type = String(request.headers.get("content-type")||"");
   if (!type.toLowerCase().includes("multipart/form-data")) return json({ok:false,code:"FILE_REQUIRED"},415);
@@ -330,6 +378,7 @@ export async function maybeHandleAndroidCompanionApi(request,env) {
   if (url.pathname === ANDROID_API_BASE+"/sync" && request.method === "GET") return syncMessages(request,env,auth,url);
   if (url.pathname === ANDROID_API_BASE+"/sync/ack" && request.method === "POST") return ackMessages(request,env,auth);
   if (url.pathname === ANDROID_API_BASE+"/voice/transcribe" && request.method === "POST") return deviceVoice(request,env,auth);
+  if (url.pathname === ANDROID_API_BASE+"/voice/tts" && request.method === "POST") return deviceTts(request,env,auth);
   if (url.pathname === ANDROID_API_BASE+"/files/upload" && request.method === "POST") return deviceFileUpload(request,env,auth);
   return json({ok:false,code:"ANDROID_ROUTE_NOT_FOUND"},404);
 }
