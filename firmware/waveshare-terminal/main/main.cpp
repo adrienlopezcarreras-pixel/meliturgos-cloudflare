@@ -1002,110 +1002,53 @@ static void mini_smoke_ui() {
     lv_obj_center(pl);
     lv_obj_add_event_cb(pair_button, pair_open_clicked, LV_EVENT_CLICKED, nullptr);
 
-    // MEL Techno: canonical brunette/cyan identity, rendered with LVGL
-    // primitives so the MINI does not depend on an external image decoder.
+    // MEL Techno Lite: same cyan/night identity with a very small LVGL tree.
+    // Avoid shadows and deep nesting: they are too expensive on this display.
     face_obj = lv_obj_create(main_panel);
-    lv_obj_set_size(face_obj, 226, 226);
-    lv_obj_align(face_obj, LV_ALIGN_CENTER, 0, -48);
-    lv_obj_set_style_radius(face_obj, 113, 0);
-    lv_obj_set_style_bg_color(face_obj, lv_color_hex(0x06101D), 0);
+    lv_obj_set_size(face_obj, 204, 204);
+    lv_obj_align(face_obj, LV_ALIGN_CENTER, 0, -50);
+    lv_obj_set_style_radius(face_obj, 102, 0);
+    lv_obj_set_style_bg_color(face_obj, lv_color_hex(0x081421), 0);
     lv_obj_set_style_border_width(face_obj, 4, 0);
     lv_obj_set_style_border_color(face_obj, lv_color_hex(0x22D3EE), 0);
-    lv_obj_set_style_shadow_width(face_obj, 18, 0);
-    lv_obj_set_style_shadow_color(face_obj, lv_color_hex(0x0EA5E9), 0);
-    lv_obj_set_style_shadow_opa(face_obj, LV_OPA_30, 0);
+    lv_obj_set_style_pad_all(face_obj, 0, 0);
     lv_obj_clear_flag(face_obj, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *halo = lv_obj_create(face_obj);
-    lv_obj_set_size(halo, 198, 198);
-    lv_obj_center(halo);
-    lv_obj_set_style_radius(halo, 99, 0);
-    lv_obj_set_style_bg_opa(halo, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(halo, 2, 0);
-    lv_obj_set_style_border_color(halo, lv_color_hex(0x0D304A), 0);
-    lv_obj_clear_flag(halo, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *inner = lv_obj_create(face_obj);
+    lv_obj_set_size(inner, 142, 158);
+    lv_obj_align(inner, LV_ALIGN_CENTER, 0, 5);
+    lv_obj_set_style_radius(inner, 54, 0);
+    lv_obj_set_style_bg_color(inner, lv_color_hex(0xD7A382), 0);
+    lv_obj_set_style_border_width(inner, 12, 0);
+    lv_obj_set_style_border_color(inner, lv_color_hex(0x2B1A14), 0);
+    lv_obj_set_style_pad_all(inner, 0, 0);
+    lv_obj_clear_flag(inner, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *hair = lv_obj_create(face_obj);
-    lv_obj_set_size(hair, 148, 174);
-    lv_obj_align(hair, LV_ALIGN_CENTER, 0, -2);
-    lv_obj_set_style_radius(hair, 62, 0);
-    lv_obj_set_style_bg_color(hair, lv_color_hex(0x2B1A14), 0);
-    lv_obj_set_style_border_width(hair, 0, 0);
-    lv_obj_clear_flag(hair, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *skin = lv_obj_create(hair);
-    lv_obj_set_size(skin, 108, 140);
-    lv_obj_align(skin, LV_ALIGN_CENTER, 0, 4);
-    lv_obj_set_style_radius(skin, 48, 0);
-    lv_obj_set_style_bg_color(skin, lv_color_hex(0xD7A382), 0);
-    lv_obj_set_style_border_width(skin, 0, 0);
-    lv_obj_clear_flag(skin, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *bangs = lv_obj_create(hair);
-    lv_obj_set_size(bangs, 116, 48);
-    lv_obj_align(bangs, LV_ALIGN_TOP_MID, 0, 13);
-    lv_obj_set_style_radius(bangs, 24, 0);
-    lv_obj_set_style_bg_color(bangs, lv_color_hex(0x3B241B), 0);
-    lv_obj_set_style_border_width(bangs, 0, 0);
-    lv_obj_clear_flag(bangs, LV_OBJ_FLAG_SCROLLABLE);
-
-    left_eye = lv_obj_create(skin);
-    lv_obj_set_size(left_eye, 20, 6);
-    lv_obj_align(left_eye, LV_ALIGN_CENTER, -25, -18);
-    lv_obj_set_style_radius(left_eye, 3, 0);
-    lv_obj_set_style_bg_color(left_eye, lv_color_hex(0x14212A), 0);
+    left_eye = lv_obj_create(inner);
+    lv_obj_set_size(left_eye, 24, 7);
+    lv_obj_align(left_eye, LV_ALIGN_CENTER, -27, -20);
+    lv_obj_set_style_radius(left_eye, 4, 0);
+    lv_obj_set_style_bg_color(left_eye, lv_color_hex(0x0B2238), 0);
     lv_obj_set_style_border_width(left_eye, 0, 0);
 
-    right_eye = lv_obj_create(skin);
-    lv_obj_set_size(right_eye, 20, 6);
-    lv_obj_align(right_eye, LV_ALIGN_CENTER, 25, -18);
-    lv_obj_set_style_radius(right_eye, 3, 0);
-    lv_obj_set_style_bg_color(right_eye, lv_color_hex(0x14212A), 0);
+    right_eye = lv_obj_create(inner);
+    lv_obj_set_size(right_eye, 24, 7);
+    lv_obj_align(right_eye, LV_ALIGN_CENTER, 27, -20);
+    lv_obj_set_style_radius(right_eye, 4, 0);
+    lv_obj_set_style_bg_color(right_eye, lv_color_hex(0x0B2238), 0);
     lv_obj_set_style_border_width(right_eye, 0, 0);
 
-    lv_obj_t *left_iris = lv_obj_create(skin);
-    lv_obj_set_size(left_iris, 5, 5);
-    lv_obj_align(left_iris, LV_ALIGN_CENTER, -25, -18);
-    lv_obj_set_style_radius(left_iris, 3, 0);
-    lv_obj_set_style_bg_color(left_iris, lv_color_hex(0x22D3EE), 0);
-    lv_obj_set_style_border_width(left_iris, 0, 0);
-
-    lv_obj_t *right_iris = lv_obj_create(skin);
-    lv_obj_set_size(right_iris, 5, 5);
-    lv_obj_align(right_iris, LV_ALIGN_CENTER, 25, -18);
-    lv_obj_set_style_radius(right_iris, 3, 0);
-    lv_obj_set_style_bg_color(right_iris, lv_color_hex(0x22D3EE), 0);
-    lv_obj_set_style_border_width(right_iris, 0, 0);
-
-    mouth_obj = lv_obj_create(skin);
-    lv_obj_set_size(mouth_obj, 34, 4);
+    mouth_obj = lv_obj_create(inner);
+    lv_obj_set_size(mouth_obj, 36, 5);
     lv_obj_align(mouth_obj, LV_ALIGN_CENTER, 0, 34);
-    lv_obj_set_style_radius(mouth_obj, 5, 0);
+    lv_obj_set_style_radius(mouth_obj, 4, 0);
     lv_obj_set_style_bg_color(mouth_obj, lv_color_hex(0xB87867), 0);
     lv_obj_set_style_border_width(mouth_obj, 0, 0);
 
-    lv_obj_t *tech_left = lv_obj_create(face_obj);
-    lv_obj_set_size(tech_left, 7, 52);
-    lv_obj_align(tech_left, LV_ALIGN_LEFT_MID, 12, 8);
-    lv_obj_set_style_radius(tech_left, 4, 0);
-    lv_obj_set_style_bg_color(tech_left, lv_color_hex(0x22D3EE), 0);
-    lv_obj_set_style_border_width(tech_left, 0, 0);
-
-    lv_obj_t *tech_right = lv_obj_create(face_obj);
-    lv_obj_set_size(tech_right, 7, 52);
-    lv_obj_align(tech_right, LV_ALIGN_RIGHT_MID, -12, 8);
-    lv_obj_set_style_radius(tech_right, 4, 0);
-    lv_obj_set_style_bg_color(tech_right, lv_color_hex(0x22D3EE), 0);
-    lv_obj_set_style_border_width(tech_right, 0, 0);
-
-    lv_obj_t *collar = lv_obj_create(face_obj);
-    lv_obj_set_size(collar, 118, 28);
-    lv_obj_align(collar, LV_ALIGN_BOTTOM_MID, 0, -8);
-    lv_obj_set_style_radius(collar, 12, 0);
-    lv_obj_set_style_bg_color(collar, lv_color_hex(0x0B2238), 0);
-    lv_obj_set_style_border_width(collar, 2, 0);
-    lv_obj_set_style_border_color(collar, lv_color_hex(0x22D3EE), 0);
-    lv_obj_clear_flag(collar, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *tech = lv_label_create(face_obj);
+    lv_label_set_text(tech, "MEL");
+    lv_obj_set_style_text_color(tech, lv_color_hex(0x22D3EE), 0);
+    lv_obj_align(tech, LV_ALIGN_BOTTOM_MID, 0, -7);
 
     answer_label = lv_label_create(main_panel);
     lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
@@ -1124,9 +1067,6 @@ static void mini_smoke_ui() {
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x0D304A), 0);
     lv_obj_set_style_border_width(btn, 2, 0);
     lv_obj_set_style_border_color(btn, lv_color_hex(0x22D3EE), 0);
-    lv_obj_set_style_shadow_width(btn, 16, 0);
-    lv_obj_set_style_shadow_color(btn, lv_color_hex(0x22D3EE), 0);
-    lv_obj_set_style_shadow_opa(btn, LV_OPA_20, 0);
     lv_obj_add_event_cb(btn, touch_cb, LV_EVENT_CLICKED, nullptr);
 
     status_label = lv_label_create(btn);
