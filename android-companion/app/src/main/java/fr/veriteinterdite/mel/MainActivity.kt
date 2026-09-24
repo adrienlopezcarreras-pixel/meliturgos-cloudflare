@@ -20,6 +20,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.provider.AlarmClock
+import android.provider.CalendarContract
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.webkit.WebView
@@ -122,6 +123,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import org.json.JSONArray
 
 class MainActivity : ComponentActivity() {
     private lateinit var client: MelApiClient
@@ -718,7 +720,96 @@ class MainActivity : ComponentActivity() {
             MelCompanionCommand.SoundSettings -> {
                 launchCompanionIntent(Intent(Settings.ACTION_SOUND_SETTINGS), raw, "J’ouvre les réglages du son.", voice)
             }
+            is MelCompanionCommand.CalendarEvent -> {
+                val intent = Intent(Intent.ACTION_INSERT).apply {
+                    data = CalendarContract.Events.CONTENT_URI
+                    putExtra(CalendarContract.Events.TITLE, command.title)
+                    putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, command.beginMillis)
+                    putExtra(CalendarContract.EXTRA_EVENT_END_TIME, command.endMillis)
+                }
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "Je prépare l’événement « ${command.title} » dans ton agenda. Tu gardes la validation finale.",
+                    voice
+                )
+            }
+            is MelCompanionCommand.AddShoppingItem -> {
+                val items = appendLocalItem("shopping", command.item, 80)
+                model.localCompanionReply(
+                    raw,
+                    "J’ai ajouté ${command.item} à ta liste de courses. Elle contient ${items.size} élément${if (items.size > 1) "s" else ""}.",
+                    voice
+                )
+            }
+            MelCompanionCommand.ShowShoppingList -> {
+                val items = readLocalItems("shopping")
+                val answer = if (items.isEmpty()) {
+                    "Ta liste de courses est vide."
+                } else {
+                    "Ta liste de courses contient : " + items.joinToString(", ") + "."
+                }
+                model.localCompanionReply(raw, answer, voice)
+            }
+            MelCompanionCommand.ClearShoppingList -> {
+                writeLocalItems("shopping", emptyList())
+                model.localCompanionReply(raw, "Ta liste de courses est vidée.", voice)
+            }
+            is MelCompanionCommand.AddNote -> {
+                val notes = appendLocalItem("notes", command.note, 60)
+                model.localCompanionReply(
+                    raw,
+                    "C’est noté. Tu as ${notes.size} note${if (notes.size > 1) "s" else ""} locale${if (notes.size > 1) "s" else ""}.",
+                    voice
+                )
+            }
+            MelCompanionCommand.ShowNotes -> {
+                val notes = readLocalItems("notes")
+                val answer = if (notes.isEmpty()) {
+                    "Tu n’as aucune note locale."
+                } else {
+                    "Tes notes : " + notes.joinToString(". ") + "."
+                }
+                model.localCompanionReply(raw, answer, voice)
+            }
+            MelCompanionCommand.ClearNotes -> {
+                writeLocalItems("notes", emptyList())
+                model.localCompanionReply(raw, "Tes notes locales sont effacées.", voice)
+            }
         }
+    }
+
+    private fun readLocalItems(key: String): List<String> {
+        val prefs = getSharedPreferences("mel_companion_local", Context.MODE_PRIVATE)
+        val raw = prefs.getString(key, "[]").orEmpty()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val value = array.optString(index).trim()
+                    if (value.isNotBlank()) add(value)
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun writeLocalItems(key: String, items: List<String>) {
+        val array = JSONArray()
+        items.forEach { array.put(it) }
+        getSharedPreferences("mel_companion_local", Context.MODE_PRIVATE)
+            .edit()
+            .putString(key, array.toString())
+            .apply()
+    }
+
+    private fun appendLocalItem(key: String, value: String, maxItems: Int): List<String> {
+        val clean = value.trim().take(500)
+        if (clean.isBlank()) return readLocalItems(key)
+        val items = (readLocalItems(key) + clean)
+            .distinctBy { it.lowercase(Locale.FRENCH) }
+            .takeLast(maxItems)
+        writeLocalItems(key, items)
+        return items
     }
 
     private fun appCategory(target: MelAppTarget): String = when (target) {
