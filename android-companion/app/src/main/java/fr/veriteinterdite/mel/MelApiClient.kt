@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.10"
+        const val APP_VERSION = "0.6.11"
     }
 
     init {
@@ -71,6 +71,25 @@ class MelApiClient(
                 )
             }
             return json
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun readBytes(connection: HttpURLConnection): ByteArray {
+        try {
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                val body = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                val json = runCatching { JSONObject(body) }.getOrNull()
+                throw MelApiException(
+                    code = json?.optString("code", json.optString("error", "HTTP_$status"))
+                        ?: "HTTP_$status",
+                    status = status,
+                    detail = json?.optString("detail").orEmpty()
+                )
+            }
+            return connection.inputStream.use { it.readBytes() }
         } finally {
             connection.disconnect()
         }
@@ -214,6 +233,19 @@ class MelApiClient(
                 .put("last_message_id", messageId)
                 .put("last_message_timestamp", timestamp)
         )
+    }
+
+    fun tts(text: String, speaker: String = "luna"): ByteArray {
+        require(text.isNotBlank()) { "TEXT_REQUIRED" }
+        val connection = connection("/api/android/v1/voice/tts", "POST")
+        connection.doOutput = true
+        connection.setRequestProperty("Accept", "application/octet-stream")
+        connection.setRequestProperty("Content-Type", "application/json")
+        val payload = JSONObject()
+            .put("text", text.take(1200))
+            .put("speaker", speaker)
+        connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+        return readBytes(connection)
     }
 
     fun transcribe(audioBytes: ByteArray, mimeType: String = "audio/webm"): JSONObject {
