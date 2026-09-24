@@ -21,14 +21,18 @@ class MelUiHarnessScreenshotTest {
     fun completeModeRendersForVisualProof() {
         compose.onNodeWithText("Complet").performClick()
         compose.onNodeWithContentDescription("Avatar MEL").assertIsDisplayed()
-        compose.onNodeWithText("Contrôles complets").assertIsDisplayed()
-        compose.onNodeWithText("Synchroniser").assertIsDisplayed()
-        compose.onNodeWithText("Professor").assertIsDisplayed()
-        compose.onNodeWithText("Lancer auto-diagnostic").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Mode Complet").assertIsDisplayed()
+        compose.onNodeWithText("Ouvrir les outils").assertIsDisplayed()
         compose.onNodeWithTag("message-input").assertIsDisplayed()
         compose.onNodeWithTag("file-button").assertIsDisplayed()
         compose.onNodeWithTag("micro-button").assertIsDisplayed()
         compose.onNodeWithTag("send-button").assertIsDisplayed()
+
+        compose.onNodeWithText("Ouvrir les outils").performClick()
+        compose.onNodeWithText("Contrôles complets").assertIsDisplayed()
+        compose.onNodeWithText("Synchroniser").assertIsDisplayed()
+        compose.onNodeWithText("Professor").assertIsDisplayed()
+        compose.onNodeWithText("Lancer auto-diagnostic").performScrollTo().assertIsDisplayed()
         compose.waitForIdle()
     }
 }
