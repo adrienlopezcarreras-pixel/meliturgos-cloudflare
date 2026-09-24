@@ -47,6 +47,32 @@ Toutes les routes appareil après appairage utilisent:
 
 Le serveur stocke seulement le hash du jeton.
 
+## Liaison locale Bluetooth MINI ↔ Android
+
+Le transport Bluetooth est complémentaire au Wi-Fi. Il permet à l'application Android MEL de détecter MINI et de garder une liaison locale même lorsque le terminal n'est pas joignable par le cloud.
+
+MINI agit comme périphérique BLE / serveur GATT et annonce le nom `MEL-MINI`. Android agit comme central / client GATT.
+
+UUID MEL v1:
+- service: `7d4b0001-6d65-4c49-4e49-2d4252494447`;
+- état read + notify: `7d4b0002-6d65-4c49-4e49-2d4252494447`;
+- commandes write: `7d4b0003-6d65-4c49-4e49-2d4252494447`.
+
+État minimal JSON:
+```json
+{"v":1,"online":true,"state":0}
+```
+
+Commandes v1:
+- `ping`: demande une notification d'état;
+- `status`: demande une notification d'état;
+- `voice`: déclenche le chemin vocal local de MINI.
+
+L'adresse du MINI validé peut être mémorisée côté Android pour accélérer la reconnexion. En cas d'échec, l'application recommence un scan filtré par UUID de service.
+
+Le BLE v1 n'est pas présenté comme un accès Internet. Le Wi-Fi reste le transport réseau principal de MINI. Un éventuel proxy Internet téléphone → MINI devra être spécifié séparément avant activation.
+
+
 ## Heartbeat
 
 `POST /api/device/v1/heartbeat` toutes les ~15 secondes.
