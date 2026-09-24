@@ -210,6 +210,9 @@ test('Android 0.6.14 handles everyday assistant commands locally before the netw
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const commands=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelCompanionCommands.kt',root),'utf8');
+  const unit=await readFile(new URL('app/src/test/java/fr/veriteinterdite/mel/MelCompanionCommandsTest.kt',root),'utf8');
+  const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
+  const workflow=await readFile(new URL('../.github/workflows/android-apk-build.yml',import.meta.url),'utf8');
 
   assert.match(manifest,/com\.android\.alarm\.permission\.SET_ALARM/);
   assert.match(manifest,/android\.permission\.ACCESS_NETWORK_STATE/);
@@ -261,6 +264,12 @@ test('Android 0.6.14 handles everyday assistant commands locally before the netw
   assert.match(commands,/MelCompanionCommand\.BatteryStatus/);
   assert.match(commands,/MelCompanionCommand\.InternetStatus/);
   assert.match(commands,/MelCompanionCommand\.VolumeStatus/);
+  assert.match(build,/testImplementation\("junit:junit:4\.13\.2"\)/);
+  assert.match(workflow,/:app:testDebugUnitTest/);
+  assert.match(unit,/fun arithmeticIsLocal\(\)/);
+  assert.match(unit,/fun timerAndRelativeReminderAreLocal\(\)/);
+  assert.match(unit,/fun communicationActionsRequireAndroidHandoff\(\)/);
+  assert.match(unit,/fun unknownRequestFallsBackToMel\(\)/);
 });
 
 test('Android 0.6.14 animates the realistic MEL portrait and voice waveform',async()=>{
