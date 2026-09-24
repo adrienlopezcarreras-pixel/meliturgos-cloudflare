@@ -261,6 +261,7 @@ async function deviceChat(request,env,auth) {
       ui_theme:safe(body.ui_theme,40)||"futuristic",
       ui_mode:uiMode,
       input_source:inputSource,
+      voice_reply:body.voice_reply === true || inputSource !== "text",
       intent_context:{
         surface:uiMode === "complete" ? "mel-android-complete" : "mel-android-normal",
         ui_mode:uiMode,
