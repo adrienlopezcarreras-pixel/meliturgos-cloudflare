@@ -772,7 +772,7 @@ static void bluetooth_ui_create(lv_obj_t *screen) {
 
     lv_obj_t *title = lv_label_create(bluetooth_panel);
     lv_label_set_text(title, "BLUETOOTH / MEL MOBILE");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_18, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 12, 10);
 
     lv_obj_t *back = lv_btn_create(bluetooth_panel);
