@@ -197,7 +197,8 @@ test('Android voice fallback accepts M4A audio multipart as well as WebM',async(
       MELITURGOS_PASSWORD:'test',
       AI:{async run(model,input){
         assert.equal(model,'@cf/openai/whisper-large-v3-turbo');
-        assert.ok(input.audio instanceof Uint8Array);
+        assert.equal(typeof input.audio,'string');
+        assert.ok(input.audio.length>0);
         return {text:'dictée m4a android'};
       }}
     };
@@ -231,9 +232,7 @@ test('Android TTS route matches MINI Luna PCM contract and rejects invalid devic
     const paired=await pair(env,'android-tts');
     const headers=deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'});
     const response=await worker.fetch(new Request('https://mel.test/api/android/v1/voice/tts',{
-      method:'POST',
-      headers,
-      body:JSON.stringify({text:'Bonjour Adrien',speaker:'luna'})
+      method:'POST',headers,body:JSON.stringify({text:'Bonjour Adrien',speaker:'luna'})
     }),env);
     assert.equal(response.status,200);
     assert.equal(response.headers.get('x-mel-audio-format'),'pcm-s16le');
@@ -242,13 +241,7 @@ test('Android TTS route matches MINI Luna PCM contract and rejects invalid devic
     assert.equal(response.headers.get('x-mel-speaker'),'luna');
     assert.deepEqual([...new Uint8Array(await response.arrayBuffer())],[1,2,3,4,5,6]);
     assert.equal(aiCall.model,'@cf/deepgram/aura-1');
-    assert.deepEqual(aiCall.input,{
-      text:'Bonjour Adrien',
-      speaker:'luna',
-      encoding:'linear16',
-      container:'none',
-      sample_rate:48000
-    });
+    assert.deepEqual(aiCall.input,{text:'Bonjour Adrien',speaker:'luna',encoding:'linear16',container:'none',sample_rate:48000});
     assert.deepEqual(aiCall.options,{returnRawResponse:true});
 
     const denied=await worker.fetch(new Request('https://mel.test/api/android/v1/voice/tts',{
@@ -257,6 +250,91 @@ test('Android TTS route matches MINI Luna PCM contract and rejects invalid devic
       body:JSON.stringify({text:'test'})
     }),env);
     assert.equal(denied.status,401);
+  }finally{DB.close();}
+});
+
+
+test('Android natural current-information question automatically uses public Internet research',async()=>{
+  const DB=sqliteD1();
+  try{
+    const webCalls=[];
+    const aiCalls=[];
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'test',
+      MEL_WEB_MIN_INTERVAL_MS:0,
+      MEL_WEB_FETCH:async url=>{
+        webCalls.push(String(url));
+        if(String(url).startsWith('https://www.google.com/search?')){
+          return new Response('<html><head><title>Météo Nîmes</title><meta name="description" content="Météo actuelle Nîmes 24 degrés"></head><body>24 degrés</body></html>',{status:200,headers:{'content-type':'text/html; charset=utf-8'}});
+        }
+        if(String(url).startsWith('https://duckduckgo.com/html/?q=')){
+          return new Response('<html><head><title>Prévisions Nîmes</title><meta name="description" content="Prévisions actuelles Nîmes"></head><body>Prévisions</body></html>',{status:200,headers:{'content-type':'text/html; charset=utf-8'}});
+        }
+        return new Response('not found',{status:404,headers:{'content-type':'text/plain'}});
+      },
+      AI:{async run(model,input){
+        aiCalls.push({model,input});
+        return {response:'À Nîmes, les données web indiquent environ 24 °C.'};
+      }}
+    };
+    const paired=await pair(env,'android-internet');
+    const headers=deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'});
+    const response=await worker.fetch(new Request('https://mel.test/api/android/v1/chat',{
+      method:'POST',
+      headers,
+      body:JSON.stringify({text:'Quel temps fait-il à Nîmes ?',conversation_id:'android-internet-conv'})
+    }),env);
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.text,'À Nîmes, les données web indiquent environ 24 °C.');
+    assert.equal(webCalls.length,2);
+    assert.ok(webCalls.some(url=>url.startsWith('https://www.google.com/search?')));
+    assert.ok(webCalls.some(url=>url.startsWith('https://duckduckgo.com/html/?q=')));
+    const system=String(aiCalls.at(-1)?.input?.messages?.find(message=>message.role==='system')?.content||'');
+    assert.match(system,/web\.research/);
+    assert.match(system,/Météo actuelle Nîmes 24 degrés/);
+  }finally{DB.close();}
+});
+
+test('Android nearby-information question uses web research and only an approximate network location hint',async()=>{
+  const DB=sqliteD1();
+  try{
+    const webCalls=[];
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'test',
+      MEL_WEB_MIN_INTERVAL_MS:0,
+      MEL_WEB_FETCH:async url=>{
+        webCalls.push(String(url));
+        return new Response(
+          '<html><head><title>Pharmacie proche</title><meta name="description" content="Pharmacie ouverte à proximité"></head><body>ouverte</body></html>',
+          {status:200,headers:{'content-type':'text/html; charset=utf-8'}}
+        );
+      },
+      AI:{async run(){ return {response:'J’ai trouvé des pharmacies proches dans la zone approximative.'}; }}
+    };
+    const paired=await pair(env,'android-nearby');
+    const headers=deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'});
+    const request=new Request('https://mel.test/api/android/v1/chat',{
+      method:'POST',
+      headers,
+      body:JSON.stringify({text:'Trouve une pharmacie près de moi',conversation_id:'android-nearby-conv'})
+    });
+    Object.defineProperty(request,'cf',{
+      value:{city:'Nîmes',region:'Occitanie',country:'FR'},
+      configurable:true
+    });
+    const response=await worker.fetch(request,env);
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.match(body.text,/pharmacies proches/i);
+    assert.equal(webCalls.length,2);
+    const combined=decodeURIComponent(webCalls.join('\n'));
+    assert.match(combined,/pharmacie près de moi/i);
+    assert.match(combined,/zone réseau approximative: Nîmes, Occitanie, FR/i);
   }finally{DB.close();}
 });
 

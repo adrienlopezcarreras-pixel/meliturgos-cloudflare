@@ -245,6 +245,16 @@ async function companionDevices(env) {
   }
 }
 
+function approximateNetworkLocation(request) {
+  const cf = request?.cf || {};
+  const parts = [
+    safe(cf.city, 120),
+    safe(cf.region, 120),
+    safe(cf.country, 80),
+  ].filter(Boolean);
+  return parts.join(", ").slice(0, 240);
+}
+
 async function deviceChat(request,env,auth) {
   const body = await request.json().catch(()=>({}));
   const text = safe(body.text ?? body.message,100000);
@@ -261,10 +271,12 @@ async function deviceChat(request,env,auth) {
       ui_theme:safe(body.ui_theme,40)||"futuristic",
       ui_mode:uiMode,
       input_source:inputSource,
+      voice_reply:body.voice_reply === true || inputSource !== "text",
       intent_context:{
         surface:uiMode === "complete" ? "mel-android-complete" : "mel-android-normal",
         ui_mode:uiMode,
         device:"android-companion",
+        approximate_location:approximateNetworkLocation(request),
       },
     }),
   });
