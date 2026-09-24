@@ -132,6 +132,16 @@ class MainActivity : ComponentActivity() {
         voiceMessage.value = if (bitmap != null) "Photo prête · envoie-la à MEL" else "Caméra annulée"
     }
 
+    private val bluetoothPermissions = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.all { it }) {
+            startMobileBridge()
+        } else {
+            voiceMessage.value = "Bluetooth refusé · mode itinérant indisponible"
+        }
+    }
+
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -160,6 +170,7 @@ class MainActivity : ComponentActivity() {
         client = MelApiClient(BuildConfig.MEL_BASE_URL, deviceId(), vault)
         val factory = MelViewModel.factory(this, client, vault, conversationId)
         model = ViewModelProvider(this, factory)[MelViewModel::class.java]
+        ensureMobileBridge()
 
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
@@ -205,6 +216,27 @@ class MainActivity : ComponentActivity() {
         stopSpeechQuietly()
         stopRecorderQuietly()
         super.onDestroy()
+    }
+
+    private fun ensureMobileBridge() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val permissions = arrayOf(
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.BLUETOOTH_CONNECT
+            )
+            val missing = permissions.filter {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                bluetoothPermissions.launch(missing.toTypedArray())
+                return
+            }
+        }
+        startMobileBridge()
+    }
+
+    private fun startMobileBridge() {
+        ContextCompat.startForegroundService(this, Intent(this, MelBleBridgeService::class.java))
     }
 
     private fun deviceId(): String {
