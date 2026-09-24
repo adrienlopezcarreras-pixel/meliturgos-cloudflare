@@ -30,5 +30,7 @@ int mel_terminal_state(void);
 bool mel_terminal_online(void);
 void mel_terminal_test_audio(void);
 void mel_terminal_test_camera(void);
+typedef void (*mel_terminal_test_status_cb_t)(const char *text);
+void mel_terminal_test_stt(mel_terminal_test_status_cb_t cb);
 
 void mel_terminal_bind_external_ui(lv_obj_t *status_label, lv_obj_t *answer_label);

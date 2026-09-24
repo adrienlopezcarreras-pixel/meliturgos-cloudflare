@@ -792,6 +792,43 @@ void mel_terminal_test_audio(void) {
     xTaskCreatePinnedToCore(audio_test_task, "mel_audio_test", 6144, nullptr, 4, nullptr, 0);
 }
 
+
+static TaskHandle_t g_stt_test_task_handle = nullptr;
+static mel_terminal_test_status_cb_t g_stt_test_cb = nullptr;
+
+static void stt_test_task(void *) {
+    if (g_stt_test_cb) g_stt_test_cb("VOIX/STT : parle maintenant pendant 5 secondes...");
+    g_runtime_state = MEL_TERMINAL_LISTENING;
+    vTaskDelay(pdMS_TO_TICKS(250));
+    std::string text = record_and_transcribe();
+    if (text.empty()) {
+        if (g_stt_test_cb) g_stt_test_cb("VOIX/STT FAIL : aucune transcription.");
+    } else {
+        std::string msg = std::string("VOIX/STT PASS : "") + text + """;
+        if (g_stt_test_cb) g_stt_test_cb(msg.c_str());
+    }
+    g_runtime_state = MEL_TERMINAL_IDLE;
+    g_stt_test_task_handle = nullptr;
+    vTaskDelete(nullptr);
+}
+
+void mel_terminal_test_stt(mel_terminal_test_status_cb_t cb) {
+    g_stt_test_cb = cb;
+    if (!g_online) {
+        if (g_stt_test_cb) g_stt_test_cb("VOIX/STT FAIL : MEL hors ligne.");
+        return;
+    }
+    if (!g_audio_ok || !input_dev) {
+        if (g_stt_test_cb) g_stt_test_cb("VOIX/STT FAIL : micro indisponible.");
+        return;
+    }
+    if (g_stt_test_task_handle) {
+        if (g_stt_test_cb) g_stt_test_cb("VOIX/STT : test deja en cours...");
+        return;
+    }
+    xTaskCreatePinnedToCore(stt_test_task, "mel_stt_test", 12288, nullptr, 5, &g_stt_test_task_handle, 0);
+}
+
 static void camera_task(void *) {
     ui_status("CAMERA...");
 
