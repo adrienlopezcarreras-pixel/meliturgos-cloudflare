@@ -12,8 +12,8 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/ic_mel_avatar"
-        android:roundIcon="@drawable/ic_mel_avatar"
+        android:icon="@mipmap/ic_mel_techno"
+        android:roundIcon="@mipmap/ic_mel_techno_round"
         android:label="MEL"
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.Mel"
