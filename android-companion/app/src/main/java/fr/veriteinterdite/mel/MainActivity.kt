@@ -1066,6 +1066,7 @@ private fun ConversationScreen(
                         value = draft,
                         onValueChange = { draft = it },
                         modifier = Modifier.fillMaxWidth().testTag("message-input"),
+                        label = { Text("Message à MEL") },
                         placeholder = { Text("Message / commande pour MEL…") },
                         minLines = 1,
                         maxLines = 4,
