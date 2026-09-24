@@ -320,7 +320,7 @@ test('Android dark UI keeps readable content contrast',async()=>{
   assert.match(activity,/StatusPill\("ONLINE", MelSuccess\)/);
   assert.match(activity,/Text\("MEL", color = MelInk/);
   assert.match(activity,/Text\("Connexion à MEL", color = MelInk/);
-  assert.match(activity,/Text\("Contrôles complets", color = MelInk/);
+  assert.match(activity,/Text\("SYSTEM TOOLS", color = MelCyan/);
   assert.match(activity,/"Validation téléphone",[\s\S]{0,120}color = MelInk/);
 
   assert.match(harness,/MEL Android \$\{MelApiClient\.APP_VERSION\}/);
