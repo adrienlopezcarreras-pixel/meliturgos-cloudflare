@@ -310,13 +310,15 @@ export class OpenLoopService {
     }, now));
   }
 
-  async resumeDue({ owner = '', limit = 10, execute, leaseMs = 60_000, retryDelayMs = 60_000 } = {}) {
+  async resumeDue({ owner = '', limit = 10, execute, filter = null, leaseMs = 60_000, retryDelayMs = 60_000 } = {}) {
     if (typeof execute !== 'function') throw new Error('execute callback required');
+    if (filter != null && typeof filter !== 'function') throw new Error('filter callback invalid');
     const now = this.now();
     const due = await this.store.listDue({ owner, now, limit });
     const outcomes = [];
 
     for (const candidate of due) {
+      if (filter && !filter(clone(candidate))) continue;
       const token = this.id();
       const claimed = await this.store.claim(candidate.id, { token, now, leaseMs });
       if (!claimed) continue;
