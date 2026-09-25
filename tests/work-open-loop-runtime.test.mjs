@@ -177,7 +177,7 @@ test('work.resume-due fails closed without an owner or open-loop service', async
 
   await assert.rejects(
     () => bus.execute('work.resume-due', {}, { requestId: 'missing-owner', permissions: [] }),
-    error => error?.code === 'WORK_OPEN_LOOP_OWNER_REQUIRED' || error?.message === 'WORK_OPEN_LOOP_OWNER_REQUIRED',
+    error => error?.code === 'AUTH_REQUIRED' || error?.message === 'AUTH_REQUIRED',
   );
 
   const db = new FakeD1();
