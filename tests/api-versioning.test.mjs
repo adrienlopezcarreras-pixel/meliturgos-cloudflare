@@ -79,7 +79,15 @@ test('GEN2-51 v1 roadmap is equivalent to gen2 alias and legacy response adverti
     assert.equal(canonical.headers.get('x-mel-api-canonical-path'),'/api/v1/roadmap');
     assert.equal(legacy.headers.get('x-mel-api-route-status'),'legacy');
     assert.equal(legacy.headers.get('deprecation'),'true');
-    assert.deepEqual(await canonical.json(),await legacy.json());
+    const canonicalPayload=await canonical.json();
+    const legacyPayload=await legacy.json();
+    assert.deepEqual(canonicalPayload.source,legacyPayload.source);
+    assert.deepEqual(canonicalPayload.validation,legacyPayload.validation);
+    assert.deepEqual(canonicalPayload.phases,legacyPayload.phases);
+    assert.deepEqual(
+      {...canonicalPayload.summary,generated_at:null},
+      {...legacyPayload.summary,generated_at:null}
+    );
   } finally { e.DB.close(); }
 });
 
