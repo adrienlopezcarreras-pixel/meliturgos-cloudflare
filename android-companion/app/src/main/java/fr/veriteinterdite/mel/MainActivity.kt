@@ -243,12 +243,15 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+
+        // MINI discovery is part of the companion experience: start it automatically.
+        connectMiniBle()
     }
 
     override fun onDestroy() {
         stopSpeechQuietly()
         stopRecorderQuietly()
-        if (::miniBle.isInitialized) miniBle.disconnect()
+        if (::miniBle.isInitialized) miniBle.release()
         super.onDestroy()
     }
 

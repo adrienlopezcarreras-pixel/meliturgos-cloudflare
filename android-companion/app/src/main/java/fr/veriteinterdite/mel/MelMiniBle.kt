@@ -44,6 +44,7 @@ class MelMiniBle(
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
         private const val PREFS = "mel_mini_ble"
         private const val PREF_ADDRESS = "mini_address"
+        private const val DIRECT_FALLBACK_DELAY_MS = 3500L
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -57,6 +58,10 @@ class MelMiniBle(
     private var reconnectAttempts = 0
     private var legacyMonitorStarted = false
     private var legacyConnected = false
+
+    private val directFallback = Runnable {
+        if (!manualDisconnect && !legacyConnected && !state.connected) startDirectConnection()
+    }
 
     fun requiredPermissions(): Array<String> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         arrayOf(
@@ -88,11 +93,22 @@ class MelMiniBle(
         // is the BLE central and looks for MEL Mobile service ABF0/ABF1/ABF2.
         ContextCompat.startForegroundService(context, Intent(context, MelBleBridgeService::class.java))
         startLegacyMonitor()
+        publish(state.copy(scanning = true, connected = false, phase = "MEL prêt · recherche de MINI…"))
 
+        // Give the rollbacked MINI (4818df9) first chance to discover the phone.
+        // Only fall back to the newer direct-MINI scan if no legacy link appears.
+        main.removeCallbacks(directFallback)
+        main.postDelayed(directFallback, DIRECT_FALLBACK_DELAY_MS)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startDirectConnection() {
+        if (manualDisconnect || legacyConnected || state.connected) return
+        val bt = adapter ?: return
         val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PREF_ADDRESS, null)
         if (!saved.isNullOrBlank() && reconnectAttempts < 2) {
             runCatching { bt.getRemoteDevice(saved) }.getOrNull()?.let {
-                publish(state.copy(scanning = false, phase = "Connexion à MINI…", deviceAddress = saved))
+                publish(state.copy(scanning = false, phase = "Connexion directe à MINI…", deviceAddress = saved))
                 connectGatt(it)
                 return
             }
@@ -103,6 +119,7 @@ class MelMiniBle(
     @SuppressLint("MissingPermission")
     fun disconnect() {
         manualDisconnect = true
+        main.removeCallbacks(directFallback)
         stopScan()
         commandCharacteristic = null
         gatt?.disconnect()
@@ -113,6 +130,18 @@ class MelMiniBle(
         stopLegacyMonitor()
         legacyConnected = false
         publish(MiniBleState(phase = "MINI déconnectée"))
+    }
+
+    @SuppressLint("MissingPermission")
+    fun release() {
+        manualDisconnect = true
+        main.removeCallbacks(directFallback)
+        stopScan()
+        commandCharacteristic = null
+        gatt?.disconnect()
+        gatt?.close()
+        gatt = null
+        stopLegacyMonitor()
     }
 
     @SuppressLint("MissingPermission")
@@ -303,7 +332,14 @@ class MelMiniBle(
             val bridge = MelBleBridgeService.bridgeState.value
             if (bridge == "MINI CONNECTÉE") {
                 legacyConnected = true
+                main.removeCallbacks(directFallback)
                 stopScan()
+                if (gatt != null) {
+                    commandCharacteristic = null
+                    runCatching { gatt?.disconnect() }
+                    runCatching { gatt?.close() }
+                    gatt = null
+                }
                 if (!state.connected || state.deviceName != "MINI") {
                     publish(
                         state.copy(
@@ -320,15 +356,19 @@ class MelMiniBle(
                 if (gatt == null) {
                     publish(
                         state.copy(
-                            scanning = false,
+                            scanning = true,
                             connected = false,
-                            phase = if (bridge == "PRÊT") "MEL prêt · attente de MINI…" else "Liaison MINI perdue",
+                            phase = if (bridge == "PRÊT") "MEL prêt · attente de MINI…" else "Liaison MINI perdue · reconnexion…",
                             deviceName = null,
                             deviceAddress = null
                         )
                     )
+                    if (!manualDisconnect) {
+                        main.removeCallbacks(directFallback)
+                        main.postDelayed(directFallback, DIRECT_FALLBACK_DELAY_MS)
+                    }
                 }
-            } else if (!state.connected && !state.scanning && bridge == "PRÊT") {
+            } else if (!state.connected && bridge == "PRÊT" && !state.phase.startsWith("MEL prêt")) {
                 publish(state.copy(phase = "MEL prêt · attente de MINI…"))
             }
             if (legacyMonitorStarted) main.postDelayed(this, 250)
