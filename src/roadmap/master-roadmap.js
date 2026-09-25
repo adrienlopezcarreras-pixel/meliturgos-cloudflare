@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.26';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.01';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -36,7 +36,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-02', 'Identité MEL et System Prompt portable', 'DONE_VERIFIED', 'Persona stable extraite dans mel-persona.js, composée par le systemPrompt runtime et exposée par la façade identity; tests portable-identity inclus dans le lot de réconciliation #153.', 'P1'),
     item('GEN2-03', 'Model Registry provider-neutral', 'DONE_VERIFIED', 'Ajouter les métadonnées de qualité mesurées', 'P0'),
     item('GEN2-04', 'Model Router + fallback', 'DONE_VERIFIED', 'Brancher les scores réels de qualité/latence/coût', 'P0'),
-    item('GEN2-51', 'Versioning API', 'IN_PROGRESS', 'Implémentation cœur fusionnée par PR #282 et présente dans le SHA production e749551d6c2786c225d5194a5a3556e4f47c84fd; 11/11 tests GEN2-51 verts dans le run de release 36164971157. Reste uniquement la preuve runtime authentifiée de /api/v1/version + alias legacy/headers sur production avant DONE_VERIFIED; ne pas étendre ce point aux protocoles Android/device/computer/voix/fichiers sans lot séparé.', 'P2'),
+    item('GEN2-51', 'Versioning API', 'DONE_VERIFIED', 'Production certifiée sur SHA 53774b4dfbac645e250e518c62254365d4bfd3c8 par run 36193962224: /api/v1/version répond avec la façade canonique v1, headers de version/route vérifiés, suite GEN2-51 11/11 verte et HTTP production final vert.', 'P2'),
     item('GEN2-52', 'Versioning prompts et stratégies', 'DONE_VERIFIED', 'Preuve d’intégration: PR #56; maintenir le registre unique et ses tests rollback/snapshot', 'P2')
   ]),
 
@@ -83,7 +83,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-AUG-02', 'Zero-Euro Governor fail-closed', 'DONE_VERIFIED', 'Maintenir le refus des coûts inconnus, non autorisés ou non prouvés à zéro', 'P0'),
     item('GEN2-05', 'Model Council / benchmarks', 'DONE_VERIFIED', 'Preuve live Cloudflare run 35708004479 sur SHA 1a0f1bdf0461b133c31eb5447873ced85ccb4bc3 : capability model.council via CapabilityBus, 2 modèles Workers AI distincts, 0 échec provider, synthèse MEL séparée complète, provenance/coût zéro/latences vérifiés et preuve Workers Free courte fail-closed.', 'P0'),
     item('MEL-COUNCIL-01', 'Pré-audit multi-IA obligatoire avant développement', 'DONE_VERIFIED', 'Brancher le Council réel au Module Lab', 'P0'),
-    item('MEL-COUNCIL-02', 'Critiques indépendantes + synthèse MEL', 'IN_PROGRESS', 'Matrice explicite des critiques, rôles/fournisseurs/fallbacks et digest lié à la synthèse fusionnés par PR #294 et présents dans le SHA production e749551d6c2786c225d5194a5a3556e4f47c84fd. Reste uniquement la preuve runtime production d un Council réel avec provenance complète avant DONE_VERIFIED.', 'P1'),
+    item('MEL-COUNCIL-02', 'Critiques indépendantes + synthèse MEL', 'DONE_VERIFIED', 'Production certifiée sur SHA 53774b4dfbac645e250e518c62254365d4bfd3c8 par run 36193962224: Council réel avec au moins deux critiques indépendantes, modèles distincts, provenance complète, coût ajouté zéro sous MEL_ZERO_EURO_V1 et synthèse MEL séparée complète.', 'P1'),
     item('MEL-COUNCIL-03', 'Teacher escalation vers ChatGPT/autres IA', 'PARTIAL', 'Standardiser provenance, paquet de revue et handoff avec le protocole multi-IA canonique', 'P1'),
     item('MEL-COUNCIL-04', 'Apprentissage du meilleur modèle selon la tâche', 'DONE', 'Implémentation fusionnée par PR #367: preuves D1 persistantes modèle/tâche, ordre appris des candidats, ingestion qualité des benchmarks et fallback statique; le choix explicite utilisateur reste autoritatif. Inclus dans le main exact déployé e749551d6c2786c225d5194a5a3556e4f47c84fd.', 'P1'),
   ]),
@@ -103,7 +103,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P07', 'Work, agents et automatisations', [
     item('MEL-WORK-01', 'Work Engine persistant', 'DONE_VERIFIED', 'DAG Work durable en D1 avec état, checkpoints, artefacts, reprise après nouvelle instance et détection de corruption. Revalidé avec syntaxe globale + work-persistent/work-dag Actions 35641014709.', 'P0'),
-    item('GEN2-38', 'Tasks / goals / planning', 'IN_PROGRESS', 'Planning engine durable fusionné par PR #296 et présent dans le SHA production e749551d6c2786c225d5194a5a3556e4f47c84fd: compilation bornée, génération capability-aware, Goal/Task D1, historique append-only, matérialisation Work et sync autoritative. Tests release verts. Reste uniquement un smoke production D1 + provider zéro-euro avant DONE_VERIFIED.', 'P1'),
+    item('GEN2-38', 'Tasks / goals / planning', 'DONE_VERIFIED', 'Production certifiée sur SHA 53774b4dfbac645e250e518c62254365d4bfd3c8 par run 36193962224: planning borné, génération provider zéro-euro, persistance D1 Goal/Task et relecture du plan durable prouvées via CapabilityBus.', 'P1'),
     item('GEN2-39', 'Agents / automations', 'IN_PROGRESS', 'Politique Agent durable owner-scoped fusionnée par PR #354 et runner Agent -> Work fusionné par PR #361, tous deux présents dans le main déployé. Reste du développement réel: brancher l orchestration Council/Work au cycle Agent puis obtenir une preuve runtime production avant DONE_VERIFIED.', 'P1'),
     item('GEN2-40', 'Event Bus idempotent / follow-ups', 'DONE_VERIFIED', 'Production certifiée sur SHA e749551d6c2786c225d5194a5a3556e4f47c84fd par run 36164971157: event.list exécuté via CapabilityBus sur D1 production avec preuve GEN2-12/13/40 explicitement verte; Event Bus durable/idempotent déjà fusionné.', 'P1'),
     item('GEN2-41', 'Notifications', 'PLANNED', 'Web Push + compagnons', 'P2'),
