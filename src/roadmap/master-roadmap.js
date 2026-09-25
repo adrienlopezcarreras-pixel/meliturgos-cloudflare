@@ -36,7 +36,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-02', 'Identité MEL et System Prompt portable', 'DONE_VERIFIED', 'Persona stable extraite dans mel-persona.js, composée par le systemPrompt runtime et exposée par la façade identity; tests portable-identity inclus dans le lot de réconciliation #153.', 'P1'),
     item('GEN2-03', 'Model Registry provider-neutral', 'DONE_VERIFIED', 'Ajouter les métadonnées de qualité mesurées', 'P0'),
     item('GEN2-04', 'Model Router + fallback', 'DONE_VERIFIED', 'Brancher les scores réels de qualité/latence/coût', 'P0'),
-    item('GEN2-51', 'Versioning API', 'PARTIAL', 'Migrer progressivement les anciennes routes', 'P2'),
+    item('GEN2-51', 'Versioning API', 'PARTIAL', 'Façade sémantique /api/v1 candidate réappliquée sur le main courant pour 29 routes MEL cœur avec registre central auto-validé, ownership index/router, alias legacy non cassants, en-têtes Deprecation + successor-version, API_VERSION_UNSUPPORTED, 405 + Allow et endpoint /api/v1/version. Les protocoles Android/device/computer, voix et fichiers restent volontairement hors de ce lot. Validation exacte de cette branche fraîche requise avant merge, puis déploiement immédiat et smoke production avant de passer au lot suivant.', 'P2'),
     item('GEN2-52', 'Versioning prompts et stratégies', 'DONE_VERIFIED', 'Preuve d’intégration: PR #56; maintenir le registre unique et ses tests rollback/snapshot', 'P2')
   ]),
 
