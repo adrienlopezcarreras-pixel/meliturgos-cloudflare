@@ -4,6 +4,7 @@ import { D1WorkDagStore } from '../work/d1-work-dag-store.js';
 import { createWorkPlan, compileWorkPlanNodes, summarizeWorkPlan } from '../work/planning-engine.js';
 import { D1PlanningStore, PLAN_STATUSES, TASK_STATUSES } from '../work/d1-planning-store.js';
 import { buildPlanningCatalog, buildWorkPlanningPrompt, parseCapabilityAwareWorkPlan } from '../work/ai-planning-engine.js';
+import { validate } from '../security/validation.js';
 
 function workError(code) {
   return Object.assign(new Error(code), { code });
@@ -32,6 +33,28 @@ function assertBoundedNodes(nodes) {
   for (const node of nodes) {
     if (Array.isArray(node?.depends_on) && node.depends_on.length > 64) throw workError('WORK_DEPENDENCY_COUNT_INVALID');
   }
+}
+
+function assertMaterializablePlan(bus, plan) {
+  for (const step of plan?.steps || []) {
+    const capability = String(step?.capability || '');
+    if (!capability || capability.startsWith('work.')) throw workError('WORK_PLAN_CAPABILITY_INVALID');
+    let descriptor;
+    try {
+      descriptor = bus.describe(capability);
+    } catch {
+      throw workError('WORK_PLAN_CAPABILITY_NOT_FOUND');
+    }
+    if (descriptor.enabled !== true || descriptor.health === 'UNAVAILABLE') {
+      throw workError('WORK_PLAN_CAPABILITY_UNAVAILABLE');
+    }
+    try {
+      validate(step.input || {}, descriptor.input_schema);
+    } catch {
+      throw workError('WORK_PLAN_CAPABILITY_INPUT_INVALID');
+    }
+  }
+  return true;
 }
 
 function childExecutor(bus, context) {
@@ -349,6 +372,7 @@ export function registerWorkCapabilities(bus, { db } = {}) {
     const record = await planning.loadRecord(input.id);
     if (!record) throw workError('WORK_PLAN_NOT_FOUND');
 
+    assertMaterializablePlan(bus, record.plan);
     const dagId = record.work_dag_id || `work-${String(record.id).slice(0, 195)}`;
     const workStore = new D1WorkDagStore(db, dagId);
     let dag = await workStore.load();
