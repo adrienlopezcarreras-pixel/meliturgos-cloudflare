@@ -314,11 +314,18 @@ export class OpenLoopService {
     if (typeof execute !== 'function') throw new Error('execute callback required');
     if (filter != null && typeof filter !== 'function') throw new Error('filter callback invalid');
     const now = this.now();
-    const due = await this.store.listDue({ owner, now, limit });
+    const requestedLimit = Math.max(1, Math.min(100, Math.trunc(asNumber(limit, 10))));
+    const due = await this.store.listDue({
+      owner,
+      now,
+      limit: filter ? 100 : requestedLimit,
+    });
+    const selected = filter
+      ? due.filter((candidate) => filter(clone(candidate))).slice(0, requestedLimit)
+      : due.slice(0, requestedLimit);
     const outcomes = [];
 
-    for (const candidate of due) {
-      if (filter && !filter(clone(candidate))) continue;
+    for (const candidate of selected) {
       const token = this.id();
       const claimed = await this.store.claim(candidate.id, { token, now, leaseMs });
       if (!claimed) continue;
