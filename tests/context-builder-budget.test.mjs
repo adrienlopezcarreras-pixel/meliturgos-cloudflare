@@ -49,9 +49,12 @@ test('buildContext bounds oversized tool results before model routing', () => {
 
 test('MEL-CONTEXT-02 preserves an omitted explicit user constraint in the active system context', () => {
   const recent = [
-    { role:'user', content:'Décision importante : ne touche pas APK mobile ou MINI. ' + 'a'.repeat(3200) },
-    { role:'assistant', content:'Ancien diagnostic sans décision. ' + 'b'.repeat(3200) },
-    { role:'user', content:'Message récent opérationnel. ' + 'c'.repeat(3200) },
+    { role:'user', content:'Décision importante : ne touche pas APK mobile ou MINI. ' + 'a'.repeat(15000) },
+    { role:'assistant', content:'Ancien diagnostic sans décision. ' + 'b'.repeat(15000) },
+    { role:'user', content:'Message intermédiaire 1. ' + 'c'.repeat(15000) },
+    { role:'assistant', content:'Message intermédiaire 2. ' + 'd'.repeat(15000) },
+    { role:'user', content:'Message intermédiaire 3. ' + 'e'.repeat(15000) },
+    { role:'assistant', content:'Message récent opérationnel. ' + 'f'.repeat(15000) },
   ];
   const messages = buildContext({
     system:'system',
