@@ -753,6 +753,46 @@ jobs:
           console.log('Production code self-check + memory + UI smoke passed.');
           NODE
 
+          GEN2_37_CODE="$(curl --silent --show-error --max-time 90 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"query":"Cloudflare Workers official documentation","maxDepth":2,"seed_urls":["https://developers.cloudflare.com/workers/"]}' \
+            --output production-gen2-37-research.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/web/research")"
+          if [ "$GEN2_37_CODE" != "200" ]; then
+            echo "GEN2-37 production research proof returned HTTP ${GEN2_37_CODE}."
+            test ! -s production-gen2-37-research.json || cat production-gen2-37-research.json
+            exit 47
+          fi
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('production-gen2-37-research.json','utf8'));
+          const r=d?.research||{};
+          const sources=Array.isArray(r?.sources)?r.sources:[];
+          const source=sources[0]||{};
+          if(d?.ok!==true) throw new Error('GEN2_37_PRODUCTION_RESEARCH_NOT_OK');
+          if(Number(r?.discovery?.official_sources_loaded||0)!==1) throw new Error('GEN2_37_PRODUCTION_OFFICIAL_SOURCE_NOT_LOADED');
+          if(Number(r?.quality_summary?.bands?.HIGH_PROVENANCE||0)<1) throw new Error('GEN2_37_PRODUCTION_HIGH_PROVENANCE_MISSING');
+          if(Number(r?.quality_summary?.bands?.DISCOVERY_ONLY||0)!==0) throw new Error('GEN2_37_PRODUCTION_DISCOVERY_ONLY_LEAK');
+          if(source?.source_kind!=='OFFICIAL_SEED') throw new Error('GEN2_37_PRODUCTION_SOURCE_KIND_MISMATCH');
+          if(source?.quality?.band!=='HIGH_PROVENANCE' || Number(source?.quality?.score||0)<80) throw new Error('GEN2_37_PRODUCTION_QUALITY_GATE_FAILED');
+          if(!source?.provenance?.source_id || !source?.provenance?.fetched_at) throw new Error('GEN2_37_PRODUCTION_PROVENANCE_MISSING');
+          if(source?.quality?.caveat!=='transport_and_provenance_heuristic_not_truth_score') throw new Error('GEN2_37_PRODUCTION_CAVEAT_MISSING');
+          console.log(JSON.stringify({
+            gen2_37:'PRODUCTION_VERIFIED',
+            quality_summary:r.quality_summary,
+            source:{
+              url:source.url,
+              source_kind:source.source_kind,
+              quality:source.quality,
+              provenance:source.provenance,
+            },
+          },null,2));
+          NODE
+
           cleanup_secret
           trap - EXIT
           echo "Temporary launch bootstrap secret deleted."
@@ -771,6 +811,7 @@ jobs:
               echo '- Code self-check: verified'
               echo '- Memory status: ONLINE + D1 bound'
               echo '- Professor + normal runtime UI: verified'
+              echo '- GEN2-37 official web source quality/provenance: verified'
               echo '- Historical failure retries: bounded'
               echo '- Autonomy started by deployment: **no**'
               echo '- Owner Resume/MAX remains required to start the SHA'

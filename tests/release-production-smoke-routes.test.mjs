@@ -246,6 +246,58 @@ test('GEN2-48 release token runs the isolated recovery drill but never activates
   assert.equal(body.result.reconstructed_tables, 1);
 });
 
+test('GEN2-37 release token proves high-provenance official web research and rejects broader scope', async () => {
+  const runtimeEnv = env();
+  runtimeEnv.MEL_WEB_MIN_INTERVAL_MS = 0;
+  runtimeEnv.MEL_WEB_FETCH = async url => {
+    assert.equal(String(url), 'https://developers.cloudflare.com/workers/');
+    return new Response('<html><head><title>Cloudflare Workers docs</title><meta name="description" content="Official Cloudflare Workers documentation and platform guidance."></head><body>Workers documentation</body></html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    });
+  };
+
+  const good = await worker.fetch(
+    smokeRequest('/api/gen2/web/research', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'Cloudflare Workers official documentation',
+        maxDepth: 2,
+        seed_urls: ['https://developers.cloudflare.com/workers/'],
+      }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(good.status, 200);
+  const body = await good.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.research.discovery.official_sources_loaded, 1);
+  assert.equal(body.research.quality_summary.bands.HIGH_PROVENANCE, 1);
+  assert.equal(body.research.quality_summary.bands.DISCOVERY_ONLY, 0);
+  assert.equal(body.research.sources[0].source_kind, 'OFFICIAL_SEED');
+  assert.equal(body.research.sources[0].quality.band, 'HIGH_PROVENANCE');
+  assert.ok(body.research.sources[0].quality.score >= 80);
+  assert.ok(body.research.sources[0].provenance.source_id);
+  assert.ok(body.research.sources[0].provenance.fetched_at);
+
+  const denied = await worker.fetch(
+    smokeRequest('/api/gen2/web/research', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'anything else',
+        maxDepth: 2,
+        seed_urls: ['https://example.com/'],
+      }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(denied.status, 403);
+  const deniedBody = await denied.json();
+  assert.equal(deniedBody.code, 'RELEASE_SMOKE_RESEARCH_SCOPE_DENIED');
+});
+
 test('MEL-REL-03 release token cannot use the generic capability route outside the bounded smoke allowlist', async () => {
   const response = await worker.fetch(
     smokeRequest('/api/gen2/capabilities/execute', 'POST', {
