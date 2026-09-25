@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-23.12';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.7';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -75,7 +75,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-CODE-02', 'Recherche sécurisée dans le dépôt', 'DONE_VERIFIED', 'Production certifiée sur SHA f5f294b1b4167fdbc88926d590f1dd808b73133e : /api/chat a exécuté code.search avec succès et retrouvé src/capabilities/default-bus.js; release run 35693911802, job 106636510849.', 'P0'),
     item('MEL-CODE-03', 'Diagnostic self-code et branche réellement déployée', 'DONE_VERIFIED', 'Le self-check expose branche + commit déployés et inspecte désormais le SHA exact comme snapshot immuable; mismatch de branche/HEAD fail-closed. Syntaxe et suites code/self-state validées par Actions 35640215437.', 'P0'),
     item('GEN2-15', 'Plugin SDK', 'PLANNED', 'Stabiliser contrat manifest + permissions', 'P1'),
-    item('GEN2-50', 'Compatibilité MCP', 'PLANNED', 'Mapper CapabilityBus vers MCP', 'P2')
+    item('GEN2-50', 'Compatibilité MCP', 'IN_PROGRESS', 'Branche roadmap/mcp-capability-bus-20260925 : adaptateur CapabilityBus -> MCP moderne 2026-07-28 + legacy 2025-11-25, server/discover, initialize, tools/list, tools/call, structuredContent, erreurs isError et handler HTTP avec validation des headers MCP. La route publique reste volontairement non branchée tant que GEN2-51 (#254) modifie index/router; intégration finale + CI requises avant DONE_VERIFIED.', 'P2')
   ]),
 
   phase('P05', 'Multi-IA, .augmentio et Council', [
