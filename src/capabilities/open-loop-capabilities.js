@@ -115,7 +115,7 @@ export function registerOpenLoopCapabilities(bus, { env } = {}) {
       limit: Math.min(20, Math.max(1, Number(input?.limit) || 5)),
       retryDelayMs: Math.max(1000, Number(input?.retryDelayMs) || 60000),
       execute: async (loop) => {
-        const workDagId = String(loop?.metadata?.workDagId || loop?.taskId || '').trim();
+        const workDagId = String(loop?.metadata?.workDagId || '').trim();
         if (!workDagId) {
           return {
             status: 'resumable',
