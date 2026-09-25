@@ -84,6 +84,53 @@ function publicState(dag) {
 export function registerWorkCapabilities(bus, { db } = {}) {
   const health = db ? 'HEALTHY' : 'DEGRADED';
 
+
+  bus.discover({
+    id: 'work.plan', name: 'Planifier un objectif en étapes', category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Builds one validated, bounded and dependency-aware plan that compiles directly to Work DAG nodes. Planning itself has no storage or network side effects.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: DAG_ID,
+        goal: { type: 'string', minLength: 1, maxLength: 4000 },
+        constraints: { type: 'array', maxItems: 32, items: { type: 'string', minLength: 1, maxLength: 500 } },
+        steps: {
+          type: 'array', minItems: 1, maxItems: 64,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', minLength: 1, maxLength: 200 },
+              title: { type: 'string', minLength: 1, maxLength: 300 },
+              capability: { type: 'string', minLength: 1, maxLength: 200 },
+              input: { type: 'object', additionalProperties: true },
+              dependsOn: { type: 'array', maxItems: 64, items: { type: 'string', minLength: 1, maxLength: 200 } },
+              idempotent: { type: 'boolean' },
+            },
+            required: ['capability'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['goal', 'steps'], additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async (input) => {
+    const plan = createWorkPlan({
+      id: input.id,
+      goal: input.goal,
+      constraints: input.constraints || [],
+      steps: input.steps,
+      source: 'capability:work.plan',
+    });
+    return {
+      ok: true,
+      plan,
+      summary: summarizeWorkPlan(plan),
+      nodes: compileWorkPlanNodes(plan),
+    };
+  });
+
   bus.discover({
     id: 'work.create', name: 'Créer un travail persistant', category: 'work', version: '1.0.0', provider: 'mel',
     description: 'Creates and durably checkpoints a bounded multi-step Work DAG in D1. Nodes can call only registered CapabilityBus capabilities.',
