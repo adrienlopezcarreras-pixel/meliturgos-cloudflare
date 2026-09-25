@@ -67,3 +67,30 @@ test('dev bridge token routes before Basic Auth while professor remains protecte
     assert.equal((await worker.fetch(new Request('http://localhost/professor'), e)).status, 401);
   } finally { e.DB.close(); }
 });
+
+test('Core router errors keep legacy code/error fields and expose request correlation', async () => {
+  const e = env();
+  try {
+    const response = await worker.fetch(new Request('http://localhost/api/gen2/capabilities/execute', {
+      method: 'POST',
+      headers: {
+        ...auth(),
+        'content-type': 'application/json',
+        'x-request-id': 'route-error-test-0001',
+      },
+      body: '{}',
+    }), e);
+    assert.equal(response.status, 400);
+    assert.equal(response.headers.get('x-mel-request-id'), 'route-error-test-0001');
+    assert.ok(Number(response.headers.get('x-mel-duration-ms')) >= 0);
+    const body = await response.json();
+    assert.equal(body.error, 'capability id required');
+    assert.equal(body.code, 'MISSING_CAPABILITY');
+    assert.equal(body.ok, false);
+    assert.equal(body.request_id, 'route-error-test-0001');
+    assert.equal(body.origin, 'capability-execute');
+    assert.equal(body.category, 'internal');
+    assert.equal(body.retryable, false);
+    assert.match(body.timestamp, /^\d{4}-\d{2}-\d{2}T/);
+  } finally { e.DB.close(); }
+});
