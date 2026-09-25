@@ -14,6 +14,10 @@ on:
       - 'src/services/internet-service.js'
       - 'src/services/web-tool.js'
       - 'src/capabilities/web-research-capability.js'
+      - 'src/api/research-api.js'
+      - 'src/core/security.js'
+      - 'tests/release-production-smoke-routes.test.mjs'
+      - '.github/workflows/deploy-cloudflare-release.yml'
       - 'tests/phase5-web-research.test.mjs'
       - 'tests/web-research-capability.test.mjs'
       - 'tests/native-chat-web-research.test.mjs'
@@ -39,7 +43,7 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
       - name: Targeted GEN2-37 tests
-        run: node --test tests/phase5-web-research.test.mjs tests/web-research-capability.test.mjs tests/native-chat-web-research.test.mjs tests/gen2/web-source-quality.test.mjs
+        run: node --test tests/phase5-web-research.test.mjs tests/web-research-capability.test.mjs tests/native-chat-web-research.test.mjs tests/gen2/web-source-quality.test.mjs tests/release-production-smoke-routes.test.mjs
       - name: Syntax
         run: npm run check
       - name: Normalize branch for candidate-only integration tests
