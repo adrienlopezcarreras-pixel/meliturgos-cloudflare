@@ -34,6 +34,7 @@ import java.nio.ByteOrder
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,6 +85,7 @@ class MelBleBridgeService : Service() {
     private val requests = ConcurrentHashMap<String, PendingRequest>()
     private val mtus = ConcurrentHashMap<String, Int>()
     private val subscribed = ConcurrentHashMap<String, Boolean>()
+    private val pullFrames = ConcurrentHashMap<String, ConcurrentLinkedQueue<ByteArray>>()
     private val notificationAck = ArrayBlockingQueue<Int>(1)
 
     private var bluetoothManager: BluetoothManager? = null
@@ -119,6 +121,7 @@ class MelBleBridgeService : Service() {
             requests.clear()
             mtus.clear()
             subscribed.clear()
+            pullFrames.clear()
             android.os.Handler(mainLooper).postDelayed({ startBridge() }, 250L)
         } else if (gattServer == null) {
             startBridge()
@@ -253,6 +256,7 @@ class MelBleBridgeService : Service() {
                 requests.remove(device.address)
                 mtus.remove(device.address)
                 subscribed.remove(device.address)
+                pullFrames.remove(device.address)
             }
         }
 
@@ -311,6 +315,22 @@ class MelBleBridgeService : Service() {
             handleFrame(device, value)
         }
 
+        override fun onCharacteristicReadRequest(
+            device: BluetoothDevice,
+            requestId: Int,
+            offset: Int,
+            characteristic: BluetoothGattCharacteristic
+        ) {
+            if (!hasBluetoothPermissions()) return
+            if (characteristic.uuid != TX_UUID || offset != 0) {
+                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, offset, null)
+                return
+            }
+            val frame = pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }.poll()
+                ?: byteArrayOf(0, 0, 0, 0, 0)
+            gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, frame)
+        }
+
         override fun onNotificationSent(device: BluetoothDevice, status: Int) {
             notificationAck.offer(status)
         }
@@ -346,6 +366,7 @@ class MelBleBridgeService : Service() {
             require((path == "/api/device/v1/pair" && token.isEmpty()) || token.length in 16..4096) { "TOKEN" }
             require(deviceId.length in 3..128) { "DEVICE_ID" }
             require(length in 0..MAX_REQUEST_BYTES) { "SIZE" }
+            pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }.clear()
             requests[device.address] = PendingRequest(requestId, method, path, contentType, token, deviceId, length)
         }.onFailure {
             executor.execute { sendError(device, requestId, "BAD_REQUEST") }
@@ -484,19 +505,10 @@ class MelBleBridgeService : Service() {
 
     private fun sendFrame(device: BluetoothDevice, frame: ByteArray): Boolean {
         if (!hasBluetoothPermissions()) return false
-        val server = gattServer ?: return false
-        val tx = txCharacteristic ?: return false
-        notificationAck.clear()
-        val queued = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            server.notifyCharacteristicChanged(device, tx, false, frame) == BluetoothGatt.GATT_SUCCESS
-        } else {
-            @Suppress("DEPRECATION")
-            tx.value = frame
-            @Suppress("DEPRECATION")
-            server.notifyCharacteristicChanged(device, tx, false)
-        }
-        if (!queued) return false
-        return notificationAck.poll(5, TimeUnit.SECONDS) == BluetoothGatt.GATT_SUCCESS
+        if (gattServer == null || txCharacteristic == null) return false
+        val queue = pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }
+        queue.offer(frame.copyOf())
+        return true
     }
 
     private fun createNotificationChannel() {
