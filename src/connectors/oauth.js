@@ -1,7 +1,16 @@
 import { port } from '../core/contracts.js';
+import { createOAuth2PkceAdapters, OAuth2PkceRuntime } from './oauth2-pkce-runtime.js';
+
 export const methods = ["begin", "callback", "refresh", "revoke"];
-/** TODO implement only the corresponding OpenHands ticket.
- * Port input is domain data; context={owner,permissions,requestId,signal} is trusted.
- * No storage/network side effects until a server adapter is explicitly injected.
+
+/**
+ * Stable OAuth port. When no adapters are injected it remains fail-closed.
+ * Use createOAuth2() for the generic Authorization Code + PKCE runtime.
  */
-export const createOauth = adapters => port('connectors/oauth',methods,adapters);
+export const createOauth = adapters => port('connectors/oauth', methods, adapters);
+
+export function createOAuth2(options = {}) {
+  return createOauth(createOAuth2PkceAdapters(options));
+}
+
+export { OAuth2PkceRuntime, createOAuth2PkceAdapters };
