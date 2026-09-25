@@ -93,6 +93,22 @@ static int write_complete(uint16_t conn_handle, const struct ble_gatt_error *err
     return 0;
 }
 
+static int cccd_subscribe_complete(uint16_t conn_handle, const struct ble_gatt_error *error,
+                                   struct ble_gatt_attr *attr, void *arg) {
+    (void)attr; (void)arg;
+    if (!error || error->status == 0) {
+        g_mtu = ble_att_mtu(conn_handle);
+        g_ready.store(true);
+        ESP_LOGI(TAG, "MEL MOBILE READY after CCCD confirm conn=%u mtu=%u rx=%u tx=%u",
+                 conn_handle, g_mtu, g_rx_handle, g_tx_handle);
+        return 0;
+    }
+    ESP_LOGW(TAG, "MEL Mobile CCCD subscribe failed status=%d", error->status);
+    g_ready.store(false);
+    ble_gap_terminate(conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+    return 0;
+}
+
 static bool write_frame(uint8_t op, uint32_t id, const uint8_t *payload, size_t payload_len) {
     if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE || !g_rx_handle) return false;
     const uint16_t mtu = ble_att_mtu(g_conn_handle);
@@ -194,16 +210,21 @@ static void on_discovery_complete(const struct peer *peer, int status, void *arg
     g_rx_handle = rx->chr.val_handle;
     g_tx_handle = tx->chr.val_handle;
     uint8_t value[2] = {2, 0}; // indications
-    int rc = ble_gattc_write_flat(peer->conn_handle, cccd->dsc.handle, value, sizeof(value), nullptr, nullptr);
+    g_ready.store(false);
+    int rc = ble_gattc_write_flat(
+        peer->conn_handle,
+        cccd->dsc.handle,
+        value,
+        sizeof(value),
+        cccd_subscribe_complete,
+        nullptr
+    );
     if (rc != 0) {
-        ESP_LOGW(TAG, "MEL Mobile subscribe failed rc=%d", rc);
+        ESP_LOGW(TAG, "MEL Mobile subscribe start failed rc=%d", rc);
         ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
         return;
     }
-    g_mtu = ble_att_mtu(peer->conn_handle);
-    g_ready.store(true);
-    ESP_LOGI(TAG, "MEL MOBILE READY conn=%u mtu=%u rx=%u tx=%u",
-             peer->conn_handle, g_mtu, g_rx_handle, g_tx_handle);
+    ESP_LOGI(TAG, "MEL Mobile CCCD subscribe queued; waiting for confirmation");
 }
 
 static int mtu_complete(uint16_t conn_handle, const struct ble_gatt_error *error,
