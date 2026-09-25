@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.1';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.2';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -53,7 +53,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-09', 'Memory 2.0 cognitive', 'DONE_VERIFIED', 'Consolider MemoryService unique', 'P0'),
     item('GEN2-10', 'Contradictions, provenance et temporalité', 'DONE', 'Rendre la résolution automatique explicable', 'P1'),
     item('GEN2-11', 'Knowledge Graph', 'DONE', 'Lier davantage les entités aux projets et décisions', 'P1'),
-    item('GEN2-12', 'Timeline personnelle', 'PLANNED', 'Construire une chronologie requêtable', 'P1'),
+    item('GEN2-12', 'Timeline personnelle', 'PARTIAL', 'Contrat append/list/get + adaptateur D1 durable sur timeline_events validés; persistance inter-instances, filtres chronologiques et corruption metadata fail-closed couverts par roadmap-core-memory-ci run 36110490170 SUCCESS. Reste à brancher les producteurs d’événements runtime et une surface CapabilityBus/API avant DONE_VERIFIED.', 'P1'),
     item('GEN2-13', 'Projects / Decisions', 'PLANNED', 'Créer objets projet, décision, justification et état', 'P1'),
     item('GEN2-25', 'Personal Search / RAG', 'DONE_VERIFIED', 'Étendre aux fichiers et connecteurs', 'P0'),
     item('GEN2-56', 'Import contexte ChatGPT', 'DONE_VERIFIED', 'Valider les gros exports réels et la compatibilité entre versions', 'P0'),
