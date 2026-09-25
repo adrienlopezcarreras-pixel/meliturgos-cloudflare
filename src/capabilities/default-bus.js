@@ -17,7 +17,7 @@ import { runAugmentioStateOfPlay } from '../teachers/augmentio-council.js';
 import { runModelCouncil } from '../models/model-council.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
-import { stableBenchmarkCatalog, scoreStableBenchmarkObservations } from '../evaluation/stable-benchmark-suites.js';
+import { stableBenchmarkCatalog, scoreStableBenchmarkObservations, compareStableBenchmarkRuns, compareStableBenchmarkPacks } from '../evaluation/stable-benchmark-suites.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const DEFAULT_BRANCH = 'candidate/mel-clean-autonomy';
@@ -293,6 +293,25 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     suiteId: input.suiteId,
     observations: input.observations,
   }));
+
+  bus.discover({
+    id: 'evaluation.benchmark.compare', name: 'Comparer benchmarks stables', category: 'evaluation', version: '1.0.0', provider: 'core',
+    description: 'Compares two stable benchmark runs or packs only when their suite/registry identities are compatible; incompatible evidence stays explicitly non-comparable.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['run','pack'] },
+        baseline: { type: 'object', additionalProperties: true },
+        candidate: { type: 'object', additionalProperties: true },
+      },
+      required: ['kind','baseline','candidate'],
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
+  }, async input => input.kind === 'pack'
+    ? compareStableBenchmarkPacks(input.baseline,input.candidate)
+    : compareStableBenchmarkRuns(input.baseline,input.candidate));
 
   bus.discover({
     id: 'system.bindings', name: 'Diagnostic des bindings', category: 'diagnostic', version: '1.0.0', provider: 'core',
