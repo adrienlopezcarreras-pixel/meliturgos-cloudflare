@@ -22,7 +22,7 @@ import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
 import { maybeHandleAndroidCompanionApi } from "./devices/android-companion-api.js";
 import { enforceHttpAuthPolicy } from "./security/http-auth-policy.js";
 import { runShardVaultCycle, searchAutonomousShardVaultRepositories } from "./continuity/shardvault-runtime.js";
-import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVersionResponse } from "./api/api-versioning.js";
+import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVersionResponse, apiMethodNotAllowedResponse } from "./api/api-versioning.js";
 
 function deployedWatchSourceSha() {
   return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') || null : null;
@@ -462,6 +462,12 @@ export default {
       const authPolicyResponse = enforceHttpAuthPolicy(request, env);
       if (authPolicyResponse) return authPolicyResponse;
       return unsupportedApiVersionResponse(resolution);
+    }
+
+    if (resolution.method_not_allowed) {
+      const authPolicyResponse = enforceHttpAuthPolicy(request, env);
+      if (authPolicyResponse) return authPolicyResponse;
+      return apiMethodNotAllowedResponse(resolution);
     }
 
     const response = await fetchResolvedRequest(resolution.request, env, ctx);
