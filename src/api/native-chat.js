@@ -394,6 +394,48 @@ export function inferenceGenerationOptions(settings = null) {
   return out;
 }
 
+
+function compactInferenceText(value, limit) {
+  const text = String(value || '');
+  if (text.length <= limit) return text;
+  const marker = '\n[CONTEXTE COMPACTÉ POUR REPRISE INFERENCE]\n';
+  const room = Math.max(0, limit - marker.length);
+  const head = Math.ceil(room * 0.55);
+  const tail = Math.max(0, room - head);
+  return `${text.slice(0, head)}${marker}${tail ? text.slice(-tail) : ''}`;
+}
+
+export function compactInferenceMessages(messages = [], {
+  systemChars = 24000,
+  historyChars = 12000,
+  maxHistoryMessages = 8,
+} = {}) {
+  const rows = Array.isArray(messages) ? messages : [];
+  const system = rows.find(row => String(row?.role || '') === 'system');
+  const nonSystem = rows.filter(row => String(row?.role || '') !== 'system');
+  const current = nonSystem.length ? nonSystem.at(-1) : null;
+  const history = current ? nonSystem.slice(0, -1) : nonSystem.slice();
+  const selected = history.slice(-Math.max(0, Math.min(12, Number(maxHistoryMessages) || 8)));
+  let remaining = Math.max(2000, Math.min(30000, Number(historyChars) || 12000));
+  const compactHistory = [];
+
+  for (let i = selected.length - 1; i >= 0; i -= 1) {
+    const row = selected[i];
+    const content = String(row?.content || '');
+    if (!remaining) break;
+    const bounded = compactInferenceText(content, Math.min(content.length || 0, remaining));
+    compactHistory.push({ role: String(row?.role || 'user'), content: bounded });
+    remaining = Math.max(0, remaining - bounded.length);
+  }
+  compactHistory.reverse();
+
+  return [
+    ...(system ? [{ role: 'system', content: compactInferenceText(system.content, Math.max(8000, Math.min(40000, Number(systemChars) || 24000))) }] : []),
+    ...compactHistory,
+    ...(current ? [{ role: String(current.role || 'user'), content: String(current.content || '') }] : []),
+  ];
+}
+
 async function activePromotedInferenceSettings(env) {
   if (!env?.DB) return null;
   try {
@@ -769,37 +811,59 @@ export async function handleNativeChat(request, env, options = {}) {
         usage: null,
       };
     } else {
-      try {
-        const fallbackModel = String(env.MEL_NATIVE_CHAT_FALLBACK_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
-        const fallbackInput = {
-          messages,
-          ...inferenceGenerationOptions(effectiveInferenceSettings),
-        };
-        const fallbackResult = await env.AI.run(fallbackModel, fallbackInput);
-        const fallbackText = typeof fallbackResult === 'string'
-          ? fallbackResult
-          : fallbackResult?.response
-            ?? fallbackResult?.text
-            ?? fallbackResult?.message?.content
-            ?? fallbackResult?.choices?.[0]?.message?.content
-            ?? fallbackResult?.choices?.[0]?.text
-            ?? '';
-        if (!String(fallbackText || '').trim()) {
-          throw Object.assign(new Error('CHAT_FALLBACK_EMPTY'), { code: 'CHAT_FALLBACK_EMPTY' });
+      const fallbackModels = [
+        String(env.MEL_NATIVE_CHAT_FALLBACK_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast'),
+        '@cf/google/gemma-3-12b-it',
+      ].filter((model, index, list) => model && list.indexOf(model) === index);
+      const attempts = [
+        { messages, generation: inferenceGenerationOptions(effectiveInferenceSettings), compacted: false },
+        { messages: compactInferenceMessages(messages), generation: {}, compacted: true },
+      ];
+      let fallbackError = null;
+      let recovered = null;
+
+      for (const attempt of attempts) {
+        for (const fallbackModel of fallbackModels) {
+          try {
+            const fallbackResult = await env.AI.run(fallbackModel, {
+              messages: attempt.messages,
+              ...attempt.generation,
+            });
+            const fallbackText = typeof fallbackResult === 'string'
+              ? fallbackResult
+              : fallbackResult?.response
+                ?? fallbackResult?.text
+                ?? fallbackResult?.message?.content
+                ?? fallbackResult?.choices?.[0]?.message?.content
+                ?? fallbackResult?.choices?.[0]?.text
+                ?? '';
+            if (!String(fallbackText || '').trim()) {
+              throw Object.assign(new Error('CHAT_FALLBACK_EMPTY'), { code: 'CHAT_FALLBACK_EMPTY' });
+            }
+            recovered = {
+              text: String(fallbackText),
+              model: fallbackModel,
+              provider: 'workers-ai',
+              task: classifyTask(text || ''),
+              attempts: 1,
+              fallback_used: true,
+              fallback_compacted: attempt.compacted === true,
+              tool_succeeded: true,
+              finish_reason: extractFinishReason(fallbackResult),
+              truncated: isTruncationFinishReason(extractFinishReason(fallbackResult)),
+              usage: fallbackResult?.usage || null,
+            };
+            break;
+          } catch (candidateError) {
+            fallbackError = candidateError;
+          }
         }
-        ai = {
-          text: String(fallbackText),
-          model: fallbackModel,
-          provider: 'workers-ai',
-          task: classifyTask(text || ''),
-          attempts: 1,
-          fallback_used: true,
-          tool_succeeded: true,
-          finish_reason: extractFinishReason(fallbackResult),
-          truncated: isTruncationFinishReason(extractFinishReason(fallbackResult)),
-          usage: fallbackResult?.usage || null,
-        };
-      } catch (fallbackError) {
+        if (recovered) break;
+      }
+
+      if (recovered) {
+        ai = recovered;
+      } else {
         console.error('[native-chat] inference and fallback failed', {
           primary: error?.code || error?.message || String(error),
           fallback: fallbackError?.code || fallbackError?.message || String(fallbackError),
