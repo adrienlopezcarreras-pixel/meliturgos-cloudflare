@@ -20,6 +20,8 @@ test('GEN2-51 registry exposes one stable v1 facade without Android/MINI/device 
   const registry=apiVersionRegistry();
   assert.equal(registry.current_version,'v1');
   assert.deepEqual(registry.supported_versions,['v1']);
+  assert.equal(registry.validation.ok,true);
+  assert.deepEqual(registry.validation.issues,[]);
   assert.ok(registry.routes.some(route=>route.canonical==='/api/v1/roadmap'));
   assert.ok(registry.routes.some(route=>route.canonical==='/api/v1/conversations'));
   const serialized=JSON.stringify(registry);
@@ -143,5 +145,18 @@ test('GEN2-51 versioning also covers MEL index-owned Work routes without compani
     assert.equal(legacy.headers.get('x-mel-api-route-status'),'legacy');
     assert.equal(legacy.headers.get('deprecation'),'true');
     assert.match(legacy.headers.get('link')||'',/<\/api\/v1\/work\/health>; rel="successor-version"/);
+  } finally { e.DB.close(); }
+});
+
+
+test('GEN2-51 versioned routes return explicit 405 with Allow before handler dispatch', async () => {
+  const e=env();
+  try {
+    const response=await worker.fetch(new Request('http://localhost/api/v1/chat',{method:'GET',headers:auth()}),e);
+    assert.equal(response.status,405);
+    assert.equal(response.headers.get('allow'),'POST');
+    assert.equal(response.headers.get('x-mel-api-route-id'),'chat');
+    assert.equal(response.headers.get('x-mel-api-route-status'),'canonical');
+    assert.equal((await response.json()).code,'API_METHOD_NOT_ALLOWED');
   } finally { e.DB.close(); }
 });
