@@ -112,7 +112,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P08', 'Connecteurs et web', [
-    item('GEN2-32', 'Connector SDK', 'PARTIAL', 'OAuth2 provider-neutral désormais implémenté pour Gmail/Drive/Calendar/Contacts/Outlook/OneDrive/SharePoint: PKCE S256, state one-shot owner-bound, scopes read-only allowlistés et vérifiés après grant, échange/refresh sans exposition de tokens, révocation locale/remote et health via probe fixe du connecteur. Les tokens/verifiers restent exclusivement dans stateStore/credentialStore injectés; aucun stockage secret D1 en clair. Reste à brancher un coffre persistant chiffré + callback/runtime capabilities et à prouver les grants réels avant DONE.', 'P1'),
+    item('GEN2-32', 'Connector SDK', 'PARTIAL', 'OAuth2 + scopes + health sont désormais reliés au runtime: PKCE S256/state one-shot, profils read-only Google/Microsoft, échange/refresh/revoke sans exposition de tokens, coffre D1 AES-GCM avec clé 256 bits fournie par secret (aucun verifier/access/refresh token en clair), et CapabilityBus status/begin/refresh/revoke/health avec permissions + approvals sur begin/revoke. Sans DB+clé ou runtime injecté, les capacités restent UNAVAILABLE. Reste le callback HTTP canonique et la preuve de grants réels avant DONE.', 'P1'),
     item('GEN2-33', 'Gmail / Google', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
     item('GEN2-34', 'Outlook / Microsoft', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P2'),
     item('GEN2-35', 'OneDrive / SharePoint', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),

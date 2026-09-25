@@ -8,9 +8,9 @@ const MAX_STATE_TTL_MS = 30 * 60 * 1000;
 const definitionById = new Map(connectorDefinitions.map(definition => [definition.id, definition]));
 const clone = value => value == null ? value : structuredClone(value);
 
-function textValue(value, code, max = 2000) {
+function textValue(value, code, max = 2000, status = 400) {
   const valueText = String(value ?? '').trim();
-  requireValue(valueText.length > 0 && valueText.length <= max, code, 400);
+  requireValue(valueText.length > 0 && valueText.length <= max, code, status);
   return valueText;
 }
 
@@ -56,7 +56,8 @@ function safeRedirectUri(value) {
 }
 
 function runtimeConfig(profile, env = {}) {
-  const clientId = textValue(env[profile.client_id_env], 'OAUTH_CLIENT_ID_REQUIRED', 500);
+  const clientId = textValue(env[profile.client_id_env], 'OAUTH_CLIENT_ID_REQUIRED', 500, 500);
+  requireValue(typeof env[profile.redirect_uri_env] === 'string' && env[profile.redirect_uri_env].trim(), 'OAUTH_REDIRECT_URI_REQUIRED', 500);
   const redirectUri = safeRedirectUri(env[profile.redirect_uri_env]);
   const clientSecret = typeof env[profile.client_secret_env] === 'string' && env[profile.client_secret_env].trim()
     ? env[profile.client_secret_env].trim()
