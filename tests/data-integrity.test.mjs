@@ -125,3 +125,16 @@ test('GEN2-55 integrity audit detects invalid archive roles and candidate confid
     assert.equal(result.checks.find(check=>check.id==='memory_candidates.confidence').status,'FAIL');
   } finally { db.close(); }
 });
+
+
+test('GEN2-55 integrity audit detects a missing intermediate migration even when max version is current', async () => {
+  const db=await healthyDb();
+  try {
+    await db.prepare('DELETE FROM schema_migrations WHERE version=?').bind(6).run();
+    const result=await auditDataIntegrity(db);
+    assert.equal(result.checks.find(check=>check.id==='schema.version').status,'PASS');
+    const history=result.checks.find(check=>check.id==='schema.migration_history');
+    assert.equal(history.status,'FAIL');
+    assert.equal(history.samples.some(sample=>sample.version===6 && sample.issue==='MISSING'),true);
+  } finally { db.close(); }
+});
