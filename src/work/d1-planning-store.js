@@ -240,6 +240,7 @@ export class D1PlanningStore {
   async updateTask(planId, taskId, status, detail = {}) {
     const record = await this.loadRecord(planId);
     if (!record) throw planningError('WORK_PLAN_NOT_FOUND');
+    if (record.work_dag_id) throw planningError('WORK_TASK_MANUAL_UPDATE_DENIED_AFTER_MATERIALIZATION');
     const task = record.tasks.find((candidate) => candidate.id === String(taskId));
     if (!task) throw planningError('WORK_TASK_NOT_FOUND');
     const next = String(status || '').toUpperCase();
