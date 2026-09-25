@@ -26,10 +26,20 @@ function compactDescriptor(record) {
   };
 }
 
-export function buildPlanningCatalog(capabilities = [], { maxChars = 7000, maxEntries = 64 } = {}) {
+function relevanceScore(record, query) {
+  const terms = String(query || '').toLowerCase().match(/[a-z0-9à-ÿ_-]{3,}/g) || [];
+  if (!terms.length) return 0;
+  const haystack = `${record?.id || ''} ${record?.name || ''} ${record?.description || ''}`.toLowerCase();
+  return terms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
+}
+
+export function buildPlanningCatalog(capabilities = [], { query = '', maxChars = 5000, maxEntries = 64 } = {}) {
   const eligible = (Array.isArray(capabilities) ? capabilities : [])
     .filter(descriptorEligible)
-    .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    .sort((a, b) => {
+      const delta = relevanceScore(b, query) - relevanceScore(a, query);
+      return delta || String(a.id).localeCompare(String(b.id));
+    });
 
   const selected = [];
   let used = 2;
@@ -49,7 +59,7 @@ export function buildWorkPlanningPrompt({ goal, constraints = [], catalog = [] }
   if (!normalizedGoal) throw planningError('WORK_PLAN_GOAL_REQUIRED');
   if (!Array.isArray(catalog) || !catalog.length) throw planningError('WORK_PLAN_CAPABILITY_CATALOG_EMPTY');
 
-  return [
+  const prompt = [
     'Tu es le planificateur de MEL. Transforme l’objectif en un plan exécutable, minimal et borné.',
     'Réponds UNIQUEMENT avec un objet JSON valide, sans markdown ni commentaire.',
     'FORMAT EXACT:',
@@ -69,7 +79,9 @@ export function buildWorkPlanningPrompt({ goal, constraints = [], catalog = [] }
     JSON.stringify((Array.isArray(constraints) ? constraints : []).slice(0, 32)),
     'AVAILABLE_CAPABILITIES:',
     JSON.stringify(catalog),
-  ].join('\n').slice(0, 12000);
+  ].join('\n');
+  if (prompt.length > 12000) throw planningError('WORK_PLAN_PROMPT_TOO_LARGE');
+  return prompt;
 }
 
 function extractJsonObject(text) {
