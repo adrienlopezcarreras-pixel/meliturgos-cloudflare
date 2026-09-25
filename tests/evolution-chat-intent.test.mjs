@@ -54,3 +54,17 @@ test('explicit capability is never overwritten', async () => {
   const body = await prepared.json();
   assert.equal(body.capability.id, 'echo');
 });
+test('intent routing preserves Cloudflare request metadata', async () => {
+  const request = new Request('https://mel.test/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'Ajoute un module calendrier' })
+  });
+  Object.defineProperty(request, 'cf', {
+    value: { city: 'Nîmes', region: 'Occitanie', country: 'FR' },
+    configurable: true,
+  });
+  const prepared = await injectEvolutionPreflightCapability(request);
+  assert.deepEqual(prepared.cf, { city: 'Nîmes', region: 'Occitanie', country: 'FR' });
+});
+
