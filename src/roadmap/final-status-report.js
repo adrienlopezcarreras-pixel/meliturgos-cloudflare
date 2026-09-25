@@ -51,6 +51,16 @@ export function generateFinalStatusReport({ matrix, generatedAt = null } = {}) {
 
   const outstanding = sortOutstanding(sourceMatrix.rows.filter(row => !row.complete && !row.blocked));
   const blockers = sortOutstanding(sourceMatrix.blockers);
+  const humanActionsRequired = sortOutstanding(
+    Array.isArray(sourceMatrix.human_actions_required)
+      ? sourceMatrix.human_actions_required
+      : blockers.filter(row => row.status === 'BLOCKED_HUMAN'),
+  );
+  const externalBlockers = sortOutstanding(
+    Array.isArray(sourceMatrix.external_blockers)
+      ? sourceMatrix.external_blockers
+      : blockers.filter(row => row.status === 'BLOCKED_EXTERNAL'),
+  );
   const openP0 = outstanding.filter(row => row.priority === 'P0');
   const openP1 = outstanding.filter(row => row.priority === 'P1');
   const roadmapComplete = sourceMatrix.summary.total > 0 && sourceMatrix.summary.complete === sourceMatrix.summary.total;
@@ -65,6 +75,8 @@ export function generateFinalStatusReport({ matrix, generatedAt = null } = {}) {
     source: Object.freeze({
       schema: sourceMatrix.schema,
       path: sourceMatrix.source,
+      registry_revision: sourceMatrix.registry_revision || null,
+      matrix_fingerprint: sourceMatrix.matrix_fingerprint || null,
     }),
     verdict: maturityVerdict({ roadmapComplete, noBlockers, noOpenP0, noOpenP1 }),
     ready_for_final_milestone: readyForFinalMilestone,
@@ -77,6 +89,8 @@ export function generateFinalStatusReport({ matrix, generatedAt = null } = {}) {
     }),
     critical_open: Object.freeze(cloneRows([...openP0, ...openP1])),
     blockers: Object.freeze(cloneRows(blockers)),
+    human_actions_required: Object.freeze(cloneRows(humanActionsRequired)),
+    external_blockers: Object.freeze(cloneRows(externalBlockers)),
     next_work: Object.freeze(cloneRows(sourceMatrix.next_work)),
     phases: Object.freeze(sourceMatrix.phases.map(phase => structuredClone(phase))),
   });
@@ -115,6 +129,8 @@ export function finalStatusReportToMarkdown(report = generateFinalStatusReport()
     '',
     `Schema: \`${report.schema}\``,
     `Source: \`${report.source?.schema || 'unknown'}\` from \`${report.source?.path || 'unknown'}\``,
+    `Registry revision: ${report.source?.registry_revision || 'not exposed by matrix'}`,
+    `Matrix fingerprint: ${report.source?.matrix_fingerprint || 'not exposed by matrix'}`,
     `Generated at: ${report.generated_at || 'deterministic/no timestamp'}`,
     '',
     `Verdict: **${report.verdict}**`,
@@ -135,7 +151,11 @@ export function finalStatusReportToMarkdown(report = generateFinalStatusReport()
   ];
 
   appendRows(lines, report.critical_open || [], 'No open P0/P1 work.');
-  lines.push('## Blockers', '');
+  lines.push('## Human actions required', '');
+  appendRows(lines, report.human_actions_required || [], 'No human actions required.');
+  lines.push('## External blockers', '');
+  appendRows(lines, report.external_blockers || [], 'No external blockers.');
+  lines.push('## All blockers', '');
   appendRows(lines, report.blockers || [], 'No blockers.');
   lines.push('## Next work', '');
   appendRows(lines, report.next_work || [], 'No actionable work remains.');
