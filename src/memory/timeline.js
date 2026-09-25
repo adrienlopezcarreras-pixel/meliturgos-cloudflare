@@ -67,6 +67,99 @@ export function timelineEventId(input = {}) {
   return input.event_id.trim();
 }
 
+function timelineRow(row) {
+  let metadata;
+  try {
+    metadata = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata;
+  } catch {
+    requireValue(false, 'TIMELINE_EVENT_METADATA_CORRUPT', 500);
+  }
+
+  return timelineEvent({
+    event_id: row.event_id,
+    type: row.type,
+    title: row.title,
+    description: row.description,
+    occurred_at: Number(row.occurred_at),
+    source: row.source,
+    confidence: Number(row.confidence),
+    metadata,
+  });
+}
+
+/**
+ * Durable D1 adapter for the canonical timeline_events table provisioned by
+ * migrations/0004_gen2_foundations.sql. It is append-only and keeps the same
+ * deterministic read semantics as the reference in-memory adapter.
+ */
+export function createD1TimelineAdapter(db) {
+  requireValue(db && typeof db.prepare === 'function', 'TIMELINE_D1_REQUIRED', 500);
+
+  return Object.freeze({
+    async append(input) {
+      const event = timelineEvent(input);
+      const result = await db.prepare(`INSERT OR IGNORE INTO timeline_events(
+        event_id, type, title, description, occurred_at, source, confidence, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+        event.event_id,
+        event.type,
+        event.title,
+        event.description,
+        event.occurred_at,
+        event.source,
+        event.confidence,
+        JSON.stringify(event.metadata),
+      ).run();
+
+      requireValue(Number(result?.meta?.changes || 0) > 0, 'TIMELINE_EVENT_EXISTS', 409);
+      return clone(event);
+    },
+
+    async list(input = {}) {
+      const query = timelineQuery(input);
+      const clauses = [];
+      const values = [];
+
+      if (query.type !== undefined) {
+        clauses.push('type=?');
+        values.push(query.type);
+      }
+      if (query.source !== undefined) {
+        clauses.push('source=?');
+        values.push(query.source);
+      }
+      if (query.since !== undefined) {
+        clauses.push('occurred_at>=?');
+        values.push(query.since);
+      }
+      if (query.until !== undefined) {
+        clauses.push('occurred_at<=?');
+        values.push(query.until);
+      }
+
+      const direction = query.order === 'desc' ? 'DESC' : 'ASC';
+      const where = clauses.length ? ` WHERE ${clauses.join(' AND ')}` : '';
+      values.push(query.limit);
+      const result = await db.prepare(`SELECT
+        event_id, type, title, description, occurred_at, source, confidence, metadata
+        FROM timeline_events${where}
+        ORDER BY occurred_at ${direction}, event_id ${direction}
+        LIMIT ?`).bind(...values).all();
+
+      return (result?.results || []).map(timelineRow);
+    },
+
+    async get(input = {}) {
+      const eventId = timelineEventId(input);
+      const row = await db.prepare(`SELECT
+        event_id, type, title, description, occurred_at, source, confidence, metadata
+        FROM timeline_events WHERE event_id=?`).bind(eventId).first();
+      requireValue(row, 'TIMELINE_EVENT_NOT_FOUND', 404);
+      return timelineRow(row);
+    },
+  });
+}
+
 /**
  * Reference adapter used by tests, local tools and callers that do not yet have
  * a durable store. It also specifies the persistence semantics expected from a

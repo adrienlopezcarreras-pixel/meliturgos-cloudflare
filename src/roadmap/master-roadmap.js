@@ -53,7 +53,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-09', 'Memory 2.0 cognitive', 'DONE_VERIFIED', 'Consolider MemoryService unique', 'P0'),
     item('GEN2-10', 'Contradictions, provenance et temporalité', 'DONE', 'Rendre la résolution automatique explicable', 'P1'),
     item('GEN2-11', 'Knowledge Graph', 'DONE', 'Lier davantage les entités aux projets et décisions', 'P1'),
-    item('GEN2-12', 'Timeline personnelle', 'PARTIAL', 'Contrat timeline append/list/get, validation, filtres temporels et ordre déterministe implémentés et testés avec adaptateur de référence en mémoire. Reste adaptateur D1 durable + câblage runtime aux événements MEL avant DONE.', 'P1'),
+    item('GEN2-12', 'Timeline personnelle', 'PARTIAL', 'Contrat timeline append/list/get + adaptateur D1 durable sur timeline_events désormais implémentés: validation, append-only, filtres temporels, ordre déterministe, persistance inter-instances et corruption metadata fail-closed couvertes par tests. Reste le câblage runtime Event Bus/mémoire/tâches avant DONE.', 'P1'),
     item('GEN2-13', 'Projects / Decisions', 'PARTIAL', 'Contrat projets/décisions/leçons, statuts historisés, provenance et validations fail-closed implémentés et testés avec adaptateur de référence. Reste persistance D1 durable + exposition runtime canonique avant DONE.', 'P1'),
     item('GEN2-25', 'Personal Search / RAG', 'DONE_VERIFIED', 'Étendre aux fichiers et connecteurs', 'P0'),
     item('GEN2-56', 'Import contexte ChatGPT', 'DONE_VERIFIED', 'Valider les gros exports réels et la compatibilité entre versions', 'P0'),

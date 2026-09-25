@@ -1,12 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
+  createD1TimelineAdapter,
   createInMemoryTimelineAdapter,
   createTimeline,
   timelineEvent,
   timelineEventId,
   timelineQuery,
 } from '../../src/memory/timeline.js';
+import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
+
+async function foundationD1() {
+  const db = sqliteD1();
+  const migration = await readFile(new URL('../../migrations/0004_gen2_foundations.sql', import.meta.url), 'utf8');
+  for (const statement of migration.split(';').map(value => value.trim()).filter(Boolean)) {
+    await db.prepare(statement).run();
+  }
+  return db;
+}
 
 const event = (event_id, occurred_at, overrides = {}) => ({
   event_id,
@@ -82,4 +94,41 @@ test('timeline query and get inputs fail closed on invalid ranges and identifier
   assert.throws(() => timelineQuery({ limit: 0 }), { code: 'TIMELINE_QUERY_LIMIT_INVALID' });
   assert.throws(() => timelineQuery({ order: 'sideways' }), { code: 'TIMELINE_QUERY_ORDER_INVALID' });
   assert.throws(() => timelineEventId({ event_id: ' ' }), { code: 'TIMELINE_EVENT_ID_INVALID' });
+});
+
+
+test('D1 timeline adapter persists events across service instances and preserves deterministic filters', async (t) => {
+  const db = await foundationD1();
+  t.after(() => db.close());
+
+  const first = createTimeline(createD1TimelineAdapter(db));
+  await first.append(event('evt-c', 3000, { type: 'task.finished', source: 'teacher' }));
+  await first.append(event('evt-a', 1000));
+  await first.append(event('evt-b', 2000, { type: 'task.finished', source: 'teacher' }));
+
+  const second = createTimeline(createD1TimelineAdapter(db));
+  assert.equal((await second.get({ event_id: 'evt-a' })).title, 'Event evt-a');
+  assert.deepEqual(
+    (await second.list({ type: 'task.finished', source: 'teacher', order: 'desc' })).map(item => item.event_id),
+    ['evt-c', 'evt-b'],
+  );
+  await assert.rejects(() => second.append(event('evt-a', 9999)), { code: 'TIMELINE_EVENT_EXISTS', status: 409 });
+});
+
+test('D1 timeline adapter fails closed when persisted metadata is corrupt', async (t) => {
+  const db = await foundationD1();
+  t.after(() => db.close());
+
+  await db.prepare(`INSERT INTO timeline_events(
+    event_id, type, title, description, occurred_at, source, confidence, metadata
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+    'evt-corrupt', 'memory.confirmed', 'Corrupt', 'Corrupt metadata fixture',
+    1, 'test', 1, '{broken',
+  ).run();
+
+  const service = createTimeline(createD1TimelineAdapter(db));
+  await assert.rejects(
+    () => service.get({ event_id: 'evt-corrupt' }),
+    { code: 'TIMELINE_EVENT_METADATA_CORRUPT', status: 500 },
+  );
 });
