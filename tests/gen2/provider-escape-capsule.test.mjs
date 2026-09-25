@@ -125,3 +125,16 @@ test('CapabilityBus exposes provider escape planning as LOW-risk plan-only capab
   assert.equal(result.summary.ready_to_escape,true);
   assert.equal(result.execution_started,false);
 });
+
+
+test('MEL-RES-03 validator detects secret fields added after capsule creation', () => {
+  const capsule=createProviderEscapeCapsule({
+    manifest:manifest(),
+    layers,
+    generated_at:'2026-09-25T08:30:00.000Z',
+  });
+  capsule.layers.ai.api_token='tampered';
+  const validation=validateProviderEscapeCapsule(capsule);
+  assert.equal(validation.ok,false);
+  assert.ok(validation.issues.some(issue=>issue.type==='SECRET_FIELD_FORBIDDEN' && issue.path==='$.layers.ai.api_token'));
+});
