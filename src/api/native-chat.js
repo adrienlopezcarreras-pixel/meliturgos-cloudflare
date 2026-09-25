@@ -21,6 +21,7 @@ import { buildConversationFocusInstruction, deriveConversationFocus } from './co
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
+import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 
 export function inferChatGPTHistoryCapability(text) {
   const value = String(text || '').trim();
@@ -263,7 +264,7 @@ async function loadOperationalExperience(env, goal) {
 function summarizeToolResult(result) {
   try {
     return JSON.parse(JSON.stringify(result, (_k, value) => {
-      if (typeof value === 'string' && value.length > 12000) return value.slice(0,12000) + '\n[TRUNCATED]';
+      if (typeof value === 'string' && value.length > 12000) return value.slice(0,6000) + '\n[TRUNCATED_MIDDLE]\n' + value.slice(-6000);
       return value;
     }));
   } catch { return { error: 'TOOL_RESULT_SERIALIZATION_FAILED' }; }
@@ -552,7 +553,8 @@ function inferDirectCurrentWebCapability(text, intentContext = {}) {
   if (!value) return null;
   if (/\b(?:mes\s+(?:mails?|emails?|fichiers?|documents?|photos?|messages?|contacts?|calendriers?|agendas?)|gmail|outlook|onedrive|google\s+drive|agenda|calendrier)\b/i.test(value)) return null;
 
-  const currentInfo = /\b(?:m[ée]t[ée]o|quel\s+temps|temp[ée]rature|pluie|vent|pr[ée]visions?|actualit[ée]s?|news|aujourd['’]hui|demain|ce\s+soir|maintenant|actuellement|en\s+ce\s+moment|derni[eè]res?\s+(?:infos?|nouvelles?|donn[ée]es?)|latest|r[ée]cent(?:e|es|s)?|prix|tarif|cours|cotation|bourse|bitcoin|crypto|taux\s+de\s+change|horaires?|ouvert|ouverte|fermeture|trafic|score|r[ée]sultat|classement|programme|disponibilit[ée]|disponible|date\s+de\s+sortie|pr[ée]sident\s+actuel|ministre\s+actuel|maire\s+actuel|pdg\s+actuel|ceo\s+actuel)\b/i.test(value);
+  const verificationPolicy = inferCurrentFactVerificationPolicy(value);
+  const currentInfo = Boolean(verificationPolicy) || /\b(?:m[ée]t[ée]o|quel\s+temps|temp[ée]rature|pluie|vent|pr[ée]visions?|actualit[ée]s?|news|aujourd['’]hui|demain|ce\s+soir|maintenant|actuellement|en\s+ce\s+moment|derni[eè]res?\s+(?:infos?|nouvelles?|donn[ée]es?)|latest|r[ée]cent(?:e|es|s)?|prix|tarif|cours|cotation|bourse|bitcoin|crypto|taux\s+de\s+change|horaires?|ouvert|ouverte|fermeture|trafic|score|r[ée]sultat|classement|programme|disponibilit[ée]|disponible|date\s+de\s+sortie|pr[ée]sident\s+actuel|ministre\s+actuel|maire\s+actuel|pdg\s+actuel|ceo\s+actuel)\b/i.test(value);
   const nearbyInfo = /\b(?:pr[eè]s\s+de\s+moi|proche\s+de\s+moi|[àa]\s+proximit[ée]|aux\s+alentours|le\s+plus\s+proche|la\s+plus\s+proche|restaurants?|pizzerias?|pharmacies?|caf[ée]s?|stations?\s+service|supermarch[ée]s?|magasins?)\b/i.test(value);
   if (!currentInfo && !nearbyInfo) return null;
 
@@ -560,7 +562,10 @@ function inferDirectCurrentWebCapability(text, intentContext = {}) {
   const query = nearbyInfo && approximateLocation
     ? `${value} — zone réseau approximative: ${approximateLocation}`
     : value;
-  return { id: 'web.research', input: { query: query.slice(0, 2000), depth: 2 } };
+  const input = { query: query.slice(0, 2000), depth: 2 };
+  if (verificationPolicy?.preferred_domains?.length) input.domains = verificationPolicy.preferred_domains.slice(0, 3);
+  if (verificationPolicy?.official_seed_urls?.length) input.seed_urls = verificationPolicy.official_seed_urls.slice(0, 6);
+  return { id: 'web.research', input };
 }
 
 export async function handleNativeChat(request, env, options = {}) {
@@ -606,6 +611,7 @@ export async function handleNativeChat(request, env, options = {}) {
   if (!releaseSmoke) await saveConversationFocusState(env, conversationId, conversationFocus);
   const conversationFocusInstruction = buildConversationFocusInstruction(recent, text, persistedFocus);
 
+  const currentFactVerification = releaseSmoke ? null : inferCurrentFactVerificationPolicy(text);
   const personalProfileIntent = isPersonalProfileRecall(text);
   const inferredCapability = releaseSmoke
     ? inferNativeCodeCapability(text, [])
@@ -670,6 +676,35 @@ export async function handleNativeChat(request, env, options = {}) {
     }
   }
 
+  if (!releaseSmoke && currentFactVerification?.strict && String(capability?.id || '') === 'web.research') {
+    const evidence = toolResults.find(row => row.capability === 'web.research') || null;
+    const authoritative = evidence?.status === 'SUCCEEDED'
+      && hasAuthoritativeCurrentFactEvidence(evidence?.result, currentFactVerification);
+    if (!authoritative) {
+      const responseText = 'Je ne peux pas confirmer ce fait actuel avec une source suffisamment fiable maintenant. Je préfère ne pas deviner.';
+      let archiveSaved = false;
+      if (service) {
+        try {
+          await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
+          await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText, timestamp:Date.now()+1, provenance:'native-chat:current-fact-guard', metadata:{ verification_kind:currentFactVerification.kind, verified:false } });
+          archiveSaved = true;
+        } catch {}
+      }
+      return Response.json({
+        ok:true,
+        text:responseText,
+        model:'deterministic-current-fact-guard',
+        provider:'mel',
+        response_mode:'verified-current-fact',
+        verified_current_fact:false,
+        verification_kind:currentFactVerification.kind,
+        capability_used:capabilitiesUsed,
+        tool_results:toolResults,
+        archive_saved:archiveSaved,
+      }, { headers:{'cache-control':'no-store'} });
+    }
+  }
+
   if (!releaseSmoke) capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
 
   if (releaseSmoke) {
@@ -730,6 +765,7 @@ export async function handleNativeChat(request, env, options = {}) {
     buildResponseQualityInstruction(text),
     conversationFocusInstruction,
     operatingManual,
+    currentFactReliabilityInstruction(currentFactVerification),
     themeInstruction,
     voiceReply
       ? 'MODE VOCAL MOBILE : réponds immédiatement avec 1 à 3 phrases courtes, naturelles et directement prononçables. Va à l’essentiel, sans listes longues, sans préambule et sans dépasser environ 350 caractères sauf nécessité absolue.'
