@@ -305,13 +305,8 @@ static void mini_anim_cb(lv_timer_t *) {
     const bool online = mel_terminal_online();
     listening = state == MEL_TERMINAL_LISTENING;
 
-    // Keep the portrait completely static. Moving the whole photo looked
-    // artificial; future animation should use dedicated facial frames instead.
-    if (avatar_obj) {
-        lv_obj_set_x(avatar_obj, 0);
-        lv_obj_set_y(avatar_obj, 0);
-        lv_img_set_zoom(avatar_obj, 256);
-    }
+    // Portrait is static. Do not reapply position/zoom on every 250 ms tick:
+    // LVGL treats those setters as invalidations and can redraw the full avatar.
 
     if (talk_button) {
         const int level = mel_terminal_voice_level();
