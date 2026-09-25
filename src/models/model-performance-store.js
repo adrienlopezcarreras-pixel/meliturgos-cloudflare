@@ -85,6 +85,38 @@ function sortWithEvidence(models, statsById) {
   }).map(row => row.model);
 }
 
+export function modelTaskQualityFromBenchmark(score = {}) {
+  const domains = score?.domains && typeof score.domains === 'object' ? score.domains : {};
+  const domainScore = (name) => {
+    const value = Number(domains?.[name]?.score ?? domains?.[name]);
+    return Number.isFinite(value) ? bounded(value, 0, 1, 0) : null;
+  };
+  const reasoningDomains = [
+    'memory_provenance',
+    'taught_error_correction',
+    'tool_model_selection',
+    'multi_step_autonomy',
+    'non_regression',
+  ].map(domainScore).filter(value => value != null);
+  const overall = Number(score?.overall);
+  const general = Number.isFinite(overall) ? bounded(overall, 0, 1, 0) : null;
+  const code = domainScore('code_development');
+  const steerable = domainScore('instruction_following');
+  const reasoning = reasoningDomains.length
+    ? reasoningDomains.reduce((sum, value) => sum + value, 0) / reasoningDomains.length
+    : null;
+
+  return [
+    ['GENERAL', general],
+    ['CODE', code],
+    ['REASONING', reasoning],
+    ['STEERABLE', steerable],
+  ].filter(([, value]) => value != null).map(([task, quality]) => ({
+    task,
+    quality: Number(quality.toFixed(6)),
+  }));
+}
+
 export class InMemoryModelPerformanceStore {
   constructor(seed = []) {
     this.rows = new Map();
