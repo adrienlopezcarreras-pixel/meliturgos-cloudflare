@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createDefaultCapabilityBus } from '../src/capabilities/default-bus.js';
 import {
   REQUIRED_STABLE_BENCHMARK_KINDS,
   STABLE_BENCHMARK_SUITES_V1,
@@ -132,4 +133,28 @@ test('MEL-EVAL-01 measured observation scorer rejects unknown or duplicate case 
     }),
     error=>error.code==='STABLE_BENCHMARK_OBSERVATION_DUPLICATE'
   );
+});
+
+
+test('MEL-EVAL-01 stable benchmark catalog and scoring are available through CapabilityBus',async()=>{
+  const bus=createDefaultCapabilityBus({env:{}});
+  assert.equal(bus.describe('evaluation.benchmark.catalog').health,'HEALTHY');
+  assert.equal(bus.describe('evaluation.benchmark.score').risk,'LOW');
+
+  const catalog=await bus.execute('evaluation.benchmark.catalog',{},{
+    owner:'test',permissions:[],requestId:'eval-catalog'
+  });
+  assert.equal(catalog.suite_count,4);
+
+  const scored=await bus.execute('evaluation.benchmark.score',{
+    suiteId:'mel-eval-conversation-v1',
+    observations:[
+      {id:'conversation-instruction-01',score:1},
+      {id:'conversation-context-01',score:1},
+      {id:'conversation-uncertainty-01',score:1},
+      {id:'conversation-no-fabrication-01',score:1},
+    ],
+  },{owner:'test',permissions:[],requestId:'eval-score'});
+  assert.equal(scored.overall,1);
+  assert.equal(scored.failures.length,0);
 });
