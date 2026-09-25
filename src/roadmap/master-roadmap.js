@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-23.12';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.06';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -190,7 +190,7 @@ export const MASTER_ROADMAP = Object.freeze([
   phase('P15', 'Release, migration et maturité finale', [
     item('GEN2-53', 'Canary pré-release / rollback', 'DONE_VERIFIED', 'Preuve canary/rollback: Actions run 35093195456; production: release run 35094721729; smoke live post-déploiement: run 35094194506 job 104789501239', 'P0'),
     item('GEN2-57', 'Migration Gen1 sans perte', 'DONE_VERIFIED', 'Migration Gen1 certifiée en production sur release 2fd2eb5b4b701e78115e3b8fd2f7adb73661def3, run deploy-cloudflare-release 35856885040: source interactions présente et conservée, 177 interactions source, 354 messages archive_messages, 177 interactions migrées, remaining_interactions=0, coverage_complete=true. Schéma réel vérifié, IDs déterministes, collisions/mismatch fail-closed, backfill borné et replay-safe. Source Gen1 non supprimée.', 'P0'),
-    item('GEN2-55', 'Data integrity / final maturity tests', 'PLANNED', 'Suite finale après stabilisation', 'P1'),
+    item('GEN2-55', 'Data integrity / final maturity tests', 'PARTIAL', 'Candidat implémenté: system.integrity audite D1 en lecture seule (version et historique complet des migrations, tables requises, références orphelines et composites, JSON persisté, rôles, confiance, ordre temporel) sans exposer le contenu ni réparer; system.maturity compose intégrité D1 + contrats CapabilityBus + structure roadmap sans réseau ni exécution d’outils. CI dédiée gen2-55-data-integrity-ci verte au SHA cafac623a0805eb90a427fc3280e3b6871827096: targeted job 108015689999, 65/65; full-suite job 108015752459, 352 tests / 0 échec. Reste avant DONE_VERIFIED: intégrer sur main puis exécuter system.integrity et system.maturity contre le D1 production réel et archiver la preuve sans effectuer de réparation automatique.', 'P1'),
     item('GEN2-60', 'Completion matrix', 'PLANNED', 'Générer automatiquement depuis ce registre', 'P2'),
     item('GEN2-61', 'Final status report', 'PLANNED', 'Générer au jalon mature', 'P2'),
     item('GEN2-62', 'human-actions-required', 'PARTIAL', 'Maintenir blockers humains exacts', 'P1'),
