@@ -111,13 +111,14 @@ export function validateWorkDag(dag) {
   return true;
 }
 
-export function createWorkDag({ id = crypto.randomUUID(), jobId, goal, candidateBranch = null, candidateSha = null, nodes = [] } = {}) {
+export function createWorkDag({ id = crypto.randomUUID(), jobId, goal, conversationId = null, candidateBranch = null, candidateSha = null, nodes = [] } = {}) {
   const dag = {
     schema: 'mel.work-dag',
     version: 1,
     id: String(id),
     job_id: String(jobId || ''),
     goal: String(goal || '').slice(0, 4000),
+    conversation_id: String(conversationId || '').trim().slice(0, 200) || null,
     candidate_branch: candidateBranch,
     candidate_sha: candidateSha,
     status: WORK_DAG_STATUS.RUNNING,

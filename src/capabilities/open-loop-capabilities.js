@@ -125,11 +125,13 @@ export function registerOpenLoopCapabilities(bus, { env } = {}) {
           };
         }
         const result = await bus.execute('work.run', { id: workDagId }, context);
-        const terminal = ['COMPLETED','BLOCKED'].includes(String(result?.status || '').toUpperCase());
+        const workStatus = String(result?.status || '').toUpperCase();
+        const completed = workStatus === 'COMPLETED';
+        const blocked = workStatus === 'BLOCKED';
         return {
-          completed: String(result?.status || '').toUpperCase() === 'COMPLETED',
-          status: terminal ? (String(result?.status || '').toUpperCase() === 'COMPLETED' ? 'completed' : 'waiting') : 'resumable',
-          resumeAt: terminal ? 0 : Date.now() + 60000,
+          completed,
+          status: completed ? 'completed' : blocked ? 'waiting' : 'resumable',
+          resumeAt: completed ? 0 : blocked ? Number.MAX_SAFE_INTEGER : Date.now() + 60000,
           checkpoint: { work: result },
           metadata: { ...(loop.metadata || {}), workDagId, last_work_status: result?.status || null },
         };
