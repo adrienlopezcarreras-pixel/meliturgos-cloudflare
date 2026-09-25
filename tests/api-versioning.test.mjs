@@ -1,0 +1,111 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import worker from '../src/index.js';
+import {
+  API_CURRENT_VERSION,
+  apiVersionRegistry,
+  resolveApiVersionRequest,
+} from '../src/api/api-versioning.js';
+import { sqliteD1 } from './helpers/sqlite-d1.mjs';
+
+function env() {
+  return { DB: sqliteD1(), MELITURGOS_USER:'test', MELITURGOS_PASSWORD:'test-only' };
+}
+
+function auth() {
+  return { authorization:`Basic ${Buffer.from('test:test-only').toString('base64')}` };
+}
+
+test('GEN2-51 registry exposes one stable v1 facade without Android/MINI/device routes', () => {
+  const registry=apiVersionRegistry();
+  assert.equal(registry.current_version,'v1');
+  assert.deepEqual(registry.supported_versions,['v1']);
+  assert.ok(registry.routes.some(route=>route.canonical==='/api/v1/roadmap'));
+  assert.ok(registry.routes.some(route=>route.canonical==='/api/v1/conversations'));
+  const serialized=JSON.stringify(registry);
+  assert.doesNotMatch(serialized,/\/api\/android\//);
+  assert.doesNotMatch(serialized,/\/api\/device\//);
+  assert.doesNotMatch(serialized,/mini/i);
+});
+
+test('GEN2-51 resolver rewrites canonical v1 core paths and marks legacy aliases', () => {
+  const canonical=resolveApiVersionRequest(new Request('http://localhost/api/v1/roadmap'));
+  assert.equal(canonical.status,'canonical');
+  assert.equal(new URL(canonical.request.url).pathname,'/api/gen2/roadmap');
+
+  const nested=resolveApiVersionRequest(new Request('http://localhost/api/v1/conversations/abc/messages'));
+  assert.equal(nested.status,'canonical');
+  assert.equal(new URL(nested.request.url).pathname,'/api/conversations/abc/messages');
+
+  const legacy=resolveApiVersionRequest(new Request('http://localhost/api/gen2/roadmap'));
+  assert.equal(legacy.status,'legacy');
+  assert.equal(legacy.canonical_path,'/api/v1/roadmap');
+});
+
+test('GEN2-51 /api/v1/version exposes the API contract and legacy alias is deprecated', async () => {
+  const e=env();
+  try {
+    const current=await worker.fetch(new Request('http://localhost/api/v1/version',{headers:auth()}),e);
+    assert.equal(current.status,200);
+    assert.equal(current.headers.get('x-mel-api-version'),API_CURRENT_VERSION);
+    assert.equal(current.headers.get('x-mel-api-route-status'),'canonical');
+    const payload=await current.json();
+    assert.equal(payload.current_version,'v1');
+
+    const legacy=await worker.fetch(new Request('http://localhost/api/gen2/version',{headers:auth()}),e);
+    assert.equal(legacy.status,200);
+    assert.equal(legacy.headers.get('deprecation'),'true');
+    assert.match(legacy.headers.get('link')||'',/<\/api\/v1\/version>; rel="successor-version"/);
+  } finally { e.DB.close(); }
+});
+
+test('GEN2-51 v1 roadmap is equivalent to gen2 alias and legacy response advertises successor', async () => {
+  const e=env();
+  try {
+    const canonical=await worker.fetch(new Request('http://localhost/api/v1/roadmap',{headers:auth()}),e);
+    const legacy=await worker.fetch(new Request('http://localhost/api/gen2/roadmap',{headers:auth()}),e);
+    assert.equal(canonical.status,200);
+    assert.equal(legacy.status,200);
+    assert.equal(canonical.headers.get('x-mel-api-route-status'),'canonical');
+    assert.equal(canonical.headers.get('x-mel-api-canonical-path'),'/api/v1/roadmap');
+    assert.equal(legacy.headers.get('x-mel-api-route-status'),'legacy');
+    assert.equal(legacy.headers.get('deprecation'),'true');
+    assert.deepEqual(await canonical.json(),await legacy.json());
+  } finally { e.DB.close(); }
+});
+
+test('GEN2-51 v1 conversations use the existing canonical ConversationService route', async () => {
+  const e=env();
+  try {
+    const created=await worker.fetch(new Request('http://localhost/api/v1/conversations',{
+      method:'POST',
+      headers:{...auth(),'content-type':'application/json'},
+      body:JSON.stringify({title:'versioned'}),
+    }),e);
+    assert.equal(created.status,201);
+    assert.equal(created.headers.get('x-mel-api-route-status'),'canonical');
+    const conversation=await created.json();
+
+    const added=await worker.fetch(new Request(`http://localhost/api/v1/conversations/${conversation.id}/messages`,{
+      method:'POST',
+      headers:{...auth(),'content-type':'application/json'},
+      body:JSON.stringify({content:'hello v1'}),
+    }),e);
+    assert.equal(added.status,201);
+
+    const history=await worker.fetch(new Request(`http://localhost/api/v1/conversations/${conversation.id}/messages`,{headers:auth()}),e);
+    assert.equal(history.status,200);
+    assert.equal((await history.json()).messages.length,1);
+  } finally { e.DB.close(); }
+});
+
+test('GEN2-51 unsupported semantic versions fail explicitly before routing', async () => {
+  const e=env();
+  try {
+    const response=await worker.fetch(new Request('http://localhost/api/v9/roadmap',{headers:auth()}),e);
+    assert.equal(response.status,400);
+    const payload=await response.json();
+    assert.equal(payload.code,'API_VERSION_UNSUPPORTED');
+    assert.deepEqual(payload.supported_versions,['v1']);
+  } finally { e.DB.close(); }
+});
