@@ -66,7 +66,7 @@ export function validateManifest(manifest, kind = 'plugin') {
     maxItems: 128,
     maxLength: 128,
   });
-  requireValue(normalized.capabilities.length > 0, 'PLUGIN_CAPABILITIES_REQUIRED', 400);
+  if (kind === 'plugin') requireValue(normalized.capabilities.length > 0, 'PLUGIN_CAPABILITIES_REQUIRED', 400);
 
   normalized.permissions = stringArray(manifest.permissions, 'INVALID_PERMISSION', {
     pattern: PERMISSION_ID,
@@ -83,7 +83,7 @@ export function validateManifest(manifest, kind = 'plugin') {
     maxLength: 200,
   });
 
-  if (normalized.permissions.includes('*') || normalized.secrets_required.length > 0) {
+  if (kind === 'plugin' && (normalized.permissions.includes('*') || normalized.secrets_required.length > 0)) {
     requireValue(normalized.risk !== 'LOW', 'PLUGIN_RISK_UNDERDECLARED', 400);
   }
 
