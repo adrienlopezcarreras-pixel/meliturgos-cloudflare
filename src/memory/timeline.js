@@ -67,6 +67,118 @@ export function timelineEventId(input = {}) {
   return input.event_id.trim();
 }
 
+function timelineDb(db) {
+  requireValue(db && typeof db.prepare === 'function', 'TIMELINE_DB_REQUIRED', 500);
+  return db;
+}
+
+function parseTimelineMetadata(value) {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    requireValue(isRecord(parsed), 'TIMELINE_EVENT_METADATA_CORRUPT', 500);
+    return parsed;
+  } catch (error) {
+    if (error?.code === 'TIMELINE_EVENT_METADATA_CORRUPT') throw error;
+    throw Object.assign(new Error('TIMELINE_EVENT_METADATA_CORRUPT'), {
+      code: 'TIMELINE_EVENT_METADATA_CORRUPT',
+      status: 500,
+    });
+  }
+}
+
+function timelineRow(row) {
+  requireValue(row, 'TIMELINE_EVENT_NOT_FOUND', 404);
+  return timelineEvent({
+    event_id: row.event_id,
+    type: row.type,
+    title: row.title,
+    description: row.description,
+    occurred_at: Number(row.occurred_at),
+    source: row.source,
+    confidence: Number(row.confidence),
+    metadata: parseTimelineMetadata(row.metadata),
+  });
+}
+
+/**
+ * Durable D1 adapter for GEN2-12.
+ *
+ * The canonical schema already provisions timeline_events. This adapter keeps
+ * the same append-only contract as the in-memory reference implementation and
+ * deliberately validates data on both write and read boundaries.
+ */
+export function createD1TimelineAdapter(db) {
+  const database = timelineDb(db);
+
+  return Object.freeze({
+    async append(input) {
+      const event = timelineEvent(input);
+      const result = await database.prepare(
+        `INSERT INTO timeline_events
+          (event_id,type,title,description,occurred_at,source,confidence,metadata)
+         VALUES (?,?,?,?,?,?,?,?)
+         ON CONFLICT(event_id) DO NOTHING`,
+      ).bind(
+        event.event_id,
+        event.type,
+        event.title,
+        event.description,
+        event.occurred_at,
+        event.source,
+        event.confidence,
+        JSON.stringify(event.metadata),
+      ).run();
+
+      requireValue(Number(result?.meta?.changes || 0) === 1, 'TIMELINE_EVENT_EXISTS', 409);
+      return clone(event);
+    },
+
+    async list(input = {}) {
+      const query = timelineQuery(input);
+      const where = [];
+      const params = [];
+
+      if (query.type !== undefined) {
+        where.push('type = ?');
+        params.push(query.type);
+      }
+      if (query.source !== undefined) {
+        where.push('source = ?');
+        params.push(query.source);
+      }
+      if (query.since !== undefined) {
+        where.push('occurred_at >= ?');
+        params.push(query.since);
+      }
+      if (query.until !== undefined) {
+        where.push('occurred_at <= ?');
+        params.push(query.until);
+      }
+
+      const direction = query.order === 'desc' ? 'DESC' : 'ASC';
+      const sql = `SELECT event_id,type,title,description,occurred_at,source,confidence,metadata
+        FROM timeline_events
+        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+        ORDER BY occurred_at ${direction}, event_id ${direction}
+        LIMIT ?`;
+      params.push(query.limit);
+
+      const result = await database.prepare(sql).bind(...params).all();
+      return (result?.results || []).map(timelineRow);
+    },
+
+    async get(input = {}) {
+      const eventId = timelineEventId(input);
+      const row = await database.prepare(
+        `SELECT event_id,type,title,description,occurred_at,source,confidence,metadata
+         FROM timeline_events
+         WHERE event_id = ?`,
+      ).bind(eventId).first();
+      return timelineRow(row);
+    },
+  });
+}
+
 /**
  * Reference adapter used by tests, local tools and callers that do not yet have
  * a durable store. It also specifies the persistence semantics expected from a
