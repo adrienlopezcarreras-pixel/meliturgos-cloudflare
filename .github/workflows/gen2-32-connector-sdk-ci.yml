@@ -1,0 +1,52 @@
+name: gen2-32-connector-sdk-ci
+
+on:
+  push:
+    branches:
+      - 'roadmap/gen2-32-*'
+      - 'candidate/gen2-32-*'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/connectors/connector-catalog.js'
+      - 'src/connectors/d1-connector-catalog.js'
+      - 'src/connectors/oauth.js'
+      - 'src/connectors/oauth2-pkce-runtime.js'
+      - 'src/connectors/oauth2-http-token-client.js'
+      - 'src/connectors/oauth-catalog-hooks.js'
+      - 'tests/gen2/connector-catalog.test.mjs'
+      - 'tests/gen2/d1-connector-catalog.test.mjs'
+      - 'tests/gen2/oauth2-pkce-runtime.test.mjs'
+      - 'tests/gen2/oauth2-http-catalog.test.mjs'
+      - 'tests/connectors-security.test.mjs'
+      - '.github/workflows/gen2-32-connector-sdk-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Targeted GEN2-32 tests
+        run: node --test tests/gen2/connector-catalog.test.mjs tests/gen2/d1-connector-catalog.test.mjs tests/connectors-security.test.mjs
+      - name: Syntax
+        run: npm run check
+      - name: Normalize branch for candidate-only integration tests
+        run: git switch -c candidate/gen2-32-ci
+      - name: Full test suite
+        run: npm test
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs
