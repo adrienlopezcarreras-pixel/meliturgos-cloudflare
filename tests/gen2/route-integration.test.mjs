@@ -89,7 +89,7 @@ test('Core router errors keep legacy code/error fields and expose request correl
     assert.equal(body.ok, false);
     assert.equal(body.request_id, 'route-error-test-0001');
     assert.equal(body.origin, 'capability-execute');
-    assert.equal(body.category, 'internal');
+    assert.equal(body.category, 'tool');
     assert.equal(body.retryable, false);
     assert.match(body.timestamp, /^\d{4}-\d{2}-\d{2}T/);
   } finally { e.DB.close(); }
