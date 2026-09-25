@@ -91,6 +91,39 @@ jobs:
           grep -q "package: name='fr.veriteinterdite.mel'" dist/apk-badging.txt
           grep -q "launchable-activity:" dist/apk-badging.txt
 
+      - name: Prepare persistent signing key for installable test APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/mel-stable-test.jks"
+          test -s "$RUNNER_TEMP/mel-stable-test.jks"
+
+      - name: Build persistent-signed installable APK
+        working-directory: android-companion
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/mel-stable-test.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace :app:assembleRelease
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          cp "$APK" dist/MEL-Android-stable-test.apk
+          sha256sum dist/MEL-Android-stable-test.apk | tee dist/MEL-Android-stable-test.apk.sha256
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify --verbose --print-certs dist/MEL-Android-stable-test.apk | tee dist/stable-test-signature.txt
+
       - name: Validate unsigned release variant
         working-directory: android-companion
         env:
@@ -119,6 +152,9 @@ jobs:
             android-companion/dist/MEL-Android-debug.apk
             android-companion/dist/MEL-Android-debug.apk.sha256
             android-companion/dist/apk-badging.txt
+            android-companion/dist/MEL-Android-stable-test.apk
+            android-companion/dist/MEL-Android-stable-test.apk.sha256
+            android-companion/dist/stable-test-signature.txt
             android-companion/dist/release-preflight-badging.txt
             android-companion/dist/release-preflight.apk.sha256
           if-no-files-found: error
