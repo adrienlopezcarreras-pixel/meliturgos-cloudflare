@@ -25,21 +25,30 @@ test('GEN2-51 registry exposes one stable v1 facade without Android/MINI/device 
   const serialized=JSON.stringify(registry);
   assert.doesNotMatch(serialized,/\/api\/android\//);
   assert.doesNotMatch(serialized,/\/api\/device\//);
+  assert.doesNotMatch(serialized,/\/api\/android\//);
+  assert.doesNotMatch(serialized,/\/api\/computer\//);
+  assert.doesNotMatch(serialized,/\/api\/voice\//);
+  assert.doesNotMatch(serialized,/\/api\/files\//);
   assert.doesNotMatch(serialized,/mini/i);
 });
 
 test('GEN2-51 resolver rewrites canonical v1 core paths and marks legacy aliases', () => {
-  const canonical=resolveApiVersionRequest(new Request('http://localhost/api/v1/roadmap'));
+  const canonical=resolveApiVersionRequest(new Request('http://localhost/api/v1/roadmap'),{handler:'router'});
   assert.equal(canonical.status,'canonical');
   assert.equal(new URL(canonical.request.url).pathname,'/api/gen2/roadmap');
 
-  const nested=resolveApiVersionRequest(new Request('http://localhost/api/v1/conversations/abc/messages'));
+  const nested=resolveApiVersionRequest(new Request('http://localhost/api/v1/conversations/abc/messages'),{handler:'router'});
   assert.equal(nested.status,'canonical');
   assert.equal(new URL(nested.request.url).pathname,'/api/conversations/abc/messages');
 
-  const legacy=resolveApiVersionRequest(new Request('http://localhost/api/gen2/roadmap'));
+  const legacy=resolveApiVersionRequest(new Request('http://localhost/api/gen2/roadmap'),{handler:'router'});
   assert.equal(legacy.status,'legacy');
   assert.equal(legacy.canonical_path,'/api/v1/roadmap');
+
+  const indexOwned=resolveApiVersionRequest(new Request('http://localhost/api/v1/work/health'),{handler:'index'});
+  assert.equal(indexOwned.status,'canonical');
+  assert.equal(new URL(indexOwned.request.url).pathname,'/api/work/health');
+  assert.equal(resolveApiVersionRequest(new Request('http://localhost/api/v1/work/health'),{handler:'router'}).matched,false);
 });
 
 test('GEN2-51 /api/v1/version exposes the API contract and legacy alias is deprecated', async () => {
@@ -107,5 +116,24 @@ test('GEN2-51 unsupported semantic versions fail explicitly before routing', asy
     const payload=await response.json();
     assert.equal(payload.code,'API_VERSION_UNSUPPORTED');
     assert.deepEqual(payload.supported_versions,['v1']);
+  } finally { e.DB.close(); }
+});
+
+
+test('GEN2-51 versioning also covers MEL index-owned Work routes without companion changes', async () => {
+  const e=env();
+  try {
+    const canonical=await worker.fetch(new Request('http://localhost/api/v1/work/health',{headers:auth()}),e);
+    assert.equal(canonical.status,200);
+    assert.equal(canonical.headers.get('x-mel-api-version'),'v1');
+    assert.equal(canonical.headers.get('x-mel-api-route-status'),'canonical');
+    const body=await canonical.json();
+    assert.equal(body.mode,'preflight-only');
+
+    const legacy=await worker.fetch(new Request('http://localhost/api/work/health',{headers:auth()}),e);
+    assert.equal(legacy.status,200);
+    assert.equal(legacy.headers.get('x-mel-api-route-status'),'legacy');
+    assert.equal(legacy.headers.get('deprecation'),'true');
+    assert.match(legacy.headers.get('link')||'',/<\/api\/v1\/work\/health>; rel="successor-version"/);
   } finally { e.DB.close(); }
 });
