@@ -275,3 +275,318 @@ export function createInMemoryProjectAdapter(seed = {}) {
     },
   });
 }
+
+
+function planningDb(db) {
+  requireValue(db && typeof db.prepare === 'function', 'PLANNING_DB_REQUIRED', 500);
+  return db;
+}
+
+function parsePlanningJson(value, { array = false } = {}) {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    requireValue(array ? Array.isArray(parsed) : isRecord(parsed), 'PLANNING_PERSISTED_JSON_CORRUPT', 500);
+    return parsed;
+  } catch (error) {
+    if (error?.code === 'PLANNING_PERSISTED_JSON_CORRUPT') throw error;
+    throw Object.assign(new Error('PLANNING_PERSISTED_JSON_CORRUPT'), {
+      code: 'PLANNING_PERSISTED_JSON_CORRUPT',
+      status: 500,
+    });
+  }
+}
+
+function persistedProject(row) {
+  requireValue(row, 'PROJECT_NOT_FOUND', 404);
+  return projectEntity({
+    project_id: row.project_id,
+    title: row.title,
+    objectives: parsePlanningJson(row.objectives_json, { array: true }),
+    status: row.status,
+    created_at: Number(row.created_at),
+    updated_at: Number(row.updated_at),
+    metadata: parsePlanningJson(row.metadata_json),
+    status_history: parsePlanningJson(row.status_history_json, { array: true }),
+  });
+}
+
+function persistedDecision(row) {
+  requireValue(row, 'DECISION_NOT_FOUND', 404);
+  return decisionEntity({
+    decision_id: row.decision_id,
+    project_id: row.project_id,
+    title: row.title,
+    rationale: row.rationale,
+    status: row.status,
+    decided_at: Number(row.decided_at),
+    updated_at: Number(row.updated_at),
+    source: row.source,
+    confidence: Number(row.confidence),
+    metadata: parsePlanningJson(row.metadata_json),
+    status_history: parsePlanningJson(row.status_history_json, { array: true }),
+  });
+}
+
+function persistedLesson(row) {
+  requireValue(row, 'LESSON_NOT_FOUND', 404);
+  return lessonEntity({
+    lesson_id: row.lesson_id,
+    project_id: row.project_id,
+    content: row.content,
+    learned_at: Number(row.learned_at),
+    source: row.source,
+    metadata: parsePlanningJson(row.metadata_json),
+  });
+}
+
+/**
+ * Durable D1 adapter for GEN2-13.
+ *
+ * IDs remain append-only while status transitions use optimistic concurrency on
+ * updated_at, preventing a stale writer from silently erasing newer history.
+ */
+export function createD1ProjectAdapter(db) {
+  const database = planningDb(db);
+
+  async function loadProject(projectId) {
+    const row = await database.prepare(
+      `SELECT project_id,title,objectives_json,status,created_at,updated_at,metadata_json,status_history_json
+       FROM planning_projects WHERE project_id = ?`,
+    ).bind(projectId).first();
+    return persistedProject(row);
+  }
+
+  async function loadDecision(decisionId) {
+    const row = await database.prepare(
+      `SELECT decision_id,project_id,title,rationale,status,decided_at,updated_at,source,confidence,metadata_json,status_history_json
+       FROM planning_decisions WHERE decision_id = ?`,
+    ).bind(decisionId).first();
+    return persistedDecision(row);
+  }
+
+  async function requireProject(projectId) {
+    const found = await database.prepare(
+      'SELECT project_id FROM planning_projects WHERE project_id = ?',
+    ).bind(projectId).first('project_id');
+    requireValue(found, 'PROJECT_NOT_FOUND', 404);
+  }
+
+  return Object.freeze({
+    async createProject(input) {
+      const project = projectEntity(input);
+      const result = await database.prepare(
+        `INSERT INTO planning_projects
+          (project_id,title,objectives_json,status,created_at,updated_at,metadata_json,status_history_json)
+         VALUES (?,?,?,?,?,?,?,?)
+         ON CONFLICT(project_id) DO NOTHING`,
+      ).bind(
+        project.project_id,
+        project.title,
+        JSON.stringify(project.objectives),
+        project.status,
+        project.created_at,
+        project.updated_at,
+        JSON.stringify(project.metadata),
+        JSON.stringify(project.status_history),
+      ).run();
+      requireValue(Number(result?.meta?.changes || 0) === 1, 'PROJECT_EXISTS', 409);
+      return clone(project);
+    },
+
+    async getProject(input = {}) {
+      return loadProject(requiredId(input, 'project_id', 'PROJECT_ID_INVALID'));
+    },
+
+    async listProjects(input = {}) {
+      const query = listQuery(input, { statuses: PROJECT_STATUSES });
+      const where = [];
+      const params = [];
+      if (query.status !== undefined) {
+        where.push('status = ?');
+        params.push(query.status);
+      }
+      const direction = query.order === 'desc' ? 'DESC' : 'ASC';
+      params.push(query.limit);
+      const result = await database.prepare(
+        `SELECT project_id,title,objectives_json,status,created_at,updated_at,metadata_json,status_history_json
+         FROM planning_projects
+         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+         ORDER BY created_at ${direction}, project_id ${direction}
+         LIMIT ?`,
+      ).bind(...params).all();
+      return (result?.results || []).map(persistedProject);
+    },
+
+    async setProjectStatus(input = {}) {
+      const projectId = requiredId(input, 'project_id', 'PROJECT_ID_INVALID');
+      requireValue(PROJECT_STATUSES.includes(input.status), 'PROJECT_STATUS_INVALID', 400);
+      requireValue(validTime(input.changed_at), 'PROJECT_STATUS_TIME_INVALID', 400);
+      requireValue(input.reason === undefined || typeof input.reason === 'string', 'PROJECT_STATUS_REASON_INVALID', 400);
+
+      const project = await loadProject(projectId);
+      requireValue(input.changed_at >= project.updated_at, 'PROJECT_STATUS_TIME_INVALID', 400);
+      if (project.status === input.status) return clone(project);
+
+      const updated = projectEntity({
+        ...project,
+        status: input.status,
+        updated_at: input.changed_at,
+        status_history: [...project.status_history, {
+          status: input.status,
+          changed_at: input.changed_at,
+          ...(input.reason === undefined ? {} : { reason: input.reason }),
+        }],
+      });
+      const result = await database.prepare(
+        `UPDATE planning_projects
+         SET status = ?, updated_at = ?, status_history_json = ?
+         WHERE project_id = ? AND updated_at = ?`,
+      ).bind(
+        updated.status,
+        updated.updated_at,
+        JSON.stringify(updated.status_history),
+        projectId,
+        project.updated_at,
+      ).run();
+      requireValue(Number(result?.meta?.changes || 0) === 1, 'PROJECT_CONCURRENT_UPDATE', 409);
+      return clone(updated);
+    },
+
+    async recordDecision(input) {
+      const decision = decisionEntity(input);
+      await requireProject(decision.project_id);
+      const result = await database.prepare(
+        `INSERT INTO planning_decisions
+          (decision_id,project_id,title,rationale,status,decided_at,updated_at,source,confidence,metadata_json,status_history_json)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(decision_id) DO NOTHING`,
+      ).bind(
+        decision.decision_id,
+        decision.project_id,
+        decision.title,
+        decision.rationale,
+        decision.status,
+        decision.decided_at,
+        decision.updated_at,
+        decision.source,
+        decision.confidence,
+        JSON.stringify(decision.metadata),
+        JSON.stringify(decision.status_history),
+      ).run();
+      requireValue(Number(result?.meta?.changes || 0) === 1, 'DECISION_EXISTS', 409);
+      return clone(decision);
+    },
+
+    async getDecision(input = {}) {
+      return loadDecision(requiredId(input, 'decision_id', 'DECISION_ID_INVALID'));
+    },
+
+    async listDecisions(input = {}) {
+      const query = listQuery(input, { statuses: DECISION_STATUSES });
+      const where = [];
+      const params = [];
+      if (query.project_id !== undefined) {
+        where.push('project_id = ?');
+        params.push(query.project_id);
+      }
+      if (query.status !== undefined) {
+        where.push('status = ?');
+        params.push(query.status);
+      }
+      const direction = query.order === 'desc' ? 'DESC' : 'ASC';
+      params.push(query.limit);
+      const result = await database.prepare(
+        `SELECT decision_id,project_id,title,rationale,status,decided_at,updated_at,source,confidence,metadata_json,status_history_json
+         FROM planning_decisions
+         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+         ORDER BY decided_at ${direction}, decision_id ${direction}
+         LIMIT ?`,
+      ).bind(...params).all();
+      return (result?.results || []).map(persistedDecision);
+    },
+
+    async setDecisionStatus(input = {}) {
+      const decisionId = requiredId(input, 'decision_id', 'DECISION_ID_INVALID');
+      requireValue(DECISION_STATUSES.includes(input.status), 'DECISION_STATUS_INVALID', 400);
+      requireValue(validTime(input.changed_at), 'DECISION_STATUS_TIME_INVALID', 400);
+      requireValue(input.reason === undefined || typeof input.reason === 'string', 'DECISION_STATUS_REASON_INVALID', 400);
+
+      const decision = await loadDecision(decisionId);
+      requireValue(input.changed_at >= decision.updated_at, 'DECISION_STATUS_TIME_INVALID', 400);
+      if (decision.status === input.status) return clone(decision);
+
+      const updated = decisionEntity({
+        ...decision,
+        status: input.status,
+        updated_at: input.changed_at,
+        status_history: [...decision.status_history, {
+          status: input.status,
+          changed_at: input.changed_at,
+          ...(input.reason === undefined ? {} : { reason: input.reason }),
+        }],
+      });
+      const result = await database.prepare(
+        `UPDATE planning_decisions
+         SET status = ?, updated_at = ?, status_history_json = ?
+         WHERE decision_id = ? AND updated_at = ?`,
+      ).bind(
+        updated.status,
+        updated.updated_at,
+        JSON.stringify(updated.status_history),
+        decisionId,
+        decision.updated_at,
+      ).run();
+      requireValue(Number(result?.meta?.changes || 0) === 1, 'DECISION_CONCURRENT_UPDATE', 409);
+      return clone(updated);
+    },
+
+    async addLesson(input) {
+      const lesson = lessonEntity(input);
+      await requireProject(lesson.project_id);
+      const result = await database.prepare(
+        `INSERT INTO planning_lessons
+          (lesson_id,project_id,content,learned_at,source,metadata_json)
+         VALUES (?,?,?,?,?,?)
+         ON CONFLICT(lesson_id) DO NOTHING`,
+      ).bind(
+        lesson.lesson_id,
+        lesson.project_id,
+        lesson.content,
+        lesson.learned_at,
+        lesson.source,
+        JSON.stringify(lesson.metadata),
+      ).run();
+      requireValue(Number(result?.meta?.changes || 0) === 1, 'LESSON_EXISTS', 409);
+      return clone(lesson);
+    },
+
+    async getLesson(input = {}) {
+      const lessonId = requiredId(input, 'lesson_id', 'LESSON_ID_INVALID');
+      const row = await database.prepare(
+        `SELECT lesson_id,project_id,content,learned_at,source,metadata_json
+         FROM planning_lessons WHERE lesson_id = ?`,
+      ).bind(lessonId).first();
+      return persistedLesson(row);
+    },
+
+    async listLessons(input = {}) {
+      const query = listQuery(input);
+      const where = [];
+      const params = [];
+      if (query.project_id !== undefined) {
+        where.push('project_id = ?');
+        params.push(query.project_id);
+      }
+      const direction = query.order === 'desc' ? 'DESC' : 'ASC';
+      params.push(query.limit);
+      const result = await database.prepare(
+        `SELECT lesson_id,project_id,content,learned_at,source,metadata_json
+         FROM planning_lessons
+         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+         ORDER BY learned_at ${direction}, lesson_id ${direction}
+         LIMIT ?`,
+      ).bind(...params).all();
+      return (result?.results || []).map(persistedLesson);
+    },
+  });
+}
