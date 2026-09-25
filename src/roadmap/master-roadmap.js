@@ -112,7 +112,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P08', 'Connecteurs et web', [
-    item('GEN2-32', 'Connector SDK', 'PARTIAL', 'Finaliser OAuth + scopes + health', 'P1'),
+    item('GEN2-32', 'Connector SDK', 'PARTIAL', 'OAuth2 provider-neutral désormais implémenté pour Gmail/Drive/Calendar/Contacts/Outlook/OneDrive/SharePoint: PKCE S256, state one-shot owner-bound, scopes read-only allowlistés et vérifiés après grant, échange/refresh sans exposition de tokens, révocation locale/remote et health via probe fixe du connecteur. Les tokens/verifiers restent exclusivement dans stateStore/credentialStore injectés; aucun stockage secret D1 en clair. Reste à brancher un coffre persistant chiffré + callback/runtime capabilities et à prouver les grants réels avant DONE.', 'P1'),
     item('GEN2-33', 'Gmail / Google', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
     item('GEN2-34', 'Outlook / Microsoft', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P2'),
     item('GEN2-35', 'OneDrive / SharePoint', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
