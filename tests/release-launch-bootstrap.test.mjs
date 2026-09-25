@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { maybeHandleReleaseLaunchBootstrap, __launchBootstrapTest } from '../src/evolution/release-launch-bootstrap.js';
+import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 
 const TOKEN='a'.repeat(64);
 
@@ -154,4 +155,27 @@ test('release bootstrap rejects unknown phase before running preparation', async
   assert.equal(response.status,400);
   assert.equal((await response.json()).code,'BOOTSTRAP_PHASE_INVALID');
   assert.equal(prepared,false);
+});
+
+test('release bootstrap Skill Registry proof persists, restores, rolls back and is replay-safe', async () => {
+  const DB=sqliteD1();
+  const env={MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB,MEL_DEPLOYED_GIT_SHA:'e'.repeat(40)};
+  const request=()=>new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+    method:'POST',
+    headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+    body:JSON.stringify({phase:'skill-registry-proof'}),
+  });
+  try {
+    for(let attempt=0;attempt<2;attempt+=1){
+      const response=await maybeHandleReleaseLaunchBootstrap(request(),env);
+      assert.equal(response.status,200);
+      const body=await response.json();
+      assert.equal(body.ok,true);
+      assert.equal(body.status,'MEL_EVOL_05_PRODUCTION_D1_VERIFIED');
+      assert.equal(body.restored_before_rollback,'1.1.0');
+      assert.equal(body.restored_after_rollback,'1.0.0');
+    }
+  } finally {
+    DB.close();
+  }
 });
