@@ -265,6 +265,45 @@ export const MIGRATIONS = [
       UNIQUE(message_id,content)
     )`).run();
   }},
+  { version: 13, name: 'planning_projects_decisions', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS planning_projects (
+      project_id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      objectives_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      status_history_json TEXT NOT NULL DEFAULT '[]'
+    )`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS planning_decisions (
+      decision_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      rationale TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL,
+      decided_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      source TEXT NOT NULL,
+      confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      status_history_json TEXT NOT NULL DEFAULT '[]'
+    )`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS planning_lessons (
+      lesson_id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      learned_at INTEGER NOT NULL,
+      source TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}'
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_planning_projects_status_created
+      ON planning_projects(status, created_at)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_planning_decisions_project_status
+      ON planning_decisions(project_id, status, decided_at)`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_planning_lessons_project_learned
+      ON planning_lessons(project_id, learned_at)`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
