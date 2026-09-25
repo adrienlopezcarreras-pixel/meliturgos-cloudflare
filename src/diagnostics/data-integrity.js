@@ -90,6 +90,17 @@ async function orphanCheck({ db, tables, checks, id, childTable, parentTable, ch
   });
 }
 
+async function compositeReferenceCheck({ db, tables, checks, id, requiredTables, countSql, sampleSql }) {
+  const missing = requiredTables.filter(table => !tables.has(table));
+  if (missing.length) {
+    pushCheck(checks, { id, status:'SKIPPED', reason:'TABLE_MISSING', tables:missing, count:null, samples:[] });
+    return;
+  }
+  const count = await countRows(db, countSql);
+  const samples = count ? await sampleIds(db, sampleSql) : [];
+  pushCheck(checks, { id, status:count===0?'PASS':'FAIL', count, samples });
+}
+
 async function temporalCheck({ db, tables, checks, id, table, created = 'created_at', updated = 'updated_at' }) {
   if (!tables.has(table)) {
     pushCheck(checks, { id, status:'SKIPPED', reason:'TABLE_MISSING', tables:[table], count:null, samples:[] });
@@ -242,6 +253,38 @@ export async function auditDataIntegrity(db) {
   for (const [id,childTable,parentTable,childColumn] of orphanSpecs) {
     await orphanCheck({ db, tables, checks, id, childTable, parentTable, childColumn });
   }
+
+  await compositeReferenceCheck({
+    db, tables, checks,
+    id:'memory_candidates.message_conversation_pair',
+    requiredTables:['memory_candidates','archive_messages'],
+    countSql:`SELECT COUNT(*) n
+      FROM memory_candidates c
+      JOIN archive_messages a ON a.id=c.message_id
+      WHERE a.conversation_id<>c.conversation_id`,
+    sampleSql:`SELECT c.id candidate_id,c.conversation_id candidate_conversation,a.conversation_id message_conversation
+      FROM memory_candidates c
+      JOIN archive_messages a ON a.id=c.message_id
+      WHERE a.conversation_id<>c.conversation_id
+      LIMIT ${MAX_SAMPLES}`,
+  });
+
+  await compositeReferenceCheck({
+    db, tables, checks,
+    id:'sync_checkpoints.message_conversation_pair',
+    requiredTables:['sync_checkpoints','archive_messages'],
+    countSql:`SELECT COUNT(*) n
+      FROM sync_checkpoints s
+      LEFT JOIN archive_messages a
+        ON a.id=s.last_message_id AND a.conversation_id=s.conversation_id
+      WHERE a.id IS NULL`,
+    sampleSql:`SELECT s.device_id,s.conversation_id,s.last_message_id
+      FROM sync_checkpoints s
+      LEFT JOIN archive_messages a
+        ON a.id=s.last_message_id AND a.conversation_id=s.conversation_id
+      WHERE a.id IS NULL
+      LIMIT ${MAX_SAMPLES}`,
+  });
 
   for (const table of ['conversations','devices','plugins','modules','connectors']) {
     await temporalCheck({ db, tables, checks, id:`${table}.time_order`, table });
