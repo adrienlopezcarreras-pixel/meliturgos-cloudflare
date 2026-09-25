@@ -28,6 +28,8 @@ test('web.research returns bounded sourced results with provenance through Capab
   assert.ok(result.sources.every(source => source.url.startsWith('https://')));
   assert.ok(result.sources.every(source => source.provenance?.source_id));
   assert.match(result.citation, /URL:/);
+  assert.equal(result.answer_ready, false);
+  assert.equal(result.source_quality.status, 'DISCOVERY_ONLY');
 });
 
 test('web research HTTP API execution is locked to CapabilityBus', async () => {
@@ -57,4 +59,7 @@ test('web.research accepts bounded official seed URLs through CapabilityBus', as
   assert.equal(result.citations_count, 1);
   assert.equal(result.sources[0].source_kind, 'OFFICIAL_SEED');
   assert.deepEqual(calls, ['https://docs.example.com/video']);
+  assert.equal(result.answer_ready, true);
+  assert.equal(result.source_quality.status, 'STRONG');
+  assert.equal(result.sources[0].source_quality.tier, 'PRIMARY');
 });
