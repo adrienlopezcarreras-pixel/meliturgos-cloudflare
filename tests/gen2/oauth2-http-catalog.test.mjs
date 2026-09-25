@@ -176,7 +176,7 @@ test('OAuth HTTP revoke uses fixed revocation endpoint and prefers refresh token
   const client = createOAuthHttpTokenClient({
     fetcher: async (url, options) => {
       calls.push({ url, options });
-      return new Response('', { status: 204 });
+      return new Response(null, { status: 204 });
     },
   });
 
