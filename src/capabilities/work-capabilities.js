@@ -311,15 +311,33 @@ export function registerWorkCapabilities(bus, { db } = {}) {
 
     if (!accepted) {
       repairAttempted = true;
+      const repairCatalog = catalog
+        .filter((record) => String(record?.risk || '').toUpperCase() === 'LOW' && record?.approval_required !== true)
+        .sort((a, b) => {
+          const aRequired = Array.isArray(a?.input_schema?.required) ? a.input_schema.required.length : 0;
+          const bRequired = Array.isArray(b?.input_schema?.required) ? b.input_schema.required.length : 0;
+          return aRequired - bRequired || String(a.id).localeCompare(String(b.id));
+        })
+        .slice(0, 8);
+      const constrainedCatalog = repairCatalog.length ? repairCatalog : catalog.slice(0, 8);
       const repairPrompt = [
-        prompt,
-        '',
-        'REPAIR REQUIRED:',
-        'All previous proposals failed strict validation.',
-        'Return ONLY one valid JSON object in the exact requested format.',
-        'Choose the smallest executable plan and prefer LOW-risk capabilities whose required input_schema you can satisfy exactly.',
-        'Do not invent capability ids, fields, values, wrappers, markdown, prose, or work.* capabilities.',
-        'Previous validation failure codes:',
+        'Tu répares un plan MEL qui a échoué à la validation stricte.',
+        'Réponds UNIQUEMENT avec un objet JSON valide, sans markdown ni commentaire.',
+        'FORMAT EXACT:',
+        '{"steps":[{"id":"step-1","title":"...","capability":"capability.id","input":{},"dependsOn":[],"idempotent":false}],"constraints":[]}',
+        'RÈGLES ABSOLUES:',
+        '- choisis UNE SEULE capability dans REPAIR_CAPABILITIES;',
+        '- copie exactement son id;',
+        '- fournis exactement les champs requis par son input_schema, sans champ supplémentaire;',
+        '- n’utilise jamais work.*;',
+        '- ne lance rien et ne persiste rien;',
+        'OBJECTIF:',
+        String(input.goal || '').slice(0, 4000),
+        'CONTRAINTES:',
+        JSON.stringify((input.constraints || []).slice(0, 32)),
+        'REPAIR_CAPABILITIES:',
+        JSON.stringify(constrainedCatalog),
+        'ECHECS PRECEDENTS:',
         JSON.stringify(validationFailures.slice(0, 12)),
       ].join('\n').slice(0, 12000);
 
