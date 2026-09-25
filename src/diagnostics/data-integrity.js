@@ -2,6 +2,7 @@ import { DB_SCHEMA_VERSION } from '../core/config.js';
 import { MIGRATIONS } from '../persistence/migrations.js';
 
 const MAX_SAMPLES = 10;
+const REQUIRED_TABLE_CONTRACT_VERSION = 12;
 const REQUIRED_MIGRATION_TABLES = Object.freeze([
   'schema_migrations',
   'conversations',
@@ -160,6 +161,16 @@ export async function auditDataIntegrity(db) {
   const startedAt = Date.now();
   const tables = await tableNames(db);
   const checks = [];
+
+  pushCheck(checks, {
+    id:'schema.required_table_contract_version',
+    status:DB_SCHEMA_VERSION===REQUIRED_TABLE_CONTRACT_VERSION?'PASS':'FAIL',
+    count:DB_SCHEMA_VERSION===REQUIRED_TABLE_CONTRACT_VERSION?0:1,
+    expected_schema_version:REQUIRED_TABLE_CONTRACT_VERSION,
+    runtime_schema_version:DB_SCHEMA_VERSION,
+    reason:DB_SCHEMA_VERSION===REQUIRED_TABLE_CONTRACT_VERSION?null:'INTEGRITY_TABLE_CONTRACT_REVIEW_REQUIRED',
+    samples:[],
+  });
 
   const missingRequiredTables = REQUIRED_MIGRATION_TABLES.filter(name => !tables.has(name));
   pushCheck(checks, {
