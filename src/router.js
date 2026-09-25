@@ -13,6 +13,7 @@ import { devRuntime } from "./dev/runtime-api.js";
 import { handleShardVaultStatus } from "./pages/shardvault-status.js";
 import { getLegacyInteractionMigrationStatus, backfillLegacyInteractions } from "./persistence/gen1-interactions-migration.js";
 import { getChatGPTMemoryBackfillStatus, backfillChatGPTArchiveToMemory } from "./persistence/chatgpt-memory-backfill.js";
+import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVersionResponse, apiMethodNotAllowedResponse, apiVersionMetadataResponse } from "./api/api-versioning.js";
 export { inferNativeCodeCapability as inferCodeCapability } from "./api/native-chat.js";
 
 function capabilityContext(env) {
@@ -272,8 +273,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
   return null;
 }
 
-export default {
-  async fetch(request, env, ctx) {
+async function routeResolvedRequest(request, env, ctx) {
     const url = new URL(request.url);
     const isDevBridge = url.pathname.startsWith('/api/dev-bridge/');
     if (isDevBridge) {
@@ -328,5 +328,31 @@ export default {
       return json({ error: "Not found", code: "NOT_FOUND" }, 404);
     }
     return html("<h1>Page introuvable</h1>", 404);
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    const resolution = resolveApiVersionRequest(request, { handler: 'router' });
+
+    if (resolution.unsupported) {
+      const auth = requireAuth(request, env);
+      if (!auth.ok) return auth.response;
+      return unsupportedApiVersionResponse(resolution);
+    }
+
+    if (resolution.method_not_allowed) {
+      const auth = requireAuth(request, env);
+      if (!auth.ok) return auth.response;
+      return apiMethodNotAllowedResponse(resolution);
+    }
+
+    if (resolution.route?.meta) {
+      const auth = requireAuth(request, env);
+      if (!auth.ok) return auth.response;
+      return decorateApiVersionResponse(apiVersionMetadataResponse(), resolution);
+    }
+
+    const response = await routeResolvedRequest(resolution.request, env, ctx);
+    return decorateApiVersionResponse(response, resolution);
   },
 };
