@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.27-stable-mini-online"
+        const val APP_VERSION = "0.6.28-notify-mini-online"
     }
 
     init {

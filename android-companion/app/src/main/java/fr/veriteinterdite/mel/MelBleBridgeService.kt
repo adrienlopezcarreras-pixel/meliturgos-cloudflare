@@ -175,7 +175,7 @@ class MelBleBridgeService : Service() {
         )
         val tx = BluetoothGattCharacteristic(
             TX_UUID,
-            BluetoothGattCharacteristic.PROPERTY_INDICATE or BluetoothGattCharacteristic.PROPERTY_READ,
+            BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_INDICATE or BluetoothGattCharacteristic.PROPERTY_READ,
             BluetoothGattCharacteristic.PERMISSION_READ
         )
         tx.addDescriptor(
@@ -488,12 +488,12 @@ class MelBleBridgeService : Service() {
         val tx = txCharacteristic ?: return false
         notificationAck.clear()
         val queued = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            server.notifyCharacteristicChanged(device, tx, true, frame) == BluetoothGatt.GATT_SUCCESS
+            server.notifyCharacteristicChanged(device, tx, false, frame) == BluetoothGatt.GATT_SUCCESS
         } else {
             @Suppress("DEPRECATION")
             tx.value = frame
             @Suppress("DEPRECATION")
-            server.notifyCharacteristicChanged(device, tx, true)
+            server.notifyCharacteristicChanged(device, tx, false)
         }
         if (!queued) return false
         return notificationAck.poll(5, TimeUnit.SECONDS) == BluetoothGatt.GATT_SUCCESS
