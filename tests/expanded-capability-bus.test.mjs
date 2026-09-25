@@ -8,7 +8,7 @@ const context = { owner: 'adrien', permissions: [], requestId: 'test' };
 test('default CapabilityBus exposes real planning, memory, diagnostics, Council and orchestration capabilities', () => {
   const bus = createDefaultCapabilityBus({ env: { MELITURGOS_USER: 'adrien' }, fetchImpl: async () => new Response('', { status: 503 }) });
   const ids = new Set(bus.list().map(x => x.id));
-  for (const id of ['echo','code.read','code.search','augmentio.fanout','council.state-of-play','evolution.preflight','roadmap.read','system.bindings','rag.search','conversation.list','chatgpt.archive.preview']) {
+  for (const id of ['echo','code.read','code.search','augmentio.fanout','council.state-of-play','evolution.preflight','roadmap.read','system.bindings','rag.search','conversation.list','chatgpt.archive.preview','timeline.list','project.create','project.list','decision.record','decision.list','lesson.add','lesson.list']) {
     assert.ok(ids.has(id), `missing ${id}`);
   }
   assert.ok(ids.size >= 11);
