@@ -29,6 +29,7 @@ test('GEN2-55 integrity audit passes a coherent migrated database without exposi
     assert.equal(result.ok,true);
     assert.equal(result.summary.failed,0);
     assert.equal(result.checks.find(check=>check.id==='schema.version').status,'PASS');
+    assert.equal(result.checks.find(check=>check.id==='schema.required_table_contract_version').status,'PASS');
     assert.equal(JSON.stringify(result).includes('hello'),false);
   } finally { db.close(); }
 });
