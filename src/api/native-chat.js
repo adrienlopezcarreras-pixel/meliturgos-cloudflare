@@ -753,19 +753,63 @@ export async function handleNativeChat(request, env, options = {}) {
       preferredModel: personalProfileIntent ? '@cf/meta/llama-3.3-70b-instruct-fp8-fast' : null,
     });
   } catch (error) {
-    if (!personalProfileIntent || !personalProfileFallback) throw error;
-    ai = {
-      text: personalProfileFallback,
-      model: 'deterministic-personal-profile-fallback',
-      provider: 'mel',
-      task: 'REASONING',
-      attempts: 0,
-      fallback_used: true,
-      tool_succeeded: true,
-      finish_reason: null,
-      truncated: false,
-      usage: null,
-    };
+    if (personalProfileIntent && personalProfileFallback) {
+      ai = {
+        text: personalProfileFallback,
+        model: 'deterministic-personal-profile-fallback',
+        provider: 'mel',
+        task: 'REASONING',
+        attempts: 0,
+        fallback_used: true,
+        tool_succeeded: true,
+        finish_reason: null,
+        truncated: false,
+        usage: null,
+      };
+    } else {
+      try {
+        const fallbackModel = String(env.MEL_NATIVE_CHAT_FALLBACK_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+        const fallbackInput = {
+          messages,
+          ...inferenceGenerationOptions(effectiveInferenceSettings),
+        };
+        const fallbackResult = await env.AI.run(fallbackModel, fallbackInput);
+        const fallbackText = typeof fallbackResult === 'string'
+          ? fallbackResult
+          : fallbackResult?.response
+            ?? fallbackResult?.text
+            ?? fallbackResult?.message?.content
+            ?? fallbackResult?.choices?.[0]?.message?.content
+            ?? fallbackResult?.choices?.[0]?.text
+            ?? '';
+        if (!String(fallbackText || '').trim()) {
+          throw Object.assign(new Error('CHAT_FALLBACK_EMPTY'), { code: 'CHAT_FALLBACK_EMPTY' });
+        }
+        ai = {
+          text: String(fallbackText),
+          model: fallbackModel,
+          provider: 'workers-ai',
+          task: classifyTask(text || ''),
+          attempts: 1,
+          fallback_used: true,
+          tool_succeeded: true,
+          finish_reason: extractFinishReason(fallbackResult),
+          truncated: isTruncationFinishReason(extractFinishReason(fallbackResult)),
+          usage: fallbackResult?.usage || null,
+        };
+      } catch (fallbackError) {
+        console.error('[native-chat] inference and fallback failed', {
+          primary: error?.code || error?.message || String(error),
+          fallback: fallbackError?.code || fallbackError?.message || String(fallbackError),
+        });
+        return Response.json({
+          ok: false,
+          error: 'CHAT_INFERENCE_FAILED',
+          code: 'CHAT_INFERENCE_FAILED',
+          detail: String(fallbackError?.code || fallbackError?.message || 'FALLBACK_FAILED').slice(0, 180),
+        }, { status: 503, headers: { 'cache-control': 'no-store' } });
+      }
+    }
   }
 
   const modelResponseText = stripInternalCounters(ai.text);
