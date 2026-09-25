@@ -298,6 +298,24 @@ test('GEN2-37 release token proves high-provenance official web research and rej
   assert.equal(deniedBody.code, 'RELEASE_SMOKE_RESEARCH_SCOPE_DENIED');
 });
 
+test('GEN2-55 release token reaches only the bounded integrity and maturity diagnostics', async () => {
+  for (const id of ['system.integrity', 'system.maturity']) {
+    const response = await worker.fetch(
+      smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, input:{} }),
+      }),
+      env(),
+      {},
+    );
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.capability, id);
+    assert.match(String(body.result?.schema || ''), /^mel\.(?:data-integrity|final-maturity)-audit$/);
+  }
+});
+
 test('MEL-REL-03 release token cannot use the generic capability route outside the bounded smoke allowlist', async () => {
   const response = await worker.fetch(
     smokeRequest('/api/gen2/capabilities/execute', 'POST', {
@@ -310,5 +328,5 @@ test('MEL-REL-03 release token cannot use the generic capability route outside t
   assert.equal(response.status, 403);
   const body = await response.json();
   assert.equal(body.code, 'RELEASE_SMOKE_CAPABILITY_DENIED');
-  assert.deepEqual(body.allowed_capabilities, ['echo', 'resilience.recovery.drill.latest']);
+  assert.deepEqual(body.allowed_capabilities, ['echo', 'resilience.recovery.drill.latest', 'system.integrity', 'system.maturity']);
 });
