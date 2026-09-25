@@ -13,7 +13,7 @@ import { devRuntime } from "./dev/runtime-api.js";
 import { handleShardVaultStatus } from "./pages/shardvault-status.js";
 import { getLegacyInteractionMigrationStatus, backfillLegacyInteractions } from "./persistence/gen1-interactions-migration.js";
 import { getChatGPTMemoryBackfillStatus, backfillChatGPTArchiveToMemory } from "./persistence/chatgpt-memory-backfill.js";
-import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVersionResponse, apiVersionMetadataResponse } from "./api/api-versioning.js";
+import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVersionResponse, apiMethodNotAllowedResponse, apiVersionMetadataResponse } from "./api/api-versioning.js";
 export { inferNativeCodeCapability as inferCodeCapability } from "./api/native-chat.js";
 
 function capabilityContext(env) {
@@ -338,6 +338,12 @@ export default {
       const auth = requireAuth(request, env);
       if (!auth.ok) return auth.response;
       return unsupportedApiVersionResponse(resolution);
+    }
+
+    if (resolution.method_not_allowed) {
+      const authPolicyResponse = requireAuth(request, env).ok ? null : requireAuth(request, env).response;
+      if (authPolicyResponse) return authPolicyResponse;
+      return apiMethodNotAllowedResponse(resolution);
     }
 
     if (resolution.route?.meta) {
