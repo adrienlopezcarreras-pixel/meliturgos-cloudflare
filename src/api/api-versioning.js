@@ -2,21 +2,34 @@ export const API_CURRENT_VERSION = 'v1';
 export const API_SUPPORTED_VERSIONS = Object.freeze(['v1']);
 
 const ROUTES = Object.freeze([
-  { id:'api.version', canonical:'/api/v1/version', legacy:['/api/gen2/version'], methods:['GET'], meta:true },
-  { id:'roadmap.read', canonical:'/api/v1/roadmap', legacy:['/api/gen2/roadmap'], methods:['GET'] },
-  { id:'code.self-check', canonical:'/api/v1/code/self-check', legacy:['/api/gen2/code/self-check'], methods:['GET'] },
-  { id:'capabilities.list', canonical:'/api/v1/capabilities', legacy:['/api/gen2/capabilities'], methods:['GET'] },
-  { id:'capabilities.execute', canonical:'/api/v1/capabilities/execute', legacy:['/api/gen2/capabilities/execute'], methods:['POST'] },
-  { id:'dashboard.summary', canonical:'/api/v1/dashboard-summary', legacy:['/api/gen2/dashboard-summary'], methods:['GET'] },
-  { id:'migration.gen1-status', canonical:'/api/v1/migration/gen1-status', legacy:['/api/gen2/migration/gen1-status'], methods:['GET'] },
-  { id:'migration.gen1-backfill', canonical:'/api/v1/migration/gen1-backfill', legacy:['/api/gen2/migration/gen1-backfill'], methods:['POST'] },
-  { id:'migration.chatgpt-memory-status', canonical:'/api/v1/migration/chatgpt-memory-status', legacy:['/api/gen2/migration/chatgpt-memory-status'], methods:['GET'] },
-  { id:'migration.chatgpt-memory-backfill', canonical:'/api/v1/migration/chatgpt-memory-backfill', legacy:['/api/gen2/migration/chatgpt-memory-backfill'], methods:['POST'] },
-  { id:'web.research', canonical:'/api/v1/web/research', legacy:['/api/gen2/web/research'], methods:['GET','POST'] },
-  { id:'augmentio.fanout', canonical:'/api/v1/augmentio/fanout', legacy:['/api/gen2/augmentio/fanout'], methods:['POST'] },
-  { id:'rag.search', canonical:'/api/v1/rag/search', legacy:['/api/gen2/rag/search'], methods:['POST'] },
-  { id:'modules.run', canonical:'/api/v1/modules/run', legacy:['/api/gen2/modules/run'], methods:['POST'] },
-  { id:'sync.read', canonical:'/api/v1/sync', legacy:['/api/gen2/sync'], methods:['GET'] },
+  { id:'chat', handler:'index', canonical:'/api/v1/chat', legacy:['/api/chat'], methods:['POST'] },
+  { id:'readiness', handler:'index', canonical:'/api/v1/readiness', legacy:['/api/gen2/readiness'], methods:['GET'] },
+  { id:'council.state-of-play', handler:'index', canonical:'/api/v1/council/state-of-play', legacy:['/api/gen2/council/state-of-play'], methods:['POST'] },
+  { id:'evolution.preflight', handler:'index', canonical:'/api/v1/evolution/preflight', legacy:['/api/gen2/evolution/preflight'], methods:['POST'] },
+  { id:'import.chatgpt-status', handler:'index', canonical:'/api/v1/import/chatgpt-status', legacy:['/api/gen2/import/chatgpt-status'], methods:['GET'] },
+  { id:'import.chatgpt-coverage', handler:'index', canonical:'/api/v1/import/chatgpt-coverage', legacy:['/api/gen2/import/chatgpt-coverage'], methods:['POST'] },
+  { id:'import.chatgpt-archive', handler:'index', canonical:'/api/v1/import/chatgpt-archive', legacy:['/api/gen2/import/chatgpt-archive','/api/import/chatgpt-context'], methods:['POST'] },
+  { id:'memory.status', handler:'index', canonical:'/api/v1/memory/status', legacy:['/api/memory/status'], methods:['GET'] },
+  { id:'memory.consolidate', handler:'index', canonical:'/api/v1/memory/consolidate', legacy:['/api/memory/consolidate'], methods:['GET'] },
+  { id:'memory.export', handler:'index', canonical:'/api/v1/memory/export', legacy:['/api/export'], methods:['GET'] },
+  { id:'work.health', handler:'index', canonical:'/api/v1/work/health', legacy:['/api/work/health'], methods:['GET'] },
+  { id:'work.jobs', handler:'index', canonical:'/api/v1/work/jobs', legacy:['/api/work/jobs'], methods:['GET','POST'] },
+  { id:'autonomy', handler:'index', canonical:'/api/v1/autonomy', legacy:['/api/gen2/autonomy'], methods:['GET','POST','PATCH','DELETE'], prefix:true },
+  { id:'api.version', handler:'router', canonical:'/api/v1/version', legacy:['/api/gen2/version'], methods:['GET'], meta:true },
+  { id:'roadmap.read', handler:'router', canonical:'/api/v1/roadmap', legacy:['/api/gen2/roadmap'], methods:['GET'] },
+  { id:'code.self-check', handler:'router', canonical:'/api/v1/code/self-check', legacy:['/api/gen2/code/self-check'], methods:['GET'] },
+  { id:'capabilities.list', handler:'router', canonical:'/api/v1/capabilities', legacy:['/api/gen2/capabilities'], methods:['GET'] },
+  { id:'capabilities.execute', handler:'router', canonical:'/api/v1/capabilities/execute', legacy:['/api/gen2/capabilities/execute'], methods:['POST'] },
+  { id:'dashboard.summary', handler:'router', canonical:'/api/v1/dashboard-summary', legacy:['/api/gen2/dashboard-summary'], methods:['GET'] },
+  { id:'migration.gen1-status', handler:'router', canonical:'/api/v1/migration/gen1-status', legacy:['/api/gen2/migration/gen1-status'], methods:['GET'] },
+  { id:'migration.gen1-backfill', handler:'router', canonical:'/api/v1/migration/gen1-backfill', legacy:['/api/gen2/migration/gen1-backfill'], methods:['POST'] },
+  { id:'migration.chatgpt-memory-status', handler:'router', canonical:'/api/v1/migration/chatgpt-memory-status', legacy:['/api/gen2/migration/chatgpt-memory-status'], methods:['GET'] },
+  { id:'migration.chatgpt-memory-backfill', handler:'router', canonical:'/api/v1/migration/chatgpt-memory-backfill', legacy:['/api/gen2/migration/chatgpt-memory-backfill'], methods:['POST'] },
+  { id:'web.research', handler:'router', canonical:'/api/v1/web/research', legacy:['/api/gen2/web/research'], methods:['GET','POST'] },
+  { id:'augmentio.fanout', handler:'router', canonical:'/api/v1/augmentio/fanout', legacy:['/api/gen2/augmentio/fanout'], methods:['POST'] },
+  { id:'rag.search', handler:'router', canonical:'/api/v1/rag/search', legacy:['/api/gen2/rag/search'], methods:['POST'] },
+  { id:'modules.run', handler:'router', canonical:'/api/v1/modules/run', legacy:['/api/gen2/modules/run'], methods:['POST'] },
+  { id:'sync.read', handler:'router', canonical:'/api/v1/sync', legacy:['/api/gen2/sync'], methods:['GET'] },
   {
     id:'conversations.rest',
     canonical:'/api/v1/conversations',
@@ -53,6 +66,7 @@ export function apiVersionRegistry() {
     compatibility_policy: 'LEGACY_ALIASES_REMAIN_FUNCTIONAL_AND_ARE_MARKED_DEPRECATED',
     routes: ROUTES.map(route => ({
       id: route.id,
+      handler: route.handler,
       canonical: route.canonical,
       legacy: [...route.legacy],
       methods: [...route.methods],
@@ -62,7 +76,7 @@ export function apiVersionRegistry() {
   };
 }
 
-export function resolveApiVersionRequest(request) {
+export function resolveApiVersionRequest(request, { handler = null } = {}) {
   const url = new URL(request.url);
   const pathname = boundedPath(url.pathname);
   const method = String(request.method || 'GET').toUpperCase();
@@ -82,6 +96,7 @@ export function resolveApiVersionRequest(request) {
   }
 
   for (const route of ROUTES) {
+    if (handler && route.handler !== handler) continue;
     if (matchPath(route.canonical, pathname, route.prefix)) {
       if (!methodAllowed(route, method)) continue;
       const target = route.prefix
