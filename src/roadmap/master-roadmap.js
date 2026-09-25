@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-23.12';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.05';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -167,7 +167,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-49', 'Portabilité système provider-neutral', 'PLANNED', 'Bundle complet indépendant des fournisseurs', 'P1'),
     item('MEL-RES-01', 'Survival Mode: NORMAL/DEGRADED/READ_ONLY/RECOVERY/HALTED', 'DONE_VERIFIED', 'Brancher télémétrie runtime', 'P0'),
     item('MEL-RES-02', 'Recovery Bundle', 'DONE_VERIFIED', 'Ajouter vérification périodique de l’artefact de récupération', 'P0'),
-    item('MEL-RES-03', 'Provider Escape Capsule', 'PARTIAL', 'Documenter le remplacement AI/storage/runtime sans redéployer toute l’architecture', 'P1'),
+    item('MEL-RES-03', 'Provider Escape Capsule', 'PARTIAL', 'Candidate machine-readable implémentée: capsule mel.provider-escape-capsule.v1 pour IA, stockage et runtime à partir du manifest provider-neutral; contrats préservés, adaptateurs actuels/alternatifs, artefacts portables, blockers de readiness, scope ADAPTER_BINDING_ONLY, tests isolés, approbation owner, post-switch smoke et rollback obligatoire. CapabilityBus expose portability.escape.plan en LOW risk, plan-only, sans migration ni activation automatique; secrets nettoyés et tampering de champs sensibles détecté. Preuve exacte SHA c1ab545d80f1eb4681e9f0b033bc3f4cd9b4d33a: browser-capability run 36114743928 job 108006061145, 351 tests / 0 échec; platform-connectors 36114743883 et Professor UI audit 36114743884 verts. Reste avant DONE_VERIFIED: intégration main puis preuve de génération de capsule sur le manifest réel de production; toute bascule fournisseur reste un chantier séparé avec approbation explicite.', 'P1'),
     item('MEL-RES-04', 'Cold standby autorisé', 'PLANNED', 'Préparer restauration manuelle/approuvée', 'P2'),
     item('MEL-RES-05', 'Intégrité mémoire et sauvegardes chiffrées', 'PARTIAL', 'Checksums + chiffrement + restore test', 'P1')
   ]),
