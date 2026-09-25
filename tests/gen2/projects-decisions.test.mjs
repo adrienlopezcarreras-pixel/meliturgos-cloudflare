@@ -176,6 +176,14 @@ test('GEN2-13 D1 adapter persists projects decisions and lessons across service 
 
     await assert.rejects(() => second.createProject(project('p-1')), { code: 'PROJECT_EXISTS', status: 409 });
     await assert.rejects(() => second.recordDecision(decision('d-2', 'missing')), { code: 'PROJECT_NOT_FOUND', status: 404 });
+    await assert.rejects(
+      () => second.setProjectStatus({ project_id: 'p-1', status: 'COMPLETED', changed_at: 2000 }),
+      { code: 'PROJECT_STATUS_TIME_INVALID', status: 400 },
+    );
+    await assert.rejects(
+      () => second.setDecisionStatus({ decision_id: 'd-1', status: 'REVERSED', changed_at: 2100 }),
+      { code: 'DECISION_STATUS_TIME_INVALID', status: 400 },
+    );
   } finally {
     db.close();
   }
