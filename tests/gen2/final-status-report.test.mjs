@@ -133,3 +133,54 @@ test('GEN2-61 rejects malformed completion evidence', () => {
     { code: 'FINAL_STATUS_REPORT_INVALID_INPUT' },
   );
 });
+
+
+test('GEN2-61 preserves completion-matrix revision/fingerprint evidence when present', () => {
+  const base = makeMatrix({ rows: [row('OPEN', { priority: 'P2' })] });
+  base.registry_revision = '2026-09-25.10';
+  base.matrix_fingerprint = 'fnv1a-deadbeef';
+
+  const report = generateFinalStatusReport({ matrix: base });
+  assert.equal(report.source.registry_revision, '2026-09-25.10');
+  assert.equal(report.source.matrix_fingerprint, 'fnv1a-deadbeef');
+
+  const markdown = finalStatusReportToMarkdown(report);
+  assert.match(markdown, /2026-09-25\.10/);
+  assert.match(markdown, /fnv1a-deadbeef/);
+});
+
+test('GEN2-61 separates human actions from external blockers while retaining the full blocker list', () => {
+  const human = row('HUMAN', { priority: 'P1', blocked: true, status: 'BLOCKED_HUMAN' });
+  const external = row('EXTERNAL', { priority: 'P1', blocked: true, status: 'BLOCKED_EXTERNAL' });
+  const matrix = makeMatrix({
+    rows: [human, external],
+    blockers: [human, external],
+    nextWork: [],
+  });
+  matrix.human_actions_required = [human];
+  matrix.external_blockers = [external];
+
+  const report = generateFinalStatusReport({ matrix });
+  assert.deepEqual(report.human_actions_required.map(item => item.id), ['HUMAN']);
+  assert.deepEqual(report.external_blockers.map(item => item.id), ['EXTERNAL']);
+  assert.deepEqual(report.blockers.map(item => item.id), ['EXTERNAL', 'HUMAN']);
+
+  const markdown = finalStatusReportToMarkdown(report);
+  assert.match(markdown, /## Human actions required/);
+  assert.match(markdown, /## External blockers/);
+  assert.match(markdown, /## All blockers/);
+});
+
+test('GEN2-61 never claims maturity from an incomplete but blocker-free roadmap', () => {
+  const matrix = makeMatrix({
+    rows: [
+      row('DONE', { complete: true, status: 'DONE_VERIFIED', priority: 'P0' }),
+      row('P2-OPEN', { priority: 'P2' }),
+    ],
+    blockers: [],
+  });
+  const report = generateFinalStatusReport({ matrix });
+  assert.equal(report.verdict, 'IN_PROGRESS');
+  assert.equal(report.ready_for_final_milestone, false);
+  assert.equal(report.gates.roadmap_complete, false);
+});
