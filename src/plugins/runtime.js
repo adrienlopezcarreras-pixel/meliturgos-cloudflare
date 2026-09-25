@@ -214,6 +214,79 @@ export function createPluginRuntime(options = {}) {
     });
   }
 
+  async function restore(plugin, context = {}) {
+    requireValue(registry, 'PLUGIN_REGISTRY_REQUIRED_FOR_RESTORE', 500);
+    const { manifest, capabilities } = contract(plugin);
+    const existing = records.get(manifest.id);
+    requireValue(!existing || existing.status !== ACTIVE, 'PLUGIN_ALREADY_ACTIVE', 409);
+
+    const record = {
+      manifest,
+      capabilities,
+      plugin,
+      status: 'RESTORING',
+      registered_at: now(),
+      updated_at: now(),
+      error: null,
+    };
+    records.set(manifest.id, record);
+
+    try {
+      requireValue(
+        typeof context.pluginArtifactHash === 'string' && context.pluginArtifactHash.trim(),
+        'PLUGIN_ARTIFACT_HASH_REQUIRED',
+        400,
+      );
+      const ctx = activationContext(record, context);
+      const durableVersion = await registry.get({
+        plugin_id: manifest.id,
+        version: manifest.version,
+      });
+      const durableRoot = await registry.get({ plugin_id: manifest.id });
+      requireValue(durableVersion.status === ACTIVE, 'PLUGIN_RESTORE_VERSION_NOT_ACTIVE', 409);
+      requireValue(durableRoot.active_version === manifest.version, 'PLUGIN_RESTORE_POINTER_MISMATCH', 409);
+      requireValue(
+        durableVersion.artifact_hash === context.pluginArtifactHash.trim(),
+        'PLUGIN_RESTORE_ARTIFACT_MISMATCH',
+        409,
+      );
+
+      await emit('restoring', record);
+      await plugin.activate(ctx);
+      record.status = ACTIVE;
+      record.updated_at = now();
+      counters.installed += 1;
+      await emit('restored', record);
+      return publicRecord(record);
+    } catch (error) {
+      try {
+        const durableVersion = await registry.get({
+          plugin_id: manifest.id,
+          version: manifest.version,
+        });
+        if (durableVersion?.status === ACTIVE) {
+          await registry.disable({
+            plugin_id: manifest.id,
+            version: manifest.version,
+          });
+        }
+      } catch (registryError) {
+        logger?.warn?.('plugin.restore.disable-durable.failed', {
+          plugin_id: manifest.id,
+          version: manifest.version,
+          error: registryError?.code || registryError?.message || String(registryError),
+        });
+      }
+
+      record.status = FAILED;
+      record.updated_at = now();
+      record.error = error?.code || error?.message || String(error);
+      counters.errors += 1;
+      await emit('restore_failed', record, { error: record.error });
+      return publicRecord(record);
+    }
+  }
+
   async function register(plugin, context = {}) {
     const { manifest, capabilities } = contract(plugin);
     const existing = records.get(manifest.id);
@@ -360,6 +433,7 @@ export function createPluginRuntime(options = {}) {
   return Object.freeze({
     register,
     registerAll,
+    restore,
     deactivate,
     execute,
     get(id) { return publicRecord(records.get(id)); },

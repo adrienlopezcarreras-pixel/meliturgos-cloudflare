@@ -49,6 +49,7 @@ export function createRegistryBackedPluginLoader({
   requireValue(
     runtime
       && typeof runtime.register === 'function'
+      && typeof runtime.restore === 'function'
       && typeof runtime.execute === 'function'
       && typeof runtime.deactivate === 'function'
       && typeof runtime.get === 'function',
@@ -98,17 +99,10 @@ export function createRegistryBackedPluginLoader({
     return current;
   }
 
-  async function load(input = {}, context = {}) {
-    const id = pluginId(input);
-    const version = pinnedVersion(input);
-    const record = await getVersion(id, version);
-
-    requireValue(record.status !== 'ACTIVE', 'PLUGIN_LOADER_DURABLE_ALREADY_ACTIVE', 409);
-    requireValue(!['DISABLED', 'ROLLED_BACK'].includes(record.status), 'PLUGIN_LOADER_VERSION_RETIRED', 409);
-
+  async function resolvePinned(record, context = {}) {
     const resolved = await resolvePlugin({
-      plugin_id: id,
-      version,
+      plugin_id: record.plugin_id,
+      version: record.version,
       manifest: structuredClone(record.manifest),
       artifact_hash: record.artifact_hash,
       record: structuredClone(record),
@@ -122,11 +116,36 @@ export function createRegistryBackedPluginLoader({
       'PLUGIN_LOADER_ARTIFACT_MANIFEST_MISMATCH',
       409,
     );
+    return resolved;
+  }
 
-    return runtime.register(resolved, {
+  async function activateResolved(record, resolved, context = {}, { restoreActive = false } = {}) {
+    const runtimeContext = {
       ...context,
       pluginArtifactHash: record.artifact_hash,
-    });
+    };
+    return restoreActive
+      ? runtime.restore(resolved, runtimeContext)
+      : runtime.register(resolved, runtimeContext);
+  }
+
+  async function load(input = {}, context = {}) {
+    const id = pluginId(input);
+    const version = pinnedVersion(input);
+    const record = await getVersion(id, version);
+
+    if (record.status === 'ACTIVE') {
+      requireValue(input.restore_active === true, 'PLUGIN_LOADER_DURABLE_ALREADY_ACTIVE', 409);
+      const resolved = await resolvePinned(record, context);
+      return activateResolved(record, resolved, context, { restoreActive: true });
+    }
+
+    if (['DISABLED', 'ROLLED_BACK'].includes(record.status)) {
+      requireValue(input.reactivate === true, 'PLUGIN_LOADER_VERSION_RETIRED', 409);
+    }
+
+    const resolved = await resolvePinned(record, context);
+    return activateResolved(record, resolved, context);
   }
 
   async function execute(input = {}, context = {}) {
@@ -173,8 +192,54 @@ export function createRegistryBackedPluginLoader({
     return health({ plugin_id: id });
   }
 
-  async function rollback() {
-    throw new DomainError('PLUGIN_ROLLBACK_NOT_IMPLEMENTED', 501);
+  async function rollback(input = {}, context = {}) {
+    const id = pluginId(input);
+    requireValue(nonEmptyString(input.target_version), 'PLUGIN_ROLLBACK_TARGET_REQUIRED', 400);
+    const targetVersion = input.target_version.trim();
+    const durable = await registry.get({ plugin_id: id });
+    requireValue(nonEmptyString(durable.active_version), 'PLUGIN_REGISTRY_NOT_ACTIVE', 409);
+    requireValue(durable.active_version !== targetVersion, 'PLUGIN_ROLLBACK_TARGET_ALREADY_ACTIVE', 409);
+
+    const runtimeRecord = runtime.get(id);
+    if (runtimeRecord?.status === 'ACTIVE') {
+      requireValue(
+        runtimeRecord.version === durable.active_version,
+        'PLUGIN_ROLLBACK_RUNTIME_POINTER_MISMATCH',
+        409,
+      );
+    }
+
+    const target = await getVersion(id, targetVersion);
+    requireValue(target.status !== 'ACTIVE', 'PLUGIN_ROLLBACK_TARGET_ALREADY_ACTIVE', 409);
+    const resolvedTarget = await resolvePinned(target, context);
+
+    const fromVersion = durable.active_version;
+    if (runtimeRecord?.status === 'ACTIVE') {
+      const disabledRuntime = await runtime.deactivate(id, context);
+      requireValue(disabledRuntime.status === 'DISABLED', 'PLUGIN_ROLLBACK_SOURCE_DISABLE_FAILED', 409);
+    } else {
+      await registry.disable({ plugin_id: id, version: fromVersion });
+    }
+
+    const activated = await activateResolved(
+      target,
+      resolvedTarget,
+      context,
+      { restoreActive: false },
+    );
+    if (activated.status !== 'ACTIVE') {
+      const error = new DomainError('PLUGIN_ROLLBACK_TARGET_ACTIVATION_FAILED', 409);
+      error.target_error = activated.error || null;
+      throw error;
+    }
+
+    return Object.freeze({
+      plugin_id: id,
+      from_version: fromVersion,
+      to_version: targetVersion,
+      active: activated,
+      health: await health({ plugin_id: id }),
+    });
   }
 
   return Object.freeze({
