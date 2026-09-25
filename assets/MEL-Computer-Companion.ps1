@@ -29,7 +29,7 @@ function Unprotect-Text([string]$value) {
 $Token = Unprotect-Text $config.token_protected
 $Server = ([string]$config.server_url).TrimEnd("/")
 $ComputerId = [string]$config.computer_id
-$Version = "1.0.0"
+$Version = "1.1.0"
 
 $Native = @"
 using System;
@@ -179,6 +179,50 @@ function Resolve-App([string]$app) {
   }
 }
 
+function Resolve-AllowedPath([string]$path) {
+  if ([string]::IsNullOrWhiteSpace($path)) { throw "FILE_PATH_REQUIRED" }
+  $full = [IO.Path]::GetFullPath($path)
+  if ($full.StartsWith("\\")) { throw "NETWORK_PATH_NOT_ALLOWED" }
+  $roots = @($config.allowed_paths | ForEach-Object {
+    try { [IO.Path]::GetFullPath([string]$_).TrimEnd("\") } catch { $null }
+  } | Where-Object { $_ })
+  if (-not $roots.Count) { throw "LOCAL_PATH_ALLOWLIST_EMPTY" }
+  $ok = $false
+  foreach ($root in $roots) {
+    if ($full.Equals($root,[StringComparison]::OrdinalIgnoreCase) -or
+        $full.StartsWith($root + "\",[StringComparison]::OrdinalIgnoreCase)) {
+      $ok = $true
+      break
+    }
+  }
+  if (-not $ok) { throw "PATH_OUTSIDE_LOCAL_ALLOWLIST" }
+  return $full
+}
+
+function Close-AppGracefully([string]$app) {
+  $exe = Resolve-App $app
+  $name = [IO.Path]::GetFileNameWithoutExtension($exe)
+  $closed = 0
+  foreach ($p in @(Get-Process -Name $name -ErrorAction SilentlyContinue)) {
+    try {
+      if ($p.MainWindowHandle -ne 0 -and $p.CloseMainWindow()) { $closed++ }
+    } catch {}
+  }
+  return $closed
+}
+
+function Close-ForegroundFile([string]$path) {
+  $full = Resolve-AllowedPath $path
+  $leaf = [IO.Path]::GetFileName($full)
+  $title = Active-Window
+  if ([string]::IsNullOrWhiteSpace($leaf) -or
+      $title.IndexOf($leaf,[StringComparison]::OrdinalIgnoreCase) -lt 0) {
+    throw "FILE_NOT_FOREGROUND"
+  }
+  [System.Windows.Forms.SendKeys]::SendWait("%{F4}")
+  return @{ path=$full; active_window=$title }
+}
+
 function Perform-Step($step, [string]$commandId) {
   $action = [string]$step.action
   switch ($action) {
@@ -214,6 +258,20 @@ function Perform-Step($step, [string]$commandId) {
       $exe = Resolve-App ([string]$step.app)
       Start-Process $exe
       return @{ action=$action; app=[string]$step.app }
+    }
+    "app.close" {
+      $count = Close-AppGracefully ([string]$step.app)
+      return @{ action=$action; app=[string]$step.app; windows_requested_close=$count }
+    }
+    "file.open" {
+      $path = Resolve-AllowedPath ([string]$step.path)
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "FILE_NOT_FOUND" }
+      Start-Process -FilePath $path
+      return @{ action=$action; path=$path }
+    }
+    "file.close" {
+      $closed = Close-ForegroundFile ([string]$step.path)
+      return @{ action=$action; path=$closed.path; active_window=$closed.active_window }
     }
     "clipboard.read" {
       $v = ""
