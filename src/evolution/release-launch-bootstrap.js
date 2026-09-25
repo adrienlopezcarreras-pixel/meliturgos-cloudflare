@@ -5,9 +5,11 @@ import {
   prepareAutonomyLaunchCodeSync,
 } from './launch-readiness.js';
 import { setAutonomyControl } from './autonomy-control.js';
+import { D1SkillRegistryStore } from './d1-skill-registry-store.js';
+import { SkillRegistry } from './skill-registry.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness']);
+const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof']);
 
 async function requestPhase(request) {
   try {
@@ -104,6 +106,41 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     launch_approved_at: null,
     launch_gate_digest: null,
   });
+
+  if (phase === 'skill-registry-proof') {
+    if (!env?.DB || typeof env.DB.prepare !== 'function') {
+      return Response.json({ ok: false, code: 'D1_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    const registryKey = 'mel-evol-05-production-proof';
+    const store = new D1SkillRegistryStore(env.DB, { registryKey });
+    const registry = await SkillRegistry.restore(store);
+    const skillId = 'skill.mel-evol-05-production-proof';
+    const ensure = (version) => {
+      if (!registry.resolve(skillId, version)) registry.register({
+        skillId, version, state: 'verified',
+        evidence: [{ kind: 'production-d1-proof', value: String(env?.MEL_DEPLOYED_GIT_SHA || 'unknown') }],
+      });
+    };
+    ensure('1.0.0'); ensure('1.1.0');
+    registry.activate(skillId, '1.0.0');
+    registry.activate(skillId, '1.1.0');
+    await registry.persist();
+
+    const restarted = await SkillRegistry.restore(new D1SkillRegistryStore(env.DB, { registryKey }));
+    const restoredBeforeRollback = restarted.resolve(skillId)?.version || null;
+    restarted.rollback(skillId);
+    await restarted.persist();
+
+    const restartedAgain = await SkillRegistry.restore(new D1SkillRegistryStore(env.DB, { registryKey }));
+    const restoredAfterRollback = restartedAgain.resolve(skillId)?.version || null;
+    const ok = restoredBeforeRollback === '1.1.0' && restoredAfterRollback === '1.0.0';
+    return Response.json({
+      ok,
+      status: ok ? 'MEL_EVOL_05_PRODUCTION_D1_VERIFIED' : 'MEL_EVOL_05_PRODUCTION_D1_FAILED',
+      phase, registry_key: registryKey, restored_before_rollback: restoredBeforeRollback,
+      restored_after_rollback: restoredAfterRollback, autonomy_started: false, owner_launch_required: true,
+    }, { status: ok ? 200 : 500, headers: { 'cache-control': 'no-store' } });
+  }
 
   if (phase === 'pause') {
     return Response.json({

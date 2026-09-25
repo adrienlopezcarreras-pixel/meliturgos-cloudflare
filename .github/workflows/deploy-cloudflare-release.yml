@@ -224,6 +224,16 @@ jobs:
           node -e 'const d=require("./production-shardvault-final.json"); const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; if(active<7) throw new Error("PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7:"+active); if(d?.health?.recoverable!==true) throw new Error("PRODUCTION_SHARDVAULT_NOT_RECOVERABLE"); console.log("ShardVault active external registry verified: "+active+"/7");'
           fi
 
+          SKILL_REGISTRY_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"skill-registry-proof"}' \
+            --output production-skill-registry-proof.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap")"
+          test "$SKILL_REGISTRY_CODE" = "200"
+          node -e 'const d=require("./production-skill-registry-proof.json"); if(d?.ok!==true||d?.status!=="MEL_EVOL_05_PRODUCTION_D1_VERIFIED"||d?.restored_before_rollback!=="1.1.0"||d?.restored_after_rollback!=="1.0.0") throw new Error("MEL_EVOL_05_PRODUCTION_D1_PROOF_FAILED"); console.log("MEL-EVOL-05 real D1 restart/rollback proof passed.");'
+
           # The bootstrap secret can take a few seconds to propagate across
           # production isolates. The pause phase is idempotent, so retry it
           # independently of ShardVault external-proof mode.
