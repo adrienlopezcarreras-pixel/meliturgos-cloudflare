@@ -116,9 +116,26 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     const registry = await SkillRegistry.restore(store);
     const skillId = 'skill.mel-evol-05-production-proof';
     const ensure = (version) => {
-      if (!registry.resolve(skillId, version)) registry.register({
-        skillId, version, state: 'verified',
-        evidence: [{ kind: 'production-d1-proof', value: String(env?.MEL_DEPLOYED_GIT_SHA || 'unknown') }],
+      try {
+        registry.resolve(skillId, version);
+        return;
+      } catch (error) {
+        if (error?.message !== 'SKILL_REGISTRY_VERSION_NOT_FOUND') throw error;
+      }
+      const deployedSha = String(env?.MEL_DEPLOYED_GIT_SHA || 'unknown');
+      registry.register({
+        skillId,
+        name: 'MEL-EVOL-05 production D1 proof',
+        version,
+        capabilities: ['skill.registry.persistence'],
+        state: 'verified',
+        evidence: [{
+          id: `production-d1-proof-${version}`,
+          status: 'verified',
+          kind: 'production-d1-proof',
+          value: deployedSha,
+        }],
+        metadata: { deployed_sha: deployedSha },
       });
     };
     ensure('1.0.0'); ensure('1.1.0');
