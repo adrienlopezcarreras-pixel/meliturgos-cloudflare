@@ -19,6 +19,8 @@ export { inferNativeCodeCapability as inferCodeCapability } from "./api/native-c
 const RELEASE_SMOKE_CAPABILITY_ALLOWLIST = Object.freeze([
   "echo",
   "resilience.recovery.drill.latest",
+  "memory.export",
+  "memory.export.verify",
 ]);
 
 function capabilityContext(env) {
