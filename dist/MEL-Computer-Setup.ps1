@@ -56,6 +56,11 @@ try {
 
   $computerId = "$($env:COMPUTERNAME)-$([guid]::NewGuid().ToString('N').Substring(0,8))"
   $allowedApps = @("notepad","calculator","explorer","msedge","firefox","chrome")
+  $allowedPaths = @(
+    [Environment]::GetFolderPath("Desktop"),
+    [Environment]::GetFolderPath("MyDocuments"),
+    (Join-Path $env:USERPROFILE "Downloads")
+  ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -Unique
   $pairBody = @{
     pair_code = $pairCode
     computer_id = $computerId
@@ -79,6 +84,7 @@ try {
     computer_id = $computerId
     token_protected = (Protect-Text ([string]$pair.token))
     allowed_apps = $allowedApps
+    allowed_paths = $allowedPaths
     installed_at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
   }
   $configPath = Join-Path $melDir "computer.json"
