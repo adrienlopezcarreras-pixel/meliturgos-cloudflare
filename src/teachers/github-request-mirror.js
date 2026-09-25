@@ -102,6 +102,12 @@ export function buildRuntimeTeacherMirror(job, state) {
     candidate: technicalCandidate(request.candidate),
     tests: technicalTests(request.tests),
     provenance: technicalProvenance(request.provenance),
+    handoff: job?.result_json?.teacher_handoff ? clean({
+      schema: job.result_json.teacher_handoff.schema || null,
+      packet_id: job.result_json.teacher_handoff.packet_id || null,
+      packet_digest: job.result_json.teacher_handoff.integrity?.digest || null,
+      target_sha: job.result_json.teacher_handoff.target?.sha || null,
+    }) : null,
     constraints: {
       candidate_only: true,
       zero_added_cost: true,
