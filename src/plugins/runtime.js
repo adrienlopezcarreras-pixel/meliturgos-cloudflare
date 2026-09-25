@@ -63,7 +63,98 @@ export function createPluginRuntime(options = {}) {
   const now = typeof options.now === 'function' ? options.now : () => Date.now();
   const logger = options.logger || null;
   const timeline = options.timeline || options.emit || null;
+  const registry = options.registry || null;
   const counters = { installed: 0, errors: 0, permission_denied: 0 };
+
+  if (registry) {
+    requireValue(
+      typeof registry.register === 'function'
+        && typeof registry.get === 'function'
+        && typeof registry.disable === 'function',
+      'PLUGIN_REGISTRY_INVALID',
+      500,
+    );
+  }
+
+  function durableEvidence(manifest, context = {}) {
+    if (!registry) return null;
+    requireValue(
+      typeof context.pluginArtifactHash === 'string' && context.pluginArtifactHash.trim(),
+      'PLUGIN_ARTIFACT_HASH_REQUIRED',
+      400,
+    );
+    requireValue(
+      context.pluginProofs && typeof context.pluginProofs === 'object' && !Array.isArray(context.pluginProofs),
+      'PLUGIN_PROOFS_REQUIRED',
+      400,
+    );
+    return {
+      manifest,
+      artifact_hash: context.pluginArtifactHash.trim(),
+      proofs: structuredClone(context.pluginProofs),
+    };
+  }
+
+  async function getDurableVersion(manifest) {
+    if (!registry) return null;
+    try {
+      return await registry.get({ plugin_id: manifest.id, version: manifest.version });
+    } catch (error) {
+      if (error?.code === 'PLUGIN_REGISTRY_VERSION_NOT_FOUND' || error?.code === 'PLUGIN_REGISTRY_NOT_FOUND') return null;
+      throw error;
+    }
+  }
+
+  async function prepareDurableActivation(manifest, context = {}) {
+    const base = durableEvidence(manifest, context);
+    if (!base) return null;
+
+    let current = await getDurableVersion(manifest);
+    if (!current) {
+      current = await registry.register({ ...base, proofs: {}, status: 'DISCOVERED' });
+    }
+
+    if (current.status === ACTIVE) {
+      throw new DomainError('PLUGIN_DURABLE_ALREADY_ACTIVE', 409);
+    }
+    if (current.status === 'FAILED' || current.status === 'ROLLED_BACK') {
+      current = await registry.register({ ...base, proofs: {}, status: 'DISCOVERED' });
+    }
+    if (current.status === 'DISABLED') {
+      current = await registry.register({ ...base, proofs: {}, status: 'CANDIDATE' });
+    }
+    if (current.status === 'DISCOVERED') {
+      current = await registry.register({ ...base, proofs: {}, status: 'VALIDATED' });
+    }
+    if (current.status === 'VALIDATED') {
+      current = await registry.register({ ...base, proofs: {}, status: 'CANDIDATE' });
+    }
+    if (current.status === 'CANDIDATE') {
+      current = await registry.register({ ...base, status: 'TESTED' });
+    }
+
+    requireValue(current.status === 'TESTED', 'PLUGIN_DURABLE_NOT_TESTED', 409);
+    return base;
+  }
+
+  async function markDurableFailed(base) {
+    if (!registry || !base) return;
+    try {
+      const current = await registry.get({
+        plugin_id: base.manifest.id,
+        version: base.manifest.version,
+      });
+      if (current?.status !== ACTIVE && current?.status !== FAILED) {
+        await registry.register({ ...base, status: FAILED });
+      }
+    } catch (error) {
+      logger?.warn?.('plugin.registry.failure-state.failed', {
+        plugin_id: base.manifest.id,
+        version: base.manifest.version,
+        error: error?.code || error?.message || String(error),
+      });
+    }
+  }
 
   async function emit(type, record, payload = {}) {
     const event = Object.freeze({
@@ -140,16 +231,46 @@ export function createPluginRuntime(options = {}) {
     };
     records.set(manifest.id, record);
 
+    let ctx = null;
+    let durable = null;
+    let activated = false;
     try {
-      const ctx = activationContext(record, context);
+      ctx = activationContext(record, context);
+      durable = await prepareDurableActivation(manifest, context);
       await emit('registering', record);
       await plugin.activate(ctx);
+      activated = true;
+
+      if (registry) {
+        await registry.register({
+          ...durable,
+          status: ACTIVE,
+          proofs: {
+            ...durable.proofs,
+            activation: true,
+            version: manifest.version,
+          },
+        });
+      }
+
       record.status = ACTIVE;
       record.updated_at = now();
       counters.installed += 1;
       await emit('activated', record);
       return publicRecord(record);
     } catch (error) {
+      if (activated && ctx) {
+        try {
+          await plugin.deactivate(ctx);
+        } catch (rollbackError) {
+          logger?.error?.('plugin.activation.rollback.failed', {
+            plugin_id: manifest.id,
+            version: manifest.version,
+            error: rollbackError?.code || rollbackError?.message || String(rollbackError),
+          });
+        }
+      }
+      await markDurableFailed(durable);
       record.status = FAILED;
       record.updated_at = now();
       record.error = error?.code || error?.message || String(error);
@@ -195,6 +316,12 @@ export function createPluginRuntime(options = {}) {
     if (record.status !== ACTIVE) return publicRecord(record);
     try {
       await record.plugin.deactivate(activationContext(record, context));
+      if (registry) {
+        await registry.disable({
+          plugin_id: record.manifest.id,
+          version: record.manifest.version,
+        });
+      }
       record.status = 'DISABLED';
       record.updated_at = now();
       await emit('deactivated', record);
