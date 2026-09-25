@@ -1,7 +1,27 @@
 import { port } from '../core/contracts.js';
+import {
+  DocumentRuntime,
+  createDocumentAdapters,
+  createDocumentRuntime,
+  detectDocumentType,
+  chunkDocumentText,
+} from './document-runtime.js';
+
 export const methods = ["extract", "index"];
-/** TODO implement only the corresponding OpenHands ticket.
- * Port input is domain data; context={owner,permissions,requestId,signal} is trusted.
- * No storage/network side effects until a server adapter is explicitly injected.
+
+/**
+ * Stable media/documents port.
+ *
+ * Existing fail-closed behavior is preserved when adapters are omitted.
+ * createDocumentAdapters() provides the bounded built-in runtime and explicit
+ * PDF/DOCX parser injection without adding storage or network side effects.
  */
-export const createDocuments = adapters => port('media/documents',methods,adapters);
+export const createDocuments = adapters => port('media/documents', methods, adapters);
+
+export {
+  DocumentRuntime,
+  createDocumentAdapters,
+  createDocumentRuntime,
+  detectDocumentType,
+  chunkDocumentText,
+};
