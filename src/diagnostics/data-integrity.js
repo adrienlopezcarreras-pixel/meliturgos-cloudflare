@@ -1,6 +1,34 @@
 import { DB_SCHEMA_VERSION } from '../core/config.js';
 
 const MAX_SAMPLES = 10;
+const REQUIRED_MIGRATION_TABLES = Object.freeze([
+  'schema_migrations',
+  'conversations',
+  'devices',
+  'archive_messages',
+  'sync_checkpoints',
+  'audit_logs',
+  'knowledge_entities',
+  'knowledge_relations',
+  'timeline_events',
+  'automations',
+  'automation_runs',
+  'backup_objects',
+  'dev_jobs',
+  'dev_bridge_state',
+  'mentor_lessons',
+  'capability_watch_state',
+  'conversation_focus_state',
+  'mel_response_quality_events',
+  'computer_devices',
+  'computer_commands',
+  'device_tokens',
+  'device_pair_codes',
+  'device_status',
+  'knowledge_artifacts',
+  'chatgpt_collector_coverage',
+  'memory_candidates',
+]);
 
 function integrityError(code) {
   return Object.assign(new Error(code), { code });
@@ -88,12 +116,47 @@ async function jsonCheck({ db, tables, checks, id, table, column, nullable = fal
   pushCheck(checks, { id, status:count===0?'PASS':'FAIL', count, samples, field:`${table}.${column}` });
 }
 
+async function valueDomainCheck({ db, tables, checks, id, table, column, allowed }) {
+  if (!tables.has(table)) {
+    pushCheck(checks, { id, status:'SKIPPED', reason:'TABLE_MISSING', tables:[table], count:null, samples:[] });
+    return;
+  }
+  const placeholders = allowed.map(() => '?').join(',');
+  const predicate = `${column} IS NOT NULL AND LOWER(${column}) NOT IN (${placeholders})`;
+  const count = await countRows(db, `SELECT COUNT(*) n FROM ${table} WHERE ${predicate}`, allowed.map(value=>String(value).toLowerCase()));
+  const samples = count
+    ? await sampleIds(db, `SELECT id,${column} value FROM ${table} WHERE ${predicate} LIMIT ${MAX_SAMPLES}`, allowed.map(value=>String(value).toLowerCase()))
+    : [];
+  pushCheck(checks, { id, status:count===0?'PASS':'FAIL', count, samples, field:`${table}.${column}` });
+}
+
+async function numericRangeCheck({ db, tables, checks, id, table, column, min = 0, max = 1 }) {
+  if (!tables.has(table)) {
+    pushCheck(checks, { id, status:'SKIPPED', reason:'TABLE_MISSING', tables:[table], count:null, samples:[] });
+    return;
+  }
+  const count = await countRows(db, `SELECT COUNT(*) n FROM ${table} WHERE ${column} IS NOT NULL AND (${column}<? OR ${column}>?)`, [min,max]);
+  const samples = count
+    ? await sampleIds(db, `SELECT id,${column} value FROM ${table} WHERE ${column} IS NOT NULL AND (${column}<? OR ${column}>?) LIMIT ${MAX_SAMPLES}`, [min,max])
+    : [];
+  pushCheck(checks, { id, status:count===0?'PASS':'FAIL', count, samples, field:`${table}.${column}`, range:[min,max] });
+}
+
 export async function auditDataIntegrity(db) {
   if (!db) throw integrityError('DATA_INTEGRITY_DB_REQUIRED');
 
   const startedAt = Date.now();
   const tables = await tableNames(db);
   const checks = [];
+
+  const missingRequiredTables = REQUIRED_MIGRATION_TABLES.filter(name => !tables.has(name));
+  pushCheck(checks, {
+    id:'schema.required_tables',
+    status:missingRequiredTables.length===0?'PASS':'FAIL',
+    count:missingRequiredTables.length,
+    samples:missingRequiredTables.slice(0,MAX_SAMPLES).map(table=>({table})),
+    expected_count:REQUIRED_MIGRATION_TABLES.length,
+  });
 
   if (!tables.has('schema_migrations')) {
     pushCheck(checks, {
@@ -144,7 +207,7 @@ export async function auditDataIntegrity(db) {
     ['devices.metadata','devices','metadata',false],
     ['archive_messages.attachments_json','archive_messages','attachments_json',true],
     ['archive_messages.capabilities_used_json','archive_messages','capabilities_used_json',true],
-    ['memory_candidates.none',null,null,false],
+    ['archive_messages.metadata','archive_messages','metadata',false],
     ['knowledge_artifacts.tags_json','knowledge_artifacts','tags_json',false],
     ['knowledge_artifacts.sources_json','knowledge_artifacts','sources_json',false],
     ['knowledge_artifacts.metadata_json','knowledge_artifacts','metadata_json',false],
@@ -153,6 +216,23 @@ export async function auditDataIntegrity(db) {
     if (!table) continue;
     await jsonCheck({ db, tables, checks, id, table, column, nullable });
   }
+
+  await valueDomainCheck({
+    db, tables, checks,
+    id:'archive_messages.role',
+    table:'archive_messages',
+    column:'role',
+    allowed:['user','assistant','system','tool'],
+  });
+
+  await numericRangeCheck({
+    db, tables, checks,
+    id:'memory_candidates.confidence',
+    table:'memory_candidates',
+    column:'confidence',
+    min:0,
+    max:1,
+  });
 
   const failed = checks.filter(check => check.status === 'FAIL');
   const skipped = checks.filter(check => check.status === 'SKIPPED');
