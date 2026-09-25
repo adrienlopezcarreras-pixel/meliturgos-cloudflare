@@ -109,7 +109,10 @@ function rotateActiveEndpointsForWriteFailure(current=[],staged=[],error,{limit=
   };
 }
 function excludeShardVaultEndpoints(c,endpointIds=[]){
-  const excluded=new Set((endpointIds||[]).map(value=>String(value||'')).filter(Boolean));
+  const values=Array.isArray(endpointIds)
+    ? endpointIds
+    : (endpointIds&&typeof endpointIds[Symbol.iterator]==='function'?[...endpointIds]:[]);
+  const excluded=new Set(values.map(value=>String(value||'')).filter(Boolean));
   if(!excluded.size)return c;
   return {
     ...c,
