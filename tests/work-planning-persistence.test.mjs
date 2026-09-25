@@ -136,6 +136,11 @@ test('CapabilityBus can save a plan, materialize it into persistent Work, and re
   assert.equal(materialized.plan.work_dag_id,'work-cap-plan');
   assert.equal(materialized.work.status,'RUNNING');
 
+  await assert.rejects(
+    ()=>new D1PlanningStore(db).updateTask('cap-plan','one','RUNNING'),
+    error=>error.code==='WORK_TASK_MANUAL_UPDATE_DENIED_AFTER_MATERIALIZATION'
+  );
+
   const executed=await first.execute('work.run',{id:'work-cap-plan'},{
     owner:'adrien',requestId:'plan-run',permissions:[]
   });
