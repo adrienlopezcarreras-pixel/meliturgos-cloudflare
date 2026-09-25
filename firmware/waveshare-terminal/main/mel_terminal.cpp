@@ -1699,7 +1699,7 @@ static void online_runtime_task(void *) {
         ESP_LOGW(TAG, "MEL session check returned %d; preserving persistent pairing", session_status);
         g_online = false;
         ui_status("MEL TEMPORAIREMENT INDISPONIBLE");
-        ui_answer("Appairage conserve. MEL se reconnectera sans nouveau code.");
+        ui_answer("");
         g_online_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;

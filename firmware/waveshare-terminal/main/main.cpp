@@ -541,7 +541,7 @@ static void settings_wifi_clicked(lv_event_t *e) {
 static void settings_pair_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (mel_terminal_has_token()) {
-        if (settings_status) lv_label_set_text(settings_status, "Appairage MEL conserve. Aucun nouveau code requis.");
+        if (settings_status) lv_label_set_text(settings_status, "");
         return;
     }
     request_view(MINI_VIEW_PAIR);
@@ -1385,7 +1385,7 @@ static void mobile_bridge_watch_task(void *) {
             previous = ready;
             mel_terminal_set_mobile_connected(ready);
             ESP_LOGI(TAG, "MEL MOBILE %s", ready ? "READY" : "OFFLINE");
-            if (ready && mel_terminal_has_token()) mel_terminal_start_online();
+            if (ready) mel_terminal_start_online();
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
