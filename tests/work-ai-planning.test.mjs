@@ -268,6 +268,7 @@ test('work.plan.generate falls back to AI capability selection and synthesizes s
   });
   bus.discover({
     id:'echo', name:'Echo', category:'test', version:'1.0.0', provider:'fixture',
+    description:'Echo fixture capability for structured selection fallback.',
     input_schema:{type:'object',properties:{value:{type:'string',minLength:1,maxLength:100}},required:['value'],additionalProperties:false},
     output_schema:{type:'object',additionalProperties:true},
     risk:'LOW', permissions:[], health:'HEALTHY', enabled:true,
