@@ -117,7 +117,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-34', 'Outlook / Microsoft', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P2'),
     item('GEN2-35', 'OneDrive / SharePoint', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
     item('GEN2-36', 'GitHub / Cloudflare / Vercel', 'BLOCKED_HUMAN', 'Code et contrôles GEN2-36 intégrés et déployés; GitHub dispatch réel PASS (35709807443), Cloudflare auth PASS (35709798534), mutation bornée réelle PASS (35712822078) et production canonique PASS (35713600886 puis 35714494562). Seul bloqueur externe restant : aucun projet/équipe Vercel visible et VERCEL_TOKEN absent; fournir une cible Vercel réelle puis effectuer un redéploiement approuvé avant DONE_VERIFIED.', 'P0'),
-    item('GEN2-37', 'Web / recherche', 'PARTIAL', 'Valider en production la recherche sourcée, les redirections et la qualité des sources', 'P1'),
+    item('GEN2-37', 'Web / recherche', 'PARTIAL', 'Recherche sourcée renforcée en candidate: URLs privées/metadata et redirections dangereuses déjà bloquées; sources directes préférées aux index Google/DDG; chaque source reçoit désormais un score/tier de qualité déterministe et un flag answer_ready, avec agrégat source_quality. Les SEARCH_INDEX restent DISCOVERY_ONLY et ne doivent jamais être présentées comme preuve vérifiée. Reste: CI exacte, merge, déploiement immédiat puis smoke production sur endpoint réel avant DONE_VERIFIED.', 'P1'),
     item('MEL-CONN-01', 'WordPress Vérité Interdite', 'PLANNED', 'Créer MEL publique isolée de la mémoire privée', 'P3'),
     item('MEL-CONN-02', 'Catalogue de connecteurs installables', 'PLANNED', 'Découverte, permissions, test santé, désactivation', 'P2')
   ]),
