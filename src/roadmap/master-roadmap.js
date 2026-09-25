@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.01';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.02';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -103,7 +103,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P07', 'Work, agents et automatisations', [
     item('MEL-WORK-01', 'Work Engine persistant', 'DONE_VERIFIED', 'DAG Work durable en D1 avec état, checkpoints, artefacts, reprise après nouvelle instance et détection de corruption. Revalidé avec syntaxe globale + work-persistent/work-dag Actions 35641014709.', 'P0'),
-    item('GEN2-38', 'Tasks / goals / planning', 'PARTIAL', 'Planning engine unique ajouté: work.plan compile un objectif explicite en étapes bornées, dépendances validées et nœuds Work compatibles sans effet de bord. Reste à relier la génération automatique des étapes depuis le modèle, puis à persister objets Goal/Task et leur historique avant DONE_VERIFIED.', 'P1'),
+    item('GEN2-38', 'Tasks / goals / planning', 'PARTIAL', 'Planning engine unique + persistance Goal/Task ajoutés: work.plan compile un objectif en étapes bornées; work.plan.save/get/list/history persiste le registre D1 et son journal append-only; work.plan.materialize crée un DAG Work sans l’exécuter; work.plan.sync resynchronise les tâches depuis le DAG autoritatif. Reste la génération automatique fiable des étapes depuis un objectif libre et sa validation capability-aware avant DONE_VERIFIED.', 'P1'),
     item('GEN2-39', 'Agents / automations', 'PARTIAL', 'Brancher MULTI_AI_PROTOCOL au Work Engine/Council pour orchestration runtime et réservations de lots', 'P1'),
     item('GEN2-40', 'Event Bus idempotent / follow-ups', 'PLANNED', 'Transporter événements et relances idempotentes entre services', 'P1'),
     item('GEN2-41', 'Notifications', 'PLANNED', 'Web Push + compagnons', 'P2'),
