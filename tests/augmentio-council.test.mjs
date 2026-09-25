@@ -173,3 +173,72 @@ test('state-of-play council fails closed when fewer than two authorized zero-cos
   ]);
   await assert.rejects(() => runAugmentioStateOfPlay({ env: {}, goal: 'x', pool }), e => e.code === 'COUNCIL_NOT_ENOUGH_ZERO_COST_PROVIDERS');
 });
+
+
+test('Council exposes explicit critique provenance and binds MEL synthesis to the exact critique set', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider('a', 0, calls),
+    provider('b', 0, calls),
+    provider('c', 0, calls),
+  ]);
+
+  const report = await runAugmentioStateOfPlay({
+    env: {},
+    goal: 'documenter précisément les critiques utilisées',
+    pool,
+    minResponses: 2,
+  });
+
+  assert.equal(report.independent_critiques.length, REQUIRED_COUNCIL_ROLE_IDS.length);
+  assert.equal(report.critique_provenance.review_count, REQUIRED_COUNCIL_ROLE_IDS.length);
+  assert.equal(report.critique_provenance.required_role_count, REQUIRED_COUNCIL_ROLE_IDS.length);
+  assert.equal(report.critique_provenance.all_required_roles_present, true);
+  assert.deepEqual(
+    new Set(report.critique_provenance.role_coverage),
+    new Set(REQUIRED_COUNCIL_ROLE_IDS),
+  );
+  assert.deepEqual(
+    new Set(report.critique_provenance.unique_assigned_providers),
+    new Set(['a', 'b', 'c']),
+  );
+  assert.deepEqual(
+    new Set(report.critique_provenance.unique_responding_providers),
+    new Set(['a', 'b', 'c']),
+  );
+  assert.equal(report.critique_provenance.provider_reuse, true);
+  assert.equal(report.critique_provenance.fallback_reviews, 0);
+  assert.match(report.critique_provenance.critiques_digest, /^fnv1a-[a-f0-9]{8}$/);
+  assert.equal(report.synthesis.input_digest, report.critique_provenance.critiques_digest);
+
+  const synthesisCall = calls.find(row => row.purpose === 'mel-council-synthesis');
+  assert.ok(synthesisCall);
+  assert.ok(synthesisCall.input.includes(report.critique_provenance.critiques_digest));
+});
+
+test('Council provenance records fallback critics without pretending the assigned provider answered', async () => {
+  const calls = [];
+  const pool = new ProviderPool([
+    provider('a', 0, calls),
+    provider('b', 0, calls, { failRole: 'SECURITY_GOVERNANCE' }),
+  ]);
+
+  const report = await runAugmentioStateOfPlay({
+    env: {},
+    goal: 'prouver la provenance du fallback',
+    pool,
+    minResponses: 2,
+  });
+
+  const security = report.independent_critiques.find(row => row.role === 'SECURITY_GOVERNANCE');
+  assert.ok(security);
+  assert.equal(security.assigned_provider_id, 'b');
+  assert.equal(security.responding_provider_id, 'a');
+  assert.equal(security.provider_fallback_used, true);
+  assert.deepEqual(security.provider_attempts, ['b', 'a']);
+  assert.ok(report.critique_provenance.fallback_reviews >= 1);
+  assert.deepEqual(
+    new Set(report.critique_provenance.unique_responding_providers),
+    new Set(['a', 'b']),
+  );
+});
