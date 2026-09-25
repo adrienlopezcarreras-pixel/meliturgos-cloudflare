@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.15';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.16';;
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -190,7 +190,7 @@ export const MASTER_ROADMAP = Object.freeze([
   phase('P15', 'Release, migration et maturité finale', [
     item('GEN2-53', 'Canary pré-release / rollback', 'DONE_VERIFIED', 'Preuve canary/rollback: Actions run 35093195456; production: release run 35094721729; smoke live post-déploiement: run 35094194506 job 104789501239', 'P0'),
     item('GEN2-57', 'Migration Gen1 sans perte', 'DONE_VERIFIED', 'Migration Gen1 certifiée en production sur release 2fd2eb5b4b701e78115e3b8fd2f7adb73661def3, run deploy-cloudflare-release 35856885040: source interactions présente et conservée, 177 interactions source, 354 messages archive_messages, 177 interactions migrées, remaining_interactions=0, coverage_complete=true. Schéma réel vérifié, IDs déterministes, collisions/mismatch fail-closed, backfill borné et replay-safe. Source Gen1 non supprimée.', 'P0'),
-    item('GEN2-55', 'Data integrity / final maturity tests', 'PLANNED', 'Suite finale après stabilisation', 'P1'),
+    item('GEN2-55', 'Data integrity / final maturity tests', 'PARTIAL', 'Candidat réconcilié sur le main de production: system.integrity audite D1 en lecture seule (version/historique migrations, tables requises, références orphelines et composites, JSON persisté, domaines et cohérence temporelle) sans exposer le contenu ni réparer; system.maturity compose intégrité D1 + contrats CapabilityBus + structure roadmap sans réseau ni exécution d’outils. Déploiement immédiat après CI, puis smoke read-only production requis avant DONE_VERIFIED.', 'P1'),
     item('GEN2-60', 'Completion matrix', 'IN_PROGRESS', 'Completion matrix réconciliée sur le registre canonique : révision source, fingerprint déterministe, taux DONE_VERIFIED, séparation BLOCKED_HUMAN/BLOCKED_EXTERNAL et rendu Markdown explicite des actions humaines. Déploiement incrémental et preuve production requis avant DONE_VERIFIED.', 'P2'),
     item('GEN2-61', 'Final status report', 'PLANNED', 'Générer au jalon mature', 'P2'),
     item('GEN2-62', 'human-actions-required', 'PARTIAL', 'Maintenir blockers humains exacts', 'P1'),
