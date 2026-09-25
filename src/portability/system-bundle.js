@@ -295,7 +295,7 @@ export async function verifyProviderNeutralSystemBundle(bundle) {
     if (manifestRow.format !== row.format) issues.push({ type: 'MANIFEST_ARTIFACT_FORMAT_MISMATCH', path });
     if (Number(row.size_bytes) !== bytes.byteLength) issues.push({ type: 'ARTIFACT_SIZE_MISMATCH', path: `${path}.size_bytes` });
 
-    digestIndex.push({ id, checksum: row.checksum, size_bytes: bytes.byteLength });
+    digestIndex.push({ id, checksum: expectedChecksum, size_bytes: bytes.byteLength });
   }
   if (totalBytes > MAX_TOTAL_BYTES) issues.push({ type: 'BUNDLE_TOO_LARGE', path: '$.artifacts' });
 
