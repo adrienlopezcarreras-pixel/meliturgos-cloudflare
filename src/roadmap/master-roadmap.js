@@ -84,7 +84,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-05', 'Model Council / benchmarks', 'DONE_VERIFIED', 'Preuve live Cloudflare run 35708004479 sur SHA 1a0f1bdf0461b133c31eb5447873ced85ccb4bc3 : capability model.council via CapabilityBus, 2 modèles Workers AI distincts, 0 échec provider, synthèse MEL séparée complète, provenance/coût zéro/latences vérifiés et preuve Workers Free courte fail-closed.', 'P0'),
     item('MEL-COUNCIL-01', 'Pré-audit multi-IA obligatoire avant développement', 'DONE_VERIFIED', 'Brancher le Council réel au Module Lab', 'P0'),
     item('MEL-COUNCIL-02', 'Critiques indépendantes + synthèse MEL', 'PARTIAL', 'Ajouter rôles architecte, sécurité, test, produit', 'P1'),
-    item('MEL-COUNCIL-03', 'Teacher escalation vers ChatGPT/autres IA', 'PARTIAL', 'Standardiser provenance, paquet de revue et handoff avec le protocole multi-IA canonique', 'P1'),
+    item('MEL-COUNCIL-03', 'Teacher escalation vers ChatGPT/autres IA', 'PARTIAL', 'Paquet de handoff multi-IA SHA-256, SHA cible, provenance Council, preuves et reply lié au digest sont implémentés; brancher ce chemin vérifié comme défaut du runtime et prouver un aller-retour Teacher réel avant DONE_VERIFIED.', 'P1'),
     item('MEL-COUNCIL-04', 'Apprentissage du meilleur modèle selon la tâche', 'PLANNED', 'Stocker score qualité/coût/latence par tâche', 'P1')
   ]),
 
