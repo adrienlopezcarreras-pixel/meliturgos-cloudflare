@@ -183,7 +183,9 @@ test('MCP call preserves CapabilityBus input validation', async () => {
   }, { owner: 'adrien', permissions: [], requestId: 'mcp-test-6' });
 
   assert.equal(response.result.isError, true);
-  assert.match(response.result.content[0].text, /INVALID|SCHEMA|REQUEST/i);
+  const errorPayload = JSON.parse(response.result.content[0].text);
+  assert.equal(errorPayload.code, 'MISSING_FIELD');
+  assert.equal(errorPayload.status, 400);
 });
 
 test('legacy initialize and tool calls remain supported without modern resultType', async () => {
