@@ -256,6 +256,7 @@ test('work.plan.generate falls back to AI capability selection and synthesizes s
   const bus = new CapabilityBus();
   bus.discover({
     id:'augmentio.fanout', name:'Fixture multi-AI', category:'test', version:'1.0.0', provider:'fixture',
+    description:'Returns invalid free-form plans first, then a deterministic capability selection.',
     input_schema:{type:'object',properties:{capability:{type:'string'},input:{type:'string'},context:{type:'object',additionalProperties:true},maxCandidates:{type:'integer'}},required:['input'],additionalProperties:false},
     output_schema:{type:'object',additionalProperties:true},
     risk:'LOW', permissions:[], health:'HEALTHY', enabled:true,
