@@ -310,7 +310,7 @@ test('MEL-REL-03 release token cannot use the generic capability route outside t
   assert.equal(response.status, 403);
   const body = await response.json();
   assert.equal(body.code, 'RELEASE_SMOKE_CAPABILITY_DENIED');
-  assert.deepEqual(body.allowed_capabilities, ['echo', 'resilience.recovery.drill.latest', 'memory.export', 'memory.export.verify', 'system.integrity', 'system.maturity', 'timeline.list', 'project.list', 'event.list']);
+  assert.deepEqual(body.allowed_capabilities, ['echo', 'resilience.recovery.drill.latest', 'memory.export', 'memory.export.verify', 'system.integrity', 'system.maturity', 'timeline.list', 'project.list', 'event.list', 'skill.list']);
 });
 
 
@@ -331,6 +331,22 @@ test('GEN2-12/13/40 release token can prove only read-only durable state capabil
     assert.equal(body.capability, id, id);
     assert.ok(Array.isArray(body.result), id);
   }
+});
+
+test('MEL-EVOL-05 release token can prove only read-only Skill Registry access', async () => {
+  const response = await worker.fetch(
+    smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id:'skill.list', input:{ active_only:true } }),
+    }),
+    env(),
+    {},
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.capability, 'skill.list');
+  assert.ok(Array.isArray(body.result));
 });
 
 test('MEL-MEM-03 release token can export and verify memory without opening arbitrary capabilities', async () => {
