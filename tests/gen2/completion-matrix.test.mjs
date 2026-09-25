@@ -87,3 +87,42 @@ test('GEN2-60 rejects invalid timestamps instead of emitting ambiguous evidence'
     { code: 'COMPLETION_MATRIX_INVALID_GENERATED_AT' },
   );
 });
+
+
+test('GEN2-60 binds the matrix to the exact roadmap revision and a deterministic fingerprint', () => {
+  const first = generateCompletionMatrix({ generatedAt: '2026-09-25T09:30:00.000Z' });
+  const second = generateCompletionMatrix({ generatedAt: '2026-09-25T10:30:00.000Z' });
+
+  assert.match(first.registry_revision, /^2026-/);
+  assert.match(first.matrix_fingerprint, /^fnv1a-[a-f0-9]{8}$/);
+  assert.equal(first.matrix_fingerprint, second.matrix_fingerprint);
+  assert.equal(first.summary.verified <= first.summary.complete, true);
+  assert.equal(first.summary.percent_verified <= first.summary.percent_complete, true);
+});
+
+test('GEN2-60 separates human actions from external blockers without hiding either from total blockers', () => {
+  const matrix = generateCompletionMatrix();
+  const humanIds = new Set(matrix.human_actions_required.map(row => row.id));
+  const externalIds = new Set(matrix.external_blockers.map(row => row.id));
+
+  assert.ok(matrix.human_actions_required.every(row => row.status === 'BLOCKED_HUMAN'));
+  assert.ok(matrix.external_blockers.every(row => row.status === 'BLOCKED_EXTERNAL'));
+  assert.equal(
+    matrix.human_actions_required.length + matrix.external_blockers.length,
+    matrix.summary.blocked,
+  );
+  for (const id of humanIds) assert.equal(externalIds.has(id), false);
+});
+
+test('GEN2-60 Markdown renders exact human and external blocker sections', () => {
+  const matrix = generateCompletionMatrix();
+  const markdown = completionMatrixToMarkdown(matrix);
+
+  assert.match(markdown, /## Human actions required/);
+  assert.match(markdown, /## External blockers/);
+  assert.match(markdown, /Registry revision:/);
+  assert.match(markdown, /Fingerprint:/);
+  for (const row of matrix.human_actions_required.slice(0, 3)) {
+    assert.ok(markdown.includes(row.id));
+  }
+});
