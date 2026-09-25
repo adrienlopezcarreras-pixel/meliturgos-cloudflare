@@ -284,7 +284,10 @@ export class OpenLoopService {
         nextAction: payload.nextAction || '',
         resumeAt: payload.resumeAt ?? 0,
         checkpoint: payload.checkpoint || {},
-        metadata: { lastEventType: asText(type) },
+        metadata: {
+          ...(payload.metadata || {}),
+          lastEventType: asText(type),
+        },
       });
     }
 
