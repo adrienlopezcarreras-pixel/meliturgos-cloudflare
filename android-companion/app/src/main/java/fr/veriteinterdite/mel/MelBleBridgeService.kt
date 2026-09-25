@@ -21,6 +21,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelUuid
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -59,6 +60,8 @@ class MelBleBridgeService : Service() {
         private const val OP_BODY = 0x02
         private const val OP_END = 0x03
         private const val OP_PING = 0x04
+        private const val OP_PAIR_REQUEST = 0x05
+        private const val OP_PAIR_CODE = 0x15
         private const val OP_RESPONSE_BEGIN = 0x11
         private const val OP_RESPONSE_BODY = 0x12
         private const val OP_RESPONSE_END = 0x13
@@ -312,6 +315,29 @@ class MelBleBridgeService : Service() {
                 sendJsonFrame(device, OP_RESPONSE_BEGIN, requestId, JSONObject().put("status", 200).put("contentType", "application/json").put("length", 0))
                 sendFrame(device, packet(OP_RESPONSE_END, requestId, byteArrayOf()))
             }
+            OP_PAIR_REQUEST -> executor.execute { provisionMiniPairCode(device) }
+        }
+    }
+
+    private fun androidDeviceId(): String {
+        val raw = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        return "android-" + (raw ?: "unknown").take(64)
+    }
+
+    private fun provisionMiniPairCode(device: BluetoothDevice) {
+        if (subscribed[device.address] != true) return
+        try {
+            val client = MelApiClient(BuildConfig.MEL_BASE_URL, androidDeviceId(), TokenVault(this))
+            val code = client.miniPairCode().trim().uppercase()
+            require(code.length == 8) { "MINI_PAIR_CODE_INVALID" }
+            if (!sendFrame(device, packet(OP_PAIR_CODE, 0, code.toByteArray(Charsets.UTF_8)))) {
+                throw IllegalStateException("MINI_PAIR_CODE_SEND_FAILED")
+            }
+            bridgeState.value = "MINI CONNECTÉE · APPAIRAGE AUTO"
+            Log.i(TAG, "MINI automatic pairing code delivered over BLE")
+        } catch (error: Throwable) {
+            bridgeState.value = "MINI CONNECTÉE · APPAIRAGE REQUIS"
+            Log.e(TAG, "MINI automatic pairing failed", error)
         }
     }
 

@@ -76,6 +76,28 @@ async function createPairCode(request,env) {
   return json({ok:true,code,expires_at:now+PAIR_TTL_MS,ttl_seconds:PAIR_TTL_MS/1000});
 }
 
+async function createMiniPairCode(env,auth) {
+  await ensureTables(env);
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS device_pair_codes (
+    code_hash TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_at INTEGER
+  )`).run();
+  const code = pairCode();
+  const now = Date.now();
+  await env.DB.prepare("DELETE FROM device_pair_codes WHERE expires_at < ? OR used_at IS NOT NULL").bind(now).run();
+  await env.DB.prepare("INSERT INTO device_pair_codes(code_hash,created_at,expires_at,used_at) VALUES(?,?,?,NULL)")
+    .bind(await sha256Hex(code),now,now+PAIR_TTL_MS).run();
+  return json({
+    ok:true,
+    code,
+    expires_at:now+PAIR_TTL_MS,
+    ttl_seconds:PAIR_TTL_MS/1000,
+    requested_by:auth.deviceId
+  });
+}
+
 async function consumePairCode(env,code) {
   const normalized = safe(code,32).toUpperCase();
   if (!normalized) return false;
@@ -378,6 +400,7 @@ export async function maybeHandleAndroidCompanionApi(request,env) {
 
   const auth = await authorizeDevice(request,env);
   if (!auth.ok) return auth.response;
+  if (url.pathname === ANDROID_API_BASE+"/mini-pair-code" && request.method === "POST") return createMiniPairCode(env,auth);
   if (url.pathname === ANDROID_API_BASE+"/heartbeat" && request.method === "POST") return heartbeat(request,env,auth);
   if (url.pathname === ANDROID_API_BASE+"/companions" && request.method === "GET") return companionDevices(env);
   if (url.pathname === ANDROID_API_BASE+"/chat" && request.method === "POST") return deviceChat(request,env,auth);

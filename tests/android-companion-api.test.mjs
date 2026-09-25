@@ -68,6 +68,43 @@ test('Android pair codes are one-use and issue revocable device tokens without r
   }finally{DB.close();}
 });
 
+test('paired Android companion can mint a one-use MINI pair code without owner credentials',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+    const paired=await pair(env,'android-mini-provisioner');
+    const codeResponse=await worker.fetch(new Request('https://mel.test/api/android/v1/mini-pair-code',{
+      method:'POST',
+      headers:deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'}),
+      body:'{}'
+    }),env);
+    assert.equal(codeResponse.status,200);
+    const code=(await codeResponse.json()).code;
+    assert.equal(code.length,8);
+
+    const miniPair=await worker.fetch(new Request('https://mel.test/api/device/v1/pair',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({
+        pair_code:code,
+        device_id:'mini-auto-pair-test',
+        model:'waveshare-esp32-s3-touch-lcd-3.5-c',
+        protocol_version:'1.0',
+        name:'MINI auto'
+      })
+    }),env);
+    assert.equal(miniPair.status,200);
+    const mini=await miniPair.json();
+    assert.ok(mini.token.length>=40);
+
+    const replay=await worker.fetch(new Request('https://mel.test/api/device/v1/pair',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({pair_code:code,device_id:'mini-replay',model:'waveshare-esp32-s3-touch-lcd-3.5-c',protocol_version:'1.0'})
+    }),env);
+    assert.equal(replay.status,401);
+  }finally{DB.close();}
+});
+
 test('Android heartbeat, chat, sync ACK and revocation work end-to-end',async()=>{
   const DB=sqliteD1();
   try{

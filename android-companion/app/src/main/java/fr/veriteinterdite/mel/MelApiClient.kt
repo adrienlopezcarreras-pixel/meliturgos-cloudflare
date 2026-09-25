@@ -146,6 +146,14 @@ class MelApiClient(
         return response
     }
 
+    fun miniPairCode(): String {
+        return jsonRequest(
+            "/api/android/v1/mini-pair-code",
+            "POST",
+            JSONObject()
+        ).getString("code")
+    }
+
     fun heartbeat(
         appVersion: String = APP_VERSION,
         sdkInt: Int,
