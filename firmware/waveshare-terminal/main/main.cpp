@@ -33,7 +33,7 @@ extern esp_codec_dev_handle_t output_dev;
 
 #define MINI_LCD_H_RES 320
 #define MINI_LCD_V_RES 480
-#define LCD_BUFFER_SIZE (MINI_LCD_H_RES * MINI_LCD_V_RES / 8)
+#define LCD_BUFFER_SIZE (MINI_LCD_H_RES * MINI_LCD_V_RES / 16)
 #define PIN_I2C_SDA GPIO_NUM_8
 #define PIN_I2C_SCL GPIO_NUM_7
 #define DISPLAY_ROTATION 0
@@ -1249,7 +1249,7 @@ static void lv_port_init() {
     display_cfg.panel_handle = panel_handle;
     display_cfg.control_handle = nullptr;
     display_cfg.buffer_size = LCD_BUFFER_SIZE;
-    display_cfg.double_buffer = true;
+    display_cfg.double_buffer = false;
     display_cfg.trans_size = 0;
     display_cfg.hres = MINI_LCD_H_RES;
     display_cfg.vres = MINI_LCD_V_RES;
@@ -1257,8 +1257,8 @@ static void lv_port_init() {
     display_cfg.rotation.swap_xy = 0;
     display_cfg.rotation.mirror_x = 1;
     display_cfg.rotation.mirror_y = 0;
-    display_cfg.flags.buff_dma = 0;
-    display_cfg.flags.buff_spiram = 1;
+    display_cfg.flags.buff_dma = 1;
+    display_cfg.flags.buff_spiram = 0;
     display_cfg.flags.sw_rotate = 1;
     display_cfg.flags.full_refresh = 0;
     display_cfg.flags.direct_mode = 0;
