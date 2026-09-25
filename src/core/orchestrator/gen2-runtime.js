@@ -17,6 +17,7 @@ import { registerKnowledgeWorkspaceCapabilities } from '../../capabilities/knowl
 import { registerSelfHealingCapabilities } from '../../capabilities/self-healing-capabilities.js';
 import { registerNotificationCapabilities } from '../../capabilities/notification-capabilities.js';
 import { registerConnectorOAuthCapabilities } from '../../capabilities/connector-oauth-capabilities.js';
+import { registerDocumentCapabilities } from '../../capabilities/document-capabilities.js';
 import { validateManifest } from '../../plugins/validator.js';
 import { createD1PluginRegistryAdapter, createPluginRuntime, createRegistry, createRegistryBackedPluginLoader } from '../../plugins/sdk.js';
 import { createAgentRegistry, createD1AgentRegistryAdapter, createInMemoryAgentRegistryAdapter } from '../../agents/agent-registry.js';
@@ -73,6 +74,7 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
   registerSelfHealingCapabilities(bus, env);
   registerNotificationCapabilities(bus, env);
   registerConnectorOAuthCapabilities(bus, env);
+  registerDocumentCapabilities(bus, env);
   const pluginRegistry = env?.DB && typeof env.DB.prepare === 'function'
     ? createRegistry(createD1PluginRegistryAdapter(env.DB))
     : null;

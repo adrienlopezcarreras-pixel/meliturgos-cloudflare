@@ -1,7 +1,6 @@
 import { port } from '../core/contracts.js';
 export const methods = ["extract", "index"];
-/** TODO implement only the corresponding OpenHands ticket.
- * Port input is domain data; context={owner,permissions,requestId,signal} is trusted.
- * No storage/network side effects until a server adapter is explicitly injected.
- */
+/** Canonical document port. Concrete bounded extraction/indexing lives in document-processor.js. */
 export const createDocuments = adapters => port('media/documents',methods,adapters);
+
+export { DOCUMENT_KINDS, DOCUMENT_LIMITS, createDocumentProcessor, detectDocumentKind } from './document-processor.js';
