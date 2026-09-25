@@ -56,11 +56,47 @@ function validateUrl(urlString) {
   }
 }
 
-async function fetchValidatedRedirectChain(initialUrl, { fetchImpl, timeoutMs, maxRedirects = 4 } = {}) {
+async function validateResolvedDestination(url, { dnsResolver = null, requireDnsValidation = false } = {}) {
+  if (typeof dnsResolver !== 'function') {
+    if (requireDnsValidation) throw new Error('DNS validation required but resolver is unavailable');
+    return { checked: false, addresses: [] };
+  }
+
+  let resolved;
+  try {
+    resolved = await dnsResolver(url.hostname);
+  } catch {
+    throw new Error('DNS validation failed');
+  }
+  const addresses = Array.isArray(resolved)
+    ? resolved
+    : Array.isArray(resolved?.addresses)
+      ? resolved.addresses
+      : typeof resolved === 'string'
+        ? [resolved]
+        : [];
+  if (!addresses.length) throw new Error('DNS validation returned no addresses');
+  for (const address of addresses) {
+    const value = String(address || '').trim();
+    if (!value || privateIpv4(value) || privateIpv6(value)) {
+      throw new Error(`Private resolved address not allowed: ${value || 'unknown'}`);
+    }
+  }
+  return { checked: true, addresses };
+}
+
+async function fetchValidatedRedirectChain(initialUrl, {
+  fetchImpl,
+  timeoutMs,
+  maxRedirects = 4,
+  dnsResolver = null,
+  requireDnsValidation = false,
+} = {}) {
   let current = initialUrl;
   for (let hop = 0; hop <= maxRedirects; hop += 1) {
     const validation = validateUrl(current);
     if (!validation.valid) throw new Error(`Invalid URL: ${validation.error}`);
+    await validateResolvedDestination(validation.url, { dnsResolver, requireDnsValidation });
     const response = await fetchImpl(validation.url.href, {
       method: 'GET',
       headers: {
@@ -85,7 +121,7 @@ async function fetchValidatedRedirectChain(initialUrl, { fetchImpl, timeoutMs, m
   throw new Error('Too many redirects');
 }
 
-async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 10000 } = {}) {
+async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 10000, dnsResolver = null, requireDnsValidation = false } = {}) {
   const validation = validateUrl(url);
   if (!validation.valid) throw new Error(`Invalid URL: ${validation.error}`);
   if (typeof fetchImpl !== 'function') throw new Error('WEB_FETCH_UNAVAILABLE');
@@ -96,7 +132,7 @@ async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 1
   let finalUrl = validation.url.href;
   let redirectCount = 0;
   try {
-    const fetched = await fetchValidatedRedirectChain(finalUrl, { fetchImpl, timeoutMs });
+    const fetched = await fetchValidatedRedirectChain(finalUrl, { fetchImpl, timeoutMs, dnsResolver, requireDnsValidation });
     const response = fetched.response;
     finalUrl = fetched.finalUrl;
     redirectCount = fetched.redirectCount;
@@ -111,6 +147,8 @@ async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 1
   }
 
   const bounded = content.slice(0, 50000);
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(bounded));
+  const contentSha256 = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
   return {
     source_id: sourceId,
     url: finalUrl,
@@ -118,6 +156,7 @@ async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 1
     truncated: content.length > bounded.length,
     content_type: contentType,
     redirect_count: redirectCount,
+    content_sha256: contentSha256,
     fetch_duration_ms: Date.now() - startTime,
     timestamp: new Date().toISOString(),
   };

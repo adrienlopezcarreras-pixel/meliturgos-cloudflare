@@ -1,4 +1,5 @@
 import { fetchWebContent, validateUrl } from '../devices/web-capability.js';
+import { normalizeResearchDomains, sourceEvidenceMetadata, summarizeResearchEvidence, urlMatchesResearchDomains } from '../research/source-quality.js';
 
 /**
  * InternetService — bounded web research with provenance, rate limiting and safe fetches.
@@ -40,7 +41,9 @@ class InternetService {
         source_id: page.source_id,
         fetched_at: page.timestamp,
         content_type: page.content_type,
+        content_sha256: page.content_sha256,
         fetch_duration_ms: page.fetch_duration_ms,
+        redirect_count: page.redirect_count,
         truncated: page.truncated,
       } : null,
     };
@@ -87,13 +90,14 @@ class InternetService {
     return links;
   }
 
-  normalizeSeedUrls(seedUrls, limit = 6) {
+  normalizeSeedUrls(seedUrls, limit = 6, domains = []) {
     const out = [];
     const seen = new Set();
     for (const raw of Array.isArray(seedUrls) ? seedUrls : []) {
       const validation = validateUrl(String(raw || '').trim());
       if (!validation.valid) continue;
       const url = validation.url.href;
+      if (!urlMatchesResearchDomains(url, domains)) continue;
       if (seen.has(url)) continue;
       seen.add(url);
       out.push(url);
@@ -107,7 +111,8 @@ class InternetService {
     const querySanitized = String(query || '').trim();
     if (!querySanitized) throw new Error('INVALID_QUERY');
     const depth = Math.max(1, Math.min(3, Number(maxDepth) || 1));
-    const officialSeedUrls = this.normalizeSeedUrls(seedUrls, 6);
+    const domainFilters = normalizeResearchDomains(domains);
+    const officialSeedUrls = this.normalizeSeedUrls(seedUrls, 6, domainFilters);
     const officialSources = [];
     for (const url of officialSeedUrls) {
       try {
@@ -119,15 +124,13 @@ class InternetService {
       }
     }
 
+    const domainClause = domainFilters.length
+      ? domainFilters.map(domain => `site:${domain}`).join(' OR ')
+      : '';
+    const discoveryQuery = domainClause ? `${querySanitized} (${domainClause})` : querySanitized;
     const searchUrls = [];
-    if (depth >= 1) searchUrls.push(`https://www.google.com/search?q=${encodeURIComponent(querySanitized)}`);
-    if (depth >= 2) searchUrls.push(`https://duckduckgo.com/html/?q=${encodeURIComponent(querySanitized)}`);
-    if (depth >= 3 && Array.isArray(domains)) {
-      for (const domain of domains.slice(0, 3)) {
-        const clean = String(domain || '').trim();
-        if (clean) searchUrls.push(`https://${clean}/search?q=${encodeURIComponent(querySanitized)}`);
-      }
-    }
+    if (depth >= 1) searchUrls.push(`https://www.google.com/search?q=${encodeURIComponent(discoveryQuery)}`);
+    if (depth >= 2) searchUrls.push(`https://duckduckgo.com/html/?q=${encodeURIComponent(discoveryQuery)}`);
 
     const searchResults = officialSources.length ? [] : await Promise.all(searchUrls.slice(0, 3).map(async url => {
       try {
@@ -148,6 +151,7 @@ class InternetService {
     if (depth >= 2) {
       for (const index of searchIndexes) {
         for (const url of this.extractCandidateLinks(index.content, index.url, 12)) {
+          if (!urlMatchesResearchDomains(url, domainFilters)) continue;
           if (seen.has(url)) continue;
           seen.add(url);
           discovered.push(url);
@@ -169,13 +173,19 @@ class InternetService {
       }
     }
 
-    const sources = officialSources.length ? officialSources : (directSources.length ? directSources : searchIndexes);
+    const rawSources = officialSources.length ? officialSources : (directSources.length ? directSources : searchIndexes);
+    const sources = rawSources.map(source => ({
+      ...source,
+      evidence: sourceEvidenceMetadata(source),
+    }));
     return {
       query: querySanitized,
       sources,
       citations_count: sources.length,
       depth,
+      evidence: summarizeResearchEvidence(sources, { domains: domainFilters }),
       discovery: {
+        domain_filters: [...domainFilters],
         official_seed_urls: officialSeedUrls,
         official_sources_loaded: officialSources.length,
         search_indexes: searchIndexes.map(source => ({
@@ -201,7 +211,11 @@ class InternetService {
     if (String(url).length > 500) throw new Error('URL too long');
     try {
       const fetchImpl = typeof this.env?.MEL_WEB_FETCH === 'function' ? this.env.MEL_WEB_FETCH : fetch;
-      return await fetchWebContent(this.sourceId, url, { fetchImpl });
+      return await fetchWebContent(this.sourceId, url, {
+        fetchImpl,
+        dnsResolver: typeof this.env?.MEL_WEB_DNS_RESOLVE === 'function' ? this.env.MEL_WEB_DNS_RESOLVE : null,
+        requireDnsValidation: this.env?.MEL_WEB_REQUIRE_DNS_VALIDATION === true,
+      });
     } catch (e) {
       throw new Error(`fetchPage(${url}) failed: ${e.message}`);
     }
@@ -222,7 +236,10 @@ class InternetService {
   }
 
   buildCitation(sources) {
-    return sources.map((source, i) => `[${i + 1}] ${source.title}\nURL: ${source.url}\nSnippet: ${source.snippet.slice(0, 200)}`).join('\n\n');
+    return sources.map((source, i) => {
+      const label = source?.evidence?.discovery_only ? 'DISCOVERY INDEX' : 'DIRECT SOURCE';
+      return `[${i + 1}] [${label}] ${source.title}\nURL: ${source.url}\nSnippet: ${source.snippet.slice(0, 200)}`;
+    }).join('\n\n');
   }
 
   summarizeSources(sources) {

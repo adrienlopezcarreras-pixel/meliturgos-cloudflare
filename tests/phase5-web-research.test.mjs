@@ -26,6 +26,7 @@ test('safe web fetch preserves content type, bounds content and provenance', asy
   assert.equal(page.redirect_count, 0);
   assert.ok(page.timestamp);
   assert.ok(Number.isFinite(page.fetch_duration_ms));
+  assert.match(page.content_sha256, /^[a-f0-9]{64}$/);
 });
 
 test('web research returns real structured sources, title, snippet, citation and per-page provenance', async () => {
@@ -188,4 +189,99 @@ test('official seed URLs bypass search-engine discovery when at least one direct
   assert.equal(result.discovery.official_sources_loaded, 1);
   assert.equal(result.discovery.search_indexes.length, 0);
   assert.deepEqual(calls, ['https://docs.example.org/release-notes']);
+});
+
+
+test('domain filters constrain discovered direct sources instead of fetching arbitrary domain search endpoints', async () => {
+  const calls = [];
+  const fetchImpl = async url => {
+    calls.push(String(url));
+    if (String(url).startsWith('https://www.google.com/search?')) {
+      assert.match(decodeURIComponent(String(url)), /site:example\.com/);
+      return new Response(`<html><body>
+        <a href="https://example.com/allowed">allowed</a>
+        <a href="https://other.example.org/rejected">rejected</a>
+      </body></html>`, { status: 200, headers: { 'content-type': 'text/html' } });
+    }
+    if (String(url) === 'https://example.com/allowed') {
+      return new Response('<html><head><title>Allowed</title></head><body>direct evidence</body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  const result = await service(fetchImpl).research('bounded domain evidence', ['example.com'], 2);
+  assert.deepEqual(result.discovery.domain_filters, ['example.com']);
+  assert.deepEqual(result.sources.map(row => row.url), ['https://example.com/allowed']);
+  assert.equal(result.evidence.domain_restricted, true);
+  assert.equal(result.evidence.citation_quality, 'DIRECT');
+  assert.equal(calls.some(url => url.includes('other.example.org')), false);
+  assert.equal(calls.some(url => /^https:\/\/example\.com\/search/.test(url)), false);
+});
+
+test('seed URLs remain explicitly unverified authority claims even when supplied directly', async () => {
+  const result = await service(async url => new Response(
+    '<html><head><title>Seed</title></head><body>seed evidence</body></html>',
+    { status: 200, headers: { 'content-type': 'text/html' } },
+  )).research('seed evidence', null, 2, ['https://docs.example.org/release']);
+
+  assert.equal(result.sources[0].source_kind, 'OFFICIAL_SEED');
+  assert.equal(result.sources[0].evidence.direct_content, true);
+  assert.equal(result.sources[0].evidence.authority_verified, false);
+  assert.equal(result.evidence.authority_claims_verified, false);
+  assert.equal(result.evidence.citation_quality, 'DIRECT');
+});
+
+test('search-index fallback is explicitly marked discovery-only rather than direct evidence', async () => {
+  const result = await service(mockFetch).research('no direct links', null, 2);
+  assert.ok(result.sources.length >= 1);
+  assert.ok(result.sources.every(source => source.evidence.discovery_only === true));
+  assert.equal(result.evidence.citation_quality, 'DISCOVERY_ONLY');
+  assert.match(result.citation, /DISCOVERY INDEX/);
+});
+
+test('DNS resolution guard blocks public hostnames that resolve to private space before fetch', async () => {
+  let fetched = false;
+  await assert.rejects(
+    () => fetchWebContent('dns-private', 'https://public.example.test/path', {
+      fetchImpl: async () => {
+        fetched = true;
+        return new Response('should-not-run', { status: 200, headers: { 'content-type': 'text/plain' } });
+      },
+      dnsResolver: async hostname => {
+        assert.equal(hostname, 'public.example.test');
+        return ['127.0.0.1'];
+      },
+      requireDnsValidation: true,
+    }),
+    /Private resolved address not allowed/,
+  );
+  assert.equal(fetched, false);
+});
+
+test('production DNS validation mode fails closed when no resolver is configured', async () => {
+  let fetched = false;
+  await assert.rejects(
+    () => fetchWebContent('dns-required', 'https://example.com/', {
+      fetchImpl: async () => {
+        fetched = true;
+        return new Response('no', { status: 200, headers: { 'content-type': 'text/plain' } });
+      },
+      requireDnsValidation: true,
+    }),
+    /DNS validation required/,
+  );
+  assert.equal(fetched, false);
+});
+
+test('domain filter syntax rejects schemes, ports, paths and private hosts', async () => {
+  for (const domain of ['https://example.com', 'example.com:443', 'example.com/path', 'localhost', '127.0.0.1']) {
+    await assert.rejects(
+      () => service().research('invalid domain', [domain], 2),
+      /RESEARCH_DOMAIN_(INVALID|UNSAFE)/,
+      domain,
+    );
+  }
 });
