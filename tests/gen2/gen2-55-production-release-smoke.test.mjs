@@ -29,7 +29,7 @@ test('GEN2-55 production proof remains fail-closed and read-only', async () => {
   assert.match(workflow, /Production GEN2-55 D1 integrity \+ maturity audits passed/);
 });
 
-test('roadmap records already-proven SEC-03 and GEN2-48 as DONE_VERIFIED', async () => {
+test('roadmap records production-proven security, recovery and GEN2-55 maturity as DONE_VERIFIED', async () => {
   const roadmap = await readFile(
     new URL('../../src/roadmap/master-roadmap.js', import.meta.url),
     'utf8',
@@ -45,6 +45,8 @@ test('roadmap records already-proven SEC-03 and GEN2-48 as DONE_VERIFIED', async
   );
   assert.match(
     roadmap,
-    /item\('GEN2-55',[^\n]*'IN_PROGRESS'/,
+    /item\('GEN2-55',[^\n]*'DONE_VERIFIED'/,
   );
+  assert.match(roadmap, /36156625153/);
+  assert.match(roadmap, /bd2fadada9d87da35be7ce7cc8ce23b9f204fc7e/);
 });
