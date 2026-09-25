@@ -1272,8 +1272,9 @@ static void lv_port_init() {
     display_cfg.rotation.swap_xy = 0;
     display_cfg.rotation.mirror_x = 1;
     display_cfg.rotation.mirror_y = 0;
-    display_cfg.flags.buff_dma = 0;
-    display_cfg.flags.buff_spiram = 1;
+    // QSPI path: keep the small double buffer in internal DMA-capable SRAM.
+    display_cfg.flags.buff_dma = 1;
+    display_cfg.flags.buff_spiram = 0;
     display_cfg.flags.sw_rotate = 1;
     display_cfg.flags.full_refresh = 0;
     display_cfg.flags.direct_mode = 0;
