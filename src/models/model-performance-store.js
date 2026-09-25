@@ -48,34 +48,40 @@ export function modelPerformanceScore(model, stats = null) {
     : successRate;
   const latency = latencyUtility(stats.avg_latency_ms);
   const cost = costUtility(model);
-  const confidence = bounded(Math.max(samples / 20, benchmarkSamples / 8), 0.2, 1, 0.2);
-
   const evidenceScore =
     (quality * 0.45)
     + (successRate * 0.25)
     + (latency * 0.20)
     + (cost * 0.10);
 
-  return Number((evidenceScore * confidence).toFixed(6));
+  return Number(evidenceScore.toFixed(6));
+}
+
+export function modelPerformanceConfidence(stats = null) {
+  if (!stats) return 0;
+  const samples = Math.max(0, Number(stats.samples) || 0);
+  const benchmarkSamples = Math.max(0, Number(stats.benchmark_samples) || 0);
+  if (samples < MIN_DYNAMIC_SAMPLES && benchmarkSamples < 1) return 0;
+  return bounded(Math.max(samples / 20, benchmarkSamples / 8), 0.2, 1, 0.2);
 }
 
 function sortWithEvidence(models, statsById) {
-  const originalIndex = new Map(models.map((model, index) => [model.id, index]));
-  const scored = models.map(model => ({
-    model,
-    score: modelPerformanceScore(model, statsById.get(model.id) || null),
-  }));
+  const rows = models.map((model, index) => {
+    const stats = statsById.get(model.id) || null;
+    const evidence = modelPerformanceScore(model, stats);
+    const confidence = modelPerformanceConfidence(stats);
+    const staticScore = models.length <= 1 ? 1 : 1 - (index / (models.length - 1));
+    const combined = evidence == null || confidence <= 0
+      ? staticScore
+      : (staticScore * (1 - confidence)) + (evidence * confidence);
+    return { model, index, combined };
+  });
 
-  if (!scored.some(row => row.score != null)) return [...models];
-
-  return scored.sort((a, b) => {
-    if (a.score == null && b.score == null) return originalIndex.get(a.model.id) - originalIndex.get(b.model.id);
-    if (a.score == null) return 1;
-    if (b.score == null) return -1;
-    if (b.score !== a.score) return b.score - a.score;
+  return rows.sort((a, b) => {
+    if (b.combined !== a.combined) return b.combined - a.combined;
     const priorityDelta = Number(b.model.priority || 0) - Number(a.model.priority || 0);
     if (priorityDelta !== 0) return priorityDelta;
-    return originalIndex.get(a.model.id) - originalIndex.get(b.model.id);
+    return a.index - b.index;
   }).map(row => row.model);
 }
 
