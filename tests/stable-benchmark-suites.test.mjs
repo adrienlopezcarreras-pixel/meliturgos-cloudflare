@@ -18,6 +18,10 @@ test('MEL-EVAL-01 stable registry covers conversation code research and memory w
 
   const ids=stableBenchmarkCatalog().suites.flatMap(suite=>suite.cases.map(row=>row.id));
   assert.equal(new Set(ids).size,ids.length);
+  const catalog=stableBenchmarkCatalog();
+  const linked=catalog.suites.flatMap(suite=>suite.cases).filter(row=>row.learning_case_id);
+  assert.ok(linked.length>=6);
+  assert.equal(catalog.suites.find(suite=>suite.kind==='research').canonical_learning_links,0);
 });
 
 test('MEL-EVAL-01 registry digest is deterministic across cloned definitions',()=>{
@@ -71,5 +75,15 @@ test('MEL-EVAL-01 runner fails closed on unknown suite',async()=>{
   await assert.rejects(
     ()=>runStableBenchmarkSuite({suiteId:'unknown',evaluator:async()=>1}),
     error=>error.code==='STABLE_BENCHMARK_SUITE_NOT_FOUND'
+  );
+});
+
+
+test('MEL-EVAL-01 rejects a stable case linked to a nonexistent canonical learning case',()=>{
+  const broken=structuredClone(STABLE_BENCHMARK_SUITES_V1);
+  broken[0].cases[0].learning_case_id='learning-case-does-not-exist';
+  assert.throws(
+    ()=>validateStableBenchmarkRegistry(broken),
+    error=>error.code==='STABLE_BENCHMARK_LEARNING_CASE_UNKNOWN'
   );
 });
