@@ -46,6 +46,11 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
     return json(await runtime.bus.execute("roadmap.read", {}, capabilityContext(env)));
   }
 
+  if (path === "/api/gen2/human-actions-required" && request.method === "GET") {
+    const runtime = createGen2Runtime({ env });
+    return json(await runtime.bus.execute("roadmap.human-actions-required", {}, capabilityContext(env)));
+  }
+
   if (path === "/api/gen2/migration/gen1-status" && request.method === "GET") {
     return json(await getLegacyInteractionMigrationStatus(env));
   }

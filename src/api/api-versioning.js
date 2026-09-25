@@ -17,6 +17,7 @@ const ROUTES = Object.freeze([
   { id:'autonomy', handler:'index', canonical:'/api/v1/autonomy', legacy:['/api/gen2/autonomy'], methods:['GET','POST','PATCH','DELETE'], prefix:true },
   { id:'api.version', handler:'router', canonical:'/api/v1/version', legacy:['/api/gen2/version'], methods:['GET'], meta:true },
   { id:'roadmap.read', handler:'router', canonical:'/api/v1/roadmap', legacy:['/api/gen2/roadmap'], methods:['GET'] },
+  { id:'roadmap.human-actions-required', handler:'router', canonical:'/api/v1/human-actions-required', legacy:['/api/gen2/human-actions-required'], methods:['GET'] },
   { id:'code.self-check', handler:'router', canonical:'/api/v1/code/self-check', legacy:['/api/gen2/code/self-check'], methods:['GET'] },
   { id:'capabilities.list', handler:'router', canonical:'/api/v1/capabilities', legacy:['/api/gen2/capabilities'], methods:['GET'] },
   { id:'capabilities.execute', handler:'router', canonical:'/api/v1/capabilities/execute', legacy:['/api/gen2/capabilities/execute'], methods:['POST'] },
