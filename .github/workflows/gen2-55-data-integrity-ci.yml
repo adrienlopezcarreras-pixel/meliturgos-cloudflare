@@ -6,11 +6,15 @@ on:
       - 'src/diagnostics/data-integrity.js'
       - 'src/diagnostics/final-maturity-audit.js'
       - 'src/capabilities/default-bus.js'
+      - 'src/router.js'
+      - '.github/workflows/deploy-cloudflare-release.yml'
       - 'src/persistence/migrations.js'
       - 'src/persistence/gen2-schema.js'
       - 'src/roadmap/master-roadmap.js'
       - 'tests/data-integrity.test.mjs'
       - 'tests/final-maturity-audit.test.mjs'
+      - 'tests/release-production-smoke-routes.test.mjs'
+      - 'tests/gen2/gen2-55-production-release-smoke.test.mjs'
       - '.github/workflows/gen2-55-data-integrity-ci.yml'
   push:
     branches:
@@ -19,11 +23,15 @@ on:
       - 'src/diagnostics/data-integrity.js'
       - 'src/diagnostics/final-maturity-audit.js'
       - 'src/capabilities/default-bus.js'
+      - 'src/router.js'
+      - '.github/workflows/deploy-cloudflare-release.yml'
       - 'src/persistence/migrations.js'
       - 'src/persistence/gen2-schema.js'
       - 'src/roadmap/master-roadmap.js'
       - 'tests/data-integrity.test.mjs'
       - 'tests/final-maturity-audit.test.mjs'
+      - 'tests/release-production-smoke-routes.test.mjs'
+      - 'tests/gen2/gen2-55-production-release-smoke.test.mjs'
       - '.github/workflows/gen2-55-data-integrity-ci.yml'
 
 permissions:
@@ -47,13 +55,16 @@ jobs:
         run: >
           node --check src/diagnostics/data-integrity.js &&
           node --check src/diagnostics/final-maturity-audit.js &&
-          node --check src/capabilities/default-bus.js
+          node --check src/capabilities/default-bus.js &&
+          node --check src/router.js
       - name: Integrity targeted tests
         run: >
           node --test
           tests/data-integrity.test.mjs
           tests/final-maturity-audit.test.mjs
           tests/gen2/contracts.test.mjs
+          tests/release-production-smoke-routes.test.mjs
+          tests/gen2/gen2-55-production-release-smoke.test.mjs
 
   integrity-full-suite:
     runs-on: ubuntu-latest
