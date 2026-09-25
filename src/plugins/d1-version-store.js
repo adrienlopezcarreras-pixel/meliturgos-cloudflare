@@ -9,6 +9,16 @@ function clone(value) {
   return value == null ? value : structuredClone(value);
 }
 
+function stable(value) {
+  if (Array.isArray(value)) return value.map(stable);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])]));
+}
+
+function stableJson(value) {
+  return JSON.stringify(stable(value));
+}
+
 function text(value) {
   return String(value ?? '').trim();
 }
@@ -111,7 +121,7 @@ export class D1PluginVersionStore {
     requireValue(Number.isFinite(Number(record.created_at)), 'PLUGIN_RECORD_CREATED_AT_REQUIRED', 400);
     requireValue(Number.isFinite(Number(record.updated_at)), 'PLUGIN_RECORD_UPDATED_AT_REQUIRED', 400);
 
-    const manifestJson = JSON.stringify(manifest);
+    const manifestJson = stableJson(manifest);
     const checksum = await sha256(manifestJson);
     const evidenceJson = JSON.stringify(record.evidence || {});
 
@@ -140,15 +150,19 @@ export class D1PluginVersionStore {
       return this.getVersion(manifest.id, manifest.version);
     }
 
-    const existing = await this.getVersion(manifest.id, manifest.version);
-    requireValue(existing, 'PLUGIN_VERSION_NOT_FOUND', 404);
+    const existingRow = await this.db.prepare(
+      'SELECT * FROM plugin_versions WHERE plugin_id=? AND version=?'
+    ).bind(manifest.id, manifest.version).first();
+    requireValue(existingRow, 'PLUGIN_VERSION_NOT_FOUND', 404);
     requireValue(
-      existing.manifest.id === manifest.id
-        && existing.manifest.version === manifest.version
-        && existing.artifact_ref === record.artifact_ref,
+      existingRow.artifact_ref === record.artifact_ref
+        && existingRow.manifest_sha256 === checksum,
       'PLUGIN_VERSION_IMMUTABLE_IDENTITY_MISMATCH',
       409,
     );
+    if (existingRow.artifact_digest && record.artifact_digest) {
+      requireValue(existingRow.artifact_digest === record.artifact_digest, 'PLUGIN_ARTIFACT_DIGEST_IMMUTABLE', 409);
+    }
 
     await this.db.prepare(`UPDATE plugin_versions SET
       status=?,
