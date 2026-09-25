@@ -272,32 +272,69 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       },
       maxCandidates: Math.min(4, Math.max(1, Number(input.maxCandidates) || 3)),
     }, context);
-    const ranked = Array.isArray(generated?.candidates) && generated.candidates.length
-      ? generated.candidates
-      : generated?.best ? [generated.best] : [];
     const validationFailures = [];
     let accepted = null;
     let acceptedCandidate = null;
+    let repairAttempted = false;
+    let providerFailures = Number(generated?.failures || 0);
+    let candidateCount = 0;
 
-    for (const candidate of ranked) {
-      try {
-        accepted = parseCapabilityAwareWorkPlan({
-          text: candidate?.text,
-          id: input.id,
-          goal: input.goal,
-          constraints: input.constraints || [],
-          catalog,
-          source: 'augmentio:work.plan.generate',
-        });
-        acceptedCandidate = candidate;
-        break;
-      } catch (error) {
-        validationFailures.push({
-          provider: candidate?.provider || null,
-          model: candidate?.model || null,
-          code: String(error?.code || error?.message || 'WORK_PLAN_CANDIDATE_INVALID').slice(0, 120),
-        });
+    const tryCandidates = (result, source) => {
+      const ranked = Array.isArray(result?.candidates) && result.candidates.length
+        ? result.candidates
+        : result?.best ? [result.best] : [];
+      candidateCount += ranked.length;
+      for (const candidate of ranked) {
+        try {
+          accepted = parseCapabilityAwareWorkPlan({
+            text: candidate?.text,
+            id: input.id,
+            goal: input.goal,
+            constraints: input.constraints || [],
+            catalog,
+            source,
+          });
+          acceptedCandidate = candidate;
+          return true;
+        } catch (error) {
+          validationFailures.push({
+            provider: candidate?.provider || null,
+            model: candidate?.model || null,
+            code: String(error?.code || error?.message || 'WORK_PLAN_CANDIDATE_INVALID').slice(0, 120),
+          });
+        }
       }
+      return false;
+    };
+
+    tryCandidates(generated, 'augmentio:work.plan.generate');
+
+    if (!accepted) {
+      repairAttempted = true;
+      const repairPrompt = [
+        prompt,
+        '',
+        'REPAIR REQUIRED:',
+        'All previous proposals failed strict validation.',
+        'Return ONLY one valid JSON object in the exact requested format.',
+        'Choose the smallest executable plan and prefer LOW-risk capabilities whose required input_schema you can satisfy exactly.',
+        'Do not invent capability ids, fields, values, wrappers, markdown, prose, or work.* capabilities.',
+        'Previous validation failure codes:',
+        JSON.stringify(validationFailures.slice(0, 12)),
+      ].join('\n').slice(0, 12000);
+
+      const repaired = await bus.execute('augmentio.fanout', {
+        capability: 'REASONING',
+        input: repairPrompt,
+        context: {
+          purpose: 'work-plan-generation-repair',
+          execution_policy: 'PLAN_ONLY_NO_EXECUTION',
+          capability_count: catalog.length,
+        },
+        maxCandidates: Math.min(4, Math.max(1, Number(input.maxCandidates) || 3)),
+      }, context);
+      providerFailures += Number(repaired?.failures || 0);
+      tryCandidates(repaired, 'augmentio:work.plan.generate:repair');
     }
 
     if (!accepted) {
@@ -315,9 +352,10 @@ export function registerWorkCapabilities(bus, { db } = {}) {
         ...accepted.generator,
         provider: acceptedCandidate?.provider || null,
         model: acceptedCandidate?.model || null,
-        candidate_count: ranked.length,
-        provider_failures: Number(generated?.failures || 0),
+        candidate_count: candidateCount,
+        provider_failures: providerFailures,
         rejected_candidates: validationFailures,
+        repair_attempted: repairAttempted,
         execution_started: false,
         persisted: false,
       },
