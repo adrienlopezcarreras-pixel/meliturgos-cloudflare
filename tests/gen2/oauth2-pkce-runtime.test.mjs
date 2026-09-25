@@ -428,3 +428,26 @@ test('OAuth2 authorization hook receives only safe connector metadata', async ()
   assert.equal(serialized.includes('refresh-secret'), false);
   assert.equal(serialized.includes('code_verifier'), false);
 });
+
+
+test('OAuth2 callback removes newly stored token if public connector-state hook fails', async () => {
+  const f = fixture({
+    onAuthorized: async () => {
+      throw Object.assign(new Error('CATALOG_WRITE_FAILED'), { code: 'CATALOG_WRITE_FAILED' });
+    },
+  });
+  const oauth = createOAuth2(f.options);
+  const begun = await oauth.begin({ connector_id: 'github' }, { owner: 'adrien' });
+  const state = new URL(begun.authorization_url).searchParams.get('state');
+
+  await assert.rejects(
+    () => oauth.callback({
+      connector_id: 'github',
+      state,
+      code: 'code',
+    }, { owner: 'adrien' }),
+    error => error?.code === 'CATALOG_WRITE_FAILED',
+  );
+
+  assert.equal(await f.tokens.get({ owner: 'adrien', connector_id: 'github' }), null);
+});
