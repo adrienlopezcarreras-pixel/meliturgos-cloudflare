@@ -310,5 +310,42 @@ test('MEL-REL-03 release token cannot use the generic capability route outside t
   assert.equal(response.status, 403);
   const body = await response.json();
   assert.equal(body.code, 'RELEASE_SMOKE_CAPABILITY_DENIED');
-  assert.deepEqual(body.allowed_capabilities, ['echo', 'resilience.recovery.drill.latest']);
+  assert.deepEqual(body.allowed_capabilities, ['echo', 'resilience.recovery.drill.latest', 'memory.export', 'memory.export.verify']);
+});
+
+
+test('MEL-MEM-03 release token can export and verify memory without opening arbitrary capabilities', async () => {
+  const runtimeEnv = env();
+
+  const exportedResponse = await worker.fetch(
+    smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id:'memory.export', input:{} }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(exportedResponse.status, 200);
+  const exportedBody = await exportedResponse.json();
+  assert.equal(exportedBody.ok, true);
+  assert.equal(exportedBody.capability, 'memory.export');
+  assert.equal(exportedBody.result.format, 'meliturgos-memory-export');
+  assert.equal(exportedBody.result.schema_version, '1.0.0');
+  assert.equal(exportedBody.result.manifest.checksum_algorithm, 'SHA-256');
+  assert.match(exportedBody.result.manifest.export_sha256, /^[a-f0-9]{64}$/);
+
+  const verifyResponse = await worker.fetch(
+    smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id:'memory.export.verify', input:exportedBody.result }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(verifyResponse.status, 200);
+  const verifyBody = await verifyResponse.json();
+  assert.equal(verifyBody.ok, true);
+  assert.equal(verifyBody.capability, 'memory.export.verify');
+  assert.equal(verifyBody.result.ok, true);
+  assert.deepEqual(verifyBody.result.failures, []);
 });
