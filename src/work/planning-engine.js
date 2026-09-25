@@ -85,6 +85,7 @@ export function createWorkPlan({
   steps = [],
   constraints = [],
   source = 'mel',
+  conversationId = null,
 } = {}) {
   const normalizedGoal = String(goal || '').trim().slice(0, 4000);
   if (!normalizedGoal) throw planningError('WORK_PLAN_GOAL_REQUIRED');
@@ -118,6 +119,7 @@ export function createWorkPlan({
     version: 1,
     id: String(id).slice(0, 200),
     goal: normalizedGoal,
+    conversation_id: String(conversationId || '').trim().slice(0, 200) || null,
     source: String(source || 'mel').slice(0, 100),
     constraints: constraints.map((item) => String(item || '').trim().slice(0, 500)).filter(Boolean),
     steps: normalizedSteps,
