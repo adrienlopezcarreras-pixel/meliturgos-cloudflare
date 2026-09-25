@@ -129,9 +129,11 @@ export function normalizeComputerUseRequest(input = {}) {
   const rawSandbox = input.sandbox && typeof input.sandbox === 'object' ? input.sandbox : {};
   const maxSteps = Math.max(1, Math.min(MAX_STEPS, Math.trunc(numeric(rawSandbox.max_steps, 20)) || 20));
   const allowedApps = uniqueTexts(rawSandbox.allowed_apps);
-  const allowedPaths = uniqueTexts(rawSandbox.allowed_paths, 64, 4096)
-    .map(normalizeLocalPath)
-    .filter(Boolean);
+  const allowedPaths = [...new Set(
+    uniqueTexts(rawSandbox.allowed_paths, 64, 4096)
+      .map(normalizeLocalPath)
+      .filter(Boolean)
+  )];
   const allowedOrigins = uniqueTexts(rawSandbox.allowed_origins, 64, 2048)
     .map(normalizeOrigin)
     .filter(Boolean);
