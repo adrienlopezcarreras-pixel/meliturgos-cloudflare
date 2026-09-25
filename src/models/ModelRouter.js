@@ -63,13 +63,14 @@ function completionMetadata(result) {
 }
 
 export class ModelRouter {
-  constructor({registry=null, invoke, finalFallback, timeoutMs=120000, maxCalls=2, augmentio=null}={}) {
+  constructor({registry=null, invoke, finalFallback, timeoutMs=120000, maxCalls=2, augmentio=null, performanceStore=null}={}) {
     this.registry=registry || new ModelRegistry(standardRegistry.list());
     this.invoke=invoke;
     this.finalFallback=finalFallback;
     this.timeoutMs=timeoutMs;
     this.maxCalls=Math.max(1,Number(maxCalls)||2);
     this.augmentio=augmentio;
+    this.performanceStore=performanceStore;
     this.stats={calls:0,failures:0,augmentioCalls:0};
   }
 
@@ -91,6 +92,38 @@ export class ModelRouter {
   fallback(task, excluded=[]) {
     const capability=this.normalizeTask(task);
     return this.registry.modelsByCapability(capability).filter(m=>!excluded.includes(m.id));
+  }
+
+  async orderedCandidates(task, {model}={}) {
+    const capability=this.normalizeTask(task);
+    let candidates=this.registry.modelsByCapability(capability);
+    if (!candidates.length && capability==='GENERAL') candidates=this.registry.modelsByCapability('FALLBACK');
+    if (model) {
+      const selected=candidates.find(m=>m.id===model);
+      if (!selected) throw new DomainError('capability_missing',422);
+      return [selected,...candidates.filter(m=>m.id!==selected.id)];
+    }
+    if (!this.performanceStore?.rank) return candidates;
+    try {
+      const ranked=await this.performanceStore.rank(candidates,capability);
+      return Array.isArray(ranked) && ranked.length ? ranked : candidates;
+    } catch {
+      return candidates;
+    }
+  }
+
+  async recordPerformance(selected, task, ok, latencyMs) {
+    if (!this.performanceStore?.recordAttempt || !selected?.id) return false;
+    try {
+      return await this.performanceStore.recordAttempt({
+        modelId:selected.id,
+        task:this.normalizeTask(task),
+        ok:Boolean(ok),
+        latencyMs,
+      });
+    } catch {
+      return false;
+    }
   }
 
   async executeParallel({task='GENERAL',messages,maxCandidates=this.maxCalls},context={}) {
@@ -122,13 +155,14 @@ export class ModelRouter {
   async execute({task='GENERAL',messages,model,parallel=false,maxCandidates},context={}) {
     if (parallel && this.augmentio?.fanOut) return this.executeParallel({task,messages,maxCandidates},context);
     if (!this.invoke) throw new DomainError('MODEL_PROVIDER_UNCONFIGURED',503);
-    const primary=this.selectModel(task,{model});
-    const candidates=[primary,...this.fallback(task,[primary.id])].slice(0,this.maxCalls);
+    const candidates=(await this.orderedCandidates(task,{model})).slice(0,this.maxCalls);
+    if (!candidates.length) throw new DomainError('capability_missing',422);
     let failure;
     const reasons=[];
     for (let i=0;i<candidates.length;i++) {
       let timer;
       const selected=candidates[i];
+      const startedAt=Date.now();
       this.stats.calls++;
       try {
         const result=await Promise.race([
@@ -137,6 +171,7 @@ export class ModelRouter {
         ]);
         const text=extractModelText(result);
         if (typeof text!=='string' || !text.trim()) throw new DomainError('EMPTY_MODEL_RESPONSE',502);
+        await this.recordPerformance(selected,task,true,Date.now()-startedAt);
         return {
           text:text.trim(),
           model:selected.id,
@@ -149,6 +184,7 @@ export class ModelRouter {
         };
       } catch(error) {
         this.stats.failures++;
+        await this.recordPerformance(selected,task,false,Date.now()-startedAt);
         failure=error;
         reasons.push(error.reason||error.code||error.message||'unknown');
         if (!retryable(categorize(error))) break;
