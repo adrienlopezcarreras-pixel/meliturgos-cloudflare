@@ -157,7 +157,11 @@ export class PluginVersionManager {
       // immutable prior release proof instead of skipping states.
       const prior = current.evidence?.release;
       requireValue(prior?.tests === true && prior?.sandbox === true && prior?.security === true && prior?.activation === true, 'PLUGIN_PRIOR_RELEASE_EVIDENCE_REQUIRED', 409);
-      source = transition(current, 'CANDIDATE', {}, 'plugin');
+      if (current.status === 'ROLLED_BACK') {
+        source = transition(current, 'DISCOVERED', {}, 'plugin');
+        source = transition(source, 'VALIDATED', {}, 'plugin');
+      }
+      source = transition(source, 'CANDIDATE', {}, 'plugin');
       source = transition(source, 'TESTED', { tests: true, version: v }, 'plugin');
     }
 
