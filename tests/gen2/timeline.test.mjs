@@ -1,12 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  createD1TimelineAdapter,
   createInMemoryTimelineAdapter,
   createTimeline,
   timelineEvent,
   timelineEventId,
   timelineQuery,
 } from '../../src/memory/timeline.js';
+import { prepareGen2 } from '../../src/persistence/gen2-schema.js';
+import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 
 const event = (event_id, occurred_at, overrides = {}) => ({
   event_id,
@@ -82,4 +85,50 @@ test('timeline query and get inputs fail closed on invalid ranges and identifier
   assert.throws(() => timelineQuery({ limit: 0 }), { code: 'TIMELINE_QUERY_LIMIT_INVALID' });
   assert.throws(() => timelineQuery({ order: 'sideways' }), { code: 'TIMELINE_QUERY_ORDER_INVALID' });
   assert.throws(() => timelineEventId({ event_id: ' ' }), { code: 'TIMELINE_EVENT_ID_INVALID' });
+});
+
+
+test('GEN2-12 D1 adapter persists timeline events across service instances', async () => {
+  const db = sqliteD1();
+  try {
+    await prepareGen2(db);
+    const first = createTimeline(createD1TimelineAdapter(db));
+    await first.append(event('evt-a', 1000));
+    await first.append(event('evt-b', 2000, { type: 'task.finished', source: 'teacher' }));
+
+    const second = createTimeline(createD1TimelineAdapter(db));
+    assert.equal((await second.get({ event_id: 'evt-a' })).title, 'Event evt-a');
+    assert.deepEqual((await second.list()).map(item => item.event_id), ['evt-a', 'evt-b']);
+    assert.deepEqual(
+      (await second.list({ type: 'task.finished', source: 'teacher' })).map(item => item.event_id),
+      ['evt-b'],
+    );
+
+    await assert.rejects(
+      () => second.append(event('evt-a', 3000)),
+      { code: 'TIMELINE_EVENT_EXISTS', status: 409 },
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test('GEN2-12 D1 adapter fails closed on corrupted persisted metadata', async () => {
+  const db = sqliteD1();
+  try {
+    await prepareGen2(db);
+    await db.prepare(
+      `INSERT INTO timeline_events
+       (event_id,type,title,description,occurred_at,source,confidence,metadata)
+       VALUES (?,?,?,?,?,?,?,?)`,
+    ).bind('evt-corrupt', 'memory.confirmed', 'Corrupt', 'bad metadata', 1000, 'memory', 0.9, '[]').run();
+
+    const service = createTimeline(createD1TimelineAdapter(db));
+    await assert.rejects(
+      () => service.get({ event_id: 'evt-corrupt' }),
+      { code: 'TIMELINE_EVENT_METADATA_CORRUPT', status: 500 },
+    );
+  } finally {
+    db.close();
+  }
 });
