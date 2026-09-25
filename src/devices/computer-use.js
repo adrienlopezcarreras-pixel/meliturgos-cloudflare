@@ -16,6 +16,9 @@ export const COMPUTER_USE_ACTIONS = Object.freeze({
   KEY_PRESS: 'keyboard.press',
   TYPE_TEXT: 'keyboard.type',
   OPEN_APP: 'app.open',
+  CLOSE_APP: 'app.close',
+  OPEN_FILE: 'file.open',
+  CLOSE_FILE: 'file.close',
   CLIPBOARD_READ: 'clipboard.read',
   CLIPBOARD_WRITE: 'clipboard.write',
 });
@@ -28,6 +31,9 @@ const ACTION_RISK = new Map([
   [COMPUTER_USE_ACTIONS.KEY_PRESS, COMPUTER_USE_RISK.INTERACT],
   [COMPUTER_USE_ACTIONS.TYPE_TEXT, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.OPEN_APP, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.CLOSE_APP, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.OPEN_FILE, COMPUTER_USE_RISK.SENSITIVE],
+  [COMPUTER_USE_ACTIONS.CLOSE_FILE, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.CLIPBOARD_READ, COMPUTER_USE_RISK.SENSITIVE],
   [COMPUTER_USE_ACTIONS.CLIPBOARD_WRITE, COMPUTER_USE_RISK.SENSITIVE],
 ]);
@@ -89,6 +95,30 @@ function originAllowed(url, allowlist) {
   return Boolean(origin) && allowlist.includes(origin);
 }
 
+function normalizeLocalPath(value) {
+  const raw = boundedText(value, 4096).replace(/\//g, '\\');
+  if (!raw || raw.includes('\0')) return '';
+  if (/^\\\\/.test(raw)) return '';
+  if (!/^[A-Za-z]:\\/.test(raw)) return '';
+  const parts = raw.split('\\').filter(Boolean);
+  if (parts.some(part => part === '..' || part === '.')) return '';
+  const drive = parts.shift();
+  return [drive.toUpperCase(), ...parts].join('\\');
+}
+
+function pathAllowed(path, allowlist) {
+  if (!path) return true;
+  const candidate = normalizeLocalPath(path);
+  if (!candidate) return false;
+  const lower = candidate.toLowerCase();
+  return allowlist.some(root => {
+    const normalizedRoot = normalizeLocalPath(root);
+    if (!normalizedRoot) return false;
+    const rootLower = normalizedRoot.toLowerCase().replace(/\\+$/,'');
+    return lower === rootLower || lower.startsWith(rootLower + '\\');
+  });
+}
+
 export function classifyComputerUseAction(action) {
   const normalized = boundedText(action, 160);
   if (!normalized || RAW_EXECUTION_ACTIONS.has(normalized)) return COMPUTER_USE_RISK.DENY;
@@ -99,6 +129,11 @@ export function normalizeComputerUseRequest(input = {}) {
   const rawSandbox = input.sandbox && typeof input.sandbox === 'object' ? input.sandbox : {};
   const maxSteps = Math.max(1, Math.min(MAX_STEPS, Math.trunc(numeric(rawSandbox.max_steps, 20)) || 20));
   const allowedApps = uniqueTexts(rawSandbox.allowed_apps);
+  const allowedPaths = [...new Set(
+    uniqueTexts(rawSandbox.allowed_paths, 64, 4096)
+      .map(normalizeLocalPath)
+      .filter(Boolean)
+  )];
   const allowedOrigins = uniqueTexts(rawSandbox.allowed_origins, 64, 2048)
     .map(normalizeOrigin)
     .filter(Boolean);
@@ -114,6 +149,7 @@ export function normalizeComputerUseRequest(input = {}) {
     },
     sandbox: {
       allowed_apps: allowedApps,
+      allowed_paths: allowedPaths,
       allowed_origins: allowedOrigins,
       max_steps: maxSteps,
     },
@@ -122,6 +158,7 @@ export function normalizeComputerUseRequest(input = {}) {
       id: boundedText(step?.id) || `step-${index + 1}`,
       action: boundedText(step?.action, 160),
       app: boundedText(step?.app, MAX_APP),
+      path: boundedText(step?.path, 4096),
       url: boundedText(step?.url, 2048),
       text: typeof step?.text === 'string' ? step.text.slice(0, MAX_TEXT) : '',
       x: numeric(step?.x),
@@ -175,6 +212,13 @@ export function evaluateComputerUsePlan(input = {}) {
     } else if (!originAllowed(step.url, request.sandbox.allowed_origins)) {
       allowed = false;
       reason = 'ORIGIN_OUTSIDE_SANDBOX';
+    } else if ((step.action === COMPUTER_USE_ACTIONS.OPEN_FILE || step.action === COMPUTER_USE_ACTIONS.CLOSE_FILE)
+      && !step.path) {
+      allowed = false;
+      reason = 'FILE_PATH_REQUIRED';
+    } else if (!pathAllowed(step.path, request.sandbox.allowed_paths)) {
+      allowed = false;
+      reason = 'PATH_OUTSIDE_SANDBOX';
     } else if (risk === COMPUTER_USE_RISK.SENSITIVE
       && !stepApprovalMatches(request.approvals, request.session_id, step)) {
       allowed = false;
