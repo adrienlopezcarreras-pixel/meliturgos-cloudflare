@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.16';;
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.17';;
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -156,7 +156,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-46', 'Secrets / authentification', 'DONE_VERIFIED', 'Politique HTTP canonique fail-closed: toute nouvelle route /api/* exige owner-auth par défaut avant dispatch; seuls les GET publics sanitisés et les protocoles Device/Computer/bootstrap à authentification dédiée sont explicitement exemptés, Dev Bridge conserve son bearer dédié en défense en profondeur, et les refus auth sont non-cacheables. Preuve PR #157, CI 35830760419: syntaxe + targeted + full suite verts sur le code vérifié.', 'P0'),
     item('MEL-SEC-01', 'Prompt-injection firewall outils/RAG', 'DONE_VERIFIED', 'Point d’assemblage unique durci: RAG et résultats d’outils enveloppés UNTRUSTED_* classification=DATA instruction_authority=NONE, délimiteurs forgés neutralisés, pare-feu réaffirmé après les données et avant priorité du tour actuel. Syntaxe + tests injection/contexte Actions 35640804128.', 'P0'),
     item('MEL-SEC-02', 'Permissions par capacité', 'DONE_VERIFIED', 'Enforcement centralisé dans CapabilityBus: owner requis, permissions déclarées obligatoires, enable/disable protégé par capabilities.manage, validation entrée/sortie et audit. Syntaxe + preuves ciblées Actions 35640484204.', 'P0'),
-    item('MEL-SEC-03', 'Supply-chain / dépendances / CI', 'PARTIAL', 'SBOM et dépendances runtime fail-closed', 'P1'),
+    item('MEL-SEC-03', 'Supply-chain / dépendances / CI', 'PARTIAL', 'SBOM runtime + lockfile/registry gate + attestation exacte commit/lockfile/SBOM/audit et artefact CI sont présents; rendre release_eligible=true obligatoire pour toute promotion et prouver le comportement lors d’une panne registry avant DONE_VERIFIED.', 'P1'),
     item('MEL-SEC-04', 'Owner shutdown always wins', 'DONE_VERIFIED', 'Conserver invariant dans toutes les évolutions', 'P0'),
     item('MEL-SEC-05', 'Pas de réplication cachée ni récolte de secrets', 'DONE_VERIFIED', 'Conserver tests de sécurité', 'P0')
   ]),
@@ -190,9 +190,9 @@ export const MASTER_ROADMAP = Object.freeze([
   phase('P15', 'Release, migration et maturité finale', [
     item('GEN2-53', 'Canary pré-release / rollback', 'DONE_VERIFIED', 'Preuve canary/rollback: Actions run 35093195456; production: release run 35094721729; smoke live post-déploiement: run 35094194506 job 104789501239', 'P0'),
     item('GEN2-57', 'Migration Gen1 sans perte', 'DONE_VERIFIED', 'Migration Gen1 certifiée en production sur release 2fd2eb5b4b701e78115e3b8fd2f7adb73661def3, run deploy-cloudflare-release 35856885040: source interactions présente et conservée, 177 interactions source, 354 messages archive_messages, 177 interactions migrées, remaining_interactions=0, coverage_complete=true. Schéma réel vérifié, IDs déterministes, collisions/mismatch fail-closed, backfill borné et replay-safe. Source Gen1 non supprimée.', 'P0'),
-    item('GEN2-55', 'Data integrity / final maturity tests', 'PARTIAL', 'Candidat réconcilié sur le main de production: system.integrity audite D1 en lecture seule (version/historique migrations, tables requises, références orphelines et composites, JSON persisté, domaines et cohérence temporelle) sans exposer le contenu ni réparer; system.maturity compose intégrité D1 + contrats CapabilityBus + structure roadmap sans réseau ni exécution d’outils. Déploiement immédiat après CI, puis smoke read-only production requis avant DONE_VERIFIED.', 'P1'),
+    item('GEN2-55', 'Data integrity / final maturity tests', 'PARTIAL', 'Candidat réconcilié sur le main de production: system.integrity audite D1 en lecture seule (version/historique migrations, tables requises, références orphelines et composites, JSON persisté, domaines et cohérence temporelle) sans exposer le contenu ni réparer; system.maturity compose intégrité D1 + contrats CapabilityBus + structure roadmap sans réseau ni exécution d’outils. CI exacte verte avant merge; déploiement immédiat puis smoke read-only production requis avant DONE_VERIFIED.', 'P1'),
     item('GEN2-60', 'Completion matrix', 'IN_PROGRESS', 'Completion matrix réconciliée sur le registre canonique : révision source, fingerprint déterministe, taux DONE_VERIFIED, séparation BLOCKED_HUMAN/BLOCKED_EXTERNAL et rendu Markdown explicite des actions humaines. Déploiement incrémental et preuve production requis avant DONE_VERIFIED.', 'P2'),
-    item('GEN2-61', 'Final status report', 'PLANNED', 'Générer au jalon mature', 'P2'),
+    item('GEN2-61', 'Final status report', 'IN_PROGRESS', 'Rapport final factuel branché sur la completion matrix : verdict fail-closed MATURE/IN_PROGRESS/BLOCKED, gates roadmap complète/sans blockers/sans P0/P1, conservation de la révision/fingerprint et séparation actions humaines / blocages externes. Déployer puis alimenter par la matrice canonique intégrée avant DONE_VERIFIED.', 'P2'),
     item('GEN2-62', 'human-actions-required', 'PARTIAL', 'Maintenir blockers humains exacts', 'P1'),
     item('GEN2-63', 'Règle NON-IDLE / continue-when-blocked', 'IN_PROGRESS', 'Continuer sur tâches non bloquées', 'P1'),
     item('MEL-REL-01', 'Release figée sur commit exact', 'DONE_VERIFIED', 'Répéter pour chaque déploiement', 'P0'),
