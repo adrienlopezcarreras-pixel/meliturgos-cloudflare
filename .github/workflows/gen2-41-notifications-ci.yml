@@ -1,0 +1,41 @@
+name: gen2-41-notifications-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/notifications/**'
+      - 'tests/gen2/notifications-d1.test.mjs'
+      - '.github/workflows/gen2-41-notifications-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  notifications-targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node scripts/runtime-security-gate.mjs
+      - run: node --check src/notifications/d1-notification-store.js
+      - run: node --test tests/gen2/notifications-d1.test.mjs
+
+  notifications-full-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: notifications-targeted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: git switch -c candidate/gen2-41-notifications-ci
+      - run: npm test
