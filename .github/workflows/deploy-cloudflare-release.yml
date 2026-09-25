@@ -543,6 +543,29 @@ jobs:
           console.log('Production GEN2-12/13/40 CapabilityBus -> D1 read proofs passed.');
           NODE
 
+          SKILL_LIST_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"id":"skill.list","input":{"active_only":true}}' \
+            --output production-skill-list.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute")"
+          if [ "$SKILL_LIST_CODE" != "200" ]; then
+            echo "MEL-EVOL-05 production Skill Registry read returned HTTP ${SKILL_LIST_CODE}."
+            test ! -s production-skill-list.json || cat production-skill-list.json
+            exit 51
+          fi
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const body=JSON.parse(fs.readFileSync('production-skill-list.json','utf8'));
+          if(body?.ok!==true || body?.capability!=='skill.list' || !Array.isArray(body?.result)) {
+            throw new Error('MEL_EVOL_05_PRODUCTION_SKILL_LIST_FAILED');
+          }
+          console.log('Production MEL-EVOL-05 CapabilityBus -> D1 Skill Registry read proof passed.');
+          NODE
+
           OBS_READINESS_CODE="$(curl --silent --show-error --max-time 60 \
             --header "x-mel-release-smoke: 1" \
             --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
@@ -914,6 +937,7 @@ jobs:
               echo '- Professor + normal runtime UI: verified'
               echo '- GEN2-37 official web source quality/provenance: verified'
               echo '- GEN2-12/13/40 Timeline + Projects + Event Bus D1 reads: verified'
+              echo '- MEL-EVOL-05 Skill Registry D1 read: verified'
               echo '- Historical failure retries: bounded'
               echo '- Autonomy started by deployment: **no**'
               echo '- Owner Resume/MAX remains required to start the SHA'
