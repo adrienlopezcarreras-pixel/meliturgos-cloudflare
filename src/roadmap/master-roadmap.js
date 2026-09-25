@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.15';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.16';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -44,7 +44,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-06', 'Conversation Service', 'DONE_VERIFIED', 'Retirer les derniers chemins legacy', 'P0'),
     item('GEN2-08', 'Archivage exhaustif des messages', 'DONE', 'Garantir archivage non conditionnel', 'P1'),
     item('MEL-CONTEXT-01', 'Saisie continue pendant la réflexion / file de messages', 'DONE_VERIFIED', 'Valider sur mobile réel', 'P0'),
-    item('MEL-CONTEXT-02', 'Contexte long avec compression sans perte de décisions', 'PARTIAL', 'Compiler les résumés hiérarchiques', 'P1'),
+    item('MEL-CONTEXT-02', 'Contexte long avec compression sans perte de décisions', 'PARTIAL', 'Compression extractive candidate: les messages hors fenêtre et les portions médianes tronquées sont analysés avant bornage pour conserver une capsule bornée de contraintes, corrections, décisions et états, sans résumé inventé; le tour courant et les corrections utilisateur récentes restent prioritaires. Déployer ce lot seul après CI puis smoke production avant extension vers résumés durables multi-niveaux.', 'P1'),
     item('MEL-CONTEXT-03', 'Open loops: reprendre automatiquement les travaux inachevés', 'PLANNED', 'Lier tâches, conversations et événements', 'P1'),
     item('MEL-CONTEXT-04', 'Interpréteur de contexte pré-LLM: pédagogique, scientifique et laboratoire', 'DONE_VERIFIED', 'Maintenir les tests de non-régression et la limitation ciblée des seuls détails réellement dangereux', 'P0')
   ]),
