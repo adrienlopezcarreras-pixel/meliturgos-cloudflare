@@ -761,6 +761,18 @@ static void settings_ui_create(lv_obj_t *screen) {
     settings_add_button(settings_panel, "TEST CAMERA", 306, settings_camera_clicked);
     settings_add_button(settings_panel, "ETAT WI-FI + MEL", 356, settings_network_clicked);
 
+    // Invisible touch target over the existing X. Visual UI stays unchanged,
+    // but closing remains reliable even if the small icon/button misses touch.
+    lv_obj_t *close_hitbox = lv_obj_create(settings_panel);
+    lv_obj_set_size(close_hitbox, 72, 60);
+    lv_obj_align(close_hitbox, LV_ALIGN_TOP_RIGHT, 0, -2);
+    lv_obj_set_style_bg_opa(close_hitbox, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(close_hitbox, 0, 0);
+    lv_obj_set_style_pad_all(close_hitbox, 0, 0);
+    lv_obj_clear_flag(close_hitbox, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(close_hitbox, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(close_hitbox, settings_back_clicked, LV_EVENT_CLICKED, nullptr);
+
     lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
     settings_refresh_status();
 }
