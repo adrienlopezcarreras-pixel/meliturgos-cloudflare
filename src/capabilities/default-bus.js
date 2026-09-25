@@ -4,6 +4,8 @@ import { registerPlatformReadCapabilities } from './platform-read-capabilities.j
 import { registerPlatformControlCapabilities } from './platform-control-capabilities.js';
 import { registerWorkCapabilities } from './work-capabilities.js';
 import { registerOpenLoopCapabilities } from './open-loop-capabilities.js';
+import { registerPlanningCapabilities } from './planning-capabilities.js';
+import { registerEventBusCapabilities } from './event-bus-capabilities.js';
 import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
 import { registerComputerRuntimeCapabilities } from './computer-runtime-capabilities.js';
 import { registerCreativeMediaCapabilities } from './creative-media-capabilities.js';
@@ -373,5 +375,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   registerComputerRuntimeCapabilities(bus, { db: runtimeEnv.DB });
   registerWorkCapabilities(bus, { db: runtimeEnv.DB });
   registerOpenLoopCapabilities(bus, { env: runtimeEnv });
+  registerPlanningCapabilities(bus, { db: runtimeEnv.DB });
+  registerEventBusCapabilities(bus, { db: runtimeEnv.DB });
   return bus;
 }
