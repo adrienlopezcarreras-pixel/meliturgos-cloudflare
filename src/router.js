@@ -26,6 +26,7 @@ const RELEASE_SMOKE_CAPABILITY_ALLOWLIST = Object.freeze([
   "timeline.list",
   "project.list",
   "event.list",
+  "skill.list",
 ]);
 
 function capabilityContext(env) {
