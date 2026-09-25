@@ -70,7 +70,12 @@ function sortWithEvidence(models, statsById) {
     const stats = statsById.get(model.id) || null;
     const evidence = modelPerformanceScore(model, stats);
     const confidence = modelPerformanceConfidence(stats);
-    const staticScore = models.length <= 1 ? 1 : 1 - (index / (models.length - 1));
+    // Keep the static registry as a prior, not an unbeatable perfect score.
+    // The 0.65..0.35 band preserves current ordering with weak/no evidence,
+    // while strong measured evidence can eventually promote a better model.
+    const staticScore = models.length <= 1
+      ? 0.5
+      : 0.65 - ((index / (models.length - 1)) * 0.30);
     const combined = evidence == null || confidence <= 0
       ? staticScore
       : (staticScore * (1 - confidence)) + (evidence * confidence);
