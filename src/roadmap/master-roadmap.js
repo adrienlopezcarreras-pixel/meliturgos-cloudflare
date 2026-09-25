@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-23.12';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.3';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -46,7 +46,8 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-CONTEXT-01', 'Saisie continue pendant la réflexion / file de messages', 'DONE_VERIFIED', 'Valider sur mobile réel', 'P0'),
     item('MEL-CONTEXT-02', 'Contexte long avec compression sans perte de décisions', 'PARTIAL', 'Compiler les résumés hiérarchiques', 'P1'),
     item('MEL-CONTEXT-03', 'Open loops: reprendre automatiquement les travaux inachevés', 'PLANNED', 'Lier tâches, conversations et événements', 'P1'),
-    item('MEL-CONTEXT-04', 'Interpréteur de contexte pré-LLM: pédagogique, scientifique et laboratoire', 'DONE_VERIFIED', 'Maintenir les tests de non-régression et la limitation ciblée des seuls détails réellement dangereux', 'P0')
+    item('MEL-CONTEXT-04', 'Interpréteur de contexte pré-LLM: pédagogique, scientifique et laboratoire', 'DONE_VERIFIED', 'Maintenir les tests de non-régression et la limitation ciblée des seuls détails réellement dangereux', 'P0'),
+    item('MEL-FAST-01', 'Fast Path conversationnel borné', 'IN_PROGRESS', 'Branche roadmap/core-fast-path-20260925 : salutations/remerciements et interactions sociales courtes évitent manifest de capabilities, mémoire longue, expérience opérationnelle et multi-IA; modèle FAST dédié, fail-closed vers STANDARD dès qu’un outil, contexte dépendant, mémoire ou raisonnement est requis. CI et preuve de latence encore requises avant DONE_VERIFIED.', 'P0')
   ]),
 
   phase('P03', 'Mémoire personnelle et connaissance', [
