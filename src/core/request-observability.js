@@ -41,6 +41,20 @@ export function createRequestTrace(request, { now = Date.now(), requestId = '' }
   });
 }
 
+export function preservePlatformRequestMetadata(source, target) {
+  if (!(target instanceof Request)) return target;
+  const platformCf = source?.cf && typeof source.cf === 'object' ? source.cf : null;
+  if (platformCf && !target.cf) {
+    try {
+      Object.defineProperty(target, 'cf', {
+        value: platformCf,
+        configurable: true,
+      });
+    } catch {}
+  }
+  return target;
+}
+
 export function withRequestTrace(request, trace) {
   if (!(request instanceof Request)) return request;
   const headers = new Headers(request.headers);
@@ -51,15 +65,7 @@ export function withRequestTrace(request, trace) {
   // changes downstream behaviour such as coarse network-location hints.
   const platformCf = request.cf && typeof request.cf === 'object' ? request.cf : null;
   const traced = new Request(request, platformCf ? { headers, cf: platformCf } : { headers });
-  if (platformCf && !traced.cf) {
-    try {
-      Object.defineProperty(traced, 'cf', {
-        value: platformCf,
-        configurable: true,
-      });
-    } catch {}
-  }
-  return traced;
+  return preservePlatformRequestMetadata(request, traced);
 }
 
 export function requestDurationMs(trace, now = Date.now()) {
