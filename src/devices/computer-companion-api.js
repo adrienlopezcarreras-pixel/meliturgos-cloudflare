@@ -83,14 +83,14 @@ async function ownerStatus(request,env,url){
  return json({ok:true,devices,selected_id:id||null,commands});
 }
 
-function approvals(session,steps){const sensitive=new Set(["keyboard.type","app.open","clipboard.read","clipboard.write"]);return steps.filter(x=>sensitive.has(String(x.action||""))).map(x=>({approved:true,session_id:session,step_id:String(x.id),action:String(x.action)}))}
+function approvals(session,steps){const sensitive=new Set(["keyboard.type","app.open","app.close","file.open","file.close","clipboard.read","clipboard.write"]);return steps.filter(x=>sensitive.has(String(x.action||""))).map(x=>({approved:true,session_id:session,step_id:String(x.id),action:String(x.action)}))}
 
 async function ownerCommand(request,env){
  const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));
  const id=safe(b.computer_id);const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();const device=normalizeDevice(row);
  if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404); if(device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
  const session=safe(b.session_id)||crypto.randomUUID();const steps=(Array.isArray(b.steps)?b.steps:[]).map((x,i)=>({...x,id:String(x?.id||`step-${i+1}`)}));
- const plan=evaluateComputerUsePlan({session_id:session,owner_halt:false,device:{id:device.id,capabilities:device.capabilities},sandbox:{allowed_apps:device.allowed_apps,allowed_origins:Array.isArray(b.allowed_origins)?b.allowed_origins:[],max_steps:Math.max(1,Math.min(100,Number(b.max_steps)||20))},approvals:b.approve_sensitive===true?approvals(session,steps):(Array.isArray(b.approvals)?b.approvals:[]),steps});
+ const plan=evaluateComputerUsePlan({session_id:session,owner_halt:false,device:{id:device.id,capabilities:device.capabilities},sandbox:{allowed_apps:device.allowed_apps,allowed_paths:Array.isArray(b.allowed_paths)?b.allowed_paths:[],allowed_origins:Array.isArray(b.allowed_origins)?b.allowed_origins:[],max_steps:Math.max(1,Math.min(100,Number(b.max_steps)||20))},approvals:b.approve_sensitive===true?approvals(session,steps):(Array.isArray(b.approvals)?b.approvals:[]),steps});
  if(!plan.allowed)return json({ok:false,code:plan.reason,decisions:plan.decisions},403);const cid=crypto.randomUUID();
  await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)").bind(cid,device.id,session,JSON.stringify(plan.request),"PENDING",Date.now()).run();
  return json({ok:true,command_id:cid,status:"PENDING",decisions:plan.decisions},202);
