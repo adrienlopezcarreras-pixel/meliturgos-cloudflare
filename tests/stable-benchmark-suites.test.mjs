@@ -7,6 +7,7 @@ import {
   stableBenchmarkCatalog,
   runStableBenchmarkSuite,
   runStableBenchmarkPack,
+  scoreStableBenchmarkObservations,
 } from '../src/evaluation/stable-benchmark-suites.js';
 
 test('MEL-EVAL-01 stable registry covers conversation code research and memory with unique cases',()=>{
@@ -95,4 +96,40 @@ test('MEL-EVAL-01 registry digest changes when canonical learning crosswalk chan
   changed[0].cases[0].learning_case_id='code-development-01';
   const modified=validateStableBenchmarkRegistry(changed);
   assert.notEqual(modified.registry_digest,original.registry_digest);
+});
+
+
+test('MEL-EVAL-01 measured observation scorer keeps missing cases visible as zero',()=>{
+  const run=scoreStableBenchmarkObservations({
+    suiteId:'mel-eval-memory-v1',
+    observations:[
+      {id:'memory-eval-provenance-01',score:1},
+      {id:'memory-eval-contradiction-01',score:0.8},
+    ],
+  });
+  assert.equal(run.cases,4);
+  assert.equal(run.failures.length,2);
+  assert.equal(run.results.find(row=>row.id==='memory-eval-temporal-01').score,0);
+  assert.equal(run.results.find(row=>row.id==='memory-eval-temporal-01').error,'MISSING_OBSERVATION');
+  assert.ok(run.overall<1);
+});
+
+test('MEL-EVAL-01 measured observation scorer rejects unknown or duplicate case ids',()=>{
+  assert.throws(
+    ()=>scoreStableBenchmarkObservations({
+      suiteId:'mel-eval-code-v1',
+      observations:[{id:'unknown',score:1}],
+    }),
+    error=>error.code==='STABLE_BENCHMARK_OBSERVATION_UNKNOWN'
+  );
+  assert.throws(
+    ()=>scoreStableBenchmarkObservations({
+      suiteId:'mel-eval-code-v1',
+      observations:[
+        {id:'code-minimal-change-01',score:1},
+        {id:'code-minimal-change-01',score:0.5},
+      ],
+    }),
+    error=>error.code==='STABLE_BENCHMARK_OBSERVATION_DUPLICATE'
+  );
 });
