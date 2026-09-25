@@ -65,6 +65,7 @@ test('FAST path selects the fast model and omits heavy runtime context', async (
   assert.match(system, /FAST PATH MEL/);
   assert.doesNotMatch(system, /CAPABILITY_MANIFEST runtime actuel/);
   assert.doesNotMatch(system, /ARCHITECTURE MEL/);
+  assert.ok(system.length < 2000, `fast-path system prompt too large: ${system.length}`);
 });
 
 test('FAST classifier fails closed when a capability is explicitly requested', () => {
