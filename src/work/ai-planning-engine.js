@@ -19,6 +19,8 @@ function compactDescriptor(record) {
     name: String(record.name || '').slice(0, 100),
     description: String(record.description || '').slice(0, 220),
     risk: String(record.risk || 'MEDIUM'),
+    enabled: record.enabled === true,
+    health: String(record.health || 'UNKNOWN'),
     approval_required: record.approval?.required === true,
     input_schema: record.input_schema,
   };
