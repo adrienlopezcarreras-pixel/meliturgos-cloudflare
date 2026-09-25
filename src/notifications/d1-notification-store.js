@@ -1,4 +1,5 @@
 import { DomainError } from '../core/contracts.js';
+import { createNotificationService } from './notification-service.js';
 
 function requiredOwner(value) {
   const owner = String(value || '').trim().slice(0, 220);
@@ -184,4 +185,28 @@ export class D1NotificationStore {
 
 export function createD1NotificationStore(db, options = {}) {
   return new D1NotificationStore(db, options);
+}
+
+
+export function createD1NotificationService({
+  db,
+  owner,
+  transports = {},
+  authorize = async () => false,
+  audit = async () => {},
+  clock,
+} = {}) {
+  const scopedOwner = requiredOwner(owner);
+  const scopedAuthorize = async (permission, context = {}) => {
+    const contextOwner = String(context?.owner || '').trim().slice(0, 220);
+    if (!contextOwner || contextOwner !== scopedOwner) return false;
+    return authorize(permission, context);
+  };
+  return createNotificationService({
+    store: new D1NotificationStore(db, { owner: scopedOwner }),
+    transports,
+    authorize: scopedAuthorize,
+    audit,
+    ...(typeof clock === 'function' ? { clock } : {}),
+  });
 }
