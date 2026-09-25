@@ -32,6 +32,7 @@ jobs:
       - name: Targeted memory and roadmap tests
         run: |
           node --test tests/gen2/timeline.test.mjs
+          node --test tests/gen2/projects-decisions.test.mjs
           node --test tests/memory/portable-export.test.mjs
           node --test tests/gen2/completion-matrix.test.mjs
           node --test tests/gen2/final-status-report.test.mjs
