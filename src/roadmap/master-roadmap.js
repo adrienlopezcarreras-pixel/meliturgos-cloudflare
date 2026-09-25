@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.4';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.5';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -53,8 +53,8 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-09', 'Memory 2.0 cognitive', 'DONE_VERIFIED', 'Consolider MemoryService unique', 'P0'),
     item('GEN2-10', 'Contradictions, provenance et temporalité', 'DONE', 'Rendre la résolution automatique explicable', 'P1'),
     item('GEN2-11', 'Knowledge Graph', 'DONE', 'Lier davantage les entités aux projets et décisions', 'P1'),
-    item('GEN2-12', 'Timeline personnelle', 'PARTIAL', 'Contrat append/list/get + adaptateur D1 durable sur timeline_events validés; persistance inter-instances, filtres chronologiques et corruption metadata fail-closed couverts par roadmap-core-memory-ci run 36110490170 SUCCESS. Reste à brancher les producteurs d’événements runtime et une surface CapabilityBus/API avant DONE_VERIFIED.', 'P1'),
-    item('GEN2-13', 'Projects / Decisions', 'PARTIAL', 'Contrats projets/décisions/leçons + persistance D1 add-only (migration v13), filtres, historique de statut et concurrence optimiste sont implémentés. Syntaxe, migration et persistance inter-instances validées par roadmap-core-memory-ci run 36110927159 SUCCESS sur 5f59b7979d2e93d4ef5785ea778fe0999936a631. Reste le branchement CapabilityBus/API et une preuve runtime avant DONE_VERIFIED.', 'P1'),
+    item('GEN2-12', 'Timeline personnelle', 'DONE', 'Timeline durable D1 append/list/get avec filtres, validation fail-closed et capacités timeline.append/list/get enregistrées dans le CapabilityBus canonique. Round-trip bus → D1 → nouvelle instance et inventaire bus validés par roadmap-core-memory-ci run 36111187972 SUCCESS sur e1f6e82d416f0fd8855971e4a6f312625ea41233. Prochaine preuve: producteurs runtime automatiques + preview/production avant DONE_VERIFIED.', 'P1'),
+    item('GEN2-13', 'Projects / Decisions', 'DONE', 'Projets, décisions et leçons disposent de contrats typés, persistance D1 add-only (migration v13), historique de statut, filtres, concurrence optimiste et capacités CapabilityBus canoniques. Round-trip bus → D1 → nouvelle instance validé par roadmap-core-memory-ci run 36111187972 SUCCESS sur e1f6e82d416f0fd8855971e4a6f312625ea41233. Prochaine preuve: preview/production avant DONE_VERIFIED.', 'P1'),
     item('GEN2-25', 'Personal Search / RAG', 'DONE_VERIFIED', 'Étendre aux fichiers et connecteurs', 'P0'),
     item('GEN2-56', 'Import contexte ChatGPT', 'DONE_VERIFIED', 'Valider les gros exports réels et la compatibilité entre versions', 'P0'),
     item('MEL-MEM-01', 'Memory Compiler: faits, préférences, décisions, compétences', 'DONE_VERIFIED', 'Maintenir la déduplication canonique, la confiance sans boost de répétition et la provenance; memory.consolidate reste lecture/proposition uniquement', 'P0'),
