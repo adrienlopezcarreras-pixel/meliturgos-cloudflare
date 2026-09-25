@@ -28,6 +28,18 @@ function deployedWatchSourceSha() {
   return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') || null : null;
 }
 
+export async function runOpenLoopResumeTick(env = {}) {
+  if (!env?.DB || !String(env.MELITURGOS_USER || '').trim()) {
+    return { ok: true, skipped: true, reason: 'OPEN_LOOP_RUNTIME_NOT_CONFIGURED' };
+  }
+  const runtime = createGen2Runtime({ env });
+  return runtime.bus.execute('openloop.resume', { limit: 5, retryDelayMs: 60000 }, {
+    owner: String(env.MELITURGOS_USER).trim(),
+    permissions: [],
+    requestId: crypto.randomUUID(),
+  });
+}
+
 function isArchivePayload(value) {
   if (Array.isArray(value)) return value.some(x => x && (x.mapping || x.messages || x.conversation_id || x.id));
   if (!value || typeof value !== 'object') return false;
@@ -506,6 +518,10 @@ export default {
       : [
           runAutonomyRuntimeTick(env).catch((error) => {
             console.error('[MEL autonomy] scheduled tick failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runOpenLoopResumeTick(env).catch((error) => {
+            console.error('[MEL open loops] scheduled resume failed:', error?.code || error?.message || error);
             return null;
           }),
           runLoraTrainingHeartbeat(env).then((result) => {
