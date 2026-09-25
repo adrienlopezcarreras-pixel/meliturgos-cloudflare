@@ -51,7 +51,7 @@ test('normal mode is keyboard accessible, voice-discoverable and runtime is vers
   assert.match(html,/class="mic-hint"/);
   assert.match(html,/↩ Reprendre le dernier échange/);
   assert.match(html,/class="window empty-chat"/);
-  assert.match(html,/normal-runtime\.js\?v=7/);
+  assert.match(html,/normal-runtime\.js\?v=8/);
   assert.match(NORMAL_RUNTIME_SOURCE,/drop\.addEventListener\('keydown'/);
   assert.match(NORMAL_RUNTIME_SOURCE,/navigator\.serviceWorker\.register\('\/sw\.js'/);
 });

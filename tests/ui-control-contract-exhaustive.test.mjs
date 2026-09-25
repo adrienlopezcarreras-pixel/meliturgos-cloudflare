@@ -58,7 +58,7 @@ test('normal page exposes only controls that are wired by the canonical normal r
     /id="fileInput"/,
     /id="send"/,
     /id="full"/,
-    /src="\/normal-runtime\.js\?v=7"/,
+    /src="\/normal-runtime\.js\?v=8"/,
   ], 'normal UI');
 
   expectAll(NORMAL_RUNTIME_SOURCE, [
