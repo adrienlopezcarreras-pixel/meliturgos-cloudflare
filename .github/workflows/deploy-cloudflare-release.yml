@@ -77,7 +77,7 @@ jobs:
         run: npm ci
 
       - name: Runtime dependency security gate
-        run: node scripts/runtime-security-gate.mjs
+        run: node scripts/runtime-security-gate.mjs --require-release-eligible
 
       - name: Syntax gate
         run: npm run check

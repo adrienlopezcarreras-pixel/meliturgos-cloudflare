@@ -5,8 +5,14 @@ import {
   createSupplyChainAttestation,
   serializeSupplyChainAttestation,
 } from '../src/security/supply-chain-attestation.js';
+import {
+  auditEvidence,
+  releaseGateExitCode,
+} from '../src/security/runtime-security-gate-policy.js';
 
 const ATTESTATION_FILE = 'runtime-supply-chain-attestation.json';
+const REQUIRE_RELEASE_ELIGIBLE = process.argv.includes('--require-release-eligible')
+  || process.env.MEL_REQUIRE_RELEASE_ELIGIBLE === '1';
 
 function run(args) {
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -14,21 +20,6 @@ function run(args) {
     encoding: 'utf8',
     env: process.env,
   });
-}
-
-function parseJson(value, fallback = {}) {
-  try { return JSON.parse(value || ''); }
-  catch { return fallback; }
-}
-
-function vulnerabilities(payload) {
-  const counts = payload?.metadata?.vulnerabilities || {};
-  return {
-    low: Math.max(0, Number(counts.low || 0) || 0),
-    moderate: Math.max(0, Number(counts.moderate || 0) || 0),
-    high: Math.max(0, Number(counts.high || 0) || 0),
-    critical: Math.max(0, Number(counts.critical || 0) || 0),
-  };
 }
 
 async function sourceFiles() {
@@ -41,75 +32,6 @@ async function sourceFiles() {
   };
 }
 
-function auditEvidence(result) {
-  const payload = parseJson(result.stdout, {});
-  const counts = vulnerabilities(payload);
-  if (result.status === 0) {
-    return {
-      evidence: {
-        verified: true,
-        source: 'npm-audit-runtime-ci',
-        status: 'VERIFIED',
-        vulnerabilities: counts,
-      },
-      exitCode: 0,
-      registryFailure: false,
-      payload,
-    };
-  }
-
-  const highRisk = counts.high > 0 || counts.critical > 0;
-  if (highRisk) {
-    return {
-      evidence: {
-        verified: true,
-        source: 'npm-audit-runtime-ci',
-        status: 'VULNERABILITIES_DETECTED',
-        vulnerabilities: counts,
-      },
-      exitCode: 1,
-      registryFailure: false,
-      payload,
-    };
-  }
-
-  const message = String(
-    payload?.error?.summary
-      || payload?.error?.detail
-      || result.stderr
-      || result.stdout
-      || ''
-  );
-  const registryFailure = /400 Bad Request|Invalid package tree|endpoint is being retired|audit endpoint returned an error/i.test(message);
-  if (registryFailure) {
-    return {
-      evidence: {
-        verified: false,
-        source: 'npm-audit-runtime-ci',
-        status: 'AUDIT_REGISTRY_UNAVAILABLE',
-        vulnerabilities: counts,
-        note: 'npm audit registry endpoint unavailable; release eligibility remains blocked in attestation.',
-      },
-      exitCode: 0,
-      registryFailure: true,
-      payload,
-    };
-  }
-
-  return {
-    evidence: {
-      verified: false,
-      source: 'npm-audit-runtime-ci',
-      status: 'AUDIT_FAILED',
-      vulnerabilities: counts,
-      note: String(result.stderr || result.stdout || 'npm audit failed').slice(0, 1000),
-    },
-    exitCode: result.status || 1,
-    registryFailure: false,
-    payload,
-  };
-}
-
 const files = await sourceFiles();
 
 const tree = run(['ls', '--omit=dev', '--all', '--json']);
@@ -119,8 +41,6 @@ const audit = run(['audit', '--omit=dev', '--audit-level=high', '--json']);
 const auditResult = auditEvidence(audit);
 
 let exitCode = 0;
-if (!treeVerified) exitCode = tree.status || 1;
-if (auditResult.exitCode !== 0) exitCode = auditResult.exitCode;
 
 let attestation;
 try {
@@ -152,6 +72,14 @@ try {
   process.exit(1);
 }
 
+exitCode = releaseGateExitCode({
+  treeVerified,
+  treeStatus: tree.status,
+  auditExitCode: auditResult.exitCode,
+  releaseEligible: attestation.release_eligible,
+  requireReleaseEligible: REQUIRE_RELEASE_ELIGIBLE,
+});
+
 const summary = {
   ok: exitCode === 0,
   dependency_tree_verified: treeVerified,
@@ -172,6 +100,10 @@ if (!treeVerified) {
 }
 if (auditResult.exitCode !== 0) {
   process.stderr.write(audit.stdout || audit.stderr || 'npm audit failed\n');
+}
+if (REQUIRE_RELEASE_ELIGIBLE && attestation.release_eligible !== true) {
+  const blockers = attestation.gate.blockers.join(',') || 'SUPPLY_CHAIN_RELEASE_NOT_ELIGIBLE';
+  process.stderr.write('SUPPLY_CHAIN_RELEASE_BLOCKED: ' + blockers + '\n');
 }
 
 process.stdout.write(JSON.stringify(summary, null, 2) + '\n');
