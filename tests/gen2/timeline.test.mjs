@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import {
   createD1TimelineAdapter,
   createInMemoryTimelineAdapter,
@@ -13,10 +12,16 @@ import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 
 async function foundationD1() {
   const db = sqliteD1();
-  const migration = await readFile(new URL('../../migrations/0004_gen2_foundations.sql', import.meta.url), 'utf8');
-  for (const statement of migration.split(';').map(value => value.trim()).filter(Boolean)) {
-    await db.prepare(statement).run();
-  }
+  await db.prepare(`CREATE TABLE IF NOT EXISTS timeline_events (
+    event_id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    occurred_at INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    metadata TEXT NOT NULL DEFAULT '{}'
+  )`).run();
   return db;
 }
 
