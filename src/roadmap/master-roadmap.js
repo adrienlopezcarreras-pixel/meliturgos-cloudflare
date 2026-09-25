@@ -103,7 +103,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P07', 'Work, agents et automatisations', [
     item('MEL-WORK-01', 'Work Engine persistant', 'DONE_VERIFIED', 'DAG Work durable en D1 avec état, checkpoints, artefacts, reprise après nouvelle instance et détection de corruption. Revalidé avec syntaxe globale + work-persistent/work-dag Actions 35641014709.', 'P0'),
-    item('GEN2-38', 'Tasks / goals / planning', 'PARTIAL', 'Créer planning engine unique', 'P1'),
+    item('GEN2-38', 'Tasks / goals / planning', 'PARTIAL', 'Planning engine candidat réconcilié sur le main production courant: work.plan compile des étapes bornées et acycliques; work.plan.generate valide les sorties multi-IA contre les capabilities réelles et leurs input_schema; work.plan.save/get/list/history persiste Goal/Task + journal append-only D1; work.plan.materialize crée un DAG Work sans exécution; work.plan.sync garde Work autoritatif après matérialisation. Reste avant DONE_VERIFIED: CI exacte de cette branche, merge, déploiement immédiat, smoke production D1 + provider zéro-euro.', 'P1'),
     item('GEN2-39', 'Agents / automations', 'PARTIAL', 'Brancher MULTI_AI_PROTOCOL au Work Engine/Council pour orchestration runtime et réservations de lots', 'P1'),
     item('GEN2-40', 'Event Bus idempotent / follow-ups', 'PLANNED', 'Transporter événements et relances idempotentes entre services', 'P1'),
     item('GEN2-41', 'Notifications', 'PLANNED', 'Web Push + compagnons', 'P2'),
