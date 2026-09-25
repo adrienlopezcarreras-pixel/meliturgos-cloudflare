@@ -13,7 +13,7 @@ const DECISION_SIGNALS = Object.freeze([
   { kind:'constraint', score:9, pattern:/\b(?:ne touche(?:z)? pas|interdiction|interdit|ne change(?:z)? pas|ne modifie(?:z)? pas|sans toucher|jamais|obligatoire|doit rester|doivent rester)\b/i },
   { kind:'correction', score:9, pattern:/\b(?:non[, :]|correction|je me suis tromp[ée]?|en fait|finalement|plut[oô]t|au contraire|reviens? (?:à|sur)|rollback)\b/i },
   { kind:'decision', score:7, pattern:/\b(?:je veux|je souhaite|je d[ée]cide|on va|on fait|on garde|on prend|d[ée]sormais|priorit[ée]|objectif|il faut|doit|doivent|reste [àa]|[àa] faire|avant de|apr[eè]s)\b/i },
-  { kind:'state', score:6, pattern:/\b(?:termin[ée]|fini|valid[ée]|bloqu[ée]|en cours|annul[ée]|cass[ée]|fonctionne|ne fonctionne pas|r[ée]ussi|[ée]chec|d[ée]ploy[ée]|fusionn[ée])\b/i },
+  { kind:'state', score:6, pattern:/\b(?:termin(?:e|é|ée)|fini|valid(?:e|é|ée)|bloqu(?:e|é|ée)|en cours|annul(?:e|é|ée)|cass(?:e|é|ée)|fonctionne|ne fonctionne pas|r[ée]ussi|[ée]chec|d[ée]ploy(?:e|é|ée)|fusionn(?:e|é|ée))(?=\s|[.,;:!?]|$)/i },
 ]);
 
 function decisionSegments(value) {
