@@ -514,6 +514,35 @@ jobs:
           console.log('Production GEN2-55 D1 integrity + maturity audits passed.');
           NODE
 
+          for DURABLE_CAPABILITY in timeline.list project.list event.list; do
+            SAFE_NAME="${DURABLE_CAPABILITY//./-}"
+            DURABLE_CODE="$(curl --silent --show-error --max-time 60 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data "{\"id\":\"${DURABLE_CAPABILITY}\",\"input\":{\"limit\":5}}" \
+              --output "production-${SAFE_NAME}.json" \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute")"
+            if [ "$DURABLE_CODE" != "200" ]; then
+              echo "Durable state production smoke ${DURABLE_CAPABILITY} returned HTTP ${DURABLE_CODE}."
+              test ! -s "production-${SAFE_NAME}.json" || cat "production-${SAFE_NAME}.json"
+              exit 50
+            fi
+          done
+
+          node - <<'NODE'
+          const fs=require('fs');
+          for(const id of ['timeline.list','project.list','event.list']){
+            const file='production-'+id.replaceAll('.','-')+'.json';
+            const body=JSON.parse(fs.readFileSync(file,'utf8'));
+            if(body?.ok!==true || body?.capability!==id || !Array.isArray(body?.result)){
+              throw new Error('DURABLE_STATE_PRODUCTION_PROOF_FAILED:'+id);
+            }
+          }
+          console.log('Production GEN2-12/13/40 CapabilityBus -> D1 read proofs passed.');
+          NODE
+
           OBS_READINESS_CODE="$(curl --silent --show-error --max-time 60 \
             --header "x-mel-release-smoke: 1" \
             --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
@@ -884,6 +913,7 @@ jobs:
               echo '- Memory status: ONLINE + D1 bound'
               echo '- Professor + normal runtime UI: verified'
               echo '- GEN2-37 official web source quality/provenance: verified'
+              echo '- GEN2-12/13/40 Timeline + Projects + Event Bus D1 reads: verified'
               echo '- Historical failure retries: bounded'
               echo '- Autonomy started by deployment: **no**'
               echo '- Owner Resume/MAX remains required to start the SHA'
