@@ -43,6 +43,13 @@ jobs:
           fi
           echo "Preparing isolated preview for ${GITHUB_SHA} from ${GITHUB_REF_NAME}"
 
+      - name: Preserve candidate-only local test assumptions on manual main preview
+        if: github.event_name == 'workflow_dispatch' && github.ref_name == 'main'
+        shell: bash
+        run: |
+          git switch -c "candidate/manual-main-preview-${GITHUB_RUN_ID}"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+
       - name: Syntax gate
         run: npm run check
 
