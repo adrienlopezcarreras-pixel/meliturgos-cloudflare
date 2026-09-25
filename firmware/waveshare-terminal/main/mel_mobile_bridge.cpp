@@ -1,7 +1,9 @@
 #include "mel_mobile_bridge.h"
+#include "mel_terminal.h"
 
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -9,6 +11,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "host/ble_att.h"
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
@@ -31,6 +34,8 @@ static const uint8_t OP_BEGIN = 0x01;
 static const uint8_t OP_BODY = 0x02;
 static const uint8_t OP_END = 0x03;
 static const uint8_t OP_PING = 0x04;
+static const uint8_t OP_PAIR_REQUEST = 0x05;
+static const uint8_t OP_PAIR_CODE = 0x15;
 static const uint8_t OP_RESPONSE_BEGIN = 0x11;
 static const uint8_t OP_RESPONSE_BODY = 0x12;
 static const uint8_t OP_RESPONSE_END = 0x13;
@@ -59,6 +64,8 @@ static ActiveResponse g_active;
 
 static int gap_event(struct ble_gap_event *event, void *arg);
 static void start_scan();
+static void pair_request_task(void *arg);
+static void pair_code_apply_task(void *arg);
 
 static std::string json_string(cJSON *root) {
     char *raw = cJSON_PrintUnformatted(root);
@@ -107,6 +114,11 @@ static int subscribe_complete(uint16_t conn_handle, const struct ble_gatt_error 
     g_ready.store(true);
     ESP_LOGI(TAG, "MEL MOBILE READY conn=%u mtu=%u rx=%u tx=%u (subscription confirmed)",
              conn_handle, g_mtu, g_rx_handle, g_tx_handle);
+    if (!mel_terminal_has_token()) {
+        if (xTaskCreate(pair_request_task, "mel_pair_req", 4096, nullptr, 4, nullptr) != pdPASS) {
+            ESP_LOGW(TAG, "Unable to start automatic MINI pairing request");
+        }
+    }
     return 0;
 }
 
@@ -142,6 +154,31 @@ static bool write_frame(uint8_t op, uint32_t id, const uint8_t *payload, size_t 
     return true;
 }
 
+static void pair_request_task(void *arg) {
+    (void)arg;
+    vTaskDelay(pdMS_TO_TICKS(80));
+    if (g_ready.load() && !mel_terminal_has_token()) {
+        if (write_frame(OP_PAIR_REQUEST, 0, nullptr, 0)) {
+            ESP_LOGI(TAG, "Automatic MINI pairing requested from MEL Mobile");
+        } else {
+            ESP_LOGW(TAG, "Automatic MINI pairing request failed");
+        }
+    }
+    vTaskDelete(nullptr);
+}
+
+static void pair_code_apply_task(void *arg) {
+    char *code = static_cast<char *>(arg);
+    if (code && code[0]) {
+        mel_terminal_set_pair_code(code);
+        ESP_LOGI(TAG, "Automatic MINI pairing code received; starting MEL pairing");
+        mel_terminal_start_online();
+        memset(code, 0, 16);
+    }
+    free(code);
+    vTaskDelete(nullptr);
+}
+
 static void handle_rx_frame(const uint8_t *data, size_t len) {
     if (!data || len < 5) return;
     const uint8_t op = data[0];
@@ -149,9 +186,26 @@ static void handle_rx_frame(const uint8_t *data, size_t len) {
                         ((uint32_t)data[2] << 8) |
                         ((uint32_t)data[3] << 16) |
                         ((uint32_t)data[4] << 24);
-    if (id != g_active.id) return;
     const uint8_t *payload = data + 5;
     const size_t payload_len = len - 5;
+
+    if (op == OP_PAIR_CODE) {
+        if (payload_len != 8) {
+            ESP_LOGW(TAG, "Invalid automatic MINI pairing code length=%u", (unsigned)payload_len);
+            return;
+        }
+        char *code = static_cast<char *>(calloc(1, 16));
+        if (!code) return;
+        memcpy(code, payload, payload_len);
+        if (xTaskCreate(pair_code_apply_task, "mel_pair_apply", 4096, code, 5, nullptr) != pdPASS) {
+            memset(code, 0, 16);
+            free(code);
+            ESP_LOGW(TAG, "Unable to apply automatic MINI pairing code");
+        }
+        return;
+    }
+
+    if (id != g_active.id) return;
 
     if (op == OP_RESPONSE_BEGIN) {
         std::string meta(reinterpret_cast<const char *>(payload), payload_len);
