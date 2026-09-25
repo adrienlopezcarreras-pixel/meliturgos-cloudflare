@@ -30,6 +30,7 @@ import {
   traceResponse,
   withRequestTrace,
 } from "./core/request-observability.js";
+import { apiErrorResponse } from "./core/api-error.js";
 
 function deployedWatchSourceSha() {
   return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') || null : null;
@@ -55,11 +56,8 @@ async function readJsonObject(request) {
   }
 }
 
-function apiError(error, fallback = 'INTERNAL_ERROR') {
-  return Response.json(
-    { ok: false, error: String(error?.message || fallback), code: error?.code || fallback },
-    { status: Number(error?.status) || 500, headers: { 'cache-control': 'no-store' } }
-  );
+function apiError(error, fallback = 'INTERNAL_ERROR', request = null, origin = 'mel-core') {
+  return apiErrorResponse(error, { fallback, request, origin });
 }
 
 function aiResultText(result) {
@@ -253,7 +251,7 @@ async function maybeHandleWorkPreflight(request, env) {
       const persisted = await writeLastSafeWorkJob(env.DB, lastSafeWorkJob);
       return Response.json({ ok: true, ...lastSafeWorkJob, persisted }, { headers: { 'cache-control': 'no-store' } });
     } catch (error) {
-      return apiError(error, 'WORK_PREFLIGHT_FAILED');
+      return apiError(error, 'WORK_PREFLIGHT_FAILED', request, 'work');
     }
   }
 
@@ -269,7 +267,7 @@ async function maybeHandleReadiness(request, env) {
     const refreshHealth = url.searchParams.get('refresh') === '1';
     return Response.json(await getSystemReadiness({ env, refreshHealth }), { headers: { 'cache-control': 'no-store' } });
   } catch (error) {
-    return apiError(error, 'READINESS_FAILED');
+    return apiError(error, 'READINESS_FAILED', request, 'readiness');
   }
 }
 
@@ -297,7 +295,7 @@ async function maybeHandleCouncilAndEvolution(request, env) {
     }
     return Response.json(result, { headers: { 'cache-control': 'no-store' } });
   } catch (error) {
-    return apiError(error, 'AI_PREFLIGHT_FAILED');
+    return apiError(error, 'AI_PREFLIGHT_FAILED', request, 'council');
   }
 }
 
@@ -312,7 +310,7 @@ async function maybeHandleChatGPTArchive(request, env) {
     try {
       return Response.json(await getChatGPTImportStatus(env), { headers: { 'cache-control': 'no-store' } });
     } catch (error) {
-      return apiError(error, 'CHATGPT_IMPORT_STATUS_FAILED');
+      return apiError(error, 'CHATGPT_IMPORT_STATUS_FAILED', request, 'chatgpt-import');
     }
   }
 
@@ -323,7 +321,7 @@ async function maybeHandleChatGPTArchive(request, env) {
     try {
       const body = await readJsonObject(request);
       return Response.json(await recordChatGPTCollectorCoverage(env, body.coverage ?? body), { headers: { 'cache-control': 'no-store' } });
-    } catch (error) { return apiError(error, 'CHATGPT_COVERAGE_IMPORT_FAILED'); }
+    } catch (error) { return apiError(error, 'CHATGPT_COVERAGE_IMPORT_FAILED', request, 'chatgpt-import'); }
   }
   const explicit = url.pathname === '/api/gen2/import/chatgpt-archive';
   const compatibility = url.pathname === '/api/import/chatgpt-context';
@@ -356,7 +354,7 @@ async function maybeHandleChatGPTArchive(request, env) {
     const result = await runtime.bus.execute(capabilityId, { archive }, busContext(env, request));
     return Response.json(result, { status: result.ok === false ? 207 : 200, headers: { 'cache-control': 'no-store' } });
   } catch (error) {
-    return apiError(error, 'CHATGPT_ARCHIVE_IMPORT_FAILED');
+    return apiError(error, 'CHATGPT_ARCHIVE_IMPORT_FAILED', request, 'chatgpt-import');
   }
 }
 
