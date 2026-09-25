@@ -249,3 +249,38 @@ test('work.plan.generate repair prompt constrains the model to a small low-risk 
   assert.equal(result.generator.model,'fixed');
   assert.equal(result.plan.steps[0].capability,'echo');
 });
+
+
+test('work.plan.generate falls back to AI capability selection and synthesizes schema-valid input', async () => {
+  const calls = [];
+  const bus = new CapabilityBus();
+  bus.discover({
+    id:'augmentio.fanout', name:'Fixture multi-AI', category:'test', version:'1.0.0', provider:'fixture',
+    input_schema:{type:'object',properties:{capability:{type:'string'},input:{type:'string'},context:{type:'object',additionalProperties:true},maxCandidates:{type:'integer'}},required:['input'],additionalProperties:false},
+    output_schema:{type:'object',additionalProperties:true},
+    risk:'LOW', permissions:[], health:'HEALTHY', enabled:true,
+  }, async (input) => {
+    calls.push(input);
+    if (calls.length === 1) return {candidates:[{provider:'fixture',model:'bad-1',text:'{"steps":[{"capability":"invented.cap","input":{}}]}'}],failures:0};
+    if (calls.length === 2) return {candidates:[{provider:'fixture',model:'bad-2',text:'not-json'}],failures:0};
+    return {candidates:[{provider:'fixture',model:'selector',text:'echo'}],failures:0};
+  });
+  bus.discover({
+    id:'echo', name:'Echo', category:'test', version:'1.0.0', provider:'fixture',
+    input_schema:{type:'object',properties:{value:{type:'string',minLength:1,maxLength:100}},required:['value'],additionalProperties:false},
+    output_schema:{type:'object',additionalProperties:true},
+    risk:'LOW', permissions:[], health:'HEALTHY', enabled:true,
+  }, async (input) => input);
+  registerWorkCapabilities(bus,{});
+  const result = await bus.execute('work.plan.generate',{goal:'diagnostic simple',maxCandidates:1},{owner:'adrien',requestId:'structured-selection-test',permissions:[]});
+  assert.equal(result.ok,true);
+  assert.equal(result.plan.steps[0].capability,'echo');
+  assert.equal(typeof result.plan.steps[0].input.value,'string');
+  assert.ok(result.plan.steps[0].input.value.length >= 1);
+  assert.equal(result.generator.model,'selector');
+  assert.equal(result.generator.execution_started,false);
+  assert.equal(result.generator.persisted,false);
+  assert.equal(calls[2].context.purpose,'work-plan-generation-capability-selection');
+  assert.match(calls[2].input,/IDS_AUTORISES:/);
+  assert.match(calls[2].input,/echo/);
+});
