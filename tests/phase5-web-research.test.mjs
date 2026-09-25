@@ -41,6 +41,10 @@ test('web research returns real structured sources, title, snippet, citation and
   assert.match(result.summary, /Found 2 relevant sources/);
   assert.ok(result.provenance.source_id.startsWith('web-svc-'));
   assert.equal(result.discovery.direct_sources_loaded, 0);
+  assert.equal(result.answer_ready, false);
+  assert.equal(result.source_quality.status, 'DISCOVERY_ONLY');
+  assert.equal(result.source_quality.answer_ready_sources, 0);
+  assert.ok(result.sources.every(source => source.source_quality.tier === 'DISCOVERY_ONLY'));
 });
 
 test('depth two follows a bounded set of actual public result pages and cites those instead of search indexes', async () => {
@@ -79,6 +83,10 @@ test('depth two follows a bounded set of actual public result pages and cites th
   assert.match(result.citation, /example\.com\/official/);
   assert.match(result.citation, /docs\.example\.org\/update/);
   assert.ok(!calls.some(url => /127\.0\.0\.1/.test(url)), 'private search result must never be fetched');
+  assert.equal(result.answer_ready, true);
+  assert.ok(['STRONG', 'USABLE'].includes(result.source_quality.status));
+  assert.equal(result.source_quality.answer_ready_sources, 2);
+  assert.ok(result.sources.every(source => source.source_quality.answer_ready === true));
 });
 
 test('result-link extraction unwraps search redirects, de-duplicates and refuses private or search-engine links', () => {
@@ -188,4 +196,44 @@ test('official seed URLs bypass search-engine discovery when at least one direct
   assert.equal(result.discovery.official_sources_loaded, 1);
   assert.equal(result.discovery.search_indexes.length, 0);
   assert.deepEqual(calls, ['https://docs.example.org/release-notes']);
+  assert.equal(result.answer_ready, true);
+  assert.equal(result.source_quality.status, 'STRONG');
+  assert.equal(result.sources[0].source_quality.tier, 'PRIMARY');
+});
+
+
+test('source quality is deterministic and search-index evidence never becomes answer-ready', () => {
+  const s = service();
+  const discovery = s.pageSource({
+    url: 'https://www.google.com/search?q=test',
+    content: '<html><head><title>Index</title><meta name="description" content="links"></head></html>',
+    source_id: 'q1',
+    timestamp: '2026-09-25T00:00:00.000Z',
+    content_type: 'text/html',
+    truncated: false,
+    redirect_count: 0,
+  }, 'https://www.google.com/search?q=test', 'SEARCH_INDEX');
+  const direct = s.pageSource({
+    url: 'https://docs.example.org/fact',
+    content: '<html><head><title>Docs</title><meta name="description" content="primary evidence"></head></html>',
+    source_id: 'q2',
+    timestamp: '2026-09-25T00:00:00.000Z',
+    content_type: 'text/html',
+    truncated: false,
+    redirect_count: 1,
+  }, 'https://docs.example.org/fact', 'DIRECT_SOURCE');
+
+  assert.equal(discovery.source_quality.answer_ready, false);
+  assert.equal(discovery.source_quality.tier, 'DISCOVERY_ONLY');
+  assert.equal(direct.source_quality.answer_ready, true);
+  assert.ok(direct.source_quality.score > discovery.source_quality.score);
+  assert.deepEqual(s.assessSourceSet([discovery]), {
+    status: 'DISCOVERY_ONLY',
+    answer_ready: false,
+    source_count: 1,
+    answer_ready_sources: 0,
+    strong_sources: 0,
+    average_score: discovery.source_quality.score,
+    minimum_answer_score: 55,
+  });
 });
