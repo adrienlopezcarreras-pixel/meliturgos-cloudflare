@@ -57,6 +57,31 @@ function substitutePrefix(pathname, from, to) {
   return `${to}${pathname.slice(from.length)}`;
 }
 
+export function validateApiVersionRegistry() {
+  const issues = [];
+  const ids = new Set();
+  const canonical = new Set();
+  const legacy = new Map();
+  const validHandlers = new Set(['index','router']);
+
+  for (const route of ROUTES) {
+    if (!route.id || ids.has(route.id)) issues.push({ type:'DUPLICATE_OR_EMPTY_ID', id:route.id || null });
+    ids.add(route.id);
+    if (!validHandlers.has(route.handler)) issues.push({ type:'INVALID_HANDLER', id:route.id, handler:route.handler || null });
+    if (!route.canonical || canonical.has(route.canonical)) issues.push({ type:'DUPLICATE_OR_EMPTY_CANONICAL', id:route.id, path:route.canonical || null });
+    canonical.add(route.canonical);
+    if (!Array.isArray(route.methods) || route.methods.length === 0) issues.push({ type:'METHODS_REQUIRED', id:route.id });
+    for (const alias of route.legacy || []) {
+      const previous = legacy.get(alias);
+      if (previous && previous !== route.id) issues.push({ type:'DUPLICATE_LEGACY_ALIAS', ids:[previous,route.id], path:alias });
+      legacy.set(alias,route.id);
+      if (alias === route.canonical) issues.push({ type:'ALIAS_EQUALS_CANONICAL', id:route.id, path:alias });
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
+}
+
 export function apiVersionRegistry() {
   return {
     schema: 'mel.api-version-registry',
@@ -64,6 +89,7 @@ export function apiVersionRegistry() {
     current_version: API_CURRENT_VERSION,
     supported_versions: [...API_SUPPORTED_VERSIONS],
     compatibility_policy: 'LEGACY_ALIASES_REMAIN_FUNCTIONAL_AND_ARE_MARKED_DEPRECATED',
+    validation: validateApiVersionRegistry(),
     routes: ROUTES.map(route => ({
       id: route.id,
       handler: route.handler,
@@ -98,7 +124,18 @@ export function resolveApiVersionRequest(request, { handler = null } = {}) {
   for (const route of ROUTES) {
     if (handler && route.handler !== handler) continue;
     if (matchPath(route.canonical, pathname, route.prefix)) {
-      if (!methodAllowed(route, method)) continue;
+      if (!methodAllowed(route, method)) {
+        return {
+          matched: true,
+          unsupported: false,
+          method_not_allowed: true,
+          request,
+          route,
+          status: 'canonical',
+          canonical_path: pathname,
+          legacy_path: route.legacy[0] || null,
+        };
+      }
       const target = route.prefix
         ? substitutePrefix(pathname, route.canonical, route.legacy[0] || route.canonical)
         : (route.legacy[0] || route.canonical);
@@ -116,7 +153,18 @@ export function resolveApiVersionRequest(request, { handler = null } = {}) {
 
     for (const legacy of route.legacy) {
       if (!matchPath(legacy, pathname, route.prefix)) continue;
-      if (!methodAllowed(route, method)) continue;
+      if (!methodAllowed(route, method)) {
+        return {
+          matched: true,
+          unsupported: false,
+          method_not_allowed: true,
+          request,
+          route,
+          status: 'legacy',
+          canonical_path: route.prefix ? substitutePrefix(pathname, legacy, route.canonical) : route.canonical,
+          legacy_path: pathname,
+        };
+      }
       const canonicalPath = route.prefix
         ? substitutePrefix(pathname, legacy, route.canonical)
         : route.canonical;
@@ -168,6 +216,25 @@ export function apiVersionMetadataResponse() {
       'x-mel-api-route-status': 'canonical',
     },
   });
+}
+
+export function apiMethodNotAllowedResponse(resolution) {
+  const allow = (resolution?.route?.methods || []).join(', ');
+  const response = Response.json({
+    ok:false,
+    error:'API_METHOD_NOT_ALLOWED',
+    code:'API_METHOD_NOT_ALLOWED',
+    route_id:resolution?.route?.id || null,
+    canonical_path:resolution?.canonical_path || null,
+    allowed_methods:[...(resolution?.route?.methods || [])],
+  }, {
+    status:405,
+    headers:{
+      'cache-control':'no-store',
+      ...(allow ? { allow } : {}),
+    },
+  });
+  return decorateApiVersionResponse(response,resolution);
 }
 
 export function decorateApiVersionResponse(response, resolution) {
