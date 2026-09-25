@@ -17,6 +17,8 @@ import { registerKnowledgeWorkspaceCapabilities } from '../../capabilities/knowl
 import { registerSelfHealingCapabilities } from '../../capabilities/self-healing-capabilities.js';
 import { validateManifest } from '../../plugins/validator.js';
 import { createD1PluginRegistryAdapter, createPluginRuntime, createRegistry, createRegistryBackedPluginLoader } from '../../plugins/sdk.js';
+import { createAgentRegistry, createD1AgentRegistryAdapter, createInMemoryAgentRegistryAdapter } from '../../agents/agent-registry.js';
+import { createWorkAgentRuntime } from '../../agents/work-agent-runtime.js';
 import { transition } from '../lifecycle/extension.js';
 import { requireValue } from '../contracts.js';
 import { requireStateOfPlayCouncil } from '../../teachers/model-council.js';
@@ -80,7 +82,18 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
       })
     : null;
   const modules = new Map();
-  const agents = new Map();
+  const agentRegistry = createAgentRegistry(
+    env?.DB && typeof env.DB.prepare === 'function'
+      ? createD1AgentRegistryAdapter(env.DB)
+      : createInMemoryAgentRegistryAdapter(),
+  );
+  const deployedSha = String(env?.MEL_DEPLOYED_GIT_SHA || env?.MEL_GITHUB_SHA || '');
+  const agentRuntime = createWorkAgentRuntime({
+    db: env?.DB && typeof env.DB.prepare === 'function' ? env.DB : null,
+    bus,
+    registry: agentRegistry,
+    sourceSha: /^[a-f0-9]{40}$/i.test(deployedSha) ? deployedSha : '',
+  });
 
   const registerExtension = (store, kind, manifest, handler) => {
     validateManifest(manifest, kind);
@@ -182,6 +195,60 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
     return result;
   };
 
+  const normalizeLegacyAgent = (id, steps) => {
+    requireValue(typeof id === 'string' && id.trim(), 'AGENT_ID_REQUIRED', 400);
+    requireValue(Array.isArray(steps) && steps.length > 0, 'PLAN_REQUIRED');
+    return {
+      id: id.trim(),
+      version: '1.0.0',
+      name: id.trim(),
+      description: 'Compatibility agent registered through createGen2Runtime',
+      steps: steps.map((step, index) => ({
+        id: String(step?.id || `step-${index + 1}`),
+        kind: String(step?.kind || 'TASK').toUpperCase(),
+        depends_on: Array.isArray(step?.depends_on) ? step.depends_on : [],
+        idempotent: step?.idempotent === true,
+        capability: step?.capability,
+        input: step?.input ?? {},
+        ...(step?.request ? { request: step.request } : {}),
+        ...(step?.use_run_input === true ? { use_run_input: true } : {}),
+      })),
+    };
+  };
+
+  const registerAgent = async (definitionOrId, steps) => {
+    const definition = typeof definitionOrId === 'string'
+      ? normalizeLegacyAgent(definitionOrId, steps)
+      : definitionOrId;
+    const record = await agentRegistry.register({ definition });
+    return {
+      id: record.id,
+      version: record.version,
+      status: record.status,
+      steps: record.steps.length,
+      required_capabilities: record.required_capabilities,
+    };
+  };
+
+  const runAgent = async (agentOrInput, context = {}) => {
+    const input = typeof agentOrInput === 'string'
+      ? { agent_id: agentOrInput, run_id: crypto.randomUUID() }
+      : { ...(agentOrInput || {}) };
+    if (!input.run_id) input.run_id = crypto.randomUUID();
+    const result = await agentRuntime.run(input, context);
+    return {
+      id: result.agent.id,
+      version: result.agent.version,
+      run_id: result.run_id,
+      status: result.summary.status,
+      results: result.dag.nodes
+        .filter(node => node.status === 'COMPLETED')
+        .map(node => node.result),
+      summary: result.summary,
+      dag: result.dag,
+    };
+  };
+
   const rollbackPlugin = async (input, context = {}) => {
     const result = await requirePluginLoader().rollback(input, context);
     if (result?.active?.status === 'ACTIVE') exposePluginOnBus(result.active.manifest);
@@ -226,8 +293,14 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
       }
     },
     agents: {
-      register: (id, steps) => { requireValue(Array.isArray(steps) && steps.length > 0, 'PLAN_REQUIRED'); agents.set(id, steps); return { id, steps: steps.length }; },
-      async run(id, context) { const steps = agents.get(id); requireValue(steps, 'AGENT_NOT_FOUND'); const results = []; for (const step of steps) results.push(await bus.execute(step.capability, step.input, context)); return { id, results }; }
+      register: registerAgent,
+      get: input => agentRegistry.get(typeof input === 'string' ? { agent_id: input } : input),
+      list: input => agentRegistry.list(input || {}),
+      disable: input => agentRegistry.disable(typeof input === 'string' ? { agent_id: input } : input),
+      run: runAgent,
+      resume: (input, context = {}) => agentRuntime.resume(input, context),
+      getRun: input => agentRuntime.getRun(input),
+      cancel: (input, context = {}) => agentRuntime.cancel(input, context),
     }
   };
 }

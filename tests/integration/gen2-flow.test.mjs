@@ -41,7 +41,7 @@ test('plugin, module, Module Lab and agent mock runtimes execute through one Cap
   assert.equal(module.status, 'TESTED'); runtime.modules.activate('mock-module'); assert.deepEqual(await runtime.modules.run('mock-module', { value: 'module-ok' }, context), { value: 'module-ok' }); runtime.modules.rollback('mock-module');
   const lab = await runtime.moduleLab.prove(manifest('lab-module'), async input => ({ value: input.value }), { councilReport });
   assert.equal(lab.status, 'ACTIVE');
-  runtime.agents.register('agent', [{ capability: 'echo', input: { value: 'agent-ok' } }]); assert.deepEqual((await runtime.agents.run('agent', context)).results, [{ value: 'agent-ok' }]);
+  await runtime.agents.register('agent', [{ capability: 'echo', input: { value: 'agent-ok' } }]); assert.deepEqual((await runtime.agents.run('agent', context)).results, [{ value: 'agent-ok' }]);
 });
 
 test('device sync returns the same persisted message identity', async () => {
