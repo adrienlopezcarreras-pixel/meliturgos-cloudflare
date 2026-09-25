@@ -1,0 +1,104 @@
+param(
+  [Parameter(Mandatory=$true)][string]$Version,
+  [Parameter(Mandatory=$true)][string]$SourceSha,
+  [string]$OutputDir = "artifacts/windows"
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+if ($Version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$') {
+  throw "WINDOWS_RELEASE_VERSION_INVALID"
+}
+if ($SourceSha -notmatch '^[0-9a-fA-F]{40}$') {
+  throw "WINDOWS_RELEASE_SHA_INVALID"
+}
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$assetDir = Join-Path $repoRoot "assets"
+$stageRoot = Join-Path $repoRoot ".windows-release"
+$stage = Join-Path $stageRoot "MEL-Windows-$Version"
+$packageDir = Join-Path $repoRoot $OutputDir
+
+if (Test-Path $stageRoot) { Remove-Item -Recurse -Force $stageRoot }
+New-Item -ItemType Directory -Force -Path $stage | Out-Null
+New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+
+$files = @(
+  "MEL-Computer-Setup.ps1",
+  "MEL-Computer-Companion.ps1"
+)
+
+foreach ($name in $files) {
+  $src = Join-Path $assetDir $name
+  if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw "WINDOWS_RELEASE_SOURCE_MISSING:$name" }
+  Copy-Item -LiteralPath $src -Destination (Join-Path $stage $name)
+}
+
+$launcher = @(
+  '@echo off',
+  'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0MEL-Computer-Setup.ps1"'
+) -join [Environment]::NewLine
+Set-Content -LiteralPath (Join-Path $stage "Install-MEL.cmd") -Value $launcher -Encoding ASCII
+
+$manifestFiles = @()
+foreach ($file in Get-ChildItem -LiteralPath $stage -File | Sort-Object Name) {
+  $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName
+  $manifestFiles += [ordered]@{
+    name = $file.Name
+    bytes = [int64]$file.Length
+    sha256 = $hash.Hash.ToLowerInvariant()
+  }
+}
+
+$manifestCore = [ordered]@{
+  schema = "mel.windows-release-manifest.v1"
+  version = $Version
+  source_sha = $SourceSha.ToLowerInvariant()
+  platform = "windows"
+  architecture = "any"
+  source = "assets"
+  files = $manifestFiles
+}
+$manifestJson = $manifestCore | ConvertTo-Json -Depth 8
+$manifestPath = Join-Path $stage "release-manifest.json"
+Set-Content -LiteralPath $manifestPath -Value $manifestJson -Encoding UTF8
+
+$manifestHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $manifestPath).Hash.ToLowerInvariant()
+
+$zipPath = Join-Path $packageDir "MEL-Windows-$Version.zip"
+if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
+
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zipStream = [IO.File]::Open($zipPath, [IO.FileMode]::CreateNew)
+try {
+  $archive = New-Object IO.Compression.ZipArchive($zipStream, [IO.Compression.ZipArchiveMode]::Create, $false)
+  try {
+    $epoch = [DateTimeOffset]::Parse("1980-01-01T00:00:00Z")
+    foreach ($file in Get-ChildItem -LiteralPath $stage -File | Sort-Object Name) {
+      $entry = $archive.CreateEntry($file.Name, [IO.Compression.CompressionLevel]::Optimal)
+      $entry.LastWriteTime = $epoch
+      $entryStream = $entry.Open()
+      try {
+        $input = [IO.File]::OpenRead($file.FullName)
+        try { $input.CopyTo($entryStream) } finally { $input.Dispose() }
+      } finally { $entryStream.Dispose() }
+    }
+  } finally { $archive.Dispose() }
+} finally { $zipStream.Dispose() }
+
+$zipHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
+$releaseMeta = [ordered]@{
+  schema = "mel.windows-release.v1"
+  version = $Version
+  source_sha = $SourceSha.ToLowerInvariant()
+  manifest_sha256 = $manifestHash
+  package = [IO.Path]::GetFileName($zipPath)
+  package_sha256 = $zipHash
+  signed = $false
+}
+$releaseMetaPath = Join-Path $packageDir "MEL-Windows-$Version.release.json"
+$releaseMeta | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $releaseMetaPath -Encoding UTF8
+
+Write-Output ($releaseMeta | ConvertTo-Json -Compress)
