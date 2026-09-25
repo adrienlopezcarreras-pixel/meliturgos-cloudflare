@@ -208,6 +208,7 @@ export async function createPortableMemorySnapshot({
     db_schema_version: Number.isFinite(Number(db_schema_version)) ? Number(db_schema_version) : null,
     checksum_algorithm: MEMORY_EXPORT_CHECKSUM_ALGORITHM,
     owner: String(owner || ''),
+    exported_at: generated.toISOString(),
     total_source_records: totalSource,
     total_exported_records: totalExported,
     complete: manifestCollections.every(row => row.complete),
@@ -238,6 +239,8 @@ export async function verifyPortableMemorySnapshot(snapshot) {
   if (snapshot.format !== MEMORY_EXPORT_FORMAT) failures.push('FORMAT_UNSUPPORTED');
   if (snapshot.schema_version !== MEMORY_SNAPSHOT_SCHEMA_VERSION) failures.push('SCHEMA_VERSION_UNSUPPORTED');
   if (snapshot?.manifest?.checksum_algorithm !== MEMORY_EXPORT_CHECKSUM_ALGORITHM) failures.push('CHECKSUM_ALGORITHM_UNSUPPORTED');
+  if (String(snapshot.owner || '') !== String(snapshot?.manifest?.owner || '')) failures.push('OWNER_MISMATCH');
+  if (String(snapshot.exported_at || '') !== String(snapshot?.manifest?.exported_at || '')) failures.push('EXPORTED_AT_MISMATCH');
 
   const manifestRows = Array.isArray(snapshot?.manifest?.collections) ? snapshot.manifest.collections : [];
   const manifestByName = new Map(manifestRows.map(row => [String(row?.name || ''), row]));
@@ -263,6 +266,7 @@ export async function verifyPortableMemorySnapshot(snapshot) {
     db_schema_version: snapshot?.manifest?.db_schema_version == null ? null : Number(snapshot.manifest.db_schema_version),
     checksum_algorithm: String(snapshot?.manifest?.checksum_algorithm || ''),
     owner: String(snapshot?.manifest?.owner || ''),
+    exported_at: String(snapshot?.manifest?.exported_at || ''),
     total_source_records: Number(snapshot?.manifest?.total_source_records || 0),
     total_exported_records: Number(snapshot?.manifest?.total_exported_records || 0),
     complete: Boolean(snapshot?.manifest?.complete),
