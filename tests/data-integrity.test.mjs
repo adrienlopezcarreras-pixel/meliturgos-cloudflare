@@ -138,3 +138,25 @@ test('GEN2-55 integrity audit detects a missing intermediate migration even when
     assert.equal(history.samples.some(sample=>sample.version===6 && sample.issue==='MISSING'),true);
   } finally { db.close(); }
 });
+
+
+test('GEN2-55 integrity audit detects cross-wired message/conversation references', async () => {
+  const db=await healthyDb();
+  try {
+    const now=Date.now();
+    await db.prepare("INSERT INTO conversations(id,owner,title,status,created_at,updated_at,metadata) VALUES(?,?,?,?,?,?,?)")
+      .bind('c2','owner','other','active',now,now,'{}').run();
+    await db.prepare("INSERT INTO archive_messages(id,conversation_id,device_id,role,content,timestamp,provenance,metadata) VALUES(?,?,?,?,?,?,?,?)")
+      .bind('m2','c2',null,'user','other',now,'test','{}').run();
+    await db.prepare("INSERT INTO memory_candidates(id,conversation_id,message_id,content,confidence,source,status,created_at) VALUES(?,?,?,?,?,?,?,?)")
+      .bind('mc-cross','c1','m2','cross',0.8,'test','PENDING',now).run();
+
+    const result=await auditDataIntegrity(db);
+    const pair=result.checks.find(check=>check.id==='memory_candidates.message_conversation_pair');
+    assert.equal(pair.status,'FAIL');
+    assert.equal(pair.count,1);
+    assert.equal(pair.samples[0].candidate_id,'mc-cross');
+    assert.equal(JSON.stringify(result).includes('other'),false);
+    assert.equal(JSON.stringify(result).includes('cross'),true);
+  } finally { db.close(); }
+});
