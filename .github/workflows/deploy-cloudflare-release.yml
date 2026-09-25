@@ -708,7 +708,7 @@ jobs:
           if(r?.synthesis?.status!=='COMPLETE' || !String(r?.synthesis?.text||'').trim()) throw new Error('MEL_COUNCIL_02_SYNTHESIS_FAILED');
           for(const c of r.critiques){
             if(!c?.identity || !c?.provenance?.provider || !c?.provenance?.model) throw new Error('MEL_COUNCIL_02_PROVENANCE_MISSING');
-            if(c?.cost?.allowed!==true || c?.cost?.policy!=='ZERO_ADDED_COST_ONLY') throw new Error('MEL_COUNCIL_02_ZERO_COST_PROOF_FAILED');
+            if(c?.cost?.allowed!==true || c?.cost?.policy!=='MEL_ZERO_EURO_V1') throw new Error('MEL_COUNCIL_02_ZERO_COST_PROOF_FAILED');
           }
           console.log('Production MEL-COUNCIL-02 independent critique + synthesis proof passed.');
           NODE
