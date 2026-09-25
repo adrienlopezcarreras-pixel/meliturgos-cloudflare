@@ -156,9 +156,29 @@ test('GEN2-21 free provider is preferred over lower-priority paid provider', asy
   assert.equal(paidCalls,0);
 });
 
+test('GEN2-21 paid provider is denied by default when no authorization resolver exists', async()=>{
+  const runtime=createImageVisionRuntime({
+    providers:[paidGenerator()],
+  });
+
+  await assert.rejects(
+    ()=>runtime.generate(
+      {prompt:'Paid provider without authorization',approvedPaidCall:true},
+      {maxCostUsd:1},
+    ),
+    error=>{
+      assert.match(error?.code || error?.message,/not_authorized/);
+      return true;
+    },
+  );
+});
+
 test('GEN2-21 paid provider stays blocked without explicit call approval', async()=>{
   const runtime=createImageVisionRuntime({
     providers:[paidGenerator()],
+    authorization:{
+      async isAllowed(){ return true; },
+    },
   });
 
   await assert.rejects(
@@ -177,6 +197,9 @@ test('GEN2-21 paid provider stays blocked without explicit call approval', async
 test('GEN2-21 paid provider also requires bounded budget and known cost', async()=>{
   const runtime=createImageVisionRuntime({
     providers:[paidGenerator({cost:0.25})],
+    authorization:{
+      async isAllowed(){ return true; },
+    },
   });
 
   await assert.rejects(
@@ -198,7 +221,12 @@ test('GEN2-21 paid provider also requires bounded budget and known cost', async(
       return {outputs:[{url:'https://paid.example.test/unknown.png'}]};
     },
   };
-  const unknown=createImageVisionRuntime({providers:[unknownCost]});
+  const unknown=createImageVisionRuntime({
+    providers:[unknownCost],
+    authorization:{
+      async isAllowed(){ return true; },
+    },
+  });
   await assert.rejects(
     ()=>unknown.generate(
       {prompt:'Unknown cost',approvedPaidCall:true},
