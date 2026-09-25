@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createNotificationService } from '../../src/notifications/notification-service.js';
-import { createD1NotificationStore } from '../../src/notifications/d1-notification-store.js';
+import { createD1NotificationService, createD1NotificationStore } from '../../src/notifications/d1-notification-store.js';
 import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 
 const allowAll = async () => true;
@@ -188,6 +188,28 @@ test('GEN2-41 D1 store exposes durable bounded status and unsubscribe persists',
     assert.equal(after.subscriptions, 0);
     assert.equal(after.deliveries, 0);
     assert.equal(after.durable, true);
+  } finally {
+    db.close();
+  }
+});
+
+
+test('GEN2-41 D1 service factory fails closed on owner-context mismatch', async () => {
+  const db = sqliteD1();
+  try {
+    const instance = createD1NotificationService({
+      db,
+      owner: 'adrien',
+      authorize: async () => true,
+    });
+
+    await assert.rejects(
+      instance.listSubscriptions({}, { owner: 'other-owner', requestId: 'wrong-owner' }),
+      error => error?.code === 'NOTIFICATION_PERMISSION_DENIED' && error?.status === 403,
+    );
+
+    const allowed = await instance.listSubscriptions({}, { owner: 'adrien', requestId: 'right-owner' });
+    assert.deepEqual(allowed, []);
   } finally {
     db.close();
   }
