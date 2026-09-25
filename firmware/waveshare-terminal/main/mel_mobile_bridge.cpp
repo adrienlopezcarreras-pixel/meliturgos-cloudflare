@@ -190,23 +190,52 @@ static void on_discovery_complete(const struct peer *peer, int status, void *arg
         if (peer) ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
         return;
     }
-    const struct peer_chr *rx = peer_chr_find_uuid(
-        peer, &UUID_SERVICE.u, &UUID_RX.u
-    );
-    const struct peer_chr *tx = peer_chr_find_uuid(
-        peer, &UUID_SERVICE.u, &UUID_TX.u
-    );
-    const struct peer_dsc *cccd = peer_dsc_find_uuid(
-        peer,
-        &UUID_SERVICE.u,
-        &UUID_TX.u,
-        &UUID_CCCD.u
-    );
+
+    // Android may temporarily expose several copies of the same custom GATT
+    // service after app updates/restarts. The peer helper returns the first
+    // match, which can be a stale registration. Select the newest matching
+    // service (highest start handle) and resolve RX/TX/CCCD inside that service.
+    const struct peer_svc *selected_svc = nullptr;
+    int matching_services = 0;
+    const struct peer_svc *svc = nullptr;
+    SLIST_FOREACH(svc, &peer->svcs, next) {
+        if (ble_uuid_cmp(&svc->svc.uuid.u, &UUID_SERVICE.u) != 0) continue;
+        matching_services++;
+        if (!selected_svc || svc->svc.start_handle > selected_svc->svc.start_handle) {
+            selected_svc = svc;
+        }
+    }
+
+    const struct peer_chr *rx = nullptr;
+    const struct peer_chr *tx = nullptr;
+    const struct peer_dsc *cccd = nullptr;
+    if (selected_svc) {
+        const struct peer_chr *chr = nullptr;
+        SLIST_FOREACH(chr, &selected_svc->chrs, next) {
+            if (ble_uuid_cmp(&chr->chr.uuid.u, &UUID_RX.u) == 0) rx = chr;
+            if (ble_uuid_cmp(&chr->chr.uuid.u, &UUID_TX.u) == 0) tx = chr;
+        }
+        if (tx) {
+            const struct peer_dsc *dsc = nullptr;
+            SLIST_FOREACH(dsc, &tx->dscs, next) {
+                if (ble_uuid_cmp(&dsc->dsc.uuid.u, &UUID_CCCD.u) == 0) {
+                    cccd = dsc;
+                    break;
+                }
+            }
+        }
+    }
+
     if (!rx || !tx || !cccd) {
-        ESP_LOGW(TAG, "MEL Mobile GATT layout incomplete");
+        ESP_LOGW(TAG, "MEL Mobile GATT layout incomplete services=%d", matching_services);
         ble_gap_terminate(peer->conn_handle, BLE_ERR_REM_USER_CONN_TERM);
         return;
     }
+    ESP_LOGI(TAG, "MEL Mobile GATT services=%d selected=%u-%u rx=%u tx=%u cccd=%u",
+             matching_services,
+             selected_svc ? selected_svc->svc.start_handle : 0,
+             selected_svc ? selected_svc->svc.end_handle : 0,
+             rx->chr.val_handle, tx->chr.val_handle, cccd->dsc.handle);
     g_rx_handle = rx->chr.val_handle;
     g_tx_handle = tx->chr.val_handle;
     uint8_t value[2] = {2, 0}; // indications
