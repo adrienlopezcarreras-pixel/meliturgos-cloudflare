@@ -64,6 +64,7 @@ async function attestation(overrides={}){
       workflow:'full-candidate-ci',
       repository:'adrienlopezcarreras-pixel/meliturgos-cloudflare',
       event:'push',
+      dependency_tree_verified:true,
     },
     ...overrides,
   });
@@ -176,4 +177,20 @@ test('MEL-SEC-03 serialization is stable for same attestation object',async()=>{
   const first=serializeSupplyChainAttestation(value);
   const second=serializeSupplyChainAttestation(structuredClone(value));
   assert.equal(first,second);
+});
+
+
+test('MEL-SEC-03 unverified installed runtime tree blocks release even with clean audit',async()=>{
+  const value=await attestation({
+    ci:{
+      run_id:'36100000000',
+      workflow:'full-candidate-ci',
+      repository:'adrienlopezcarreras-pixel/meliturgos-cloudflare',
+      event:'push',
+      dependency_tree_verified:false,
+    },
+  });
+  assert.equal(value.release_eligible,false);
+  assert.ok(value.gate.blockers.includes('SUPPLY_CHAIN_DEPENDENCY_TREE_UNVERIFIED'));
+  assert.equal((await verifySupplyChainAttestation(value)).ok,true);
 });
