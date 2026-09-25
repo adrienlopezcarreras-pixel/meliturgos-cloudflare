@@ -442,7 +442,8 @@ static std::string json_string(cJSON *obj) {
 
 static bool pair_terminal() {
     if (g_cfg.token[0]) return true;
-    if (!g_cfg.pair_code[0]) return false;
+    const bool android_sponsored_pair = mel_mobile_bridge_ready() && !g_wifi_connected;
+    if (!g_cfg.pair_code[0] && !android_sponsored_pair) return false;
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "device_id", g_device_id);
@@ -1683,17 +1684,27 @@ static void online_runtime_task(void *) {
         return;
     }
 
-    const int session_status = device_session_status();
+    int session_status = device_session_status();
     if (session_status == 401 || session_status == 403) {
         ESP_LOGW(TAG, "Stored MEL token explicitly rejected with HTTP %d; clearing token", session_status);
         g_online = false;
         g_cfg.token[0] = '\0';
         save_string("token", "");
-        ui_status("REAPPARIAGE REQUIS");
-        ui_answer("La liaison MEL a ete revoquee. Entre un nouveau code d'appairage.");
-        g_online_task_handle = nullptr;
-        vTaskDelete(nullptr);
-        return;
+
+        if (mel_mobile_bridge_ready() && !g_wifi_connected) {
+            ESP_LOGI(TAG, "Retrying MEL pairing through authenticated Android bridge");
+            if (pair_terminal()) {
+                session_status = device_session_status();
+            }
+        }
+
+        if (session_status == 401 || session_status == 403 || !g_cfg.token[0]) {
+            ui_status("REAPPARIAGE REQUIS");
+            ui_answer("La liaison MEL a ete revoquee. Entre un nouveau code d'appairage.");
+            g_online_task_handle = nullptr;
+            vTaskDelete(nullptr);
+            return;
+        }
     }
     if (session_status != 200) {
         ESP_LOGW(TAG, "MEL session check returned %d; preserving persistent pairing", session_status);
