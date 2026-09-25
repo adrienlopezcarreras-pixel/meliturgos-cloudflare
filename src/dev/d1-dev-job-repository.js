@@ -1,5 +1,6 @@
 import { migrate } from '../persistence/migrations.js';
 import { createDevJobCheckpoint, verifyDevJobCheckpoint } from './dev-job-checkpoint.js';
+import { D1EvolutionLedger } from '../evolution/evolution-ledger.js';
 
 function buildJob(input = {}) {
   const j = {
@@ -54,10 +55,25 @@ function bridgeClaimPriority(job) {
 }
 
 export class D1DevJobRepository {
-  constructor(db, { memoryStore = null } = {}) {
+  constructor(db, { memoryStore = null, evolutionLedger = null } = {}) {
     this.db = db;
     this.memory = memoryStore ?? new Map();
     this.ready = null;
+    this.evolutionLedger = evolutionLedger || (db ? new D1EvolutionLedger(db) : null);
+  }
+
+  async recordEvolution(job, stage, evidence = {}) {
+    if (!this.evolutionLedger || !job?.id) return null;
+    return this.evolutionLedger.append({
+      evolution_id: job.id,
+      stage,
+      status: String(job.status || 'UNKNOWN'),
+      actor: String(job.requested_by || 'unknown'),
+      source_sha: String(job?.result_json?.dev_bridge?.candidate_sha || job?.result_json?.bridge_preparation?.candidate_sha || ''),
+      branch: String(job.candidate_branch || job?.result_json?.bridge_preparation?.candidate_branch || ''),
+      evidence,
+      occurred_at: Number(job.updated_at || job.created_at || Date.now()),
+    });
   }
 
   async init() {
@@ -77,6 +93,14 @@ export class D1DevJobRepository {
     await this.db.prepare('INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null)
       .run();
+    await this.recordEvolution(j, 'JOB_CREATED', {
+      goal: String(j.goal || '').slice(0, 4000),
+      approval_status: j.approval_status,
+      source: j?.optional_context?.source || null,
+      roadmap_id: j?.optional_context?.roadmap_id || null,
+      candidate_only: j?.optional_context?.candidate_branch_only === true,
+      zero_added_cost: j?.optional_context?.zero_added_cost === true,
+    });
     return j;
   }
 
@@ -143,7 +167,21 @@ export class D1DevJobRepository {
     await this.db.prepare('UPDATE dev_jobs SET updated_at=?,status=?,plan_json=?,files_json=?,patch_json=?,tests_json=?,result_json=?,candidate_branch=?,approval_status=?,error=? WHERE id=?')
       .bind(n.updated_at, n.status, JSON.stringify(n.plan_json), JSON.stringify(n.files_json || []), JSON.stringify(n.patch_json), JSON.stringify(n.tests_json || []), JSON.stringify(n.result_json), n.candidate_branch, n.approval_status, n.error, id)
       .run();
-    return this.get(id);
+    const updated = await this.get(id);
+    const changedFields = Object.keys(patch || {}).filter(key => !['updated_at'].includes(key)).sort();
+    await this.recordEvolution(updated, 'JOB_UPDATED', {
+      previous_status: String(j.status || ''),
+      next_status: String(updated?.status || ''),
+      changed_fields: changedFields,
+      approval_status: updated?.approval_status || null,
+      candidate_branch: updated?.candidate_branch || null,
+      error: updated?.error ? String(updated.error).slice(0, 500) : null,
+      teacher_status: updated?.result_json?.teacher_bridge?.status || null,
+      teacher_verdict: updated?.result_json?.teacher_bridge?.review?.verdict || null,
+      bridge_status: updated?.result_json?.bridge_preparation?.status || null,
+      dev_bridge_status: updated?.result_json?.dev_bridge?.status || null,
+    });
+    return updated;
   }
 
   async checkpoint(id, evidence = {}) {
