@@ -55,3 +55,16 @@ test('unbounded ShardVault search keeps full live revalidation even with seven a
   assert.match(source,/if\(\(!boundedMode\|\|active\.length<targetCount\)&&remainingBudget>0\)\{/);
   assert.match(source,/search_strategy:boundedMode\?'INCREMENTAL_BOUNDED':'FULL_REVALIDATION'/);
 });
+
+
+test('failed bounded activation quarantines the exact dead cached endpoint without lowering the seven-target gate', async () => {
+  const runtime=await readFile(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  assert.match(runtime,/function failedActivationEndpointId/);
+  assert.match(runtime,/quarantineFailedActivationCandidate/);
+  assert.match(runtime,/failure\.includes\(String\(e\?\.id\|\|''\)\)/);
+  assert.match(runtime,/invalidateCodeTargetQualification\(env,endpointId\)/);
+  assert.match(runtime,/activation_quarantined_endpoint/);
+  assert.match(runtime,/targetCount=Math\.min\(7,c\.n\)/);
+  assert.match(runtime,/target_reached:active\.length>=targetCount/);
+  assert.doesNotMatch(runtime,/targetCount=Math\.min\([1-6],c\.n\)/);
+});
