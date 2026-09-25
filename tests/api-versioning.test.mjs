@@ -160,3 +160,37 @@ test('GEN2-51 versioned routes return explicit 405 with Allow before handler dis
     assert.equal((await response.json()).code,'API_METHOD_NOT_ALLOWED');
   } finally { e.DB.close(); }
 });
+
+
+test('GEN2-51 canonical v1 keeps owner-auth parity with legacy routes', async () => {
+  const e=env();
+  try {
+    const canonical=await worker.fetch(new Request('http://localhost/api/v1/roadmap'),e);
+    const legacy=await worker.fetch(new Request('http://localhost/api/gen2/roadmap'),e);
+    assert.equal(canonical.status,401);
+    assert.equal(legacy.status,401);
+  } finally { e.DB.close(); }
+});
+
+test('GEN2-51 rewrite preserves query parameters for core GET routes', async () => {
+  const canonical=resolveApiVersionRequest(
+    new Request('http://localhost/api/v1/capabilities?refresh=1&x=test'),
+    {handler:'router'}
+  );
+  const rewritten=new URL(canonical.request.url);
+  assert.equal(rewritten.pathname,'/api/gen2/capabilities');
+  assert.equal(rewritten.searchParams.get('refresh'),'1');
+  assert.equal(rewritten.searchParams.get('x'),'test');
+});
+
+test('GEN2-51 rewrite preserves POST method, headers and JSON body', async () => {
+  const original=new Request('http://localhost/api/v1/capabilities/execute',{
+    method:'POST',
+    headers:{'content-type':'application/json','x-test':'kept'},
+    body:JSON.stringify({id:'echo',input:{value:'hello'}}),
+  });
+  const resolved=resolveApiVersionRequest(original,{handler:'router'});
+  assert.equal(resolved.request.method,'POST');
+  assert.equal(resolved.request.headers.get('x-test'),'kept');
+  assert.deepEqual(await resolved.request.json(),{id:'echo',input:{value:'hello'}});
+});
