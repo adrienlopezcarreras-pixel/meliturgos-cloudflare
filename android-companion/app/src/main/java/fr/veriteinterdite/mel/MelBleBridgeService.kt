@@ -281,6 +281,8 @@ class MelBleBridgeService : Service() {
                 )
             }
             if (validCccd) {
+                @Suppress("DEPRECATION")
+                descriptor.value = value.copyOf()
                 val enabled = value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE) ||
                     value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                 subscribed[device.address] = enabled
