@@ -87,3 +87,12 @@ test('MEL-EVAL-01 rejects a stable case linked to a nonexistent canonical learni
     error=>error.code==='STABLE_BENCHMARK_LEARNING_CASE_UNKNOWN'
   );
 });
+
+
+test('MEL-EVAL-01 registry digest changes when canonical learning crosswalk changes',()=>{
+  const original=validateStableBenchmarkRegistry(STABLE_BENCHMARK_SUITES_V1);
+  const changed=structuredClone(STABLE_BENCHMARK_SUITES_V1);
+  changed[0].cases[0].learning_case_id='code-development-01';
+  const modified=validateStableBenchmarkRegistry(changed);
+  assert.notEqual(modified.registry_digest,original.registry_digest);
+});
