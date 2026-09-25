@@ -36,11 +36,18 @@ test('audit log remains verified only with correlated denial and terminal eviden
   assert.match(row.next, /D1|sans entrée brute/i);
 });
 
-test('web research remains partial until production validation while naming the remaining proof', () => {
-  const row = byId('GEN2-37');
-  assert.equal(row.status, 'PARTIAL');
-  assert.match(row.next, /production/i);
-  assert.match(row.next, /sources/i);
+test('web research and isolated recovery stay DONE_VERIFIED only with explicit production evidence', () => {
+  const web = byId('GEN2-37');
+  assert.equal(web.status, 'DONE_VERIFIED');
+  assert.match(web.next, /36150649958/);
+  assert.match(web.next, /231b83e5009bf86af538d802f12e46b339252c70/);
+  assert.match(web.next, /PRODUCTION_VERIFIED|Cloudflare|provenance/i);
+
+  const recovery = byId('GEN2-48');
+  assert.equal(recovery.status, 'DONE_VERIFIED');
+  assert.match(recovery.next, /36150649958/);
+  assert.match(recovery.next, /system-20260925145625240/);
+  assert.match(recovery.next, /teardown|aucun accès production|aucune activation/i);
 });
 
 test('code access and release smokes stay verified only with explicit live production evidence', () => {
