@@ -11,6 +11,7 @@ import { Augmentio } from '../augmentio/augmentio.js';
 import { inspectZeroCostProviderReadiness } from '../augmentio/zero-cost-readiness.js';
 import { RAGService } from '../search/rag-service.js';
 import { getRoadmapPayload } from '../roadmap/master-roadmap.js';
+import { getHumanActionsRequired } from '../roadmap/human-actions-required.js';
 import { normalizeChatGPTArchive } from '../persistence/chatgpt-archive-importer.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { runAugmentioStateOfPlay } from '../teachers/augmentio-council.js';
@@ -254,6 +255,14 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async () => getRoadmapPayload());
+
+  bus.discover({
+    id: 'roadmap.human-actions-required', name: 'Actions humaines requises', category: 'planning', version: '1.0.0', provider: 'core',
+    description: 'Returns only roadmap items explicitly marked BLOCKED_HUMAN, without inferring extra owner actions.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
+  }, async () => getHumanActionsRequired());
 
   bus.discover({
     id: 'system.bindings', name: 'Diagnostic des bindings', category: 'diagnostic', version: '1.0.0', provider: 'core',
