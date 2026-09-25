@@ -20,6 +20,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import android.os.ParcelUuid
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -379,6 +380,15 @@ class MelBleBridgeService : Service() {
                 if (request.token.isNotEmpty()) setRequestProperty("Authorization", "Bearer ${request.token}")
                 setRequestProperty("X-MEL-Device-ID", request.deviceId)
                 setRequestProperty("X-MEL-Mobile-Bridge", BuildConfig.VERSION_NAME)
+                if (request.path == "/api/device/v1/pair") {
+                    val androidToken = TokenVault(this@MelBleBridgeService).load()
+                    val rawAndroidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+                    val androidDeviceId = "android-" + (rawAndroidId ?: "unknown").take(64)
+                    if (!androidToken.isNullOrBlank()) {
+                        setRequestProperty("X-MEL-Android-Device-ID", androidDeviceId)
+                        setRequestProperty("X-MEL-Android-Token", androidToken)
+                    }
+                }
                 setRequestProperty("Accept", "*/*")
                 if (request.body.size() > 0) {
                     doOutput = true
