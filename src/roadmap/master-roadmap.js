@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.1';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.2';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -37,6 +37,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-03', 'Model Registry provider-neutral', 'DONE_VERIFIED', 'Ajouter les métadonnées de qualité mesurées', 'P0'),
     item('GEN2-04', 'Model Router + fallback', 'DONE_VERIFIED', 'Brancher les scores réels de qualité/latence/coût', 'P0'),
     item('GEN2-51', 'Versioning API', 'PARTIAL', 'Migrer progressivement les anciennes routes', 'P2'),
+    item('MEL-API-01', 'Contrat d’erreur API structuré et corrélé', 'IN_PROGRESS', 'Module partagé ajouté: code, catégorie, origine, request_id, timestamp et retryable avec compatibilité error/code. Intégration Core en cours; CI complète et adoption progressive des routes restantes requises avant DONE_VERIFIED.', 'P0'),
     item('GEN2-52', 'Versioning prompts et stratégies', 'DONE_VERIFIED', 'Preuve d’intégration: PR #56; maintenir le registre unique et ses tests rollback/snapshot', 'P2')
   ]),
 
