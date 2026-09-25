@@ -43,6 +43,17 @@ test('request trace is propagated through an immutable request clone', () => {
   assert.equal(original.headers.get('x-mel-request-id'), null);
 });
 
+test('request trace preserves Cloudflare platform metadata used by downstream Core services', () => {
+  const original = new Request('https://mel.test/api/chat');
+  Object.defineProperty(original, 'cf', {
+    value: { city: 'Nîmes', region: 'Occitanie', country: 'FR' },
+    configurable: true,
+  });
+  const trace = createRequestTrace(original, { requestId: 'mel-core-test-cf01', now: 1000 });
+  const traced = withRequestTrace(original, trace);
+  assert.deepEqual(traced.cf, { city: 'Nîmes', region: 'Occitanie', country: 'FR' });
+});
+
 test('response exposes request id and measured duration without changing payload', async () => {
   const trace = {
     requestId: 'mel-core-test-0002',
