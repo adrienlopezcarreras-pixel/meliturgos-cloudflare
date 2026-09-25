@@ -101,6 +101,14 @@ export class D1DevJobRepository {
     await this.db.prepare('INSERT INTO dev_jobs(id,created_at,updated_at,status,requested_by,goal,optional_context,plan_json,files_json,patch_json,tests_json,result_json,candidate_branch,approval_status,error) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .bind(j.id, j.created_at, j.updated_at, j.status, j.requested_by, j.goal, JSON.stringify(j.optional_context), null, '[]', null, '[]', null, null, j.approval_status, null)
       .run();
+    await this.recordEvolution(j, 'JOB_CREATED', {
+      goal: String(j.goal || '').slice(0, 4000),
+      approval_status: j.approval_status,
+      source: j?.optional_context?.source || null,
+      roadmap_id: j?.optional_context?.roadmap_id || null,
+      candidate_only: j?.optional_context?.candidate_branch_only === true,
+      zero_added_cost: j?.optional_context?.zero_added_cost === true,
+    });
     return j;
   }
 
