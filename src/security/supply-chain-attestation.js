@@ -78,9 +78,10 @@ function normalizedPolicy(policy = {}) {
   };
 }
 
-function releaseBlockers({ source, audit, gate }) {
+function releaseBlockers({ source, audit, gate, ci }) {
   const blockers = [];
   if (!source.exact_sha) blockers.push('SUPPLY_CHAIN_SOURCE_SHA_UNVERIFIED');
+  if (ci?.dependency_tree_verified !== true) blockers.push('SUPPLY_CHAIN_DEPENDENCY_TREE_UNVERIFIED');
   if (!audit.verified) blockers.push('SUPPLY_CHAIN_AUDIT_UNVERIFIED');
   for (const blocker of gate?.blockers || []) blockers.push(blocker);
   return [...new Set(blockers)];
@@ -141,6 +142,14 @@ export async function createSupplyChainAttestation({
     typeof packageLockText === 'string' ? packageLockText : stableJson(packageLock)
   );
 
+  const normalizedCi = Object.freeze({
+    run_id: text(ci.run_id),
+    workflow: text(ci.workflow),
+    repository: text(ci.repository),
+    event: text(ci.event),
+    dependency_tree_verified: ci.dependency_tree_verified === true,
+  });
+
   const releaseManifest = await createReleaseManifest({
     commit: source.commit,
     branch: source.branch,
@@ -157,17 +166,12 @@ export async function createSupplyChainAttestation({
     ],
   });
 
-  const blockers = releaseBlockers({ source, audit: normalizedAudit, gate });
+  const blockers = releaseBlockers({ source, audit: normalizedAudit, gate, ci: normalizedCi });
   const body = {
     schema: SUPPLY_CHAIN_ATTESTATION_SCHEMA,
     generated_at: generated.toISOString(),
     source,
-    ci: {
-      run_id: text(ci.run_id),
-      workflow: text(ci.workflow),
-      repository: text(ci.repository),
-      event: text(ci.event),
-    },
+    ci: normalizedCi,
     lockfile: {
       sha256: lockfileSha256,
       lockfile_version: packageLock.lockfileVersion ?? null,
@@ -234,6 +238,7 @@ export async function verifySupplyChainAttestation(attestation, {
   }
 
   const expectedEligible = attestation?.source?.exact_sha === true
+    && attestation?.ci?.dependency_tree_verified === true
     && attestation?.audit?.verified === true
     && Array.isArray(attestation?.gate?.blockers)
     && attestation.gate.blockers.length === 0;
