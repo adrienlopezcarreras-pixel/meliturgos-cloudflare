@@ -127,6 +127,7 @@ export function validateStableBenchmarkRegistry(registry = STABLE_BENCHMARK_SUIT
       case_count:rows.length,
       suite_digest:benchmarkSuiteFingerprint(rows),
       canonical_learning_links:rows.filter(row=>row.learning_case_id).length,
+      learning_links_digest:stableDigest(rows.map(row=>({id:row.id,learning_case_id:row.learning_case_id}))),
     });
   }
 
