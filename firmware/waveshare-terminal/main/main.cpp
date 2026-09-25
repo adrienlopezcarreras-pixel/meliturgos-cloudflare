@@ -33,7 +33,7 @@ extern esp_codec_dev_handle_t output_dev;
 
 #define MINI_LCD_H_RES 320
 #define MINI_LCD_V_RES 480
-#define LCD_BUFFER_SIZE (MINI_LCD_H_RES * MINI_LCD_V_RES / 8)
+#define LCD_BUFFER_SIZE (MINI_LCD_H_RES * MINI_LCD_V_RES)
 #define PIN_I2C_SDA GPIO_NUM_8
 #define PIN_I2C_SCL GPIO_NUM_7
 #define DISPLAY_ROTATION 0
