@@ -159,6 +159,34 @@ test('Android heartbeat, chat, sync ACK and revocation work end-to-end',async()=
   }finally{DB.close();}
 });
 
+test('Android chat falls back directly instead of surfacing a generic internal error',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'test',
+      AI:{async run(_model,input){
+        const system=String(input?.messages?.find(message=>message.role==='system')?.content||'');
+        if(system.includes('secours Android')) return {response:'Réponse de secours Android opérationnelle.'};
+        throw Object.assign(new Error('SIMULATED_NATIVE_PIPELINE_FAILURE'),{code:'SIMULATED_NATIVE_PIPELINE_FAILURE'});
+      }}
+    };
+    const paired=await pair(env,'android-fallback');
+    const headers=deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'});
+    const response=await worker.fetch(new Request('https://mel.test/api/android/v1/chat',{
+      method:'POST',headers,
+      body:JSON.stringify({text:'Réponds-moi simplement',conversation_id:'android-fallback-conv'})
+    }),env);
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.text,'Réponse de secours Android opérationnelle.');
+    assert.equal(body.android_direct_fallback,true);
+    assert.equal(body.fallback_used,true);
+    assert.equal(body.archive_saved,false);
+  }finally{DB.close();}
+});
+
 test('Android voice route uses the canonical Whisper endpoint and returns chat handoff provenance',async()=>{
   const DB=sqliteD1();
   try{
