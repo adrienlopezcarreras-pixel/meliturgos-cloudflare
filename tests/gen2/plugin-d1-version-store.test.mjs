@@ -230,3 +230,38 @@ test('D1 plugin store refuses to activate a record whose lifecycle state is not 
     error => error?.code === 'PLUGIN_ACTIVE_RECORD_REQUIRED',
   );
 });
+
+
+test('D1 plugin store keeps manifest and artifact identity immutable after version creation', async () => {
+  const db = new FakeD1();
+  const store = new D1PluginVersionStore(db);
+  await store.putVersion(record(), { createOnly: true });
+
+  const changedManifest = record('1.0.0', {
+    status: 'TESTED',
+    manifest: manifest('1.0.0'),
+    updated_at: 2_000,
+  });
+  changedManifest.manifest.description = 'Silently changed contract';
+
+  await assert.rejects(
+    () => store.putVersion(changedManifest),
+    error => error?.code === 'PLUGIN_VERSION_IMMUTABLE_IDENTITY_MISMATCH',
+  );
+
+  const activated = record('1.0.0', {
+    status: 'ACTIVE',
+    artifact_digest: 'sha256:' + 'a'.repeat(64),
+    updated_at: 3_000,
+  });
+  await store.putVersion(activated);
+
+  await assert.rejects(
+    () => store.putVersion({
+      ...activated,
+      artifact_digest: 'sha256:' + 'b'.repeat(64),
+      updated_at: 4_000,
+    }),
+    error => error?.code === 'PLUGIN_ARTIFACT_DIGEST_IMMUTABLE',
+  );
+});
