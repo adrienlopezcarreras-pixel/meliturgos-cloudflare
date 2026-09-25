@@ -45,7 +45,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-08', 'Archivage exhaustif des messages', 'DONE', 'Garantir archivage non conditionnel', 'P1'),
     item('MEL-CONTEXT-01', 'Saisie continue pendant la réflexion / file de messages', 'DONE_VERIFIED', 'Valider sur mobile réel', 'P0'),
     item('MEL-CONTEXT-02', 'Contexte long avec compression sans perte de décisions', 'PARTIAL', 'Compiler les résumés hiérarchiques', 'P1'),
-    item('MEL-CONTEXT-03', 'Open loops: reprendre automatiquement les travaux inachevés', 'PLANNED', 'Lier tâches, conversations et événements', 'P1'),
+    item('MEL-CONTEXT-03', 'Open loops: reprendre automatiquement les travaux inachevés', 'PARTIAL', 'OpenLoopService relie déjà taskId + conversationId + événements, persiste en D1, gère leases, reprises et retry idempotent; tests dédiés présents. Reste à brancher ce service au chemin runtime canonique Tasks/Work/Event Bus avant DONE.', 'P1'),
     item('MEL-CONTEXT-04', 'Interpréteur de contexte pré-LLM: pédagogique, scientifique et laboratoire', 'DONE_VERIFIED', 'Maintenir les tests de non-régression et la limitation ciblée des seuls détails réellement dangereux', 'P0')
   ]),
 
@@ -53,8 +53,8 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-09', 'Memory 2.0 cognitive', 'DONE_VERIFIED', 'Consolider MemoryService unique', 'P0'),
     item('GEN2-10', 'Contradictions, provenance et temporalité', 'DONE', 'Rendre la résolution automatique explicable', 'P1'),
     item('GEN2-11', 'Knowledge Graph', 'DONE', 'Lier davantage les entités aux projets et décisions', 'P1'),
-    item('GEN2-12', 'Timeline personnelle', 'PLANNED', 'Construire une chronologie requêtable', 'P1'),
-    item('GEN2-13', 'Projects / Decisions', 'PLANNED', 'Créer objets projet, décision, justification et état', 'P1'),
+    item('GEN2-12', 'Timeline personnelle', 'PARTIAL', 'Contrat timeline append/list/get, validation, filtres temporels et ordre déterministe implémentés et testés avec adaptateur de référence en mémoire. Reste adaptateur D1 durable + câblage runtime aux événements MEL avant DONE.', 'P1'),
+    item('GEN2-13', 'Projects / Decisions', 'PARTIAL', 'Contrat projets/décisions/leçons, statuts historisés, provenance et validations fail-closed implémentés et testés avec adaptateur de référence. Reste persistance D1 durable + exposition runtime canonique avant DONE.', 'P1'),
     item('GEN2-25', 'Personal Search / RAG', 'DONE_VERIFIED', 'Étendre aux fichiers et connecteurs', 'P0'),
     item('GEN2-56', 'Import contexte ChatGPT', 'DONE_VERIFIED', 'Valider les gros exports réels et la compatibilité entre versions', 'P0'),
     item('MEL-MEM-01', 'Memory Compiler: faits, préférences, décisions, compétences', 'DONE_VERIFIED', 'Maintenir la déduplication canonique, la confiance sans boost de répétition et la provenance; memory.consolidate reste lecture/proposition uniquement', 'P0'),
@@ -74,8 +74,8 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-CODE-01', 'Lecture sécurisée du propre code de MEL', 'DONE_VERIFIED', 'Production certifiée sur SHA f5f294b1b4167fdbc88926d590f1dd808b73133e : /api/chat a exécuté code.read avec succès sur le Worker déployé; release run 35693911802, job 106636510849.', 'P0'),
     item('MEL-CODE-02', 'Recherche sécurisée dans le dépôt', 'DONE_VERIFIED', 'Production certifiée sur SHA f5f294b1b4167fdbc88926d590f1dd808b73133e : /api/chat a exécuté code.search avec succès et retrouvé src/capabilities/default-bus.js; release run 35693911802, job 106636510849.', 'P0'),
     item('MEL-CODE-03', 'Diagnostic self-code et branche réellement déployée', 'DONE_VERIFIED', 'Le self-check expose branche + commit déployés et inspecte désormais le SHA exact comme snapshot immuable; mismatch de branche/HEAD fail-closed. Syntaxe et suites code/self-state validées par Actions 35640215437.', 'P0'),
-    item('GEN2-15', 'Plugin SDK', 'PLANNED', 'Stabiliser contrat manifest + permissions', 'P1'),
-    item('GEN2-50', 'Compatibilité MCP', 'PLANNED', 'Mapper CapabilityBus vers MCP', 'P2')
+    item('GEN2-15', 'Plugin SDK', 'PARTIAL', 'SDK/runtime plugin, manifeste validé, permissions fail-closed, activation/désactivation, isolation des plugins cassés et événements timeline sont implémentés et testés. Reste registre/versioning durable côté serveur et intégration persistence avant DONE.', 'P1'),
+    item('GEN2-50', 'Compatibilité MCP', 'DONE', 'Adaptateur MCP transport-neutral vers CapabilityBus implémenté: discovery/init, versions modernes+legacy, tools/list paginé et filtré par permissions, tools/call, validation/audit préservés et erreurs fail-closed; tests dédiés présents. Attendre CI candidate globale verte avant éventuel DONE_VERIFIED.', 'P2')
   ]),
 
   phase('P05', 'Multi-IA, .augmentio et Council', [
@@ -95,7 +95,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-EVOL-02', 'Proposer ou générer un module', 'DONE_VERIFIED', 'Maintenir la proposition non activante, le Council gate et l’entrée au Module Lab uniquement pour un vrai gap', 'P0'),
     item('MEL-EVOL-03', 'Tests, benchmark, critique et correction en boucle', 'DONE_VERIFIED', 'Preuve candidate e0dc435ec6daf4971243709c76f5ed077a72f0cc: CI 35100248725; smoke Teacher/runtime 35100248854; preview 35100248729; maintenir la boucle runner et ses tests de non-régression', 'P0'),
     item('MEL-EVOL-04', 'EVOLUTION_LEDGER immuable et explicable', 'PARTIAL', 'Persister chaque évolution et ses preuves', 'P1'),
-    item('MEL-EVOL-05', 'Skill Registry durable', 'PLANNED', 'Compiler les acquis système dans un registre portable', 'P1'),
+    item('MEL-EVOL-05', 'Skill Registry durable', 'PARTIAL', 'Registre versionné portable implémenté et testé: capabilities, preuves, activation vérifiée, historique, rollback, snapshot import/export et interface de persistance. Reste un store durable runtime (D1) et câblage Module Lab/Learning avant DONE.', 'P1'),
     item('MEL-EVOL-06', 'Fine-tuning / LoRA open-weight continu', 'IN_PROGRESS', 'Heartbeat MEL supervise la chaîne Kaggle GPU gratuite: relance seulement si aucun run actif, checkpoints immuables, benchmark après chaque cycle, UNCENSORED puis AGENTIC sans écraser le parent, aucun fallback payant. Correctif candidate: collector Kaggle rendu dispatch-only pour supprimer les files cron/push longues; full-candidate-ci 35837004893 et lora-runtime-pipeline-ci 35837004932 verts sur 1110d20ac184b434a602e86597fd57f76753fbdb. Suite: vérifier le cycle/checkpoint Kaggle réel restant, laisser le heartbeat reprendre uniquement hors run actif et certifier le prochain benchmark canonique.', 'P0'),
     item('GEN2-18', 'Self Healing contrôlé', 'PLANNED', 'Limiter à détection, rollback approuvé et réparation testée', 'P2'),
     item('GEN2-20', 'Learning Engine', 'DONE_VERIFIED', 'Les complétions autonomes exact-SHA vérifiées par full-candidate-ci peuvent transporter des learning_handoffs; le reconciler les injecte automatiquement dans LearningEngine avec validation XP, provenance path+SHA, rejet des SHA périmés et déduplication id+sémantique. Tests handoff-ingestion + autonomy-completion-mentor-learning inclus dans le lot de réconciliation #152.', 'P1')
@@ -191,8 +191,8 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-53', 'Canary pré-release / rollback', 'DONE_VERIFIED', 'Preuve canary/rollback: Actions run 35093195456; production: release run 35094721729; smoke live post-déploiement: run 35094194506 job 104789501239', 'P0'),
     item('GEN2-57', 'Migration Gen1 sans perte', 'DONE_VERIFIED', 'Migration Gen1 certifiée en production sur release 2fd2eb5b4b701e78115e3b8fd2f7adb73661def3, run deploy-cloudflare-release 35856885040: source interactions présente et conservée, 177 interactions source, 354 messages archive_messages, 177 interactions migrées, remaining_interactions=0, coverage_complete=true. Schéma réel vérifié, IDs déterministes, collisions/mismatch fail-closed, backfill borné et replay-safe. Source Gen1 non supprimée.', 'P0'),
     item('GEN2-55', 'Data integrity / final maturity tests', 'PLANNED', 'Suite finale après stabilisation', 'P1'),
-    item('GEN2-60', 'Completion matrix', 'PLANNED', 'Générer automatiquement depuis ce registre', 'P2'),
-    item('GEN2-61', 'Final status report', 'PLANNED', 'Générer au jalon mature', 'P2'),
+    item('GEN2-60', 'Completion matrix', 'DONE', 'Générateur canonique src/roadmap/completion-matrix.js + CLI Markdown/JSON + tests dédiés déjà présents; dérivation directe de master-roadmap sans seconde source de statut. Attendre CI candidate globale verte avant DONE_VERIFIED.', 'P2'),
+    item('GEN2-61', 'Final status report', 'DONE', 'Rapport final déterministe dérivé de GEN2-60 déjà implémenté avec gates maturité fail-closed, sorties Markdown/JSON et tests dédiés. Il reste naturellement IN_PROGRESS tant que la roadmap contient du travail; attendre CI candidate globale verte avant DONE_VERIFIED.', 'P2'),
     item('GEN2-62', 'human-actions-required', 'PARTIAL', 'Maintenir blockers humains exacts', 'P1'),
     item('GEN2-63', 'Règle NON-IDLE / continue-when-blocked', 'IN_PROGRESS', 'Continuer sur tâches non bloquées', 'P1'),
     item('MEL-REL-01', 'Release figée sur commit exact', 'DONE_VERIFIED', 'Répéter pour chaque déploiement', 'P0'),
