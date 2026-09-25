@@ -1,11 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  createD1ProjectAdapter,
   createInMemoryProjectAdapter,
   createProjectService,
   decisionEntity,
   projectEntity,
 } from '../../src/planning/project-service.js';
+import { DB_SCHEMA_VERSION } from '../../src/core/config.js';
+import { prepareGen2 } from '../../src/persistence/gen2-schema.js';
+import { migrate } from '../../src/persistence/migrations.js';
+import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 
 const project = (project_id, created_at = 1000, overrides = {}) => ({
   project_id,
@@ -124,4 +129,72 @@ test('returned project and decision values cannot mutate stored state', async ()
   const externalDecision = await service.getDecision({ decision_id: 'd-1' });
   externalDecision.status_history.push({ status: 'REVERSED', changed_at: 9999 });
   assert.deepEqual((await service.getDecision({ decision_id: 'd-1' })).status_history.map(item => item.status), ['ADOPTED']);
+});
+
+
+test('GEN2-13 D1 adapter persists projects decisions and lessons across service instances', async () => {
+  const db = sqliteD1();
+  try {
+    await prepareGen2(db);
+    const first = createProjectService(createD1ProjectAdapter(db));
+    await first.createProject(project('p-1'));
+    await first.recordDecision(decision('d-1', 'p-1', 1500, { status: 'PROPOSED' }));
+    await first.addLesson({
+      lesson_id: 'l-1',
+      project_id: 'p-1',
+      content: 'Persist project learning.',
+      learned_at: 1600,
+      source: 'review',
+      metadata: { severity: 'high' },
+    });
+    await first.setProjectStatus({
+      project_id: 'p-1',
+      status: 'PAUSED',
+      changed_at: 2000,
+      reason: 'dependency',
+    });
+    await first.setDecisionStatus({
+      decision_id: 'd-1',
+      status: 'ADOPTED',
+      changed_at: 2100,
+      reason: 'validated',
+    });
+
+    const second = createProjectService(createD1ProjectAdapter(db));
+    const restoredProject = await second.getProject({ project_id: 'p-1' });
+    const restoredDecision = await second.getDecision({ decision_id: 'd-1' });
+    const restoredLesson = await second.getLesson({ lesson_id: 'l-1' });
+
+    assert.equal(restoredProject.status, 'PAUSED');
+    assert.deepEqual(restoredProject.status_history.map(item => item.status), ['ACTIVE', 'PAUSED']);
+    assert.equal(restoredDecision.status, 'ADOPTED');
+    assert.deepEqual(restoredDecision.status_history.map(item => item.status), ['PROPOSED', 'ADOPTED']);
+    assert.equal(restoredLesson.metadata.severity, 'high');
+    assert.deepEqual((await second.listProjects({ status: 'PAUSED' })).map(item => item.project_id), ['p-1']);
+    assert.deepEqual((await second.listDecisions({ project_id: 'p-1', status: 'ADOPTED' })).map(item => item.decision_id), ['d-1']);
+    assert.deepEqual((await second.listLessons({ project_id: 'p-1' })).map(item => item.lesson_id), ['l-1']);
+
+    await assert.rejects(() => second.createProject(project('p-1')), { code: 'PROJECT_EXISTS', status: 409 });
+    await assert.rejects(() => second.recordDecision(decision('d-2', 'missing')), { code: 'PROJECT_NOT_FOUND', status: 404 });
+  } finally {
+    db.close();
+  }
+});
+
+test('GEN2-13 migration v13 provisions durable planning tables', async () => {
+  const db = sqliteD1();
+  try {
+    const result = await migrate(db);
+    assert.equal(result.currentVersion, DB_SCHEMA_VERSION);
+    assert.equal(DB_SCHEMA_VERSION, 13);
+
+    for (const table of ['planning_projects', 'planning_decisions', 'planning_lessons']) {
+      const row = await db.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      ).bind(table).first();
+      assert.equal(row?.name, table);
+    }
+  } finally {
+    db.close();
+  }
 });
