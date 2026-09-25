@@ -23,14 +23,6 @@ jobs:
         run: npm ci
       - name: Syntax
         run: npm run check
-      - name: Full test suite
-        shell: bash
-        run: |
-          set +e
-          npm test 2>&1 | tee test-report.log
-          code=${PIPESTATUS[0]}
-          echo "exit_code=$code" >> test-report.log
-          exit $code
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
       - name: Upload runtime SBOM evidence
@@ -40,6 +32,14 @@ jobs:
           path: runtime-sbom.json
           retention-days: 14
           if-no-files-found: error
+      - name: Full test suite
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee test-report.log
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> test-report.log
+          exit $code
       - name: Development dependency advisory report
         run: |
           npm audit --package-lock-only --audit-level=high || echo 'DEV_DEPENDENCY_ADVISORY_PRESENT - non-runtime tooling advisory recorded; runtime gate passed.'
