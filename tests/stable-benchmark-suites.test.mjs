@@ -9,6 +9,8 @@ import {
   runStableBenchmarkSuite,
   runStableBenchmarkPack,
   scoreStableBenchmarkObservations,
+  compareStableBenchmarkRuns,
+  compareStableBenchmarkPacks,
 } from '../src/evaluation/stable-benchmark-suites.js';
 
 test('MEL-EVAL-01 stable registry covers conversation code research and memory with unique cases',()=>{
@@ -157,4 +159,48 @@ test('MEL-EVAL-01 stable benchmark catalog and scoring are available through Cap
   },{owner:'test',permissions:[],requestId:'eval-score'});
   assert.equal(scored.overall,1);
   assert.equal(scored.failures.length,0);
+});
+
+
+test('MEL-EVAL-01 comparable runs expose score deltas only under identical benchmark identity',()=>{
+  const baseline=scoreStableBenchmarkObservations({
+    suiteId:'mel-eval-conversation-v1',
+    observations:[
+      {id:'conversation-instruction-01',score:0.5},
+      {id:'conversation-context-01',score:0.5},
+      {id:'conversation-uncertainty-01',score:0.5},
+      {id:'conversation-no-fabrication-01',score:0.5},
+    ],
+  });
+  const candidate=scoreStableBenchmarkObservations({
+    suiteId:'mel-eval-conversation-v1',
+    observations:[
+      {id:'conversation-instruction-01',score:1},
+      {id:'conversation-context-01',score:1},
+      {id:'conversation-uncertainty-01',score:1},
+      {id:'conversation-no-fabrication-01',score:1},
+    ],
+  });
+  const result=compareStableBenchmarkRuns(baseline,candidate);
+  assert.equal(result.comparable,true);
+  assert.ok(result.comparison.delta>0);
+
+  const changed={...candidate,suite_digest:'different'};
+  const blocked=compareStableBenchmarkRuns(baseline,changed);
+  assert.equal(blocked.comparable,false);
+  assert.equal(blocked.comparison,null);
+  assert.ok(blocked.blockers.some(row=>row.field==='suite_digest'));
+});
+
+test('MEL-EVAL-01 pack comparison fails closed when registry identity changes',async()=>{
+  const baseline=await runStableBenchmarkPack({evaluator:async()=>({score:0.6})});
+  const candidate=await runStableBenchmarkPack({evaluator:async()=>({score:0.8})});
+  const good=compareStableBenchmarkPacks(baseline,candidate);
+  assert.equal(good.comparable,true);
+  assert.ok(good.delta>0);
+
+  const bad=compareStableBenchmarkPacks(baseline,{...candidate,registry_digest:'other'});
+  assert.equal(bad.comparable,false);
+  assert.equal(bad.delta,null);
+  assert.ok(bad.blockers.some(row=>row.code==='STABLE_BENCHMARK_REGISTRY_DIGEST_MISMATCH'));
 });
