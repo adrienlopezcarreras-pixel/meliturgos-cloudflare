@@ -19,11 +19,12 @@ function busContext(env) {
   };
 }
 
-async function executeResearch(env, { query, domains = null, depth = 1 }) {
+async function executeResearch(env, { query, domains = null, depth = 1, seedUrls = null }) {
   const runtime = createGen2Runtime({ env });
   return runtime.bus.execute("web.research", {
     query,
     ...(Array.isArray(domains) && domains.length ? { domains } : {}),
+    ...(Array.isArray(seedUrls) && seedUrls.length ? { seed_urls: seedUrls } : {}),
     depth,
   }, busContext(env));
 }
@@ -44,9 +45,12 @@ async function handleResearch(request, env) {
     const domains = body.domains
       ? String(body.domains).split(",").map(d => d.trim()).filter(Boolean).slice(0, 3)
       : null;
+    const seedUrls = Array.isArray(body.seed_urls)
+      ? body.seed_urls.map(url => String(url || "").trim()).filter(Boolean).slice(0, 6)
+      : null;
 
     try {
-      const result = await executeResearch(env, { query, domains, depth });
+      const result = await executeResearch(env, { query, domains, depth, seedUrls });
       result.retrieved_at = new Date().toISOString();
       return json({
         ok: true,
