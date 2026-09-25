@@ -14,7 +14,17 @@ import { handleShardVaultStatus } from "./pages/shardvault-status.js";
 import { getLegacyInteractionMigrationStatus, backfillLegacyInteractions } from "./persistence/gen1-interactions-migration.js";
 import { getChatGPTMemoryBackfillStatus, backfillChatGPTArchiveToMemory } from "./persistence/chatgpt-memory-backfill.js";
 import { requestIdFromRequest } from "./core/request-observability.js";
+import { apiErrorResponse } from "./core/api-error.js";
 export { inferNativeCodeCapability as inferCodeCapability } from "./api/native-chat.js";
+
+function routerError(request, error, fallback = 'INTERNAL_ERROR', origin = 'router') {
+  return apiErrorResponse(error, { fallback, request, origin });
+}
+
+function routerClientError(request, message, code, status = 400, origin = 'router') {
+  const error = Object.assign(new Error(message), { code, status });
+  return routerError(request, error, code, origin);
+}
 
 function capabilityContext(env, request = null) {
   return {
@@ -90,7 +100,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
 
   if (path === "/api/gen2/code/self-check" && request.method === "GET") {
     try { return json(await codeSelfCheck(env, request)); }
-    catch (e) { return json({ ok: false, error: e.message, code: e.code || "CODE_SELF_CHECK_FAILED" }, e.status || 503); }
+    catch (e) { return routerError(request, e, "CODE_SELF_CHECK_FAILED", "code-self-check"); }
   }
 
   if (path === "/api/gen2/capabilities" && request.method === "GET") {
@@ -179,7 +189,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
 
   if (path === "/api/gen2/capabilities/execute" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
-    if (!body?.id) return json({ error: "capability id required", code: "MISSING_CAPABILITY" }, 400);
+    if (!body?.id) return routerClientError(request, "capability id required", "MISSING_CAPABILITY", 400, "capability-execute");
     if (isReleaseSmokeRequest(request, env) && String(body.id) !== "echo") {
       return json({
         error: "release smoke capability denied",
@@ -207,7 +217,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
 
   if (path === "/api/gen2/conversations/messages" && request.method === "GET") {
     const conversationId = url.searchParams.get("conversation_id");
-    if (!conversationId) return json({ error: "conversation_id required", code: "MISSING_CONVERSATION_ID" }, 400);
+    if (!conversationId) return routerClientError(request, "conversation_id required", "MISSING_CONVERSATION_ID", 400, "conversation");
     const runtime = createGen2Runtime({ env });
     const result = await runtime.bus.execute("conversation.messages.list", { conversationId }, capabilityContext(env, request));
     return json({ conversationId, messages: result.messages });
@@ -215,12 +225,12 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
 
   if (path === "/api/gen2/web/research" && (request.method === "GET" || request.method === "POST")) {
     try { return handleResearch(request, env); }
-    catch (e) { return json({ error: e.message, code: "INTERNAL_ERROR" }, e.status || 500); }
+    catch (e) { return routerError(request, e, "INTERNAL_ERROR"); }
   }
 
   if (path === "/api/gen2/augmentio/fanout") {
     try { return await handleAugmentio(request, env); }
-    catch (e) { return json({ error: e.message, code: e.code || "AUGMENTIO_ERROR" }, e.status || 500); }
+    catch (e) { return routerError(request, e, "AUGMENTIO_ERROR", "augmentio"); }
   }
 
   if (path === "/api/gen2/devices/register" && request.method === "POST") {
@@ -239,7 +249,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
   if (path === "/api/gen2/sync" && request.method === "GET") {
     const deviceId = url.searchParams.get("device_id");
     const conversationId = url.searchParams.get("conversation_id");
-    if (!deviceId || !conversationId) return json({ error: "device_id and conversation_id required", code: "MISSING_PARAMS" }, 400);
+    if (!deviceId || !conversationId) return routerClientError(request, "device_id and conversation_id required", "MISSING_PARAMS", 400, "device-sync");
     const runtime = createGen2Runtime({ env });
     const sync = await runtime.bus.execute("device.sync", { deviceId, conversationId }, capabilityContext(env, request));
     return json({ ok: true, ...sync });
@@ -250,24 +260,24 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
       const body = await request.json().catch(() => ({}));
       const { query, sources, limit, minSimilarity } = body;
       const userId = env.MELITURGOS_USER;
-      if (!userId || !query) return json({ error: "userId and query required", code: "MISSING_PARAMS" }, 400);
+      if (!userId || !query) return routerClientError(request, "userId and query required", "MISSING_PARAMS", 400, "rag-search");
       const runtime = createGen2Runtime({ env });
       const searchResult = await runtime.bus.execute("rag.search", { query, sources, limit, minSimilarity }, capabilityContext(env, request));
       return json({ ok: true, ...searchResult });
-    } catch (e) { return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500); }
+    } catch (e) { return routerError(request, e, "INTERNAL_ERROR"); }
   }
 
   if (path === "/api/gen2/modules/run" && request.method === "POST") {
     try {
       const body = await request.json().catch(() => ({}));
       const { module_uuid, input } = body;
-      if (!module_uuid) return json({ error: "module_uuid is required", code: "MISSING_PARAMS" }, 400);
+      if (!module_uuid) return routerClientError(request, "module_uuid is required", "MISSING_PARAMS", 400, "module-run");
       const { ModuleRunner } = await import("../src/modules/module-runner.js");
       const runtime = createGen2Runtime({ env });
       const runner = new ModuleRunner(env, runtime.bus);
       const result = await runner.run(module_uuid, input, { owner: env.MELITURGOS_USER, permissions: env.CAPABILITY_PERMISSIONS || [], requestId: requestIdFromRequest(request) });
       return json(result);
-    } catch (e) { return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500); }
+    } catch (e) { return routerError(request, e, "INTERNAL_ERROR"); }
   }
 
   return null;
@@ -321,12 +331,12 @@ export default {
         const response = await handleConversationApi(request, env, url);
         if (response) return response;
       } catch (e) {
-        return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500);
+        return routerError(request, e, "INTERNAL_ERROR");
       }
     }
 
     if (url.pathname.startsWith("/api/")) {
-      return json({ error: "Not found", code: "NOT_FOUND" }, 404);
+      return routerClientError(request, "Not found", "NOT_FOUND", 404, "router");
     }
     return html("<h1>Page introuvable</h1>", 404);
   },
