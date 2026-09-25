@@ -87,7 +87,7 @@ test('GEN2-38 durable planning persists Goal, Tasks and append-only history', as
   let history=await store.history('durable-plan');
   assert.deepEqual(history.map(e=>e.event_type),['PLAN_CREATED']);
 
-  const active=await store.updateTask('durable-plan','a','RUNNING',{reason:'start'});
+  const active=await store.updateTask('durable-plan','a','RUNNING',{reason:'start',token:'must-not-persist',note:'Bearer abcdefghijklmnop'});
   assert.equal(active.status,'ACTIVE');
   const afterA=await store.updateTask('durable-plan','a','COMPLETED');
   assert.equal(afterA.status,'ACTIVE');
@@ -99,6 +99,8 @@ test('GEN2-38 durable planning persists Goal, Tasks and append-only history', as
   assert.deepEqual(history.map(e=>e.event_type),[
     'PLAN_CREATED','TASK_STATUS_CHANGED','TASK_STATUS_CHANGED','TASK_STATUS_CHANGED','TASK_STATUS_CHANGED'
   ]);
+  assert.equal(Object.hasOwn(history[1].detail.detail,'token'),false);
+  assert.equal(history[1].detail.detail.note,'[REDACTED]');
   assert.equal((await store.list({status:'COMPLETED'}))[0].id,'durable-plan');
 });
 
@@ -154,4 +156,23 @@ test('CapabilityBus can save a plan, materialize it into persistent Work, and re
   assert.equal((await second.execute('work.plan.history',{id:'cap-plan'},{
     owner:'adrien',requestId:'plan-history',permissions:[]
   })).events.at(-1).event_type,'WORK_DAG_SYNCED');
+});
+
+
+test('work.plan.materialize rejects a persisted plan that references an unknown capability', async () => {
+  const db=new FakeD1();
+  const bus=createDefaultCapabilityBus({env:{DB:db}});
+  await bus.execute('work.plan.save',{
+    id:'unknown-cap-plan',
+    goal:'Must fail closed before Work DAG creation',
+    steps:[{id:'x',capability:'imaginary.capability',input:{},idempotent:true}],
+  },{owner:'adrien',requestId:'unknown-save',permissions:[]});
+
+  await assert.rejects(
+    ()=>bus.execute('work.plan.materialize',{id:'unknown-cap-plan'},{
+      owner:'adrien',requestId:'unknown-materialize',permissions:[]
+    }),
+    error=>error.code==='WORK_PLAN_CAPABILITY_NOT_FOUND'
+  );
+  assert.equal(db.dags.size,0);
 });
