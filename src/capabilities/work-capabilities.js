@@ -3,6 +3,7 @@ import { summarizeWorkDag } from '../work/work-dag-state.js';
 import { D1WorkDagStore } from '../work/d1-work-dag-store.js';
 import { createWorkPlan, compileWorkPlanNodes, summarizeWorkPlan } from '../work/planning-engine.js';
 import { D1PlanningStore, PLAN_STATUSES, TASK_STATUSES } from '../work/d1-planning-store.js';
+import { buildPlanningCatalog, buildWorkPlanningPrompt, parseCapabilityAwareWorkPlan } from '../work/ai-planning-engine.js';
 
 function workError(code) {
   return Object.assign(new Error(code), { code });
@@ -129,6 +130,65 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       plan,
       summary: summarizeWorkPlan(plan),
       nodes: compileWorkPlanNodes(plan),
+    };
+  });
+
+  bus.discover({
+    id: 'work.plan.generate', name: 'Générer un plan depuis un objectif', category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Uses zero-added-cost multi-AI planning to propose a bounded plan, then validates every selected capability and input schema before returning it. No task is executed or persisted.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: DAG_ID,
+        goal: { type: 'string', minLength: 1, maxLength: 4000 },
+        constraints: { type: 'array', maxItems: 32, items: { type: 'string', minLength: 1, maxLength: 500 } },
+        maxCandidates: { type: 'integer', minimum: 1, maximum: 4 },
+      },
+      required: ['goal'], additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true,
+  }, async (input, context) => {
+    const catalog = buildPlanningCatalog(bus.list());
+    if (!catalog.length) throw workError('WORK_PLAN_CAPABILITY_CATALOG_EMPTY');
+    const prompt = buildWorkPlanningPrompt({
+      goal: input.goal,
+      constraints: input.constraints || [],
+      catalog,
+    });
+    const generated = await bus.execute('augmentio.fanout', {
+      capability: 'REASONING',
+      input: prompt,
+      context: {
+        purpose: 'work-plan-generation',
+        execution_policy: 'PLAN_ONLY_NO_EXECUTION',
+        capability_count: catalog.length,
+      },
+      maxCandidates: Math.min(4, Math.max(1, Number(input.maxCandidates) || 3)),
+    }, context);
+    const text = generated?.best?.text;
+    const parsed = parseCapabilityAwareWorkPlan({
+      text,
+      id: input.id,
+      goal: input.goal,
+      constraints: input.constraints || [],
+      catalog,
+      source: 'augmentio:work.plan.generate',
+    });
+    return {
+      ok: true,
+      plan: parsed.plan,
+      summary: summarizeWorkPlan(parsed.plan),
+      nodes: compileWorkPlanNodes(parsed.plan),
+      generator: {
+        ...parsed.generator,
+        provider: generated?.best?.provider || null,
+        model: generated?.best?.model || null,
+        candidate_count: Array.isArray(generated?.candidates) ? generated.candidates.length : 0,
+        failures: Number(generated?.failures || 0),
+        execution_started: false,
+        persisted: false,
+      },
     };
   });
 
