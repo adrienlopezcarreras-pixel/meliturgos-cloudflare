@@ -1,4 +1,5 @@
 import { DB_SCHEMA_VERSION } from '../core/config.js';
+import { MIGRATIONS } from '../persistence/migrations.js';
 
 const MAX_SAMPLES = 10;
 const REQUIRED_MIGRATION_TABLES = Object.freeze([
@@ -177,6 +178,50 @@ export async function auditDataIntegrity(db) {
       count:actual===DB_SCHEMA_VERSION?0:1,
       expected:DB_SCHEMA_VERSION,
       actual,
+      samples:[],
+    });
+  }
+
+  if (tables.has('schema_migrations')) {
+    const result = await db.prepare('SELECT version,name FROM schema_migrations ORDER BY version ASC').all();
+    const applied = (result?.results || []).map(row => ({
+      version:Number(row.version),
+      name:String(row.name || ''),
+    }));
+    const expected = MIGRATIONS
+      .filter(migration => migration.version <= DB_SCHEMA_VERSION)
+      .map(migration => ({ version:Number(migration.version), name:String(migration.name || '') }));
+    const expectedMap = new Map(expected.map(row => [row.version,row.name]));
+    const appliedMap = new Map(applied.map(row => [row.version,row.name]));
+    const mismatches = [];
+    for (const row of expected) {
+      if (!appliedMap.has(row.version)) mismatches.push({version:row.version,issue:'MISSING',expected_name:row.name});
+      else if (appliedMap.get(row.version) !== row.name) mismatches.push({
+        version:row.version,
+        issue:'NAME_MISMATCH',
+        expected_name:row.name,
+        actual_name:appliedMap.get(row.version),
+      });
+    }
+    for (const row of applied) {
+      if (row.version <= DB_SCHEMA_VERSION && !expectedMap.has(row.version)) {
+        mismatches.push({version:row.version,issue:'UNEXPECTED_VERSION',actual_name:row.name});
+      }
+    }
+    pushCheck(checks, {
+      id:'schema.migration_history',
+      status:mismatches.length===0?'PASS':'FAIL',
+      count:mismatches.length,
+      expected_count:expected.length,
+      applied_count:applied.length,
+      samples:mismatches.slice(0,MAX_SAMPLES),
+    });
+  } else {
+    pushCheck(checks, {
+      id:'schema.migration_history',
+      status:'FAIL',
+      count:1,
+      reason:'SCHEMA_MIGRATIONS_MISSING',
       samples:[],
     });
   }
