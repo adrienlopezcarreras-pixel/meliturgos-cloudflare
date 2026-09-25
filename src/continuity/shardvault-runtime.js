@@ -1311,6 +1311,7 @@ export async function syncShardVaultCodeExternally(env){
 
 export const __shardvaultTest = Object.freeze({
   encode, decode, selectEndpoints, diversity, extendActiveEndpoints, externalEndpointsFromSnapshot,
+  shardVaultWriteFailureEndpoint, rotateActiveEndpointsForWriteFailure, excludeShardVaultEndpoints,
   rankExternalCodeCandidates, assignDistinctExternalTargets, byteArraysEqual, reconstructExternalCodeArchive,
   codeTargetFailureClass, codeTargetRetryDelayMs, codeTargetAvailableNow, prioritizeExternalCodeCandidates,
   recordCodeTargetFailure, clearCodeTargetFailure, codeFragmentDeadlineMs
@@ -1479,6 +1480,62 @@ async function stageActiveExternalEndpoints(env,c,last,candidates=[]){
   const next=extendActiveEndpoints(actual,incoming,Math.min(7,c?.n||7),maxOp,maxProv);
   if(next.length!==actual.length||next.some((e,i)=>e.id!==actual[i]?.id))await writeActiveExternalEndpoints(env,next);
   return next;
+}
+async function retryActivationAfterWriteFailure(env,{c,last,activeBefore=[],staged=[],activationCycle=null,skipExternalCode=true}={}){
+  const maxOp=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_OPERATOR)||2);
+  const maxProv=Math.max(1,Number(env?.MEL_WATCH_MAX_PER_PROVIDER)||2);
+  const rotation=rotateActiveEndpointsForWriteFailure(activeBefore,staged,activationCycle?.error||activationCycle,{
+    limit:Math.min(7,c?.n||7),
+    maxPerOperator:maxOp,
+    maxPerProvider:maxProv,
+  });
+  if(!rotation.failedEndpointId||!rotation.changed){
+    return {recovered:false,failed_endpoint_id:rotation.failedEndpointId||null,cycle:activationCycle,active:activeBefore,last};
+  }
+
+  await writeActiveExternalEndpoints(env,rotation.endpoints);
+  let retryCycle;
+  try{
+    retryCycle=await runShardVaultCycle(env,{
+      force:true,
+      skipExternalCode,
+      excludeEndpointIds:[rotation.failedEndpointId],
+    });
+  }catch(error){
+    retryCycle={ok:false,error:String(error?.message||error)};
+  }
+
+  if(retryCycle?.ok){
+    const rowsAfter=await inventoryRows(env,c);
+    const latestAfter=latestSnapshot(rowsAfter);
+    const active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
+    return {
+      recovered:true,
+      failed_endpoint_id:rotation.failedEndpointId,
+      active,
+      last:latestAfter,
+      cycle:{
+        ...retryCycle,
+        recovered_write_failure:true,
+        replaced_endpoint_id:rotation.failedEndpointId,
+        initial_error:String(activationCycle?.error||''),
+      },
+    };
+  }
+
+  await writeActiveExternalEndpoints(env,activeBefore);
+  return {
+    recovered:false,
+    failed_endpoint_id:rotation.failedEndpointId,
+    active:activeBefore,
+    last,
+    cycle:{
+      ...retryCycle,
+      recovered_write_failure:false,
+      replaced_endpoint_id:rotation.failedEndpointId,
+      initial_error:String(activationCycle?.error||''),
+    },
+  };
 }
 async function readDiscoveryStatus(env){
   if(!env?.MEDIA_BUCKET?.get)return null;
@@ -1680,8 +1737,13 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
             last=latestAfter;
             cached_staged=Math.max(0,active.length-activeBefore.length);
           }else{
-            await writeActiveExternalEndpoints(env,activeBefore);
-            active=activeBefore;
+            const recovered=await retryActivationAfterWriteFailure(env,{
+              c,last,activeBefore,staged,activationCycle:activation_cycle,skipExternalCode:true,
+            });
+            activation_cycle=recovered.cycle;
+            active=recovered.active;
+            last=recovered.last;
+            if(recovered.recovered)cached_staged=Math.max(0,active.length-activeBefore.length);
           }
         }
       }
@@ -1710,8 +1772,12 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
           active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
           last=latestAfter;
         }else{
-          await writeActiveExternalEndpoints(env,activeBeforeDiscovery);
-          active=activeBeforeDiscovery;
+          const recovered=await retryActivationAfterWriteFailure(env,{
+            c,last,activeBefore:activeBeforeDiscovery,staged,activationCycle:activation_cycle,skipExternalCode:true,
+          });
+          activation_cycle=recovered.cycle;
+          active=recovered.active;
+          last=recovered.last;
         }
       }
     }
