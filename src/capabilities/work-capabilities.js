@@ -166,26 +166,52 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       },
       maxCandidates: Math.min(4, Math.max(1, Number(input.maxCandidates) || 3)),
     }, context);
-    const text = generated?.best?.text;
-    const parsed = parseCapabilityAwareWorkPlan({
-      text,
-      id: input.id,
-      goal: input.goal,
-      constraints: input.constraints || [],
-      catalog,
-      source: 'augmentio:work.plan.generate',
-    });
+    const ranked = Array.isArray(generated?.candidates) && generated.candidates.length
+      ? generated.candidates
+      : generated?.best ? [generated.best] : [];
+    const validationFailures = [];
+    let accepted = null;
+    let acceptedCandidate = null;
+
+    for (const candidate of ranked) {
+      try {
+        accepted = parseCapabilityAwareWorkPlan({
+          text: candidate?.text,
+          id: input.id,
+          goal: input.goal,
+          constraints: input.constraints || [],
+          catalog,
+          source: 'augmentio:work.plan.generate',
+        });
+        acceptedCandidate = candidate;
+        break;
+      } catch (error) {
+        validationFailures.push({
+          provider: candidate?.provider || null,
+          model: candidate?.model || null,
+          code: String(error?.code || error?.message || 'WORK_PLAN_CANDIDATE_INVALID').slice(0, 120),
+        });
+      }
+    }
+
+    if (!accepted) {
+      const error = workError('WORK_PLAN_GENERATION_NO_VALID_CANDIDATE');
+      error.validation_failures = validationFailures.slice(0, 12);
+      throw error;
+    }
+
     return {
       ok: true,
-      plan: parsed.plan,
-      summary: summarizeWorkPlan(parsed.plan),
-      nodes: compileWorkPlanNodes(parsed.plan),
+      plan: accepted.plan,
+      summary: summarizeWorkPlan(accepted.plan),
+      nodes: compileWorkPlanNodes(accepted.plan),
       generator: {
-        ...parsed.generator,
-        provider: generated?.best?.provider || null,
-        model: generated?.best?.model || null,
-        candidate_count: Array.isArray(generated?.candidates) ? generated.candidates.length : 0,
-        failures: Number(generated?.failures || 0),
+        ...accepted.generator,
+        provider: acceptedCandidate?.provider || null,
+        model: acceptedCandidate?.model || null,
+        candidate_count: ranked.length,
+        provider_failures: Number(generated?.failures || 0),
+        rejected_candidates: validationFailures,
         execution_started: false,
         persisted: false,
       },
