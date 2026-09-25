@@ -40,3 +40,21 @@ test('GEN2-55 final maturity audit fails when data integrity fails', async()=>{
     assert.ok(result.summary.failed_domains.includes('data_integrity'));
   }finally{db.close();}
 });
+
+
+test('GEN2-55 system.maturity executes through CapabilityBus without side-effect permissions', async()=>{
+  const db=await dbFixture();
+  try{
+    const bus=createDefaultCapabilityBus({env:{DB:db,MELITURGOS_USER:'owner'}});
+    const descriptor=bus.describe('system.maturity');
+    assert.equal(descriptor.risk,'LOW');
+    assert.deepEqual(descriptor.permissions,[]);
+    const result=await bus.execute('system.maturity',{},{
+      owner:'owner',
+      permissions:[],
+      requestId:'maturity-test',
+    });
+    assert.equal(result.ok,true);
+    assert.equal(result.invariants.automatic_repair,false);
+  }finally{db.close();}
+});
