@@ -285,25 +285,30 @@ export function boundRecentMessages(recent = [], {
 } = {}) {
   const totalLimit = Math.max(4000, Math.min(240000, Number(totalChars) || DEFAULT_RECENT_TOTAL_CHARS));
   const itemLimit = Math.max(1000, Math.min(50000, Number(perMessageChars) || DEFAULT_RECENT_MESSAGE_CHARS));
-  const normalized = (Array.isArray(recent) ? recent : []).flatMap(row => normalizeRecentRow(row, itemLimit));
+  const rawNormalized = (Array.isArray(recent) ? recent : []).flatMap(row => normalizeRecentRow(row, 1_000_000_000));
+  const normalized = rawNormalized.map(row => ({
+    ...row,
+    content: boundedText(row.content, itemLimit),
+  }));
   const kept = [];
   let used = 0;
   let omitted = 0;
   let omittedMessages = [];
+  const truncatedSourceMessages = rawNormalized.filter((row,index) => row.content !== normalized[index]?.content);
 
   for (let index = normalized.length - 1; index >= 0; index -= 1) {
     const row = normalized[index];
     const size = row.content.length;
     if (used + size > totalLimit && kept.length) {
       omitted = index + 1;
-      omittedMessages = normalized.slice(0, index + 1);
+      omittedMessages = rawNormalized.slice(0, index + 1);
       break;
     }
     if (size > totalLimit && !kept.length) {
       kept.push({ ...row, content: boundedText(row.content, totalLimit) });
       used = totalLimit;
       omitted = index;
-      omittedMessages = normalized.slice(0, index);
+      omittedMessages = rawNormalized.slice(0, index);
       break;
     }
     kept.push(row);
@@ -315,6 +320,10 @@ export function boundRecentMessages(recent = [], {
     messages: kept,
     omitted,
     omitted_messages: omittedMessages,
+    decision_source_messages: [
+      ...omittedMessages,
+      ...truncatedSourceMessages.filter(row => !omittedMessages.includes(row)),
+    ],
     chars: used,
     total_limit: totalLimit,
     per_message_limit: itemLimit,
@@ -365,7 +374,7 @@ export function buildContext({ system, recent = [], retrieved = null, toolResult
   const bounded = boundRecentMessages(recent);
   if (bounded.omitted > 0) {
     messages[0].content += `\n\nCONTEXTE RÉCENT : ${bounded.omitted} message(s) plus ancien(s) ont été omis du prompt actif pour éviter un dépassement de fenêtre. Les faits durables doivent venir de la mémoire récupérée, pas être inventés.`;
-    const capsule = compileHistoricalDecisionCapsule(bounded.omitted_messages);
+    const capsule = compileHistoricalDecisionCapsule(bounded.decision_source_messages);
     if (capsule.text) messages[0].content += `\n\n${capsule.text}`;
   }
 
