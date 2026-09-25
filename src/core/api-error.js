@@ -2,7 +2,7 @@ import { requestIdFromRequest } from './request-observability.js';
 
 const CATEGORY_RULES = Object.freeze([
   ['auth', /AUTH|UNAUTH|FORBIDDEN|PERMISSION|DENIED/i],
-  ['validation', /INVALID|REQUIRED|UNSUPPORTED|BAD_REQUEST|VALIDATION|SCHEMA/i],
+  ['validation', /INVALID|MISSING|REQUIRED|UNSUPPORTED|BAD_REQUEST|VALIDATION|SCHEMA/i],
   ['timeout', /TIMEOUT|TIMED_OUT|DEADLINE/i],
   ['quota', /QUOTA|RATE_LIMIT|TOO_MANY|LIMIT_EXCEEDED/i],
   ['network', /NETWORK|FETCH|ECONN|DNS|HTTP_UPSTREAM/i],
