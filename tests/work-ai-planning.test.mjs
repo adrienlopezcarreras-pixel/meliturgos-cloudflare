@@ -101,12 +101,23 @@ test('work.plan.generate uses multi-AI output but returns only a validated non-e
   },async ()=>({
     best:{
       provider:'fixture',
-      model:'planner-1',
-      text:JSON.stringify({steps:[
-        {id:'only',title:'Echo goal',capability:'echo',input:{value:'planned'},dependsOn:[],idempotent:true},
-      ]}),
+      model:'planner-bad',
+      text:'{"steps":[{"id":"bad","capability":"invented.tool","input":{}}]}',
     },
-    candidates:[{provider:'fixture',model:'planner-1'}],
+    candidates:[
+      {
+        provider:'fixture',
+        model:'planner-bad',
+        text:'{"steps":[{"id":"bad","capability":"invented.tool","input":{}}]}',
+      },
+      {
+        provider:'fixture',
+        model:'planner-1',
+        text:JSON.stringify({steps:[
+          {id:'only',title:'Echo goal',capability:'echo',input:{value:'planned'},dependsOn:[],idempotent:true},
+        ]}),
+      },
+    ],
     failures:0,
   }));
   registerWorkCapabilities(bus,{});
@@ -122,4 +133,6 @@ test('work.plan.generate uses multi-AI output but returns only a validated non-e
   assert.equal(result.generator.execution_started,false);
   assert.equal(result.generator.persisted,false);
   assert.equal(result.generator.provider,'fixture');
+  assert.equal(result.generator.model,'planner-1');
+  assert.equal(result.generator.rejected_candidates.length,1);
 });
