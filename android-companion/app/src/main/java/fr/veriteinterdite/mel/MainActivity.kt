@@ -2277,8 +2277,6 @@ private fun CompanionPanel(
     onMiniPairCode: (String, String) -> Unit
 ) {
     val bridgeState by MelBleBridgeService.bridgeState.collectAsStateWithLifecycle()
-    var ownerUser by rememberSaveable { mutableStateOf("") }
-    var ownerSecret by rememberSaveable { mutableStateOf("") }
     val bleReady = bridgeState.contains("MINI CONNECTÉE") || bridgeState.contains("INTERNET OK")
 
     Column(
@@ -2321,35 +2319,16 @@ private fun CompanionPanel(
         ) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Internet de la MINI", color = MelInk, fontWeight = FontWeight.Bold)
-                if (!state.miniPairCode.isNullOrBlank()) {
-                    Text("CODE MINI", color = MelMuted, fontSize = 11.sp)
-                    Text(state.miniPairCode, color = MelCyan, fontSize = 24.sp, fontWeight = FontWeight.Black)
-                    Text("Valable 10 min. Sur la MINI : Options → APPAIRAGE MEL → saisis ce code → APPAIRER.", color = MelMuted, fontSize = 12.sp)
-                } else {
-                    Text("La MINI a besoin d’un appairage MEL une seule fois pour obtenir son accès Internet.", color = MelMuted, fontSize = 12.sp)
-                    OutlinedTextField(
-                        value = ownerUser,
-                        onValueChange = { ownerUser = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Identifiant MEL (facultatif)") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = ownerSecret,
-                        onValueChange = { ownerSecret = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Mot de passe MEL") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation()
-                    )
-                    Button(
-                        onClick = { onMiniPairCode(ownerUser, ownerSecret) },
-                        modifier = Modifier.fillMaxWidth().testTag("mini-pair-code-button"),
-                        enabled = !state.miniPairBusy && ownerSecret.isNotBlank()
-                    ) {
-                        Text(if (state.miniPairBusy) "GÉNÉRATION…" else "GÉNÉRER LE CODE MINI")
-                    }
-                }
+                Text(
+                    if (bridgeState.contains("INTERNET OK", ignoreCase = true))
+                        "Relais Internet actif"
+                    else if (bleReady)
+                        "MINI connectée · activation Internet automatique"
+                    else
+                        "Le relais Internet s’active automatiquement dès que la MINI se connecte.",
+                    color = if (bridgeState.contains("INTERNET OK", ignoreCase = true)) MelSuccess else MelMuted,
+                    fontSize = 12.sp
+                )
                 state.miniPairError?.let { Text(it, color = MelDanger, fontSize = 12.sp) }
             }
         }
