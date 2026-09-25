@@ -13,19 +13,20 @@ import { devRuntime } from "./dev/runtime-api.js";
 import { handleShardVaultStatus } from "./pages/shardvault-status.js";
 import { getLegacyInteractionMigrationStatus, backfillLegacyInteractions } from "./persistence/gen1-interactions-migration.js";
 import { getChatGPTMemoryBackfillStatus, backfillChatGPTArchiveToMemory } from "./persistence/chatgpt-memory-backfill.js";
+import { requestIdFromRequest } from "./core/request-observability.js";
 export { inferNativeCodeCapability as inferCodeCapability } from "./api/native-chat.js";
 
-function capabilityContext(env) {
+function capabilityContext(env, request = null) {
   return {
     owner: env.MELITURGOS_USER || "owner",
     permissions: env.CAPABILITY_PERMISSIONS || [],
-    requestId: crypto.randomUUID()
+    requestId: requestIdFromRequest(request)
   };
 }
 
-async function codeSelfCheck(env) {
+async function codeSelfCheck(env, request = null) {
   const runtime = createGen2Runtime({ env });
-  const result = await runtime.bus.execute("code.read", { path: "src/router.js" }, capabilityContext(env));
+  const result = await runtime.bus.execute("code.read", { path: "src/router.js" }, capabilityContext(env, request));
   return {
     ok: true,
     capability: "code.read",
@@ -42,7 +43,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
 
   if (path === "/api/gen2/roadmap" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });
-    return json(await runtime.bus.execute("roadmap.read", {}, capabilityContext(env)));
+    return json(await runtime.bus.execute("roadmap.read", {}, capabilityContext(env, request)));
   }
 
   if (path === "/api/gen2/migration/gen1-status" && request.method === "GET") {
@@ -88,7 +89,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
   }
 
   if (path === "/api/gen2/code/self-check" && request.method === "GET") {
-    try { return json(await codeSelfCheck(env)); }
+    try { return json(await codeSelfCheck(env, request)); }
     catch (e) { return json({ ok: false, error: e.message, code: e.code || "CODE_SELF_CHECK_FAILED" }, e.status || 503); }
   }
 
@@ -105,7 +106,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
     // through ?refresh=1 on the capabilities endpoint instead of blocking boot.
     const refresh = url.searchParams.get("refresh") === "1";
     const capabilities = refresh ? await runtime.bus.refreshHealthAll() : runtime.bus.list();
-    const roadmap = await runtime.bus.execute("roadmap.read", {}, capabilityContext(env));
+    const roadmap = await runtime.bus.execute("roadmap.read", {}, capabilityContext(env, request));
     const badStates = new Set(["ERROR","FAILED","FAIL","DOWN","UNHEALTHY","BROKEN"]);
     const unavailableStates = new Set(["OFFLINE","UNAVAILABLE","BLOCKED","DISABLED"]);
     const degradedStates = new Set(["DEGRADED","UNKNOWN","UNTESTED","NOT_TESTED"]);
@@ -187,13 +188,13 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
       }, 403);
     }
     const runtime = createGen2Runtime({ env });
-    const result = await runtime.bus.execute(String(body.id), body.input || {}, capabilityContext(env));
+    const result = await runtime.bus.execute(String(body.id), body.input || {}, capabilityContext(env, request));
     return json({ ok: true, capability: body.id, result });
   }
 
   if (path === "/api/gen2/conversations" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });
-    const rows = await runtime.bus.execute("conversation.list", {}, capabilityContext(env));
+    const rows = await runtime.bus.execute("conversation.list", {}, capabilityContext(env, request));
     const conversations = (Array.isArray(rows) ? rows : []).map(row => ({
       id: row.id,
       title: row.title,
@@ -208,7 +209,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
     const conversationId = url.searchParams.get("conversation_id");
     if (!conversationId) return json({ error: "conversation_id required", code: "MISSING_CONVERSATION_ID" }, 400);
     const runtime = createGen2Runtime({ env });
-    const result = await runtime.bus.execute("conversation.messages.list", { conversationId }, capabilityContext(env));
+    const result = await runtime.bus.execute("conversation.messages.list", { conversationId }, capabilityContext(env, request));
     return json({ conversationId, messages: result.messages });
   }
 
@@ -231,7 +232,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
       name: body.name || "",
       kind: body.kind || "unknown",
       metadata: body.metadata || {},
-    }, capabilityContext(env));
+    }, capabilityContext(env, request));
     return json({ ok: true, ...result });
   }
 
@@ -240,7 +241,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
     const conversationId = url.searchParams.get("conversation_id");
     if (!deviceId || !conversationId) return json({ error: "device_id and conversation_id required", code: "MISSING_PARAMS" }, 400);
     const runtime = createGen2Runtime({ env });
-    const sync = await runtime.bus.execute("device.sync", { deviceId, conversationId }, capabilityContext(env));
+    const sync = await runtime.bus.execute("device.sync", { deviceId, conversationId }, capabilityContext(env, request));
     return json({ ok: true, ...sync });
   }
 
@@ -251,7 +252,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
       const userId = env.MELITURGOS_USER;
       if (!userId || !query) return json({ error: "userId and query required", code: "MISSING_PARAMS" }, 400);
       const runtime = createGen2Runtime({ env });
-      const searchResult = await runtime.bus.execute("rag.search", { query, sources, limit, minSimilarity }, capabilityContext(env));
+      const searchResult = await runtime.bus.execute("rag.search", { query, sources, limit, minSimilarity }, capabilityContext(env, request));
       return json({ ok: true, ...searchResult });
     } catch (e) { return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500); }
   }
@@ -264,7 +265,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
       const { ModuleRunner } = await import("../src/modules/module-runner.js");
       const runtime = createGen2Runtime({ env });
       const runner = new ModuleRunner(env, runtime.bus);
-      const result = await runner.run(module_uuid, input, { owner: env.MELITURGOS_USER, permissions: env.CAPABILITY_PERMISSIONS || [], requestId: crypto.randomUUID() });
+      const result = await runner.run(module_uuid, input, { owner: env.MELITURGOS_USER, permissions: env.CAPABILITY_PERMISSIONS || [], requestId: requestIdFromRequest(request) });
       return json(result);
     } catch (e) { return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500); }
   }
