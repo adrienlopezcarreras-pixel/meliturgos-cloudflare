@@ -56,6 +56,7 @@ const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
     '/api/gen2/migration/gen1-backfill',
     '/api/gen2/migration/chatgpt-memory-backfill',
     '/api/gen2/shardvault/search',
+    '/api/gen2/web/research',
   ])],
   ['GET', new Set([
     '/api/gen2/code/self-check',
