@@ -44,7 +44,11 @@ static uint16_t g_tx_handle = 0;
 static uint16_t g_mtu = 23;
 static SemaphoreHandle_t g_request_mutex = nullptr;
 static SemaphoreHandle_t g_write_done = nullptr;
+static SemaphoreHandle_t g_read_done = nullptr;
 static SemaphoreHandle_t g_response_done = nullptr;
+static uint8_t g_read_frame[520] = {};
+static size_t g_read_len = 0;
+static bool g_read_failed = false;
 static std::atomic<uint32_t> g_request_id{1};
 
 struct ActiveResponse {
@@ -59,6 +63,7 @@ static ActiveResponse g_active;
 
 static int gap_event(struct ble_gap_event *event, void *arg);
 static void start_scan();
+static void handle_rx_frame(const uint8_t *data, size_t len);
 
 static std::string json_string(cJSON *root) {
     char *raw = cJSON_PrintUnformatted(root);
@@ -91,6 +96,48 @@ static int write_complete(uint16_t conn_handle, const struct ble_gatt_error *err
     }
     if (g_write_done) xSemaphoreGive(g_write_done);
     return 0;
+}
+
+static int read_complete(uint16_t conn_handle, const struct ble_gatt_error *error,
+                         struct ble_gatt_attr *attr, void *arg) {
+    (void)conn_handle; (void)arg;
+    g_read_len = 0;
+    g_read_failed = true;
+    if (!error || error->status == 0) {
+        if (attr && attr->om) {
+            const int len = OS_MBUF_PKTLEN(attr->om);
+            if (len > 0 && len <= (int)sizeof(g_read_frame) &&
+                os_mbuf_copydata(attr->om, 0, len, g_read_frame) == 0) {
+                g_read_len = (size_t)len;
+                g_read_failed = false;
+            }
+        }
+    } else {
+        ESP_LOGW(TAG, "BLE TX read status=%d", error->status);
+    }
+    if (g_read_done) xSemaphoreGive(g_read_done);
+    return 0;
+}
+
+static bool pull_response_frame() {
+    if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE || !g_tx_handle) return false;
+    while (xSemaphoreTake(g_read_done, 0) == pdTRUE) {}
+    g_read_len = 0;
+    g_read_failed = true;
+    const int rc = ble_gattc_read(g_conn_handle, g_tx_handle, read_complete, nullptr);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "BLE TX read start failed rc=%d", rc);
+        return false;
+    }
+    if (xSemaphoreTake(g_read_done, pdMS_TO_TICKS(2500)) != pdTRUE) {
+        ESP_LOGW(TAG, "BLE TX read timeout");
+        return false;
+    }
+    if (g_read_failed) return false;
+    if (g_read_len >= 5 && g_read_frame[0] != 0) {
+        handle_rx_frame(g_read_frame, g_read_len);
+    }
+    return true;
 }
 
 static int cccd_subscribe_complete(uint16_t conn_handle, const struct ble_gatt_error *error,
@@ -388,8 +435,9 @@ void mel_mobile_bridge_start(void) {
     if (!g_started.compare_exchange_strong(expected, true)) return;
     g_request_mutex = xSemaphoreCreateMutex();
     g_write_done = xSemaphoreCreateBinary();
+    g_read_done = xSemaphoreCreateBinary();
     g_response_done = xSemaphoreCreateBinary();
-    if (!g_request_mutex || !g_write_done || !g_response_done) {
+    if (!g_request_mutex || !g_write_done || !g_read_done || !g_response_done) {
         ESP_LOGE(TAG, "MEL Mobile semaphore allocation failed");
         g_started.store(false);
         return;
@@ -484,7 +532,22 @@ static esp_err_t request_common(
     }
 
     const TickType_t wait = pdMS_TO_TICKS(120000);
-    if (xSemaphoreTake(g_response_done, wait) != pdTRUE) {
+    const TickType_t started = xTaskGetTickCount();
+    bool completed = false;
+    while ((xTaskGetTickCount() - started) < wait) {
+        if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
+            completed = true;
+            break;
+        }
+        if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE) break;
+        pull_response_frame();
+        if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
+            completed = true;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(60));
+    }
+    if (!completed) {
         g_active.failed = true;
         xSemaphoreGive(g_request_mutex);
         return ESP_ERR_TIMEOUT;
