@@ -47,6 +47,12 @@ function providerConfig(value) {
   const clientId = text(value.client_id);
   const authorizationEndpoint = safeUrl(value.authorization_endpoint, 'OAUTH_AUTHORIZATION_ENDPOINT_INVALID');
   const redirectUri = safeUrl(value.redirect_uri, 'OAUTH_REDIRECT_URI_INVALID');
+  const tokenEndpoint = value.token_endpoint
+    ? safeUrl(value.token_endpoint, 'OAUTH_TOKEN_ENDPOINT_INVALID').toString()
+    : null;
+  const revocationEndpoint = value.revocation_endpoint
+    ? safeUrl(value.revocation_endpoint, 'OAUTH_REVOCATION_ENDPOINT_INVALID').toString()
+    : null;
   requireValue(connectorId, 'OAUTH_PROVIDER_CONNECTOR_ID_REQUIRED', 500);
   requireValue(clientId && clientId.length <= 1000, 'OAUTH_CLIENT_ID_REQUIRED', 500);
   requireValue(value.auth === undefined || value.auth === 'oauth2', 'OAUTH_PROVIDER_AUTH_MODE_INVALID', 500);
@@ -54,6 +60,8 @@ function providerConfig(value) {
     connector_id: connectorId,
     client_id: clientId,
     authorization_endpoint: authorizationEndpoint.toString(),
+    token_endpoint: tokenEndpoint,
+    revocation_endpoint: revocationEndpoint,
     redirect_uri: redirectUri.toString(),
     extra_authorization_params: isObject(value.extra_authorization_params)
       ? structuredClone(value.extra_authorization_params)
