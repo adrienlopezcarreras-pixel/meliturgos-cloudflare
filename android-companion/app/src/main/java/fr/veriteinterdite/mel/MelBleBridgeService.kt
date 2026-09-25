@@ -81,6 +81,7 @@ class MelBleBridgeService : Service() {
     private val executor = Executors.newSingleThreadExecutor()
     private val requests = ConcurrentHashMap<String, PendingRequest>()
     private val mtus = ConcurrentHashMap<String, Int>()
+    private val subscribed = ConcurrentHashMap<String, Boolean>()
     private val notificationAck = ArrayBlockingQueue<Int>(1)
 
     private var bluetoothManager: BluetoothManager? = null
@@ -231,11 +232,13 @@ class MelBleBridgeService : Service() {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             Log.i(TAG, "MINI BLE state=${device.address} status=$status newState=$newState")
             if (newState == BluetoothGatt.STATE_CONNECTED) {
-                bridgeState.value = "MINI CONNECTÉE"
+                subscribed[device.address] = false
+                bridgeState.value = "MINI LIÉE · INITIALISATION CANAL"
             } else {
                 bridgeState.value = if (adapter?.isEnabled == true) "PRÊT" else "BLUETOOTH OFF"
                 requests.remove(device.address)
                 mtus.remove(device.address)
+                subscribed.remove(device.address)
             }
         }
 
@@ -253,8 +256,24 @@ class MelBleBridgeService : Service() {
             offset: Int,
             value: ByteArray
         ) {
+            val validCccd = descriptor.uuid == CCCD_UUID && !preparedWrite && offset == 0
             if (responseNeeded && hasBluetoothPermissions()) {
-                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+                gattServer?.sendResponse(
+                    device,
+                    requestId,
+                    if (validCccd) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED,
+                    offset,
+                    value
+                )
+            }
+            if (validCccd) {
+                val enabled = value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE) ||
+                    value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                subscribed[device.address] = enabled
+                if (enabled) {
+                    bridgeState.value = "MINI CONNECTÉE · RELAIS PRÊT"
+                    Log.i(TAG, "MINI BLE response channel ready ${device.address}")
+                }
             }
         }
 
@@ -355,12 +374,16 @@ class MelBleBridgeService : Service() {
                 }
             }
         }.getOrElse {
+            bridgeState.value = "MINI CONNECTÉE · INTERNET ERREUR"
+            Log.e(TAG, "MEL relay open failed ${request.method} ${request.path}", it)
             sendError(device, request.id, "NETWORK_OPEN")
             return
         }
 
         try {
             val status = connection.responseCode
+            bridgeState.value = "MINI CONNECTÉE · INTERNET OK"
+            Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
             val contentLength = connection.contentLengthLong.coerceAtLeast(-1L)
             val meta = JSONObject()
@@ -384,7 +407,8 @@ class MelBleBridgeService : Service() {
             }
             sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
         } catch (error: Throwable) {
-            Log.e(TAG, "Relay failed", error)
+            bridgeState.value = "MINI CONNECTÉE · INTERNET ERREUR"
+            Log.e(TAG, "Relay failed ${request.method} ${request.path}", error)
             sendError(device, request.id, "NETWORK_READ")
         } finally {
             connection.disconnect()

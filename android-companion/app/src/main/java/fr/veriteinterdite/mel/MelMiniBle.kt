@@ -60,7 +60,9 @@ class MelMiniBle(
     private var legacyConnected = false
 
     private val directFallback = Runnable {
-        if (!manualDisconnect && !legacyConnected && !state.connected) startDirectConnection()
+        val bridge = MelBleBridgeService.bridgeState.value
+        val legacyHandshake = bridge.startsWith("MINI LIÉE") || bridge.startsWith("MINI CONNECTÉE")
+        if (!manualDisconnect && !legacyConnected && !state.connected && !legacyHandshake) startDirectConnection()
     }
 
     fun requiredPermissions(): Array<String> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -330,7 +332,7 @@ class MelMiniBle(
     private val legacyMonitor = object : Runnable {
         override fun run() {
             val bridge = MelBleBridgeService.bridgeState.value
-            if (bridge == "MINI CONNECTÉE") {
+            if (bridge.startsWith("MINI CONNECTÉE")) {
                 legacyConnected = true
                 main.removeCallbacks(directFallback)
                 stopScan()
@@ -340,12 +342,12 @@ class MelMiniBle(
                     runCatching { gatt?.close() }
                     gatt = null
                 }
-                if (!state.connected || state.deviceName != "MINI") {
+                if (!state.connected || state.deviceName != "MINI" || state.phase != bridge) {
                     publish(
                         state.copy(
                             scanning = false,
                             connected = true,
-                            phase = "MINI connectée via MEL Mobile",
+                            phase = bridge,
                             deviceName = "MINI",
                             deviceAddress = null
                         )
