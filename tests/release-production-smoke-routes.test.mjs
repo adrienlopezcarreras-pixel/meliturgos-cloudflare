@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
+import { createVerifiedBackupService } from '../src/backup/backup-service.js';
 
 const TOKEN = 's'.repeat(64);
 const SHA = 'b'.repeat(40);
 const BRANCH = 'release/mel-hardware-v0.1.0';
 
-function db() {
+function db(backupSnapshot = null) {
   const auditRows = [];
+  const backupObjectKey = backupSnapshot ? `backups/system/${backupSnapshot.id}.json` : null;
   return {
     prepare(sql) {
       return {
@@ -15,9 +17,27 @@ function db() {
         bind(...params) { this.params = params; return this; },
         async first() {
           if (/COUNT\(\*\)/i.test(String(sql))) return { count: 3 };
+          if (backupSnapshot && /SELECT\s+object_key\s+FROM\s+backup_objects\s+WHERE\s+id=/i.test(String(sql))) {
+            return String(this.params[0] || '') === backupSnapshot.id ? { object_key: backupObjectKey } : null;
+          }
           return null;
         },
         async all() {
+          if (backupSnapshot && /FROM\s+backup_objects/i.test(String(sql))) {
+            return {
+              results: [{
+                id: backupSnapshot.id,
+                object_key: backupObjectKey,
+                metadata_json: JSON.stringify({
+                  createdAt: backupSnapshot.createdAt,
+                  integritySha256: backupSnapshot.integritySha256,
+                  sourceCount: backupSnapshot.sourceCount,
+                  verified: backupSnapshot.verified === true,
+                }),
+                created_at: Date.parse(backupSnapshot.createdAt),
+              }],
+            };
+          }
           if (/FROM\s+audit_logs/i.test(String(sql))) {
             const since = Number(this.params[0]) || 0;
             const limit = Number(this.params[1]) || 200;
@@ -81,6 +101,48 @@ function env() {
     MEL_GITHUB_FETCH: githubFetch,
     DB: db(),
   };
+}
+
+async function recoveryEnv() {
+  let snapshot = null;
+  const storage = {
+    async put(value) { snapshot = structuredClone(value); },
+    async get() { return snapshot ? structuredClone(snapshot) : null; },
+    async list() { return snapshot ? [structuredClone(snapshot)] : []; },
+  };
+  const service = createVerifiedBackupService({
+    storage,
+    now: () => '2026-09-25T12:00:00.000Z',
+    sources: {
+      database: async () => ({
+        type: 'MEL_D1_LOGICAL_EXPORT_V1',
+        tableCount: 1,
+        tables: [{ name: 'memories', schema: 'CREATE TABLE memories(id TEXT)', rowCount: 1, rows: [{ id: 'm1' }] }],
+      }),
+      r2_inventory: async () => ({ type: 'MEL_R2_INVENTORY_V1', objectCount: 0, objects: [] }),
+      runtime: async () => ({
+        type: 'MEL_RUNTIME_DESCRIPTOR_V1',
+        appVersion: '0.2.5',
+        dbSchemaVersion: 7,
+        worker: 'meliturgos',
+        deployedGitSha: SHA,
+        deployedGitBranch: BRANCH,
+        runtimeEnvironment: 'production',
+      }),
+    },
+  });
+  await service.create({ id: 'release-recovery-smoke' });
+  const runtimeEnv = env();
+  runtimeEnv.DB = db(snapshot);
+  runtimeEnv.MEDIA_BUCKET = {
+    async get(key) {
+      if (key !== `backups/system/${snapshot.id}.json`) return null;
+      return { async text() { return JSON.stringify(snapshot); } };
+    },
+    async put() {},
+    async delete() {},
+  };
+  return runtimeEnv;
 }
 
 function smokeRequest(path, method = 'GET', init = {}) {
@@ -161,7 +223,30 @@ test('MEL-REL-03 release token runs only echo then exposes persisted observabili
   assert.ok(body.dashboard.components.some(row => row.id === 'runtime_observability'));
 });
 
-test('MEL-REL-03 release token cannot use the generic capability route for anything except echo', async () => {
+test('GEN2-48 release token runs the isolated recovery drill but never activates production', async () => {
+  const runtimeEnv = await recoveryEnv();
+  const response = await worker.fetch(
+    smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id:'resilience.recovery.drill.latest', input:{ approved:true } }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.capability, 'resilience.recovery.drill.latest');
+  assert.equal(body.result.ok, true);
+  assert.equal(body.result.state, 'PASSED');
+  assert.equal(body.result.restore_candidate_verified, true);
+  assert.equal(body.result.production_access_used, false);
+  assert.equal(body.result.activation_performed, false);
+  assert.equal(body.result.teardown_completed, true);
+  assert.equal(body.result.reconstructed_tables, 1);
+});
+
+test('MEL-REL-03 release token cannot use the generic capability route outside the bounded smoke allowlist', async () => {
   const response = await worker.fetch(
     smokeRequest('/api/gen2/capabilities/execute', 'POST', {
       headers: { 'content-type': 'application/json' },
@@ -173,5 +258,5 @@ test('MEL-REL-03 release token cannot use the generic capability route for anyth
   assert.equal(response.status, 403);
   const body = await response.json();
   assert.equal(body.code, 'RELEASE_SMOKE_CAPABILITY_DENIED');
-  assert.deepEqual(body.allowed_capabilities, ['echo']);
+  assert.deepEqual(body.allowed_capabilities, ['echo', 'resilience.recovery.drill.latest']);
 });

@@ -16,6 +16,11 @@ import { getChatGPTMemoryBackfillStatus, backfillChatGPTArchiveToMemory } from "
 import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVersionResponse, apiMethodNotAllowedResponse, apiVersionMetadataResponse } from "./api/api-versioning.js";
 export { inferNativeCodeCapability as inferCodeCapability } from "./api/native-chat.js";
 
+const RELEASE_SMOKE_CAPABILITY_ALLOWLIST = Object.freeze([
+  "echo",
+  "resilience.recovery.drill.latest",
+]);
+
 function capabilityContext(env) {
   return {
     owner: env.MELITURGOS_USER || "owner",
@@ -185,11 +190,11 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
   if (path === "/api/gen2/capabilities/execute" && request.method === "POST") {
     const body = await request.json().catch(() => ({}));
     if (!body?.id) return json({ error: "capability id required", code: "MISSING_CAPABILITY" }, 400);
-    if (isReleaseSmokeRequest(request, env) && String(body.id) !== "echo") {
+    if (isReleaseSmokeRequest(request, env) && !RELEASE_SMOKE_CAPABILITY_ALLOWLIST.includes(String(body.id))) {
       return json({
         error: "release smoke capability denied",
         code: "RELEASE_SMOKE_CAPABILITY_DENIED",
-        allowed_capabilities: ["echo"],
+        allowed_capabilities: RELEASE_SMOKE_CAPABILITY_ALLOWLIST,
       }, 403);
     }
     const runtime = createGen2Runtime({ env });
