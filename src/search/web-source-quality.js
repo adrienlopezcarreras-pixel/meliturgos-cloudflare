@@ -145,8 +145,8 @@ export function rankWebSources(sources = [], options = {}) {
     }))
     .sort((a, b) => (
       b.quality.score - a.quality.score
-      || String(a.url || '').localeCompare(String(b.url || ''))
       || a.__input_index - b.__input_index
+      || String(a.url || '').localeCompare(String(b.url || ''))
     ))
     .map(({ __input_index, ...source }) => source);
 }
