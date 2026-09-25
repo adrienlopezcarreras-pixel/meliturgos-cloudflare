@@ -1,6 +1,7 @@
 import { createWorkDag, WorkDagRunner } from '../work/work-dag.js';
 import { summarizeWorkDag } from '../work/work-dag-state.js';
 import { D1WorkDagStore } from '../work/d1-work-dag-store.js';
+import { WorkOpenLoopCoordinator } from '../work/work-open-loop-coordinator.js';
 
 function workError(code) {
   return Object.assign(new Error(code), { code });
@@ -80,8 +81,10 @@ function publicState(dag) {
   };
 }
 
-export function registerWorkCapabilities(bus, { db } = {}) {
+export function registerWorkCapabilities(bus, { db, openLoops = null } = {}) {
   const health = db ? 'HEALTHY' : 'DEGRADED';
+  const loopHealth = db && openLoops ? 'HEALTHY' : 'DEGRADED';
+  const coordinator = openLoops ? new WorkOpenLoopCoordinator({ openLoops, bus }) : null;
 
   bus.discover({
     id: 'work.create', name: 'Créer un travail persistant', category: 'work', version: '1.0.0', provider: 'mel',
@@ -94,13 +97,15 @@ export function registerWorkCapabilities(bus, { db } = {}) {
         goal: { type: 'string', minLength: 1, maxLength: 4000 },
         candidateBranch: { type: 'string', minLength: 1, maxLength: 200 },
         candidateSha: { type: 'string', minLength: 1, maxLength: 100 },
+        conversationId: { type: 'string', minLength: 1, maxLength: 200 },
+        openLoopPriority: { type: 'integer', minimum: -100, maximum: 100 },
         nodes: { type: 'array', items: WORK_NODE_SCHEMA },
       },
       required: ['goal', 'nodes'], additionalProperties: false,
     },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'MEDIUM', permissions: [], health, enabled: true,
-  }, async (input) => {
+  }, async (input, context = {}) => {
     assertDb(db);
     assertBoundedNodes(input.nodes);
     const dagId = input.id || crypto.randomUUID();
@@ -118,7 +123,18 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       nodes,
     });
     const store = new D1WorkDagStore(db, dagId);
-    return publicState(await store.save(dag));
+    const saved = await store.save(dag);
+    if (input.conversationId) {
+      if (!coordinator) throw workError('WORK_OPEN_LOOP_SERVICE_REQUIRED');
+      await coordinator.captureCreated({
+        dagId,
+        jobId: input.jobId || dagId,
+        conversationId: input.conversationId,
+        owner: context.owner,
+        priority: input.openLoopPriority || 0,
+      });
+    }
+    return publicState(saved);
   });
 
   bus.discover({
@@ -131,6 +147,32 @@ export function registerWorkCapabilities(bus, { db } = {}) {
     assertDb(db);
     const { runner } = runnerFor(bus, db, input.id, context);
     return publicState(await runner.run());
+  });
+
+
+  bus.discover({
+    id: 'work.resume-due', name: 'Reprendre les travaux Work dus', category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Claims only owner-scoped open loops tagged as persistent Work DAGs, resumes them through work.run, and checkpoints the resulting state without touching unrelated loops.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+        retryDelayMs: { type: 'integer', minimum: 1000, maximum: 86400000 },
+      },
+      additionalProperties: false,
+    },
+    output_schema: { type: 'array', items: { type: 'object', additionalProperties: true } },
+    risk: 'MEDIUM', permissions: [], health: loopHealth, enabled: true,
+  }, async (input = {}, context = {}) => {
+    assertDb(db);
+    if (!coordinator) throw workError('WORK_OPEN_LOOP_SERVICE_REQUIRED');
+    if (!String(context.owner || '').trim()) throw workError('WORK_OPEN_LOOP_OWNER_REQUIRED');
+    return coordinator.resumeDue({
+      owner: context.owner,
+      context,
+      limit: input.limit,
+      retryDelayMs: input.retryDelayMs,
+    });
   });
 
   bus.discover({
