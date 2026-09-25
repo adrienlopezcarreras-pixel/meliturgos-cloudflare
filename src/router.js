@@ -21,6 +21,8 @@ const RELEASE_SMOKE_CAPABILITY_ALLOWLIST = Object.freeze([
   "resilience.recovery.drill.latest",
   "memory.export",
   "memory.export.verify",
+  "system.integrity",
+  "system.maturity",
 ]);
 
 function capabilityContext(env) {
