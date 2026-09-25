@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.15';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.16';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -163,7 +163,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P12', 'Résilience, sauvegarde et indépendance', [
     item('GEN2-47', 'Backups / export système', 'PARTIAL', 'Snapshots D1 complets + inventaire R2 automatisés et vérifiés; ajouter copie des octets R2, chiffrement et drill de restauration avant DONE_VERIFIED', 'P1'),
-    item('GEN2-48', 'Restore / disaster recovery', 'PARTIAL', 'Faire drill complet de restauration', 'P1'),
+    item('GEN2-48', 'Restore / disaster recovery', 'IN_PROGRESS', 'Drill runtime isolé de la dernière sauvegarde système ajouté via CapabilityBus: vérification du snapshot, reconstruction logique D1 en mémoire, revalidation R2/runtime, teardown garanti et activation production interdite. Tests ciblés verts; déployer puis obtenir une preuve live sur une sauvegarde production avant DONE_VERIFIED.', 'P1'),
     item('GEN2-49', 'Portabilité système provider-neutral', 'PARTIAL', 'Manifest provider-neutral + bundle système multi-artefacts vérifiable sont implémentés; brancher les exporters réels mémoire/projets/skills/plugins/config, ajouter restauration sur runtime alternatif et prouver un drill complet avant DONE_VERIFIED.', 'P1'),
     item('MEL-RES-01', 'Survival Mode: NORMAL/DEGRADED/READ_ONLY/RECOVERY/HALTED', 'DONE_VERIFIED', 'Brancher télémétrie runtime', 'P0'),
     item('MEL-RES-02', 'Recovery Bundle', 'DONE_VERIFIED', 'Ajouter vérification périodique de l’artefact de récupération', 'P0'),
