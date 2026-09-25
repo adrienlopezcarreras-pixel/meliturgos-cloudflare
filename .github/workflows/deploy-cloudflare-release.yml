@@ -753,6 +753,46 @@ jobs:
           console.log('Production code self-check + memory + UI smoke passed.');
           NODE
 
+          WEB_RESEARCH_CODE="$(curl --silent --show-error --max-time 90 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"query":"Cloudflare Workers official documentation","maxDepth":2,"seed_urls":["https://developers.cloudflare.com/workers/"]}' \
+            --output production-web-research.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/web/research")"
+          if [ "$WEB_RESEARCH_CODE" != "200" ]; then
+            echo "GEN2-37 production web research smoke returned HTTP ${WEB_RESEARCH_CODE}."
+            test ! -s production-web-research.json || cat production-web-research.json
+            exit 47
+          fi
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('production-web-research.json','utf8'));
+          const r=d?.research||{};
+          const sources=Array.isArray(r?.sources)?r.sources:[];
+          if(d?.ok!==true) throw new Error('GEN2_37_PRODUCTION_RESEARCH_NOT_OK');
+          if(r?.answer_ready!==true) throw new Error('GEN2_37_PRODUCTION_NOT_ANSWER_READY');
+          if(r?.source_quality?.status!=='STRONG') throw new Error('GEN2_37_PRODUCTION_SOURCE_QUALITY_NOT_STRONG');
+          if(Number(r?.source_quality?.answer_ready_sources||0)<1) throw new Error('GEN2_37_PRODUCTION_NO_ANSWER_READY_SOURCE');
+          const source=sources[0]||{};
+          if(source?.source_kind!=='OFFICIAL_SEED') throw new Error('GEN2_37_PRODUCTION_SOURCE_NOT_OFFICIAL_SEED');
+          if(source?.source_quality?.tier!=='PRIMARY' || source?.source_quality?.answer_ready!==true) {
+            throw new Error('GEN2_37_PRODUCTION_PRIMARY_SOURCE_GATE_FAILED');
+          }
+          let host='';
+          try { host=new URL(String(source?.url||'')).hostname; } catch {}
+          if(host!=='developers.cloudflare.com') throw new Error('GEN2_37_PRODUCTION_SOURCE_HOST_MISMATCH:'+host);
+          if(!source?.provenance?.source_id || !source?.provenance?.fetched_at) throw new Error('GEN2_37_PRODUCTION_PROVENANCE_MISSING');
+          console.log(JSON.stringify({
+            gen2_37:'PRODUCTION_VERIFIED',
+            answer_ready:r.answer_ready,
+            source_quality:r.source_quality,
+            source:{url:source.url,kind:source.source_kind,quality:source.source_quality,provenance:source.provenance},
+          },null,2));
+          NODE
+
           cleanup_secret
           trap - EXIT
           echo "Temporary launch bootstrap secret deleted."
@@ -771,6 +811,7 @@ jobs:
               echo '- Code self-check: verified'
               echo '- Memory status: ONLINE + D1 bound'
               echo '- Professor + normal runtime UI: verified'
+              echo '- GEN2-37 direct web research quality/provenance: verified'
               echo '- Historical failure retries: bounded'
               echo '- Autonomy started by deployment: **no**'
               echo '- Owner Resume/MAX remains required to start the SHA'
