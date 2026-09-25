@@ -119,6 +119,45 @@ function compareActiveJobs(left, right) {
     || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
+export function summarizeNonIdleState({
+  active = [],
+  next = null,
+  blockedIds = [],
+  retryExhaustedIds = [],
+} = {}) {
+  const supervisedActive = (Array.isArray(active) ? active : []).filter(isSupervisedAutonomyJob);
+  const actionableActive = supervisedActive.filter(job => !isPassiveRuntimeJob(job));
+  const passiveActive = supervisedActive.filter(isPassiveRuntimeJob);
+  const nextId = next?.id || null;
+  const canAdvance = actionableActive.length > 0 || Boolean(nextId);
+
+  let state = 'NO_WORK';
+  if (actionableActive.length > 0) state = 'ACTIVE_ACTIONABLE_WORK';
+  else if (nextId) state = 'ROADMAP_WORK_AVAILABLE';
+  else if (passiveActive.length > 0) state = 'PASSIVE_EXTERNAL_PROGRESS_ONLY';
+  else if ((Array.isArray(blockedIds) ? blockedIds : []).length > 0) state = 'BLOCKED_ONLY';
+
+  return Object.freeze({
+    state,
+    can_advance: canAdvance,
+    actionable_active_count: actionableActive.length,
+    actionable_active_job_ids: actionableActive.map(job => String(job.id || '')).filter(Boolean),
+    passive_active_count: passiveActive.length,
+    passive_active_job_ids: passiveActive.map(job => String(job.id || '')).filter(Boolean),
+    next_roadmap_id: nextId,
+    blocked_roadmap_ids: [...new Set((Array.isArray(blockedIds) ? blockedIds : []).map(String).filter(Boolean))],
+    retry_exhausted_ids: [...new Set((Array.isArray(retryExhaustedIds) ? retryExhaustedIds : []).map(String).filter(Boolean))],
+    idle_allowed: !canAdvance,
+    reason: canAdvance
+      ? (actionableActive.length > 0 ? 'ACTIONABLE_JOB_EXISTS' : 'UNBLOCKED_ROADMAP_ITEM_EXISTS')
+      : (passiveActive.length > 0
+        ? 'WAITING_ON_EXTERNAL_PROGRESS_WITH_NO_OTHER_ACTIONABLE_WORK'
+        : ((Array.isArray(blockedIds) ? blockedIds : []).length > 0
+          ? 'ONLY_BLOCKED_WORK_REMAINS'
+          : 'NO_REMAINING_WORK')),
+  });
+}
+
 export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], blockedIds = [] } = {}) {
   const completed = new Set(completedIds);
   const blocked = new Set(blockedIds);
@@ -184,6 +223,12 @@ export class AutonomySupervisor {
       completedIds,
       blockedIds: [...blockedIds, ...activeIds],
     });
+    const nonIdle = summarizeNonIdleState({
+      active,
+      next,
+      blockedIds,
+      retryExhaustedIds,
+    });
     return {
       jobs,
       supervisedJobs,
@@ -194,6 +239,7 @@ export class AutonomySupervisor {
       retryExhaustedIds,
       failedAttemptsByRoadmap: Object.fromEntries(failedAttemptsByRoadmap),
       next,
+      non_idle: nonIdle,
     };
   }
 
