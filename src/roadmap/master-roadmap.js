@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.02';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.03';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -103,7 +103,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P07', 'Work, agents et automatisations', [
     item('MEL-WORK-01', 'Work Engine persistant', 'DONE_VERIFIED', 'DAG Work durable en D1 avec état, checkpoints, artefacts, reprise après nouvelle instance et détection de corruption. Revalidé avec syntaxe globale + work-persistent/work-dag Actions 35641014709.', 'P0'),
-    item('GEN2-38', 'Tasks / goals / planning', 'PARTIAL', 'Planning engine unique + persistance Goal/Task ajoutés: work.plan compile un objectif en étapes bornées; work.plan.save/get/list/history persiste le registre D1 et son journal append-only; work.plan.materialize crée un DAG Work sans l’exécuter; work.plan.sync resynchronise les tâches depuis le DAG autoritatif. Reste la génération automatique fiable des étapes depuis un objectif libre et sa validation capability-aware avant DONE_VERIFIED.', 'P1'),
+    item('GEN2-38', 'Tasks / goals / planning', 'PARTIAL', 'Implémentation candidate complète: work.plan explicite; registre D1 Goal/Task + historique append-only et redaction secrets; save/get/list/history; materialize vers Work sans exécution; Work autoritatif après liaison + sync; work.plan.generate via .augmentio zéro-coût avec catalogue capability-aware, validation des vrais input_schema, candidats classés validés fail-closed et idempotence durcie. Preuve CI exacte sur le code: Professor UI audit 36112438732, job 107998733533, 353 tests / 0 échec au SHA 207699f2d060d7007fd5a26890318e881f7be785. Reste avant DONE_VERIFIED: preuve runtime réelle d’une génération via provider zéro-euro et persistance/matérialisation/sync sur D1 réel, puis intégration main.', 'P1'),
     item('GEN2-39', 'Agents / automations', 'PARTIAL', 'Brancher MULTI_AI_PROTOCOL au Work Engine/Council pour orchestration runtime et réservations de lots', 'P1'),
     item('GEN2-40', 'Event Bus idempotent / follow-ups', 'PLANNED', 'Transporter événements et relances idempotentes entre services', 'P1'),
     item('GEN2-41', 'Notifications', 'PLANNED', 'Web Push + compagnons', 'P2'),
