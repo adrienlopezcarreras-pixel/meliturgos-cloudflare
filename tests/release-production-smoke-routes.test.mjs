@@ -310,7 +310,7 @@ test('MEL-REL-03 release token cannot use the generic capability route outside t
   assert.equal(response.status, 403);
   const body = await response.json();
   assert.equal(body.code, 'RELEASE_SMOKE_CAPABILITY_DENIED');
-  assert.deepEqual(body.allowed_capabilities, ['echo', 'resilience.recovery.drill.latest', 'memory.export', 'memory.export.verify']);
+  assert.deepEqual(body.allowed_capabilities, ['echo', 'resilience.recovery.drill.latest', 'memory.export', 'memory.export.verify', 'system.integrity', 'system.maturity']);
 });
 
 
