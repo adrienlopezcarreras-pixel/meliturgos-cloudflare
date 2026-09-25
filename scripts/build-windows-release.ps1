@@ -1,7 +1,8 @@
 param(
   [Parameter(Mandatory=$true)][string]$Version,
   [Parameter(Mandatory=$true)][string]$SourceSha,
-  [string]$OutputDir = "artifacts/windows"
+  [string]$OutputDir = "artifacts/windows",
+  [switch]$Sign
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,6 +41,14 @@ $launcher = @(
   'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0MEL-Computer-Setup.ps1"'
 ) -join [Environment]::NewLine
 Set-Content -LiteralPath (Join-Path $stage "Install-MEL.cmd") -Value $launcher -Encoding ASCII
+
+if ($Sign) {
+  $pfx = [string]$env:MEL_WINDOWS_SIGNING_PFX_BASE64
+  $password = [string]$env:MEL_WINDOWS_SIGNING_PFX_PASSWORD
+  if ([string]::IsNullOrWhiteSpace($pfx)) { throw "WINDOWS_SIGN_PFX_MISSING" }
+  if ([string]::IsNullOrWhiteSpace($password)) { throw "WINDOWS_SIGN_PASSWORD_MISSING" }
+  & (Join-Path $PSScriptRoot "sign-windows-release.ps1") -StageDir $stage -PfxBase64 $pfx -PfxPassword $password
+}
 
 $manifestFiles = @()
 foreach ($file in Get-ChildItem -LiteralPath $stage -File | Sort-Object Name) {
@@ -96,7 +105,7 @@ $releaseMeta = [ordered]@{
   manifest_sha256 = $manifestHash
   package = [IO.Path]::GetFileName($zipPath)
   package_sha256 = $zipHash
-  signed = $false
+  signed = [bool]$Sign
 }
 $releaseMetaPath = Join-Path $packageDir "MEL-Windows-$Version.release.json"
 $releaseMeta | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $releaseMetaPath -Encoding UTF8
