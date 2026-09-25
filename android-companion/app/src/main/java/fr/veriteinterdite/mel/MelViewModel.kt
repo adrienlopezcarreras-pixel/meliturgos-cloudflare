@@ -317,7 +317,7 @@ class MelViewModel(
             _state.value = _state.value.copy(
                 busy = true,
                 speaking = true,
-                status = "MEL parle.",
+                status = "MEL parle…",
                 error = null
             )
             MelVoicePlayer.playSystemFrench(appContext, answer)
@@ -340,7 +340,7 @@ class MelViewModel(
             _state.value = _state.value.copy(
                 busy = true,
                 speaking = true,
-                status = "MEL parle.",
+                status = "MEL parle…",
                 error = null
             )
             MelVoicePlayer.playMp3(appContext, audio)
