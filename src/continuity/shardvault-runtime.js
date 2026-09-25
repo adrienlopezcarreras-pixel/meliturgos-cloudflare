@@ -89,9 +89,39 @@ function extendActiveEndpoints(current,candidates,limit=7,maxPerOperator=2,maxPe
   }
   return out;
 }
-async function enrichAutonomous(env,c,requiredBytes){
+function shardVaultWriteFailureEndpoint(error){
+  const message=String(error?.error||error?.message||error||'');
+  const match=message.match(/(?:^|\b)WRITE_(.+)_([1-5][0-9]{2})(?:\b|$)/);
+  return match?.[1]||null;
+}
+function rotateActiveEndpointsForWriteFailure(current=[],staged=[],error,{limit=7,maxPerOperator=2,maxPerProvider=2}={}){
+  const failedEndpointId=shardVaultWriteFailureEndpoint(error);
+  if(!failedEndpointId)return {failedEndpointId:null,endpoints:[...(staged||[])],changed:false};
+  const survivors=(current||[]).filter(e=>String(e?.id||'')!==failedEndpointId);
+  const replacements=(staged||[]).filter(e=>String(e?.id||'')!==failedEndpointId);
+  const endpoints=extendActiveEndpoints(survivors,replacements,limit,maxPerOperator,maxPerProvider);
+  const beforeIds=(current||[]).map(e=>String(e?.id||''));
+  const afterIds=endpoints.map(e=>String(e?.id||''));
+  return {
+    failedEndpointId,
+    endpoints,
+    changed:beforeIds.length!==afterIds.length||beforeIds.some((id,index)=>id!==afterIds[index]),
+  };
+}
+function excludeShardVaultEndpoints(c,endpointIds=[]){
+  const excluded=new Set((endpointIds||[]).map(value=>String(value||'')).filter(Boolean));
+  if(!excluded.size)return c;
+  return {
+    ...c,
+    allEndpoints:(c.allEndpoints||[]).filter(e=>!excluded.has(String(e?.id||''))),
+    endpoints:(c.endpoints||[]).filter(e=>!excluded.has(String(e?.id||''))),
+  };
+}
+async function enrichAutonomous(env,c,requiredBytes,{excludeEndpointIds=[]}={}){
+  const excluded=new Set((excludeEndpointIds||[]).map(value=>String(value||'')).filter(Boolean));
+  c=excludeShardVaultEndpoints(c,excluded);
   let active=[];
-  try{active=await readActiveExternalEndpoints(env);}catch{}
+  try{active=(await readActiveExternalEndpoints(env)).filter(e=>!excluded.has(String(e?.id||'')));}catch{}
   const activeBoosted=active.map((e,i)=>({...e,score:1000000-i,activeRegistry:true}));
   if(String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')!=='true'){
     return {config:activeBoosted.length?mergeAutonomous(c,{selected:activeBoosted},env):c,report:null};
@@ -100,8 +130,8 @@ async function enrichAutonomous(env,c,requiredBytes){
     const report=await discoverAutonomousRepositories(env,{masterKey:c.master,vaultId:c.vaultId,requiredBytes,selectionCount:c.n});
     const by=new Map();
     for(const e of activeBoosted)by.set(e.id,e);
-    for(const e of (report?.selected||[]))if(!by.has(e.id))by.set(e.id,e);
-    report.selected=[...by.values()];
+    for(const e of (report?.selected||[]))if(!excluded.has(String(e?.id||''))&&!by.has(e.id))by.set(e.id,e);
+    report.selected=[...by.values()].filter(e=>!excluded.has(String(e?.id||'')));
     const preferred=await readPreferredEndpoint(env);
     if(preferred?.endpoint_id&&Array.isArray(report?.selected)){
       report.selected=report.selected.map(e=>String(e?.id||'')===preferred.endpoint_id?{...e,score:(Number(e.score)||0)+100000,preferred:true}:e);
@@ -1212,7 +1242,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
     verified_roundtrip:true,created_at:manifest.createdAt
   }};
 }
-export async function runShardVaultCycle(env,{force=false,skipExternalCode=false}={}){
+export async function runShardVaultCycle(env,{force=false,skipExternalCode=false,excludeEndpointIds=[]}={}){
   if(String(env?.MEL_SHARDVAULT_ENABLED||'false')!=='true')return {ok:true,enabled:false,skipped:true,reason:'DISABLED'};
   let c;
   try{c=await config(env);}catch(error){return {ok:false,enabled:true,skipped:true,reason:'CONFIG_INVALID',error:String(error?.message||error)};}
@@ -1226,14 +1256,14 @@ export async function runShardVaultCycle(env,{force=false,skipExternalCode=false
       try{health=await checkAndRepair(env,c,last);}
       catch(error){
         health={snapshotId:last.snapshotId,healthy:false,fatal:String(error?.message||error)};
-        const enriched=await enrichAutonomous(env,c,last.shardSize||0);c=enriched.config;autonomous=enriched.report;
+        const enriched=await enrichAutonomous(env,c,last.shardSize||0,{excludeEndpointIds});c=enriched.config;autonomous=enriched.report;
         if(c.allEndpoints.length){try{health=await checkAndRepair(env,c,last);}catch(error2){health={snapshotId:last.snapshotId,healthy:false,fatal:String(error2?.message||error2)};}}
       }
     }
     if(!force&&last&&Number.isFinite(age)&&age<c.intervalMs)return {ok:health?.healthy!==false,enabled:true,skipped:true,reason:'INTERVAL_NOT_DUE',latest_snapshot:last.snapshotId,age_ms:age,health,autonomous,diversity:diversity(c.endpoints),storage_mode:c.storageMode,degraded:c.degraded,code_backup:codeBackup};
     const payload=await buildShardVaultMemoryPayload(env,{limit:Number(env.MEL_SHARDVAULT_EXPORT_LIMIT)||10000});
     payload.code_survival=codeBackup;
-    const estimated=Math.max(256,Math.ceil((utf8(JSON.stringify(payload)).length+16)/c.k)),enriched=await enrichAutonomous(env,c,estimated);
+    const estimated=Math.max(256,Math.ceil((utf8(JSON.stringify(payload)).length+16)/c.k)),enriched=await enrichAutonomous(env,c,estimated,{excludeEndpointIds});
     c=enriched.config;autonomous=enriched.report;
     if(!c.endpoints.length)throw new Error('NO_STORAGE_ENDPOINTS_AVAILABLE');
     if(!skipExternalCode){
