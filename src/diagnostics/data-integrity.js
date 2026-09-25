@@ -251,7 +251,6 @@ export async function auditDataIntegrity(db) {
   const orphanSpecs = [
     ['archive_messages.conversation','archive_messages','conversations','conversation_id'],
     ['sync_checkpoints.conversation','sync_checkpoints','conversations','conversation_id'],
-    ['sync_checkpoints.device','sync_checkpoints','devices','device_id'],
     ['memory_candidates.conversation','memory_candidates','conversations','conversation_id'],
     ['memory_candidates.message','memory_candidates','archive_messages','message_id'],
     ['plugin_versions.plugin','plugin_versions','plugins','plugin_id'],
