@@ -48,7 +48,6 @@ jobs:
           tests/gen2/projects-decisions-d1.test.mjs
           tests/gen2/event-bus-d1.test.mjs
           tests/release-production-smoke-routes.test.mjs
-          tests/expanded-capability-bus.test.mjs
 
   durable-state-full-suite:
     runs-on: ubuntu-latest
