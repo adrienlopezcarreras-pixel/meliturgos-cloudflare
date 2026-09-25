@@ -82,7 +82,7 @@ test('manifest contract rejects underdeclared risk for wildcard or secret access
 test('manifest contract rejects traversal, malformed permission and invalid secret references', () => {
   assert.throws(() => validateManifest(manifest({ entrypoint: '../escape.js' })), error => error?.code === 'INVALID_ENTRYPOINT');
   assert.throws(() => validateManifest(manifest({ permissions: ['memory read'] })), error => error?.code === 'INVALID_PERMISSION');
-  assert.throws(() => validateManifest(manifest({ secrets_required: ['github-token'], risk:'HIGH' })), error => error?.code === 'INVALID_SECRET_REFERENCE');
+  assert.throws(() => validateManifest(manifest({ secrets_required: ['github-token'], risk:'HIGH' })), error => error?.code === 'SECRET_REFERENCE_REQUIRED');
 });
 
 test('public SDK exposes durable control plane without conflating it with executable runtime', async () => {
