@@ -178,6 +178,54 @@ function scoreFromObservation(observation) {
   return Number.isFinite(value) ? value : null;
 }
 
+export function scoreStableBenchmarkObservations({
+  suiteId,
+  observations = [],
+  registry = STABLE_BENCHMARK_SUITES_V1,
+} = {}) {
+  const catalog=validateStableBenchmarkRegistry(registry);
+  const suite=suiteById(suiteId,registry);
+  const meta=catalog.suites.find(row=>row.id===suite.id);
+  if(!Array.isArray(observations)) throw evalError('STABLE_BENCHMARK_OBSERVATIONS_REQUIRED');
+
+  const byId=new Map();
+  for(const observation of observations){
+    const id=String(observation?.id||'').trim();
+    if(!id) throw evalError('STABLE_BENCHMARK_OBSERVATION_ID_REQUIRED');
+    if(byId.has(id)) throw evalError('STABLE_BENCHMARK_OBSERVATION_DUPLICATE',{case_id:id});
+    if(!suite.cases.some(row=>row.id===id)) throw evalError('STABLE_BENCHMARK_OBSERVATION_UNKNOWN',{case_id:id});
+    const score=Number(observation?.score);
+    if(!Number.isFinite(score)) throw evalError('STABLE_BENCHMARK_OBSERVATION_SCORE_REQUIRED',{case_id:id});
+    byId.set(id,Math.max(0,Math.min(1,score)));
+  }
+
+  const results=suite.cases.map(testCase=>{
+    const present=byId.has(testCase.id);
+    return {
+      id:testCase.id,
+      domain:testCase.domain,
+      weight:Number(testCase.weight||1),
+      score:present?byId.get(testCase.id):0,
+      error:present?null:'MISSING_OBSERVATION',
+      evidence:null,
+      learning_case_id:testCase.learning_case_id||null,
+    };
+  });
+  const scored=scoreBenchmarkResults(results);
+  return {
+    schema:'mel.stable-benchmark-run',
+    version:1,
+    suite_id:suite.id,
+    suite_kind:suite.kind,
+    suite_version:suite.version,
+    suite_digest:meta.suite_digest,
+    registry_digest:catalog.registry_digest,
+    results,
+    failures:results.filter(row=>row.error).map(row=>({id:row.id,error:row.error})),
+    ...scored,
+  };
+}
+
 export async function runStableBenchmarkSuite({
   suiteId,
   evaluator,
