@@ -590,6 +590,113 @@ jobs:
           console.log('Production MEL-EVOL-05 CapabilityBus -> D1 Skill Registry read proof passed.');
           NODE
 
+          # GEN2-51: prove the deployed semantic v1 facade with release-only auth.
+          curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --dump-header production-gen2-51-version.headers \
+            --output production-gen2-51-version.json \
+            "${BASE_URL}/api/v1/version"
+          EXPECTED_SHA="$EXPECTED_SHA" node - <<'NODE'
+          const fs=require('fs');
+          const body=JSON.parse(fs.readFileSync('production-gen2-51-version.json','utf8'));
+          const headers=fs.readFileSync('production-gen2-51-version.headers','utf8').toLowerCase();
+          if(body?.current_version!=='v1') throw new Error('GEN2_51_PRODUCTION_VERSION_BODY_FAILED');
+          if(!headers.includes('x-mel-api-version: v1')) throw new Error('GEN2_51_PRODUCTION_VERSION_HEADER_FAILED');
+          if(!headers.includes('x-mel-api-route-status: canonical')) throw new Error('GEN2_51_PRODUCTION_ROUTE_STATUS_FAILED');
+          console.log('Production GEN2-51 semantic API proof passed.');
+          NODE
+
+          # MEL-COUNCIL-02: execute the actual zero-added-cost Council and prove independent critiques + MEL synthesis.
+          COUNCIL_CODE="$(curl --silent --show-error --max-time 120 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"id":"model.council","input":{"request":{"prompt":"Production release proof: independently critique whether an exact-SHA deployment gate is safer than an unpinned deployment. Keep the answer concise."},"capability":"GENERAL","maxCandidates":3,"timeoutMs":60000}}' \
+            --output production-mel-council-02.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute")"
+          if [ "$COUNCIL_CODE" != "200" ]; then
+            echo "MEL-COUNCIL-02 production Council returned HTTP ${COUNCIL_CODE}."
+            test ! -s production-mel-council-02.json || cat production-mel-council-02.json
+            exit 52
+          fi
+          node - <<'NODE'
+          const fs=require('fs');
+          const body=JSON.parse(fs.readFileSync('production-mel-council-02.json','utf8'));
+          const r=body?.result||{};
+          if(body?.ok!==true || body?.capability!=='model.council') throw new Error('MEL_COUNCIL_02_CAPABILITY_NOT_OK');
+          if(!Array.isArray(r.critiques) || r.critiques.length<2) throw new Error('MEL_COUNCIL_02_INDEPENDENT_CRITIQUES_MISSING');
+          if(Number(r.independent_response_count||0)<2 || Number(r.unique_model_count||0)<2) throw new Error('MEL_COUNCIL_02_UNIQUENESS_FAILED');
+          if(r?.synthesis?.status!=='COMPLETE' || !String(r?.synthesis?.text||'').trim()) throw new Error('MEL_COUNCIL_02_SYNTHESIS_FAILED');
+          for(const c of r.critiques){
+            if(!c?.identity || !c?.provenance?.provider || !c?.provenance?.model) throw new Error('MEL_COUNCIL_02_PROVENANCE_MISSING');
+            if(c?.cost?.allowed!==true || c?.cost?.policy!=='ZERO_ADDED_COST_ONLY') throw new Error('MEL_COUNCIL_02_ZERO_COST_PROOF_FAILED');
+          }
+          console.log('Production MEL-COUNCIL-02 independent critique + synthesis proof passed.');
+          NODE
+
+          # GEN2-38: prove pure planning, zero-cost provider planning, and durable D1 Goal/Task persistence.
+          PLAN_ID="release-proof-${EXPECTED_SHA:0:12}"
+          PLAN_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"id":"work.plan","input":{"goal":"Release proof plan","steps":[{"id":"step-1","title":"Echo proof","capability":"echo","input":{"value":"planning-proof"},"idempotent":true}]}}' \
+            --output production-gen2-38-plan.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute")"
+          test "$PLAN_CODE" = "200"
+
+          GEN_PLAN_CODE="$(curl --silent --show-error --max-time 120 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"id":"work.plan.generate","input":{"goal":"Produce a one-step safe read-only diagnostic plan using only an actually available capability.","constraints":["No side effects","Use only listed capabilities"],"maxCandidates":3}}' \
+            --output production-gen2-38-generated.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute")"
+          test "$GEN_PLAN_CODE" = "200"
+
+          SAVE_BODY="$(node -e 'const id=process.argv[1]; process.stdout.write(JSON.stringify({id:"work.plan.save",input:{id,goal:"GEN2-38 production D1 proof",steps:[{id:"step-1",title:"Echo proof",capability:"echo",input:{value:"d1-proof"},idempotent:true}]}}))' "$PLAN_ID")"
+          SAVE_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data "$SAVE_BODY" \
+            --output production-gen2-38-saved.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute")"
+          if [ "$SAVE_CODE" != "200" ]; then
+            echo "GEN2-38 durable plan save returned HTTP ${SAVE_CODE}."
+            test ! -s production-gen2-38-saved.json || cat production-gen2-38-saved.json
+            exit 53
+          fi
+
+          GET_BODY="$(node -e 'process.stdout.write(JSON.stringify({id:"work.plan.get",input:{id:process.argv[1]}}))' "$PLAN_ID")"
+          GET_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data "$GET_BODY" \
+            --output production-gen2-38-read.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute")"
+          test "$GET_CODE" = "200"
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const pure=JSON.parse(fs.readFileSync('production-gen2-38-plan.json','utf8'));
+          const generated=JSON.parse(fs.readFileSync('production-gen2-38-generated.json','utf8'));
+          const saved=JSON.parse(fs.readFileSync('production-gen2-38-saved.json','utf8'));
+          const read=JSON.parse(fs.readFileSync('production-gen2-38-read.json','utf8'));
+          if(pure?.ok!==true || pure?.result?.ok!==true || !Array.isArray(pure?.result?.nodes)) throw new Error('GEN2_38_PURE_PLAN_FAILED');
+          if(generated?.ok!==true || generated?.result?.ok!==true || generated?.result?.generator?.execution_started!==false || generated?.result?.generator?.persisted!==false) throw new Error('GEN2_38_ZERO_COST_GENERATION_FAILED');
+          if(saved?.ok!==true || !saved?.result?.id) throw new Error('GEN2_38_D1_SAVE_FAILED');
+          if(read?.ok!==true || read?.result?.id!==saved?.result?.id || !Array.isArray(read?.result?.tasks)) throw new Error('GEN2_38_D1_READ_FAILED');
+          console.log('Production GEN2-38 planning + zero-cost generation + D1 persistence proof passed.');
+          NODE
+
           OBS_READINESS_CODE="$(curl --silent --show-error --max-time 60 \
             --header "x-mel-release-smoke: 1" \
             --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
