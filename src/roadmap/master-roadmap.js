@@ -112,7 +112,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P08', 'Connecteurs et web', [
-    item('GEN2-32', 'Connector SDK', 'PARTIAL', 'Catalogue manifest/scopes/health + snapshot portable et persistance D1 owner-scoped avec checksum/concurrence sont présents; implémenter OAuth2 générique state+PKCE avec token vault hors D1 puis prouver connect/restart/refresh/revoke avant DONE_VERIFIED.', 'P1'),
+    item('GEN2-32', 'Connector SDK', 'PARTIAL', 'Catalogue durable owner-scoped + OAuth2 Authorization Code/PKCE générique + client HTTP endpoints fixes + hooks scopes/health sont implémentés; brancher un token/transaction vault chiffré de production et prouver connect/restart/refresh/revoke sur fournisseurs réels avant DONE_VERIFIED.', 'P1'),
     item('GEN2-33', 'Gmail / Google', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
     item('GEN2-34', 'Outlook / Microsoft', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P2'),
     item('GEN2-35', 'OneDrive / SharePoint', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
