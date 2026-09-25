@@ -122,6 +122,23 @@ async function consumePairCode(env, code) {
   return true;
 }
 
+async function authorizeAndroidBridge(request, env) {
+  const androidDeviceId = String(request.headers.get("x-mel-android-device-id") || "").trim();
+  const androidToken = String(request.headers.get("x-mel-android-token") || "").trim();
+  if (!androidDeviceId || !androidToken || !env?.DB) return false;
+  try {
+    const tokenHash = await sha256Hex(androidToken);
+    const row = await env.DB.prepare("SELECT device_id,revoked_at FROM android_device_tokens WHERE device_id=? AND token_hash=? LIMIT 1")
+      .bind(androidDeviceId, tokenHash).first();
+    if (!row || row.revoked_at != null) return false;
+    await env.DB.prepare("UPDATE android_device_tokens SET last_seen_at=? WHERE device_id=?")
+      .bind(Date.now(), androidDeviceId).run();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function issueDeviceToken(env, body) {
   const deviceId = String(body.device_id || "").trim().slice(0, 200);
   if (!deviceId) return json({ ok: false, code: "DEVICE_ID_REQUIRED" }, 400);
@@ -165,6 +182,15 @@ async function issueDeviceToken(env, body) {
 
 async function pairDevice(request, env) {
   const body = await request.json().catch(() => ({}));
+
+  // A previously paired Android companion may securely sponsor its attached MINI.
+  // This lets a restored MINI recover its own device token without requiring the
+  // user to type a fresh pair code on the physical screen.
+  if (await authorizeAndroidBridge(request, env)) {
+    await ensureTables(env);
+    return issueDeviceToken(env, body);
+  }
+
   if (body.pair_code) {
     await ensureTables(env);
     const valid = await consumePairCode(env, body.pair_code);
