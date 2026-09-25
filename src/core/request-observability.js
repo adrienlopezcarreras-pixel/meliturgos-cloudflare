@@ -45,7 +45,21 @@ export function withRequestTrace(request, trace) {
   if (!(request instanceof Request)) return request;
   const headers = new Headers(request.headers);
   headers.set(REQUEST_ID_HEADER, trace?.requestId || requestIdFromRequest(request));
-  return new Request(request, { headers });
+
+  // Cloudflare attaches platform metadata (notably request.cf) outside the
+  // standard Fetch Request fields. A plain Request clone can drop it, which
+  // changes downstream behaviour such as coarse network-location hints.
+  const platformCf = request.cf && typeof request.cf === 'object' ? request.cf : null;
+  const traced = new Request(request, platformCf ? { headers, cf: platformCf } : { headers });
+  if (platformCf && !traced.cf) {
+    try {
+      Object.defineProperty(traced, 'cf', {
+        value: platformCf,
+        configurable: true,
+      });
+    } catch {}
+  }
+  return traced;
 }
 
 export function requestDurationMs(trace, now = Date.now()) {
