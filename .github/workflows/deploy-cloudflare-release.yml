@@ -723,7 +723,11 @@ jobs:
             --output production-gen2-38-plan.json \
             --write-out '%{http_code}' \
             "${BASE_URL}/api/gen2/capabilities/execute")"
-          test "$PLAN_CODE" = "200"
+          if [ "$PLAN_CODE" != "200" ]; then
+            echo "GEN2-38 pure plan returned HTTP ${PLAN_CODE}."
+            test ! -s production-gen2-38-plan.json || cat production-gen2-38-plan.json
+            exit 54
+          fi
 
           GEN_PLAN_CODE="$(curl --silent --show-error --max-time 120 \
             --header "x-mel-release-smoke: 1" \
@@ -733,7 +737,11 @@ jobs:
             --output production-gen2-38-generated.json \
             --write-out '%{http_code}' \
             "${BASE_URL}/api/gen2/capabilities/execute")"
-          test "$GEN_PLAN_CODE" = "200"
+          if [ "$GEN_PLAN_CODE" != "200" ]; then
+            echo "GEN2-38 generated plan returned HTTP ${GEN_PLAN_CODE}."
+            test ! -s production-gen2-38-generated.json || cat production-gen2-38-generated.json
+            exit 55
+          fi
 
           SAVE_BODY="$(node -e 'const id=process.argv[1]; process.stdout.write(JSON.stringify({id:"work.plan.save",input:{id,goal:"GEN2-38 production D1 proof",steps:[{id:"step-1",title:"Echo proof",capability:"echo",input:{value:"d1-proof"},idempotent:true}]}}))' "$PLAN_ID")"
           SAVE_CODE="$(curl --silent --show-error --max-time 60 \
@@ -759,7 +767,11 @@ jobs:
             --output production-gen2-38-read.json \
             --write-out '%{http_code}' \
             "${BASE_URL}/api/gen2/capabilities/execute")"
-          test "$GET_CODE" = "200"
+          if [ "$GET_CODE" != "200" ]; then
+            echo "GEN2-38 durable plan read returned HTTP ${GET_CODE}."
+            test ! -s production-gen2-38-read.json || cat production-gen2-38-read.json
+            exit 56
+          fi
 
           node - <<'NODE'
           const fs=require('fs');
