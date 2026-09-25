@@ -1,4 +1,8 @@
 import { fetchWebContent, validateUrl } from '../devices/web-capability.js';
+import {
+  rankWebSources,
+  summarizeWebSourceQuality,
+} from '../search/web-source-quality.js';
 
 /**
  * InternetService — bounded web research with provenance, rate limiting and safe fetches.
@@ -39,6 +43,10 @@ class InternetService {
       provenance: typeof page === 'object' ? {
         source_id: page.source_id,
         fetched_at: page.timestamp,
+        requested_url: page.requested_url || fallbackUrl,
+        final_url: page.url || fallbackUrl,
+        redirect_count: Number(page.redirect_count || 0),
+        redirect_chain: Array.isArray(page.redirect_chain) ? [...page.redirect_chain] : [page.url || fallbackUrl],
         content_type: page.content_type,
         fetch_duration_ms: page.fetch_duration_ms,
         truncated: page.truncated,
@@ -169,11 +177,18 @@ class InternetService {
       }
     }
 
-    const sources = officialSources.length ? officialSources : (directSources.length ? directSources : searchIndexes);
+    const rawSources = officialSources.length
+      ? officialSources
+      : (directSources.length ? directSources : searchIndexes);
+    const sources = rankWebSources(rawSources, {
+      preferredDomains: Array.isArray(domains) ? domains : [],
+    });
+    const qualitySummary = summarizeWebSourceQuality(sources);
     return {
       query: querySanitized,
       sources,
       citations_count: sources.length,
+      quality_summary: qualitySummary,
       depth,
       discovery: {
         official_seed_urls: officialSeedUrls,
@@ -187,7 +202,7 @@ class InternetService {
         direct_sources_loaded: directSources.length,
       },
       citation: this.buildCitation(sources),
-      summary: this.summarizeSources(sources),
+      summary: this.summarizeSources(sources, qualitySummary),
       provenance: {
         source_id: this.sourceId,
         timestamp: new Date().toISOString(),
@@ -222,13 +237,22 @@ class InternetService {
   }
 
   buildCitation(sources) {
-    return sources.map((source, i) => `[${i + 1}] ${source.title}\nURL: ${source.url}\nSnippet: ${source.snippet.slice(0, 200)}`).join('\n\n');
+    return sources.map((source, i) => {
+      const quality = source?.quality || {};
+      const qualityLine = quality.band
+        ? `Evidence quality: ${quality.band} (${quality.score}/100; provenance heuristic, not truth score)\n`
+        : '';
+      return `[${i + 1}] ${source.title}\nURL: ${source.url}\n${qualityLine}Snippet: ${source.snippet.slice(0, 200)}`;
+    }).join('\n\n');
   }
 
-  summarizeSources(sources) {
+  summarizeSources(sources, qualitySummary = null) {
     if (!sources.length) return 'No sources found or all sources failed to load.';
     const titles = [...new Set(sources.map(source => source.title))];
-    return `Found ${sources.length} relevant sources covering: ${titles.slice(0, 5).join(', ') || 'multiple topics'}.`;
+    const quality = qualitySummary
+      ? ` Provenance mix: ${qualitySummary.bands.HIGH_PROVENANCE} high-provenance, ${qualitySummary.bands.DIRECT_EVIDENCE} direct-evidence, ${qualitySummary.bands.DISCOVERY_ONLY} discovery-only.`
+      : '';
+    return `Found ${sources.length} relevant sources covering: ${titles.slice(0, 5).join(', ') || 'multiple topics'}.${quality}`;
   }
 }
 
