@@ -249,6 +249,52 @@ export class D1PlanningStore {
     return publicRecord(record);
   }
 
+
+  async syncFromWork(planId, dag) {
+    const record = await this.loadRecord(planId);
+    if (!record) throw planningError('WORK_PLAN_NOT_FOUND');
+    if (!record.work_dag_id) throw planningError('WORK_PLAN_DAG_NOT_LINKED');
+    if (!dag || dag.id !== record.work_dag_id || !Array.isArray(dag.nodes)) {
+      throw planningError('WORK_PLAN_DAG_MISMATCH');
+    }
+
+    const statusMap = {
+      PENDING: TASK_STATUSES.PENDING,
+      RUNNING: TASK_STATUSES.RUNNING,
+      WAITING_TEACHER: TASK_STATUSES.BLOCKED,
+      COMPLETED: TASK_STATUSES.COMPLETED,
+      FAILED: TASK_STATUSES.BLOCKED,
+      BLOCKED: TASK_STATUSES.BLOCKED,
+    };
+    const now = Date.now();
+    const changed = [];
+
+    for (const task of record.tasks) {
+      const node = dag.nodes.find((candidate) => candidate.id === task.id);
+      if (!node) throw planningError('WORK_PLAN_DAG_TASK_MISMATCH');
+      const next = statusMap[String(node.status || '')];
+      if (!next) throw planningError('WORK_PLAN_DAG_STATUS_INVALID');
+      if (task.status !== next) {
+        changed.push({ task_id: task.id, from: task.status, to: next });
+        task.status = next;
+        task.updated_at = now;
+      }
+    }
+
+    record.status = derivePlanStatus(record.tasks);
+    record.updated_at = now;
+    const serialized = JSON.stringify(record);
+    if (new TextEncoder().encode(serialized).length > MAX_RECORD_BYTES) throw planningError('WORK_PLAN_RECORD_TOO_LARGE');
+    await this.db.prepare('UPDATE work_plans SET status=?,record_json=?,updated_at=? WHERE id=?')
+      .bind(record.status, serialized, now, record.id).run();
+    await this.appendEvent(record.id, 'WORK_DAG_SYNCED', {
+      work_dag_id: record.work_dag_id,
+      work_status: String(dag.status || ''),
+      changed,
+    });
+    return publicRecord(record);
+  }
+
   async linkWorkDag(planId, workDagId) {
     const record = await this.loadRecord(planId);
     if (!record) throw planningError('WORK_PLAN_NOT_FOUND');
