@@ -341,8 +341,8 @@ export default {
     }
 
     if (resolution.method_not_allowed) {
-      const authPolicyResponse = requireAuth(request, env).ok ? null : requireAuth(request, env).response;
-      if (authPolicyResponse) return authPolicyResponse;
+      const auth = requireAuth(request, env);
+      if (!auth.ok) return auth.response;
       return apiMethodNotAllowedResponse(resolution);
     }
 
