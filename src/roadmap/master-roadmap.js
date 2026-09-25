@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.20';;
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.21';;
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -168,7 +168,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-RES-01', 'Survival Mode: NORMAL/DEGRADED/READ_ONLY/RECOVERY/HALTED', 'DONE_VERIFIED', 'Brancher télémétrie runtime', 'P0'),
     item('MEL-RES-02', 'Recovery Bundle', 'DONE_VERIFIED', 'Ajouter vérification périodique de l’artefact de récupération', 'P0'),
     item('MEL-RES-03', 'Provider Escape Capsule', 'PARTIAL', 'Documenter le remplacement AI/storage/runtime sans redéployer toute l’architecture', 'P1'),
-    item('MEL-RES-04', 'Cold standby autorisé', 'PLANNED', 'Préparer restauration manuelle/approuvée', 'P2'),
+    item('MEL-RES-04', 'Cold standby autorisé', 'IN_PROGRESS', 'Capability runtime de préparation manuelle ajoutée: elle exige owner + approbation explicite, rejoue un recovery drill isolé sur une sauvegarde vérifiée, refuse les destinations non autorisées/non chiffrées et produit un plan lié au manifest exact. Aucune capability d’activation n’est exposée et aucune bascule automatique n’est possible. Reste avant DONE_VERIFIED: déployer, prouver la préparation live sur une sauvegarde production puis brancher un vrai adaptateur de destination froide externe pour copie/restauration manuelle approuvée.', 'P2'),
     item('MEL-RES-05', 'Intégrité mémoire et sauvegardes chiffrées', 'PARTIAL', 'Checksums + chiffrement + restore test', 'P1')
   ]),
 
