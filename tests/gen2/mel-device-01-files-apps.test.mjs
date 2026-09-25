@@ -109,7 +109,6 @@ test('MEL-DEVICE-01 path normalization keeps only absolute local Windows roots',
   });
   assert.deepEqual(normalized.sandbox.allowed_paths,[
     'C:\\Users\\Adrien\\Documents',
-    'C:\\Users\\Adrien\\Documents',
   ]);
 });
 
