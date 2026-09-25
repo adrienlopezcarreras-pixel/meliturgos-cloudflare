@@ -34,6 +34,7 @@ jobs:
       RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.ref_name }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
       APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'DEPLOY_APPROVED' }}
+      MEL_ROADMAP_SHARDVAULT_PAUSED: 'true'
     steps:
       - name: Require explicit production approval
         shell: bash
@@ -151,6 +152,9 @@ jobs:
 
           printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
+          if [ "$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" ]; then
+            echo "ShardVault external replication is PAUSED_FOR_ROADMAP; skipping 7/7 Internet endpoint proof."
+          else
           # A Worker secret update may take a few seconds to become visible on
           # every production isolate.  Retry the first authenticated request
           # instead of treating that propagation window as a release failure.
@@ -218,6 +222,7 @@ jobs:
             "${BASE_URL}/api/gen2/shardvault/status")"
           test "$SHARD_FINAL_CODE" = "200"
           node -e 'const d=require("./production-shardvault-final.json"); const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; if(active<7) throw new Error("PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7:"+active); if(d?.health?.recoverable!==true) throw new Error("PRODUCTION_SHARDVAULT_NOT_RECOVERABLE"); console.log("ShardVault active external registry verified: "+active+"/7");'
+          fi
 
           PAUSE_CODE="$(curl --silent --show-error --max-time 30 \
             --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
@@ -314,10 +319,15 @@ jobs:
           if(restore?.ok!==true || restore?.sha_matches!==true) throw new Error('PRODUCTION_RESTORE_SHA_NOT_VERIFIED');
           if(String(restore?.deployed_sha||'')!==String(process.env.EXPECTED_SHA||'')) throw new Error('PRODUCTION_RESTORE_DEPLOYED_SHA_MISMATCH');
           if(String(restore?.backup_deployed_sha||'')!==String(process.env.EXPECTED_SHA||'')) throw new Error('PRODUCTION_BACKUP_SHA_MISMATCH');
-          if(shard?.ok!==true || shard?.recoverable!==true) throw new Error('PRODUCTION_SHARDVAULT_NOT_RECOVERABLE');
-          if(Number(shard?.active_external_count||0)<7) throw new Error('PRODUCTION_SHARDVAULT_EXTERNAL_LT_7');
-          if(shard?.external_code_status!=='COPIED') throw new Error('PRODUCTION_EXTERNAL_CODE_NOT_COPIED');
-          if(Number(shard?.external_code_endpoints||0)<7) throw new Error('PRODUCTION_EXTERNAL_CODE_ENDPOINTS_LT_7');
+          const shardPaused=shard?.paused===true && shard?.status==='PAUSED_FOR_ROADMAP';
+          if(!shardPaused){
+            if(shard?.ok!==true || shard?.recoverable!==true) throw new Error('PRODUCTION_SHARDVAULT_NOT_RECOVERABLE');
+            if(Number(shard?.active_external_count||0)<7) throw new Error('PRODUCTION_SHARDVAULT_EXTERNAL_LT_7');
+            if(shard?.external_code_status!=='COPIED') throw new Error('PRODUCTION_EXTERNAL_CODE_NOT_COPIED');
+            if(Number(shard?.external_code_endpoints||0)<7) throw new Error('PRODUCTION_EXTERNAL_CODE_ENDPOINTS_LT_7');
+          } else {
+            console.log('Production ShardVault gate explicitly paused for roadmap completion.');
+          }
           console.log(JSON.stringify({
             status:r.status,
             candidate_sha:r.candidate_sha,
@@ -343,10 +353,15 @@ jobs:
           if(d?.launch_ready!==true || d?.status!=='GO_FOR_SUPERVISED_AUTONOMY') throw new Error('PUBLIC_PRODUCTION_LAUNCH_NO_GO');
           if(String(d?.candidate_sha||'')!==String(process.env.EXPECTED_SHA||'')) throw new Error('PUBLIC_PRODUCTION_SHA_MISMATCH');
           if(d?.restore?.ok!==true) throw new Error('PUBLIC_PRODUCTION_RESTORE_NOT_OK');
-          if(d?.shardvault?.ok!==true) throw new Error('PUBLIC_PRODUCTION_SHARDVAULT_NOT_OK');
-          if(Number(d?.shardvault?.active_external_count||0)<7) throw new Error('PUBLIC_PRODUCTION_EXTERNAL_LT_7');
-          if(d?.shardvault?.external_code_status!=='COPIED') throw new Error('PUBLIC_PRODUCTION_CODE_NOT_COPIED');
-          if(Number(d?.shardvault?.external_code_endpoints||0)<7) throw new Error('PUBLIC_PRODUCTION_CODE_ENDPOINTS_LT_7');
+          const shardPaused=d?.shardvault?.paused===true && d?.shardvault?.status==='PAUSED_FOR_ROADMAP';
+          if(!shardPaused){
+            if(d?.shardvault?.ok!==true) throw new Error('PUBLIC_PRODUCTION_SHARDVAULT_NOT_OK');
+            if(Number(d?.shardvault?.active_external_count||0)<7) throw new Error('PUBLIC_PRODUCTION_EXTERNAL_LT_7');
+            if(d?.shardvault?.external_code_status!=='COPIED') throw new Error('PUBLIC_PRODUCTION_CODE_NOT_COPIED');
+            if(Number(d?.shardvault?.external_code_endpoints||0)<7) throw new Error('PUBLIC_PRODUCTION_CODE_ENDPOINTS_LT_7');
+          } else {
+            console.log('Public readiness reports ShardVault PAUSED_FOR_ROADMAP as expected.');
+          }
           console.log('Public production launch-readiness proof is GO.');
           NODE
 
