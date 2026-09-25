@@ -36,6 +36,10 @@ function isPreview(env = {}) {
     || String(env?.MEL_RUNTIME_ENV || '').toLowerCase() === 'preview';
 }
 
+function shardVaultRoadmapPaused(env = {}) {
+  return String(env?.MEL_SHARDVAULT_ROADMAP_PAUSED || '').toLowerCase() === 'true';
+}
+
 function roadmapId(job) {
   return String(job?.optional_context?.roadmap_id || '').trim() || null;
 }
@@ -182,6 +186,22 @@ export async function evaluateRestoreReadiness(env) {
 }
 
 export async function evaluateShardVaultLaunchReadiness(env) {
+  if (shardVaultRoadmapPaused(env)) {
+    return {
+      ok: true,
+      status: 'PAUSED_FOR_ROADMAP',
+      paused: true,
+      enabled: false,
+      recoverable: false,
+      active_external_count: 0,
+      external_code_status: 'PAUSED_FOR_ROADMAP',
+      external_code_endpoints: 0,
+      target_count: 7,
+      temporary: true,
+      resume_condition: 'ROADMAP_COMPLETE',
+    };
+  }
+
   if (isPreview(env)) {
     // The isolated preview workflow executes the destructive/live Internet
     // ShardVault probe after autonomy bootstrap. Do not make that probe depend
@@ -349,6 +369,22 @@ export async function prepareAutonomyLaunchBackup(env) {
 }
 
 export async function prepareAutonomyLaunchCodeSync(env) {
+  if (shardVaultRoadmapPaused(env)) {
+    return {
+      ok: true,
+      complete: true,
+      status: 'PAUSED_FOR_ROADMAP',
+      code_sync: {
+        ok: true,
+        complete: true,
+        paused: true,
+        status: 'PAUSED_FOR_ROADMAP',
+        target_count: 7,
+        endpoints: [],
+        successful_endpoints: [],
+      },
+    };
+  }
   if (isPreview(env)) return { ok: true, complete: true, status: 'SKIPPED_PREVIEW', code_sync: null };
   try {
     const raw = await syncShardVaultCodeExternally(env);
