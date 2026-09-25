@@ -83,7 +83,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-AUG-02', 'Zero-Euro Governor fail-closed', 'DONE_VERIFIED', 'Maintenir le refus des coûts inconnus, non autorisés ou non prouvés à zéro', 'P0'),
     item('GEN2-05', 'Model Council / benchmarks', 'DONE_VERIFIED', 'Preuve live Cloudflare run 35708004479 sur SHA 1a0f1bdf0461b133c31eb5447873ced85ccb4bc3 : capability model.council via CapabilityBus, 2 modèles Workers AI distincts, 0 échec provider, synthèse MEL séparée complète, provenance/coût zéro/latences vérifiés et preuve Workers Free courte fail-closed.', 'P0'),
     item('MEL-COUNCIL-01', 'Pré-audit multi-IA obligatoire avant développement', 'DONE_VERIFIED', 'Brancher le Council réel au Module Lab', 'P0'),
-    item('MEL-COUNCIL-02', 'Critiques indépendantes + synthèse MEL', 'PARTIAL', 'Ajouter rôles architecte, sécurité, test, produit', 'P1'),
+    item('MEL-COUNCIL-02', 'Critiques indépendantes + synthèse MEL', 'DONE', 'Le chemin runtime canonique council.state-of-play utilise runAugmentioStateOfPlay avec 4 rôles obligatoires indépendants: ARCHITECTURE_REUSE, SECURITY_GOVERNANCE, TESTS_EVIDENCE et PRODUCT_INTEGRATION; fallback zero-cost par rôle, couverture fail-closed si un rôle manque et synthèse MEL séparée obligatoire. tests/augmentio-council.test.mjs verts dans full-candidate-ci 36113792416 et 36114069659. Garder DONE jusqu’à full suite globale verte avant éventuel DONE_VERIFIED.', 'P1'),
     item('MEL-COUNCIL-03', 'Teacher escalation vers ChatGPT/autres IA', 'PARTIAL', 'Standardiser provenance, paquet de revue et handoff avec le protocole multi-IA canonique', 'P1'),
     item('MEL-COUNCIL-04', 'Apprentissage du meilleur modèle selon la tâche', 'PLANNED', 'Stocker score qualité/coût/latence par tâche', 'P1')
   ]),
