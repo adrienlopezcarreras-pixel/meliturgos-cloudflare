@@ -360,13 +360,18 @@ export class OAuth2PkceRuntime {
 
     const status = publicTokenStatus(tokenSet, connectorId);
     if (this.onAuthorized) {
-      await this.onAuthorized({
-        owner,
-        connector_id: connectorId,
-        connector_version: transaction.connector_version,
-        granted_scopes: [...tokenSet.scopes],
-        status,
-      }, context);
+      try {
+        await this.onAuthorized({
+          owner,
+          connector_id: connectorId,
+          connector_version: transaction.connector_version,
+          granted_scopes: [...tokenSet.scopes],
+          status,
+        }, context);
+      } catch (error) {
+        await this.tokenVault.delete({ owner, connector_id: connectorId });
+        throw error;
+      }
     }
     return status;
   }
