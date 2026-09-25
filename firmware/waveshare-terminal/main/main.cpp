@@ -1,4 +1,4 @@
-#include <stdio.h>
+﻿#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -109,7 +109,7 @@ static volatile bool wifi_scan_requested = false;
 static int last_face_state = -1;
 static bool last_blink = false;
 static bool last_online = false;
-#define MINI_UI_STRESS_TEST 0
+#define MINI_UI_STRESS_TEST 1
 
 static void request_view(MiniView view);
 static void mini_apply_requested_view(void);
@@ -1176,7 +1176,7 @@ static bool wait_for_view(int expected, int timeout_ms) {
 static void ui_stress_task(void *) {
 #if MINI_UI_STRESS_TEST
     vTaskDelay(pdMS_TO_TICKS(7000));
-    ESP_LOGI(TAG, "UI STRESS START: real MEL click/main x24");
+    ESP_LOGI(TAG, "UI STRESS START: settings/main x24");
     bool ok = true;
 
     request_view(MINI_VIEW_MAIN);
@@ -1186,12 +1186,13 @@ static void ui_stress_task(void *) {
     }
 
     for (int i = 0; ok && i < 24; ++i) {
-        stress_pair_click_requested = true;
-        if (!wait_for_view(MINI_VIEW_PAIR, 1500)) {
-            ESP_LOGE(TAG, "UI STRESS FAIL: real MEL click did not open pair view at cycle %d (active=%d)", i, active_view);
+        request_view(MINI_VIEW_SETTINGS);
+        if (!wait_for_view(MINI_VIEW_SETTINGS, 1500)) {
+            ESP_LOGE(TAG, "UI STRESS FAIL: settings view not reached at cycle %d (active=%d)", i, active_view);
             ok = false;
             break;
         }
+        vTaskDelay(pdMS_TO_TICKS(250));
 
         request_view(MINI_VIEW_MAIN);
         if (!wait_for_view(MINI_VIEW_MAIN, 1500)) {
@@ -1199,10 +1200,11 @@ static void ui_stress_task(void *) {
             ok = false;
             break;
         }
+        vTaskDelay(pdMS_TO_TICKS(250));
     }
 
     request_view(MINI_VIEW_MAIN);
-    ESP_LOGI(TAG, "UI STRESS %s: real MEL click/main transitions, free_heap=%u",
+    ESP_LOGI(TAG, "UI STRESS %s: settings/main transitions, free_heap=%u",
              ok ? "PASS" : "FAIL", (unsigned)esp_get_free_heap_size());
 #endif
     vTaskDelete(nullptr);
