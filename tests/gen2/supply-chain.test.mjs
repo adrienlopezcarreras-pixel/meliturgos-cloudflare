@@ -4,7 +4,8 @@ import {
   RUNTIME_SBOM_SCHEMA,
   assertRuntimeSupplyChain,
   buildRuntimeSbom,
-  evaluateRuntimeSupplyChain
+  evaluateRuntimeSupplyChain,
+  normalizeNpmAuditEvidence
 } from '../../src/security/supply-chain.js';
 
 function fixture({ host = 'registry.npmjs.org' } = {}) {
@@ -168,4 +169,40 @@ test('clean verified runtime evidence produces a portable deterministic gate res
   assert.equal(first.ok, true);
   assert.deepEqual(first.blockers, []);
   assert.equal(first.sbom.root.name, 'mel-test');
+});
+
+
+test('npm audit evidence is accepted only when vulnerability metadata is present and no registry error exists', () => {
+  const evidence = normalizeNpmAuditEvidence({
+    metadata: {
+      vulnerabilities: { info: 0, low: 1, moderate: 2, high: 0, critical: 0, total: 3 },
+    },
+  });
+  assert.deepEqual(evidence, {
+    verified: true,
+    source: 'npm-audit-runtime-ci',
+    vulnerabilities: { low: 1, moderate: 2, high: 0, critical: 0 },
+  });
+
+  assert.throws(
+    () => normalizeNpmAuditEvidence({ error: { summary: 'registry unavailable' } }),
+    /SUPPLY_CHAIN_NPM_AUDIT_UNVERIFIED/,
+  );
+  assert.throws(
+    () => normalizeNpmAuditEvidence({ metadata: {} }),
+    /SUPPLY_CHAIN_NPM_AUDIT_UNVERIFIED/,
+  );
+});
+
+test('unreachable npm audit cannot be converted into clean supply-chain evidence', () => {
+  const { packageJson, packageLock } = fixture();
+  assert.throws(
+    () => {
+      const audit = normalizeNpmAuditEvidence({
+        error: { summary: 'audit endpoint returned an error' },
+      });
+      return assertRuntimeSupplyChain({ packageJson, packageLock, audit });
+    },
+    /SUPPLY_CHAIN_NPM_AUDIT_UNVERIFIED/,
+  );
 });

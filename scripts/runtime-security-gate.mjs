@@ -1,4 +1,11 @@
+import { readFile, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
+import process from 'node:process';
+
+import {
+  assertRuntimeSupplyChain,
+  normalizeNpmAuditEvidence,
+} from '../src/security/supply-chain.js';
 
 function run(args) {
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -8,41 +15,62 @@ function run(args) {
   });
 }
 
+function fail(message, code = 1) {
+  process.stderr.write(String(message || 'Runtime supply-chain gate failed') + '\n');
+  process.exit(code || 1);
+}
+
 const tree = run(['ls', '--omit=dev', '--all', '--json']);
 if (tree.status !== 0) {
-  process.stderr.write(tree.stderr || tree.stdout || 'npm ls failed\n');
-  process.exit(tree.status || 1);
+  fail(tree.stderr || tree.stdout || 'npm ls runtime tree failed', tree.status);
 }
 
-const audit = run(['audit', '--omit=dev', '--audit-level=high', '--json']);
-if (audit.status === 0) {
-  process.stdout.write(audit.stdout || '{"ok":true}\n');
-  process.exit(0);
+const auditRun = run(['audit', '--omit=dev', '--audit-level=high', '--json']);
+let auditPayload;
+try {
+  auditPayload = JSON.parse(auditRun.stdout || '');
+} catch {
+  fail(auditRun.stderr || auditRun.stdout || 'npm audit returned non-JSON evidence');
 }
 
-let payload = null;
-try { payload = JSON.parse(audit.stdout || '{}'); } catch {}
-
-const counts = payload?.metadata?.vulnerabilities || {};
-const high = Number(counts.high || 0);
-const critical = Number(counts.critical || 0);
-if (high > 0 || critical > 0) {
-  process.stderr.write(audit.stdout || audit.stderr || 'High/critical npm vulnerabilities detected\n');
-  process.exit(1);
+let audit;
+try {
+  audit = normalizeNpmAuditEvidence(auditPayload);
+} catch (error) {
+  fail(`${error?.code || error?.message || 'SUPPLY_CHAIN_NPM_AUDIT_UNVERIFIED'}\n${auditRun.stderr || auditRun.stdout || ''}`);
 }
 
-const message = String(payload?.error?.summary || payload?.error?.detail || audit.stderr || audit.stdout || '');
-const registryFailure = /400 Bad Request|Invalid package tree|endpoint is being retired|audit endpoint returned an error/i.test(message);
-if (!registryFailure) {
-  process.stderr.write(audit.stdout || audit.stderr || 'npm audit failed\n');
-  process.exit(audit.status || 1);
+let packageJson;
+let packageLock;
+try {
+  packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  packageLock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url), 'utf8'));
+} catch (error) {
+  fail(error?.message || 'Runtime package metadata unreadable');
 }
 
+let result;
+try {
+  result = assertRuntimeSupplyChain({
+    packageJson,
+    packageLock,
+    audit,
+  });
+} catch (error) {
+  fail(error?.code || error?.message || 'Runtime supply-chain policy rejected');
+}
+
+if (auditRun.status !== 0) {
+  fail(auditRun.stderr || auditRun.stdout || 'npm audit exited non-zero despite parsed evidence', auditRun.status);
+}
+
+const output = process.env.MEL_RUNTIME_SBOM_OUTPUT || 'runtime-sbom.json';
+await writeFile(output, JSON.stringify(result, null, 2) + '\n', 'utf8');
 process.stdout.write(JSON.stringify({
   ok: true,
-  status: 'AUDIT_REGISTRY_UNAVAILABLE',
-  dependency_tree_verified: true,
-  high,
-  critical,
-  note: 'npm registry audit endpoint failed without reporting high/critical vulnerabilities; npm ls runtime tree is valid.'
+  schema: result.schema,
+  components: result.sbom.component_count,
+  direct_runtime_dependencies: result.sbom.direct_runtime_dependencies,
+  vulnerabilities: result.audit.vulnerabilities,
+  sbom_output: output,
 }, null, 2) + '\n');

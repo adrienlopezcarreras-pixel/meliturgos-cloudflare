@@ -168,6 +168,31 @@ export function buildRuntimeSbom({ packageJson, packageLock, policy = {} }) {
   });
 }
 
+export function normalizeNpmAuditEvidence(payload, { source = 'npm-audit-runtime-ci' } = {}) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('SUPPLY_CHAIN_NPM_AUDIT_INVALID');
+  }
+  if (payload.error) throw new Error('SUPPLY_CHAIN_NPM_AUDIT_UNVERIFIED');
+  const counts = payload.metadata?.vulnerabilities;
+  if (!counts || typeof counts !== 'object' || Array.isArray(counts)) {
+    throw new Error('SUPPLY_CHAIN_NPM_AUDIT_UNVERIFIED');
+  }
+
+  const vulnerabilities = {};
+  for (const severity of SEVERITIES) {
+    vulnerabilities[severity] = nonNegativeInteger(
+      Number(counts[severity] ?? 0),
+      'SUPPLY_CHAIN_NPM_AUDIT_INVALID',
+    );
+  }
+
+  return normalizeAuditEvidence({
+    verified: true,
+    source,
+    vulnerabilities,
+  });
+}
+
 export function evaluateRuntimeSupplyChain({ packageJson, packageLock, audit, policy = {} }) {
   const normalizedPolicy = normalizePolicy(policy);
   const sbom = buildRuntimeSbom({ packageJson, packageLock, policy });

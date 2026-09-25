@@ -33,6 +33,13 @@ jobs:
           exit $code
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
+      - name: Upload runtime SBOM evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-sbom
+          path: runtime-sbom.json
+          retention-days: 14
+          if-no-files-found: error
       - name: Development dependency advisory report
         run: |
           npm audit --package-lock-only --audit-level=high || echo 'DEV_DEPENDENCY_ADVISORY_PRESENT - non-runtime tooling advisory recorded; runtime gate passed.'
