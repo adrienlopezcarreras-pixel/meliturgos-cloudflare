@@ -255,6 +255,49 @@ function approximateNetworkLocation(request) {
   return parts.join(", ").slice(0, 240);
 }
 
+function directAiText(result) {
+  if (typeof result === "string") return result.trim();
+  return String(
+    result?.response
+    ?? result?.text
+    ?? result?.message?.content
+    ?? result?.choices?.[0]?.message?.content
+    ?? result?.choices?.[0]?.text
+    ?? ""
+  ).trim();
+}
+
+async function androidDirectChatFallback(env,text,{voiceReply=false}={}) {
+  if (!env?.AI || typeof env.AI.run !== "function") return null;
+  const model = String(env.MEL_NATIVE_CHAT_FALLBACK_MODEL || "@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+  try {
+    const result = await env.AI.run(model,{
+      messages:[
+        {
+          role:"system",
+          content:"Tu es MEL. Réponds directement en français, de façon utile et concise. Ce chemin est un secours Android : n'invente pas d'action, de mémoire ni d'accès à un outil qui n'est pas présent dans cette requête."
+        },
+        {role:"user",content:String(text||"").slice(0,16000)}
+      ],
+      max_tokens:voiceReply ? 180 : 900
+    });
+    const reply = directAiText(result);
+    if (!reply) return null;
+    return json({
+      ok:true,
+      text:reply,
+      model,
+      provider:"workers-ai",
+      fallback_used:true,
+      android_direct_fallback:true,
+      archive_saved:false
+    });
+  } catch (error) {
+    console.error("[android-chat] direct fallback failed",error?.code||error?.message||error);
+    return null;
+  }
+}
+
 async function deviceChat(request,env,auth) {
   const body = await request.json().catch(()=>({}));
   const text = safe(body.text ?? body.message,100000);
@@ -280,7 +323,27 @@ async function deviceChat(request,env,auth) {
       },
     }),
   });
-  return handleNativeChat(internal,env,{authorized:true,source:"android-companion",device_id:auth.deviceId});
+  const voiceReply = body.voice_reply === true || inputSource !== "text";
+  let response = null;
+  let failure = null;
+  try {
+    response = await handleNativeChat(internal,env,{authorized:true,source:"android-companion",device_id:auth.deviceId});
+  } catch (error) {
+    failure = error;
+    console.error("[android-chat] native orchestration failed",error?.code||error?.message||error);
+  }
+
+  if (response && response.status < 500) return response;
+
+  const fallback = await androidDirectChatFallback(env,text,{voiceReply});
+  if (fallback) return fallback;
+  if (response) return response;
+  return json({
+    ok:false,
+    error:"CHAT_ANDROID_BACKEND_FAILED",
+    code:"CHAT_ANDROID_BACKEND_FAILED",
+    detail:String(failure?.code||failure?.message||"NATIVE_CHAT_FAILED").slice(0,180)
+  },503);
 }
 
 async function syncMessages(request,env,auth,url) {
