@@ -18,6 +18,18 @@ export class CapabilityBus {
     this.records.set(record.id, {record: structuredClone(storedRecord), execute, healthcheck: resolvedHealthcheck});
     return this.describe(record.id);
   }
+  replace(record, execute, healthcheck = null) {
+    for (const field of ['id','name','category','version','provider','description','input_schema','output_schema','risk','permissions','health','enabled']) requireValue(record[field] !== undefined, 'INVALID_CAPABILITY');
+    requireValue(this.records.has(record.id) && typeof execute === 'function' && Array.isArray(record.permissions) && typeof record.enabled === 'boolean', 'INVALID_CAPABILITY');
+    requireValue(isCapabilityApprovalPolicyValid(record.approval), 'INVALID_CAPABILITY');
+    const inlineHealthcheck = record.healthcheck ?? null;
+    const resolvedHealthcheck = healthcheck ?? inlineHealthcheck;
+    requireValue(resolvedHealthcheck === null || typeof resolvedHealthcheck === 'function', 'INVALID_CAPABILITY');
+    const storedRecord = { ...record };
+    delete storedRecord.healthcheck;
+    this.records.set(record.id, {record: structuredClone(storedRecord), execute, healthcheck: resolvedHealthcheck});
+    return this.describe(record.id);
+  }
   list() { return [...this.records.values()].map(x => structuredClone(x.record)); }
   search(query) { return this.list().filter(x => `${x.id} ${x.name} ${x.description}`.toLowerCase().includes(String(query).toLowerCase())); }
   describe(id) { const entry = this.records.get(id); requireValue(entry, 'CAPABILITY_NOT_FOUND', 404); return structuredClone(entry.record); }

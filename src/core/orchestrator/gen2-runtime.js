@@ -15,6 +15,7 @@ import { registerSelfStateCapability } from '../../capabilities/self-state-capab
 import { registerCommunicationAuditCapability } from '../../capabilities/communication-audit-capability.js';
 import { registerKnowledgeWorkspaceCapabilities } from '../../capabilities/knowledge-workspace-capabilities.js';
 import { validateManifest } from '../../plugins/validator.js';
+import { createD1PluginRegistryAdapter, createPluginRuntime, createRegistry, createRegistryBackedPluginLoader } from '../../plugins/sdk.js';
 import { transition } from '../lifecycle/extension.js';
 import { requireValue } from '../contracts.js';
 import { requireStateOfPlayCouncil } from '../../teachers/model-council.js';
@@ -64,7 +65,18 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
   registerSelfStateCapability(bus, env);
   registerCommunicationAuditCapability(bus, env);
   registerKnowledgeWorkspaceCapabilities(bus, env);
-  const plugins = new Map();
+  const pluginRegistry = env?.DB && typeof env.DB.prepare === 'function'
+    ? createRegistry(createD1PluginRegistryAdapter(env.DB))
+    : null;
+  const pluginRuntime = createPluginRuntime({ registry: pluginRegistry });
+  const pluginResolver = typeof env?.MEL_PLUGIN_RESOLVER === 'function' ? env.MEL_PLUGIN_RESOLVER : null;
+  const pluginLoader = pluginRegistry && pluginResolver
+    ? createRegistryBackedPluginLoader({
+        registry: pluginRegistry,
+        runtime: pluginRuntime,
+        resolvePlugin: pluginResolver,
+      })
+    : null;
   const modules = new Map();
   const agents = new Map();
 
@@ -82,13 +94,110 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
     return { ...record, handler: undefined };
   };
 
+  const capabilityManageContext = {
+    owner: 'runtime',
+    permissions: ['capabilities.manage'],
+    requestId: 'runtime-plugin-bootstrap',
+  };
+
+  const exposePluginOnBus = manifest => {
+    const capabilityName = manifest.capabilities?.[0] || 'execute';
+    const record = {
+      id: `plugin:${manifest.id}`,
+      name: manifest.name,
+      category: 'plugin',
+      version: manifest.version,
+      provider: manifest.author,
+      description: manifest.description,
+      input_schema: { type: 'object', additionalProperties: true },
+      output_schema: { type: 'object', additionalProperties: true },
+      risk: manifest.risk,
+      permissions: manifest.permissions,
+      health: 'HEALTHY',
+      enabled: true,
+    };
+    const execute = (input, context) => pluginRuntime.execute(manifest.id, capabilityName, input, context);
+    try {
+      bus.describe(record.id);
+      return bus.replace(record, execute);
+    } catch (error) {
+      if (error?.code !== 'CAPABILITY_NOT_FOUND') throw error;
+      return bus.discover(record, execute);
+    }
+  };
+
+  const requirePluginLoader = () => {
+    requireValue(pluginLoader, 'PLUGIN_DURABLE_RUNTIME_UNAVAILABLE', 503);
+    return pluginLoader;
+  };
+
+  const registerInlinePlugin = async (manifest, handler) => {
+    validateManifest(manifest, 'plugin');
+    requireValue(typeof handler === 'function', 'HANDLER_REQUIRED');
+    const capabilities = manifest.capabilities?.length ? [...manifest.capabilities] : ['execute'];
+    const runtimeManifest = { ...structuredClone(manifest), capabilities };
+    const runtimeCapabilities = Object.fromEntries(capabilities.map(name => [name, handler]));
+    const result = await pluginRuntime.register({
+      manifest: runtimeManifest,
+      capabilities: runtimeCapabilities,
+      async activate() {},
+      async deactivate() {},
+    }, {
+      owner: 'runtime',
+      permissions: runtimeManifest.permissions,
+      requestId: crypto.randomUUID(),
+      pluginPersistence: false,
+    });
+    requireValue(result.status === 'ACTIVE', result.error || 'PLUGIN_ACTIVATION_FAILED', 409);
+    exposePluginOnBus(result.manifest);
+    return result;
+  };
+
+  const loadDurablePlugin = async (input, context = {}) => {
+    const result = await requirePluginLoader().load(input, context);
+    if (result.status === 'ACTIVE') exposePluginOnBus(result.manifest);
+    return result;
+  };
+
+  const disablePlugin = async (id, context = {}) => {
+    const current = pluginRuntime.get(id);
+    let result;
+    if (current?.status === 'ACTIVE') {
+      result = await pluginRuntime.deactivate(id, {
+        owner: context.owner || 'runtime',
+        permissions: context.permissions || current.manifest.permissions || [],
+        requestId: context.requestId || crypto.randomUUID(),
+      });
+    } else if (pluginLoader) {
+      result = await pluginLoader.disable({ plugin_id: id }, context);
+    } else {
+      requireValue(current, 'PLUGIN_NOT_FOUND', 404);
+      result = current;
+    }
+
+    try { bus.disable(`plugin:${id}`, capabilityManageContext); }
+    catch (error) { if (error?.code !== 'CAPABILITY_NOT_FOUND') throw error; }
+    return result;
+  };
+
+  const rollbackPlugin = async (input, context = {}) => {
+    const result = await requirePluginLoader().rollback(input, context);
+    if (result?.active?.status === 'ACTIVE') exposePluginOnBus(result.active.manifest);
+    return result;
+  };
+
   return {
     bus,
     plugins: {
-      register: (manifest, handler) => registerExtension(plugins, 'plugin', manifest, handler),
-      get: id => plugins.get(id),
-      disable: id => { const row = plugins.get(id); requireValue(row, 'PLUGIN_NOT_FOUND', 404); bus.disable(`plugin:${id}`, { owner: 'runtime', permissions: ['capabilities.manage'] }); row.status = 'DISABLED'; return { ...row, handler: undefined }; },
-      execute: (id, input, context) => bus.execute(`plugin:${id}`, input, context)
+      register: registerInlinePlugin,
+      get: id => pluginRuntime.get(id),
+      disable: disablePlugin,
+      execute: (id, input, context) => bus.execute(`plugin:${id}`, input, context),
+      installCandidate: (input, context) => requirePluginLoader().installCandidate(input, context),
+      load: loadDurablePlugin,
+      health: input => requirePluginLoader().health(input),
+      rollback: rollbackPlugin,
+      durableAvailable: Boolean(pluginLoader),
     },
     modules: {
       register: (manifest, handler) => registerExtension(modules, 'module', manifest, handler),

@@ -77,7 +77,7 @@ export function createPluginRuntime(options = {}) {
   }
 
   function durableEvidence(manifest, context = {}) {
-    if (!registry) return null;
+    if (!registry || context.pluginPersistence === false) return null;
     requireValue(
       typeof context.pluginArtifactHash === 'string' && context.pluginArtifactHash.trim(),
       'PLUGIN_ARTIFACT_HASH_REQUIRED',
@@ -224,6 +224,7 @@ export function createPluginRuntime(options = {}) {
       manifest,
       capabilities,
       plugin,
+      durable: true,
       status: 'RESTORING',
       registered_at: now(),
       updated_at: now(),
@@ -296,6 +297,7 @@ export function createPluginRuntime(options = {}) {
       manifest,
       capabilities,
       plugin,
+      durable: false,
       status: 'CANDIDATE',
       registered_at: now(),
       updated_at: now(),
@@ -309,12 +311,13 @@ export function createPluginRuntime(options = {}) {
     try {
       ctx = activationContext(record, context);
       durable = durableEvidence(manifest, context);
+      record.durable = Boolean(durable);
       await prepareDurableActivation(manifest, durable);
       await emit('registering', record);
       await plugin.activate(ctx);
       activated = true;
 
-      if (registry) {
+      if (registry && durable) {
         await registry.register({
           ...durable,
           status: ACTIVE,
@@ -389,7 +392,7 @@ export function createPluginRuntime(options = {}) {
     if (record.status !== ACTIVE) return publicRecord(record);
     try {
       await record.plugin.deactivate(activationContext(record, context));
-      if (registry) {
+      if (registry && record.durable) {
         await registry.disable({
           plugin_id: record.manifest.id,
           version: record.manifest.version,

@@ -35,8 +35,8 @@ test('chat capability path crosses CapabilityBus and injects a trusted tool resu
 
 test('plugin, module, Module Lab and agent mock runtimes execute through one CapabilityBus', async () => {
   const runtime = createGen2Runtime(); const context = { owner: 'runtime', permissions: [], requestId: crypto.randomUUID() };
-  const plugin = runtime.plugins.register(manifest('mock-plugin'), async input => ({ value: input.value }));
-  assert.equal(plugin.status, 'TESTED'); assert.deepEqual(await runtime.plugins.execute('mock-plugin', { value: 'plugin-ok' }, context), { value: 'plugin-ok' });
+  const plugin = await runtime.plugins.register(manifest('mock-plugin'), async input => ({ value: input.value }));
+  assert.equal(plugin.status, 'ACTIVE'); assert.deepEqual(await runtime.plugins.execute('mock-plugin', { value: 'plugin-ok' }, context), { value: 'plugin-ok' });
   const module = runtime.modules.register(manifest('mock-module'), async input => ({ value: input.value }));
   assert.equal(module.status, 'TESTED'); runtime.modules.activate('mock-module'); assert.deepEqual(await runtime.modules.run('mock-module', { value: 'module-ok' }, context), { value: 'module-ok' }); runtime.modules.rollback('mock-module');
   const lab = await runtime.moduleLab.prove(manifest('lab-module'), async input => ({ value: input.value }), { councilReport });
