@@ -26,6 +26,10 @@ jobs:
       - name: Syntax
         run: |
           node --check src/memory/timeline.js
+          node --check src/planning/project-service.js
+          node --check src/persistence/gen2-schema.js
+          node --check src/persistence/migrations.js
+          node --check src/core/config.js
           node --check src/roadmap/master-roadmap.js
           node --check src/roadmap/completion-matrix.js
           node --check src/roadmap/final-status-report.js
