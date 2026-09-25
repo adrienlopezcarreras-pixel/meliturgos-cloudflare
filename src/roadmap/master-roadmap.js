@@ -164,7 +164,7 @@ export const MASTER_ROADMAP = Object.freeze([
   phase('P12', 'Résilience, sauvegarde et indépendance', [
     item('GEN2-47', 'Backups / export système', 'PARTIAL', 'Snapshots D1 complets + inventaire R2 automatisés et vérifiés; ajouter copie des octets R2, chiffrement et drill de restauration avant DONE_VERIFIED', 'P1'),
     item('GEN2-48', 'Restore / disaster recovery', 'PARTIAL', 'Faire drill complet de restauration', 'P1'),
-    item('GEN2-49', 'Portabilité système provider-neutral', 'PLANNED', 'Bundle complet indépendant des fournisseurs', 'P1'),
+    item('GEN2-49', 'Portabilité système provider-neutral', 'PARTIAL', 'Manifest provider-neutral + bundle système multi-artefacts vérifiable sont implémentés; brancher les exporters réels mémoire/projets/skills/plugins/config, ajouter restauration sur runtime alternatif et prouver un drill complet avant DONE_VERIFIED.', 'P1'),
     item('MEL-RES-01', 'Survival Mode: NORMAL/DEGRADED/READ_ONLY/RECOVERY/HALTED', 'DONE_VERIFIED', 'Brancher télémétrie runtime', 'P0'),
     item('MEL-RES-02', 'Recovery Bundle', 'DONE_VERIFIED', 'Ajouter vérification périodique de l’artefact de récupération', 'P0'),
     item('MEL-RES-03', 'Provider Escape Capsule', 'PARTIAL', 'Documenter le remplacement AI/storage/runtime sans redéployer toute l’architecture', 'P1'),
