@@ -42,6 +42,8 @@ jobs:
         run: node --test tests/phase5-web-research.test.mjs tests/web-research-capability.test.mjs tests/native-chat-web-research.test.mjs tests/gen2/web-source-quality.test.mjs
       - name: Syntax
         run: npm run check
+      - name: Normalize branch for candidate-only integration tests
+        run: git switch -c candidate/gen2-37-ci
       - name: Full test suite
         run: npm test
       - name: Runtime dependency security gate
