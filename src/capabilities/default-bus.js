@@ -18,6 +18,8 @@ import { runAugmentioStateOfPlay } from '../teachers/augmentio-council.js';
 import { runModelCouncil } from '../models/model-council.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
+import { auditDataIntegrity } from '../diagnostics/data-integrity.js';
+import { auditFinalMaturity } from '../diagnostics/final-maturity-audit.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const DEFAULT_BRANCH = 'candidate/mel-clean-autonomy';
@@ -279,6 +281,28 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     owner_configured: Boolean(runtimeEnv.MELITURGOS_USER),
     browser_companion: Boolean(runtimeEnv.MEL_BROWSER_COMPANION?.fetch),
   }));
+
+  bus.discover({
+    id: 'system.integrity', name: 'Audit intégrité des données', category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Runs a bounded read-only D1 integrity audit covering schema version, orphan references, malformed JSON and simple timestamp inconsistencies without repairing or exposing user content.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: runtimeEnv.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true
+  }, async () => {
+    if (!runtimeEnv.DB) throw capabilityError('DB_BINDING_MISSING');
+    return auditDataIntegrity(runtimeEnv.DB);
+  });
+
+  bus.discover({
+    id: 'system.maturity', name: 'Audit maturité finale', category: 'diagnostic', version: '1.0.0', provider: 'core',
+    description: 'Composes read-only D1 integrity, CapabilityBus contract validation and roadmap structural validation without executing tools or making network calls.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: runtimeEnv.DB ? 'HEALTHY' : 'UNAVAILABLE', enabled: true
+  }, async () => {
+    if (!runtimeEnv.DB) throw capabilityError('DB_BINDING_MISSING');
+    return auditFinalMaturity({ bus, db: runtimeEnv.DB });
+  });
 
   bus.discover({
     id: 'rag.search', name: 'Recherche mémoire RAG', category: 'memory', version: '1.0.0', provider: 'core',
