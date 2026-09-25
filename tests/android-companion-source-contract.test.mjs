@@ -388,9 +388,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 24/);
-  assert.match(build,/versionName = "0\.6\.15"/);
-  assert.match(api,/APP_VERSION = "0\.6\.15"/);
+  assert.match(build,/versionCode = 27/);
+  assert.match(build,/versionName = "0\.6\.18-safe-mini"/);
+  assert.match(api,/APP_VERSION = "0\.6\.18-safe-mini"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -411,9 +411,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 24/);
-  assert.match(build,/versionName = "0\.6\.15"/);
-  assert.match(api,/APP_VERSION = "0\.6\.15"/);
+  assert.match(build,/versionCode = 27/);
+  assert.match(build,/versionName = "0\.6\.18-safe-mini"/);
+  assert.match(api,/APP_VERSION = "0\.6\.18-safe-mini"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -445,9 +445,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 24/);
-  assert.match(build,/versionName = "0\.6\.15"/);
-  assert.match(api,/APP_VERSION = "0\.6\.15"/);
+  assert.match(build,/versionCode = 27/);
+  assert.match(build,/versionName = "0\.6\.18-safe-mini"/);
+  assert.match(api,/APP_VERSION = "0\.6\.18-safe-mini"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -464,9 +464,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 24/);
-  assert.match(build,/versionName = "0\.6\.15"/);
-  assert.match(api,/APP_VERSION = "0\.6\.15"/);
+  assert.match(build,/versionCode = 27/);
+  assert.match(build,/versionName = "0\.6\.18-safe-mini"/);
+  assert.match(api,/APP_VERSION = "0\.6\.18-safe-mini"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -560,24 +560,24 @@ test('Android 0.6.15 plays the same Luna PCM voice contract as MINI for chat and
   const player=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelVoicePlayer.kt',root),'utf8');
   const server=await readFile(new URL('../src/devices/android-companion-api.js',import.meta.url),'utf8');
 
-  assert.match(api,/fun tts\(text: String, speaker: String = "luna"\): ByteArray/);
+  assert.match(api,/fun tts\(text: String, speaker: String = "luna", format: String = "mp3"\): ByteArray/);
   assert.match(api,/\/api\/android\/v1\/voice\/tts/);
   assert.match(server,/@cf\/deepgram\/aura-1/);
   assert.match(server,/speaker = safe\(body\.speaker,32\) \|\| "luna"/);
-  assert.match(server,/encoding:"linear16"/);
-  assert.match(server,/sample_rate:48000/);
-  assert.match(server,/x-mel-audio-format","pcm-s16le"/);
-  assert.match(server,/x-mel-audio-rate","48000"/);
+  assert.match(server,/encoding:"mp3"/);
+  assert.match(server,/format = safe\(body\.format,16\)/);
+  assert.match(server,/x-mel-audio-format.*mp3/);
+  assert.match(server,/content-type.*audio\/mpeg/);
   assert.match(player,/AudioTrack\.Builder\(\)/);
   assert.match(player,/AudioFormat\.ENCODING_PCM_16BIT/);
   assert.match(player,/AudioFormat\.CHANNEL_OUT_MONO/);
   assert.match(player,/SAMPLE_RATE = 48_000/);
-  assert.match(vm,/client\.tts\(answer, speaker = "luna"\)/);
-  assert.match(vm,/MelVoicePlayer\.playPcm48kMono\(pcm\)/);
+  assert.match(vm,/client\.tts\(answer, speaker = "luna", format = "mp3"\)/);
+  assert.match(vm,/MelVoicePlayer\.playMp3\(appContext, audio\)/);
   assert.match(vm,/MelVoicePlayer\.playSystemFrench\(appContext, answer\)/);
   assert.match(vm,/status = "MEL parle…"/);
-  assert.match(vm,/Audio MEL: OK · luna/);
-  assert.match(vm,/Audio MEL: OK · secours Android français/);
+  assert.match(vm,/Audio MEL: OK · Android fr-FR/);
+  assert.match(vm,/Audio MEL: secours Luna MP3/);
   assert.match(player,/TextToSpeech/);
   assert.match(player,/Locale\.FRANCE/);
   assert.match(activity,/state\.speaking -> MelFaceState\.SPEAKING/);
