@@ -27,6 +27,8 @@ function runtimeFixture() {
     if (target.includes('teacher-bridge/replies.jsonl')) return new Response(replies, { status: 200 });
     if (target.includes('teacher-bridge/completions.jsonl')) return new Response(completions, { status: 200 });
     if (target.includes('/commits/candidate%2Fmel-clean-autonomy')) return Response.json({ sha: candidateHead });
+    const exactCommitMatch = target.match(/\/commits\/([0-9a-f]{40})$/i);
+    if (exactCommitMatch) return Response.json({ sha: exactCommitMatch[1].toLowerCase() });
     const ciRunMatch = target.match(/\/actions\/runs\/(\d+)/);
     if (ciRunMatch && ciHeads.has(Number(ciRunMatch[1]))) {
       return Response.json({
@@ -92,6 +94,30 @@ test('cloud autonomy heartbeat creates P0 work, runs live Council, inspects cand
   assert.ok(fixture.aiCalls.length >= aiCallCount + 2, 'the next compatible work item must run its own Council');
   const stillWaiting = await fixture.repository.get(first.job.id);
   assert.equal(stillWaiting.status, 'WAITING_TEACHER', 'the original Teacher request must remain tracked while MEL advances');
+});
+
+test('manual main preview inspects the exact deployed SHA while preserving canonical candidate governance', async () => {
+  const fixture = runtimeFixture();
+  fixture.env.MEL_PREVIEW_ISOLATED = 'true';
+  fixture.env.MEL_RUNTIME_ENV = 'preview';
+  fixture.env.MEL_DEPLOYED_GIT_BRANCH = 'main';
+  fixture.env.MEL_DEPLOYED_GIT_SHA = CANDIDATE_HEAD_SHA;
+
+  const result = await runAutonomyRuntimeTick(fixture.env, {
+    fetchImpl: fixture.fetchImpl,
+    repository: fixture.repository,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.job.status, 'WAITING_TEACHER');
+  assert.equal(result.teacher.status, 'WAITING_TEACHER');
+  const stored = await fixture.repository.get(result.job.id);
+  assert.equal(stored.result_json.teacher_bridge.request.candidate.branch, 'candidate/mel-clean-autonomy');
+  assert.equal(stored.result_json.teacher_bridge.request.candidate.sha, CANDIDATE_HEAD_SHA);
+  assert.ok(
+    fixture.fetchCalls.some((url) => url.includes(`/commits/${CANDIDATE_HEAD_SHA}`)),
+    'manual main preview must verify the immutable deployed SHA instead of requiring candidate branch HEAD to equal it',
+  );
 });
 
 test('cloud autonomy heartbeat consumes the matching canonical GitHub Teacher reply and resumes the same job', async () => {
