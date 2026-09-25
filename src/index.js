@@ -22,6 +22,7 @@ import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
 import { maybeHandleAndroidCompanionApi } from "./devices/android-companion-api.js";
 import { enforceHttpAuthPolicy } from "./security/http-auth-policy.js";
 import { runShardVaultCycle, searchAutonomousShardVaultRepositories } from "./continuity/shardvault-runtime.js";
+import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVersionResponse } from "./api/api-versioning.js";
 
 function deployedWatchSourceSha() {
   return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') || null : null;
@@ -353,8 +354,7 @@ async function maybeHandleChatGPTArchive(request, env) {
 }
 
 /** Main fetch and scheduled handlers. */
-export default {
-  async fetch(request, env, ctx) {
+async function fetchResolvedRequest(request, env, ctx) {
     try {
       const url = new URL(request.url);
       const path = url.pathname;
@@ -452,6 +452,20 @@ export default {
         }
       );
     }
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    const resolution = resolveApiVersionRequest(request, { handler: 'index' });
+
+    if (resolution.unsupported) {
+      const authPolicyResponse = enforceHttpAuthPolicy(request, env);
+      if (authPolicyResponse) return authPolicyResponse;
+      return unsupportedApiVersionResponse(resolution);
+    }
+
+    const response = await fetchResolvedRequest(resolution.request, env, ctx);
+    return decorateApiVersionResponse(response, resolution);
   },
 
   async scheduled(controller, env, ctx) {
