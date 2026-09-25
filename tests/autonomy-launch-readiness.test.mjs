@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import {
   evaluateFailureHygiene,
+  evaluateShardVaultLaunchReadiness,
   getAutonomyLaunchReadiness,
+  prepareAutonomyLaunchCodeSync,
 } from '../src/evolution/launch-readiness.js';
 import { maybeHandlePublicTeacherBridge } from '../src/teachers/public-teacher-api.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
@@ -110,4 +112,37 @@ test('public launch-readiness proof is read-only and minimized', async () => {
   assert.equal(body.exposes_memory, false);
   assert.equal(Array.isArray(body.blockers), true);
   assert.equal('active_work' in body, false);
+});
+
+
+test('roadmap pause makes ShardVault an explicit temporary non-blocking gate without claiming recovery', async () => {
+  const env = {
+    MEL_SHARDVAULT_ENABLED: 'false',
+    MEL_SHARDVAULT_ROADMAP_PAUSED: 'true',
+  };
+  const shard = await evaluateShardVaultLaunchReadiness(env);
+  assert.equal(shard.ok, true);
+  assert.equal(shard.status, 'PAUSED_FOR_ROADMAP');
+  assert.equal(shard.paused, true);
+  assert.equal(shard.temporary, true);
+  assert.equal(shard.recoverable, false);
+  assert.equal(shard.active_external_count, 0);
+  assert.equal(shard.external_code_endpoints, 0);
+  assert.equal(shard.resume_condition, 'ROADMAP_COMPLETE');
+
+  const sync = await prepareAutonomyLaunchCodeSync(env);
+  assert.equal(sync.ok, true);
+  assert.equal(sync.complete, true);
+  assert.equal(sync.status, 'PAUSED_FOR_ROADMAP');
+  assert.equal(sync.code_sync.paused, true);
+  assert.deepEqual(sync.code_sync.endpoints, []);
+});
+
+test('ShardVault roadmap pause is opt-in and does not weaken normal production verification', async () => {
+  const shard = await evaluateShardVaultLaunchReadiness({
+    MEL_SHARDVAULT_ENABLED: 'false',
+    MEL_SHARDVAULT_ROADMAP_PAUSED: 'false',
+  });
+  assert.equal(shard.ok, false);
+  assert.notEqual(shard.status, 'PAUSED_FOR_ROADMAP');
 });
