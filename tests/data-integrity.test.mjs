@@ -4,6 +4,7 @@ import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 import { migrate } from '../src/persistence/migrations.js';
 import { prepareGen2 } from '../src/persistence/gen2-schema.js';
 import { auditDataIntegrity } from '../src/diagnostics/data-integrity.js';
+import { createDefaultCapabilityBus } from '../src/capabilities/default-bus.js';
 
 async function healthyDb() {
   const db=sqliteD1();
@@ -72,4 +73,29 @@ test('GEN2-55 integrity audit fails schema version when migrations are absent', 
     assert.equal(result.checks.find(check=>check.id==='schema.version').reason,'SCHEMA_MIGRATIONS_MISSING');
     assert.ok(result.summary.skipped>0);
   } finally { db.close(); }
+});
+
+
+test('GEN2-55 system.integrity is available through CapabilityBus and remains read-only', async () => {
+  const db=await healthyDb();
+  try {
+    const bus=createDefaultCapabilityBus({env:{DB:db,MELITURGOS_USER:'owner'}});
+    const descriptor=bus.describe('system.integrity');
+    assert.equal(descriptor.risk,'LOW');
+    assert.deepEqual(descriptor.permissions,[]);
+    assert.equal(descriptor.health,'HEALTHY');
+
+    const result=await bus.execute('system.integrity',{},{
+      owner:'owner',
+      requestId:'integrity-test',
+      permissions:[],
+    });
+    assert.equal(result.schema,'mel.data-integrity-audit');
+    assert.equal(result.ok,true);
+  } finally { db.close(); }
+});
+
+test('GEN2-55 system.integrity is unavailable without D1', () => {
+  const bus=createDefaultCapabilityBus({env:{}});
+  assert.equal(bus.describe('system.integrity').health,'UNAVAILABLE');
 });
