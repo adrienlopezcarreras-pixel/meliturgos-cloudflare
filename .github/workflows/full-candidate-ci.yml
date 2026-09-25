@@ -33,6 +33,14 @@ jobs:
           exit $code
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
+      - name: Upload runtime supply-chain attestation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: runtime-supply-chain-attestation
+          path: runtime-supply-chain-attestation.json
+          if-no-files-found: warn
+          retention-days: 7
       - name: Development dependency advisory report
         run: |
           npm audit --package-lock-only --audit-level=high || echo 'DEV_DEPENDENCY_ADVISORY_PRESENT - non-runtime tooling advisory recorded; runtime gate passed.'
