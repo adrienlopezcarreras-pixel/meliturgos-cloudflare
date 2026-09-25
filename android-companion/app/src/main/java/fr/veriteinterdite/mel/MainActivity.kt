@@ -235,7 +235,9 @@ class MainActivity : ComponentActivity() {
                     cameraPhoto = cameraPhoto.value,
                     onCamera = ::openCamera,
                     onSendCamera = ::sendCameraPhoto,
-                    onRefreshCompanions = model::refreshCompanions
+                    onRefreshCompanions = model::refreshCompanions,
+                    onConnectMini = { ensureMobileBridge(true) },
+                    onMiniPairCode = model::requestMiniPairCode
                 )
             }
         }
@@ -247,7 +249,7 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun ensureMobileBridge() {
+    private fun ensureMobileBridge(forceRestart: Boolean = false) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val permissions = arrayOf(
                 Manifest.permission.BLUETOOTH_ADVERTISE,
@@ -266,11 +268,13 @@ class MainActivity : ComponentActivity() {
             enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             return
         }
-        startMobileBridge()
+        startMobileBridge(forceRestart)
     }
 
-    private fun startMobileBridge() {
-        ContextCompat.startForegroundService(this, Intent(this, MelBleBridgeService::class.java))
+    private fun startMobileBridge(forceRestart: Boolean = false) {
+        val intent = Intent(this, MelBleBridgeService::class.java)
+        if (forceRestart) intent.action = MelBleBridgeService.ACTION_RESTART
+        ContextCompat.startForegroundService(this, intent)
     }
 
     private fun deviceId(): String {
@@ -337,11 +341,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openCamera() {
-        if (model.state.value.session != SessionStage.CONNECTED) {
-            voiceMessage.value = "Connecte d’abord le téléphone à MEL"
-            return
-        }
-        cameraCapture.launch(null)
+        runCatching { cameraCapture.launch(null) }
+            .onFailure { voiceMessage.value = "Caméra indisponible sur ce téléphone" }
     }
 
     private fun sendCameraPhoto() {
@@ -1020,7 +1021,9 @@ internal fun MelApp(
     cameraPhoto: Bitmap? = null,
     onCamera: () -> Unit = {},
     onSendCamera: () -> Unit = {},
-    onRefreshCompanions: () -> Unit = {}
+    onRefreshCompanions: () -> Unit = {},
+    onConnectMini: () -> Unit = {},
+    onMiniPairCode: (String, String) -> Unit = { _, _ -> }
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -1061,7 +1064,9 @@ internal fun MelApp(
                 cameraPhoto = cameraPhoto,
                 onCamera = onCamera,
                 onSendCamera = onSendCamera,
-                onRefreshCompanions = onRefreshCompanions
+                onRefreshCompanions = onRefreshCompanions,
+                onConnectMini = onConnectMini,
+                onMiniPairCode = onMiniPairCode
             )
         }
     }
@@ -1431,7 +1436,9 @@ private fun ConversationScreen(
     cameraPhoto: Bitmap?,
     onCamera: () -> Unit,
     onSendCamera: () -> Unit,
-    onRefreshCompanions: () -> Unit
+    onRefreshCompanions: () -> Unit,
+    onConnectMini: () -> Unit,
+    onMiniPairCode: (String, String) -> Unit
 ) {
     var section by rememberSaveable { mutableStateOf(MobileSection.MEL) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
@@ -1497,7 +1504,12 @@ private fun ConversationScreen(
                 CameraPanel(photo = cameraPhoto, onCamera = onCamera, onSend = onSendCamera)
             }
             MobileSection.COMPANION -> SectionSurface("COMPAGNON // MINI") {
-                CompanionPanel(state = state, onRefresh = onRefreshCompanions)
+                CompanionPanel(
+                    state = state,
+                    onRefresh = onRefreshCompanions,
+                    onConnectMini = onConnectMini,
+                    onMiniPairCode = onMiniPairCode
+                )
             }
             MobileSection.WEB -> SectionSurface("NAVIGATION // WEB") {
                 WebPanel()
@@ -1683,7 +1695,9 @@ private fun MiniSettingsPanel(
                 if (state.mode == MelMode.COMPLETE) "N" else "C",
                 "settings-mode"
             ) {
-                onMode(if (state.mode == MelMode.COMPLETE) MelMode.NORMAL else MelMode.COMPLETE)
+                val next = if (state.mode == MelMode.COMPLETE) MelMode.NORMAL else MelMode.COMPLETE
+                onMode(next)
+                if (next == MelMode.COMPLETE) onSelect(MobileSection.TOOLS)
             }
             SettingsAction("Déconnexion", "×", "settings-disconnect", MelDanger) { onDisconnect() }
         }
@@ -2235,58 +2249,111 @@ private fun CameraPanel(
 @Composable
 private fun CompanionPanel(
     state: MelUiState,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onConnectMini: () -> Unit,
+    onMiniPairCode: (String, String) -> Unit
 ) {
-    Column(Modifier.fillMaxSize()) {
+    val bridgeState by MelBleBridgeService.bridgeState.collectAsStateWithLifecycle()
+    var ownerUser by rememberSaveable { mutableStateOf("") }
+    var ownerSecret by rememberSaveable { mutableStateOf("") }
+    val bleReady = bridgeState.contains("MINI CONNECTÉE") || bridgeState.contains("INTERNET OK")
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            HudLabel("COMPAGNON // MINI", state.companionStatus.ifBlank { "APPAREILS MEL" }, MelViolet)
+            HudLabel("COMPAGNON // MINI", if (bleReady) "BLUETOOTH CONNECTÉ" else "BLUETOOTH À CONNECTER", MelViolet)
             Spacer(Modifier.weight(1f))
             OutlinedButton(onClick = onRefresh, shape = RoundedCornerShape(14.dp)) { Text("Actualiser") }
         }
-        Spacer(Modifier.height(10.dp))
-        if (state.companions.isEmpty()) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MelGlass,
-                border = BorderStroke(1.dp, MelViolet.copy(alpha = .22f)),
-                shape = RoundedCornerShape(22.dp)
-            ) {
-                Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    MelAvatar(104, online = false, faceState = MelFaceState.IDLE)
-                    Spacer(Modifier.height(10.dp))
-                    Text("Aucun MINI détecté", color = MelInk, fontWeight = FontWeight.Bold)
-                    Text("Appaire MINI à MEL puis actualise.", color = MelMuted, fontSize = 12.sp)
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = if (bleReady) MelSuccess.copy(alpha = .08f) else MelGlass,
+            border = BorderStroke(1.dp, (if (bleReady) MelSuccess else MelViolet).copy(alpha = .30f)),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Lien Bluetooth réel", color = MelInk, fontWeight = FontWeight.Bold)
+                Text(bridgeState, color = if (bleReady) MelSuccess else MelMuted, fontSize = 12.sp)
+                Button(
+                    onClick = onConnectMini,
+                    modifier = Modifier.fillMaxWidth().height(48.dp).testTag("mini-connect-button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (bleReady) MelBlue else MelViolet)
+                ) {
+                    Text(if (bleReady) "RELANCER LA CONNEXION MINI" else "CONNECTER MINI", fontWeight = FontWeight.Bold)
                 }
             }
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                itemsIndexed(state.companions) { _, device ->
-                    Surface(
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MelPanel,
+            border = BorderStroke(1.dp, MelCyan.copy(alpha = .20f)),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Internet de la MINI", color = MelInk, fontWeight = FontWeight.Bold)
+                if (!state.miniPairCode.isNullOrBlank()) {
+                    Text("CODE MINI", color = MelMuted, fontSize = 11.sp)
+                    Text(state.miniPairCode, color = MelCyan, fontSize = 24.sp, fontWeight = FontWeight.Black)
+                    Text("Valable 10 min. Sur la MINI : Options → APPAIRAGE MEL → saisis ce code → APPAIRER.", color = MelMuted, fontSize = 12.sp)
+                } else {
+                    Text("La MINI a besoin d’un appairage MEL une seule fois pour obtenir son accès Internet.", color = MelMuted, fontSize = 12.sp)
+                    OutlinedTextField(
+                        value = ownerUser,
+                        onValueChange = { ownerUser = it },
                         modifier = Modifier.fillMaxWidth(),
-                        color = MelPanel,
-                        border = BorderStroke(
-                            1.dp,
-                            (if (device.online) MelSuccess else MelMuted).copy(alpha = .24f)
-                        ),
-                        shape = RoundedCornerShape(20.dp)
+                        label = { Text("Identifiant MEL (facultatif)") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = ownerSecret,
+                        onValueChange = { ownerSecret = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Mot de passe MEL") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation()
+                    )
+                    Button(
+                        onClick = { onMiniPairCode(ownerUser, ownerSecret) },
+                        modifier = Modifier.fillMaxWidth().testTag("mini-pair-code-button"),
+                        enabled = !state.miniPairBusy && ownerSecret.isNotBlank()
                     ) {
-                        Column(Modifier.padding(14.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(device.name, color = MelInk, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                StatusPill(if (device.online) "ONLINE" else "OFFLINE",
-                                    if (device.online) MelSuccess else MelMuted)
-                            }
-                            Spacer(Modifier.height(6.dp))
-                            Text(device.phase ?: device.model, color = MelMuted, fontSize = 11.sp)
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                StatusPill("CAM " + hardwareState(device.camera), if (device.camera == true) MelSuccess else MelMuted)
-                                StatusPill("MIC " + hardwareState(device.microphone), if (device.microphone == true) MelSuccess else MelMuted)
-                                device.battery?.let { StatusPill("BAT $it%", MelBlue) }
-                            }
+                        Text(if (state.miniPairBusy) "GÉNÉRATION…" else "GÉNÉRER LE CODE MINI")
+                    }
+                }
+                state.miniPairError?.let { Text(it, color = MelDanger, fontSize = 12.sp) }
+            }
+        }
+
+        Text("Appareils MEL", color = MelInk, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        if (state.companions.isEmpty()) {
+            Text("Aucun appareil remonté par le serveur.", color = MelMuted, fontSize = 12.sp)
+        } else {
+            state.companions.forEach { device ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MelPanel,
+                    border = BorderStroke(1.dp, (if (device.online) MelSuccess else MelMuted).copy(alpha = .24f)),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(device.name, color = MelInk, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            StatusPill(if (device.online) "ONLINE" else "OFFLINE", if (device.online) MelSuccess else MelMuted)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(device.phase ?: device.model, color = MelMuted, fontSize = 11.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            StatusPill("CAM " + hardwareState(device.camera), if (device.camera == true) MelSuccess else MelMuted)
+                            StatusPill("MIC " + hardwareState(device.microphone), if (device.microphone == true) MelSuccess else MelMuted)
+                            device.battery?.let { StatusPill("BAT $it%", MelBlue) }
                         }
                     }
                 }
@@ -2328,10 +2395,16 @@ private fun NativeToolsPanel(
         Button(
             onClick = { onMode(MelMode.COMPLETE) },
             modifier = Modifier.fillMaxWidth().height(50.dp).testTag("native-complete-button"),
-            enabled = !state.busy,
+            enabled = !state.busy && state.mode != MelMode.COMPLETE,
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MelViolet)
-        ) { Text("PROFESSOR / MODE COMPLET NATIF", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+        ) {
+            Text(
+                if (state.mode == MelMode.COMPLETE) "MODE COMPLET ACTIF" else "ACTIVER LE MODE COMPLET",
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp
+            )
+        }
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             OutlinedButton(onClick = onSync, modifier = Modifier.weight(1f), enabled = !state.busy) { Text("Synchroniser") }

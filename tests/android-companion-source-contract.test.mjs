@@ -63,7 +63,7 @@ test('Normal and Complete are visible app modes and are sent to MEL chat',async(
   assert.match(vm,/COMPLETE\("complete", "Complet"\)/);
   assert.match(vm,/NORMAL\("normal", "Normal"\)/);
   assert.match(activity,/MobileSection\(val label: String\)/);
-  assert.match(activity,/PROFESSOR \/ MODE COMPLET NATIF/);
+  assert.match(activity,/ACTIVER LE MODE COMPLET/);
   assert.doesNotMatch(activity,/Intent\(Intent\.ACTION_VIEW,\s*Uri\.parse\("https?:/);
   assert.doesNotMatch(activity,/\/professor/);
   assert.match(api,/\.put\("ui_mode", mode\)/);
@@ -76,7 +76,7 @@ test('Android app exposes native file selection and a useful Complete control su
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   assert.match(activity,/ActivityResultContracts\.OpenDocument/);
   assert.match(activity,/Text\("Fichier"\)/);
-  assert.match(activity,/Text\("PROFESSOR \/ MODE COMPLET NATIF"/);
+  assert.match(activity,/ACTIVER LE MODE COMPLET/);
   assert.match(activity,/CAMERA\("Caméra"\)/);
   assert.match(activity,/COMPANION\("MINI"\)/);
   assert.match(activity,/ActivityResultContracts\.TakePicturePreview/);
@@ -388,9 +388,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 27/);
-  assert.match(build,/versionName = "0\.6\.18-safe-mini"/);
-  assert.match(api,/APP_VERSION = "0\.6\.18-safe-mini"/);
+  assert.match(build,/versionCode = 28/);
+  assert.match(build,/versionName = "0\.6\.19-mini-functional"/);
+  assert.match(api,/APP_VERSION = "0\.6\.19-mini-functional"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -411,9 +411,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 27/);
-  assert.match(build,/versionName = "0\.6\.18-safe-mini"/);
-  assert.match(api,/APP_VERSION = "0\.6\.18-safe-mini"/);
+  assert.match(build,/versionCode = 28/);
+  assert.match(build,/versionName = "0\.6\.19-mini-functional"/);
+  assert.match(api,/APP_VERSION = "0\.6\.19-mini-functional"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -445,9 +445,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 27/);
-  assert.match(build,/versionName = "0\.6\.18-safe-mini"/);
-  assert.match(api,/APP_VERSION = "0\.6\.18-safe-mini"/);
+  assert.match(build,/versionCode = 28/);
+  assert.match(build,/versionName = "0\.6\.19-mini-functional"/);
+  assert.match(api,/APP_VERSION = "0\.6\.19-mini-functional"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -464,9 +464,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 27/);
-  assert.match(build,/versionName = "0\.6\.18-safe-mini"/);
-  assert.match(api,/APP_VERSION = "0\.6\.18-safe-mini"/);
+  assert.match(build,/versionCode = 28/);
+  assert.match(build,/versionName = "0\.6\.19-mini-functional"/);
+  assert.match(api,/APP_VERSION = "0\.6\.19-mini-functional"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -526,7 +526,7 @@ test('Android 0.6.15 keeps critical interaction state truthful and stable',async
   assert.match(activity,/MediaRecorder\.AudioEncoder\.OPUS/);
   assert.match(activity,/recordingMimeType = if \(useWebm\) "audio\/webm" else "audio\/mp4"/);
   assert.match(activity,/testTag\("mini-talk-button"\)/);
-  assert.match(activity,/PROFESSOR \/ MODE COMPLET NATIF/);
+  assert.match(activity,/ACTIVER LE MODE COMPLET/);
   assert.match(vm,/Micro réel: OK · reconnaissance Android/);
   assert.match(vm,/fun setMode\(mode: MelMode\) \{\s*if \(_state\.value\.busy\) return/);
 });

@@ -64,6 +64,7 @@ class MelBleBridgeService : Service() {
         private const val OP_RESPONSE_END = 0x13
         private const val OP_ERROR = 0x1f
 
+        const val ACTION_RESTART = "fr.veriteinterdite.mel.action.RESTART_MINI_BRIDGE"
         val bridgeState = MutableStateFlow("OFF")
     }
 
@@ -108,7 +109,19 @@ class MelBleBridgeService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (gattServer == null) startBridge()
+        if (intent?.action == ACTION_RESTART) {
+            bridgeState.value = "RECONNEXION MINI…"
+            stopAdvertising()
+            runCatching { gattServer?.close() }
+            gattServer = null
+            txCharacteristic = null
+            requests.clear()
+            mtus.clear()
+            subscribed.clear()
+            android.os.Handler(mainLooper).postDelayed({ startBridge() }, 250L)
+        } else if (gattServer == null) {
+            startBridge()
+        }
         return START_STICKY
     }
 

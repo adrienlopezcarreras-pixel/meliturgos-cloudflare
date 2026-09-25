@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.18-safe-mini"
+        const val APP_VERSION = "0.6.19-mini-functional"
     }
 
     init {
@@ -122,6 +122,24 @@ class MelApiClient(
         connection.outputStream.use { it.write("{}".toByteArray(Charsets.UTF_8)) }
         val code = readJson(connection).getString("code")
         return pair(code, name, appVersion)
+    }
+
+    fun createMiniPairCodeWithOwnerCredentials(username: String, secret: String): JSONObject {
+        require(secret.isNotBlank()) { "OWNER_PASSWORD_REQUIRED" }
+        val connection = connection("/api/device/v1/pair-code", "POST", authenticated = false)
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/json")
+        if (username.isBlank()) {
+            connection.setRequestProperty("Authorization", "Bearer $secret")
+        } else {
+            val credentials = Base64.encodeToString(
+                "$username:$secret".toByteArray(Charsets.UTF_8),
+                Base64.NO_WRAP
+            )
+            connection.setRequestProperty("Authorization", "Basic $credentials")
+        }
+        connection.outputStream.use { it.write("{}".toByteArray(Charsets.UTF_8)) }
+        return readJson(connection)
     }
 
     fun pair(

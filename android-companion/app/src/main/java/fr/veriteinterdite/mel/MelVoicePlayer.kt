@@ -5,6 +5,8 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.io.File
@@ -12,6 +14,8 @@ import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Plays MEL's canonical MINI-compatible TTS stream:
@@ -22,6 +26,7 @@ object MelVoicePlayer {
     private val lock = Any()
     private var activeTrack: AudioTrack? = null
     private var activePlayer: MediaPlayer? = null
+    private var activeTts: TextToSpeech? = null
 
     fun playPcm48kMono(bytes: ByteArray): Long {
         require(bytes.isNotEmpty()) { "TTS_AUDIO_EMPTY" }
@@ -135,63 +140,86 @@ object MelVoicePlayer {
     fun playSystemFrench(context: Context, text: String): Long {
         require(text.isNotBlank()) { "TTS_TEXT_EMPTY" }
         val startedAt = System.currentTimeMillis()
+        val appContext = context.applicationContext
+        val main = Handler(Looper.getMainLooper())
         val initLatch = CountDownLatch(1)
-        var initStatus = TextToSpeech.ERROR
-        val tts = TextToSpeech(context.applicationContext) { status ->
-            initStatus = status
-            initLatch.countDown()
+        val initStatus = AtomicInteger(TextToSpeech.ERROR)
+        val ttsRef = AtomicReference<TextToSpeech?>(null)
+
+        main.post {
+            var engine: TextToSpeech? = null
+            engine = TextToSpeech(appContext) { status ->
+                initStatus.set(status)
+                initLatch.countDown()
+            }
+            ttsRef.set(engine)
         }
 
-        if (!initLatch.await(4, TimeUnit.SECONDS) || initStatus != TextToSpeech.SUCCESS) {
-            runCatching { tts.shutdown() }
+        if (!initLatch.await(6, TimeUnit.SECONDS) || initStatus.get() != TextToSpeech.SUCCESS) {
+            ttsRef.get()?.let { engine -> main.post { runCatching { engine.shutdown() } } }
             throw IllegalStateException("ANDROID_TTS_INIT_FAILED")
         }
 
-        val languages = listOf(Locale.FRANCE, Locale.FRENCH, Locale.getDefault())
-        var languageReady = false
-        for (locale in languages.distinct()) {
-            val result = tts.setLanguage(locale)
-            if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
-                languageReady = true
-                break
-            }
-        }
-        if (!languageReady) {
-            tts.shutdown()
-            throw IllegalStateException("ANDROID_TTS_FRENCH_UNAVAILABLE")
-        }
-
-        tts.setSpeechRate(1.08f)
-        tts.setPitch(1.0f)
+        val tts = ttsRef.get() ?: throw IllegalStateException("ANDROID_TTS_INIT_FAILED")
+        synchronized(lock) { activeTts = tts }
+        val readyLatch = CountDownLatch(1)
+        val readyError = AtomicReference<Throwable?>(null)
         val done = CountDownLatch(1)
-        var failed = false
-        val utteranceId = "mel-" + UUID.randomUUID().toString()
-        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(id: String?) = Unit
-            override fun onDone(id: String?) { done.countDown() }
-            @Deprecated("Deprecated in Java")
-            override fun onError(id: String?) {
-                failed = true
-                done.countDown()
-            }
-            override fun onError(id: String?, errorCode: Int) {
-                failed = true
-                done.countDown()
-            }
-        })
+        val playbackError = AtomicReference<Throwable?>(null)
+        val utteranceId = "mel-fr-" + UUID.randomUUID().toString()
 
-        val speakResult = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
-        if (speakResult == TextToSpeech.ERROR) {
-            tts.shutdown()
-            throw IllegalStateException("ANDROID_TTS_SPEAK_FAILED")
+        main.post {
+            try {
+                val frenchVoice = tts.voices?.firstOrNull { voice ->
+                    voice.locale?.language.equals("fr", ignoreCase = true)
+                }
+                val languageResult = tts.setLanguage(Locale.FRANCE)
+                if (languageResult == TextToSpeech.LANG_MISSING_DATA ||
+                    languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    throw IllegalStateException("ANDROID_TTS_FRENCH_UNAVAILABLE")
+                }
+                if (frenchVoice != null) tts.voice = frenchVoice
+                tts.setSpeechRate(1.02f)
+                tts.setPitch(1.0f)
+                tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(id: String?) = Unit
+                    override fun onDone(id: String?) { done.countDown() }
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(id: String?) {
+                        playbackError.set(IllegalStateException("ANDROID_TTS_PLAYBACK_FAILED"))
+                        done.countDown()
+                    }
+                    override fun onError(id: String?, errorCode: Int) {
+                        playbackError.set(IllegalStateException("ANDROID_TTS_ERROR_$errorCode"))
+                        done.countDown()
+                    }
+                })
+                val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+                if (result == TextToSpeech.ERROR) throw IllegalStateException("ANDROID_TTS_SPEAK_FAILED")
+            } catch (error: Throwable) {
+                readyError.set(error)
+            } finally {
+                readyLatch.countDown()
+            }
         }
 
-        val timeoutSeconds = (text.length / 12L + 8L).coerceIn(10L, 45L)
+        if (!readyLatch.await(5, TimeUnit.SECONDS)) {
+            main.post { runCatching { tts.stop() }; runCatching { tts.shutdown() } }
+            synchronized(lock) { if (activeTts === tts) activeTts = null }
+            throw IllegalStateException("ANDROID_TTS_START_TIMEOUT")
+        }
+        readyError.get()?.let { error ->
+            main.post { runCatching { tts.stop() }; runCatching { tts.shutdown() } }
+            synchronized(lock) { if (activeTts === tts) activeTts = null }
+            throw error
+        }
+
+        val timeoutSeconds = (text.length / 12L + 10L).coerceIn(12L, 60L)
         val completed = done.await(timeoutSeconds, TimeUnit.SECONDS)
-        runCatching { tts.stop() }
-        tts.shutdown()
+        main.post { runCatching { tts.stop() }; runCatching { tts.shutdown() } }
+        synchronized(lock) { if (activeTts === tts) activeTts = null }
         if (!completed) throw IllegalStateException("ANDROID_TTS_TIMEOUT")
-        if (failed) throw IllegalStateException("ANDROID_TTS_PLAYBACK_FAILED")
+        playbackError.get()?.let { throw it }
         return (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
     }
 
@@ -211,6 +239,13 @@ object MelVoicePlayer {
             activePlayer = null
             runCatching { player.stop() }
             player.release()
+        }
+        activeTts?.let { tts ->
+            activeTts = null
+            Handler(Looper.getMainLooper()).post {
+                runCatching { tts.stop() }
+                runCatching { tts.shutdown() }
+            }
         }
     }
 }

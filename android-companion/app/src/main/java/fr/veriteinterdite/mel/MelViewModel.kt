@@ -56,6 +56,10 @@ data class MelUiState(
     val messages: List<MelChatMessage> = emptyList(),
     val companions: List<MelCompanionDevice> = emptyList(),
     val companionStatus: String = "",
+    val miniPairCode: String? = null,
+    val miniPairExpiresAt: Long? = null,
+    val miniPairBusy: Boolean = false,
+    val miniPairError: String? = null,
     val diagnosticReport: String? = null
 )
 
@@ -81,7 +85,35 @@ class MelViewModel(
     fun setMode(mode: MelMode) {
         if (_state.value.busy) return
         prefs.edit().putString("mode", mode.name).apply()
-        _state.value = _state.value.copy(mode = mode, error = null)
+        _state.value = _state.value.copy(
+            mode = mode,
+            status = if (mode == MelMode.COMPLETE) "Mode complet activé · outils natifs disponibles" else "Mode normal activé",
+            error = null
+        )
+    }
+
+    fun requestMiniPairCode(username: String, secret: String) {
+        if (secret.isBlank() || _state.value.miniPairBusy) {
+            if (secret.isBlank()) _state.value = _state.value.copy(miniPairError = "Mot de passe MEL requis")
+            return
+        }
+        _state.value = _state.value.copy(miniPairBusy = true, miniPairError = null, miniPairCode = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val response = client.createMiniPairCodeWithOwnerCredentials(username.trim(), secret)
+                _state.value = _state.value.copy(
+                    miniPairBusy = false,
+                    miniPairCode = response.optString("code").trim().ifBlank { null },
+                    miniPairExpiresAt = response.optLong("expires_at").takeIf { it > 0L },
+                    miniPairError = null
+                )
+            } catch (error: Throwable) {
+                _state.value = _state.value.copy(
+                    miniPairBusy = false,
+                    miniPairError = explain(error)
+                )
+            }
+        }
     }
 
     fun verifyExistingSession() {
