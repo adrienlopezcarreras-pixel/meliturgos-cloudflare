@@ -172,7 +172,7 @@ test('work.plan.generate retries once with a strict zero-cost repair prompt when
       };
     }
     assert.equal(input.context.purpose,'work-plan-generation-repair');
-    assert.match(input.input,/REPAIR REQUIRED/);
+    assert.match(input.input,/REPAIR_CAPABILITIES/);
     return {
       candidates:[{provider:'fixture',model:'planner-fixed',text:JSON.stringify({steps:[
         {id:'only',title:'Echo goal',capability:'echo',input:{value:'planned'},dependsOn:[],idempotent:true},
@@ -243,7 +243,7 @@ test('work.plan.generate repair prompt constrains the model to a small low-risk 
     return {candidates:[{provider:'fixture',model:'fixed',text:'{"steps":[{"id":"step-1","title":"Echo","capability":"echo","input":{"value":"ok"},"dependsOn":[],"idempotent":true}],"constraints":[]}'}],failures:0};
   });
   registerWorkCapabilities(bus,{});
-  const result=await bus.execute('work.plan.generate',{goal:'diagnostic simple',maxCandidates:1},{permissions:[]});
+  const result=await bus.execute('work.plan.generate',{goal:'diagnostic simple',maxCandidates:1},{owner:'adrien',requestId:'constrained-repair-test',permissions:[]});
   assert.equal(result.generator.repair_attempted,true);
   assert.equal(result.generator.model,'fixed');
   assert.equal(result.plan.steps[0].capability,'echo');
