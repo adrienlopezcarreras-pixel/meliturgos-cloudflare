@@ -111,13 +111,35 @@ async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic)
   return repository.update(jobId, { result_json: result });
 }
 
-function deployedInspectionSha() {
+function deployedInspectionSha(env = {}) {
+  const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim();
+  if (/^[0-9a-f]{40}$/i.test(direct)) return direct.toLowerCase();
   try {
     const value = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '').trim() : '';
     return /^[0-9a-f]{40}$/i.test(value) ? value.toLowerCase() : '';
   } catch {
     return '';
   }
+}
+
+function deployedInspectionBranch(env = {}) {
+  const direct = String(env?.MEL_DEPLOYED_GIT_BRANCH || '').trim();
+  if (direct) return direct;
+  try {
+    return typeof MEL_DEPLOYED_GIT_BRANCH !== 'undefined' ? String(MEL_DEPLOYED_GIT_BRANCH || '').trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+export function resolveAutonomyInspectionRef(env = {}, canonicalBranch = '') {
+  const branch = String(canonicalBranch || '').trim();
+  const pinnedSha = deployedInspectionSha(env);
+  const deployedBranch = deployedInspectionBranch(env);
+  const isolatedPreview = String(env?.MEL_PREVIEW_ISOLATED || '').toLowerCase() === 'true'
+    || String(env?.MEL_RUNTIME_ENV || '').toLowerCase() === 'preview';
+  if (isolatedPreview && deployedBranch === 'main' && pinnedSha) return pinnedSha;
+  return branch;
 }
 
 function codeConfig(env = {}) {
@@ -155,10 +177,11 @@ function requestedInspectionQueries(job) {
 
 async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
   const { repository, branch } = codeConfig(env);
-  const pinnedSha = deployedInspectionSha();
+  const pinnedSha = deployedInspectionSha(env);
+  const inspectionRef = resolveAutonomyInspectionRef(env, branch);
   const reader = createGitHubCodeReader({
     repository,
-    branch,
+    branch: inspectionRef,
     token: String(env?.MEL_GITHUB_TOKEN || ''),
     pinnedSha,
     fetchImpl,
