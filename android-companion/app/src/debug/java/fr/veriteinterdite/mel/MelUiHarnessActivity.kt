@@ -62,7 +62,8 @@ class MelUiHarnessActivity : ComponentActivity() {
                     onCopyDiagnostic = {},
                     onNormalProbe = {},
                     onFileProbe = {},
-                    onBackgroundProbe = {}
+                    onBackgroundProbe = {},
+                    onTestVoice = {}
                 )
             }
         }
