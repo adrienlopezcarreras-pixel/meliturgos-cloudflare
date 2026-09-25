@@ -611,7 +611,8 @@ export async function handleNativeChat(request, env, options = {}) {
   if (!releaseSmoke) await saveConversationFocusState(env, conversationId, conversationFocus);
   const conversationFocusInstruction = buildConversationFocusInstruction(recent, text, persistedFocus);
 
-  const currentFactVerification = releaseSmoke ? null : inferCurrentFactVerificationPolicy(text);\n  const personalProfileIntent = isPersonalProfileRecall(text);
+  const currentFactVerification = releaseSmoke ? null : inferCurrentFactVerificationPolicy(text);
+  const personalProfileIntent = isPersonalProfileRecall(text);
   const inferredCapability = releaseSmoke
     ? inferNativeCodeCapability(text, [])
     : inferNativeComputerCapability(text)
@@ -763,7 +764,8 @@ export async function handleNativeChat(request, env, options = {}) {
     buildMelIdentityPrompt(),
     buildResponseQualityInstruction(text),
     conversationFocusInstruction,
-    operatingManual,\n    currentFactReliabilityInstruction(currentFactVerification),
+    operatingManual,
+    currentFactReliabilityInstruction(currentFactVerification),
     themeInstruction,
     voiceReply
       ? 'MODE VOCAL MOBILE : réponds immédiatement avec 1 à 3 phrases courtes, naturelles et directement prononçables. Va à l’essentiel, sans listes longues, sans préambule et sans dépasser environ 350 caractères sauf nécessité absolue.'
