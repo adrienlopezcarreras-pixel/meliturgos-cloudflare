@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { CapabilityBus } from '../src/capabilities/capability-bus.js';
+import { registerWorkCapabilities } from '../src/capabilities/work-capabilities.js';
 import {
   buildPlanningCatalog,
   buildWorkPlanningPrompt,
@@ -69,4 +71,55 @@ test('GEN2-38 AI planner fails closed on invented capabilities or invalid capabi
     catalog,
     text:'{"steps":[{"id":"x","capability":"echo","input":{"unknown":true}}]}',
   }),error=>error.code==='WORK_PLAN_MODEL_INPUT_SCHEMA_INVALID');
+});
+
+
+test('work.plan.generate uses multi-AI output but returns only a validated non-executed plan', async () => {
+  const bus=new CapabilityBus();
+  bus.discover({
+    id:'echo',name:'Echo',category:'test',version:'1.0.0',provider:'fixture',
+    description:'Echo fixture capability',
+    input_schema:{type:'object',properties:{value:{type:'string',minLength:1,maxLength:100}},required:['value'],additionalProperties:false},
+    output_schema:{type:'object',additionalProperties:true},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async input=>({value:input.value}));
+  bus.discover({
+    id:'augmentio.fanout',name:'Fixture multi-AI',category:'test',version:'1.0.0',provider:'fixture',
+    description:'Returns one deterministic planning proposal',
+    input_schema:{
+      type:'object',
+      properties:{
+        capability:{type:'string',minLength:1,maxLength:100},
+        input:{type:'string',minLength:1,maxLength:12000},
+        context:{type:'object',additionalProperties:true},
+        maxCandidates:{type:'integer',minimum:1,maximum:12},
+      },
+      required:['input'],additionalProperties:false,
+    },
+    output_schema:{type:'object',additionalProperties:true},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async ()=>({
+    best:{
+      provider:'fixture',
+      model:'planner-1',
+      text:JSON.stringify({steps:[
+        {id:'only',title:'Echo goal',capability:'echo',input:{value:'planned'},dependsOn:[],idempotent:true},
+      ]}),
+    },
+    candidates:[{provider:'fixture',model:'planner-1'}],
+    failures:0,
+  }));
+  registerWorkCapabilities(bus,{});
+
+  const result=await bus.execute('work.plan.generate',{
+    id:'auto-plan',
+    goal:'Créer un plan simple',
+    maxCandidates:1,
+  },{owner:'adrien',requestId:'auto-plan-test',permissions:[]});
+
+  assert.equal(result.plan.id,'auto-plan');
+  assert.equal(result.plan.steps[0].capability,'echo');
+  assert.equal(result.generator.execution_started,false);
+  assert.equal(result.generator.persisted,false);
+  assert.equal(result.generator.provider,'fixture');
 });
