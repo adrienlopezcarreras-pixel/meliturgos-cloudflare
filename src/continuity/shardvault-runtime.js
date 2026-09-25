@@ -1399,6 +1399,26 @@ async function invalidateCodeTargetQualification(env,endpointId){
   ]);
   return validated||candidate||representative;
 }
+
+function failedActivationEndpointId(activationCycle, stagedEndpoints=[], baselineEndpoints=[]){
+  const baseline=new Set((baselineEndpoints||[]).map(e=>String(e?.id||'')).filter(Boolean));
+  const candidates=(stagedEndpoints||[]).filter(e=>{
+    const id=String(e?.id||'').trim();
+    return id&&!baseline.has(id);
+  });
+  if(!candidates.length)return null;
+  const failure=String(activationCycle?.error||activationCycle?.status||'');
+  const matched=candidates.find(e=>failure.includes(String(e?.id||'')));
+  if(matched?.id)return String(matched.id);
+  return candidates.length===1?String(candidates[0].id):null;
+}
+
+async function quarantineFailedActivationCandidate(env,activationCycle,stagedEndpoints=[],baselineEndpoints=[]){
+  const endpointId=failedActivationEndpointId(activationCycle,stagedEndpoints,baselineEndpoints);
+  if(!endpointId)return null;
+  await invalidateCodeTargetQualification(env,endpointId).catch(()=>false);
+  return endpointId;
+}
 async function readCodeCandidateEndpoints(env){
   if(!env?.MEDIA_BUCKET?.get)return [];
   try{
@@ -1626,7 +1646,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       ? Math.max(1,Math.min(targetCount,Math.trunc(Number(maxNewEndpoints)||1)))
       : targetCount;
     const activeBefore=await reconcileActiveExternalEndpoints(env,c,last);
-    let active=activeBefore,activation_cycle=null,cached_staged=0;
+    let active=activeBefore,activation_cycle=null,cached_staged=0,activation_quarantined_endpoint=null;
     let report={
       selected:[],qualified:[],eligible:[],rejected:[],internet_sources:[],leads:[],
       generation:1,known_leads:0,new_leads:0,query_set:[],diversity:null,
@@ -1650,6 +1670,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
             last=latestAfter;
             cached_staged=Math.max(0,active.length-activeBefore.length);
           }else{
+            activation_quarantined_endpoint=await quarantineFailedActivationCandidate(env,activation_cycle,staged,activeBefore);
             await writeActiveExternalEndpoints(env,activeBefore);
             active=activeBefore;
           }
@@ -1680,6 +1701,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
           active=await reconcileActiveExternalEndpoints(env,c,latestAfter);
           last=latestAfter;
         }else{
+          activation_quarantined_endpoint=await quarantineFailedActivationCandidate(env,activation_cycle,staged,activeBeforeDiscovery);
           await writeActiveExternalEndpoints(env,activeBeforeDiscovery);
           active=activeBeforeDiscovery;
         }
@@ -1732,7 +1754,8 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       continue_searching:active.length<targetCount,
       search_mode:'MAINTAIN_7_EXTERNAL',
       search_strategy:boundedMode?'INCREMENTAL_BOUNDED':'FULL_REVALIDATION',
-      activation_cycle
+      activation_cycle,
+      activation_quarantined_endpoint
     };
     if(result.target_reached){
       // Keep discovery/activation CPU-bounded. External code replication and
