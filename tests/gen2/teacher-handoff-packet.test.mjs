@@ -155,7 +155,7 @@ test('secret-like data is redacted from portable handoff evidence', async () => 
     },
   });
 
-  assert.equal(packet.additional_evidence.authorization, '[REDACTED_SECRET_LIKE]');
+  assert.equal('authorization' in packet.additional_evidence, false);
   assert.equal('api_token' in packet.additional_evidence, false);
   assert.equal('password' in packet.additional_evidence.nested, false);
   assert.equal(packet.additional_evidence.nested.harmless, 'kept');
