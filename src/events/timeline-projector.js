@@ -163,11 +163,13 @@ export class EventTimelineProjector {
     try {
       const projected = timelineEventFromBus(event);
       let timelineEvent;
+      let deduplicated = false;
       try {
         timelineEvent = await this.timeline.append(projected);
       } catch (error) {
         if (error?.code !== 'TIMELINE_EVENT_EXISTS') throw error;
         timelineEvent = await this.timeline.get({ event_id: projected.event_id });
+        deduplicated = true;
       }
 
       await this.eventBus.ack({
@@ -181,7 +183,7 @@ export class EventTimelineProjector {
         ok: true,
         event_id: event.event_id,
         timeline_event_id: timelineEvent.event_id,
-        deduplicated: timelineEvent.event_id === projected.event_id,
+        deduplicated,
       };
     } catch (error) {
       const attempts = Math.max(1, Math.min(100, Math.trunc(Number(maxAttempts) || 3)));
