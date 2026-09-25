@@ -197,3 +197,54 @@ test('work.plan.generate retries once with a strict zero-cost repair prompt when
   assert.equal(result.generator.execution_started,false);
   assert.equal(result.generator.persisted,false);
 });
+
+
+test('work.plan.generate repair prompt constrains the model to a small low-risk catalog', async () => {
+  const bus=new CapabilityBus();
+  let calls=0;
+  bus.discover({
+    id:'echo',name:'Echo',category:'test',version:'1.0.0',provider:'fixture',
+    description:'Echo fixture capability',
+    input_schema:{type:'object',properties:{value:{type:'string',minLength:1,maxLength:100}},required:['value'],additionalProperties:false},
+    output_schema:{type:'object',additionalProperties:true},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async input=>({value:input.value}));
+  bus.discover({
+    id:'danger.write',name:'Write',category:'test',version:'1.0.0',provider:'fixture',
+    description:'Mutating fixture capability',
+    input_schema:{type:'object',properties:{value:{type:'string',minLength:1,maxLength:100}},required:['value'],additionalProperties:false},
+    output_schema:{type:'object',additionalProperties:true},
+    risk:'HIGH',permissions:[],health:'HEALTHY',enabled:true,
+  },async input=>({value:input.value}));
+  bus.discover({
+    id:'augmentio.fanout',name:'Fixture multi-AI',category:'test',version:'1.0.0',provider:'fixture',
+    description:'Returns invalid then valid repair',
+    input_schema:{
+      type:'object',
+      properties:{
+        capability:{type:'string',minLength:1,maxLength:100},
+        input:{type:'string',minLength:1,maxLength:12000},
+        context:{type:'object',additionalProperties:true},
+        maxCandidates:{type:'integer',minimum:1,maximum:12},
+      },
+      required:['input'],additionalProperties:false,
+    },
+    output_schema:{type:'object',additionalProperties:true},
+    risk:'LOW',permissions:[],health:'HEALTHY',enabled:true,
+  },async input=>{
+    calls+=1;
+    if(calls===1){
+      return {candidates:[{provider:'fixture',model:'bad',text:'{"steps":[{"capability":"invented.tool","input":{}}]}'}],failures:0};
+    }
+    assert.equal(input.context.purpose,'work-plan-generation-repair');
+    assert.match(input.input,/REPAIR_CAPABILITIES/);
+    assert.match(input.input,/"id":"echo"/);
+    assert.doesNotMatch(input.input,/"id":"danger.write"/);
+    return {candidates:[{provider:'fixture',model:'fixed',text:'{"steps":[{"id":"step-1","title":"Echo","capability":"echo","input":{"value":"ok"},"dependsOn":[],"idempotent":true}],"constraints":[]}'}],failures:0};
+  });
+  registerWorkCapabilities(bus,{});
+  const result=await bus.execute('work.plan.generate',{goal:'diagnostic simple',maxCandidates:1},{permissions:[]});
+  assert.equal(result.generator.repair_attempted,true);
+  assert.equal(result.generator.model,'fixed');
+  assert.equal(result.plan.steps[0].capability,'echo');
+});
