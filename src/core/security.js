@@ -59,6 +59,7 @@ const RELEASE_SMOKE_ALLOWLIST = Object.freeze(new Map([
     '/api/gen2/web/research',
   ])],
   ['GET', new Set([
+    '/api/v1/version',
     '/api/gen2/code/self-check',
     '/api/gen2/readiness',
     '/api/gen2/migration/gen1-status',
