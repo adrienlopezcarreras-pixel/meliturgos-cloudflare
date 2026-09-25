@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.14';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.15';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -36,7 +36,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-02', 'Identité MEL et System Prompt portable', 'DONE_VERIFIED', 'Persona stable extraite dans mel-persona.js, composée par le systemPrompt runtime et exposée par la façade identity; tests portable-identity inclus dans le lot de réconciliation #153.', 'P1'),
     item('GEN2-03', 'Model Registry provider-neutral', 'DONE_VERIFIED', 'Ajouter les métadonnées de qualité mesurées', 'P0'),
     item('GEN2-04', 'Model Router + fallback', 'DONE_VERIFIED', 'Brancher les scores réels de qualité/latence/coût', 'P0'),
-    item('GEN2-51', 'Versioning API', 'PARTIAL', 'Migrer progressivement les anciennes routes', 'P2'),
+    item('GEN2-51', 'Versioning API', 'PARTIAL', 'Façade /api/v1 réappliquée sur la production courante: registre central versionné, 29 routes MEL cœur, ownership index/router, alias legacy non cassants, Deprecation + successor-version, versions inconnues explicites et 405 + Allow. Android/device/computer/voix/fichiers exclus de ce lot. Déployer ce lot immédiatement après CI exacte, puis smoke production avant tout nouveau lot.', 'P2'),
     item('GEN2-52', 'Versioning prompts et stratégies', 'DONE_VERIFIED', 'Preuve d’intégration: PR #56; maintenir le registre unique et ses tests rollback/snapshot', 'P2')
   ]),
 
