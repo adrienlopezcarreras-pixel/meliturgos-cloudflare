@@ -16,7 +16,6 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import android.speech.tts.TextToSpeech
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.widget.Toast
@@ -115,9 +114,6 @@ class MainActivity : ComponentActivity() {
     private var recordingFile: File? = null
     private var recordingMimeType: String = "audio/mp4"
     private var speechRecognizer: SpeechRecognizer? = null
-    private var textToSpeech: TextToSpeech? = null
-    private var ttsReady = false
-    private var lastSpokenMelText: String? = null
     private var nativeSpeechListening = false
     private val recording = mutableStateOf(false)
     private val voiceLevel = mutableStateOf(0f)
@@ -182,7 +178,6 @@ class MainActivity : ComponentActivity() {
         client = MelApiClient(BuildConfig.MEL_BASE_URL, deviceId(), vault)
         val factory = MelViewModel.factory(this, client, vault, conversationId)
         model = ViewModelProvider(this, factory)[MelViewModel::class.java]
-        initializeFrenchTts()
         ensureMobileBridge()
 
         setContent {
@@ -195,13 +190,6 @@ class MainActivity : ComponentActivity() {
                         voiceMessage.value == "Transcription…")
                 ) {
                     voiceMessage.value = "Micro prêt"
-                }
-            }
-            LaunchedEffect(state.messages.size) {
-                val last = state.messages.lastOrNull()
-                if (last?.role == "mel" && last.text.isNotBlank() && last.text != lastSpokenMelText) {
-                    lastSpokenMelText = last.text
-                    speakMelFrench(last.text)
                 }
             }
             MelTheme {
@@ -235,56 +223,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun initializeFrenchTts() {
-        textToSpeech = TextToSpeech(this) { status ->
-            if (status != TextToSpeech.SUCCESS) {
-                ttsReady = false
-                return@TextToSpeech
-            }
-            val engine = textToSpeech ?: return@TextToSpeech
-            val frenchVoice = engine.voices
-                ?.filter { it.locale?.language.equals("fr", ignoreCase = true) }
-                ?.sortedWith(compareBy({ it.isNetworkConnectionRequired }, { it.name }))
-                ?.firstOrNull()
-            val selectedLocale = when {
-                frenchVoice != null -> frenchVoice.locale
-                engine.isLanguageAvailable(Locale.FRANCE) >= TextToSpeech.LANG_AVAILABLE -> Locale.FRANCE
-                engine.isLanguageAvailable(Locale.FRENCH) >= TextToSpeech.LANG_AVAILABLE -> Locale.FRENCH
-                else -> null
-            }
-            if (selectedLocale == null) {
-                ttsReady = false
-                return@TextToSpeech
-            }
-            engine.language = selectedLocale
-            if (frenchVoice != null) engine.voice = frenchVoice
-            engine.setSpeechRate(0.98f)
-            engine.setPitch(1.0f)
-            ttsReady = true
-        }
-    }
-
-    private fun speakMelFrench(text: String) {
-        if (!ttsReady || text.isBlank()) return
-        val engine = textToSpeech ?: return
-        val frenchVoice = engine.voices
-            ?.filter { it.locale?.language.equals("fr", ignoreCase = true) }
-            ?.sortedWith(compareBy({ it.isNetworkConnectionRequired }, { it.name }))
-            ?.firstOrNull()
-        if (frenchVoice != null) {
-            engine.language = frenchVoice.locale
-            engine.voice = frenchVoice
-        }
-        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "mel-fr-${System.currentTimeMillis()}")
-    }
-
     override fun onDestroy() {
         stopSpeechQuietly()
         stopRecorderQuietly()
-        runCatching { textToSpeech?.stop() }
-        runCatching { textToSpeech?.shutdown() }
-        textToSpeech = null
-        ttsReady = false
         super.onDestroy()
     }
 
