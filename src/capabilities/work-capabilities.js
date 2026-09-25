@@ -11,6 +11,51 @@ function workError(code) {
   return Object.assign(new Error(code), { code });
 }
 
+
+function synthesizeSchemaValue(schema = {}, seed = 'plan') {
+  const type = String(schema?.type || 'string');
+  if (Array.isArray(schema?.enum) && schema.enum.length) return schema.enum[0];
+  if (type === 'string') {
+    const min = Math.max(1, Number(schema?.minLength) || 1);
+    const max = Math.max(min, Number(schema?.maxLength) || 200);
+    const base = String(seed || 'plan');
+    return (base.length >= min ? base : base.padEnd(min, 'x')).slice(0, max);
+  }
+  if (type === 'integer') return Number.isFinite(Number(schema?.minimum)) ? Math.ceil(Number(schema.minimum)) : 1;
+  if (type === 'number') return Number.isFinite(Number(schema?.minimum)) ? Number(schema.minimum) : 1;
+  if (type === 'boolean') return false;
+  if (type === 'array') {
+    const min = Math.max(0, Number(schema?.minItems) || 0);
+    const items = [];
+    for (let i = 0; i < min; i += 1) items.push(synthesizeSchemaValue(schema?.items || {}, seed));
+    return items;
+  }
+  if (type === 'object') {
+    const out = {};
+    const properties = schema?.properties && typeof schema.properties === 'object' ? schema.properties : {};
+    for (const key of Array.isArray(schema?.required) ? schema.required : []) {
+      out[key] = synthesizeSchemaValue(properties[key] || {}, seed);
+    }
+    return out;
+  }
+  return String(seed || 'plan').slice(0, 200);
+}
+
+function minimalCapabilityInput(record, seed) {
+  return synthesizeSchemaValue(record?.input_schema || { type: 'object' }, seed);
+}
+
+function selectAllowedCapabilityId(text, catalog = []) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+  const exact = catalog.find(record => raw === String(record?.id || ''));
+  if (exact) return String(exact.id);
+  const tokens = raw.match(/[A-Za-z0-9_.:-]+/g) || [];
+  const allowed = new Set(catalog.map(record => String(record?.id || '')));
+  const matches = [...new Set(tokens.filter(token => allowed.has(token)))];
+  return matches.length === 1 ? matches[0] : '';
+}
+
 const DAG_ID = { type: 'string', minLength: 1, maxLength: 200 };
 const CONVERSATION_ID = { type: 'string', minLength: 1, maxLength: 200 };
 const PASSIVE_RESUME_AT = Number.MAX_SAFE_INTEGER;
@@ -367,6 +412,75 @@ export function registerWorkCapabilities(bus, { db } = {}) {
       }, context);
       providerFailures += Number(repaired?.failures || 0);
       tryCandidates(repaired, 'augmentio:work.plan.generate:repair');
+
+      if (!accepted && constrainedCatalog.length) {
+        const selectionPrompt = [
+          'Choisis UNE SEULE capability pour réaliser un plan de diagnostic sans effet de bord.',
+          'Réponds UNIQUEMENT avec son id exact, sans JSON, sans phrase et sans markdown.',
+          'IDS_AUTORISES:',
+          constrainedCatalog.map(record => String(record.id)).join('\n'),
+          'OBJECTIF:',
+          String(input.goal || '').slice(0, 2000),
+        ].join('\n').slice(0, 6000);
+
+        const selected = await bus.execute('augmentio.fanout', {
+          capability: 'REASONING',
+          input: selectionPrompt,
+          context: {
+            purpose: 'work-plan-generation-capability-selection',
+            execution_policy: 'PLAN_ONLY_NO_EXECUTION',
+            capability_count: constrainedCatalog.length,
+          },
+          maxCandidates: Math.min(4, Math.max(1, Number(input.maxCandidates) || 3)),
+        }, context);
+        providerFailures += Number(selected?.failures || 0);
+        const rankedSelections = Array.isArray(selected?.candidates) && selected.candidates.length
+          ? selected.candidates
+          : selected?.best ? [selected.best] : [];
+        candidateCount += rankedSelections.length;
+
+        for (const candidate of rankedSelections) {
+          const capabilityId = selectAllowedCapabilityId(candidate?.text, constrainedCatalog);
+          if (!capabilityId) {
+            validationFailures.push({
+              provider: candidate?.provider || null,
+              model: candidate?.model || null,
+              code: 'WORK_PLAN_MODEL_CAPABILITY_SELECTION_INVALID',
+            });
+            continue;
+          }
+          const record = constrainedCatalog.find(item => String(item.id) === capabilityId);
+          try {
+            const syntheticText = JSON.stringify({
+              steps: [{
+                id: 'step-1',
+                title: `Diagnostic via ${capabilityId}`,
+                capability: capabilityId,
+                input: minimalCapabilityInput(record, input.goal),
+                dependsOn: [],
+                idempotent: true,
+              }],
+              constraints: input.constraints || [],
+            });
+            accepted = parseCapabilityAwareWorkPlan({
+              text: syntheticText,
+              id: input.id,
+              goal: input.goal,
+              constraints: input.constraints || [],
+              catalog,
+              source: 'augmentio:work.plan.generate:structured-selection',
+            });
+            acceptedCandidate = candidate;
+            break;
+          } catch (error) {
+            validationFailures.push({
+              provider: candidate?.provider || null,
+              model: candidate?.model || null,
+              code: String(error?.code || error?.message || 'WORK_PLAN_STRUCTURED_SELECTION_INVALID').slice(0, 120),
+            });
+          }
+        }
+      }
     }
 
     if (!accepted) {
