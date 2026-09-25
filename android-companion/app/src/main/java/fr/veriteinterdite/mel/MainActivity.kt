@@ -232,6 +232,7 @@ class MainActivity : ComponentActivity() {
                     onNormalProbe = model::runNormalProbe,
                     onFileProbe = model::runFileProbe,
                     onBackgroundProbe = model::runBackgroundProbe,
+                    onTestVoice = ::testFrenchVoice,
                     cameraPhoto = cameraPhoto.value,
                     onCamera = ::openCamera,
                     onSendCamera = ::sendCameraPhoto,
@@ -280,6 +281,23 @@ class MainActivity : ComponentActivity() {
     private fun deviceId(): String {
         val raw = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         return "android-" + (raw ?: "unknown").take(64)
+    }
+
+    private fun testFrenchVoice() {
+        voiceMessage.value = "Test de la voix française…"
+        Thread {
+            try {
+                MelVoicePlayer.playSystemFrench(
+                    this,
+                    "Bonjour Adrien. La voix française de MEL fonctionne correctement."
+                )
+                runOnUiThread { voiceMessage.value = "Voix française OK" }
+            } catch (error: Throwable) {
+                runOnUiThread {
+                    voiceMessage.value = "Voix française en erreur : ${error.message ?: error.javaClass.simpleName}"
+                }
+            }
+        }.start()
     }
 
     private fun pickFile() {
@@ -1018,6 +1036,7 @@ internal fun MelApp(
     onNormalProbe: () -> Unit,
     onFileProbe: () -> Unit,
     onBackgroundProbe: () -> Unit,
+    onTestVoice: () -> Unit,
     cameraPhoto: Bitmap? = null,
     onCamera: () -> Unit = {},
     onSendCamera: () -> Unit = {},
@@ -1061,6 +1080,7 @@ internal fun MelApp(
                 onNormalProbe = onNormalProbe,
                 onFileProbe = onFileProbe,
                 onBackgroundProbe = onBackgroundProbe,
+                onTestVoice = onTestVoice,
                 cameraPhoto = cameraPhoto,
                 onCamera = onCamera,
                 onSendCamera = onSendCamera,
@@ -1433,6 +1453,7 @@ private fun ConversationScreen(
     onNormalProbe: () -> Unit,
     onFileProbe: () -> Unit,
     onBackgroundProbe: () -> Unit,
+    onTestVoice: () -> Unit,
     cameraPhoto: Bitmap?,
     onCamera: () -> Unit,
     onSendCamera: () -> Unit,
@@ -1525,7 +1546,8 @@ private fun ConversationScreen(
                     onCopyDiagnostic = onCopyDiagnostic,
                     onNormalProbe = onNormalProbe,
                     onFileProbe = onFileProbe,
-                    onBackgroundProbe = onBackgroundProbe
+                    onBackgroundProbe = onBackgroundProbe,
+                    onTestVoice = onTestVoice
                 )
             }
         }
@@ -2379,7 +2401,8 @@ private fun NativeToolsPanel(
     onCopyDiagnostic: (String) -> Unit,
     onNormalProbe: () -> Unit,
     onFileProbe: () -> Unit,
-    onBackgroundProbe: () -> Unit
+    onBackgroundProbe: () -> Unit,
+    onTestVoice: () -> Unit
 ) {
     Column(
         Modifier
@@ -2405,6 +2428,12 @@ private fun NativeToolsPanel(
                 fontSize = 12.sp
             )
         }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onTestVoice,
+            modifier = Modifier.fillMaxWidth().testTag("test-french-voice-button"),
+            enabled = !state.busy
+        ) { Text("TEST VOIX FRANÇAISE") }
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             OutlinedButton(onClick = onSync, modifier = Modifier.weight(1f), enabled = !state.busy) { Text("Synchroniser") }

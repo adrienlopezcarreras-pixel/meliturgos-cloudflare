@@ -241,6 +241,36 @@ class MelViewModel(
         }
     }
 
+    private fun chatWithRecovery(
+        text: String,
+        voice: Boolean,
+        mode: MelMode
+    ): JSONObject {
+        return try {
+            client.chat(
+                text = text,
+                conversationId = conversationId,
+                voice = voice,
+                uiMode = mode.wireValue
+            )
+        } catch (first: Throwable) {
+            if (isInvalidSession(first)) throw first
+            appendDiagnosticLine("Chat: première tentative échouée · ${explain(first)}")
+            client.heartbeat(sdkInt = Build.VERSION.SDK_INT)
+            _state.value = _state.value.copy(
+                session = SessionStage.CONNECTED,
+                status = "Connexion rétablie · nouvelle tentative…",
+                error = null
+            )
+            client.chat(
+                text = text,
+                conversationId = conversationId,
+                voice = voice,
+                uiMode = mode.wireValue
+            )
+        }
+    }
+
     fun send(text: String, voice: Boolean = false) {
         val clean = text.trim()
         if (clean.isBlank() || _state.value.busy || _state.value.speaking) return
@@ -253,11 +283,10 @@ class MelViewModel(
         )
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val response = client.chat(
+                val response = chatWithRecovery(
                     text = clean,
-                    conversationId = conversationId,
                     voice = voice,
-                    uiMode = mode.wireValue
+                    mode = mode
                 )
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
@@ -306,11 +335,10 @@ class MelViewModel(
                     status = "MEL réfléchit…",
                     messages = _state.value.messages + MelChatMessage("user", transcript, voice = true)
                 )
-                val response = client.chat(
+                val response = chatWithRecovery(
                     text = transcript,
-                    conversationId = conversationId,
                     voice = true,
-                    uiMode = mode.wireValue
+                    mode = mode
                 )
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
