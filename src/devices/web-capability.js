@@ -58,9 +58,11 @@ function validateUrl(urlString) {
 
 async function fetchValidatedRedirectChain(initialUrl, { fetchImpl, timeoutMs, maxRedirects = 4 } = {}) {
   let current = initialUrl;
+  const redirectChain = [];
   for (let hop = 0; hop <= maxRedirects; hop += 1) {
     const validation = validateUrl(current);
     if (!validation.valid) throw new Error(`Invalid URL: ${validation.error}`);
+    redirectChain.push(validation.url.href);
     const response = await fetchImpl(validation.url.href, {
       method: 'GET',
       headers: {
@@ -77,10 +79,16 @@ async function fetchValidatedRedirectChain(initialUrl, { fetchImpl, timeoutMs, m
       const location = response.headers.get('location');
       if (!location) throw new Error(`Redirect ${response.status} without location`);
       if (hop >= maxRedirects) throw new Error('Too many redirects');
+      try { await response.body?.cancel?.(); } catch {}
       current = new URL(location, validation.url).href;
       continue;
     }
-    return { response, finalUrl: validation.url.href, redirectCount: hop };
+    return {
+      response,
+      finalUrl: validation.url.href,
+      redirectCount: hop,
+      redirectChain: Object.freeze([...redirectChain]),
+    };
   }
   throw new Error('Too many redirects');
 }
@@ -93,13 +101,16 @@ async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 1
   const startTime = Date.now();
   let content = '';
   let contentType = '';
-  let finalUrl = validation.url.href;
+  const requestedUrl = validation.url.href;
+  let finalUrl = requestedUrl;
   let redirectCount = 0;
+  let redirectChain = [requestedUrl];
   try {
     const fetched = await fetchValidatedRedirectChain(finalUrl, { fetchImpl, timeoutMs });
     const response = fetched.response;
     finalUrl = fetched.finalUrl;
     redirectCount = fetched.redirectCount;
+    redirectChain = fetched.redirectChain;
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('text/html') && !contentType.includes('application/json') && !contentType.includes('text/plain')) {
@@ -113,7 +124,9 @@ async function fetchWebContent(sourceId, url, { fetchImpl = fetch, timeoutMs = 1
   const bounded = content.slice(0, 50000);
   return {
     source_id: sourceId,
+    requested_url: requestedUrl,
     url: finalUrl,
+    redirect_chain: redirectChain,
     content: bounded,
     truncated: content.length > bounded.length,
     content_type: contentType,
