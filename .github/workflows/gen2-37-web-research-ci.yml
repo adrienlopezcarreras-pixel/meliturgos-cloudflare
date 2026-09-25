@@ -1,0 +1,62 @@
+name: gen2-37-web-research-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/services/internet-service.js'
+      - 'src/devices/web-capability.js'
+      - 'src/capabilities/web-research-capability.js'
+      - 'src/api/research-api.js'
+      - 'src/api/native-chat.js'
+      - 'src/roadmap/master-roadmap.js'
+      - 'tests/phase5-web-research.test.mjs'
+      - 'tests/web-research-capability.test.mjs'
+      - 'tests/native-chat-web-research.test.mjs'
+      - '.github/workflows/gen2-37-web-research-ci.yml'
+  push:
+    branches:
+      - 'roadmap/gen2-37-web-research-quality-20260925'
+
+permissions:
+  contents: read
+
+jobs:
+  web-research-targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node scripts/runtime-security-gate.mjs
+      - name: Syntax
+        run: >
+          node --check src/services/internet-service.js &&
+          node --check src/devices/web-capability.js &&
+          node --check src/capabilities/web-research-capability.js &&
+          node --check src/api/research-api.js &&
+          node --check src/api/native-chat.js
+      - name: GEN2-37 targeted tests
+        run: >
+          node --test
+          tests/phase5-web-research.test.mjs
+          tests/web-research-capability.test.mjs
+          tests/native-chat-web-research.test.mjs
+
+  web-research-full-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: web-research-targeted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: git switch -c candidate/gen2-37-web-research-ci
+      - run: npm test
