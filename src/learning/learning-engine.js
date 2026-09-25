@@ -6,6 +6,7 @@ import { assertAdapterActivationEvidence, assertAdapterArtifact, createLoraTrain
 import { BOOTSTRAP_CORRECTIONS } from './bootstrap-corrections.js';
 import { expertPlusSummary, searchExpertPlusCycles } from './expert-plus-corpus.js';
 import { sourceIntelligenceSummary } from './source-intelligence.js';
+import { D1ModelPerformanceStore, modelTaskQualityFromBenchmark } from '../models/model-performance-store.js';
 
 function evidenceObject(row) {
   const value = row?.evidence;
@@ -34,8 +35,9 @@ function dedupeCorrections(rows = []) {
 }
 
 export class LearningEngine {
-  constructor({ memory } = {}) {
+  constructor({ memory, performanceStore = null } = {}) {
     this.memory = memory || new MentorMemoryRepository(null);
+    this.performanceStore = performanceStore;
   }
 
   async recordCorrection(input = {}) {
@@ -97,7 +99,22 @@ export class LearningEngine {
       score: score.overall,
       tags: ['learning', 'benchmark', kind, model_id, adapter_id].filter(Boolean),
     });
-    return { record, score };
+    let modelPerformanceRecorded = false;
+    if (model_id && !adapter_id && this.performanceStore?.recordBenchmark) {
+      const taskScores = modelTaskQualityFromBenchmark(score);
+      try {
+        const writes = await Promise.all(taskScores.map(({ task, quality }) => this.performanceStore.recordBenchmark({
+          modelId: model_id,
+          task,
+          quality,
+        })));
+        modelPerformanceRecorded = writes.some(Boolean);
+      } catch {
+        modelPerformanceRecorded = false;
+      }
+    }
+
+    return { record, score, model_performance_recorded: modelPerformanceRecorded };
   }
 
   async benchmarks({ limit = 200 } = {}) {
@@ -412,5 +429,8 @@ export class LearningEngine {
 }
 
 export function createLearningEngine(env, options = {}) {
-  return new LearningEngine({ memory: options.memory || new MentorMemoryRepository(env?.DB) });
+  return new LearningEngine({
+    memory: options.memory || new MentorMemoryRepository(env?.DB),
+    performanceStore: options.performanceStore || (env?.DB ? new D1ModelPerformanceStore(env.DB) : null),
+  });
 }
