@@ -20,7 +20,8 @@ import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, infer
 import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
-import { inferKnowledgeCapability } from './knowledge-intent.js';\nimport { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
+import { inferKnowledgeCapability } from './knowledge-intent.js';
+import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 
 export function inferChatGPTHistoryCapability(text) {
   const value = String(text || '').trim();
