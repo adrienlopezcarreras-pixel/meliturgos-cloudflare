@@ -196,6 +196,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         vault = TokenVault(this)
+        MelVoicePlayer.initialize(this)
         client = MelApiClient(BuildConfig.MEL_BASE_URL, deviceId(), vault)
         val factory = MelViewModel.factory(this, client, vault, conversationId)
         model = ViewModelProvider(this, factory)[MelViewModel::class.java]
