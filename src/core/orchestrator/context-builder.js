@@ -374,9 +374,9 @@ export function buildContext({ system, recent = [], retrieved = null, toolResult
   const bounded = boundRecentMessages(recent);
   if (bounded.omitted > 0) {
     messages[0].content += `\n\nCONTEXTE RÉCENT : ${bounded.omitted} message(s) plus ancien(s) ont été omis du prompt actif pour éviter un dépassement de fenêtre. Les faits durables doivent venir de la mémoire récupérée, pas être inventés.`;
-    const capsule = compileHistoricalDecisionCapsule(bounded.decision_source_messages);
-    if (capsule.text) messages[0].content += `\n\n${capsule.text}`;
   }
+  const decisionCapsule = compileHistoricalDecisionCapsule(bounded.decision_source_messages);
+  if (decisionCapsule.text) messages[0].content += `\n\n${decisionCapsule.text}`;
 
   // This guard is deliberately appended last in the system layer, after
   // retrieved memories and tool data, so they cannot dilute current-turn
