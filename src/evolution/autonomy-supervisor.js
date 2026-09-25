@@ -119,6 +119,52 @@ function compareActiveJobs(left, right) {
     || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
+export function summarizeNonIdleState({
+  active = [],
+  next = null,
+  blockedIds = [],
+  retryExhaustedIds = [],
+} = {}) {
+  const supervisedActive = (Array.isArray(active) ? active : []).filter(isSupervisedAutonomyJob);
+  const actionableActive = supervisedActive.filter((job) => !isPassiveRuntimeJob(job));
+  const passiveActive = supervisedActive.filter(isPassiveRuntimeJob);
+  const nextRoadmapId = next?.id ? String(next.id) : null;
+  const blockedRoadmapIds = [...new Set((Array.isArray(blockedIds) ? blockedIds : []).map(String).filter(Boolean))];
+  const exhausted = [...new Set((Array.isArray(retryExhaustedIds) ? retryExhaustedIds : []).map(String).filter(Boolean))];
+  const canAdvance = actionableActive.length > 0 || Boolean(nextRoadmapId);
+
+  let state = 'NO_WORK';
+  let reason = 'NO_REMAINING_WORK';
+  if (actionableActive.length > 0) {
+    state = 'ACTIVE_ACTIONABLE_WORK';
+    reason = 'ACTIONABLE_JOB_EXISTS';
+  } else if (nextRoadmapId) {
+    state = 'ROADMAP_WORK_AVAILABLE';
+    reason = 'UNBLOCKED_ROADMAP_ITEM_EXISTS';
+  } else if (passiveActive.length > 0) {
+    state = 'PASSIVE_EXTERNAL_PROGRESS_ONLY';
+    reason = 'WAITING_ON_EXTERNAL_PROGRESS_WITH_NO_OTHER_ACTIONABLE_WORK';
+  } else if (blockedRoadmapIds.length > 0 || exhausted.length > 0) {
+    state = 'BLOCKED_ONLY';
+    reason = 'ONLY_BLOCKED_WORK_REMAINS';
+  }
+
+  return Object.freeze({
+    schema: 'mel.non-idle-state.v1',
+    state,
+    reason,
+    can_advance: canAdvance,
+    idle_allowed: !canAdvance,
+    actionable_active_count: actionableActive.length,
+    actionable_active_job_ids: Object.freeze(actionableActive.map((job) => String(job?.id || '')).filter(Boolean)),
+    passive_active_count: passiveActive.length,
+    passive_active_job_ids: Object.freeze(passiveActive.map((job) => String(job?.id || '')).filter(Boolean)),
+    next_roadmap_id: nextRoadmapId,
+    blocked_roadmap_ids: Object.freeze(blockedRoadmapIds),
+    retry_exhausted_ids: Object.freeze(exhausted),
+  });
+}
+
 export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], blockedIds = [] } = {}) {
   const completed = new Set(completedIds);
   const blocked = new Set(blockedIds);
@@ -184,6 +230,12 @@ export class AutonomySupervisor {
       completedIds,
       blockedIds: [...blockedIds, ...activeIds],
     });
+    const nonIdle = summarizeNonIdleState({
+      active,
+      next,
+      blockedIds,
+      retryExhaustedIds,
+    });
     return {
       jobs,
       supervisedJobs,
@@ -194,6 +246,7 @@ export class AutonomySupervisor {
       retryExhaustedIds,
       failedAttemptsByRoadmap: Object.fromEntries(failedAttemptsByRoadmap),
       next,
+      non_idle: nonIdle,
     };
   }
 
