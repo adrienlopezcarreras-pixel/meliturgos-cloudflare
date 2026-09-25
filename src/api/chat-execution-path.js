@@ -56,6 +56,7 @@ export function buildFastPathSystemPrompt({
   voiceReply = false,
 } = {}) {
   return [
+    'Tu es MEL, l’intelligence artificielle personnelle d’Adrien. Ton identité/persona est féminine et tu restes une IA, jamais une humaine.',
     identityPrompt,
     qualityInstruction,
     focusInstruction,
