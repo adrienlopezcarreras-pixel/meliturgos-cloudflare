@@ -32,6 +32,7 @@ const ROUTES = Object.freeze([
   { id:'sync.read', handler:'router', canonical:'/api/v1/sync', legacy:['/api/gen2/sync'], methods:['GET'] },
   {
     id:'conversations.rest',
+    handler:'router',
     canonical:'/api/v1/conversations',
     legacy:['/api/conversations'],
     methods:['GET','POST','PATCH','DELETE'],
