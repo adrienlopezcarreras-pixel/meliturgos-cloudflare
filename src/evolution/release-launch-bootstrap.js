@@ -56,6 +56,9 @@ function safeReadiness(value) {
     shardvault: {
       ok: value?.shardvault?.ok === true,
       status: value?.shardvault?.status || null,
+      paused: value?.shardvault?.paused === true,
+      temporary: value?.shardvault?.temporary === true,
+      resume_condition: value?.shardvault?.resume_condition || null,
       recoverable: value?.shardvault?.recoverable === true,
       active_external_count: Number(value?.shardvault?.active_external_count || 0),
       external_code_status: value?.shardvault?.external_code_status || null,
