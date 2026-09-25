@@ -1249,7 +1249,9 @@ static void lv_port_init() {
     display_cfg.panel_handle = panel_handle;
     display_cfg.control_handle = nullptr;
     display_cfg.buffer_size = LCD_BUFFER_SIZE;
-    display_cfg.double_buffer = true;
+    // Single LVGL draw buffer: avoids the LVGL partial-double-buffer wait loop
+    // getting stuck when the LCD transfer-done callback is missed.
+    display_cfg.double_buffer = false;
     display_cfg.trans_size = 0;
     display_cfg.hres = MINI_LCD_H_RES;
     display_cfg.vres = MINI_LCD_V_RES;
