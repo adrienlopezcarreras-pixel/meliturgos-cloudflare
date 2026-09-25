@@ -27,6 +27,8 @@ jobs:
         run: |
           node --check src/memory/timeline.js
           node --check src/planning/project-service.js
+          node --check src/capabilities/planning-capabilities.js
+          node --check src/capabilities/default-bus.js
           node --check src/persistence/gen2-schema.js
           node --check src/persistence/migrations.js
           node --check src/core/config.js
@@ -37,6 +39,8 @@ jobs:
         run: |
           node --test tests/gen2/timeline.test.mjs
           node --test tests/gen2/projects-decisions.test.mjs
+          node --test tests/planning-capabilities.test.mjs
+          node --test tests/expanded-capability-bus.test.mjs
           node --test tests/memory/portable-export.test.mjs
           node --test tests/gen2/completion-matrix.test.mjs
           node --test tests/gen2/final-status-report.test.mjs
