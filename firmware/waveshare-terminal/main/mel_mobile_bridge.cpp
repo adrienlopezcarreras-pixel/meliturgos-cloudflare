@@ -148,6 +148,8 @@ static void handle_rx_frame(const uint8_t *data, size_t len) {
                         ((uint32_t)data[2] << 8) |
                         ((uint32_t)data[3] << 16) |
                         ((uint32_t)data[4] << 24);
+    ESP_LOGI(TAG, "MEL Mobile RX op=0x%02x id=%u len=%u active=%u",
+             op, (unsigned)id, (unsigned)len, (unsigned)g_active.id);
     if (id != g_active.id) return;
     const uint8_t *payload = data + 5;
     const size_t payload_len = len - 5;
@@ -157,6 +159,7 @@ static void handle_rx_frame(const uint8_t *data, size_t len) {
         cJSON *root = cJSON_Parse(meta.c_str());
         cJSON *status = root ? cJSON_GetObjectItemCaseSensitive(root, "status") : nullptr;
         g_active.status = cJSON_IsNumber(status) ? status->valueint : 0;
+        ESP_LOGI(TAG, "MEL Mobile response begin status=%d", g_active.status);
         if (root) cJSON_Delete(root);
         return;
     }
@@ -179,6 +182,7 @@ static void handle_rx_frame(const uint8_t *data, size_t len) {
         return;
     }
     if (op == OP_RESPONSE_END) {
+        ESP_LOGI(TAG, "MEL Mobile response end id=%u status=%d", (unsigned)id, g_active.status);
         if (g_response_done) xSemaphoreGive(g_response_done);
     }
 }
@@ -238,7 +242,7 @@ static void on_discovery_complete(const struct peer *peer, int status, void *arg
              rx->chr.val_handle, tx->chr.val_handle, cccd->dsc.handle);
     g_rx_handle = rx->chr.val_handle;
     g_tx_handle = tx->chr.val_handle;
-    uint8_t value[2] = {2, 0}; // indications
+    uint8_t value[2] = {1, 0}; // notifications
     g_ready.store(false);
     int rc = ble_gattc_write_flat(
         peer->conn_handle,
