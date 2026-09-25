@@ -472,6 +472,48 @@ jobs:
           console.log('Production GEN2-48 isolated recovery drill passed on snapshot '+result.snapshot_id+'.');
           NODE
 
+          INTEGRITY_CODE="$(curl --silent --show-error --max-time 90 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"id":"system.integrity","input":{}}' \
+            --output production-system-integrity.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute")"
+          if [ "$INTEGRITY_CODE" != "200" ]; then
+            echo "GEN2-55 production integrity smoke returned HTTP ${INTEGRITY_CODE}."
+            test ! -s production-system-integrity.json || cat production-system-integrity.json
+            exit 48
+          fi
+
+          MATURITY_CODE="$(curl --silent --show-error --max-time 90 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"id":"system.maturity","input":{}}' \
+            --output production-system-maturity.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute")"
+          if [ "$MATURITY_CODE" != "200" ]; then
+            echo "GEN2-55 production maturity smoke returned HTTP ${MATURITY_CODE}."
+            test ! -s production-system-maturity.json || cat production-system-maturity.json
+            exit 49
+          fi
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const integrity=JSON.parse(fs.readFileSync('production-system-integrity.json','utf8'));
+          const maturity=JSON.parse(fs.readFileSync('production-system-maturity.json','utf8'));
+          const i=integrity?.result||{};
+          const m=maturity?.result||{};
+          if(integrity?.ok!==true || integrity?.capability!=='system.integrity') throw new Error('GEN2_55_PRODUCTION_INTEGRITY_CAPABILITY_NOT_OK');
+          if(i?.schema!=='mel.data-integrity-audit' || i?.ok!==true) throw new Error('GEN2_55_PRODUCTION_INTEGRITY_FAILED');
+          if(maturity?.ok!==true || maturity?.capability!=='system.maturity') throw new Error('GEN2_55_PRODUCTION_MATURITY_CAPABILITY_NOT_OK');
+          if(m?.schema!=='mel.final-maturity-audit' || m?.ok!==true) throw new Error('GEN2_55_PRODUCTION_MATURITY_FAILED');
+          if(m?.invariants?.automatic_repair!==false || m?.invariants?.network_calls!==false) throw new Error('GEN2_55_PRODUCTION_READ_ONLY_INVARIANT_FAILED');
+          console.log('Production GEN2-55 D1 integrity + maturity audits passed.');
+          NODE
+
           OBS_READINESS_CODE="$(curl --silent --show-error --max-time 60 \
             --header "x-mel-release-smoke: 1" \
             --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
