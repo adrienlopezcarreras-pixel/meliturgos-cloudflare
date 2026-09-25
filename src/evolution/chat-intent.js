@@ -1,6 +1,7 @@
 import { classifySemanticOwnerIntent } from './semantic-intent.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { inferKnowledgeCapability } from '../api/knowledge-intent.js';
+import { preservePlatformRequestMetadata } from '../core/request-observability.js';
 
 export function isEvolutionDevelopmentIntent(text) {
   const value = String(text || '').trim();
@@ -243,5 +244,11 @@ export async function injectEvolutionPreflightCapability(request, env = {}) {
 
   const headers = new Headers(request.headers);
   headers.set('content-type', 'application/json');
-  return new Request(request.url, { method: request.method, headers, body: JSON.stringify(body), redirect: request.redirect });
+  const routedRequest = new Request(request.url, {
+    method: request.method,
+    headers,
+    body: JSON.stringify(body),
+    redirect: request.redirect,
+  });
+  return preservePlatformRequestMetadata(request, routedRequest);
 }
