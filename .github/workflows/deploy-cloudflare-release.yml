@@ -414,6 +414,34 @@ jobs:
             exit 35
           fi
 
+          RECOVERY_DRILL_CODE="$(curl --silent --show-error --max-time 90 \
+            --header "x-mel-release-smoke: 1" \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"id":"resilience.recovery.drill.latest","input":{"approved":true}}' \
+            --output production-recovery-drill.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/gen2/capabilities/execute")"
+          if [ "$RECOVERY_DRILL_CODE" != "200" ]; then
+            echo "Production recovery drill returned HTTP ${RECOVERY_DRILL_CODE}."
+            test ! -s production-recovery-drill.json || cat production-recovery-drill.json
+            exit 37
+          fi
+
+          EXPECTED_SHA="$EXPECTED_SHA" node - <<'NODE'
+          const fs=require('fs');
+          const body=JSON.parse(fs.readFileSync('production-recovery-drill.json','utf8'));
+          const result=body?.result||{};
+          if(body?.ok!==true || body?.capability!=='resilience.recovery.drill.latest') throw new Error('PRODUCTION_RECOVERY_DRILL_CAPABILITY_NOT_OK');
+          if(result?.ok!==true || result?.state!=='PASSED') throw new Error('PRODUCTION_RECOVERY_DRILL_NOT_PASSED');
+          if(result?.restore_candidate_verified!==true) throw new Error('PRODUCTION_RECOVERY_SNAPSHOT_NOT_VERIFIED');
+          if(result?.production_access_used!==false || result?.activation_performed!==false) throw new Error('PRODUCTION_RECOVERY_SAFETY_INVARIANT_FAILED');
+          if(result?.teardown_completed!==true) throw new Error('PRODUCTION_RECOVERY_TEARDOWN_FAILED');
+          if(!result?.snapshot_id || !/^[0-9a-f]{40}$/i.test(String(result?.deployed_sha||''))) throw new Error('PRODUCTION_RECOVERY_PROVENANCE_MISSING');
+          if(Number(result?.reconstructed_tables||0)<1) throw new Error('PRODUCTION_RECOVERY_D1_RECONSTRUCTION_EMPTY');
+          console.log('Production GEN2-48 isolated recovery drill passed on snapshot '+result.snapshot_id+'.');
+          NODE
+
           OBS_READINESS_CODE="$(curl --silent --show-error --max-time 60 \
             --header "x-mel-release-smoke: 1" \
             --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
