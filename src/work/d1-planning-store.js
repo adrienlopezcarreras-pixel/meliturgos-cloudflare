@@ -25,6 +25,24 @@ const TASK_TRANSITIONS = Object.freeze({
 });
 
 const MAX_RECORD_BYTES = 900_000;
+const SECRET_KEY = /(secret|token|password|authorization|cookie|api[_-]?key|otp|private[_-]?key|credential)/i;
+const SECRET_VALUE = /(bearer\s+[a-z0-9._~+/=-]{8,}|\bsk-[a-z0-9_-]{8,}|\bgh[pousr]_[a-z0-9]{12,})/i;
+
+function cleanEventDetail(value, depth = 0) {
+  if (depth > 5) return '[TRUNCATED]';
+  if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
+  if (typeof value === 'string') return SECRET_VALUE.test(value) ? '[REDACTED]' : value.slice(0, 4000);
+  if (Array.isArray(value)) return value.slice(0, 50).map(item => cleanEventDetail(item, depth + 1));
+  if (typeof value === 'object') {
+    const out = {};
+    for (const [key, item] of Object.entries(value).slice(0, 80)) {
+      if (SECRET_KEY.test(key)) continue;
+      out[key] = cleanEventDetail(item, depth + 1);
+    }
+    return out;
+  }
+  return String(value).slice(0, 4000);
+}
 
 function planningError(code) {
   return Object.assign(new Error(code), { code });
@@ -98,7 +116,7 @@ export class D1PlanningStore {
       event_id: crypto.randomUUID(),
       plan_id: String(planId),
       event_type: String(eventType).slice(0, 100),
-      detail: detail && typeof detail === 'object' && !Array.isArray(detail) ? detail : {},
+      detail: cleanEventDetail(detail && typeof detail === 'object' && !Array.isArray(detail) ? detail : {}),
       created_at: now,
     };
     const serialized = JSON.stringify(event.detail);
