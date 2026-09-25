@@ -312,14 +312,27 @@ export function registerWorkCapabilities(bus, { db } = {}) {
     if (!accepted) {
       repairAttempted = true;
       const repairCatalog = catalog
-        .filter((record) => String(record?.risk || '').toUpperCase() === 'LOW' && record?.approval_required !== true)
+        .filter((record) => {
+          const id = String(record?.id || '');
+          const risk = String(record?.risk || '').toUpperCase();
+          return risk === 'LOW'
+            && record?.approval_required !== true
+            && record?.enabled !== false
+            && String(record?.health || '').toUpperCase() !== 'UNAVAILABLE'
+            && !id.startsWith('work.')
+            && !id.startsWith('augmentio.');
+        })
         .sort((a, b) => {
+          if (String(a.id) === 'echo' && String(b.id) !== 'echo') return -1;
+          if (String(b.id) === 'echo' && String(a.id) !== 'echo') return 1;
           const aRequired = Array.isArray(a?.input_schema?.required) ? a.input_schema.required.length : 0;
           const bRequired = Array.isArray(b?.input_schema?.required) ? b.input_schema.required.length : 0;
           return aRequired - bRequired || String(a.id).localeCompare(String(b.id));
         })
-        .slice(0, 8);
-      const constrainedCatalog = repairCatalog.length ? repairCatalog : catalog.slice(0, 8);
+        .slice(0, 4);
+      const constrainedCatalog = repairCatalog.length ? repairCatalog : catalog
+        .filter((record) => !String(record?.id || '').startsWith('work.') && !String(record?.id || '').startsWith('augmentio.'))
+        .slice(0, 4);
       const repairPrompt = [
         'Tu répares un plan MEL qui a échoué à la validation stricte.',
         'Réponds UNIQUEMENT avec un objet JSON valide, sans markdown ni commentaire.',
@@ -329,7 +342,8 @@ export function registerWorkCapabilities(bus, { db } = {}) {
         '- choisis UNE SEULE capability dans REPAIR_CAPABILITIES;',
         '- copie exactement son id;',
         '- fournis exactement les champs requis par son input_schema, sans champ supplémentaire;',
-        '- n’utilise jamais work.*;',
+        '- n’utilise jamais work.* ni augmentio.*;',
+        '- si echo est présent, préfère echo pour un diagnostic sans effet de bord et utilise un champ value texte non vide;',
         '- ne lance rien et ne persiste rien;',
         'OBJECTIF:',
         String(input.goal || '').slice(0, 4000),
