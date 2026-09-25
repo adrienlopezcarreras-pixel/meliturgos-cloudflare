@@ -109,6 +109,9 @@ static volatile bool wifi_scan_requested = false;
 static int last_face_state = -1;
 static bool last_blink = false;
 static bool last_online = false;
+static int last_talk_ring = -1;
+static int last_talk_enabled = -1;
+static char last_clock_text[8] = "";
 #define MINI_UI_STRESS_TEST 0
 
 static void request_view(MiniView view);
@@ -244,13 +247,16 @@ static void clock_timer_cb(lv_timer_t *) {
     time(&now);
     struct tm local_tm = {};
     localtime_r(&now, &local_tm);
-    if (local_tm.tm_year + 1900 < 2024) {
-        lv_label_set_text(time_label, "--:--");
-        return;
-    }
     char buf[8] = {};
-    strftime(buf, sizeof(buf), "%H:%M", &local_tm);
-    lv_label_set_text(time_label, buf);
+    if (local_tm.tm_year + 1900 < 2024) {
+        snprintf(buf, sizeof(buf), "--:--");
+    } else {
+        strftime(buf, sizeof(buf), "%H:%M", &local_tm);
+    }
+    if (strcmp(buf, last_clock_text) != 0) {
+        snprintf(last_clock_text, sizeof(last_clock_text), "%s", buf);
+        lv_label_set_text(time_label, buf);
+    }
 }
 
 static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void *data) {
@@ -311,7 +317,10 @@ static void mini_anim_cb(lv_timer_t *) {
     if (talk_button) {
         const int level = mel_terminal_voice_level();
         const int ring = state == MEL_TERMINAL_LISTENING ? (3 + (level * 5) / 100) : 3;
-        lv_obj_set_style_border_width(talk_button, ring, 0);
+        if (ring != last_talk_ring) {
+            last_talk_ring = ring;
+            lv_obj_set_style_border_width(talk_button, ring, 0);
+        }
     }
 
     if (state != last_face_state && talk_button) {
@@ -325,10 +334,11 @@ static void mini_anim_cb(lv_timer_t *) {
     }
 
     if (talk_button) {
-        if (online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) {
-            lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
-        } else {
-            lv_obj_add_state(talk_button, LV_STATE_DISABLED);
+        const int enabled = (online && (state == MEL_TERMINAL_IDLE || state == MEL_TERMINAL_LISTENING)) ? 1 : 0;
+        if (enabled != last_talk_enabled) {
+            last_talk_enabled = enabled;
+            if (enabled) lv_obj_clear_state(talk_button, LV_STATE_DISABLED);
+            else lv_obj_add_state(talk_button, LV_STATE_DISABLED);
         }
     }
 
@@ -402,6 +412,14 @@ static void request_view(MiniView view) {
     requested_view = (int)view;
 }
 
+static void ui_set_hidden(lv_obj_t *obj, bool hidden) {
+    if (!obj) return;
+    const bool currently_hidden = lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    if (currently_hidden == hidden) return;
+    if (hidden) lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void mini_apply_requested_view(void) {
     const int next = requested_view;
     if (next == active_view) {
@@ -415,20 +433,24 @@ static void mini_apply_requested_view(void) {
     active_view = next;
     ESP_LOGI(TAG, "UI VIEW -> %d", active_view);
 
-    if (main_panel) lv_obj_add_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
-    if (wifi_panel) lv_obj_add_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
-    if (pair_panel) lv_obj_add_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
-    if (settings_panel) lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
-    if (wifi_keyboard) lv_obj_add_flag(wifi_keyboard, LV_OBJ_FLAG_HIDDEN);
-    if (pair_keyboard) lv_obj_add_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
+    const bool wifi_view = active_view == MINI_VIEW_WIFI_LIST ||
+                           active_view == MINI_VIEW_WIFI_MANUAL ||
+                           active_view == MINI_VIEW_WIFI_PASSWORD;
+    const bool wifi_keyboard_visible = active_view == MINI_VIEW_WIFI_MANUAL ||
+                                       active_view == MINI_VIEW_WIFI_PASSWORD;
+
+    ui_set_hidden(main_panel, active_view != MINI_VIEW_MAIN);
+    ui_set_hidden(settings_panel, active_view != MINI_VIEW_SETTINGS);
+    ui_set_hidden(pair_panel, active_view != MINI_VIEW_PAIR);
+    ui_set_hidden(wifi_panel, !wifi_view);
+    ui_set_hidden(pair_keyboard, active_view != MINI_VIEW_PAIR);
+    ui_set_hidden(wifi_keyboard, !wifi_keyboard_visible);
 
     if (active_view == MINI_VIEW_MAIN) {
-        if (main_panel) lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
     if (active_view == MINI_VIEW_SETTINGS) {
-        if (settings_panel) lv_obj_clear_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
         if (settings_status) {
             char ip[32] = {};
             esp_wifi_port_get_ip(ip);
@@ -440,22 +462,18 @@ static void mini_apply_requested_view(void) {
     }
 
     if (active_view == MINI_VIEW_PAIR) {
-        if (pair_panel) lv_obj_clear_flag(pair_panel, LV_OBJ_FLAG_HIDDEN);
-        if (pair_keyboard) lv_obj_clear_flag(pair_keyboard, LV_OBJ_FLAG_HIDDEN);
         if (pair_input && pair_keyboard) lv_keyboard_set_textarea(pair_keyboard, pair_input);
         if (pair_status) lv_label_set_text(pair_status, "Entre le code genere dans MEL > MINI");
         return;
     }
 
-    if (wifi_panel) lv_obj_clear_flag(wifi_panel, LV_OBJ_FLAG_HIDDEN);
-
     if (active_view == MINI_VIEW_WIFI_LIST) {
         wifi_manual_mode = false;
         selected_ssid[0] = '\0';
-        if (wifi_list) lv_obj_clear_flag(wifi_list, LV_OBJ_FLAG_HIDDEN);
-        if (wifi_ssid_input) lv_obj_add_flag(wifi_ssid_input, LV_OBJ_FLAG_HIDDEN);
-        if (wifi_pwd) lv_obj_add_flag(wifi_pwd, LV_OBJ_FLAG_HIDDEN);
-        if (wifi_connect_btn) lv_obj_add_flag(wifi_connect_btn, LV_OBJ_FLAG_HIDDEN);
+        ui_set_hidden(wifi_list, false);
+        ui_set_hidden(wifi_ssid_input, true);
+        ui_set_hidden(wifi_pwd, true);
+        ui_set_hidden(wifi_connect_btn, true);
         if (wifi_status) lv_label_set_text(wifi_status, "Choisis un reseau");
         wifi_scan_requested = true;
         return;
@@ -1313,6 +1331,7 @@ static void mini_smoke_ui() {
     lv_obj_t *settings_icon = lv_label_create(settings_btn);
     lv_label_set_text(settings_icon, LV_SYMBOL_SETTINGS);
     lv_obj_center(settings_icon);
+    lv_obj_clear_flag(settings_icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(settings_btn, settings_open_clicked, LV_EVENT_CLICKED, nullptr);
 
     runtime_status_label = lv_label_create(main_panel);
@@ -1330,10 +1349,12 @@ static void mini_smoke_ui() {
     lv_obj_set_style_border_width(face_obj, 0, 0);
     lv_obj_set_style_pad_all(face_obj, 0, 0);
     lv_obj_clear_flag(face_obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(face_obj, LV_OBJ_FLAG_CLICKABLE);
 
     avatar_obj = lv_img_create(face_obj);
     lv_img_set_src(avatar_obj, &mel_avatar_mode_complet);
     lv_obj_set_pos(avatar_obj, 0, 0);
+    lv_obj_clear_flag(avatar_obj, LV_OBJ_FLAG_CLICKABLE);
 
     answer_label = lv_label_create(main_panel);
     lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
