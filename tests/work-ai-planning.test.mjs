@@ -240,6 +240,7 @@ test('work.plan.generate repair prompt constrains the model to a small low-risk 
     assert.match(input.input,/REPAIR_CAPABILITIES/);
     assert.match(input.input,/"id":"echo"/);
     assert.doesNotMatch(input.input,/"id":"danger.write"/);
+    assert.doesNotMatch(input.input,/"id":"augmentio.fanout"/);
     return {candidates:[{provider:'fixture',model:'fixed',text:'{"steps":[{"id":"step-1","title":"Echo","capability":"echo","input":{"value":"ok"},"dependsOn":[],"idempotent":true}],"constraints":[]}'}],failures:0};
   });
   registerWorkCapabilities(bus,{});
