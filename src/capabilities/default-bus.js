@@ -13,6 +13,7 @@ import { RAGService } from '../search/rag-service.js';
 import { getRoadmapPayload } from '../roadmap/master-roadmap.js';
 import { normalizeChatGPTArchive } from '../persistence/chatgpt-archive-importer.js';
 import { createConversationService } from '../conversations/conversation-service.js';
+import { createOpenLoopService } from '../conversations/open-loop-service.js';
 import { runAugmentioStateOfPlay } from '../teachers/augmentio-council.js';
 import { runModelCouncil } from '../models/model-council.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
@@ -107,7 +108,7 @@ function zeroCostHealth(runtimeEnv, minimum = 1) {
 }
 
 /** Safe capability bus used by MEL's Gen2 runtime. Only real executable handlers are registered. */
-export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl } = {}) {
+export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl, openLoops = null } = {}) {
   const runtimeEnv = env || {};
   const bus = new CapabilityBus({ audit });
 
@@ -337,6 +338,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     timeoutMs: runtimeEnv.MEL_BROWSER_COMPANION_TIMEOUT_MS,
   });
   registerComputerRuntimeCapabilities(bus, { db: runtimeEnv.DB });
-  registerWorkCapabilities(bus, { db: runtimeEnv.DB });
+  const workOpenLoops = openLoops || (runtimeEnv.DB ? createOpenLoopService(runtimeEnv) : null);
+  registerWorkCapabilities(bus, { db: runtimeEnv.DB, openLoops: workOpenLoops });
   return bus;
 }
