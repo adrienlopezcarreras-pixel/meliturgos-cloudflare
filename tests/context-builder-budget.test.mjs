@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildContext, boundRecentMessages } from '../src/core/orchestrator/context-builder.js';
+import { buildContext, boundRecentMessages, compileHistoricalDecisionCapsule } from '../src/core/orchestrator/context-builder.js';
 
 test('recent context keeps newest messages within budget in chronological order', () => {
   const recent = [
@@ -44,4 +44,58 @@ test('buildContext bounds oversized tool results before model routing', () => {
   });
   assert.ok(messages[0].content.length < 25000);
   assert.match(messages[0].content, /CONTEXTE PARTIEL/);
+});
+
+
+test('MEL-CONTEXT-02 preserves an omitted explicit user constraint in the active system context', () => {
+  const recent = [
+    { role:'user', content:'Décision importante : ne touche pas APK mobile ou MINI. ' + 'a'.repeat(3200) },
+    { role:'assistant', content:'Ancien diagnostic sans décision. ' + 'b'.repeat(3200) },
+    { role:'user', content:'Message récent opérationnel. ' + 'c'.repeat(3200) },
+  ];
+  const messages = buildContext({
+    system:'system',
+    recent,
+    current:'continue le backend',
+  });
+  assert.equal(messages.at(-1).content,'continue le backend');
+  assert.match(messages[0].content,/CONTEXTE COMPRESSÉ/);
+  assert.match(messages[0].content,/ne touche pas APK mobile ou MINI/i);
+  assert.match(messages[0].content,/extraits historiques, pas un résumé inventé/i);
+});
+
+test('MEL-CONTEXT-02 keeps contradictory historical corrections in chronological order', () => {
+  const capsule = compileHistoricalDecisionCapsule([
+    { role:'assistant', content:'État : le déploiement est terminé.' },
+    { role:'user', content:'Non, correction : le déploiement est encore en cours.' },
+    { role:'user', content:'Désormais il faut valider le smoke avant de continuer.' },
+  ]);
+  assert.equal(capsule.anchors.length,3);
+  const first=capsule.text.indexOf('le déploiement est terminé');
+  const correction=capsule.text.indexOf('le déploiement est encore en cours');
+  const finalRule=capsule.text.indexOf('valider le smoke');
+  assert.ok(first>=0 && correction>first && finalRule>correction);
+  assert.match(capsule.text,/correction utilisateur plus récente/i);
+});
+
+test('MEL-CONTEXT-02 does not inflate context with omitted filler that has no decision signal', () => {
+  const capsule=compileHistoricalDecisionCapsule([
+    {role:'user',content:'bonjour comment vas tu aujourd hui'},
+    {role:'assistant',content:'voici une explication générale sur un sujet sans décision'},
+  ]);
+  assert.equal(capsule.text,'');
+  assert.deepEqual(capsule.anchors,[]);
+});
+
+test('MEL-CONTEXT-02 historical decision capsule stays inside its configured budget', () => {
+  const capsule=compileHistoricalDecisionCapsule(
+    Array.from({length:50},(_,index)=>({
+      role:index%2?'assistant':'user',
+      content:`Décision ${index} : il faut garder cette contrainte ${'x'.repeat(500)}.`,
+    })),
+    {maxChars:1800,maxItems:40}
+  );
+  assert.ok(capsule.text.length<=1800);
+  assert.ok(capsule.anchors.length>0);
+  assert.ok(capsule.anchors.length<40);
 });
