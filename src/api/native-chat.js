@@ -503,6 +503,22 @@ export async function runNativeInference({ env, messages, text, parallel = false
   }, { source: 'native-chat', inference_settings: inferenceSettings || null });
 }
 
+function inferDirectCurrentWebCapability(text, intentContext = {}) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  if (/\b(?:mes\s+(?:mails?|emails?|fichiers?|documents?|photos?|messages?|contacts?|calendriers?|agendas?)|gmail|outlook|onedrive|google\s+drive|agenda|calendrier)\b/i.test(value)) return null;
+
+  const currentInfo = /\b(?:m[ée]t[ée]o|quel\s+temps|temp[ée]rature|pluie|vent|pr[ée]visions?|actualit[ée]s?|news|aujourd['’]hui|demain|ce\s+soir|maintenant|actuellement|en\s+ce\s+moment|derni[eè]res?\s+(?:infos?|nouvelles?|donn[ée]es?)|latest|r[ée]cent(?:e|es|s)?|prix|tarif|cours|cotation|bourse|bitcoin|crypto|taux\s+de\s+change|horaires?|ouvert|ouverte|fermeture|trafic|score|r[ée]sultat|classement|programme|disponibilit[ée]|disponible|date\s+de\s+sortie|pr[ée]sident\s+actuel|ministre\s+actuel|maire\s+actuel|pdg\s+actuel|ceo\s+actuel)\b/i.test(value);
+  const nearbyInfo = /\b(?:pr[eè]s\s+de\s+moi|proche\s+de\s+moi|[àa]\s+proximit[ée]|aux\s+alentours|le\s+plus\s+proche|la\s+plus\s+proche|restaurants?|pizzerias?|pharmacies?|caf[ée]s?|stations?\s+service|supermarch[ée]s?|magasins?)\b/i.test(value);
+  if (!currentInfo && !nearbyInfo) return null;
+
+  const approximateLocation = String(intentContext?.approximate_location || '').trim().slice(0, 240);
+  const query = nearbyInfo && approximateLocation
+    ? `${value} — zone réseau approximative: ${approximateLocation}`
+    : value;
+  return { id: 'web.research', input: { query: query.slice(0, 2000), depth: 2 } };
+}
+
 export async function handleNativeChat(request, env, options = {}) {
   const trustedInternal = options?.authorized === true;
   const releaseSmoke = isReleaseSmokeRequest(request, env);
@@ -528,6 +544,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const inputSource = ['voice-server-transcription','voice-browser-recognition'].includes(requestedInputSource)
     ? requestedInputSource
     : 'text';
+  const voiceReply = body.voice_reply === true && inputSource !== 'text';
   const userProvenance = inputSource === 'text' ? 'native-chat' : `native-chat:${inputSource}`;
   const userMetadata = inputSource === 'text' ? {} : { input_source: inputSource, transcribed_voice: true };
   const runtime = createGen2Runtime({ env });
@@ -550,6 +567,7 @@ export async function handleNativeChat(request, env, options = {}) {
     ? inferNativeCodeCapability(text, [])
     : inferNativeComputerCapability(text)
       || (!personalProfileIntent ? inferChatGPTHistoryCapability(text) : null)
+      || inferDirectCurrentWebCapability(text, body.intent_context || {})
       || inferKnowledgeCapability(text)
       || inferNativeCodeCapability(text, recent);
   if (conversationFocus.needs_clarification && !body.capability?.id && !inferredCapability) {
@@ -669,6 +687,9 @@ export async function handleNativeChat(request, env, options = {}) {
     conversationFocusInstruction,
     operatingManual,
     themeInstruction,
+    voiceReply
+      ? 'MODE VOCAL MOBILE : réponds immédiatement avec 1 à 3 phrases courtes, naturelles et directement prononçables. Va à l’essentiel, sans listes longues, sans préambule et sans dépasser environ 350 caractères sauf nécessité absolue.'
+      : '',
     'Réponds en français sauf demande contraire.',
     'TUTOIEMENT ABSOLU AVEC ADRIEN : adresse-toi toujours à lui avec « tu », « ton », « ta », « tes ». N’utilise jamais « vous », « votre » ou « vos » pour lui parler. Avant d’envoyer ta réponse, relis-la et reformule toute adresse formelle résiduelle en tutoiement naturel.',
     'Tu dois être factuelle sur tes capacités réelles.',
@@ -711,6 +732,12 @@ export async function handleNativeChat(request, env, options = {}) {
   ].filter(Boolean).join(' ');
   const messages = buildContext({ system, recent, retrieved, toolResults, current: text, memoryQuery: conversationFocus.anchor || text });
   const parallel = !personalProfileIntent && (body.parallel === true || String(env.MEL_AUGMENTIO_CHAT || '') === '1');
+  const effectiveInferenceSettings = voiceReply
+    ? {
+        ...(activeInferenceSettings || {}),
+        max_tokens: Math.min(Number(activeInferenceSettings?.max_tokens) || 180, 180),
+      }
+    : activeInferenceSettings;
   let ai;
   try {
     ai = await runNativeInference({
@@ -719,7 +746,7 @@ export async function handleNativeChat(request, env, options = {}) {
       text,
       parallel,
       maxCandidates: body.max_candidates ?? env.MEL_AUGMENTIO_MAX_CANDIDATES ?? activeInferenceSettings?.council_min_responses ?? 4,
-      inferenceSettings: activeInferenceSettings,
+      inferenceSettings: effectiveInferenceSettings,
       activeAdapter,
       runtime,
       taskOverride: personalProfileIntent ? 'REASONING' : null,

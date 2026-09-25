@@ -68,6 +68,43 @@ test('Android pair codes are one-use and issue revocable device tokens without r
   }finally{DB.close();}
 });
 
+test('paired Android companion can mint a one-use MINI pair code without owner credentials',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+    const paired=await pair(env,'android-mini-provisioner');
+    const codeResponse=await worker.fetch(new Request('https://mel.test/api/android/v1/mini-pair-code',{
+      method:'POST',
+      headers:deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'}),
+      body:'{}'
+    }),env);
+    assert.equal(codeResponse.status,200);
+    const code=(await codeResponse.json()).code;
+    assert.equal(code.length,8);
+
+    const miniPair=await worker.fetch(new Request('https://mel.test/api/device/v1/pair',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({
+        pair_code:code,
+        device_id:'mini-auto-pair-test',
+        model:'waveshare-esp32-s3-touch-lcd-3.5-c',
+        protocol_version:'1.0',
+        name:'MINI auto'
+      })
+    }),env);
+    assert.equal(miniPair.status,200);
+    const mini=await miniPair.json();
+    assert.ok(mini.token.length>=40);
+
+    const replay=await worker.fetch(new Request('https://mel.test/api/device/v1/pair',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({pair_code:code,device_id:'mini-replay',model:'waveshare-esp32-s3-touch-lcd-3.5-c',protocol_version:'1.0'})
+    }),env);
+    assert.equal(replay.status,401);
+  }finally{DB.close();}
+});
+
 test('Android heartbeat, chat, sync ACK and revocation work end-to-end',async()=>{
   const DB=sqliteD1();
   try{
@@ -197,7 +234,8 @@ test('Android voice fallback accepts M4A audio multipart as well as WebM',async(
       MELITURGOS_PASSWORD:'test',
       AI:{async run(model,input){
         assert.equal(model,'@cf/openai/whisper-large-v3-turbo');
-        assert.ok(input.audio instanceof Uint8Array);
+        assert.equal(typeof input.audio,'string');
+        assert.ok(input.audio.length>0);
         return {text:'dictée m4a android'};
       }}
     };
@@ -209,6 +247,143 @@ test('Android voice fallback accepts M4A audio multipart as well as WebM',async(
     }),env);
     assert.equal(response.status,200);
     assert.equal((await response.json()).text,'dictée m4a android');
+  }finally{DB.close();}
+});
+
+
+test('Android TTS route preserves legacy PCM and adds MP3 for 0.6.16 playback',async()=>{
+  const DB=sqliteD1();
+  try{
+    const aiCalls=[];
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'test',
+      AI:{
+        async run(model,input,options){
+          aiCalls.push({model,input,options});
+          return new Response(new Uint8Array([1,2,3,4,5,6]),{status:200});
+        }
+      }
+    };
+    const paired=await pair(env,'android-tts');
+    const headers=deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'});
+
+    const legacy=await worker.fetch(new Request('https://mel.test/api/android/v1/voice/tts',{
+      method:'POST',headers,body:JSON.stringify({text:'Bonjour Adrien',speaker:'luna'})
+    }),env);
+    assert.equal(legacy.status,200);
+    assert.equal(legacy.headers.get('x-mel-audio-format'),'pcm-s16le');
+    assert.equal(legacy.headers.get('x-mel-audio-rate'),'48000');
+    assert.equal(legacy.headers.get('x-mel-audio-channels'),'1');
+    assert.equal(legacy.headers.get('x-mel-speaker'),'luna');
+    assert.deepEqual([...new Uint8Array(await legacy.arrayBuffer())],[1,2,3,4,5,6]);
+    assert.deepEqual(aiCalls.at(-1).input,{text:'Bonjour Adrien',speaker:'luna',encoding:'linear16',container:'none',sample_rate:48000});
+
+    const mp3=await worker.fetch(new Request('https://mel.test/api/android/v1/voice/tts',{
+      method:'POST',headers,body:JSON.stringify({text:'Bonjour Adrien',speaker:'luna',format:'mp3'})
+    }),env);
+    assert.equal(mp3.status,200);
+    assert.equal(mp3.headers.get('content-type'),'audio/mpeg');
+    assert.equal(mp3.headers.get('x-mel-audio-format'),'mp3');
+    assert.equal(mp3.headers.get('x-mel-speaker'),'luna');
+    assert.equal(mp3.headers.get('x-mel-audio-rate'),null);
+    assert.deepEqual([...new Uint8Array(await mp3.arrayBuffer())],[1,2,3,4,5,6]);
+    assert.equal(aiCalls.at(-1).model,'@cf/deepgram/aura-1');
+    assert.deepEqual(aiCalls.at(-1).input,{text:'Bonjour Adrien',speaker:'luna',encoding:'mp3'});
+    assert.deepEqual(aiCalls.at(-1).options,{returnRawResponse:true});
+
+    const denied=await worker.fetch(new Request('https://mel.test/api/android/v1/voice/tts',{
+      method:'POST',
+      headers:deviceHeaders(paired.device_id,'wrong-token',{'content-type':'application/json'}),
+      body:JSON.stringify({text:'test',format:'mp3'})
+    }),env);
+    assert.equal(denied.status,401);
+  }finally{DB.close();}
+});
+
+
+test('Android natural current-information question automatically uses public Internet research',async()=>{
+  const DB=sqliteD1();
+  try{
+    const webCalls=[];
+    const aiCalls=[];
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'test',
+      MEL_WEB_MIN_INTERVAL_MS:0,
+      MEL_WEB_FETCH:async url=>{
+        webCalls.push(String(url));
+        if(String(url).startsWith('https://www.google.com/search?')){
+          return new Response('<html><head><title>Météo Nîmes</title><meta name="description" content="Météo actuelle Nîmes 24 degrés"></head><body>24 degrés</body></html>',{status:200,headers:{'content-type':'text/html; charset=utf-8'}});
+        }
+        if(String(url).startsWith('https://duckduckgo.com/html/?q=')){
+          return new Response('<html><head><title>Prévisions Nîmes</title><meta name="description" content="Prévisions actuelles Nîmes"></head><body>Prévisions</body></html>',{status:200,headers:{'content-type':'text/html; charset=utf-8'}});
+        }
+        return new Response('not found',{status:404,headers:{'content-type':'text/plain'}});
+      },
+      AI:{async run(model,input){
+        aiCalls.push({model,input});
+        return {response:'À Nîmes, les données web indiquent environ 24 °C.'};
+      }}
+    };
+    const paired=await pair(env,'android-internet');
+    const headers=deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'});
+    const response=await worker.fetch(new Request('https://mel.test/api/android/v1/chat',{
+      method:'POST',
+      headers,
+      body:JSON.stringify({text:'Quel temps fait-il à Nîmes ?',conversation_id:'android-internet-conv'})
+    }),env);
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.text,'À Nîmes, les données web indiquent environ 24 °C.');
+    assert.equal(webCalls.length,2);
+    assert.ok(webCalls.some(url=>url.startsWith('https://www.google.com/search?')));
+    assert.ok(webCalls.some(url=>url.startsWith('https://duckduckgo.com/html/?q=')));
+    const system=String(aiCalls.at(-1)?.input?.messages?.find(message=>message.role==='system')?.content||'');
+    assert.match(system,/web\.research/);
+    assert.match(system,/Météo actuelle Nîmes 24 degrés/);
+  }finally{DB.close();}
+});
+
+test('Android nearby-information question uses web research and only an approximate network location hint',async()=>{
+  const DB=sqliteD1();
+  try{
+    const webCalls=[];
+    const env={
+      DB,
+      MELITURGOS_USER:'adrien',
+      MELITURGOS_PASSWORD:'test',
+      MEL_WEB_MIN_INTERVAL_MS:0,
+      MEL_WEB_FETCH:async url=>{
+        webCalls.push(String(url));
+        return new Response(
+          '<html><head><title>Pharmacie proche</title><meta name="description" content="Pharmacie ouverte à proximité"></head><body>ouverte</body></html>',
+          {status:200,headers:{'content-type':'text/html; charset=utf-8'}}
+        );
+      },
+      AI:{async run(){ return {response:'J’ai trouvé des pharmacies proches dans la zone approximative.'}; }}
+    };
+    const paired=await pair(env,'android-nearby');
+    const headers=deviceHeaders(paired.device_id,paired.token,{'content-type':'application/json'});
+    const request=new Request('https://mel.test/api/android/v1/chat',{
+      method:'POST',
+      headers,
+      body:JSON.stringify({text:'Trouve une pharmacie près de moi',conversation_id:'android-nearby-conv'})
+    });
+    Object.defineProperty(request,'cf',{
+      value:{city:'Nîmes',region:'Occitanie',country:'FR'},
+      configurable:true
+    });
+    const response=await worker.fetch(request,env);
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.match(body.text,/pharmacies proches/i);
+    assert.equal(webCalls.length,2);
+    const combined=decodeURIComponent(webCalls.join('\n'));
+    assert.match(combined,/pharmacie près de moi/i);
+    assert.match(combined,/zone réseau approximative: Nîmes, Occitanie, FR/i);
   }finally{DB.close();}
 });
 

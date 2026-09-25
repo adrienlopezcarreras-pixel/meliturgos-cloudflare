@@ -20,6 +20,7 @@
 #include "esp_camera.h"
 #include "esp_codec_dev.h"
 #include "mel_terminal.h"
+#include "mel_ble_bridge.h"
 
 extern esp_codec_dev_handle_t input_dev;
 extern esp_codec_dev_handle_t output_dev;
@@ -959,6 +960,11 @@ extern "C" void app_main(void) {
         ESP_ERROR_CHECK(ret);
     }
     ESP_LOGI(TAG, "STEP 0 OK: NVS");
+    if (mel_ble_bridge_start()) {
+        ESP_LOGI(TAG, "STEP 0B OK: MEL MINI BLE");
+    } else {
+        ESP_LOGW(TAG, "STEP 0B DEGRADED: BLE unavailable; continuing without local phone bridge");
+    }
 
     i2c_bus_init();
     io_expander_init();
