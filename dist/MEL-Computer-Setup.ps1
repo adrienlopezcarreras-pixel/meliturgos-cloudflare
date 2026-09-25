@@ -66,8 +66,9 @@ try {
     computer_id = $computerId
     name = "PC $($env:COMPUTERNAME)"
     platform = "windows"
-    version = "1.0.0"
+    version = "1.1.0"
     allowed_apps = $allowedApps
+    allowed_paths = $allowedPaths
   } | ConvertTo-Json -Depth 5 -Compress
 
   Write-Host "Appairage avec MEL..." -ForegroundColor Yellow
