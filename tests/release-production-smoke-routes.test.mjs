@@ -246,6 +246,41 @@ test('GEN2-48 release token runs the isolated recovery drill but never activates
   assert.equal(body.result.reconstructed_tables, 1);
 });
 
+test('GEN2-37 release token proves answer-ready source quality through the real research route', async () => {
+  const runtimeEnv = env();
+  runtimeEnv.MEL_WEB_MIN_INTERVAL_MS = 0;
+  runtimeEnv.MEL_WEB_FETCH = async url => {
+    assert.equal(String(url), 'https://developers.cloudflare.com/workers/');
+    return new Response('<html><head><title>Cloudflare Workers docs</title><meta name="description" content="Official Workers documentation"></head><body>Workers documentation</body></html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    });
+  };
+
+  const response = await worker.fetch(
+    smokeRequest('/api/gen2/web/research', 'POST', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'Cloudflare Workers official documentation',
+        maxDepth: 2,
+        seed_urls: ['https://developers.cloudflare.com/workers/'],
+      }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.research.answer_ready, true);
+  assert.equal(body.research.source_quality.status, 'STRONG');
+  assert.equal(body.research.source_quality.answer_ready_sources, 1);
+  assert.equal(body.research.sources[0].source_kind, 'OFFICIAL_SEED');
+  assert.equal(body.research.sources[0].source_quality.tier, 'PRIMARY');
+  assert.equal(body.research.sources[0].source_quality.answer_ready, true);
+  assert.equal(new URL(body.research.sources[0].url).hostname, 'developers.cloudflare.com');
+});
+
 test('MEL-REL-03 release token cannot use the generic capability route outside the bounded smoke allowlist', async () => {
   const response = await worker.fetch(
     smokeRequest('/api/gen2/capabilities/execute', 'POST', {
