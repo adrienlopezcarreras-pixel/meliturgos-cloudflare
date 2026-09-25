@@ -105,8 +105,7 @@ export function createPluginRuntime(options = {}) {
     }
   }
 
-  async function prepareDurableActivation(manifest, context = {}) {
-    const base = durableEvidence(manifest, context);
+  async function prepareDurableActivation(manifest, base) {
     if (!base) return null;
 
     let current = await getDurableVersion(manifest);
@@ -236,7 +235,8 @@ export function createPluginRuntime(options = {}) {
     let activated = false;
     try {
       ctx = activationContext(record, context);
-      durable = await prepareDurableActivation(manifest, context);
+      durable = durableEvidence(manifest, context);
+      await prepareDurableActivation(manifest, durable);
       await emit('registering', record);
       await plugin.activate(ctx);
       activated = true;
