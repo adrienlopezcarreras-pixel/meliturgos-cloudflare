@@ -5,6 +5,7 @@ import { requireAuth, isReleaseSmokeRequest } from '../core/security.js';
 import { approvedCapabilitiesFromRequest } from '../security/approval-gates.js';
 import { ModelRouter, classifyTask, extractFinishReason, isTruncationFinishReason } from '../models/ModelRouter.js';
 import { ModelRegistry, standardRegistry } from '../models/ModelRegistry.js';
+import { D1ModelPerformanceStore } from '../models/model-performance-store.js';
 import { buildMelIdentityPrompt } from '../identity/mel-persona.js';
 import { getMelThemeContract } from '../identity/mel-theme-persona.js';
 import { buildMelOperatingManualPrompt } from '../identity/mel-operating-manual.js';
@@ -435,6 +436,7 @@ export function createNativeModelRouter(env, inferenceSettings = null, activeAda
   return new ModelRouter({
     registry,
     maxCalls: 3,
+    performanceStore: env?.DB ? new D1ModelPerformanceStore(env.DB) : null,
     invoke: async (selected, messages) => {
       const modelId = selected.model_id || selected.id;
       const input = { messages, ...generation };
