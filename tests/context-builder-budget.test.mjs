@@ -99,3 +99,25 @@ test('MEL-CONTEXT-02 historical decision capsule stays inside its configured bud
   assert.ok(capsule.anchors.length>0);
   assert.ok(capsule.anchors.length<40);
 });
+
+
+test('MEL-CONTEXT-02 preserves a decision located in the truncated middle of one oversized historical message', () => {
+  const historical =
+    'début ' + 'a'.repeat(7000)
+    + '. Décision : il faut conserver la validation production avant le prochain lot. '
+    + 'b'.repeat(7000) + ' fin.';
+  const bounded=boundRecentMessages(
+    [{role:'user',content:historical}],
+    {totalChars:20000,perMessageChars:3000}
+  );
+  assert.equal(bounded.omitted,0);
+  assert.doesNotMatch(bounded.messages[0].content,/validation production avant le prochain lot/i);
+
+  const messages=buildContext({
+    system:'system',
+    recent:[{role:'user',content:historical}],
+    current:'continue',
+  });
+  assert.match(messages[0].content,/validation production avant le prochain lot/i);
+  assert.equal(messages.at(-1).content,'continue');
+});
