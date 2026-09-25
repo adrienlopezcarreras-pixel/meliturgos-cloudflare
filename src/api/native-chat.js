@@ -20,6 +20,7 @@ import { buildConversationFocusInstruction, deriveConversationFocus } from './co
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
+import { requestIdFromRequest } from '../core/request-observability.js';
 
 export function inferChatGPTHistoryCapability(text) {
   const value = String(text || '').trim();
@@ -449,7 +450,7 @@ function nativeCapabilityContext(env, request = null) {
     owner: env.MELITURGOS_USER || 'owner',
     permissions: env.CAPABILITY_PERMISSIONS || [],
     approvedCapabilities: approvedCapabilitiesFromRequest(request),
-    requestId: crypto.randomUUID(),
+    requestId: requestIdFromRequest(request),
   };
 }
 
