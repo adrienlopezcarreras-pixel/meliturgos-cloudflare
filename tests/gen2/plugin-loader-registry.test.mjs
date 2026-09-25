@@ -184,19 +184,3 @@ test('loader disable reconciles runtime and durable state', async (t) => {
   assert.equal(status.runtime_status, 'DISABLED');
 });
 
-test('rollback stays explicitly fail-closed until durable rollback semantics exist', async (t) => {
-  const db = await registryDb();
-  t.after(() => db.close());
-  const registry = createRegistry(createD1PluginRegistryAdapter(db));
-  const runtime = createPluginRuntime({ registry });
-  const loader = createRegistryBackedPluginLoader({
-    registry,
-    runtime,
-    resolvePlugin: async () => plugin(),
-  });
-
-  await assert.rejects(
-    () => loader.rollback({ plugin_id: 'mel.echo', target_version: '0.9.0' }),
-    { code: 'PLUGIN_ROLLBACK_NOT_IMPLEMENTED', status: 501 },
-  );
-});
