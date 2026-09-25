@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.04';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.05';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -36,7 +36,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-02', 'Identité MEL et System Prompt portable', 'DONE_VERIFIED', 'Persona stable extraite dans mel-persona.js, composée par le systemPrompt runtime et exposée par la façade identity; tests portable-identity inclus dans le lot de réconciliation #153.', 'P1'),
     item('GEN2-03', 'Model Registry provider-neutral', 'DONE_VERIFIED', 'Ajouter les métadonnées de qualité mesurées', 'P0'),
     item('GEN2-04', 'Model Router + fallback', 'DONE_VERIFIED', 'Brancher les scores réels de qualité/latence/coût', 'P0'),
-    item('GEN2-51', 'Versioning API', 'PARTIAL', 'Façade sémantique /api/v1 candidate implémentée pour 29 routes MEL cœur avec registre central auto-validé, ownership index/router, alias legacy non cassants, en-têtes Deprecation + successor-version, API_VERSION_UNSUPPORTED, 405 + Allow et endpoint /api/v1/version. Les protocoles Android/device/computer, voix et fichiers sont volontairement hors de ce lot pour ne pas empiéter sur les chantiers compagnons. Preuve exacte SHA 273ba1150c31adaa9fa0ef755e19d23983b2cce1: Professor UI audit run 36113800507 job 108003030605 et release-observability run 36113800429 job 108003105915, chacun avec suite complète verte; 351 tests / 0 échec. Reste avant DONE_VERIFIED: intégrer sur main, smoke production des routes v1 et décider séparément la migration des protocoles spécialisés restants.', 'P2'),
+    item('GEN2-51', 'Versioning API', 'PARTIAL', 'Façade sémantique /api/v1 candidate implémentée pour 29 routes MEL cœur avec registre central auto-validé, ownership index/router, alias legacy non cassants, en-têtes Deprecation + successor-version, API_VERSION_UNSUPPORTED, 405 + Allow et endpoint /api/v1/version. Les protocoles Android/device/computer, voix et fichiers sont volontairement hors de ce lot pour ne pas empiéter sur les chantiers compagnons. Preuve exacte SHA 939dd38d921c1f22326bebd2ded38faf0b2f48f4: Professor UI audit run 36116386652 job 108011385038, 11 tests GEN2-51 ciblés et suite complète 351 tests / 0 échec; les workflows gen2-36, gen2-45, gen2-44, gen2-05, gen2-17 et release-observability sont également verts sur ce même SHA. Reste avant DONE_VERIFIED: intégrer sur main, smoke production des routes v1 et décider séparément la migration des protocoles spécialisés restants.', 'P2'),
     item('GEN2-52', 'Versioning prompts et stratégies', 'DONE_VERIFIED', 'Preuve d’intégration: PR #56; maintenir le registre unique et ses tests rollback/snapshot', 'P2')
   ]),
 
