@@ -1,4 +1,4 @@
-#include <stdio.h>
+﻿#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -439,7 +439,7 @@ static void mini_apply_requested_view(void) {
     const bool wifi_keyboard_visible = active_view == MINI_VIEW_WIFI_MANUAL ||
                                        active_view == MINI_VIEW_WIFI_PASSWORD;
 
-    ui_set_hidden(main_panel, active_view != MINI_VIEW_MAIN);
+    // Keep main rendered behind opaque child views to avoid a second full redraw.\r\n    ui_set_hidden(main_panel, false);
     ui_set_hidden(settings_panel, active_view != MINI_VIEW_SETTINGS);
     ui_set_hidden(pair_panel, active_view != MINI_VIEW_PAIR);
     ui_set_hidden(wifi_panel, !wifi_view);
@@ -1493,3 +1493,4 @@ extern "C" void app_main(void) {
     xTaskCreatePinnedToCore(ui_stress_task, "mini_ui_stress", 4096, nullptr, 2, nullptr, 0);
 #endif
 }
+
