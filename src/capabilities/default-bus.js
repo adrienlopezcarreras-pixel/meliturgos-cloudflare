@@ -22,6 +22,7 @@ import { runAugmentioStateOfPlay } from '../teachers/augmentio-council.js';
 import { runModelCouncil } from '../models/model-council.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
+import { createProviderEscapeCapsule, providerEscapeSummary } from '../portability/provider-escape-capsule.js';
 import { auditDataIntegrity } from '../diagnostics/data-integrity.js';
 import { auditFinalMaturity } from '../diagnostics/final-maturity-audit.js';
 
@@ -252,6 +253,45 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
       fetchImpl: githubFetch,
       capabilities: bus.list(),
     });
+  });
+
+  bus.discover({
+    id: 'portability.escape.plan',
+    name: 'Provider Escape Capsule',
+    category: 'portability',
+    version: '1.0.0',
+    provider: 'mel',
+    description: 'Builds a plan-only provider escape capsule for AI, storage and runtime from a validated provider-neutral manifest. It never activates or migrates a provider.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        manifest: { type: 'object', additionalProperties: true },
+        layers: { type: 'object', additionalProperties: true },
+        generated_at: { type: 'string', minLength: 1, maxLength: 80 },
+        source: { type: 'object', additionalProperties: true },
+      },
+      required: ['manifest','layers'],
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW',
+    permissions: [],
+    health: 'HEALTHY',
+    enabled: true,
+  }, async input => {
+    const capsule = createProviderEscapeCapsule({
+      manifest: input.manifest,
+      layers: input.layers,
+      generated_at: input.generated_at,
+      source: input.source || {},
+    });
+    return {
+      ok: true,
+      capsule,
+      summary: providerEscapeSummary(capsule),
+      execution_started: false,
+      activation_allowed: false,
+    };
   });
 
   bus.discover({
