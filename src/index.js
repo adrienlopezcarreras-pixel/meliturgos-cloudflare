@@ -22,6 +22,14 @@ import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
 import { maybeHandleAndroidCompanionApi } from "./devices/android-companion-api.js";
 import { enforceHttpAuthPolicy } from "./security/http-auth-policy.js";
 import { runShardVaultCycle, searchAutonomousShardVaultRepositories } from "./continuity/shardvault-runtime.js";
+import {
+  createRequestTrace,
+  logRequestStart,
+  requestIdFromRequest,
+  structuredErrorPayload,
+  traceResponse,
+  withRequestTrace,
+} from "./core/request-observability.js";
 
 function deployedWatchSourceSha() {
   return typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '') || null : null;
@@ -188,7 +196,7 @@ function busContext(env, request = null) {
     owner: env.MELITURGOS_USER || 'owner',
     permissions: env.CAPABILITY_PERMISSIONS || [],
     approvedCapabilities: approvedCapabilitiesFromRequest(request),
-    requestId: crypto.randomUUID(),
+    requestId: requestIdFromRequest(request),
   };
 }
 
@@ -355,69 +363,74 @@ async function maybeHandleChatGPTArchive(request, env) {
 /** Main fetch and scheduled handlers. */
 export default {
   async fetch(request, env, ctx) {
+    const trace = createRequestTrace(request);
+    logRequestStart(trace);
+    request = withRequestTrace(request, trace);
+    const done = (response) => traceResponse(response, trace);
+
     try {
       const url = new URL(request.url);
       const path = url.pathname;
       const authPolicyResponse = enforceHttpAuthPolicy(request, env);
-      if (authPolicyResponse) return authPolicyResponse;
+      if (authPolicyResponse) return done(authPolicyResponse);
       if (path.startsWith('/api/device/v1/')) {
         const terminalResponse = await maybeHandleWaveshareTerminalApi(request, env);
-        if (terminalResponse) return terminalResponse;
+        if (terminalResponse) return done(terminalResponse);
       }
 
       if (path.startsWith('/api/computer/v1/')) {
         const computerResponse = await maybeHandleComputerApi(request, env);
-        if (computerResponse) return computerResponse;
+        if (computerResponse) return done(computerResponse);
       }
 
       if (path.startsWith('/api/android/v1/')) {
         const androidResponse = await maybeHandleAndroidCompanionApi(request, env);
-        if (androidResponse) return androidResponse;
+        if (androidResponse) return done(androidResponse);
       }
 
       if (path === '/api/voice/transcribe') {
         const voiceResponse = await handleVoiceTranscription(request, env);
-        if (voiceResponse) return voiceResponse;
+        if (voiceResponse) return done(voiceResponse);
       }
 
       if (path === '/api/files/upload') {
         const fileResponse = await handleFileUpload(request, env);
-        if (fileResponse) return fileResponse;
+        if (fileResponse) return done(fileResponse);
       }
 
       if (path === '/api/internal/release-launch-bootstrap') {
         const releaseBootstrapResponse = await maybeHandleReleaseLaunchBootstrap(request, env);
-        if (releaseBootstrapResponse) return releaseBootstrapResponse;
+        if (releaseBootstrapResponse) return done(releaseBootstrapResponse);
       }
 
       if (path.startsWith('/api/teacher/')) {
         const publicTeacherResponse = await maybeHandlePublicTeacherBridge(request, env);
-        if (publicTeacherResponse) return publicTeacherResponse;
+        if (publicTeacherResponse) return done(publicTeacherResponse);
       }
 
       if (path === '/api/memory/status' || path === '/api/memory/consolidate' || path === '/api/export') {
         const memoryResponse = await maybeHandleMemoryCompatibility(request, env);
-        if (memoryResponse) return memoryResponse;
+        if (memoryResponse) return done(memoryResponse);
       }
 
       if (path.startsWith('/api/work/')) {
         const safeWorkResponse = await maybeHandleWorkPreflight(request, env);
-        if (safeWorkResponse) return safeWorkResponse;
+        if (safeWorkResponse) return done(safeWorkResponse);
       }
 
       if (path.startsWith('/api/gen2/autonomy/')) {
         const autonomyResponse = await maybeHandleAutonomyApi(request, env);
-        if (autonomyResponse) return autonomyResponse;
+        if (autonomyResponse) return done(autonomyResponse);
       }
 
       if (path === '/api/gen2/readiness') {
         const readinessResponse = await maybeHandleReadiness(request, env);
-        if (readinessResponse) return readinessResponse;
+        if (readinessResponse) return done(readinessResponse);
       }
 
       if (path === '/api/gen2/council/state-of-play' || path === '/api/gen2/evolution/preflight') {
         const councilResponse = await maybeHandleCouncilAndEvolution(request, env);
-        if (councilResponse) return councilResponse;
+        if (councilResponse) return done(councilResponse);
       }
 
       if (
@@ -427,30 +440,48 @@ export default {
         || path === '/api/import/chatgpt-context'
       ) {
         const archiveResponse = await maybeHandleChatGPTArchive(request, env);
-        if (archiveResponse) return archiveResponse;
+        if (archiveResponse) return done(archiveResponse);
       }
 
       const preparedRequest = path === '/api/chat' && request.method === 'POST' && !isReleaseSmokeRequest(request, env)
         ? await injectEvolutionPreflightCapability(request, env)
         : request;
       if (path === '/api/chat') {
-        return await handleNativeChat(preparedRequest, withChatAiDefaults(env));
+        return done(await handleNativeChat(preparedRequest, withChatAiDefaults(env)));
       }
 
       const response = await router.fetch(preparedRequest, env, ctx);
-      if (response) return response;
+      if (response) return done(response);
       throw new Error("Router returned null");
     } catch (error) {
-      if (error?.status >= 400 && error.status < 600 && typeof error.code === "string") return Response.json({error:error.code,code:error.code},{status:Number(error.status)});
-      if (error instanceof SyntaxError) return Response.json({error:"Invalid JSON",code:"INVALID_JSON"},{status:400});
-      console.error("[Gen2] Request error:", error);
-      return new Response(
-        JSON.stringify({ error: "Une erreur interne est survenue.", code: "INTERNAL_ERROR" }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" }
-        }
-      );
+      if (error?.status >= 400 && error.status < 600 && typeof error.code === "string") {
+        return done(Response.json(
+          structuredErrorPayload({ error: error.code, code: error.code }, trace, { origin: 'mel-core' }),
+          { status: Number(error.status), headers: { 'cache-control': 'no-store' } }
+        ));
+      }
+      if (error instanceof SyntaxError) {
+        return done(Response.json(
+          structuredErrorPayload({ error: 'Invalid JSON', code: 'INVALID_JSON' }, trace, { origin: 'mel-core' }),
+          { status: 400, headers: { 'cache-control': 'no-store' } }
+        ));
+      }
+      console.error(JSON.stringify({
+        event: 'mel.request.failed',
+        request_id: trace.requestId,
+        method: trace.method,
+        path: trace.pathname,
+        code: String(error?.code || 'INTERNAL_ERROR'),
+        message: String(error?.message || 'INTERNAL_ERROR').slice(0, 500),
+      }));
+      return done(Response.json(
+        structuredErrorPayload(
+          { error: 'Une erreur interne est survenue.', code: 'INTERNAL_ERROR' },
+          trace,
+          { origin: 'mel-core' }
+        ),
+        { status: 500, headers: { 'cache-control': 'no-store' } }
+      ));
     }
   },
 
