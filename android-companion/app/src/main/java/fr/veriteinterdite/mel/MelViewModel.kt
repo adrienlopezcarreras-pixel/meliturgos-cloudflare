@@ -242,6 +242,37 @@ class MelViewModel(
         }
     }
 
+    private fun localMiniAnswer(text: String): String? {
+        val normalized = text.lowercase()
+            .replace('’', '\'')
+            .replace('é', 'e')
+            .replace('è', 'e')
+            .replace('ê', 'e')
+            .replace('à', 'a')
+            .replace('ù', 'u')
+        if (!normalized.contains("mini")) return null
+        val diagnosticIntent = listOf(
+            "vois", "voir", "detect", "connect", "bluetooth", "internet",
+            "en ligne", "etat", "statut", "relais", "appair"
+        ).any { normalized.contains(it) }
+        if (!diagnosticIntent) return null
+
+        val bridge = MelBleBridgeService.bridgeState.value
+        return when {
+            bridge.contains("INTERNET OK", ignoreCase = true) ->
+                "Oui. Je vois la MINI, elle est connectée en Bluetooth et son relais Internet fonctionne."
+            bridge.contains("INTERNET ERREUR", ignoreCase = true) ->
+                "Oui. Je vois la MINI en Bluetooth, mais son accès Internet est actuellement en erreur."
+            bridge.contains("MINI CONNECTÉE", ignoreCase = true) ||
+                bridge.contains("MINI LIÉE", ignoreCase = true) ->
+                "Oui. Je vois la MINI en Bluetooth. Le lien local est actif, mais Internet n'est pas encore confirmé."
+            bridge.contains("BLUETOOTH OFF", ignoreCase = true) ->
+                "Non. Le Bluetooth du téléphone est coupé, donc je ne peux pas voir la MINI pour le moment."
+            else ->
+                "Je ne vois pas encore la MINI comme connectée. État Bluetooth actuel : $bridge."
+        }
+    }
+
     private fun chatWithRecovery(
         text: String,
         voice: Boolean,
@@ -257,12 +288,20 @@ class MelViewModel(
         } catch (first: Throwable) {
             if (isInvalidSession(first)) throw first
             appendDiagnosticLine("Chat: première tentative échouée · ${explain(first)}")
-            client.heartbeat(sdkInt = Build.VERSION.SDK_INT)
-            _state.value = _state.value.copy(
-                session = SessionStage.CONNECTED,
-                status = "Connexion rétablie · nouvelle tentative…",
-                error = null
-            )
+            val serverFailure = first is MelApiException && first.status >= 500
+            if (!serverFailure) {
+                client.heartbeat(sdkInt = Build.VERSION.SDK_INT)
+                _state.value = _state.value.copy(
+                    session = SessionStage.CONNECTED,
+                    status = "Connexion rétablie · nouvelle tentative…",
+                    error = null
+                )
+            } else {
+                _state.value = _state.value.copy(
+                    status = "MEL réessaie immédiatement…",
+                    error = null
+                )
+            }
             client.chat(
                 text = text,
                 conversationId = conversationId,
@@ -276,6 +315,23 @@ class MelViewModel(
         val clean = text.trim()
         if (clean.isBlank() || _state.value.busy || _state.value.speaking) return
         val mode = _state.value.mode
+        val localAnswer = localMiniAnswer(clean)
+        if (localAnswer != null) {
+            _state.value = _state.value.copy(
+                busy = true,
+                speaking = false,
+                status = "Réponse locale MINI…",
+                error = null,
+                messages = _state.value.messages +
+                    MelChatMessage("user", clean, voice) +
+                    MelChatMessage("mel", localAnswer)
+            )
+            viewModelScope.launch(Dispatchers.IO) {
+                appendDiagnosticLine("MINI local fast-path: ${MelBleBridgeService.bridgeState.value}")
+                speakAnswer(localAnswer, mode)
+            }
+            return
+        }
         _state.value = _state.value.copy(
             busy = true,
             status = "MEL réfléchit…",
@@ -332,6 +388,22 @@ class MelViewModel(
                 val transcript = client.transcribe(audioBytes, mimeType).optString("text").trim()
                 if (transcript.isBlank()) throw MelApiException("TRANSCRIPTION_EMPTY", 502)
                 val mode = _state.value.mode
+                val localAnswer = localMiniAnswer(transcript)
+                if (localAnswer != null) {
+                    _state.value = _state.value.copy(
+                        busy = true,
+                        speaking = false,
+                        status = "Réponse locale MINI…",
+                        error = null,
+                        messages = _state.value.messages +
+                            MelChatMessage("user", transcript, voice = true) +
+                            MelChatMessage("mel", localAnswer)
+                    )
+                    appendDiagnosticLine("MINI voice fast-path: ${MelBleBridgeService.bridgeState.value}")
+                    speakAnswer(localAnswer, mode)
+                    appendDiagnosticLine("Micro réel: OK · réponse MINI locale")
+                    return@launch
+                }
                 _state.value = _state.value.copy(
                     status = "MEL réfléchit…",
                     messages = _state.value.messages + MelChatMessage("user", transcript, voice = true)
