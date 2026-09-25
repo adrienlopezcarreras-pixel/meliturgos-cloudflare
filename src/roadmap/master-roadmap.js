@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-23.12';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.6';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -94,7 +94,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-EVOL-01', 'Détecter une compétence manquante à partir d’une demande', 'DONE_VERIFIED', 'Maintenir la détection sans doublon et n’entrer au Module Lab que pour un vrai gap', 'P0'),
     item('MEL-EVOL-02', 'Proposer ou générer un module', 'DONE_VERIFIED', 'Maintenir la proposition non activante, le Council gate et l’entrée au Module Lab uniquement pour un vrai gap', 'P0'),
     item('MEL-EVOL-03', 'Tests, benchmark, critique et correction en boucle', 'DONE_VERIFIED', 'Preuve candidate e0dc435ec6daf4971243709c76f5ed077a72f0cc: CI 35100248725; smoke Teacher/runtime 35100248854; preview 35100248729; maintenir la boucle runner et ses tests de non-régression', 'P0'),
-    item('MEL-EVOL-04', 'EVOLUTION_LEDGER immuable et explicable', 'PARTIAL', 'Persister chaque évolution et ses preuves', 'P1'),
+    item('MEL-EVOL-04', 'EVOLUTION_LEDGER immuable et explicable', 'IN_PROGRESS', 'Branche roadmap/evolution-ledger-20260925 : ledger D1 append-only chaîné SHA-256, idempotence par event_id, détection de corruption, capacités evolution.ledger.list/verify et branchement automatique sur les créations/mutations durables de D1DevJobRepository. CI complète et preuve runtime restent requises avant DONE_VERIFIED.', 'P1'),
     item('MEL-EVOL-05', 'Skill Registry durable', 'PLANNED', 'Compiler les acquis système dans un registre portable', 'P1'),
     item('MEL-EVOL-06', 'Fine-tuning / LoRA open-weight continu', 'IN_PROGRESS', 'Heartbeat MEL supervise la chaîne Kaggle GPU gratuite: relance seulement si aucun run actif, checkpoints immuables, benchmark après chaque cycle, UNCENSORED puis AGENTIC sans écraser le parent, aucun fallback payant. Correctif candidate: collector Kaggle rendu dispatch-only pour supprimer les files cron/push longues; full-candidate-ci 35837004893 et lora-runtime-pipeline-ci 35837004932 verts sur 1110d20ac184b434a602e86597fd57f76753fbdb. Suite: vérifier le cycle/checkpoint Kaggle réel restant, laisser le heartbeat reprendre uniquement hors run actif et certifier le prochain benchmark canonique.', 'P0'),
     item('GEN2-18', 'Self Healing contrôlé', 'PLANNED', 'Limiter à détection, rollback approuvé et réparation testée', 'P2'),
