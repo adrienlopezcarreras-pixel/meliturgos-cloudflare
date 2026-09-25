@@ -172,14 +172,14 @@ test('GEN2-37 research exposes ranked quality summary and redirect provenance in
   ]);
 });
 
-test('GEN2-37 quality summary is deterministic and bounded',()=>{
+test('GEN2-37 equal-quality sources preserve deterministic discovery order',()=>{
   const ranked=rankWebSources([
     source({kind:'DIRECT_SOURCE',url:'https://b.example/page'}),
     source({kind:'DIRECT_SOURCE',url:'https://a.example/page'}),
   ]);
   assert.deepEqual(ranked.map(row=>row.url),[
-    'https://a.example/page',
     'https://b.example/page',
+    'https://a.example/page',
   ]);
   const summary=summarizeWebSourceQuality(ranked);
   assert.equal(summary.source_count,2);
