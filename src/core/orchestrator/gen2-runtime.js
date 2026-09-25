@@ -21,6 +21,8 @@ import { transition } from '../lifecycle/extension.js';
 import { requireValue } from '../contracts.js';
 import { requireStateOfPlayCouncil } from '../../teachers/model-council.js';
 import { audit as persistAuditLog } from '../../audit/audit-service.js';
+import { SkillRegistry, MemorySkillRegistryStore } from '../../evolution/skill-registry.js';
+import { D1SkillRegistryStore } from '../../evolution/d1-skill-registry-store.js';
 
 function boundedCapabilityAuditEvent(event = {}) {
   const duration = Number(event.duration_ms);
@@ -51,6 +53,14 @@ function runtimeAuditSink(env = {}, override) {
  */
 export function createGen2Runtime({ audit, env = {} } = {}) {
   const bus = createDefaultCapabilityBus({ audit: runtimeAuditSink(env, audit), env });
+  const skillRegistryStore = env?.DB && typeof env.DB.prepare === 'function'
+    ? new D1SkillRegistryStore(env.DB, { registryKey: String(env.MEL_SKILL_REGISTRY_KEY || 'system') })
+    : new MemorySkillRegistryStore();
+  let skillRegistryPromise = null;
+  const restoreSkillRegistry = () => {
+    if (!skillRegistryPromise) skillRegistryPromise = SkillRegistry.restore(skillRegistryStore);
+    return skillRegistryPromise;
+  };
   registerAutonomyCapabilities(bus, env);
   registerMentorCapabilities(bus, env);
   registerDevicePolicyCapabilities(bus, env);
@@ -88,6 +98,16 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
 
   return {
     bus,
+    skillRegistry: {
+      store: skillRegistryStore,
+      restore: restoreSkillRegistry,
+      async persist(registry = null) {
+        const current = registry || await restoreSkillRegistry();
+        await current.persist();
+        skillRegistryPromise = Promise.resolve(current);
+        return current;
+      }
+    },
     plugins: {
       register: (manifest, handler) => registerExtension(plugins, 'plugin', manifest, handler),
       get: id => plugins.get(id),
