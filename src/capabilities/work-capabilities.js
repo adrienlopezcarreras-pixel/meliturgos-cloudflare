@@ -149,7 +149,12 @@ export function registerWorkCapabilities(bus, { db } = {}) {
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true,
   }, async (input, context) => {
-    const catalog = buildPlanningCatalog(bus.list());
+    const constraintSize = JSON.stringify(input.constraints || []).length;
+    const catalogBudget = Math.max(2200, Math.min(5200, 9000 - String(input.goal || '').length - constraintSize));
+    const catalog = buildPlanningCatalog(bus.list(), {
+      query: input.goal,
+      maxChars: catalogBudget,
+    });
     if (!catalog.length) throw workError('WORK_PLAN_CAPABILITY_CATALOG_EMPTY');
     const prompt = buildWorkPlanningPrompt({
       goal: input.goal,
