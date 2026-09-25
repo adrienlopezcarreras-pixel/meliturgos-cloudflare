@@ -14,6 +14,7 @@ import { registerMemoryCompatibilityCapabilities } from '../../capabilities/memo
 import { registerSelfStateCapability } from '../../capabilities/self-state-capability.js';
 import { registerCommunicationAuditCapability } from '../../capabilities/communication-audit-capability.js';
 import { registerKnowledgeWorkspaceCapabilities } from '../../capabilities/knowledge-workspace-capabilities.js';
+import { registerSelfHealingCapabilities } from '../../capabilities/self-healing-capabilities.js';
 import { validateManifest } from '../../plugins/validator.js';
 import { createD1PluginRegistryAdapter, createPluginRuntime, createRegistry, createRegistryBackedPluginLoader } from '../../plugins/sdk.js';
 import { transition } from '../lifecycle/extension.js';
@@ -65,6 +66,7 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
   registerSelfStateCapability(bus, env);
   registerCommunicationAuditCapability(bus, env);
   registerKnowledgeWorkspaceCapabilities(bus, env);
+  registerSelfHealingCapabilities(bus, env);
   const pluginRegistry = env?.DB && typeof env.DB.prepare === 'function'
     ? createRegistry(createD1PluginRegistryAdapter(env.DB))
     : null;
