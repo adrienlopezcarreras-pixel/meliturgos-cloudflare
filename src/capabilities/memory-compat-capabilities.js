@@ -1,5 +1,7 @@
 import { createMemoryService } from '../memory/memory-service.js';
 import { createWorkersAiSemanticProvider } from '../search/rag-service.js';
+import { DB_SCHEMA_VERSION } from '../core/config.js';
+import { createPortableMemorySnapshot, verifyPortableMemorySnapshot } from '../memory/portable-export.js';
 
 async function safeCount(db, table) {
   if (!db) return 0;
@@ -43,27 +45,41 @@ export function registerMemoryCompatibilityCapabilities(bus, env = {}) {
   });
 
   bus.discover({
-    id: 'memory.export', name: 'Exporter la mémoire', category: 'memory', version: '1.0.0', provider: 'core',
-    description: 'Returns a portable bounded JSON snapshot of persistent MEL memory and conversations.',
+    id: 'memory.export', name: 'Exporter la mémoire', category: 'memory', version: '1.1.0', provider: 'core',
+    description: 'Returns a readable bounded JSON snapshot with schema version, per-collection SHA-256 checksums, completeness metadata and a global manifest checksum.',
     input_schema: { type: 'object', additionalProperties: false },
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
   }, async () => {
-    const [memories, archiveMessages, conversations] = await Promise.all([
+    const [memories, archiveMessages, conversations, memoryCount, archiveCount, conversationCount] = await Promise.all([
       safeRows(env.DB, 'memories'),
       safeRows(env.DB, 'archive_messages'),
       safeRows(env.DB, 'conversations'),
+      safeCount(env.DB, 'memories'),
+      safeCount(env.DB, 'archive_messages'),
+      safeCount(env.DB, 'conversations'),
     ]);
-    return {
-      format: 'meliturgos-memory-export',
-      version: 1,
-      exported_at: new Date().toISOString(),
+    return createPortableMemorySnapshot({
       owner: env.MELITURGOS_USER || '',
       memories,
       conversations,
       archive_messages: archiveMessages,
-    };
+      source_counts: {
+        memories: memoryCount,
+        conversations: conversationCount,
+        archive_messages: archiveCount,
+      },
+      db_schema_version: DB_SCHEMA_VERSION,
+    });
   });
+
+  bus.discover({
+    id: 'memory.export.verify', name: 'Vérifier un export mémoire', category: 'memory', version: '1.0.0', provider: 'core',
+    description: 'Verifies schema version, record counts, completeness declarations and SHA-256 checksums of a MEL portable memory snapshot without writing data.',
+    input_schema: { type: 'object', additionalProperties: true },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async input => verifyPortableMemorySnapshot(input));
   bus.discover({
     id: 'memory.retrieve', name: 'Rechercher dans la mémoire unifiée', category: 'memory', version: '1.0.0', provider: 'core',
     description: 'Hybrid exact/lexical/semantic retrieval across archives, memories, conversation titles and knowledge artifacts with provenance and structured filters.',
