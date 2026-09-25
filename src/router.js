@@ -332,7 +332,7 @@ async function routeResolvedRequest(request, env, ctx) {
 
 export default {
   async fetch(request, env, ctx) {
-    const resolution = resolveApiVersionRequest(request);
+    const resolution = resolveApiVersionRequest(request, { handler: 'router' });
 
     if (resolution.unsupported) {
       const auth = requireAuth(request, env);
