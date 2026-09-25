@@ -1,6 +1,10 @@
 import { createWorkDag, WorkDagRunner } from '../work/work-dag.js';
 import { summarizeWorkDag } from '../work/work-dag-state.js';
 import { D1WorkDagStore } from '../work/d1-work-dag-store.js';
+import { createWorkPlan, compileWorkPlanNodes, summarizeWorkPlan } from '../work/planning-engine.js';
+import { D1PlanningStore, PLAN_STATUSES, TASK_STATUSES } from '../work/d1-planning-store.js';
+import { buildPlanningCatalog, buildWorkPlanningPrompt, parseCapabilityAwareWorkPlan } from '../work/ai-planning-engine.js';
+import { validate } from '../security/validation.js';
 
 function workError(code) {
   return Object.assign(new Error(code), { code });
@@ -29,6 +33,28 @@ function assertBoundedNodes(nodes) {
   for (const node of nodes) {
     if (Array.isArray(node?.depends_on) && node.depends_on.length > 64) throw workError('WORK_DEPENDENCY_COUNT_INVALID');
   }
+}
+
+function assertMaterializablePlan(bus, plan) {
+  for (const step of plan?.steps || []) {
+    const capability = String(step?.capability || '');
+    if (!capability || capability.startsWith('work.')) throw workError('WORK_PLAN_CAPABILITY_INVALID');
+    let descriptor;
+    try {
+      descriptor = bus.describe(capability);
+    } catch {
+      throw workError('WORK_PLAN_CAPABILITY_NOT_FOUND');
+    }
+    if (descriptor.enabled !== true || descriptor.health === 'UNAVAILABLE') {
+      throw workError('WORK_PLAN_CAPABILITY_UNAVAILABLE');
+    }
+    try {
+      validate(step.input || {}, descriptor.input_schema);
+    } catch {
+      throw workError('WORK_PLAN_CAPABILITY_INPUT_INVALID');
+    }
+  }
+  return true;
 }
 
 function childExecutor(bus, context) {
@@ -82,6 +108,310 @@ function publicState(dag) {
 
 export function registerWorkCapabilities(bus, { db } = {}) {
   const health = db ? 'HEALTHY' : 'DEGRADED';
+
+
+  bus.discover({
+    id: 'work.plan', name: 'Planifier un objectif en étapes', category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Builds one validated, bounded and dependency-aware plan that compiles directly to Work DAG nodes. Planning itself has no storage or network side effects.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: DAG_ID,
+        goal: { type: 'string', minLength: 1, maxLength: 4000 },
+        constraints: { type: 'array', maxItems: 32, items: { type: 'string', minLength: 1, maxLength: 500 } },
+        steps: {
+          type: 'array', minItems: 1, maxItems: 64,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', minLength: 1, maxLength: 200 },
+              title: { type: 'string', minLength: 1, maxLength: 300 },
+              capability: { type: 'string', minLength: 1, maxLength: 200 },
+              input: { type: 'object', additionalProperties: true },
+              dependsOn: { type: 'array', maxItems: 64, items: { type: 'string', minLength: 1, maxLength: 200 } },
+              idempotent: { type: 'boolean' },
+            },
+            required: ['capability'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['goal', 'steps'], additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true,
+  }, async (input) => {
+    const plan = createWorkPlan({
+      id: input.id,
+      goal: input.goal,
+      constraints: input.constraints || [],
+      steps: input.steps,
+      source: 'capability:work.plan',
+    });
+    return {
+      ok: true,
+      plan,
+      summary: summarizeWorkPlan(plan),
+      nodes: compileWorkPlanNodes(plan),
+    };
+  });
+
+  bus.discover({
+    id: 'work.plan.generate', name: 'Générer un plan depuis un objectif', category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Uses zero-added-cost multi-AI planning to propose a bounded plan, then validates every selected capability and input schema before returning it. No task is executed or persisted.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: DAG_ID,
+        goal: { type: 'string', minLength: 1, maxLength: 4000 },
+        constraints: { type: 'array', maxItems: 32, items: { type: 'string', minLength: 1, maxLength: 500 } },
+        maxCandidates: { type: 'integer', minimum: 1, maximum: 4 },
+      },
+      required: ['goal'], additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'DEGRADED', enabled: true,
+  }, async (input, context) => {
+    const constraintSize = JSON.stringify(input.constraints || []).length;
+    const catalogBudget = Math.max(2200, Math.min(5200, 9000 - String(input.goal || '').length - constraintSize));
+    const catalog = buildPlanningCatalog(bus.list(), {
+      query: input.goal,
+      maxChars: catalogBudget,
+    });
+    if (!catalog.length) throw workError('WORK_PLAN_CAPABILITY_CATALOG_EMPTY');
+    const prompt = buildWorkPlanningPrompt({
+      goal: input.goal,
+      constraints: input.constraints || [],
+      catalog,
+    });
+    const generated = await bus.execute('augmentio.fanout', {
+      capability: 'REASONING',
+      input: prompt,
+      context: {
+        purpose: 'work-plan-generation',
+        execution_policy: 'PLAN_ONLY_NO_EXECUTION',
+        capability_count: catalog.length,
+      },
+      maxCandidates: Math.min(4, Math.max(1, Number(input.maxCandidates) || 3)),
+    }, context);
+    const ranked = Array.isArray(generated?.candidates) && generated.candidates.length
+      ? generated.candidates
+      : generated?.best ? [generated.best] : [];
+    const validationFailures = [];
+    let accepted = null;
+    let acceptedCandidate = null;
+
+    for (const candidate of ranked) {
+      try {
+        accepted = parseCapabilityAwareWorkPlan({
+          text: candidate?.text,
+          id: input.id,
+          goal: input.goal,
+          constraints: input.constraints || [],
+          catalog,
+          source: 'augmentio:work.plan.generate',
+        });
+        acceptedCandidate = candidate;
+        break;
+      } catch (error) {
+        validationFailures.push({
+          provider: candidate?.provider || null,
+          model: candidate?.model || null,
+          code: String(error?.code || error?.message || 'WORK_PLAN_CANDIDATE_INVALID').slice(0, 120),
+        });
+      }
+    }
+
+    if (!accepted) {
+      const error = workError('WORK_PLAN_GENERATION_NO_VALID_CANDIDATE');
+      error.validation_failures = validationFailures.slice(0, 12);
+      throw error;
+    }
+
+    return {
+      ok: true,
+      plan: accepted.plan,
+      summary: summarizeWorkPlan(accepted.plan),
+      nodes: compileWorkPlanNodes(accepted.plan),
+      generator: {
+        ...accepted.generator,
+        provider: acceptedCandidate?.provider || null,
+        model: acceptedCandidate?.model || null,
+        candidate_count: ranked.length,
+        provider_failures: Number(generated?.failures || 0),
+        rejected_candidates: validationFailures,
+        execution_started: false,
+        persisted: false,
+      },
+    };
+  });
+
+  const planInputSchema = {
+    type: 'object',
+    properties: {
+      id: DAG_ID,
+      goal: { type: 'string', minLength: 1, maxLength: 4000 },
+      constraints: { type: 'array', maxItems: 32, items: { type: 'string', minLength: 1, maxLength: 500 } },
+      steps: {
+        type: 'array', minItems: 1, maxItems: 64,
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: 200 },
+            title: { type: 'string', minLength: 1, maxLength: 300 },
+            capability: { type: 'string', minLength: 1, maxLength: 200 },
+            input: { type: 'object', additionalProperties: true },
+            dependsOn: { type: 'array', maxItems: 64, items: { type: 'string', minLength: 1, maxLength: 200 } },
+            idempotent: { type: 'boolean' },
+          },
+          required: ['capability'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['goal', 'steps'], additionalProperties: false,
+  };
+
+  bus.discover({
+    id: 'work.plan.save', name: 'Enregistrer un plan durable', category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Persists one validated Goal with its Tasks in D1 and starts an append-only planning history. It does not execute any task.',
+    input_schema: planInputSchema,
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'MEDIUM', permissions: [], health, enabled: true,
+  }, async (input) => {
+    assertDb(db);
+    const plan = createWorkPlan({
+      id: input.id,
+      goal: input.goal,
+      constraints: input.constraints || [],
+      steps: input.steps,
+      source: 'capability:work.plan.save',
+    });
+    return new D1PlanningStore(db).create(plan);
+  });
+
+  bus.discover({
+    id: 'work.plan.get', name: 'Lire un plan durable', category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Reads one persisted Goal/Task plan without task payload inputs or secrets.',
+    input_schema: { type: 'object', properties: { id: DAG_ID }, required: ['id'], additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health, enabled: true,
+  }, async (input) => {
+    assertDb(db);
+    const record = await new D1PlanningStore(db).get(input.id);
+    if (!record) throw workError('WORK_PLAN_NOT_FOUND');
+    return record;
+  });
+
+  bus.discover({
+    id: 'work.plan.list', name: 'Lister les plans durables', category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Lists bounded Goal metadata ordered by the latest planning update.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+        status: { type: 'string', enum: Object.values(PLAN_STATUSES) },
+      },
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health, enabled: true,
+  }, async (input) => {
+    assertDb(db);
+    const plans = await new D1PlanningStore(db).list({ limit: input.limit, status: input.status });
+    return { ok: true, count: plans.length, plans };
+  });
+
+  bus.discover({
+    id: 'work.plan.history', name: 'Historique d’un plan durable', category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Reads the append-only bounded history for one persisted plan.',
+    input_schema: {
+      type: 'object',
+      properties: { id: DAG_ID, limit: { type: 'integer', minimum: 1, maximum: 200 } },
+      required: ['id'], additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health, enabled: true,
+  }, async (input) => {
+    assertDb(db);
+    const store = new D1PlanningStore(db);
+    if (!await store.get(input.id)) throw workError('WORK_PLAN_NOT_FOUND');
+    const events = await store.history(input.id, { limit: input.limit });
+    return { ok: true, id: input.id, events };
+  });
+
+  bus.discover({
+    id: 'work.task.update', name: 'Mettre à jour une tâche planifiée', category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Applies a validated manual Task state transition and records it in planning history. Work-linked plans can later be resynchronized from the authoritative DAG.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        planId: DAG_ID,
+        taskId: DAG_ID,
+        status: { type: 'string', enum: Object.values(TASK_STATUSES) },
+        detail: { type: 'object', additionalProperties: true },
+      },
+      required: ['planId', 'taskId', 'status'], additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'MEDIUM', permissions: [], health, enabled: true,
+  }, async (input) => {
+    assertDb(db);
+    return new D1PlanningStore(db).updateTask(input.planId, input.taskId, input.status, input.detail || {});
+  });
+
+  bus.discover({
+    id: 'work.plan.materialize', name: 'Matérialiser un plan dans Work', category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Creates a persistent Work DAG from a saved plan without executing it, then durably links the Goal/Tasks record to that DAG.',
+    input_schema: { type: 'object', properties: { id: DAG_ID }, required: ['id'], additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'MEDIUM', permissions: [], health, enabled: true,
+  }, async (input) => {
+    assertDb(db);
+    const planning = new D1PlanningStore(db);
+    const record = await planning.loadRecord(input.id);
+    if (!record) throw workError('WORK_PLAN_NOT_FOUND');
+
+    assertMaterializablePlan(bus, record.plan);
+    const dagId = record.work_dag_id || `work-${String(record.id).slice(0, 195)}`;
+    const workStore = new D1WorkDagStore(db, dagId);
+    let dag = await workStore.load();
+    if (!dag) {
+      dag = await workStore.save(createWorkDag({
+        id: dagId,
+        jobId: dagId,
+        goal: record.goal,
+        nodes: compileWorkPlanNodes(record.plan),
+      }));
+    } else {
+      const expectedIds = compileWorkPlanNodes(record.plan).map((node) => node.id);
+      const actualIds = dag.nodes.map((node) => node.id);
+      if (dag.goal !== record.goal || JSON.stringify(actualIds) !== JSON.stringify(expectedIds)) {
+        throw workError('WORK_PLAN_DAG_COLLISION');
+      }
+    }
+
+    const plan = await planning.linkWorkDag(record.id, dagId);
+    return { ok: true, plan, work: publicState(dag) };
+  });
+
+  bus.discover({
+    id: 'work.plan.sync', name: 'Synchroniser plan et Work', category: 'work', version: '1.0.0', provider: 'mel',
+    description: 'Synchronizes persisted Task states from the linked Work DAG, which remains authoritative for execution progress.',
+    input_schema: { type: 'object', properties: { id: DAG_ID }, required: ['id'], additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health, enabled: true,
+  }, async (input) => {
+    assertDb(db);
+    const planning = new D1PlanningStore(db);
+    const record = await planning.loadRecord(input.id);
+    if (!record) throw workError('WORK_PLAN_NOT_FOUND');
+    if (!record.work_dag_id) throw workError('WORK_PLAN_DAG_NOT_LINKED');
+    const dag = await new D1WorkDagStore(db, record.work_dag_id).load();
+    if (!dag) throw workError('WORK_DAG_NOT_FOUND');
+    const plan = await planning.syncFromWork(record.id, dag);
+    return { ok: true, plan, work: publicState(dag) };
+  });
 
   bus.discover({
     id: 'work.create', name: 'Créer un travail persistant', category: 'work', version: '1.0.0', provider: 'mel',
