@@ -1,4 +1,4 @@
-import { benchmarkSuiteFingerprint, scoreBenchmarkResults, CANONICAL_LEARNING_BENCHMARK_SUITE } from './benchmarks.js';
+import { benchmarkSuiteFingerprint, scoreBenchmarkResults, compareBenchmarkScores, CANONICAL_LEARNING_BENCHMARK_SUITE } from './benchmarks.js';
 
 export const REQUIRED_STABLE_BENCHMARK_KINDS = Object.freeze([
   'conversation',
@@ -282,6 +282,102 @@ export async function runStableBenchmarkSuite({
     results,
     failures:results.filter(row=>row.error).map(row=>({id:row.id,error:row.error})),
     ...scored,
+  };
+}
+
+function comparableRunMeta(run = {}) {
+  return {
+    schema:String(run?.schema||''),
+    suite_id:String(run?.suite_id||''),
+    suite_version:Number(run?.suite_version),
+    suite_digest:String(run?.suite_digest||''),
+    registry_digest:String(run?.registry_digest||''),
+    cases:Number(run?.cases),
+  };
+}
+
+export function compareStableBenchmarkRuns(baseline = {}, candidate = {}) {
+  const before=comparableRunMeta(baseline);
+  const after=comparableRunMeta(candidate);
+  const blockers=[];
+
+  if(before.schema!=='mel.stable-benchmark-run' || after.schema!=='mel.stable-benchmark-run'){
+    blockers.push({code:'STABLE_BENCHMARK_RUN_SCHEMA_MISMATCH'});
+  }
+  for(const field of ['suite_id','suite_version','suite_digest','registry_digest','cases']){
+    if(!before[field] || !after[field]){
+      blockers.push({code:'STABLE_BENCHMARK_COMPARISON_METADATA_REQUIRED',field});
+    }else if(before[field]!==after[field]){
+      blockers.push({code:'STABLE_BENCHMARK_COMPARISON_METADATA_MISMATCH',field,baseline:before[field],candidate:after[field]});
+    }
+  }
+
+  if(blockers.length){
+    return {
+      schema:'mel.stable-benchmark-comparison',
+      version:1,
+      comparable:false,
+      blockers,
+      baseline:before,
+      candidate:after,
+      comparison:null,
+    };
+  }
+
+  return {
+    schema:'mel.stable-benchmark-comparison',
+    version:1,
+    comparable:true,
+    blockers:[],
+    baseline:before,
+    candidate:after,
+    comparison:compareBenchmarkScores(baseline,candidate),
+  };
+}
+
+export function compareStableBenchmarkPacks(baseline = {}, candidate = {}) {
+  const blockers=[];
+  if(baseline?.schema!=='mel.stable-benchmark-pack-run' || candidate?.schema!=='mel.stable-benchmark-pack-run'){
+    blockers.push({code:'STABLE_BENCHMARK_PACK_SCHEMA_MISMATCH'});
+  }
+  if(!baseline?.registry_digest || !candidate?.registry_digest){
+    blockers.push({code:'STABLE_BENCHMARK_REGISTRY_DIGEST_REQUIRED'});
+  }else if(baseline.registry_digest!==candidate.registry_digest){
+    blockers.push({
+      code:'STABLE_BENCHMARK_REGISTRY_DIGEST_MISMATCH',
+      baseline:baseline.registry_digest,
+      candidate:candidate.registry_digest,
+    });
+  }
+
+  const beforeSuites=new Map((baseline?.suites||[]).map(run=>[run.suite_id,run]));
+  const afterSuites=new Map((candidate?.suites||[]).map(run=>[run.suite_id,run]));
+  const ids=[...new Set([...beforeSuites.keys(),...afterSuites.keys()])].sort();
+  const suites={};
+  for(const id of ids){
+    if(!beforeSuites.has(id) || !afterSuites.has(id)){
+      blockers.push({code:'STABLE_BENCHMARK_PACK_SUITE_SET_MISMATCH',suite_id:id});
+      continue;
+    }
+    const compared=compareStableBenchmarkRuns(beforeSuites.get(id),afterSuites.get(id));
+    suites[id]=compared;
+    if(!compared.comparable){
+      blockers.push({code:'STABLE_BENCHMARK_PACK_SUITE_NOT_COMPARABLE',suite_id:id,blockers:compared.blockers});
+    }
+  }
+
+  const comparable=blockers.length===0;
+  return {
+    schema:'mel.stable-benchmark-pack-comparison',
+    version:1,
+    comparable,
+    blockers,
+    baseline_overall:Number.isFinite(Number(baseline?.overall))?Number(baseline.overall):null,
+    candidate_overall:Number.isFinite(Number(candidate?.overall))?Number(candidate.overall):null,
+    delta:comparable && Number.isFinite(Number(baseline?.overall)) && Number.isFinite(Number(candidate?.overall))
+      ? Number(candidate.overall)-Number(baseline.overall)
+      : null,
+    suites,
   };
 }
 
