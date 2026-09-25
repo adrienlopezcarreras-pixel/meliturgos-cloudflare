@@ -130,6 +130,7 @@ function snapshot(record) {
     idempotency_key: record.idempotency_key,
     required_capabilities: record.policy.required_capabilities,
     permission_tier: record.policy.permission_tier,
+    metadata: clone(record.policy.metadata || {}),
     status: record.status,
     requested_at: record.requested_at,
     ...(record.completed_at !== undefined ? { completed_at: record.completed_at } : {}),

@@ -104,7 +104,7 @@ export const MASTER_ROADMAP = Object.freeze([
   phase('P07', 'Work, agents et automatisations', [
     item('MEL-WORK-01', 'Work Engine persistant', 'DONE_VERIFIED', 'DAG Work durable en D1 avec état, checkpoints, artefacts, reprise après nouvelle instance et détection de corruption. Revalidé avec syntaxe globale + work-persistent/work-dag Actions 35641014709.', 'P0'),
     item('GEN2-38', 'Tasks / goals / planning', 'PARTIAL', 'Créer planning engine unique', 'P1'),
-    item('GEN2-39', 'Agents / automations', 'PARTIAL', 'Brancher MULTI_AI_PROTOCOL au Work Engine/Council pour orchestration runtime et réservations de lots', 'P1'),
+    item('GEN2-39', 'Agents / automations', 'PARTIAL', 'Control plane runtime ajouté sans toucher au planning: réservation atomique de lots MULTI_AI_PROTOCOL via D1, registre d’agents durable validant les DAG/cycles, exécution TASK/AUGMENTIO via WorkDagRunner + CapabilityBus/Council, et claims d’automation D1 idempotents avec permission tiers. Reste à remplacer la façade agents Map de createGen2Runtime, exposer les capacités runtime et relier les triggers scheduler/condition/event au runner avant DONE.', 'P1'),
     item('GEN2-40', 'Event Bus idempotent / follow-ups', 'PLANNED', 'Transporter événements et relances idempotentes entre services', 'P1'),
     item('GEN2-41', 'Notifications', 'PLANNED', 'Web Push + compagnons', 'P2'),
     item('MEL-WORK-02', 'Planifier, reprendre et terminer un travail multi-étapes', 'DONE_VERIFIED', 'Reprise idempotente et terminaison multi-étapes prouvées, dont chaîne autonome 50 tâches + 50 gates Teacher sur plusieurs heartbeats sans duplication. Revalidé par Actions 35641014709.', 'P0'),

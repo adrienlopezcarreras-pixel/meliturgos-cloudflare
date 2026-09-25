@@ -1,7 +1,7 @@
 import { port } from '../core/contracts.js';
 export const methods = ["register", "get", "list", "disable"];
-/** TODO implement only the corresponding OpenHands ticket.
- * Port input is domain data; context={owner,permissions,requestId,signal} is trusted.
- * No storage/network side effects until a server adapter is explicitly injected.
- */
+/** Canonical registry port. Durable/reference adapters live in d1-agent-registry.js. */
 export const createAgentRegistry = adapters => port('agents/agent-registry',methods,adapters);
+
+export { AGENT_STATUSES, createD1AgentRegistryAdapter, createInMemoryAgentRegistryAdapter, normalizeAgentDefinition } from './d1-agent-registry.js';
+export { createWorkAgentRuntime } from './work-agent-runtime.js';
