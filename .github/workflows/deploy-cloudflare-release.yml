@@ -224,14 +224,29 @@ jobs:
           node -e 'const d=require("./production-shardvault-final.json"); const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; if(active<7) throw new Error("PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7:"+active); if(d?.health?.recoverable!==true) throw new Error("PRODUCTION_SHARDVAULT_NOT_RECOVERABLE"); console.log("ShardVault active external registry verified: "+active+"/7");'
           fi
 
-          PAUSE_CODE="$(curl --silent --show-error --max-time 30 \
-            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-            --header "content-type: application/json" \
-            --data '{"phase":"pause"}' \
-            --output production-launch-pause.json \
-            --write-out '%{http_code}' \
-            "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
-          test "$PAUSE_CODE" = "200"
+          # The bootstrap secret can take a few seconds to propagate across
+          # production isolates. The pause phase is idempotent, so retry it
+          # independently of ShardVault external-proof mode.
+          PAUSE_READY=0
+          for PAUSE_ATTEMPT in $(seq 1 12); do
+            PAUSE_CODE="$(curl --silent --show-error --max-time 30 \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"pause"}' \
+              --output production-launch-pause.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "$PAUSE_CODE" = "200" ]; then
+              PAUSE_READY=1
+              break
+            fi
+            echo "Launch pause propagation attempt ${PAUSE_ATTEMPT}/12 returned HTTP ${PAUSE_CODE}."
+            if [ -s production-launch-pause.json ]; then
+              node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-pause.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
+            fi
+            sleep 2
+          done
+          test "$PAUSE_READY" = "1"
           node -e 'const d=require("./production-launch-pause.json"); if(d?.ok!==true||d?.status!=="RELEASE_PAUSED") throw new Error("PRODUCTION_RELEASE_PAUSE_FAILED");'
 
           BACKUP_READY=0

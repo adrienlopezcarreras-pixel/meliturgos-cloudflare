@@ -36,7 +36,9 @@ test('canonical production release requires human approval and exact immutable i
   assert.match(source, /test "\$RELEASE_SHA" = "\$EXPECTED_SHA"/);
   assert.match(source, /git fetch origin main --depth=1/);
   assert.match(source, /test "\$SOURCE_SHA" = "\$EXPECTED_SHA"/);
+  assert.match(source, /for PAUSE_ATTEMPT in \$\(seq 1 12\); do/);
   assert.match(source, /--data '\{"phase":"pause"\}'/);
+  assert.match(source, /test "\$PAUSE_READY" = "1"/);
   assert.match(source, /for BACKUP_ATTEMPT in \$\(seq 1 3\); do/);
   assert.match(source, /--data '\{"phase":"backup"\}'/);
   assert.match(source, /timeout-minutes: 45/);

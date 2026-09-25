@@ -19,6 +19,9 @@ test('release workflow skips only external ShardVault proof while roadmap pause 
   assert.match(workflow, /MEL_ROADMAP_SHARDVAULT_PAUSED: 'true'/);
   assert.match(workflow, /ShardVault external replication is PAUSED_FOR_ROADMAP/);
   assert.match(workflow, /if \[ "\$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" \]/);
+  assert.match(workflow, /for PAUSE_ATTEMPT in \$\(seq 1 12\); do/);
+  assert.match(workflow, /Launch pause propagation attempt/);
+  assert.match(workflow, /test "\$PAUSE_READY" = "1"/);
   assert.match(workflow, /PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7/);
   assert.match(workflow, /PRODUCTION_SHARDVAULT_EXTERNAL_LT_7/);
   assert.match(workflow, /Production authenticated \/api\/chat code\.read \+ code\.search smoke passed/);
