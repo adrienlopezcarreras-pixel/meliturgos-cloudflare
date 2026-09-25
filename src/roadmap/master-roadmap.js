@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-23.12';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.1';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -191,8 +191,8 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-53', 'Canary pré-release / rollback', 'DONE_VERIFIED', 'Preuve canary/rollback: Actions run 35093195456; production: release run 35094721729; smoke live post-déploiement: run 35094194506 job 104789501239', 'P0'),
     item('GEN2-57', 'Migration Gen1 sans perte', 'DONE_VERIFIED', 'Migration Gen1 certifiée en production sur release 2fd2eb5b4b701e78115e3b8fd2f7adb73661def3, run deploy-cloudflare-release 35856885040: source interactions présente et conservée, 177 interactions source, 354 messages archive_messages, 177 interactions migrées, remaining_interactions=0, coverage_complete=true. Schéma réel vérifié, IDs déterministes, collisions/mismatch fail-closed, backfill borné et replay-safe. Source Gen1 non supprimée.', 'P0'),
     item('GEN2-55', 'Data integrity / final maturity tests', 'PLANNED', 'Suite finale après stabilisation', 'P1'),
-    item('GEN2-60', 'Completion matrix', 'PLANNED', 'Générer automatiquement depuis ce registre', 'P2'),
-    item('GEN2-61', 'Final status report', 'PLANNED', 'Générer au jalon mature', 'P2'),
+    item('GEN2-60', 'Completion matrix', 'DONE_VERIFIED', 'Matrice canonique générée directement depuis master-roadmap sans duplication de statuts; tests dédiés + full-candidate-ci run 35005589487 SUCCESS sur 13ea4b1c645521796a0ef1474242d991951b2564.', 'P2'),
+    item('GEN2-61', 'Final status report', 'DONE_VERIFIED', 'Rapport final déterministe dérivé de GEN2-60, fail-closed tant que blockers/P0/P1 restent ouverts; tests dédiés + full-candidate-ci run 35006105873 SUCCESS sur 921cbbd22e16a6dcefcf560ecd930e89eb9e0dc1.', 'P2'),
     item('GEN2-62', 'human-actions-required', 'PARTIAL', 'Maintenir blockers humains exacts', 'P1'),
     item('GEN2-63', 'Règle NON-IDLE / continue-when-blocked', 'IN_PROGRESS', 'Continuer sur tâches non bloquées', 'P1'),
     item('MEL-REL-01', 'Release figée sur commit exact', 'DONE_VERIFIED', 'Répéter pour chaque déploiement', 'P0'),
