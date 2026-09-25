@@ -1,0 +1,185 @@
+name: mel-mem-03-production-smoke
+
+on:
+  push:
+    branches:
+      - 'proof/mel-mem-03-production-20260925'
+    paths:
+      - '.github/workflows/mel-mem-03-production-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
+      EXPECTED_DEPLOYED_SHA: 04a45569b7198f72abdf6e1084e9a83e3358347c
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Install temporary release bootstrap secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::$TOKEN"
+          printf '%s' "$TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+          echo "MEL_BOOTSTRAP_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Prove deployed SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            HTTP_CODE="$(curl --silent --show-error --max-time 60               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: $MEL_BOOTSTRAP_TOKEN"               --output /tmp/readiness.json               --write-out '%{http_code}'               "$BASE_URL/api/gen2/readiness" || true)"
+            if [ "$HTTP_CODE" = "200" ]; then
+              READY=1
+              break
+            fi
+            echo "Readiness auth propagation attempt $ATTEMPT/12 returned HTTP $HTTP_CODE."
+            sleep 2
+          done
+          test "$READY" = "1"
+          EXPECTED_DEPLOYED_SHA="$EXPECTED_DEPLOYED_SHA" node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('/tmp/readiness.json','utf8'));
+          const sha=String(d?.runtime?.deployed_git_sha||d?.deployed_git_sha||d?.candidate_sha||'').toLowerCase();
+          if(sha && sha!==String(process.env.EXPECTED_DEPLOYED_SHA||'').toLowerCase()) {
+            throw new Error('PRODUCTION_SHA_MISMATCH:'+sha);
+          }
+          console.log('Production readiness reachable for MEL-MEM-03 proof.');
+          NODE
+
+      - name: Execute real production memory export
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPORT_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            HTTP_CODE="$(curl --silent --show-error --max-time 180               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: $MEL_BOOTSTRAP_TOKEN"               --header "content-type: application/json"               --data '{"id":"memory.export","input":{}}'               --output /tmp/memory-export-response.json               --write-out '%{http_code}'               "$BASE_URL/api/gen2/capabilities/execute" || true)"
+            if [ "$HTTP_CODE" = "200" ]; then
+              EXPORT_READY=1
+              break
+            fi
+            if [ "$HTTP_CODE" != "401" ] && [ "$HTTP_CODE" != "403" ]; then
+              echo "memory.export returned non-auth HTTP $HTTP_CODE."
+              node -e 'const fs=require("fs"); try{const d=JSON.parse(fs.readFileSync("/tmp/memory-export-response.json","utf8")); console.log(JSON.stringify({ok:d?.ok===true,code:d?.code||d?.error||null,status:d?.status||null}));}catch{console.log("non-json error response");}' || true
+              exit 21
+            fi
+            echo "memory.export auth propagation attempt $ATTEMPT/12 returned HTTP $HTTP_CODE."
+            sleep 2
+          done
+          test "$EXPORT_READY" = "1"
+
+          node --input-type=module - <<'NODE'
+          import fs from 'node:fs';
+          import { verifyPortableMemorySnapshot } from './src/memory/portable-export.js';
+
+          const body=JSON.parse(fs.readFileSync('/tmp/memory-export-response.json','utf8'));
+          if(body?.ok!==true || body?.capability!=='memory.export') {
+            throw new Error('MEMORY_EXPORT_CAPABILITY_NOT_OK');
+          }
+          const snapshot=body?.result;
+          if(!snapshot || snapshot?.format!=='meliturgos-memory-export') {
+            throw new Error('MEMORY_EXPORT_SNAPSHOT_MISSING');
+          }
+          if(snapshot?.schema_version!=='1.0.0') {
+            throw new Error('MEMORY_EXPORT_SCHEMA_MISMATCH');
+          }
+          if(snapshot?.manifest?.checksum_algorithm!=='SHA-256') {
+            throw new Error('MEMORY_EXPORT_CHECKSUM_ALGORITHM_MISMATCH');
+          }
+          const verification=await verifyPortableMemorySnapshot(snapshot);
+          if(verification?.ok!==true) {
+            throw new Error('MEMORY_EXPORT_LOCAL_VERIFY_FAILED:'+JSON.stringify(verification?.failures||[]));
+          }
+          const collections=Array.isArray(snapshot?.manifest?.collections)?snapshot.manifest.collections:[];
+          const expected=['memories','conversations','archive_messages'];
+          for(const name of expected) {
+            const row=collections.find(x=>x?.name===name);
+            if(!row) throw new Error('MEMORY_EXPORT_COLLECTION_MISSING:'+name);
+            if(!/^[a-f0-9]{64}$/i.test(String(row?.sha256||''))) {
+              throw new Error('MEMORY_EXPORT_COLLECTION_CHECKSUM_INVALID:'+name);
+            }
+          }
+          if(!/^[a-f0-9]{64}$/i.test(String(snapshot?.manifest?.export_sha256||''))) {
+            throw new Error('MEMORY_EXPORT_MANIFEST_CHECKSUM_INVALID');
+          }
+          fs.writeFileSync('/tmp/memory-snapshot.json',JSON.stringify(snapshot));
+          fs.writeFileSync('/tmp/memory-verify-request.json',JSON.stringify({id:'memory.export.verify',input:snapshot}));
+          const summary={
+            complete:snapshot?.manifest?.complete===true,
+            total_source_records:Number(snapshot?.manifest?.total_source_records||0),
+            total_exported_records:Number(snapshot?.manifest?.total_exported_records||0),
+            collections:Object.fromEntries(collections.map(row=>[row.name,{
+              source_count:Number(row.source_count||0),
+              exported_count:Number(row.exported_count||0),
+              complete:row.complete===true,
+              sha256:String(row.sha256||'').slice(0,12)+'…'
+            }])),
+            export_sha256:String(snapshot?.manifest?.export_sha256||'').slice(0,12)+'…',
+            payload_bytes:Buffer.byteLength(JSON.stringify(snapshot)),
+          };
+          console.log(JSON.stringify(summary,null,2));
+          if(summary.complete!==true) {
+            throw new Error('MEMORY_EXPORT_PRODUCTION_TRUNCATED');
+          }
+          NODE
+
+      - name: Verify exported snapshot through production capability
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERIFY_READY=0
+          for ATTEMPT in $(seq 1 12); do
+            HTTP_CODE="$(curl --silent --show-error --max-time 180               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: $MEL_BOOTSTRAP_TOKEN"               --header "content-type: application/json"               --data-binary @/tmp/memory-verify-request.json               --output /tmp/memory-verify-response.json               --write-out '%{http_code}'               "$BASE_URL/api/gen2/capabilities/execute" || true)"
+            if [ "$HTTP_CODE" = "200" ]; then
+              VERIFY_READY=1
+              break
+            fi
+            if [ "$HTTP_CODE" != "401" ] && [ "$HTTP_CODE" != "403" ]; then
+              echo "memory.export.verify returned non-auth HTTP $HTTP_CODE."
+              node -e 'const fs=require("fs"); try{const d=JSON.parse(fs.readFileSync("/tmp/memory-verify-response.json","utf8")); console.log(JSON.stringify({ok:d?.ok===true,code:d?.code||d?.error||null,status:d?.status||null}));}catch{console.log("non-json error response");}' || true
+              exit 22
+            fi
+            echo "memory.export.verify auth propagation attempt $ATTEMPT/12 returned HTTP $HTTP_CODE."
+            sleep 2
+          done
+          test "$VERIFY_READY" = "1"
+          node - <<'NODE'
+          const fs=require('fs');
+          const body=JSON.parse(fs.readFileSync('/tmp/memory-verify-response.json','utf8'));
+          if(body?.ok!==true || body?.capability!=='memory.export.verify') {
+            throw new Error('MEMORY_EXPORT_VERIFY_CAPABILITY_NOT_OK');
+          }
+          if(body?.result?.ok!==true || (body?.result?.failures||[]).length!==0) {
+            throw new Error('MEMORY_EXPORT_VERIFY_FAILED');
+          }
+          console.log('Production memory.export.verify accepted the exact exported snapshot.');
+          NODE
+
+      - name: Remove temporary release bootstrap secret
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
