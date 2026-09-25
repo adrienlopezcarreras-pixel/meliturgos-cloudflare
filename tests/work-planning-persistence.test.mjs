@@ -134,12 +134,24 @@ test('CapabilityBus can save a plan, materialize it into persistent Work, and re
   assert.equal(materialized.plan.work_dag_id,'work-cap-plan');
   assert.equal(materialized.work.status,'RUNNING');
 
+  const executed=await first.execute('work.run',{id:'work-cap-plan'},{
+    owner:'adrien',requestId:'plan-run',permissions:[]
+  });
+  assert.equal(executed.status,'COMPLETED');
+
+  const synced=await first.execute('work.plan.sync',{id:'cap-plan'},{
+    owner:'adrien',requestId:'plan-sync',permissions:[]
+  });
+  assert.equal(synced.plan.status,'COMPLETED');
+  assert.deepEqual(synced.plan.tasks.map(task=>task.status),['COMPLETED','COMPLETED']);
+
   const second=createDefaultCapabilityBus({env:{DB:db}});
   const recovered=await second.execute('work.plan.get',{id:'cap-plan'},{
     owner:'adrien',requestId:'plan-get',permissions:[]
   });
   assert.equal(recovered.work_dag_id,'work-cap-plan');
+  assert.equal(recovered.status,'COMPLETED');
   assert.equal((await second.execute('work.plan.history',{id:'cap-plan'},{
     owner:'adrien',requestId:'plan-history',permissions:[]
-  })).events.at(-1).event_type,'WORK_DAG_LINKED');
+  })).events.at(-1).event_type,'WORK_DAG_SYNCED');
 });
