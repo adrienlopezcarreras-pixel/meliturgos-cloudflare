@@ -1,6 +1,7 @@
 import { createWorkDag, WorkDagRunner } from '../work/work-dag.js';
 import { summarizeWorkDag } from '../work/work-dag-state.js';
-import { D1WorkDagStore } from '../work/d1-work-dag-store.js';\nimport { createWorkPlan, compileWorkPlanNodes, summarizeWorkPlan } from '../work/planning-engine.js';
+import { D1WorkDagStore } from '../work/d1-work-dag-store.js';
+import { createWorkPlan, compileWorkPlanNodes, summarizeWorkPlan } from '../work/planning-engine.js';
 
 function workError(code) {
   return Object.assign(new Error(code), { code });
