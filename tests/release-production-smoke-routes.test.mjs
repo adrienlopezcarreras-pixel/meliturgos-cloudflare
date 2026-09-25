@@ -298,6 +298,19 @@ test('GEN2-37 release token proves high-provenance official web research and rej
   assert.equal(deniedBody.code, 'RELEASE_SMOKE_RESEARCH_SCOPE_DENIED');
 });
 
+test('GEN2-51 release token proves canonical semantic API metadata', async () => {
+  const response = await worker.fetch(
+    smokeRequest('/api/v1/version', 'GET'),
+    env(),
+    {},
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('x-mel-api-version'), 'v1');
+  assert.equal(response.headers.get('x-mel-api-route-status'), 'canonical');
+  const body = await response.json();
+  assert.equal(body.current_version, 'v1');
+});
+
 test('MEL-REL-03 release token cannot use the generic capability route outside the bounded smoke allowlist', async () => {
   const response = await worker.fetch(
     smokeRequest('/api/gen2/capabilities/execute', 'POST', {
@@ -310,7 +323,7 @@ test('MEL-REL-03 release token cannot use the generic capability route outside t
   assert.equal(response.status, 403);
   const body = await response.json();
   assert.equal(body.code, 'RELEASE_SMOKE_CAPABILITY_DENIED');
-  assert.deepEqual(body.allowed_capabilities, ['echo', 'resilience.recovery.drill.latest', 'memory.export', 'memory.export.verify', 'system.integrity', 'system.maturity', 'timeline.list', 'project.list', 'event.list', 'skill.list']);
+  assert.deepEqual(body.allowed_capabilities, ['echo', 'resilience.recovery.drill.latest', 'memory.export', 'memory.export.verify', 'system.integrity', 'system.maturity', 'timeline.list', 'project.list', 'event.list', 'skill.list', 'work.plan.get', 'work.plan.save', 'work.plan.generate', 'work.plan', 'model.council']);
 });
 
 
