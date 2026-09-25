@@ -161,3 +161,17 @@ test('GEN2-55 integrity audit detects cross-wired message/conversation reference
     assert.equal(JSON.stringify(result).includes('cross'),true);
   } finally { db.close(); }
 });
+
+
+test('GEN2-55 does not require sync checkpoint device ids to be pre-registered', async () => {
+  const db=await healthyDb();
+  try {
+    const now=Date.now();
+    await db.prepare("INSERT INTO sync_checkpoints(device_id,conversation_id,last_message_id,last_message_timestamp,updated_at) VALUES(?,?,?,?,?)")
+      .bind('unregistered-device','c1','m1',now,now).run();
+    const result=await auditDataIntegrity(db);
+    assert.equal(result.ok,true);
+    assert.equal(result.checks.some(check=>check.id==='sync_checkpoints.device'),false);
+    assert.equal(result.checks.find(check=>check.id==='sync_checkpoints.message_conversation_pair').status,'PASS');
+  } finally { db.close(); }
+});
