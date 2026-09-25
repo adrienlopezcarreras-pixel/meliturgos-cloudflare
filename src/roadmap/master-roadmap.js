@@ -117,7 +117,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-34', 'Outlook / Microsoft', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P2'),
     item('GEN2-35', 'OneDrive / SharePoint', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
     item('GEN2-36', 'GitHub / Cloudflare / Vercel', 'BLOCKED_HUMAN', 'Code et contrôles GEN2-36 intégrés et déployés; GitHub dispatch réel PASS (35709807443), Cloudflare auth PASS (35709798534), mutation bornée réelle PASS (35712822078) et production canonique PASS (35713600886 puis 35714494562). Seul bloqueur externe restant : aucun projet/équipe Vercel visible et VERCEL_TOKEN absent; fournir une cible Vercel réelle puis effectuer un redéploiement approuvé avant DONE_VERIFIED.', 'P0'),
-    item('GEN2-37', 'Web / recherche', 'PARTIAL', 'Valider en production la recherche sourcée, les redirections et la qualité des sources', 'P1'),
+    item('GEN2-37', 'Web / recherche', 'PARTIAL', 'Recherche sourcée + qualité de provenance intégrées. Candidat de fermeture: seed_urls officiel exposé par l’API avec scope release strict, test de refus hors scope et preuve production obligatoire sur une source Cloudflare directe HIGH_PROVENANCE avec provenance complète. Reste: CI exacte, merge puis release/smoke live avant DONE_VERIFIED.', 'P1'),
     item('MEL-CONN-01', 'WordPress Vérité Interdite', 'PLANNED', 'Créer MEL publique isolée de la mémoire privée', 'P3'),
     item('MEL-CONN-02', 'Catalogue de connecteurs installables', 'PLANNED', 'Découverte, permissions, test santé, désactivation', 'P2')
   ]),
