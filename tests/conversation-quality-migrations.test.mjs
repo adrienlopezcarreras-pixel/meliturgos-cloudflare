@@ -8,8 +8,7 @@ test('canonical migration provisions persistent conversation focus and response 
   const DB=sqliteD1();
   try {
     const result=await migrate(DB);
-    assert.equal(DB_SCHEMA_VERSION,12);
-    assert.equal(result.currentVersion,12);
+    assert.equal(result.currentVersion,DB_SCHEMA_VERSION);
     const focus=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_focus_state'").first();
     const quality=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='mel_response_quality_events'").first();
     assert.equal(focus?.name,'conversation_focus_state');
@@ -28,7 +27,7 @@ test('migration v8 is idempotent', async () => {
   try {
     await migrate(DB);
     const second=await migrate(DB);
-    assert.equal(second.currentVersion,12);
+    assert.equal(second.currentVersion,DB_SCHEMA_VERSION);
     const rows=await DB.prepare('SELECT version,name FROM schema_migrations WHERE version=8').all();
     assert.equal(rows.results.length,1);
     assert.equal(rows.results[0].name,'conversation_focus_and_response_quality');
@@ -77,8 +76,8 @@ test('migration v11 provisions Collector coverage state and remains idempotent',
   try {
     const first=await migrate(DB);
     const second=await migrate(DB);
-    assert.equal(first.currentVersion,12);
-    assert.equal(second.currentVersion,12);
+    assert.equal(first.currentVersion,DB_SCHEMA_VERSION);
+    assert.equal(second.currentVersion,DB_SCHEMA_VERSION);
     const table=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chatgpt_collector_coverage'").first();
     assert.equal(table?.name,'chatgpt_collector_coverage');
     const rows=await DB.prepare('SELECT version,name FROM schema_migrations WHERE version=11').all();
@@ -95,8 +94,8 @@ test('migration v12 provisions memory candidates for live exchange sync and rema
   try {
     const first=await migrate(DB);
     const second=await migrate(DB);
-    assert.equal(first.currentVersion,12);
-    assert.equal(second.currentVersion,12);
+    assert.equal(first.currentVersion,DB_SCHEMA_VERSION);
+    assert.equal(second.currentVersion,DB_SCHEMA_VERSION);
     const table=await DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_candidates'").first();
     assert.equal(table?.name,'memory_candidates');
     const rows=await DB.prepare('SELECT version,name FROM schema_migrations WHERE version=12').all();
