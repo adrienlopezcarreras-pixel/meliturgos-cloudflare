@@ -204,3 +204,23 @@ test('MEL-EVAL-01 pack comparison fails closed when registry identity changes',a
   assert.equal(bad.delta,null);
   assert.ok(bad.blockers.some(row=>row.code==='STABLE_BENCHMARK_REGISTRY_DIGEST_MISMATCH'));
 });
+
+
+test('MEL-EVAL-01 CapabilityBus comparison fails closed across incompatible benchmark identity',async()=>{
+  const bus=createDefaultCapabilityBus({env:{}});
+  const baseline=scoreStableBenchmarkObservations({
+    suiteId:'mel-eval-code-v1',
+    observations:[
+      {id:'code-minimal-change-01',score:0.5},
+      {id:'code-tests-01',score:0.5},
+      {id:'code-reversibility-01',score:0.5},
+      {id:'code-proof-truth-01',score:0.5},
+    ],
+  });
+  const candidate={...baseline,suite_digest:'changed'};
+  const result=await bus.execute('evaluation.benchmark.compare',{
+    kind:'run',baseline,candidate,
+  },{owner:'test',permissions:[],requestId:'eval-compare'});
+  assert.equal(result.comparable,false);
+  assert.equal(result.comparison,null);
+});
