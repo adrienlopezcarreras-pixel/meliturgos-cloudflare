@@ -30,19 +30,77 @@ class InternetService {
     const html = typeof page === 'string' ? page : String(page?.content || '');
     if (!html) return null;
     const url = page?.url || fallbackUrl;
-    return {
+    const title = this.extractTitle(html, url);
+    const snippet = this.extractSnippet(html);
+    const provenance = typeof page === 'object' ? {
+      source_id: page.source_id,
+      fetched_at: page.timestamp,
+      content_type: page.content_type,
+      fetch_duration_ms: page.fetch_duration_ms,
+      truncated: page.truncated,
+      redirect_count: page.redirect_count,
+    } : null;
+    const source = {
       url,
       content: html,
-      title: this.extractTitle(html, url),
-      snippet: this.extractSnippet(html),
+      title,
+      snippet,
       source_kind: kind,
-      provenance: typeof page === 'object' ? {
-        source_id: page.source_id,
-        fetched_at: page.timestamp,
-        content_type: page.content_type,
-        fetch_duration_ms: page.fetch_duration_ms,
-        truncated: page.truncated,
-      } : null,
+      provenance,
+    };
+    source.source_quality = this.scoreSourceQuality(source);
+    return source;
+  }
+
+  scoreSourceQuality(source = {}) {
+    const kind = String(source.source_kind || 'UNKNOWN');
+    const base = kind === 'OFFICIAL_SEED' ? 86
+      : kind === 'DIRECT_SOURCE' ? 66
+        : kind === 'SEARCH_INDEX' ? 24
+          : 18;
+    let score = base;
+    try {
+      if (new URL(String(source.url || '')).protocol === 'https:') score += 5;
+    } catch {}
+    if (String(source.title || '').trim()) score += 3;
+    if (String(source.snippet || '').trim()) score += 4;
+    if (source.provenance?.source_id) score += 2;
+    if (source.provenance?.fetched_at) score += 2;
+    if (source.provenance?.content_type) score += 2;
+    if (source.provenance?.truncated === true) score -= 8;
+    score = Math.max(0, Math.min(100, Math.round(score)));
+
+    const tier = score >= 90 ? 'PRIMARY'
+      : score >= 75 ? 'STRONG'
+        : score >= 55 ? 'USABLE'
+          : 'DISCOVERY_ONLY';
+    const answerReady = kind !== 'SEARCH_INDEX' && score >= 55;
+    return {
+      score,
+      tier,
+      answer_ready: answerReady,
+      direct_evidence: kind === 'OFFICIAL_SEED' || kind === 'DIRECT_SOURCE',
+    };
+  }
+
+  assessSourceSet(sources = []) {
+    const rows = Array.isArray(sources) ? sources : [];
+    const answerReady = rows.filter(source => source?.source_quality?.answer_ready === true);
+    const strong = rows.filter(source => ['PRIMARY', 'STRONG'].includes(source?.source_quality?.tier));
+    const average = rows.length
+      ? Math.round(rows.reduce((sum, source) => sum + Number(source?.source_quality?.score || 0), 0) / rows.length)
+      : 0;
+    return {
+      status: strong.length ? 'STRONG'
+        : answerReady.length ? 'USABLE'
+          : rows.length ? 'DISCOVERY_ONLY'
+            : 'NO_SOURCES',
+      answer_ready: answerReady.length > 0,
+      source_count: rows.length,
+      answer_ready_sources: answerReady.length,
+      strong_sources: strong.length,
+      average_score: average,
+      minimum_answer_score: 55,
     };
   }
 
@@ -170,11 +228,14 @@ class InternetService {
     }
 
     const sources = officialSources.length ? officialSources : (directSources.length ? directSources : searchIndexes);
+    const sourceQuality = this.assessSourceSet(sources);
     return {
       query: querySanitized,
       sources,
       citations_count: sources.length,
       depth,
+      answer_ready: sourceQuality.answer_ready,
+      source_quality: sourceQuality,
       discovery: {
         official_seed_urls: officialSeedUrls,
         official_sources_loaded: officialSources.length,
