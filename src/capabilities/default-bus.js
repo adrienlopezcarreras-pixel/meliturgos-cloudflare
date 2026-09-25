@@ -17,6 +17,7 @@ import { runAugmentioStateOfPlay } from '../teachers/augmentio-council.js';
 import { runModelCouncil } from '../models/model-council.js';
 import { prepareDevelopmentRequest } from '../evolution/development-preflight.js';
 import { enqueueOwnerDevelopmentRequest } from '../evolution/owner-development-queue.js';
+import { stableBenchmarkCatalog, scoreStableBenchmarkObservations } from '../evaluation/stable-benchmark-suites.js';
 
 const DEFAULT_REPOSITORY = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const DEFAULT_BRANCH = 'candidate/mel-clean-autonomy';
@@ -254,6 +255,44 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
   }, async () => getRoadmapPayload());
+
+  bus.discover({
+    id: 'evaluation.benchmark.catalog', name: 'Catalogue benchmarks stables', category: 'evaluation', version: '1.0.0', provider: 'core',
+    description: 'Returns the versioned conversation/code/research/memory benchmark registry with deterministic suite and registry fingerprints.',
+    input_schema: { type: 'object', additionalProperties: false },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
+  }, async () => stableBenchmarkCatalog());
+
+  bus.discover({
+    id: 'evaluation.benchmark.score', name: 'Scorer observations benchmark', category: 'evaluation', version: '1.0.0', provider: 'core',
+    description: 'Scores already-measured case observations against one stable benchmark suite; missing cases remain explicit zero-score failures.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        suiteId: { type: 'string', minLength: 1, maxLength: 120 },
+        observations: {
+          type: 'array', maxItems: 100,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', minLength: 1, maxLength: 160 },
+              score: { type: 'number', minimum: 0, maximum: 1 },
+            },
+            required: ['id','score'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['suiteId','observations'],
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW', permissions: [], health: 'HEALTHY', enabled: true
+  }, async input => scoreStableBenchmarkObservations({
+    suiteId: input.suiteId,
+    observations: input.observations,
+  }));
 
   bus.discover({
     id: 'system.bindings', name: 'Diagnostic des bindings', category: 'diagnostic', version: '1.0.0', provider: 'core',
