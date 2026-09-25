@@ -1,7 +1,7 @@
 import { evaluateComputerUsePlan } from "../devices/computer-use.js";
 
 function parse(v,f){try{return JSON.parse(v)}catch{return f}}
-function normalizeDevice(r){if(!r)return null;return {id:r.id,name:r.name,platform:r.platform,capabilities:parse(r.capabilities,[]),allowed_apps:parse(r.allowed_apps,[]),halted:Number(r.halted)===1,last_seen_at:Number(r.last_seen_at||0),online:Date.now()-Number(r.last_seen_at||0)<15000,metadata:parse(r.metadata,{})}}
+function normalizeDevice(r){if(!r)return null;const metadata=parse(r.metadata,{});return {id:r.id,name:r.name,platform:r.platform,capabilities:parse(r.capabilities,[]),allowed_apps:parse(r.allowed_apps,[]),allowed_paths:Array.isArray(metadata.allowed_paths)?metadata.allowed_paths:[],halted:Number(r.halted)===1,last_seen_at:Number(r.last_seen_at||0),online:Date.now()-Number(r.last_seen_at||0)<15000,metadata}}
 async function ensure(db){if(!db)throw Object.assign(new Error("COMPUTER_DB_REQUIRED"),{code:"COMPUTER_DB_REQUIRED",status:503});await db.prepare(`CREATE TABLE IF NOT EXISTS computer_devices(id TEXT PRIMARY KEY,token_hash TEXT NOT NULL,name TEXT NOT NULL,platform TEXT NOT NULL,capabilities TEXT NOT NULL,allowed_apps TEXT NOT NULL,halted INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,last_seen_at INTEGER NOT NULL,metadata TEXT NOT NULL DEFAULT "{}")`).run();await db.prepare(`CREATE TABLE IF NOT EXISTS computer_commands(id TEXT PRIMARY KEY,device_id TEXT NOT NULL,session_id TEXT NOT NULL,plan_json TEXT NOT NULL,status TEXT NOT NULL,created_at INTEGER NOT NULL,claimed_at INTEGER,finished_at INTEGER,result_json TEXT,error_code TEXT)`).run();}
 function sensitiveApprovals(session,steps){const set=new Set(["keyboard.type","app.open","app.close","file.open","file.close","clipboard.read","clipboard.write"]);return steps.filter(x=>set.has(String(x.action||""))).map(x=>({approved:true,session_id:session,step_id:String(x.id),action:String(x.action)}))}
 function quickSteps(input){
@@ -22,7 +22,10 @@ async function queuePlan(db,device,{session_id,steps,approve_sensitive=false,all
  if(device.halted)throw Object.assign(new Error("OWNER_HALT_ACTIVE"),{code:"OWNER_HALT_ACTIVE",status:409});
  const session=String(session_id||crypto.randomUUID()),normalized=(steps||[]).map((x,i)=>({...x,id:String(x?.id||`step-${i+1}`)}));
  const approvals=approve_sensitive===true?sensitiveApprovals(session,normalized):[];
- const plan=evaluateComputerUsePlan({session_id:session,owner_halt:false,device:{id:device.id,capabilities:device.capabilities},sandbox:{allowed_apps:device.allowed_apps,allowed_paths:Array.isArray(allowed_paths)?allowed_paths:[],allowed_origins:Array.isArray(allowed_origins)?allowed_origins:[],max_steps:20},approvals,steps:normalized});
+ const requestedPaths=Array.isArray(allowed_paths)&&allowed_paths.length?allowed_paths:device.allowed_paths;
+ const pairedPaths=new Set((device.allowed_paths||[]).map(x=>String(x).toLowerCase()));
+ const effectivePaths=requestedPaths.filter(x=>pairedPaths.has(String(x).toLowerCase()));
+ const plan=evaluateComputerUsePlan({session_id:session,owner_halt:false,device:{id:device.id,capabilities:device.capabilities},sandbox:{allowed_apps:device.allowed_apps,allowed_paths:effectivePaths,allowed_origins:Array.isArray(allowed_origins)?allowed_origins:[],max_steps:20},approvals,steps:normalized});
  if(!plan.allowed)throw Object.assign(new Error(plan.reason),{code:plan.reason,status:403});
  const id=crypto.randomUUID();await db.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)").bind(id,device.id,session,JSON.stringify(plan.request),"PENDING",Date.now()).run();
  return {ok:true,command_id:id,status:"PENDING",device_id:device.id,decisions:plan.decisions};
