@@ -3,6 +3,7 @@ import { requireValue } from '../core/contracts.js';
 import { APP_VERSION, DB_SCHEMA_VERSION } from '../core/config.js';
 import { migrate } from '../persistence/migrations.js';
 import { stableStringify } from '../resilience/recovery-bundle.js';
+import { ENCRYPTED_BACKUP_SCHEMA, createEnvBackupEncryptionCodec } from './encrypted-backup-storage.js';
 
 function deployedGitSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim();
@@ -129,7 +130,7 @@ function parseMetadata(raw) {
   catch { return {}; }
 }
 
-export function createR2D1BackupStorage({ db, bucket }) {
+export function createR2D1BackupStorage({ db, bucket, encryptionCodec = null }) {
   requireValue(db?.prepare, 'BACKUP_DB_UNAVAILABLE', 503);
   requireValue(bucket?.put && bucket?.get && bucket?.delete, 'BACKUP_R2_UNAVAILABLE', 503);
 
@@ -139,8 +140,10 @@ export function createR2D1BackupStorage({ db, bucket }) {
       requireValue(/^[A-Za-z0-9._-]{1,160}$/.test(id), 'BACKUP_ID_INVALID');
       const existing = await db.prepare('SELECT object_key FROM backup_objects WHERE id=?').bind(id).first();
       requireValue(!existing, 'BACKUP_ID_EXISTS', 409);
-      const objectKey = `${SYSTEM_BACKUP_PREFIX}${id}.json`;
-      const payload = JSON.stringify(snapshot);
+      const encrypted = Boolean(encryptionCodec);
+      const objectKey = `${SYSTEM_BACKUP_PREFIX}${id}${encrypted ? '.enc' : ''}.json`;
+      const storedValue = encrypted ? await encryptionCodec.seal(snapshot) : snapshot;
+      const payload = JSON.stringify(storedValue);
       await bucket.put(objectKey, payload, { httpMetadata: { contentType: 'application/json; charset=utf-8' } });
       try {
         await db.prepare('INSERT INTO backup_objects(id, object_key, metadata_json, created_at) VALUES(?,?,?,?)')
@@ -150,6 +153,10 @@ export function createR2D1BackupStorage({ db, bucket }) {
             integritySha256: snapshot.integritySha256,
             sourceCount: snapshot.sourceCount,
             verified: snapshot.verified === true,
+            encrypted,
+            encryptionSchema: encrypted ? encryptionCodec.schema : null,
+            encryptionAlgorithm: encrypted ? encryptionCodec.algorithm : null,
+            encryptionKeyId: encrypted ? encryptionCodec.key_id : null,
           }), Date.parse(snapshot.createdAt) || Date.now())
           .run();
       } catch (error) {
@@ -163,8 +170,17 @@ export function createR2D1BackupStorage({ db, bucket }) {
       if (!row?.object_key) return null;
       const object = await bucket.get(row.object_key);
       if (!object) return null;
-      try { return JSON.parse(await object.text()); }
+      let parsed;
+      try { parsed = JSON.parse(await object.text()); }
       catch { return null; }
+      if (parsed?.schema === ENCRYPTED_BACKUP_SCHEMA) {
+        requireValue(encryptionCodec?.open, 'BACKUP_ENCRYPTION_CODEC_REQUIRED', 503);
+        return encryptionCodec.open(parsed);
+      }
+      if (encryptionCodec) {
+        throw Object.assign(new Error('BACKUP_ENCRYPTION_EXPECTED'), { code: 'BACKUP_ENCRYPTION_EXPECTED', status: 409 });
+      }
+      return parsed;
     },
 
     async list({ limit = 20 } = {}) {
@@ -179,8 +195,31 @@ export function createR2D1BackupStorage({ db, bucket }) {
         integritySha256: parseMetadata(row.metadata_json).integritySha256 || null,
         sourceCount: Number(parseMetadata(row.metadata_json).sourceCount || 0),
         verified: parseMetadata(row.metadata_json).verified === true,
+        encrypted: parseMetadata(row.metadata_json).encrypted === true,
+        encryptionSchema: parseMetadata(row.metadata_json).encryptionSchema || null,
+        encryptionAlgorithm: parseMetadata(row.metadata_json).encryptionAlgorithm || null,
+        encryptionKeyId: parseMetadata(row.metadata_json).encryptionKeyId || null,
       }));
     },
+  };
+}
+
+function systemBackupSources(env) {
+  return {
+    database: () => exportD1SystemState(env.DB, {
+      maxRowsPerTable: Number(env.MEL_SYSTEM_BACKUP_MAX_ROWS_PER_TABLE) || DEFAULT_MAX_ROWS_PER_TABLE,
+    }),
+    r2_inventory: () => exportR2Inventory(env.MEDIA_BUCKET),
+    runtime: async () => ({
+      type: 'MEL_RUNTIME_DESCRIPTOR_V1',
+      appVersion: APP_VERSION,
+      dbSchemaVersion: DB_SCHEMA_VERSION,
+      worker: 'meliturgos',
+      candidateBranch: env.MEL_GITHUB_BRANCH || null,
+      deployedGitSha: deployedGitSha(env),
+      deployedGitBranch: deployedGitBranch(env),
+      runtimeEnvironment: env.MEL_RUNTIME_ENV || 'production',
+    }),
   };
 }
 
@@ -190,22 +229,29 @@ export function createSystemBackupService(env, { now = () => new Date().toISOStr
   return createVerifiedBackupService({
     now,
     storage: createR2D1BackupStorage({ db: env.DB, bucket: env.MEDIA_BUCKET }),
-    sources: {
-      database: () => exportD1SystemState(env.DB, {
-        maxRowsPerTable: Number(env.MEL_SYSTEM_BACKUP_MAX_ROWS_PER_TABLE) || DEFAULT_MAX_ROWS_PER_TABLE,
-      }),
-      r2_inventory: () => exportR2Inventory(env.MEDIA_BUCKET),
-      runtime: async () => ({
-        type: 'MEL_RUNTIME_DESCRIPTOR_V1',
-        appVersion: APP_VERSION,
-        dbSchemaVersion: DB_SCHEMA_VERSION,
-        worker: 'meliturgos',
-        candidateBranch: env.MEL_GITHUB_BRANCH || null,
-        deployedGitSha: deployedGitSha(env),
-        deployedGitBranch: deployedGitBranch(env),
-        runtimeEnvironment: env.MEL_RUNTIME_ENV || 'production',
-      }),
-    },
+    sources: systemBackupSources(env),
+  });
+}
+
+/**
+ * Opt-in encrypted system backup service.
+ *
+ * The scheduled production path intentionally keeps using createSystemBackupService
+ * until MEL_BACKUP_ENCRYPTION_KEY_B64 + MEL_BACKUP_ENCRYPTION_KEY_ID are provisioned
+ * and an explicit rollout switches it. Missing encryption material fails closed.
+ */
+export function createEncryptedSystemBackupService(env, { now = () => new Date().toISOString(), codec = null } = {}) {
+  requireValue(env?.DB?.prepare, 'BACKUP_DB_UNAVAILABLE', 503);
+  requireValue(env?.MEDIA_BUCKET?.put, 'BACKUP_R2_UNAVAILABLE', 503);
+  const encryptionCodec = codec || createEnvBackupEncryptionCodec(env);
+  return createVerifiedBackupService({
+    now,
+    storage: createR2D1BackupStorage({
+      db: env.DB,
+      bucket: env.MEDIA_BUCKET,
+      encryptionCodec,
+    }),
+    sources: systemBackupSources(env),
   });
 }
 
