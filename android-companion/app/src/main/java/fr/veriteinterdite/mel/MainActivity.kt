@@ -1,6 +1,8 @@
 package fr.veriteinterdite.mel
 
 import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -139,6 +141,18 @@ class MainActivity : ComponentActivity() {
     private val voiceMessage = mutableStateOf("Micro prêt")
     private val cameraPhoto = mutableStateOf<Bitmap?>(null)
 
+    private val bluetoothPermissions = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.all { it }) startMobileBridge()
+    }
+
+    private val enableBluetooth = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        ensureMobileBridge()
+    }
+
     private val microphonePermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -185,6 +199,7 @@ class MainActivity : ComponentActivity() {
         client = MelApiClient(BuildConfig.MEL_BASE_URL, deviceId(), vault)
         val factory = MelViewModel.factory(this, client, vault, conversationId)
         model = ViewModelProvider(this, factory)[MelViewModel::class.java]
+        ensureMobileBridge()
 
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
@@ -230,6 +245,32 @@ class MainActivity : ComponentActivity() {
         stopSpeechQuietly()
         stopRecorderQuietly()
         super.onDestroy()
+    }
+
+    private fun ensureMobileBridge() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val permissions = arrayOf(
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.BLUETOOTH_CONNECT
+            )
+            val missing = permissions.filter {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                bluetoothPermissions.launch(missing.toTypedArray())
+                return
+            }
+        }
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return
+        if (!adapter.isEnabled) {
+            enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            return
+        }
+        startMobileBridge()
+    }
+
+    private fun startMobileBridge() {
+        ContextCompat.startForegroundService(this, Intent(this, MelBleBridgeService::class.java))
     }
 
     private fun deviceId(): String {

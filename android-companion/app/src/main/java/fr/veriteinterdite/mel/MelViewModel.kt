@@ -312,35 +312,12 @@ class MelViewModel(
     }
 
     private fun speakAnswer(answer: String, mode: MelMode) {
-        var lunaFailure: Throwable? = null
-        try {
-            val audio = client.tts(answer, speaker = "luna", format = "mp3")
-            if (audio.isEmpty()) throw MelApiException("TTS_AUDIO_EMPTY", 502)
-            _state.value = _state.value.copy(
-                busy = true,
-                speaking = true,
-                status = "MEL parle…",
-                error = null
-            )
-            MelVoicePlayer.playMp3(appContext, audio)
-            _state.value = _state.value.copy(
-                busy = false,
-                speaking = false,
-                status = "MEL connectée · mode ${mode.label}",
-                error = null
-            )
-            appendDiagnosticLine("Audio MEL: OK · luna mp3")
-            return
-        } catch (error: Throwable) {
-            lunaFailure = error
-            MelVoicePlayer.stop()
-        }
-
+        var frenchFailure: Throwable? = null
         try {
             _state.value = _state.value.copy(
                 busy = true,
                 speaking = true,
-                status = "MEL parle…",
+                status = "MEL parle.",
                 error = null
             )
             MelVoicePlayer.playSystemFrench(appContext, answer)
@@ -350,7 +327,30 @@ class MelViewModel(
                 status = "MEL connectée · mode ${mode.label}",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: OK · secours Android français")
+            appendDiagnosticLine("Audio MEL: OK · Android fr-FR")
+            return
+        } catch (error: Throwable) {
+            frenchFailure = error
+            MelVoicePlayer.stop()
+        }
+
+        try {
+            val audio = client.tts(answer, speaker = "luna", format = "mp3")
+            if (audio.isEmpty()) throw MelApiException("TTS_AUDIO_EMPTY", 502)
+            _state.value = _state.value.copy(
+                busy = true,
+                speaking = true,
+                status = "MEL parle.",
+                error = null
+            )
+            MelVoicePlayer.playMp3(appContext, audio)
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "MEL connectée · mode ${mode.label}",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: secours Luna MP3")
         } catch (fallbackError: Throwable) {
             MelVoicePlayer.stop()
             _state.value = _state.value.copy(
@@ -358,7 +358,7 @@ class MelViewModel(
                 speaking = false,
                 status = "MEL connectée · audio indisponible",
                 error = "Réponse reçue · audio indisponible · " +
-                    explain(lunaFailure ?: fallbackError)
+                    explain(frenchFailure ?: fallbackError)
             )
         }
     }
