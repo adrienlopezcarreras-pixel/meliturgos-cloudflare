@@ -175,7 +175,7 @@ export function packContext({
   const recentBudget = quota(budget, 0.50, 256);
   const memoryBudget = quota(budget, 0.20, 128);
   const continuityBudget = quota(budget, 0.17, 128);
-  const historyBudget = Math.max(64, budget - recentBudget - memoryBudget - continuityBudget);
+  const historyBudget = Math.max(0, budget - recentBudget - memoryBudget - continuityBudget);
 
   const recent = takeRecent(normalizedMessages, recentBudget);
   const recentIds = new Set(recent.selected.map(row => row.id));
