@@ -18,8 +18,8 @@ const CAPABILITIES = {
   minItems:1,
   maxItems:100,
 };
-const METADATA = { type:'object', maxProperties:100, additionalProperties:true };
-const EVIDENCE_OBJECT = { type:'object', maxProperties:100, additionalProperties:true };
+const METADATA = { type:'object', additionalProperties:true };
+const EVIDENCE_OBJECT = { type:'object', additionalProperties:true };
 
 function requireDb(db) {
   if (!db) throw skillError('SKILL_REGISTRY_DB_REQUIRED');
