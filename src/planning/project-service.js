@@ -426,6 +426,7 @@ export function createD1ProjectAdapter(db) {
       const project = await loadProject(projectId);
       requireValue(input.changed_at >= project.updated_at, 'PROJECT_STATUS_TIME_INVALID', 400);
       if (project.status === input.status) return clone(project);
+      requireValue(input.changed_at > project.updated_at, 'PROJECT_STATUS_TIME_INVALID', 400);
 
       const updated = projectEntity({
         ...project,
@@ -514,6 +515,7 @@ export function createD1ProjectAdapter(db) {
       const decision = await loadDecision(decisionId);
       requireValue(input.changed_at >= decision.updated_at, 'DECISION_STATUS_TIME_INVALID', 400);
       if (decision.status === input.status) return clone(decision);
+      requireValue(input.changed_at > decision.updated_at, 'DECISION_STATUS_TIME_INVALID', 400);
 
       const updated = decisionEntity({
         ...decision,
