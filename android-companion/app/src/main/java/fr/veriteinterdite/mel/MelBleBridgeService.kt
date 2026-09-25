@@ -373,6 +373,32 @@ class MelBleBridgeService : Service() {
     }
 
     private fun relay(device: BluetoothDevice, request: PendingRequest) {
+        // The MINI uses /manifest only as its first authenticated liveness check.
+        // Serving this tiny manifest locally avoids blocking the BLE link on the
+        // firmware-manifest R2 lookup; real heartbeat/chat/voice traffic still
+        // traverses MEL over the phone's Internet connection immediately after.
+        if (request.method == "GET" && request.path == "/api/device/v1/manifest") {
+            val body = JSONObject()
+                .put("ok", true)
+                .put("device_id", request.deviceId)
+                .put("protocol_version", "1.0")
+                .put("bridge", "android")
+                .put("bridge_version", BuildConfig.VERSION_NAME)
+                .put("firmware", JSONObject().put("available", false))
+                .toString()
+                .toByteArray(Charsets.UTF_8)
+            bridgeState.value = "MINI CONNECTÉE · INTERNET OK"
+            Log.i(TAG, "MEL relay local manifest -> 200")
+            val meta = JSONObject()
+                .put("status", 200)
+                .put("contentType", "application/json")
+                .put("length", body.size)
+            if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)) return
+            if (body.isNotEmpty() && !sendFrame(device, packet(OP_RESPONSE_BODY, request.id, body))) return
+            sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+            return
+        }
+
         val connection = runCatching {
             val url = URL(BuildConfig.MEL_BASE_URL.trimEnd('/') + request.path)
             (url.openConnection() as HttpURLConnection).apply {
