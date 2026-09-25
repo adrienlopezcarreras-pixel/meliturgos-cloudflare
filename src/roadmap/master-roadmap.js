@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-25.19';;
+export const ROADMAP_REGISTRY_REVISION = '2026-09-25.20';;
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -85,7 +85,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-COUNCIL-01', 'Pré-audit multi-IA obligatoire avant développement', 'DONE_VERIFIED', 'Brancher le Council réel au Module Lab', 'P0'),
     item('MEL-COUNCIL-02', 'Critiques indépendantes + synthèse MEL', 'IN_PROGRESS', 'Les rôles architecture/sécurité/tests/produit existaient déjà; intégration d’une matrice explicite des critiques, fournisseurs assignés/répondants, fallbacks, couverture des rôles et digest déterministe lié exactement à l’entrée de synthèse MEL. Déploiement et preuve runtime requis avant DONE_VERIFIED.', 'P1'),
     item('MEL-COUNCIL-03', 'Teacher escalation vers ChatGPT/autres IA', 'PARTIAL', 'Standardiser provenance, paquet de revue et handoff avec le protocole multi-IA canonique', 'P1'),
-    item('MEL-COUNCIL-04', 'Apprentissage du meilleur modèle selon la tâche', 'PLANNED', 'Stocker score qualité/coût/latence par tâche', 'P1')
+    item('MEL-COUNCIL-04', 'Apprentissage du meilleur modèle selon la tâche', 'IN_PROGRESS', 'Store D1 modèle+tâche intégré: succès/échecs, latence moyenne, qualité benchmark et coût; ModelRouter mélange ces preuves avec la priorité statique selon la confiance et conserve l’ordre historique sans données suffisantes. Benchmarks canoniques alimentent GENERAL/CODE/REASONING/STEERABLE; choix explicite de modèle jamais écrasé. CI + preuve production avant DONE_VERIFIED.', 'P1')
   ]),
 
   phase('P06', 'Module Lab, évolution et apprentissage', [
