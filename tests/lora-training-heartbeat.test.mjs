@@ -67,7 +67,7 @@ test('LoRA heartbeat dispatches cycle zero only when no checkpoint exists', asyn
   assert.equal(result.parent_release_tag, '');
   assert.equal(result.resumed_from_checkpoint, false);
   assert.equal(result.shard_size, 750);
-  assert.equal(result.max_cycles, 1000);
+  assert.equal(result.max_cycles, 100);
 
   const dispatch = seen.find((row) => row.href.endsWith('/dispatches'));
   assert.ok(dispatch);
@@ -77,7 +77,7 @@ test('LoRA heartbeat dispatches cycle zero only when no checkpoint exists', asyn
     cycle: '0',
     parent_release_tag: '',
     shard_size: '750',
-    max_cycles: '1000',
+    max_cycles: '100',
     benchmark_preview: 'false',
   });
 });
@@ -221,4 +221,12 @@ test('canonical Kaggle collector is dispatch-only and cannot create scheduled/pu
   assert.doesNotMatch(triggerBlock, /\n\s*schedule:/);
   assert.match(source, /WAIT_FOR_COMPLETION:\s*\$\{\{ inputs\.wait_for_completion \}\}/);
   assert.match(source, /MAX_WAIT_MINUTES:\s*\$\{\{ inputs\.max_wait_minutes \}\}/);
+  assert.match(source, /cancel_acknowledged\|cancel acknowledged/);
+});
+
+
+test('canonical Kaggle GPU workflow allows multi-step QLoRA runtime', async () => {
+  const source = await readFile(new URL('../.github/workflows/lora-kaggle-free-gpu.yml', import.meta.url), 'utf8');
+  assert.match(source, /kaggle kernels push[\s\S]*-t 10800/);
+  assert.doesNotMatch(source, /kaggle kernels push[\s\S]*-t 120(?:\s|$)/);
 });

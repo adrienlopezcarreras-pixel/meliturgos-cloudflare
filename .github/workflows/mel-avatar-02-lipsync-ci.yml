@@ -1,0 +1,44 @@
+name: mel-avatar-02-lipsync-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/pages/avatar-lipsync-runtime.js'
+      - 'src/pages/avatar-motion-runtime.js'
+      - 'src/pages/mvp-interface-v3.js'
+      - 'tests/gen2/mel-avatar-lipsync.test.mjs'
+      - '.github/workflows/mel-avatar-02-lipsync-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  lipsync-targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node scripts/runtime-security-gate.mjs
+      - run: node --check src/pages/avatar-lipsync-runtime.js
+      - run: node --check src/pages/avatar-motion-runtime.js
+      - run: node --test tests/gen2/mel-avatar-lipsync.test.mjs tests/mel-avatar-motion.test.mjs
+
+  lipsync-full-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: lipsync-targeted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: git switch -c candidate/mel-avatar-02-ci
+      - run: npm test

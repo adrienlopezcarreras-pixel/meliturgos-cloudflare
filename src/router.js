@@ -8,6 +8,7 @@ import { onRequestGet as handleMvp } from "./pages/mvp-interface.js";
 import { onRequestGet as handleFullModeV2 } from "./pages/full-interface-v2.js";
 import { onRequestGet as handleWatchInterface } from "./pages/watch-interface.js";
 import { SERVICE_WORKER_SOURCE } from "./pages/service-worker.js";
+import { PWA_MANIFEST_JSON } from "./pages/pwa-manifest.js";
 import { NORMAL_RUNTIME_SOURCE } from "./pages/mvp-runtime.js";
 import { devRuntime } from "./dev/runtime-api.js";
 import { handleShardVaultStatus } from "./pages/shardvault-status.js";
@@ -307,6 +308,7 @@ async function routeResolvedRequest(request, env, ctx) {
     const auth = requireAuth(request, env);
     if (!auth.ok) return auth.response;
     if (request.method === "GET" && url.pathname === "/sw.js") return new Response(SERVICE_WORKER_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-cache" } });
+    if (request.method === "GET" && url.pathname === "/manifest.webmanifest") return new Response(PWA_MANIFEST_JSON, { headers: { "content-type": "application/manifest+json; charset=utf-8", "cache-control": "public, max-age=3600" } });
     if (request.method === "GET" && url.pathname === "/normal-runtime.js") return new Response(NORMAL_RUNTIME_SOURCE, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=86400, stale-while-revalidate=604800" } });
     if (!isDevBridge) {
       const devResponse = devRuntime(request, env);

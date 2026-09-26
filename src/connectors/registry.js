@@ -8,4 +8,5 @@ import {definition as d6} from './sharepoint.js';
 import {definition as d7} from './github.js';
 import {definition as d8} from './cloudflare.js';
 import {definition as d9} from './vercel.js';
-export const connectorDefinitions = Object.freeze([d0,d1,d2,d3,d4,d5,d6,d7,d8,d9]);
+import {definition as d10} from './wordpress.js';
+export const connectorDefinitions = Object.freeze([d0,d1,d2,d3,d4,d5,d6,d7,d8,d9,d10]);
