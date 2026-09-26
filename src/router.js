@@ -2,6 +2,7 @@ import { conversationRoutes } from "./api/routes/conversations.js";
 import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
 import { approvedCapabilitiesFromRequest } from "./security/approval-gates.js";
 import { maybeHandleGoogleOAuthApi } from "./api/google-oauth-api.js";
+import { runtimeCapabilityPermissions } from "./security/runtime-permissions.js";
 import { json, html } from "./core/http.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
