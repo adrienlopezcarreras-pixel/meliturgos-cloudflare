@@ -41,9 +41,14 @@ jobs:
           if(-not $root){throw 'GEN2_59_ROOT_CERT_CREATE_FAILED'}
           $rootCer=Join-Path $env:RUNNER_TEMP 'mel-gen2-59-root.cer'
           Export-Certificate -Cert $root -FilePath $rootCer | Out-Null
-          Import-Certificate -FilePath $rootCer -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
+          & certutil.exe -user -f -addstore Root $rootCer | Out-Null
+          if($LASTEXITCODE -ne 0){throw 'GEN2_59_ROOT_TRUST_FAILED'}
           $leaf=New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=MEL GEN2-59 Proof Signer" -CertStoreLocation 'Cert:\CurrentUser\My' -Signer $root -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -NotAfter (Get-Date).AddHours(20)
           if(-not $leaf.HasPrivateKey){throw 'GEN2_59_LEAF_PRIVATE_KEY_MISSING'}
+          $leafCer=Join-Path $env:RUNNER_TEMP 'mel-gen2-59-leaf.cer'
+          Export-Certificate -Cert $leaf -FilePath $leafCer | Out-Null
+          & certutil.exe -user -f -addstore TrustedPublisher $leafCer | Out-Null
+          if($LASTEXITCODE -ne 0){throw 'GEN2_59_LEAF_TRUST_FAILED'}
           Export-PfxCertificate -Cert $leaf -FilePath $pfx -Password $secure -ChainOption BuildChain | Out-Null
           $pfxB64=[Convert]::ToBase64String([IO.File]::ReadAllBytes($pfx))
           Write-Output "::add-mask::$password"
@@ -179,6 +184,7 @@ jobs:
           }
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.pfx') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-root.cer') -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-leaf.cer') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.cer') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-cert.pem') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-key.pem') -Force -ErrorAction SilentlyContinue
