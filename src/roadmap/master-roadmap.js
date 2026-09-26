@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-26.02';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.03';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -97,7 +97,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-EVOL-04', 'EVOLUTION_LEDGER immuable et explicable', 'PARTIAL', 'Persister chaque évolution et ses preuves', 'P1'),
     item('MEL-EVOL-05', 'Skill Registry durable', 'DONE_VERIFIED', 'Production certifiée sur SHA e749551d6c2786c225d5194a5a3556e4f47c84fd par run 36164971157: Skill Registry D1 persistant, restauration après recréation runtime, rollback 1.1.0 -> 1.0.0 prouvé, lecture CapabilityBus -> D1 validée et HTTP production final vert.', 'P1'),
     item('MEL-EVOL-06', 'Fine-tuning / LoRA open-weight continu', 'IN_PROGRESS', 'Heartbeat MEL supervise la chaîne Kaggle GPU gratuite: relance seulement si aucun run actif, checkpoints immuables, benchmark après chaque cycle, UNCENSORED puis AGENTIC sans écraser le parent, aucun fallback payant. Correctif candidate: collector Kaggle rendu dispatch-only pour supprimer les files cron/push longues; full-candidate-ci 35837004893 et lora-runtime-pipeline-ci 35837004932 verts sur 1110d20ac184b434a602e86597fd57f76753fbdb. Suite: vérifier le cycle/checkpoint Kaggle réel restant, laisser le heartbeat reprendre uniquement hors run actif et certifier le prochain benchmark canonique.', 'P0'),
-    item('GEN2-18', 'Self Healing contrôlé', 'PLANNED', 'Limiter à détection, rollback approuvé et réparation testée', 'P2'),
+    item('GEN2-18', 'Self Healing contrôlé', 'DONE', 'Implémentation candidate-only contrôlée fusionnée par PR #394; rollback/réparation restent bornés et non autonomes en production. Gates self-healing-controlled-ci 36196820120 et gen2-17-multi-cycle-ci 36196820150 verts sur le SHA du PR.', 'P2'),
     item('GEN2-20', 'Learning Engine', 'DONE_VERIFIED', 'Les complétions autonomes exact-SHA vérifiées par full-candidate-ci peuvent transporter des learning_handoffs; le reconciler les injecte automatiquement dans LearningEngine avec validation XP, provenance path+SHA, rejet des SHA périmés et déduplication id+sémantique. Tests handoff-ingestion + autonomy-completion-mentor-learning inclus dans le lot de réconciliation #152.', 'P1')
   ]),
 
