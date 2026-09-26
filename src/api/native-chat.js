@@ -259,6 +259,35 @@ async function loadOperationalExperience(env, goal) {
   return selectRelevantOperationalExperience(goal, [...MEL_RUNTIME_OPERATING_EXPERIENCE, ...corrections], contextual, 12);
 }
 
+export function buildNativeDisplay(toolResults = []) {
+  const rows = Array.isArray(toolResults) ? toolResults : [];
+  const researchRow = rows.find(row =>
+    row?.status === 'SUCCEEDED' && ['knowledge.research', 'web.research'].includes(String(row?.capability || ''))
+  );
+  const result = researchRow?.result || null;
+  const rawSources = Array.isArray(result?.research?.sources)
+    ? result.research.sources
+    : Array.isArray(result?.sources)
+      ? result.sources
+      : [];
+  const items = rawSources
+    .map(source => ({
+      url: String(source?.url || '').trim(),
+      title: String(source?.title || '').trim().slice(0, 180),
+      snippet: String(source?.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 480),
+      ...(source?.image_url ? { image_url: String(source.image_url).trim().slice(0, 1000) } : {}),
+    }))
+    .filter(item => /^https?:\/\//i.test(item.url))
+    .slice(0, 5);
+  if (!items.length) return null;
+  const query = String(result?.query || result?.research?.query || '').trim();
+  return {
+    type: 'web_sources',
+    title: query ? `Sources · ${query}`.slice(0, 180) : 'Sources web',
+    items,
+  };
+}
+
 function summarizeToolResult(result) {
   try {
     return JSON.parse(JSON.stringify(result, (_k, value) => {
@@ -844,6 +873,7 @@ export async function handleNativeChat(request, env, options = {}) {
     capability_used: capabilitiesUsed,
     capability_manifest: capabilityManifest,
     tool_results: toolResults,
+    display: buildNativeDisplay(toolResults),
     development_job: developmentQueued ? {
       job_id: developmentQueued.job_id || null,
       status: developmentQueued.status || null,

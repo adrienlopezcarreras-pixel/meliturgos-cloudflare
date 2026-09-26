@@ -44,6 +44,12 @@ test('native chat can research, verify, classify, create a file and remember it 
     assert.equal(data.memory_stored,true);
     assert.match(data.text,/J’ai effectué la recherche/i);
     assert.doesNotMatch(data.text,/je ne peux pas/i);
+    assert.equal(data.display?.type,'web_sources');
+    assert.match(data.display?.title||'',/Sources/i);
+    assert.equal(data.display?.items?.length,2);
+    assert.equal(data.display.items[0].url,'https://source-a.example/doc');
+    assert.equal(data.display.items[0].title,'A');
+    assert.equal(data.display.items[0].snippet,'preuve A');
     const artifact=await DB.prepare('SELECT * FROM knowledge_artifacts ORDER BY created_at DESC LIMIT 1').first();
     assert.ok(artifact?.id);
     assert.equal(MEDIA_BUCKET.objects.size,1);
