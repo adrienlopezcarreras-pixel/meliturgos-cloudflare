@@ -1,0 +1,182 @@
+name: windows-companion-live-stress
+
+on:
+  push:
+    branches:
+      - proof/windows-companion-live-stress-20260926
+    paths:
+      - .github/workflows/windows-companion-live-stress.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-companion-live-stress
+  cancel-in-progress: true
+
+jobs:
+  live-stress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      COMPUTER_ID: -d8d34846
+      TEST_FILE: 'C:\Users\Adrien Lopez\Downloads\MEL-Companion-Stress-Test.txt'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Verify computer-use safety policy
+        run: node --test tests/gen2/computer-use.test.mjs tests/computer-companion-api.test.mjs
+
+      - name: Queue safe live commands
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PREFIX="live-stress-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "PREFIX=$PREFIX" >> "$GITHUB_ENV"
+          python - <<'PY'
+          import json, os, time
+          prefix=os.environ["PREFIX"]
+          device=os.environ["COMPUTER_ID"]
+          test_file=os.environ["TEST_FILE"]
+          commands=[]
+          def add(name,steps,expect="SUCCEEDED",error=None):
+              commands.append({"name":name,"steps":steps,"expect":expect,"error":error})
+          add("initial-screenshot",[{"id":"s1","action":"screen.capture"}])
+          add("calculator-open",[{"id":"a1","action":"app.open","app":"calculator"}])
+          for i in range(5):
+              add(f"notepad-open-{i+1}",[{"id":"o1","action":"app.open","app":"notepad"}])
+              add(f"notepad-close-{i+1}",[{"id":"c1","action":"app.close","app":"notepad"}])
+          add("file-open",[{"id":"f1","action":"file.open","path":test_file}])
+          add("file-close",[{"id":"f2","action":"file.close","path":test_file}])
+          for i in range(25):
+              add(f"capture-burst-{i+1}",[{"id":"s1","action":"screen.capture"}])
+          add("deny-shell",[{"id":"x1","action":"shell.exec","text":"whoami"}],"FAILED","ACTION_NOT_SUPPORTED")
+          add("deny-path",[{"id":"x2","action":"file.open","path":"C:\\Windows\\win.ini"}],"FAILED","PATH_OUTSIDE_LOCAL_ALLOWLIST")
+          add("deny-app",[{"id":"x3","action":"app.open","app":"powershell"}],"FAILED","APP_OUTSIDE_LOCAL_ALLOWLIST")
+          now=int(time.time()*1000)
+          sql=[]
+          expected=[]
+          for i,c in enumerate(commands):
+              cid=f"{prefix}-{i+1:03d}"
+              session=f"{prefix}-{c['name']}"
+              plan=json.dumps({"steps":c["steps"]},separators=(",",":"))
+              q=lambda s:s.replace("'","''")
+              sql.append("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) "
+                         f"VALUES('{q(cid)}','{q(device)}','{q(session)}','{q(plan)}','PENDING',{now+i});")
+              expected.append({"id":cid,"name":c["name"],"expect":c["expect"],"error":c["error"]})
+          open("stress.sql","w",encoding="utf-8").write("\n".join(sql)+"\n")
+          json.dump(expected,open("expected.json","w",encoding="utf-8"),indent=2)
+          print(f"prepared={len(commands)}")
+          PY
+          npx wrangler d1 execute DB --remote --file stress.sql
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Wait for real PC execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED="$(python -c 'import json; print(len(json.load(open("expected.json"))))')"
+          done_flag=0
+          for n in $(seq 1 100); do
+            npx wrangler d1 execute DB --remote --json \
+              --command "SELECT id,status,error_code,result_json,created_at,claimed_at,finished_at FROM computer_commands WHERE id LIKE '${PREFIX}-%' ORDER BY created_at" \
+              > results.raw.json
+            if python - "$EXPECTED" <<'PY'
+          import json,sys
+          raw=json.load(open("results.raw.json"))
+          rows=[]
+          for part in raw if isinstance(raw,list) else [raw]:
+              if isinstance(part,dict) and isinstance(part.get("results"),list):
+                  rows.extend(part["results"])
+          expected=int(sys.argv[1])
+          terminal=sum(1 for r in rows if r.get("status") in ("SUCCEEDED","FAILED"))
+          print(f"commands={len(rows)}/{expected} terminal={terminal}/{expected}")
+          raise SystemExit(0 if len(rows)==expected and terminal==expected else 1)
+          PY
+            then
+              done_flag=1
+              break
+            fi
+            sleep 2
+          done
+          test "$done_flag" = "1"
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT id,status,error_code,result_json,created_at,claimed_at,finished_at FROM computer_commands WHERE id LIKE '${PREFIX}-%' ORDER BY created_at" \
+            > results.raw.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify live results and stress invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, statistics
+          expected=json.load(open("expected.json"))
+          raw=json.load(open("results.raw.json"))
+          rows=[]
+          for part in raw if isinstance(raw,list) else [raw]:
+              if isinstance(part,dict) and isinstance(part.get("results"),list):
+                  rows.extend(part["results"])
+          by={r["id"]:r for r in rows}
+          failures=[]
+          latencies=[]
+          screenshot_success=0
+          for e in expected:
+              r=by.get(e["id"])
+              if not r:
+                  failures.append({"name":e["name"],"reason":"MISSING"})
+                  continue
+              if r.get("status") != e["expect"]:
+                  failures.append({"name":e["name"],"reason":"STATUS","got":r.get("status"),"wanted":e["expect"],"error":r.get("error_code")})
+              if e["error"] and r.get("error_code") != e["error"]:
+                  failures.append({"name":e["name"],"reason":"ERROR_CODE","got":r.get("error_code"),"wanted":e["error"]})
+              if e["name"].startswith("capture") or e["name"]=="initial-screenshot":
+                  if r.get("status")=="SUCCEEDED":
+                      screenshot_success += 1
+                      try:
+                          payload=json.loads(r.get("result_json") or "{}")
+                          outputs=payload.get("outputs") or []
+                          if not outputs or not outputs[0].get("screenshot_key"):
+                              failures.append({"name":e["name"],"reason":"NO_SCREENSHOT_KEY"})
+                      except Exception:
+                          failures.append({"name":e["name"],"reason":"BAD_RESULT_JSON"})
+              c,f=r.get("created_at"),r.get("finished_at")
+              if isinstance(c,(int,float)) and isinstance(f,(int,float)) and f>=c:
+                  latencies.append(f-c)
+          report={
+              "schema":"mel.windows-companion-live-stress.v1",
+              "total":len(expected),
+              "terminal":sum(1 for r in rows if r.get("status") in ("SUCCEEDED","FAILED")),
+              "expected_success":sum(1 for e in expected if e["expect"]=="SUCCEEDED"),
+              "expected_denials":sum(1 for e in expected if e["expect"]=="FAILED"),
+              "screenshot_success":screenshot_success,
+              "failures":failures,
+              "latency_ms":{
+                  "min":min(latencies) if latencies else None,
+                  "median":statistics.median(latencies) if latencies else None,
+                  "max":max(latencies) if latencies else None
+              }
+          }
+          json.dump(report,open("live-stress-report.json","w"),indent=2)
+          print(json.dumps(report,indent=2))
+          if failures: raise SystemExit(1)
+          PY
+
+      - name: Upload sanitized proof
+        uses: actions/upload-artifact@6027e3aa73121de6509ab09a56b4ef0d0fa00c2e
+        with:
+          name: windows-companion-live-stress-proof
+          path: live-stress-report.json
+          if-no-files-found: error
