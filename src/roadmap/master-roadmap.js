@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-26.13';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.14';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -175,7 +175,7 @@ export const MASTER_ROADMAP = Object.freeze([
   phase('P13', 'Évaluation et amélioration continue', [
     item('GEN2-42', 'Capability Watch + veille multi-IA/plugins/arts', 'DONE', 'Watch planifiée, détection de régression, veille multi-source/Conseil/REUSE_EXISTING et handoff intégrés. Live proof 36227651770 vert avec proof_status=HANDOFF_PRESENT; une complétion vérifiée réelle reste requise avant DONE_VERIFIED.', 'P1'),
     item('GEN2-43', 'Model Watch / découverte', 'DONE_VERIFIED', 'Preuves: PR #28; merge ceec81a6edb11d378dcb686c9495c0a01d86baea; 5/5 tests ciblés; autorisation fail-closed, seuils score/latence/coût et isolation des erreurs par modèle', 'P1'),
-    item('MEL-EVAL-01', 'Suites de benchmark conversation / code / recherche / mémoire', 'DONE', 'Contrat stable mel-core-stable-eval-v1 fusionné via #278: suites conversation/code/recherche/mémoire, fingerprint déterministe, scoring pondéré, critical failures et gate de non-régression. CI dédiée verte; exécutions live continues requises avant DONE_VERIFIED.', 'P1'),
+    item('MEL-EVAL-01', 'Suites de benchmark conversation / code / recherche / mémoire', 'DONE_VERIFIED', 'Certification répétée acquise le 26/09/2026: deux exécutions live consécutives du workflow mel-eval-01-stable-watch-ci (runs 36235746767 et 36235762652) entièrement vertes, incluant tests MEL-EVAL ciblés, syntaxe, full test suite et runtime dependency security gate. Preuve: proofs/mel-eval-01-repeated-live-20260926.json.', 'P1'),
     item('MEL-EVAL-03', 'Qualité mesurée avant/après évolution', 'DONE_VERIFIED', 'Gate fail-closed avant/après déjà intégré: seuil global et par domaine, erreurs répétées, identité/digest/couverture du benchmark, provenance SHA et artefacts obligatoires. Revalidé sur main actuel: syntaxe globale + tests ciblés Actions 35639804455.', 'P0')
   ]),
 
