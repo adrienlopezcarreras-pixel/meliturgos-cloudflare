@@ -1,6 +1,7 @@
 name: mel-res-05-live-encryption-state-proof
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - proof/mel-res-05-live-encryption-state-20260926
