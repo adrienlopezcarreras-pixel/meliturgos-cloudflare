@@ -175,7 +175,7 @@ jobs:
           PY
 
       - name: Upload sanitized proof
-        uses: actions/upload-artifact@6027e3aa73121de6509ab09a56b4ef0d0fa00c2e
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: windows-companion-live-stress-proof
           path: live-stress-report.json
