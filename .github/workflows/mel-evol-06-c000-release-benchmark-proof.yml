@@ -1,0 +1,137 @@
+name: mel-evol-06-c000-release-benchmark-proof
+
+on:
+  push:
+    branches:
+      - proof/mel-evol-06-c000-release-benchmark-20260926
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    environment: preview
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact proof SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Download immutable c000 checkpoint release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/lora-incoming
+          gh release download mel-lora-kaggle-ab6db29b784e-c000             --repo "$GITHUB_REPOSITORY"             --pattern mel-lora-bundle.tar.gz             --dir artifacts
+          tar -xzf artifacts/mel-lora-bundle.tar.gz -C artifacts/lora-incoming
+          for f in adapter_model.safetensors adapter_config.json training-evidence.json artifact-evidence.json lora-plan.json; do
+            test -s "artifacts/lora-incoming/$f"
+          done
+
+      - name: Validate immutable checkpoint provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { assertAdapterArtifact } from './src/learning/lora-plan.js';
+          const dir='artifacts/lora-incoming';
+          const plan=JSON.parse(fs.readFileSync(dir+'/lora-plan.json','utf8'));
+          const artifact=JSON.parse(fs.readFileSync(dir+'/artifact-evidence.json','utf8'));
+          const training=JSON.parse(fs.readFileSync(dir+'/training-evidence.json','utf8'));
+          const checked=assertAdapterArtifact(artifact);
+          if(String(training.stage||'')!=='uncensored') throw new Error('MEL_EVOL_06_STAGE_NOT_UNCENSORED');
+          if(checked.finetune_id) throw new Error('MEL_EVOL_06_PREEXISTING_FINETUNE_FORBIDDEN');
+          if(String(training.dataset_digest||'')!==String(plan.dataset_digest||'')) throw new Error('MEL_EVOL_06_DATASET_MISMATCH');
+          if(String(training.training_manifest_digest||'').toLowerCase()!==String(plan.training_manifest_digest||'').toLowerCase()) throw new Error('MEL_EVOL_06_MANIFEST_MISMATCH');
+          console.log(JSON.stringify({status:'IMMUTABLE_C000_VERIFIED',artifact_digest:checked.digest,examples:training?.dataset?.examples||null}));
+          NODE
+
+      - name: Upload exact adapter to isolated Cloudflare preview
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          node scripts/upload-cloudflare-lora.mjs             --dir artifacts/lora-incoming             --name "mel-evol-06-c000-${GITHUB_RUN_ID}"             | tee artifacts/upload-result.json
+
+      - name: Approve exact uploaded checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/approve-lora-artifact.mjs             --dir artifacts/lora-incoming             --approval-id "mel-evol-06-c000-${GITHUB_RUN_ID}"             | tee artifacts/approval-result.json
+
+      - name: Derive isolated preview credential
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          PREVIEW_PASSWORD="$(python - <<'PY'
+          import hashlib,hmac,os
+          token=os.environ['CLOUDFLARE_API_TOKEN'].encode()
+          print(hmac.new(token,b'meliturgos-preview-auth-v1',hashlib.sha256).hexdigest())
+          PY
+          )"
+          echo "::add-mask::$PREVIEW_PASSWORD"
+          echo "MEL_PREVIEW_PASSWORD=$PREVIEW_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Run canonical isolated benchmark
+        shell: bash
+        env:
+          MELITURGOS_PASSWORD: ${{ env.MEL_PREVIEW_PASSWORD }}
+          MEL_BASE_URL: https://meliturgos-preview.adrien-lopezcarreras.workers.dev
+        run: |
+          set -euo pipefail
+          node scripts/finalize-lora.mjs             --dir artifacts/lora-incoming             --url "$MEL_BASE_URL"             --activate false             --allow-not-activated true             | tee artifacts/finalize-result.json
+
+      - name: Require canonical benchmark gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const r=JSON.parse(fs.readFileSync('artifacts/finalize-result.json','utf8'));
+          if(r.status!=='BENCHMARKED_NOT_ACTIVATED') throw new Error('MEL_EVOL_06_BENCHMARK_STATUS_INVALID');
+          if(r.canonical_gate_passed!==true) throw new Error('MEL_EVOL_06_CANONICAL_GATE_NOT_PASSED');
+          console.log(JSON.stringify({
+            status:r.status,
+            canonical_gate_passed:r.canonical_gate_passed,
+            impact_gate_passed:r.impact_gate_passed,
+            baseline:r.baseline,
+            candidate:r.candidate,
+            gain:r.gain,
+            decision:r.decision,
+            next_stage:r.next_stage,
+            activated:r.activated
+          },null,2));
+          NODE
+
+      - name: Upload sanitized benchmark proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-evol-06-c000-release-benchmark-proof
+          path: |
+            artifacts/finalize-result.json
+            artifacts/upload-result.json
+            artifacts/approval-result.json
+            artifacts/lora-incoming/lora-plan.json
+            artifacts/lora-incoming/training-evidence.json
+            artifacts/lora-incoming/artifact-evidence.json
+            artifacts/lora-incoming/approval-evidence.json
+          if-no-files-found: warn
+          retention-days: 14
