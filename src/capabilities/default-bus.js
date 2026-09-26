@@ -116,7 +116,7 @@ function zeroCostHealth(runtimeEnv, minimum = 1) {
 }
 
 /** Safe capability bus used by MEL's Gen2 runtime. Only real executable handlers are registered. */
-export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl } = {}) {
+export function createDefaultCapabilityBus({ audit, env, repository, branch, token, fetchImpl, googleAccessTokenResolver = null } = {}) {
   const runtimeEnv = env || {};
   const bus = new CapabilityBus({ audit });
 
@@ -156,7 +156,7 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
   registerGoogleWorkspaceCapabilities(bus, {
     env: runtimeEnv,
     fetchImpl: platformFetch,
-    resolveAccessToken: runtimeEnv.MEL_GOOGLE_TOKEN_RESOLVER || null,
+    resolveAccessToken: typeof googleAccessTokenResolver === 'function' ? googleAccessTokenResolver : null,
   });
 
   bus.discover({
