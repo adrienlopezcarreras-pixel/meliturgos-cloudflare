@@ -7,8 +7,10 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$zip = Join-Path $PackageDir "MEL-Windows-$Version.zip"
-$metaPath = Join-Path $PackageDir "MEL-Windows-$Version.release.json"
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$resolvedPackageDir = if ([IO.Path]::IsPathRooted($PackageDir)) { $PackageDir } else { Join-Path $repoRoot $PackageDir }
+$zip = Join-Path $resolvedPackageDir "MEL-Windows-$Version.zip"
+$metaPath = Join-Path $resolvedPackageDir "MEL-Windows-$Version.release.json"
 if (-not (Test-Path -LiteralPath $zip -PathType Leaf)) { throw "WINDOWS_PACKAGE_MISSING" }
 if (-not (Test-Path -LiteralPath $metaPath -PathType Leaf)) { throw "WINDOWS_RELEASE_METADATA_MISSING" }
 

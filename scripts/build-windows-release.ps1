@@ -39,12 +39,18 @@ foreach ($name in $files) {
 $desktopSource = Join-Path $repoRoot "windows-companion\MEL-Companion.cs"
 if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) { throw "WINDOWS_DESKTOP_SOURCE_MISSING" }
 $companionSource = Join-Path $assetDir "MEL-Computer-Companion.ps1"
-$desktopText = Get-Content -Raw -Encoding UTF8 -LiteralPath $desktopSource
+$desktopText = [IO.File]::ReadAllText($desktopSource,[Text.Encoding]::UTF8)
 if ($desktopText -notmatch "__COMPANION_B64__") { throw "WINDOWS_DESKTOP_EMBED_PLACEHOLDER_MISSING" }
 $companionB64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($companionSource))
 $desktopBuildSource = Join-Path $stage "MEL-Companion.build.cs"
 $desktopExe = Join-Path $stage "MEL-Companion.exe"
-Set-Content -LiteralPath $desktopBuildSource -Value ($desktopText.Replace("__COMPANION_B64__",$companionB64)) -Encoding UTF8
+$unicodeEscape = [Text.RegularExpressions.MatchEvaluator]{
+  param($match)
+  return ('\u{0:X4}' -f [int][char]$match.Value[0])
+}
+$asciiDesktop = [Text.RegularExpressions.Regex]::Replace($desktopText,'[^\x00-\x7F]',$unicodeEscape)
+$expandedSource = $asciiDesktop.Replace("__COMPANION_B64__",$companionB64)
+[IO.File]::WriteAllText($desktopBuildSource,$expandedSource,[Text.Encoding]::ASCII)
 $cscCandidates = @(
   (Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"),
   (Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe")

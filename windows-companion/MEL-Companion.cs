@@ -13,13 +13,14 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.0.0";
+    public const string Version = "2.3.0";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
     public static readonly string CompanionPath = Path.Combine(MelDir, "MEL-Computer-Companion.ps1");
     public static readonly string StartupCmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "MEL-Companion.cmd");
     public static readonly string LegacyStartupCmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "MEL-Computer-Companion.cmd");
+    public static readonly string SelfTestPath = Path.Combine(MelDir, "self-test.json");
     public static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
     public static Dictionary<string, object> Config;
     public static string Token;
@@ -151,6 +152,7 @@ static class MelApp
             psi.CreateNoWindow = true;
             psi.WindowStyle = ProcessWindowStyle.Hidden;
             psi.EnvironmentVariables["MEL_COMPANION_HEADLESS"] = "1";
+            psi.EnvironmentVariables["MEL_COMPANION_PARENT_PID"] = Process.GetCurrentProcess().Id.ToString();
             CompanionProcess = Process.Start(psi);
         }
         catch { }
@@ -200,6 +202,45 @@ static class MelApp
         }
         catch { }
         return list;
+    }
+
+    public static void RunSelfTest()
+    {
+        Directory.CreateDirectory(MelDir);
+        var report = new Dictionary<string, object>();
+        report["schema"] = "mel.windows-companion-self-test.v1";
+        report["version"] = Version;
+        report["timestamp_utc"] = DateTime.UtcNow.ToString("o");
+        report["config_loaded"] = LoadConfig();
+        report["startup_enabled"] = StartupEnabled();
+        report["installed_exe"] = File.Exists(InstalledExe);
+        report["installed_engine"] = File.Exists(CompanionPath);
+
+        if ((bool)report["config_loaded"])
+        {
+            report["heartbeat_ok"] = Heartbeat();
+            var cleanDevices = new List<Dictionary<string, object>>();
+            foreach (var d in Devices())
+            {
+                var clean = new Dictionary<string, object>();
+                foreach (var key in new [] {"device_id","name","kind","model","online","last_seen_at","phase","firmware","battery","wifi_rssi","camera","microphone","speaker","network","charging","live_stream"})
+                {
+                    object value;
+                    if (d.TryGetValue(key, out value)) clean[key] = value;
+                }
+                cleanDevices.Add(clean);
+            }
+            report["devices"] = cleanDevices;
+            report["device_count"] = cleanDevices.Count;
+        }
+        else
+        {
+            report["heartbeat_ok"] = false;
+            report["devices"] = new List<Dictionary<string, object>>();
+            report["device_count"] = 0;
+        }
+
+        File.WriteAllText(SelfTestPath, Json.Serialize(report), new UTF8Encoding(false));
     }
 
     public static void OpenMel() { try { Process.Start(Server); } catch { } }
@@ -426,6 +467,13 @@ class Program
     [STAThread]
     static void Main(string[] args)
     {
+        bool selfTest = args != null && Array.Exists(args, a => a == "--self-test");
+        if (selfTest)
+        {
+            MelApp.RunSelfTest();
+            return;
+        }
+
         bool created; mutex=new Mutex(true,"MEL.Companion.Desktop.v2",out created); if(!created) return;
         Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
         bool background = args != null && Array.Exists(args, a => a == "--background");

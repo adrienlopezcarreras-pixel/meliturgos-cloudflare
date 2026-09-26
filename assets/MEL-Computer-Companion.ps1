@@ -32,6 +32,8 @@ $Server = ([string]$config.server_url).TrimEnd("/")
 $ComputerId = [string]$config.computer_id
 $Version = "1.1.0"
 $Headless = $env:MEL_COMPANION_HEADLESS -eq "1"
+$ParentPid = 0
+[void][int]::TryParse([string]$env:MEL_COMPANION_PARENT_PID,[ref]$ParentPid)
 $script:MelExitRequested = $false
 $script:MelTrayIcon = $null
 
@@ -436,6 +438,7 @@ $trayResources = $null
 if (-not $Headless) { $trayResources = New-MelTrayIcon }
 $lastHeartbeat = Get-Date "2000-01-01"
 while (-not $script:MelExitRequested) {
+  if ($Headless -and $ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
   if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
   try {
     if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
