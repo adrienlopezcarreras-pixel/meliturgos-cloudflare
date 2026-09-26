@@ -130,9 +130,13 @@ test('paired Windows device can read MINI and Android companion status without o
     await DB.prepare('INSERT INTO device_status(device_id,payload_json,updated_at) VALUES(?,?,?)')
       .bind('mini-1',JSON.stringify({name:'MEL MINI',phase:'ONLINE',camera:true,microphone:true,speaker:true,battery:82}),now).run();
     await DB.prepare('INSERT INTO android_device_tokens(device_id,token_hash,name,app_version,created_at,last_seen_at,revoked_at) VALUES(?,?,?,?,?,?,NULL)')
-      .bind('android-1','hash','Téléphone MEL','0.6.24',now,now).run();
+      .bind('android-1','hash','Téléphone MEL','0.6.24',now-20*60*1000,now-20*60*1000).run();
     await DB.prepare('INSERT INTO android_device_status(device_id,payload_json,updated_at) VALUES(?,?,?)')
       .bind('android-1',JSON.stringify({phase:'ONLINE',battery:61,charging:true,network:'wifi'}),now).run();
+    await DB.prepare('INSERT INTO android_device_tokens(device_id,token_hash,name,app_version,created_at,last_seen_at,revoked_at) VALUES(?,?,?,?,?,?,NULL)')
+      .bind('android-old','hash-old','Ancien Android','0.6.10',now-86400000,now-86400000).run();
+    await DB.prepare('INSERT INTO android_device_status(device_id,payload_json,updated_at) VALUES(?,?,?)')
+      .bind('android-old',JSON.stringify({phase:'ONLINE',battery:20}),now-86400000).run();
 
     const codeRes=await maybeHandleComputerApi(ownerRequest('/api/computer/v1/pair-code','POST',{}),env);
     const code=(await codeRes.json()).code;
@@ -154,10 +158,13 @@ test('paired Windows device can read MINI and Android companion status without o
     assert.equal(mini.camera,true);
     assert.equal(mini.live_stream,false);
     assert.equal(android.name,'Téléphone MEL');
+    assert.equal(android.online,true);
     assert.equal(android.firmware,'0.6.24');
     assert.equal(android.battery,61);
     assert.equal(android.charging,true);
     assert.equal(android.live_stream,false);
+    assert.equal(payload.devices.filter(device=>device.kind==='android').length,1);
+    assert.equal(payload.devices.some(device=>device.device_id==='android-old'),false);
   }finally{DB.close();}
 });
 
