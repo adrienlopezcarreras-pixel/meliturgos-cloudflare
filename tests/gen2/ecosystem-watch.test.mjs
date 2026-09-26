@@ -523,7 +523,8 @@ test('GEN2-42 resumes at most one requeued ecosystem handoff and refreshes Teach
   const result = await reconcileDiscoveryJobs({}, ledger, {
     repository,
     now: 500,
-    resumeTeacherRequest: async ({ job }) => {
+    resumeTeacherRequest: async ({ job, minimalInspection }) => {
+      assert.equal(minimalInspection, true);
       resumedIds.push(job.id);
       const fresh = {
         ...job,
