@@ -97,6 +97,7 @@ class MelBleBridgeService : Service() {
     private val mtus = ConcurrentHashMap<String, Int>()
     private val subscribed = ConcurrentHashMap<String, Boolean>()
     private val pullFrames = ConcurrentHashMap<String, ConcurrentLinkedQueue<ByteArray>>()
+    private val latestResponseIds = ConcurrentHashMap<String, Int>()
     private val notificationAck = ArrayBlockingQueue<Int>(1)
 
     private var bluetoothManager: BluetoothManager? = null
@@ -133,6 +134,7 @@ class MelBleBridgeService : Service() {
             mtus.clear()
             subscribed.clear()
             pullFrames.clear()
+            latestResponseIds.clear()
             android.os.Handler(mainLooper).postDelayed({ startBridge() }, 250L)
         } else if (gattServer == null) {
             startBridge()
@@ -268,6 +270,7 @@ class MelBleBridgeService : Service() {
                 mtus.remove(device.address)
                 subscribed.remove(device.address)
                 pullFrames.remove(device.address)
+                latestResponseIds.remove(device.address)
             }
         }
 
@@ -356,6 +359,8 @@ class MelBleBridgeService : Service() {
             OP_BODY -> appendBody(device, requestId, payload)
             OP_END -> finishRequest(device, requestId)
             OP_PING -> executor.execute {
+                latestResponseIds[device.address] = requestId
+                pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }.clear()
                 sendJsonFrame(device, OP_RESPONSE_BEGIN, requestId, JSONObject().put("status", 200).put("contentType", "application/json").put("length", 0))
                 sendFrame(device, packet(OP_RESPONSE_END, requestId, byteArrayOf()))
             }
@@ -377,6 +382,7 @@ class MelBleBridgeService : Service() {
             require((path == "/api/device/v1/pair" && token.isEmpty()) || token.length in 16..4096) { "TOKEN" }
             require(deviceId.length in 3..128) { "DEVICE_ID" }
             require(length in 0..MAX_REQUEST_BYTES) { "SIZE" }
+            latestResponseIds[device.address] = requestId
             pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }.clear()
             requests[device.address] = PendingRequest(requestId, method, path, contentType, token, deviceId, length)
         }.onFailure {
@@ -786,6 +792,13 @@ class MelBleBridgeService : Service() {
     private fun sendFrame(device: BluetoothDevice, frame: ByteArray): Boolean {
         if (!hasBluetoothPermissions()) return false
         if (gattServer == null || txCharacteristic == null) return false
+        if (frame.size < 5) return false
+        val responseId = ByteBuffer.wrap(frame, 1, 4).order(ByteOrder.LITTLE_ENDIAN).int
+        val latestId = latestResponseIds[device.address]
+        if (latestId != null && latestId != responseId) {
+            Log.i(TAG, "Drop stale BLE response id=$responseId latest=$latestId")
+            return false
+        }
         val queue = pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }
         queue.offer(frame.copyOf())
         return true
