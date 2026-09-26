@@ -183,7 +183,11 @@ export function createGoogleOAuthRuntime({ env = {}, fetcher = fetch, vaults = n
 }
 
 export function createGoogleAccessTokenResolver(env = {}, options = {}) {
-  if (!env?.DB || !env.MEL_OAUTH_ENCRYPTION_KEY_ID || !env.MEL_OAUTH_ENCRYPTION_KEY_B64) return null;
+  if (!env?.DB) return null;
+  const hasKeyId = Boolean(clean(env.MEL_OAUTH_ENCRYPTION_KEY_ID, 200));
+  const hasKey = Boolean(clean(env.MEL_OAUTH_ENCRYPTION_KEY_B64, 1000));
+  if (!hasKeyId && !hasKey) return null;
+  requireValue(hasKeyId && hasKey, 'OAUTH_VAULT_CONFIGURATION_INCOMPLETE', 503);
   const vaults = options.vaults || createD1OAuthVaults(env, options);
   return vaults.accessTokenResolver();
 }
