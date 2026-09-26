@@ -450,6 +450,7 @@ test('cloud autonomy heartbeat rejects divergent canonical and Teacher candidate
 });
 
 test('GEN2-42 minimal inspection skips code search and caps file reads before Teacher handoff', async () => {
+  const candidateSha = 'c'.repeat(40);
   const repo = new D1DevJobRepository(null, { memoryStore: new Map() });
   const created = await repo.create({
     id: `minimal-inspection-${crypto.randomUUID()}`,
@@ -471,13 +472,12 @@ test('GEN2-42 minimal inspection skips code search and caps file reads before Te
     plan_json: {
       preflight: {
         stage: 'AI_STATE_OF_PLAY_COMPLETE',
-        council: completeTeacherCouncil(),
+        council: completeTeacherCouncil({ targetSha: candidateSha }),
       },
     },
   });
 
   const calls = [];
-  const candidateSha = 'c'.repeat(40);
   const fetchImpl = async (url) => {
     const target = String(url);
     calls.push(target);
