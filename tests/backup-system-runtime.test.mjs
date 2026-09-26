@@ -199,7 +199,7 @@ test('GEN2-47 is wired to the canonical scheduled entry and roadmap source', asy
   ]);
   assert.match(entry, /backup\/system-backup-runtime\.js/);
   assert.match(entry, /runScheduledSystemBackup/);
-  assert.match(roadmap, /item\('GEN2-47', 'Backups \/ export système', 'DONE'/);
+  assert.match(roadmap, /item\('GEN2-47', 'Backups \/ export système', 'DONE(?:_VERIFIED)?'/);
   assert.match(roadmap, /GEN2-47[\s\S]*(octets R2|R2)[\s\S]*(restore|restauration)/i);
 });
 
