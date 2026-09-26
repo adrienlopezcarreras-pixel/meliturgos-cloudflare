@@ -174,4 +174,4 @@ jobs:
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.cer') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-cert.pem') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-key.pem') -Force -ErrorAction SilentlyContinue
-# proof-retry: 3
+# proof-retry: 4
