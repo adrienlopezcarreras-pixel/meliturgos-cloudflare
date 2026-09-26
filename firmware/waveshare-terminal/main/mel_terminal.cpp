@@ -213,6 +213,15 @@ static esp_err_t http_event(esp_http_client_event_t *evt) {
     return ESP_OK;
 }
 
+static bool wait_for_mobile_bridge_ready(uint32_t timeout_ms) {
+    const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+    while (esp_timer_get_time() < deadline) {
+        if (mel_mobile_bridge_ready()) return true;
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    return mel_mobile_bridge_ready();
+}
+
 static esp_err_t http_request(
     esp_http_client_method_t method,
     const std::string &url,
@@ -242,6 +251,15 @@ static esp_err_t http_request(
 
     if (mel_mobile_bridge_ready()) {
         return mobile_request();
+    }
+
+    // A short Android GATT reconnect must be transparent to the companion.
+    // While MEL Mobile is the active transport, wait for it instead of
+    // immediately falling into a dead Wi-Fi path.
+    if (g_mobile_connected && !g_wifi_connected) {
+        ESP_LOGI(TAG, "MEL MOBILE reconnect grace before HTTP");
+        if (wait_for_mobile_bridge_ready(8000)) return mobile_request();
+        return ESP_ERR_TIMEOUT;
     }
 
     HttpBuffer buffer;
@@ -1392,7 +1410,9 @@ static void update_task(void *) {
 
 static void heartbeat_task(void *) {
     while (true) {
-        if (g_online && g_cfg.token[0]) {
+        // Do not compete with voice capture / STT / chat / TTS for the BLE bridge.
+        // Heartbeat is best-effort and resumes automatically once the companion is idle.
+        if (g_online && g_cfg.token[0] && g_runtime_state == MEL_TERMINAL_IDLE) {
             wifi_ap_record_t ap = {};
             int rssi = esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0;
             cJSON *root = cJSON_CreateObject();

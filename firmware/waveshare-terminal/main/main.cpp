@@ -1378,14 +1378,29 @@ static void mobile_bridge_watch_task(void *) {
     while (!camera_probe_done) vTaskDelay(pdMS_TO_TICKS(20));
     ESP_LOGI(TAG, "MEL MOBILE BLE START");
     mel_mobile_bridge_start();
-    bool previous = false;
+    bool reported_ready = false;
+    int offline_seconds = 0;
     while (true) {
         const bool ready = mel_mobile_bridge_ready();
-        if (ready != previous) {
-            previous = ready;
-            mel_terminal_set_mobile_connected(ready);
-            ESP_LOGI(TAG, "MEL MOBILE %s", ready ? "READY" : "OFFLINE");
-            if (ready) mel_terminal_start_online();
+        if (ready) {
+            offline_seconds = 0;
+            if (!reported_ready) {
+                reported_ready = true;
+                mel_terminal_set_mobile_connected(true);
+                ESP_LOGI(TAG, "MEL MOBILE READY");
+                mel_terminal_start_online();
+            }
+        } else if (reported_ready) {
+            offline_seconds++;
+            // Android reconnects in ~1-2 s on transient GATT drops. Keep the
+            // companion logically online during a short transport handover so
+            // the UI does not flash HORS LIGNE and voice can recover cleanly.
+            if (offline_seconds >= 8) {
+                reported_ready = false;
+                offline_seconds = 0;
+                mel_terminal_set_mobile_connected(false);
+                ESP_LOGW(TAG, "MEL MOBILE OFFLINE after reconnect grace");
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }

@@ -44,6 +44,7 @@ static uint16_t g_tx_handle = 0;
 static uint16_t g_mtu = 23;
 static SemaphoreHandle_t g_request_mutex = nullptr;
 static SemaphoreHandle_t g_write_done = nullptr;
+static bool g_write_failed = false;
 static SemaphoreHandle_t g_read_done = nullptr;
 static SemaphoreHandle_t g_response_done = nullptr;
 static uint8_t g_read_frame[520] = {};
@@ -91,7 +92,8 @@ static bool adv_has_service(const struct ble_gap_disc_desc *disc) {
 static int write_complete(uint16_t conn_handle, const struct ble_gatt_error *error,
                           struct ble_gatt_attr *attr, void *arg) {
     (void)conn_handle; (void)attr; (void)arg;
-    if (error && error->status != 0) {
+    g_write_failed = error && error->status != 0;
+    if (g_write_failed) {
         ESP_LOGW(TAG, "BLE write completion status=%d", error->status);
     }
     if (g_write_done) xSemaphoreGive(g_write_done);
@@ -176,6 +178,7 @@ static bool write_frame(uint8_t op, uint32_t id, const uint8_t *payload, size_t 
     frame[4] = (char)((id >> 24) & 0xff);
     if (payload_len) memcpy(frame.data() + 5, payload, payload_len);
     while (xSemaphoreTake(g_write_done, 0) == pdTRUE) {}
+    g_write_failed = false;
     int rc = ble_gattc_write_flat(
         g_conn_handle, g_rx_handle, frame.data(), (uint16_t)frame.size(), write_complete, nullptr
     );
@@ -187,7 +190,7 @@ static bool write_frame(uint8_t op, uint32_t id, const uint8_t *payload, size_t 
         ESP_LOGW(TAG, "BLE write timeout");
         return false;
     }
-    return true;
+    return !g_write_failed;
 }
 
 static void handle_rx_frame(const uint8_t *data, size_t len) {
