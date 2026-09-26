@@ -235,8 +235,8 @@ test('release bootstrap resolves compiled Wrangler deployment identity when env 
   try {
     globalThis.MEL_DEPLOYED_GIT_SHA='a'.repeat(40);
     globalThis.MEL_DEPLOYED_GIT_BRANCH='release/mel-hardware-v0.1.0';
-    assert.equal(__launchBootstrapTest.deployedSha({}),'a'.repeat(40));
-    assert.equal(__launchBootstrapTest.deployedBranch({}),'release/mel-hardware-v0.1.0');
+    assert.equal(__launchBootstrapTest.resolveDeployedSha({}),'a'.repeat(40));
+    assert.equal(__launchBootstrapTest.resolveDeployedBranch({}),'release/mel-hardware-v0.1.0');
   } finally {
     if (previousSha===undefined) delete globalThis.MEL_DEPLOYED_GIT_SHA;
     else globalThis.MEL_DEPLOYED_GIT_SHA=previousSha;
