@@ -117,6 +117,11 @@ Cette leçon est matérialisée dans `src/learning/runtime-operating-experience.
 Preuves principales : commits `04f6f5b`, `162914d`, `f464c50`, `01937da`, `4c213f4`, `f5f294b`, `77ddbfa`, `6c5d917`, `fe8ba9c`; runs `35691866943`, `35693911802`, `35705522236`, `35708004479`.
 
 
+## Expérience 2026-09-26 — OAuth multi-fournisseurs
+
+- `oauth-authorization-only-scopes-20260926` — séparer les scopes métier exigibles des scopes demandés uniquement pendant l’autorisation (ex. `offline_access`, `openid`) afin de rester fail-closed sans rejeter à tort un token valide.
+
+
 ## Règle de déduplication
 
 Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le corpus. Une différence de vocabulaire ne justifie pas une nouvelle leçon si la préférence comportementale est déjà couverte.
