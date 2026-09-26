@@ -16,6 +16,7 @@ import { devRuntime } from "./dev/runtime-api.js";
 import { handleShardVaultStatus } from "./pages/shardvault-status.js";
 import { getLegacyInteractionMigrationStatus, backfillLegacyInteractions } from "./persistence/gen1-interactions-migration.js";
 import { getChatGPTMemoryBackfillStatus, backfillChatGPTArchiveToMemory } from "./persistence/chatgpt-memory-backfill.js";
+import { handleGoogleOAuthApi } from "./api/google-oauth-api.js";
 import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVersionResponse, apiMethodNotAllowedResponse, apiVersionMetadataResponse } from "./api/api-versioning.js";
 export { inferNativeCodeCapability as inferCodeCapability } from "./api/native-chat.js";
 
@@ -61,6 +62,11 @@ async function codeSelfCheck(env) {
 
 async function handleConversationApi(request, env, url = new URL(request.url)) {
   const path = url.pathname;
+
+  if (path.startsWith("/api/gen2/connectors/oauth/")) {
+    const oauthResponse = await handleGoogleOAuthApi(request, env, url);
+    if (oauthResponse) return oauthResponse;
+  }
 
   if (path === "/api/gen2/roadmap" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });
