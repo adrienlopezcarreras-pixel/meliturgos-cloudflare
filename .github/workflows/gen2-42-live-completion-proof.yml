@@ -1,0 +1,90 @@
+name: gen2-42-live-completion-proof
+
+on:
+  push:
+    branches:
+      - proof/gen2-42-completion-live-20260926
+    paths:
+      - .github/workflows/gen2-42-live-completion-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout proof branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Query verified ecosystem completion
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json             --command "SELECT status,requested_by,optional_context,result_json,candidate_branch,updated_at FROM dev_jobs WHERE requested_by='mel-autonomy' ORDER BY updated_at DESC LIMIT 100"             > gen2-42.raw.json
+
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const raw=JSON.parse(fs.readFileSync('gen2-42.raw.json','utf8'));
+          const rows=[];
+          for(const part of Array.isArray(raw)?raw:[raw]){
+            if(part && Array.isArray(part.results)) rows.push(...part.results);
+          }
+          const parse=v=>{try{return JSON.parse(v||'{}')}catch{return {}}};
+          const candidates=[];
+          for(const row of rows){
+            const ctx=parse(row.optional_context);
+            const result=parse(row.result_json);
+            const teacher=result.teacher_bridge||{};
+            const review=teacher.review||{};
+            const completion=result.autonomy_completion||{};
+            if(String(ctx.source||'')!=='ecosystem-watch') continue;
+            if(String(row.status||'').toUpperCase()!=='COMPLETED') continue;
+            if(String(completion.status||'').toUpperCase()!=='VERIFIED') continue;
+            candidates.push({
+              updated_at:Number(row.updated_at||0),
+              roadmap_id:String(ctx.roadmap_id||''),
+              candidate_branch:String(row.candidate_branch||completion.candidate_branch||''),
+              candidate_sha_prefix:String(completion.candidate_sha||'').slice(0,12),
+              ci_run_id:Number(completion.ci_run_id||0)||null,
+              teacher_status:String(teacher.status||''),
+              teacher_verdict:String(review.verdict||''),
+              teacher_development_allowed:review.development_allowed===true,
+              completion_verified:true
+            });
+          }
+          const proof={
+            schema:'mel.gen2-42-live-completion-proof.v1',
+            verified_ecosystem_completion_count:candidates.length,
+            latest:candidates[0]||null,
+            raw_job_ids_included:false,
+            request_ids_included:false
+          };
+          console.log(JSON.stringify(proof,null,2));
+          fs.writeFileSync('gen2-42-live-completion-proof.json',JSON.stringify(proof,null,2));
+          if(candidates.length<1) throw new Error('GEN2_42_VERIFIED_COMPLETION_NOT_FOUND');
+          if(proof.latest.teacher_status!=='ANSWERED') throw new Error('GEN2_42_TEACHER_NOT_ANSWERED');
+          if(proof.latest.teacher_verdict!=='APPROVE_PLAN' || proof.latest.teacher_development_allowed!==true) throw new Error('GEN2_42_TEACHER_APPROVAL_NOT_VERIFIED');
+          if(!proof.latest.ci_run_id) throw new Error('GEN2_42_CI_EVIDENCE_MISSING');
+          NODE
+
+      - name: Upload sanitized proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-42-live-completion-proof
+          path: gen2-42-live-completion-proof.json
+          if-no-files-found: error
+          retention-days: 14
