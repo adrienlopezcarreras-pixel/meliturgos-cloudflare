@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: gen2-59-signed-windows-upgrade-proof
+  cancel-in-progress: true
+
 jobs:
   proof:
     runs-on: windows-latest
@@ -174,4 +178,4 @@ jobs:
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.cer') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-cert.pem') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-key.pem') -Force -ErrorAction SilentlyContinue
-# proof-retry: 7
+# proof-retry: 8
