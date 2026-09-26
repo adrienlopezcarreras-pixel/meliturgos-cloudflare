@@ -112,7 +112,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P08', 'Connecteurs et web', [
-    item('GEN2-32', 'Connector SDK', 'PARTIAL', 'Finaliser OAuth + scopes + health', 'P1'),
+    item('GEN2-32', 'Connector SDK', 'DONE', 'OAuth2/PKCE générique, scopes, token client, refresh/revoke fail-closed et hooks catalogue fusionnés via #406/#407; CI gen2-32 verte. Preuves OAuth fournisseurs réels requises avant DONE_VERIFIED.', 'P1'),
     item('GEN2-33', 'Gmail / Google', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
     item('GEN2-34', 'Outlook / Microsoft', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P2'),
     item('GEN2-35', 'OneDrive / SharePoint', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
