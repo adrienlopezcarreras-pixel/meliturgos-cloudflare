@@ -167,3 +167,4 @@ jobs:
           }
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.pfx') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.cer') -Force -ErrorAction SilentlyContinue
+# proof-retry: 2
