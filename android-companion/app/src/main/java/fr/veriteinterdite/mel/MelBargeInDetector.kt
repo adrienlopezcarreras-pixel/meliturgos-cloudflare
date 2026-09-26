@@ -12,6 +12,8 @@ import kotlin.math.sqrt
 object MelBargeInDetector {
     private const val SAMPLE_RATE = 16_000
     private const val FRAME_SAMPLES = 320 // 20 ms
+    private const val SETTLE_FRAMES = 35 // ~700 ms for AEC + speaker leakage baseline
+    private const val REQUIRED_VOICED_FRAMES = 7 // ~140 ms sustained user speech
 
     fun start(
         shouldContinue: () -> Boolean,
@@ -46,7 +48,7 @@ object MelBargeInDetector {
         } else null
 
         val frame = ShortArray(FRAME_SAMPLES)
-        var noiseFloor = 220.0
+        var baseline = 220.0
         var voicedFrames = 0
         var frames = 0
         try {
@@ -54,39 +56,44 @@ object MelBargeInDetector {
             while (shouldContinue() && !Thread.currentThread().isInterrupted) {
                 val read = recorder.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
                 if (read <= 0) continue
-                var energy = 0.0
-                for (i in 0 until read) {
-                    val v = frame[i].toDouble()
-                    energy += v * v
-                }
-                val rms = sqrt(energy / read.coerceAtLeast(1))
+                val level = rms(frame, read)
                 frames++
 
-                // Let echo cancellation settle before accepting interruption.
-                if (frames < 25) {
-                    noiseFloor = noiseFloor * .92 + rms * .08
+                // Calibrate on MEL's own loudspeaker leakage. Do not accept barge-in yet.
+                if (frames <= SETTLE_FRAMES) {
+                    baseline = if (frames == 1) level else baseline * .88 + level * .12
                     continue
                 }
 
-                val trigger = max(650.0, noiseFloor * 2.35)
-                if (rms >= trigger) {
+                // Slow adaptation follows changes in MEL volume but won't absorb a human interruption quickly.
+                val trigger = max(800.0, baseline * 2.10)
+                if (level >= trigger) {
                     voicedFrames++
-                    if (voicedFrames >= 7) { // ~140 ms sustained speech
+                    if (voicedFrames >= REQUIRED_VOICED_FRAMES) {
                         onSpeech()
                         break
                     }
                 } else {
                     voicedFrames = 0
-                    noiseFloor = noiseFloor * .97 + rms * .03
+                    baseline = baseline * .975 + level * .025
                 }
             }
         } catch (_: Throwable) {
-            // Best-effort feature: never break the main conversation if unavailable.
+            // Barge-in is best-effort; never break normal playback if the microphone path is unavailable.
         } finally {
             runCatching { recorder.stop() }
             runCatching { aec?.release() }
             runCatching { ns?.release() }
             recorder.release()
         }
+    }
+
+    private fun rms(samples: ShortArray, count: Int): Double {
+        var energy = 0.0
+        for (i in 0 until count) {
+            val v = samples[i].toDouble()
+            energy += v * v
+        }
+        return sqrt(energy / count.coerceAtLeast(1))
     }
 }
