@@ -286,6 +286,7 @@ export function buildCompanionDisplay(toolResults = []) {
       title: String(source?.title || '').trim().slice(0, 180),
       url: String(source?.url || '').trim().slice(0, 1200),
       snippet: String(source?.snippet || '').trim().replace(/\s+/g, ' ').slice(0, 420),
+      image_url: /^https:\/\//i.test(String(source?.image_url || '').trim()) ? String(source.image_url).trim().slice(0, 1200) : '',
       source_kind: String(source?.source_kind || '').trim().slice(0, 80),
     }))
     .filter(item => /^https?:\/\//i.test(item.url))
