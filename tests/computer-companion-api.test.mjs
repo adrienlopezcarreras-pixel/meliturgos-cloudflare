@@ -116,6 +116,60 @@ test('paired Windows device can fetch its companion with device auth and owner c
   }finally{DB.close();}
 });
 
+test('paired Windows device can read MINI and Android companion status without owner password',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+    await DB.prepare('CREATE TABLE device_tokens(device_id TEXT PRIMARY KEY,model TEXT,last_seen_at INTEGER,revoked_at INTEGER)').run();
+    await DB.prepare('CREATE TABLE device_status(device_id TEXT PRIMARY KEY,payload_json TEXT,updated_at INTEGER)').run();
+    const now=Date.now();
+    await DB.prepare('INSERT INTO device_tokens(device_id,model,last_seen_at,revoked_at) VALUES(?,?,?,NULL)')
+      .bind('mini-1','waveshare-terminal',now).run();
+    await DB.prepare('INSERT INTO device_status(device_id,payload_json,updated_at) VALUES(?,?,?)')
+      .bind('mini-1',JSON.stringify({name:'MEL MINI',phase:'ONLINE',camera:true,microphone:true,speaker:true,battery:82}),now).run();
+
+    const codeRes=await maybeHandleComputerApi(ownerRequest('/api/computer/v1/pair-code','POST',{}),env);
+    const code=(await codeRes.json()).code;
+    const pairRes=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/pair',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({pair_code:code,computer_id:'pc-device-list'})
+    }),env);
+    const paired=await pairRes.json();
+    const response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/companions',{headers:{
+      authorization:'Bearer '+paired.token,
+      'x-mel-computer-id':'pc-device-list'
+    }}),env);
+    assert.equal(response.status,200);
+    const payload=await response.json();
+    assert.equal(payload.devices.length,1);
+    assert.equal(payload.devices[0].name,'MEL MINI');
+    assert.equal(payload.devices[0].kind,'mini');
+    assert.equal(payload.devices[0].camera,true);
+    assert.equal(payload.devices[0].live_stream,false);
+  }finally{DB.close();}
+});
+
+test('Windows desktop v2 keeps tray UI, headless engine, and packaged EXE contracts',async()=>{
+  const desktop=await readFile(new URL('../windows-companion/MEL-Companion.cs',import.meta.url),'utf8');
+  const companion=await readFile(new URL('../assets/MEL-Computer-Companion.ps1',import.meta.url),'utf8');
+  const build=await readFile(new URL('../scripts/build-windows-release.ps1',import.meta.url),'utf8');
+  const sign=await readFile(new URL('../scripts/sign-windows-release.ps1',import.meta.url),'utf8');
+  const verify=await readFile(new URL('../scripts/verify-windows-release.ps1',import.meta.url),'utf8');
+
+  assert.match(desktop,/NotifyIcon/);
+  assert.match(desktop,/MEL-Companion\.exe/);
+  assert.match(desktop,/MEL_COMPANION_HEADLESS/);
+  assert.match(desktop,/\/api\/computer\/v1\/companions/);
+  assert.match(desktop,/Lancer MEL Companion avec Windows/);
+  assert.match(desktop,/RÉAPPAIRER/);
+  assert.match(desktop,/DÉSINSTALLER/);
+  assert.match(companion,/MEL_COMPANION_HEADLESS/);
+  assert.match(build,/MEL-Companion\.exe/);
+  assert.match(build,/System\.Web\.Extensions\.dll/);
+  assert.match(sign,/Filter \*\.exe/);
+  assert.match(verify,/WINDOWS_DESKTOP_EXE_MISSING/);
+});
+
 test('Windows installer clears owner password before token-based companion download',async()=>{
   const setup=await readFile(new URL('../dist/MEL-Computer-Setup.ps1',import.meta.url),'utf8');
   assert.match(setup,/\/api\/computer\/v1\/pair-code/);

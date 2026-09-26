@@ -92,20 +92,34 @@ try {
   $config | ConvertTo-Json -Depth 6 | Set-Content -Encoding UTF8 $configPath
 
   $companionPath = Join-Path $melDir "MEL-Computer-Companion.ps1"
-  Write-Host "Téléchargement du compagnon..." -ForegroundColor Yellow
+  Write-Host "Préparation du compagnon..." -ForegroundColor Yellow
   $deviceHeaders = @{
     Authorization = "Bearer $([string]$pair.token)"
     "X-MEL-Computer-ID" = $computerId
   }
-  Invoke-WebRequest -Uri "$server/api/computer/v1/companion" -Headers $deviceHeaders -UseBasicParsing -OutFile $companionPath -TimeoutSec 30
+  try {
+    Invoke-WebRequest -Uri "$server/api/computer/v1/companion" -Headers $deviceHeaders -UseBasicParsing -OutFile $companionPath -TimeoutSec 30
+  }
+  catch {
+    $localCompanion = Join-Path $PSScriptRoot "MEL-Computer-Companion.ps1"
+    if (-not (Test-Path -LiteralPath $localCompanion -PathType Leaf)) { throw }
+    Copy-Item -LiteralPath $localCompanion -Destination $companionPath -Force
+    Write-Host "Compagnon local utilisé (fallback package)." -ForegroundColor DarkYellow
+  }
 
   $startup = [Environment]::GetFolderPath("Startup")
   $launcher = Join-Path $startup "MEL-Computer-Companion.cmd"
-  $launcherLines = @(
-    "@echo off",
-    "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$companionPath`" -Run"
-  )
-  $launcherLines | Set-Content -Encoding ASCII $launcher
+  $startupEnabled = $env:MEL_COMPANION_STARTUP -ne "0"
+  if ($startupEnabled) {
+    $launcherLines = @(
+      "@echo off",
+      "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$companionPath`" -Run"
+    )
+    $launcherLines | Set-Content -Encoding ASCII $launcher
+  }
+  elseif (Test-Path -LiteralPath $launcher) {
+    Remove-Item -LiteralPath $launcher -Force
+  }
 
   Write-Host "Démarrage du compagnon..." -ForegroundColor Yellow
   Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
@@ -119,7 +133,11 @@ try {
   Write-Host ""
   Write-Host "Installation terminée." -ForegroundColor Green
   Write-Host "Identifiant ordinateur : $computerId"
-  Write-Host "Le compagnon démarrera automatiquement à chaque ouverture de session."
+  if ($startupEnabled) {
+    Write-Host "Le compagnon démarrera automatiquement à chaque ouverture de session."
+  } else {
+    Write-Host "Le démarrage automatique du compagnon est désactivé."
+  }
   Write-Host "Dans MEL > Ordinateur, utilisez Actualiser pour voir le PC en ligne."
 }
 finally {
