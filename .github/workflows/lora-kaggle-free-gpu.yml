@@ -641,7 +641,7 @@ print("TRAINING_BACKGROUND_COMPLETED")
             echo "Local zero-cost impact gate reached; preserve checkpoint and dispatch exact canonical benchmark collector."
             gh workflow run lora-kaggle-free-collect.yml \
               --repo "$GITHUB_REPOSITORY" \
-              --ref candidate/mel-clean-autonomy \
+              --ref main \
               -f activate_preview=false \
               -f wait_for_completion=false \
               -f max_wait_minutes=1
@@ -653,5 +653,5 @@ print("TRAINING_BACKGROUND_COMPLETED")
             exit 0
           fi
 
-          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref candidate/mel-clean-autonomy             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$BENCHMARK_PREVIEW"
+          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$BENCHMARK_PREVIEW"
           echo "Submitted next cycle: $NEXT_CYCLE"
