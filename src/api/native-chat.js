@@ -270,6 +270,36 @@ function summarizeToolResult(result) {
   } catch { return { error: 'TOOL_RESULT_SERIALIZATION_FAILED' }; }
 }
 
+export function buildCompanionDisplay(toolResults = []) {
+  const rows = Array.isArray(toolResults) ? toolResults : [];
+  const sourceRow = rows.find(row =>
+    row?.status === 'SUCCEEDED' &&
+    (row?.capability === 'web.research' || row?.capability === 'knowledge.research')
+  );
+  if (!sourceRow) return null;
+
+  const result = sourceRow.result || {};
+  const research = result.research && typeof result.research === 'object' ? result.research : result;
+  const sources = Array.isArray(research.sources) ? research.sources : [];
+  const items = sources
+    .map(source => ({
+      title: String(source?.title || '').trim().slice(0, 180),
+      url: String(source?.url || '').trim().slice(0, 1200),
+      snippet: String(source?.snippet || '').trim().replace(/\s+/g, ' ').slice(0, 420),
+      source_kind: String(source?.source_kind || '').trim().slice(0, 80),
+    }))
+    .filter(item => /^https?:\/\//i.test(item.url))
+    .slice(0, 5);
+  if (!items.length) return null;
+
+  return {
+    type: 'web_sources',
+    primary_url: items[0].url,
+    title: String(research.query || items[0].title || 'Résultats web').trim().slice(0, 180),
+    items,
+  };
+}
+
 function secretLike(value) {
   return /(?:api[_ -]?key|password|mot\s+de\s+passe|bearer\s+[a-z0-9._-]+|\btoken\b|\botp\b|secret\s*[=:])/i.test(String(value || ''));
 }
@@ -1017,6 +1047,7 @@ export async function handleNativeChat(request, env, options = {}) {
     capability_used: capabilitiesUsed,
     capability_manifest: capabilityManifest,
     tool_results: toolResults,
+    display: buildCompanionDisplay(toolResults),
     development_job: developmentQueued ? {
       job_id: developmentQueued.job_id || null,
       status: developmentQueued.status || null,
