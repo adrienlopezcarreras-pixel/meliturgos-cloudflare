@@ -8,6 +8,7 @@ import {
 import { runCapabilityWatch } from '../../src/evaluation/capability-watch.js';
 import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, markEcosystemDiscoveryOwnerDecision, markEcosystemDiscoveryHandoff, reconcileEcosystemDiscoveryHandoffs } from '../../src/evaluation/ecosystem-discovery-planner.js';
 import { createGen2Runtime } from '../../src/core/orchestrator/gen2-runtime.js';
+import { reconcileDiscoveryJobs } from '../../src/evaluation/capability-watch-runtime.js';
 
 test('ecosystem watch catalog is unique and covers AI, tooling and creative arts', () => {
   const catalog = getEcosystemWatchCatalog();
@@ -469,4 +470,98 @@ test('owner decisions persist and rejected or deferred proposals are skipped by 
   }, 200);
   assert.equal(deferred.items[0].owner_decision.status, 'DEFERRED');
   assert.equal(selectEcosystemDiscoveryCandidate(deferred), null);
+});
+
+
+test('GEN2-42 resumes at most one requeued ecosystem handoff and refreshes Teacher metadata', async () => {
+  const jobs = new Map([
+    ['job-oldest', {
+      id: 'job-oldest',
+      status: 'QUEUED',
+      requested_by: 'mel-autonomy',
+      created_at: 10,
+      optional_context: { source: 'ecosystem-watch', roadmap_id: 'GEN2-42' },
+      result_json: {},
+    }],
+    ['job-newer', {
+      id: 'job-newer',
+      status: 'QUEUED',
+      requested_by: 'mel-autonomy',
+      created_at: 20,
+      optional_context: { source: 'ecosystem-watch', roadmap_id: 'GEN2-42' },
+      result_json: {},
+    }],
+  ]);
+  const repository = {
+    async get(id) { return jobs.get(id) || null; },
+  };
+  const ledger = {
+    items: [
+      {
+        fingerprint: 'capability:image.generate',
+        handoff: {
+          job_id: 'job-oldest',
+          status: 'QUEUED',
+          teacher_request_id: 'req-stale',
+          candidate_sha: 'a'.repeat(40),
+          attempts: 2,
+        },
+      },
+      {
+        fingerprint: 'capability:video.generate',
+        handoff: {
+          job_id: 'job-newer',
+          status: 'QUEUED',
+          attempts: 1,
+        },
+      },
+    ],
+  };
+
+  const resumedIds = [];
+  const mirroredIds = [];
+  const result = await reconcileDiscoveryJobs({}, ledger, {
+    repository,
+    now: 500,
+    resumeTeacherRequest: async ({ job }) => {
+      resumedIds.push(job.id);
+      const fresh = {
+        ...job,
+        status: 'WAITING_TEACHER',
+        updated_at: 450,
+        result_json: {
+          teacher_bridge: {
+            status: 'WAITING_TEACHER',
+            request: {
+              request_id: 'req-fresh',
+              provenance: { candidate_sha: 'b'.repeat(40) },
+            },
+          },
+        },
+      };
+      jobs.set(job.id, fresh);
+      return fresh.result_json.teacher_bridge;
+    },
+    mirrorTeacherRequest: async ({ job }) => {
+      mirroredIds.push(job.id);
+      return { status: 'MIRRORED' };
+    },
+  });
+
+  assert.deepEqual(resumedIds, ['job-oldest']);
+  assert.deepEqual(mirroredIds, ['job-oldest']);
+  assert.equal(result.resumed.job_id, 'job-oldest');
+  assert.equal(result.resumed.status, 'WAITING_TEACHER');
+  assert.equal(result.resumed.teacher_request_id, 'req-fresh');
+  assert.equal(result.resumed.mirror_status, 'MIRRORED');
+
+  const oldest = result.ledger.items.find(item => item.handoff.job_id === 'job-oldest').handoff;
+  assert.equal(oldest.status, 'WAITING_TEACHER');
+  assert.equal(oldest.teacher_request_id, 'req-fresh');
+  assert.equal(oldest.candidate_sha, 'b'.repeat(40));
+  assert.equal(oldest.attempts, 2);
+
+  const newer = result.ledger.items.find(item => item.handoff.job_id === 'job-newer').handoff;
+  assert.equal(newer.status, 'QUEUED');
+  assert.equal(newer.attempts, 1);
 });
