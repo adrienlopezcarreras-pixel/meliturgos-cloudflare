@@ -354,7 +354,22 @@ bool mini_ui_show_rgb565(const uint8_t *pixels, size_t bytes, uint16_t width, ui
 }
 
 static void visual_touch_cb(lv_event_t *event) {
-    if (lv_event_get_code(event) == LV_EVENT_CLICKED && visual_active) mini_ui_hide_visual();
+    if (!visual_active) return;
+    const lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_GESTURE) {
+        lv_indev_t *indev = lv_indev_get_act();
+        if (!indev) return;
+        const lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+        if (dir == LV_DIR_LEFT) {
+            mel_terminal_display_next();
+            return;
+        }
+        if (dir == LV_DIR_RIGHT) {
+            mel_terminal_display_previous();
+            return;
+        }
+    }
+    if (code == LV_EVENT_CLICKED) mini_ui_hide_visual();
 }
 
 static void mini_anim_cb(lv_timer_t *) {
@@ -1432,6 +1447,7 @@ static void mini_smoke_ui() {
     lv_obj_set_pos(avatar_obj, 0, 0);
     lv_obj_add_flag(avatar_obj, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(avatar_obj, visual_touch_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(avatar_obj, visual_touch_cb, LV_EVENT_GESTURE, nullptr);
 
     answer_label = lv_label_create(main_panel);
     lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);
