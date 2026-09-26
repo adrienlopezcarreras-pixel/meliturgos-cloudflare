@@ -1,0 +1,90 @@
+name: android-live-device-proof
+
+on:
+  push:
+    branches:
+      - proof/android-live-device-current-20260926
+    paths:
+      - .github/workflows/android-live-device-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prove-live-device:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact proof SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Query sanitized Android device state from production D1
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json             --command "SELECT t.app_version,t.last_seen_at,t.revoked_at,s.payload_json,s.updated_at FROM android_device_tokens t LEFT JOIN android_device_status s ON s.device_id=t.device_id WHERE t.revoked_at IS NULL ORDER BY t.last_seen_at DESC LIMIT 10"             > android-live.raw.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const raw=JSON.parse(fs.readFileSync('android-live.raw.json','utf8'));
+          const rows=[];
+          for(const part of Array.isArray(raw)?raw:[raw]){
+            if(part && Array.isArray(part.results)) rows.push(...part.results);
+          }
+          const parseVersion=(v)=>String(v||'').match(/(\d+)\.(\d+)\.(\d+)/)?.slice(1).map(Number)||null;
+          const atLeast=(v,req=[0,6,5])=>{
+            const a=parseVersion(v); if(!a) return false;
+            for(let i=0;i<3;i++){if(a[i]>req[i]) return true;if(a[i]<req[i]) return false;}
+            return true;
+          };
+          const now=Date.now();
+          const sanitized=rows.map(row=>{
+            let status={}; try{status=JSON.parse(row.payload_json||'{}')}catch{}
+            const lastSeen=Number(row.last_seen_at||0);
+            const updated=Number(row.updated_at||0);
+            return {
+              app_version:String(row.app_version||status.app_version||''),
+              status_app_version:String(status.app_version||''),
+              sdk_int:Number.isFinite(Number(status.sdk_int))?Number(status.sdk_int):null,
+              phase:String(status.phase||''),
+              last_seen_age_ms:lastSeen?Math.max(0,now-lastSeen):null,
+              status_age_ms:updated?Math.max(0,now-updated):null,
+              version_at_least_0_6_5:atLeast(row.app_version||status.app_version),
+              recently_seen_24h:lastSeen>0 && now-lastSeen<=24*60*60*1000
+            };
+          });
+          const latest=sanitized[0]||null;
+          const proof={
+            schema:'mel.android-live-device-proof.v1',
+            active_device_count:rows.length,
+            latest,
+            any_version_at_least_0_6_5:sanitized.some(x=>x.version_at_least_0_6_5),
+            any_seen_within_24h:sanitized.some(x=>x.recently_seen_24h),
+            device_identifiers_included:false,
+            token_material_included:false
+          };
+          console.log(JSON.stringify(proof,null,2));
+          fs.writeFileSync('android-live-proof.json',JSON.stringify(proof,null,2));
+          if(rows.length<1) throw new Error('ANDROID_LIVE_DEVICE_NOT_FOUND');
+          if(!proof.any_version_at_least_0_6_5) throw new Error('ANDROID_LIVE_VERSION_TOO_OLD');
+          if(!proof.any_seen_within_24h) throw new Error('ANDROID_LIVE_DEVICE_NOT_RECENT');
+          NODE
+
+      - name: Upload sanitized proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-live-device-proof
+          path: android-live-proof.json
+          if-no-files-found: error
+          retention-days: 14
