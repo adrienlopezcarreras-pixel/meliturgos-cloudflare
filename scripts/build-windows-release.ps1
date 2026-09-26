@@ -36,9 +36,26 @@ foreach ($name in $files) {
   Copy-Item -LiteralPath $src -Destination (Join-Path $stage $name)
 }
 
+$desktopSource = Join-Path $repoRoot "windows-companion\MEL-Companion.cs"
+if (-not (Test-Path -LiteralPath $desktopSource -PathType Leaf)) { throw "WINDOWS_DESKTOP_SOURCE_MISSING" }
+$companionSource = Join-Path $assetDir "MEL-Computer-Companion.ps1"
+$desktopText = Get-Content -Raw -Encoding UTF8 -LiteralPath $desktopSource
+if ($desktopText -notmatch "__COMPANION_B64__") { throw "WINDOWS_DESKTOP_EMBED_PLACEHOLDER_MISSING" }
+$companionB64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($companionSource))
+$desktopBuildSource = Join-Path $stage "MEL-Companion.build.cs"
+$desktopExe = Join-Path $stage "MEL-Companion.exe"
+Set-Content -LiteralPath $desktopBuildSource -Value ($desktopText.Replace("__COMPANION_B64__",$companionB64)) -Encoding UTF8
+Add-Type -Path $desktopBuildSource -ReferencedAssemblies @(
+  "System.Windows.Forms.dll",
+  "System.Drawing.dll",
+  "System.Web.Extensions.dll",
+  "System.Security.dll"
+) -OutputAssembly $desktopExe -OutputType WindowsApplication
+Remove-Item -LiteralPath $desktopBuildSource -Force
+
 $launcher = @(
   '@echo off',
-  'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0MEL-Computer-Setup.ps1"'
+  'start "" "%~dp0MEL-Companion.exe"'
 ) -join [Environment]::NewLine
 Set-Content -LiteralPath (Join-Path $stage "Install-MEL.cmd") -Value $launcher -Encoding ASCII
 

@@ -19,6 +19,7 @@ static class MelApp
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
     public static readonly string CompanionPath = Path.Combine(MelDir, "MEL-Computer-Companion.ps1");
     public static readonly string StartupCmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "MEL-Companion.cmd");
+    public static readonly string LegacyStartupCmd = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Startup), "MEL-Computer-Companion.cmd");
     public static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
     public static Dictionary<string, object> Config;
     public static string Token;
@@ -126,11 +127,18 @@ static class MelApp
     public static void ConfigureStartup(bool enabled)
     {
         if (enabled)
+        {
             File.WriteAllText(StartupCmd, "@echo off\r\nstart \"\" \"" + InstalledExe + "\" --background\r\n", Encoding.ASCII);
-        else if (File.Exists(StartupCmd)) File.Delete(StartupCmd);
+            if (File.Exists(LegacyStartupCmd)) File.Delete(LegacyStartupCmd);
+        }
+        else
+        {
+            if (File.Exists(StartupCmd)) File.Delete(StartupCmd);
+            if (File.Exists(LegacyStartupCmd)) File.Delete(LegacyStartupCmd);
+        }
     }
 
-    public static bool StartupEnabled() { return File.Exists(StartupCmd); }
+    public static bool StartupEnabled() { return File.Exists(StartupCmd) || File.Exists(LegacyStartupCmd); }
 
     public static void StartCompanion()
     {
@@ -337,7 +345,7 @@ class SetupForm : Form
 
 class MainForm : Form
 {
-    Label state, pcLine; Panel devicePanel; CheckBox startup; Timer timer;
+    Label state, pcLine; Panel devicePanel; CheckBox startup; System.Windows.Forms.Timer timer;
 
     public MainForm()
     {
@@ -367,7 +375,7 @@ class MainForm : Form
 
         Controls.Add(MelApp.Label("Clic sur l’icône MEL près de l’horloge pour rouvrir ce panneau.",30,510,680,25,9,MelApp.Muted,FontStyle.Regular));
         FormClosing += delegate(object s, FormClosingEventArgs e){ if (!MelApp.Exiting && e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();} };
-        timer=new Timer(); timer.Interval=15000; timer.Tick+=delegate{RefreshAll();}; timer.Start(); Shown+=delegate{RefreshAll();};
+        timer=new System.Windows.Forms.Timer(); timer.Interval=15000; timer.Tick+=delegate{RefreshAll();}; timer.Start(); Shown+=delegate{RefreshAll();};
     }
 
     void RePair(object sender, EventArgs e)

@@ -3,6 +3,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Security
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -30,6 +31,125 @@ $Token = Unprotect-Text $config.token_protected
 $Server = ([string]$config.server_url).TrimEnd("/")
 $ComputerId = [string]$config.computer_id
 $Version = "1.1.0"
+$Headless = $env:MEL_COMPANION_HEADLESS -eq "1"
+$script:MelExitRequested = $false
+$script:MelTrayIcon = $null
+
+function Open-MelUi {
+  try { Start-Process $Server } catch {}
+}
+
+function Show-MelTrayPanel {
+  $form = New-Object System.Windows.Forms.Form
+  $form.Text = "MEL Companion"
+  $form.StartPosition = "CenterScreen"
+  $form.FormBorderStyle = "FixedDialog"
+  $form.MaximizeBox = $false
+  $form.MinimizeBox = $false
+  $form.ClientSize = New-Object System.Drawing.Size(430,260)
+  $form.BackColor = [System.Drawing.Color]::FromArgb(8,13,28)
+  $form.ForeColor = [System.Drawing.Color]::White
+
+  $logo = New-Object System.Windows.Forms.Label
+  $logo.Text = "MEL"
+  $logo.Font = New-Object System.Drawing.Font("Segoe UI",22,[System.Drawing.FontStyle]::Bold)
+  $logo.ForeColor = [System.Drawing.Color]::FromArgb(68,232,255)
+  $logo.SetBounds(24,18,90,45)
+
+  $title = New-Object System.Windows.Forms.Label
+  $title.Text = "Companion PC"
+  $title.Font = New-Object System.Drawing.Font("Segoe UI Semibold",15,[System.Drawing.FontStyle]::Bold)
+  $title.ForeColor = [System.Drawing.Color]::White
+  $title.SetBounds(118,24,260,34)
+
+  $status = New-Object System.Windows.Forms.Label
+  $status.Text = "●  Connecte a MEL"
+  $status.Font = New-Object System.Drawing.Font("Segoe UI",10)
+  $status.ForeColor = [System.Drawing.Color]::FromArgb(72,220,170)
+  $status.SetBounds(28,82,250,26)
+
+  $info = New-Object System.Windows.Forms.Label
+  $info.Text = "Le compagnon tourne en arriere-plan. Il permet a MEL d interagir avec ce PC dans les limites autorisees."
+  $info.Font = New-Object System.Drawing.Font("Segoe UI",9.5)
+  $info.ForeColor = [System.Drawing.Color]::FromArgb(205,218,240)
+  $info.SetBounds(28,118,370,55)
+
+  $openButton = New-Object System.Windows.Forms.Button
+  $openButton.Text = "OUVRIR MEL"
+  $openButton.Font = New-Object System.Drawing.Font("Segoe UI",10,[System.Drawing.FontStyle]::Bold)
+  $openButton.ForeColor = [System.Drawing.Color]::FromArgb(5,18,27)
+  $openButton.BackColor = [System.Drawing.Color]::FromArgb(68,232,255)
+  $openButton.FlatStyle = "Flat"
+  $openButton.FlatAppearance.BorderSize = 0
+  $openButton.SetBounds(165,195,125,38)
+  $openButton.Add_Click({ Open-MelUi; $form.Close() })
+
+  $closeButton = New-Object System.Windows.Forms.Button
+  $closeButton.Text = "FERMER"
+  $closeButton.Font = New-Object System.Drawing.Font("Segoe UI",10,[System.Drawing.FontStyle]::Bold)
+  $closeButton.ForeColor = [System.Drawing.Color]::FromArgb(207,222,246)
+  $closeButton.BackColor = [System.Drawing.Color]::FromArgb(28,38,65)
+  $closeButton.FlatStyle = "Flat"
+  $closeButton.SetBounds(300,195,100,38)
+  $closeButton.Add_Click({ $form.Close() })
+
+  $form.Controls.AddRange(@($logo,$title,$status,$info,$openButton,$closeButton))
+  [void]$form.ShowDialog()
+}
+
+function New-MelTrayIcon {
+  $bmp = New-Object System.Drawing.Bitmap 32,32
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  try {
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.Clear([System.Drawing.Color]::Transparent)
+    $bg = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(10,18,38))
+    $ring = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(68,232,255)),2
+    $font = New-Object System.Drawing.Font("Segoe UI",14,[System.Drawing.FontStyle]::Bold)
+    $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(68,232,255))
+    try {
+      $g.FillEllipse($bg,1,1,30,30)
+      $g.DrawEllipse($ring,2,2,27,27)
+      $g.DrawString("M",$font,$brush,7,5)
+    } finally {
+      $bg.Dispose(); $ring.Dispose(); $font.Dispose(); $brush.Dispose()
+    }
+  } finally { $g.Dispose() }
+
+  $icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+  $menu = New-Object System.Windows.Forms.ContextMenuStrip
+  $menu.BackColor = [System.Drawing.Color]::FromArgb(17,25,48)
+  $menu.ForeColor = [System.Drawing.Color]::FromArgb(225,235,250)
+  $menu.Font = New-Object System.Drawing.Font("Segoe UI",10)
+
+  $open = $menu.Items.Add("Ouvrir MEL")
+  $panel = $menu.Items.Add("Companion MEL")
+  [void]$menu.Items.Add("-")
+  $quit = $menu.Items.Add("Quitter")
+
+  $notify = New-Object System.Windows.Forms.NotifyIcon
+  $notify.Icon = $icon
+  $notify.Text = "MEL Companion - connecté"
+  $notify.ContextMenuStrip = $menu
+  $notify.Visible = $true
+
+  $open.add_Click({ Open-MelUi })
+  $panel.add_Click({ Show-MelTrayPanel })
+  $notify.add_Click({
+    param($sender,$eventArgs)
+    if ($eventArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Show-MelTrayPanel }
+  })
+  $notify.add_DoubleClick({ Open-MelUi })
+  $quit.add_Click({
+    $script:MelExitRequested = $true
+    if ($script:MelTrayIcon) {
+      $script:MelTrayIcon.Visible = $false
+    }
+  })
+
+  $script:MelTrayIcon = $notify
+  return @{ notify=$notify; icon=$icon; bitmap=$bmp; menu=$menu }
+}
 
 $Native = @"
 using System;
@@ -312,8 +432,11 @@ function Process-Command($command) {
   }
 }
 
+$trayResources = $null
+if (-not $Headless) { $trayResources = New-MelTrayIcon }
 $lastHeartbeat = Get-Date "2000-01-01"
-while ($true) {
+while (-not $script:MelExitRequested) {
+  if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
   try {
     if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
       Send-Heartbeat
@@ -332,4 +455,11 @@ while ($true) {
     Start-Sleep -Seconds 3
   }
   Start-Sleep -Milliseconds 1200
+}
+if ($trayResources) {
+  try { $trayResources.notify.Visible = $false } catch {}
+  try { $trayResources.notify.Dispose() } catch {}
+  try { $trayResources.menu.Dispose() } catch {}
+  try { $trayResources.icon.Dispose() } catch {}
+  try { $trayResources.bitmap.Dispose() } catch {}
 }

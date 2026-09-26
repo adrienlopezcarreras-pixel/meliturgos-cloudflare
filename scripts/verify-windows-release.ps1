@@ -20,12 +20,16 @@ if ($meta.source_sha -ne $SourceSha.ToLowerInvariant()) { throw "WINDOWS_RELEASE
 $actualZipHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
 if ($actualZipHash -ne [string]$meta.package_sha256) { throw "WINDOWS_PACKAGE_CHECKSUM_MISMATCH" }
 
-$temp = Join-Path $env:RUNNER_TEMP ("mel-windows-verify-" + [guid]::NewGuid().ToString("N"))
+$tempRoot = if ([string]::IsNullOrWhiteSpace([string]$env:RUNNER_TEMP)) { [IO.Path]::GetTempPath() } else { [string]$env:RUNNER_TEMP }
+$temp = Join-Path $tempRoot ("mel-windows-verify-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $temp | Out-Null
 try {
   Expand-Archive -LiteralPath $zip -DestinationPath $temp -Force
   $manifestPath = Join-Path $temp "release-manifest.json"
   if (-not (Test-Path -LiteralPath $manifestPath)) { throw "WINDOWS_MANIFEST_MISSING" }
+  $desktopExe = Join-Path $temp "MEL-Companion.exe"
+  if (-not (Test-Path -LiteralPath $desktopExe -PathType Leaf)) { throw "WINDOWS_DESKTOP_EXE_MISSING" }
+  if ((Get-Item -LiteralPath $desktopExe).Length -lt 50000) { throw "WINDOWS_DESKTOP_EXE_INVALID" }
   $manifest = Get-Content -Raw -Encoding UTF8 $manifestPath | ConvertFrom-Json
   if ($manifest.schema -ne "mel.windows-release-manifest.v1") { throw "WINDOWS_MANIFEST_SCHEMA_MISMATCH" }
   if ($manifest.version -ne $Version) { throw "WINDOWS_MANIFEST_VERSION_MISMATCH" }

@@ -11,7 +11,8 @@ if (-not (Test-Path -LiteralPath $StageDir -PathType Container)) { throw "WINDOW
 if ([string]::IsNullOrWhiteSpace($PfxBase64)) { throw "WINDOWS_SIGN_PFX_MISSING" }
 if ([string]::IsNullOrWhiteSpace($PfxPassword)) { throw "WINDOWS_SIGN_PASSWORD_MISSING" }
 
-$tempPfx = Join-Path $env:RUNNER_TEMP "mel-windows-signing.pfx"
+$tempRoot = if ([string]::IsNullOrWhiteSpace([string]$env:RUNNER_TEMP)) { [IO.Path]::GetTempPath() } else { [string]$env:RUNNER_TEMP }
+$tempPfx = Join-Path $tempRoot "mel-windows-signing.pfx"
 try {
   [IO.File]::WriteAllBytes($tempPfx, [Convert]::FromBase64String($PfxBase64))
   $secure = ConvertTo-SecureString -String $PfxPassword -AsPlainText -Force
@@ -22,7 +23,11 @@ try {
   )
   if (-not $cert.HasPrivateKey) { throw "WINDOWS_SIGN_PRIVATE_KEY_MISSING" }
 
-  foreach ($file in Get-ChildItem -LiteralPath $StageDir -Filter *.ps1 -File) {
+  $targets = @(
+    Get-ChildItem -LiteralPath $StageDir -Filter *.ps1 -File
+    Get-ChildItem -LiteralPath $StageDir -Filter *.exe -File
+  )
+  foreach ($file in $targets) {
     $sig = Set-AuthenticodeSignature -FilePath $file.FullName -Certificate $cert -HashAlgorithm SHA256
     if ($sig.Status -ne 'Valid') { throw "WINDOWS_SIGN_FAILED:$($file.Name):$($sig.Status)" }
   }
