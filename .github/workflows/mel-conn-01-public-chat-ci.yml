@@ -1,0 +1,45 @@
+name: mel-conn-01-public-chat-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/api/public-wordpress-chat.js'
+      - 'src/connectors/wordpress.js'
+      - 'src/router.js'
+      - 'tests/gen2/wordpress-public-chat.test.mjs'
+      - 'tests/wordpress-public-connector.test.mjs'
+      - '.github/workflows/mel-conn-01-public-chat-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  public-chat-targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node scripts/runtime-security-gate.mjs
+      - run: node --check src/api/public-wordpress-chat.js
+      - run: node --check src/router.js
+      - run: node --test tests/gen2/wordpress-public-chat.test.mjs tests/wordpress-public-connector.test.mjs
+
+  public-chat-full-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: public-chat-targeted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: git switch -c candidate/mel-conn-01-public-chat-ci
+      - run: npm test
