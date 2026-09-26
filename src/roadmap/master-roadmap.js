@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-26.20';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.21';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -132,7 +132,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-VOICE-02', 'Conversation audio transcrite en mémoire', 'DONE', 'Pipeline vocal vers mémoire livré: reconnaissance navigateur ou MediaRecorder, transcription serveur, provenance bornée, chat persistant, audio brut éphémère et synchronisation mémoire. Validation appareil réel Android requise avant DONE_VERIFIED.', 'P0'),
     item('MEL-AVATAR-01', 'Avatar animé temps réel', 'DONE_VERIFIED', 'Animation navigateur légère fusionnée par PR #355: états idle/listening/thinking/speaking/error pilotés par chat/voix, transforms CSS sans boucle lourde, prefers-reduced-motion respecté et aucun clignement ajouté. Inclus dans le main exact déployé. Certification finale: présent sur le SHA exact 02709095088bf71567350b1b4f4465231440d448, full-suite CI verte avant fusion et déploiement Cloudflare release 36232449914 vert avec preuve identite SHA, autonomie production et HTTP final.', 'P1'),
     item('MEL-AVATAR-02', 'Talking avatar lip-sync', 'DONE', 'Lip-sync provider-neutral fusionné via #447: provider interchangeable, fallback local zéro coût borné, animation bouche légère et reduced-motion. Validation visuelle réelle requise avant DONE_VERIFIED.', 'P2'),
-    item('MEL-AVATAR-03', 'Tenue/identité visuelle moderne de MEL', 'DONE', 'Identité visuelle canonique fusionnée via #460: une seule identité MEL sur huit thèmes, tenue/contexte uniquement comme métadonnées de présentation, fallback modern-neutral. Validation visuelle réelle requise avant DONE_VERIFIED.', 'P2')
+    item('MEL-AVATAR-03', 'Tenue/identité visuelle moderne de MEL', 'DONE_VERIFIED', 'Validation visuelle réelle acquise le 26/09/2026 avec Google Chrome sur PC Windows. Les huit assets canoniques classic, granada, guadix, crusade, aviation, amazon, paladin et futuristic ont été chargés depuis dist/assets/avatars, contrôlés présents avec SHA-256 distincts, puis rendus ensemble dans un harnais localhost. La planche vérifiée montre une identité faciale MEL cohérente sur les huit thèmes, avec variation limitée aux tenues/contextes; futuristic conserve le fallback modern-neutral prévu. Contrat mel-canonical confirmé par tests.', 'P2')
   ]),
 
   phase('P10', 'Téléphone, PC et appareils', [
