@@ -45,12 +45,25 @@ $companionB64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($companionSour
 $desktopBuildSource = Join-Path $stage "MEL-Companion.build.cs"
 $desktopExe = Join-Path $stage "MEL-Companion.exe"
 Set-Content -LiteralPath $desktopBuildSource -Value ($desktopText.Replace("__COMPANION_B64__",$companionB64)) -Encoding UTF8
-Add-Type -Path $desktopBuildSource -ReferencedAssemblies @(
-  "System.Windows.Forms.dll",
-  "System.Drawing.dll",
-  "System.Web.Extensions.dll",
-  "System.Security.dll"
-) -OutputAssembly $desktopExe -OutputType WindowsApplication
+$cscCandidates = @(
+  (Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"),
+  (Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe")
+)
+$csc = $cscCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $csc) { throw "WINDOWS_CSC_COMPILER_MISSING" }
+$compileArgs = @(
+  "/nologo",
+  "/target:winexe",
+  "/optimize+",
+  "/out:$desktopExe",
+  "/reference:System.Windows.Forms.dll",
+  "/reference:System.Drawing.dll",
+  "/reference:System.Web.Extensions.dll",
+  "/reference:System.Security.dll",
+  $desktopBuildSource
+)
+& $csc @compileArgs
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $desktopExe -PathType Leaf)) { throw "WINDOWS_DESKTOP_COMPILE_FAILED" }
 Remove-Item -LiteralPath $desktopBuildSource -Force
 
 $launcher = @(
