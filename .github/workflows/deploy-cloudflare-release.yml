@@ -325,6 +325,49 @@ jobs:
           test "$SKILL_REGISTRY_READY" = "1"
           node -e 'const d=require("./production-skill-registry-proof.json"); if(d?.ok!==true||d?.status!=="MEL_EVOL_05_PRODUCTION_D1_VERIFIED"||d?.restored_before_rollback!=="1.1.0"||d?.restored_after_rollback!=="1.0.0") throw new Error("MEL_EVOL_05_PRODUCTION_D1_PROOF_FAILED"); console.log("MEL-EVOL-05 real D1 restart/rollback proof passed.");'
 
+
+          # Backend roadmap certification drills are authenticated, bounded and idempotent.
+          # Execute each phase twice: first materializes the production state, second proves replay/restart safety.
+          for PROOF_PHASE in plugin-sdk-proof evolution-ledger-proof agent-automation-proof; do
+            for PROOF_PASS in 1 2; do
+              PROOF_OUT="production-${PROOF_PHASE}-${PROOF_PASS}.json"
+              PROOF_READY=0
+              for PROOF_ATTEMPT in $(seq 1 6); do
+                PROOF_CODE="$(curl --silent --show-error --max-time 90                   --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}"                   --header "content-type: application/json"                   --data "{\"phase\":\"${PROOF_PHASE}\"}"                   --output "${PROOF_OUT}"                   --write-out '%{http_code}'                   "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+                if [ "${PROOF_CODE}" = "200" ]; then
+                  PROOF_READY=1
+                  break
+                fi
+                echo "${PROOF_PHASE} pass ${PROOF_PASS} attempt ${PROOF_ATTEMPT}/6 returned HTTP ${PROOF_CODE}."
+                test ! -s "${PROOF_OUT}" || cat "${PROOF_OUT}"
+                sleep 2
+              done
+              test "${PROOF_READY}" = "1"
+            done
+          done
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const expected={
+            'plugin-sdk-proof':'GEN2_15_PRODUCTION_D1_VERIFIED',
+            'evolution-ledger-proof':'MEL_EVOL_04_PRODUCTION_LEDGER_VERIFIED',
+            'agent-automation-proof':'GEN2_39_PRODUCTION_D1_VERIFIED',
+          };
+          for (const [phase,status] of Object.entries(expected)) {
+            for (const pass of [1,2]) {
+              const d=JSON.parse(fs.readFileSync(`production-${phase}-${pass}.json`,'utf8'));
+              if(d?.ok!==true || d?.status!==status) throw new Error(`${phase.toUpperCase()}_PASS_${pass}_FAILED`);
+            }
+          }
+          const plugin=JSON.parse(fs.readFileSync('production-plugin-sdk-proof-2.json','utf8'));
+          if(plugin?.active_version!=='1.0.0' || plugin?.replay_safe!==true) throw new Error('GEN2_15_REPLAY_PROOF_FAILED');
+          const ledger=JSON.parse(fs.readFileSync('production-evolution-ledger-proof-2.json','utf8'));
+          if(ledger?.proof_event_count!==2 || ledger?.replay_safe!==true) throw new Error('MEL_EVOL_04_REPLAY_PROOF_FAILED');
+          const agents=JSON.parse(fs.readFileSync('production-agent-automation-proof-2.json','utf8'));
+          if(agents?.run_status!=='COMPLETED' || agents?.persisted_across_adapter_recreation!==true) throw new Error('GEN2_39_REPLAY_PROOF_FAILED');
+          console.log('GEN2-15, MEL-EVOL-04 and GEN2-39 production D1 proof drills passed twice.');
+          NODE
+
           # The bootstrap secret can take a few seconds to propagate across
           # production isolates. The pause phase is idempotent, so retry it
           # independently of ShardVault external-proof mode.
