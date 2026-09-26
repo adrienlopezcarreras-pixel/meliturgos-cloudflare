@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-26.19';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.20';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -138,7 +138,7 @@ export const MASTER_ROADMAP = Object.freeze([
   phase('P10', 'Téléphone, PC et appareils', [
     item('GEN2-07', 'Sync PC / téléphone', 'DONE', 'Valider avec clients réels', 'P1'),
     item('GEN2-29', 'Device Bus', 'DONE_VERIFIED', 'Brancher vrais compagnons', 'P0'),
-    item('GEN2-26', 'PWA', 'DONE', 'Installabilité PWA et cache offline sûr fusionnés via #438: manifest canonique, theme-color, pré-cache limité aux assets publics, HTML privé et routes API exclus du cache, namespace service-worker versionné et tests de confidentialité verts. Validation install/offline réelle navigateur requise avant DONE_VERIFIED.', 'P2'),
+    item('GEN2-26', 'PWA', 'DONE_VERIFIED', 'Validation navigateur réelle acquise le 26/09/2026 avec Google Chrome sur PC Windows via DevTools: manifest chargé sans erreur, installabilityErrors=[], service worker /sw.js activé et contrôlant /mvp, /normal-runtime.js servi depuis le cache avec réseau simulé offline (HTTP 200, 18 784 octets), tandis qu une route /api/ reste non servie offline. Test réalisé sur un harnais localhost éphémère important exactement PWA_MANIFEST_JSON, SERVICE_WORKER_SOURCE et NORMAL_RUNTIME_SOURCE du main canonique, sans modification runtime.', 'P2'),
     item('GEN2-27', 'Android Companion runtime / app', 'DONE', 'Runtime Android natif 0.6.5 déjà promu via #212 avec pairing sécurisé, chat/sync, micro Whisper, fichiers HTTPS bornés, WorkManager et probes; CI build/emulator/full-candidate vertes. Validation appareil réel 0.6.5 requise avant DONE_VERIFIED.', 'P0'),
     item('GEN2-58', 'Build et release Android', 'DONE', 'Pipelines Android debug et release signé exact-SHA déjà préparés et promus avec keystore via secrets, apksigner, zipalign, packaging et nettoyage runner. Installation et exécution signée réelle 0.6.5 requises avant DONE_VERIFIED.', 'P1'),
     item('GEN2-28', 'Windows Companion runtime / agent', 'DONE_VERIFIED', 'Validation PC Windows réelle acquise le 26/09/2026 sur DESKTOP-0S87KA9: heartbeat compagnon actif, instance EXE unique + moteur headless unique, watchdog parent validé, puis stress live run 36260619763 avec 42/42 commandes terminales, 39 succès attendus, 3 refus de sécurité attendus, 26 captures et 0 échec. Correctifs finaux Windows fusionnés par PR #505 au merge 231585e963164caadaa3aa9663626f7936ba7cbb.', 'P0'),
