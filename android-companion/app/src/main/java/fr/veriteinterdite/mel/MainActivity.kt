@@ -145,6 +145,7 @@ class MainActivity : ComponentActivity() {
     private var nativeSpeechListening = false
     private var wakeRecognizer: SpeechRecognizer? = null
     private var wakeListening = false
+    private val wakeWordContinuousEnabled = false // disabled until a silent hotword engine is available
     private var pushToTalkHeld = false
     private var appResumed = false
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -487,6 +488,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureWakeWordListening() {
+        if (!wakeWordContinuousEnabled) return
         if (!appResumed || wakeListening || recording.value || pushToTalkHeld) return
         if (!::model.isInitialized || model.state.value.session != SessionStage.CONNECTED) return
         if (model.state.value.busy || model.state.value.speaking) return
@@ -510,14 +512,14 @@ class MainActivity : ComponentActivity() {
                 wakeRecognizer = null
                 wakeListening = false
                 runCatching { current?.destroy() }
-                if (error != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) scheduleWakeWordRestart()
+                // Do not restart automatically: some Android builds play an audible
+                // system chime every time SpeechRecognizer opens/closes the microphone.
             }
 
             override fun onResults(results: Bundle?) {
                 val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                 if (!handleWakeText(text)) {
                     stopWakeWordListening()
-                    scheduleWakeWordRestart()
                 }
             }
 
@@ -538,7 +540,6 @@ class MainActivity : ComponentActivity() {
         runCatching { recognizer.startListening(intent) }
             .onFailure {
                 stopWakeWordListening()
-                scheduleWakeWordRestart()
             }
     }
 
@@ -573,7 +574,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun scheduleWakeWordRestart() {
-        mainHandler.postDelayed({ ensureWakeWordListening() }, 700L)
+        if (wakeWordContinuousEnabled) {
+            mainHandler.postDelayed({ ensureWakeWordListening() }, 700L)
+        }
     }
 
     private fun startNativeSpeech() {

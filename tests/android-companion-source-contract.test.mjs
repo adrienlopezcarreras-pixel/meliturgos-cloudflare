@@ -395,9 +395,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 39/);
-  assert.match(build,/versionName = "0\.6\.30-push-wake"/);
-  assert.match(api,/APP_VERSION = "0\.6\.30-push-wake"/);
+  assert.match(build,/versionCode = 40/);
+  assert.match(build,/versionName = "0\.6\.31-silent-push"/);
+  assert.match(api,/APP_VERSION = "0\.6\.31-silent-push"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -418,9 +418,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 39/);
-  assert.match(build,/versionName = "0\.6\.30-push-wake"/);
-  assert.match(api,/APP_VERSION = "0\.6\.30-push-wake"/);
+  assert.match(build,/versionCode = 40/);
+  assert.match(build,/versionName = "0\.6\.31-silent-push"/);
+  assert.match(api,/APP_VERSION = "0\.6\.31-silent-push"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -452,9 +452,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 39/);
-  assert.match(build,/versionName = "0\.6\.30-push-wake"/);
-  assert.match(api,/APP_VERSION = "0\.6\.30-push-wake"/);
+  assert.match(build,/versionCode = 40/);
+  assert.match(build,/versionName = "0\.6\.31-silent-push"/);
+  assert.match(api,/APP_VERSION = "0\.6\.31-silent-push"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -471,9 +471,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 39/);
-  assert.match(build,/versionName = "0\.6\.30-push-wake"/);
-  assert.match(api,/APP_VERSION = "0\.6\.30-push-wake"/);
+  assert.match(build,/versionCode = 40/);
+  assert.match(build,/versionName = "0\.6\.31-silent-push"/);
+  assert.match(api,/APP_VERSION = "0\.6\.31-silent-push"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
