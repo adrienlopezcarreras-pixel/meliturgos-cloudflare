@@ -1,0 +1,169 @@
+name: gen2-59-signed-windows-upgrade-proof
+
+on:
+  push:
+    branches:
+      - roadmap/gen2-59-windows-release-20260925
+    paths:
+      - .github/workflows/gen2-59-signed-windows-upgrade-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      OLD_SHA: 50b60689631da67e7633f7937dcde61a48ead8d7
+      CURRENT_SHA: c209aaa3b0b84be84bff8034633b4ab83e9ad1fd
+      OLD_VERSION: 2.3.0
+      CURRENT_VERSION: 2.3.4
+
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Create ephemeral trusted code-signing certificate
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $subject="CN=MEL GEN2-59 Proof $env:GITHUB_RUN_ID"
+          $cert=New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject -CertStoreLocation 'Cert:\CurrentUser\My' -NotAfter (Get-Date).AddDays(1)
+          $password="MelProof-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT!"
+          $secure=ConvertTo-SecureString -String $password -AsPlainText -Force
+          $pfx=Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.pfx'
+          $cer=Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.cer'
+          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $secure | Out-Null
+          Export-Certificate -Cert $cert -FilePath $cer | Out-Null
+          Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
+          Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
+          $pfxB64=[Convert]::ToBase64String([IO.File]::ReadAllBytes($pfx))
+          Write-Output "::add-mask::$password"
+          Write-Output "::add-mask::$pfxB64"
+          "MEL_WINDOWS_SIGNING_PFX_PASSWORD=$password" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "MEL_WINDOWS_SIGNING_PFX_BASE64=$pfxB64" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PROOF_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build and verify signed 2.3.0 package
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git checkout --detach $env:OLD_SHA
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows-release.ps1 -Version $env:OLD_VERSION -SourceSha $env:OLD_SHA -OutputDir artifacts\windows-proof-old -Sign
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-windows-release.ps1 -PackageDir artifacts\windows-proof-old -Version $env:OLD_VERSION -SourceSha $env:OLD_SHA
+          Copy-Item .\artifacts\windows-proof-old\MEL-Windows-2.3.0.zip (Join-Path $env:RUNNER_TEMP 'old.zip') -Force
+
+      - name: Build and verify signed current package
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git checkout --detach $env:CURRENT_SHA
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows-release.ps1 -Version $env:CURRENT_VERSION -SourceSha $env:CURRENT_SHA -OutputDir artifacts\windows-proof-current -Sign
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-windows-release.ps1 -PackageDir artifacts\windows-proof-current -Version $env:CURRENT_VERSION -SourceSha $env:CURRENT_SHA
+          Copy-Item .\artifacts\windows-proof-current\MEL-Windows-2.3.4.zip (Join-Path $env:RUNNER_TEMP 'current.zip') -Force
+
+      - name: Install old version then prove signed update to current
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName System.Security
+          $oldDir=Join-Path $env:RUNNER_TEMP 'mel-old'
+          $newDir=Join-Path $env:RUNNER_TEMP 'mel-current'
+          Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP 'old.zip') -DestinationPath $oldDir -Force
+          Expand-Archive -LiteralPath (Join-Path $env:RUNNER_TEMP 'current.zip') -DestinationPath $newDir -Force
+          $oldExe=Join-Path $oldDir 'MEL-Companion.exe'
+          $newExe=Join-Path $newDir 'MEL-Companion.exe'
+          $oldSig=Get-AuthenticodeSignature -FilePath $oldExe
+          $newSig=Get-AuthenticodeSignature -FilePath $newExe
+          if($oldSig.Status -ne 'Valid'){throw "GEN2_59_OLD_SIGNATURE_$($oldSig.Status)"}
+          if($newSig.Status -ne 'Valid'){throw "GEN2_59_NEW_SIGNATURE_$($newSig.Status)"}
+
+          $melDir=Join-Path $env:LOCALAPPDATA 'MEL'
+          New-Item -ItemType Directory -Path $melDir -Force | Out-Null
+          $tokenBytes=[Text.Encoding]::UTF8.GetBytes('gen2-59-proof-token')
+          $protected=[Security.Cryptography.ProtectedData]::Protect($tokenBytes,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+          $config=[ordered]@{
+            server_url='http://127.0.0.1:9'
+            computer_id='gen2-59-proof'
+            token_protected=[Convert]::ToBase64String($protected)
+            allowed_apps=@('notepad')
+            allowed_paths=@($env:RUNNER_TEMP)
+            installed_at=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          }
+          $config | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $melDir 'computer.json') -Encoding UTF8
+
+          function Stop-ProofProcesses {
+            Get-Process -Name 'MEL-Companion' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+              Where-Object { $_.CommandLine -match 'MEL-Computer-Companion\.ps1' } |
+              ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            Start-Sleep -Milliseconds 500
+          }
+
+          $p=Start-Process -FilePath $oldExe -ArgumentList '--background' -PassThru
+          Start-Sleep -Seconds 4
+          Stop-ProofProcesses
+          $installed=Join-Path $melDir 'MEL-Companion.exe'
+          if(-not (Test-Path $installed)){throw 'GEN2_59_OLD_INSTALL_MISSING'}
+          $oldSelf=Start-Process -FilePath $installed -ArgumentList '--self-test' -Wait -PassThru
+          if($oldSelf.ExitCode -ne 0){throw 'GEN2_59_OLD_SELF_TEST_FAILED'}
+          $reportPath=Join-Path $melDir 'self-test.json'
+          $oldReport=Get-Content $reportPath -Raw | ConvertFrom-Json
+          if($oldReport.version -ne '2.3.0'){throw "GEN2_59_OLD_VERSION_MISMATCH:$($oldReport.version)"}
+          if($oldReport.installed_exe -ne $true -or $oldReport.installed_engine -ne $true){throw 'GEN2_59_OLD_INSTALL_INCOMPLETE'}
+
+          $p2=Start-Process -FilePath $newExe -ArgumentList '--background' -PassThru
+          Start-Sleep -Seconds 4
+          Stop-ProofProcesses
+          $newSelf=Start-Process -FilePath $installed -ArgumentList '--self-test' -Wait -PassThru
+          if($newSelf.ExitCode -ne 0){throw 'GEN2_59_NEW_SELF_TEST_FAILED'}
+          $newReport=Get-Content $reportPath -Raw | ConvertFrom-Json
+          if($newReport.version -ne '2.3.4'){throw "GEN2_59_NEW_VERSION_MISMATCH:$($newReport.version)"}
+          if($newReport.installed_exe -ne $true -or $newReport.installed_engine -ne $true){throw 'GEN2_59_NEW_INSTALL_INCOMPLETE'}
+
+          $installedHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $installed).Hash.ToLowerInvariant()
+          $packageHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $newExe).Hash.ToLowerInvariant()
+          if($installedHash -ne $packageHash){throw 'GEN2_59_UPDATE_HASH_MISMATCH'}
+
+          $proof=[ordered]@{
+            schema='mel.gen2-59-signed-upgrade-proof.v1'
+            old_source_sha=$env:OLD_SHA
+            current_source_sha=$env:CURRENT_SHA
+            old_version=$oldReport.version
+            current_version=$newReport.version
+            old_signature_status=[string]$oldSig.Status
+            current_signature_status=[string]$newSig.Status
+            old_installed_exe=[bool]$oldReport.installed_exe
+            old_installed_engine=[bool]$oldReport.installed_engine
+            current_installed_exe=[bool]$newReport.installed_exe
+            current_installed_engine=[bool]$newReport.installed_engine
+            installed_matches_current_package=($installedHash -eq $packageHash)
+            real_windows_runner=$true
+            update_verified=$true
+          }
+          $proof | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath 'gen2-59-proof.json' -Encoding UTF8
+          $proof | ConvertTo-Json -Depth 5
+
+      - name: Upload sanitized proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-59-signed-windows-upgrade-proof
+          path: gen2-59-proof.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup ephemeral signing trust
+        if: always()
+        shell: powershell
+        run: |
+          $thumb=$env:PROOF_CERT_THUMBPRINT
+          if($thumb){
+            Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue | Where-Object Thumbprint -eq $thumb | Remove-Item -Force -ErrorAction SilentlyContinue
+            Get-ChildItem Cert:\CurrentUser\Root -ErrorAction SilentlyContinue | Where-Object Thumbprint -eq $thumb | Remove-Item -Force -ErrorAction SilentlyContinue
+            Get-ChildItem Cert:\CurrentUser\TrustedPublisher -ErrorAction SilentlyContinue | Where-Object Thumbprint -eq $thumb | Remove-Item -Force -ErrorAction SilentlyContinue
+          }
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.pfx') -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.cer') -Force -ErrorAction SilentlyContinue
