@@ -1314,6 +1314,21 @@ int mel_terminal_voice_level(void) {
     return g_voice_level;
 }
 
+bool mel_terminal_has_display(void) {
+    return !g_display_items.empty();
+}
+
+void mel_terminal_display_next(void) {
+    if (g_display_items.empty()) return;
+    ui_show_display_source((g_display_index + 1) % g_display_items.size());
+}
+
+void mel_terminal_display_previous(void) {
+    if (g_display_items.empty()) return;
+    const size_t previous = g_display_index == 0 ? g_display_items.size() - 1 : g_display_index - 1;
+    ui_show_display_source(previous);
+}
+
 static void audio_test_task(void *) {
     ui_status("TEST AUDIO");
     ui_answer("Parle pendant 2 secondes : MEL va te le rejouer.");

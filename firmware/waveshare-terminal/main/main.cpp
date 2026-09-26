@@ -1294,6 +1294,18 @@ static void touch_cb(lv_event_t *e) {
     }
 }
 
+static void web_card_touch_cb(lv_event_t *e) {
+    if (!mel_terminal_has_display()) return;
+    const lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_SHORT_CLICKED) {
+        mel_terminal_display_next();
+        ESP_LOGI(TAG, "WEB CARD: next source");
+    } else if (code == LV_EVENT_LONG_PRESSED) {
+        mel_terminal_display_previous();
+        ESP_LOGI(TAG, "WEB CARD: previous source");
+    }
+}
+
 static void mini_smoke_ui() {
     lv_obj_t *screen = lv_scr_act();
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x07111F), 0);
@@ -1358,6 +1370,8 @@ static void mini_smoke_ui() {
     lv_obj_set_style_text_color(answer_label, lv_color_hex(0xCBD5E1), 0);
     lv_label_set_text(answer_label, "");
     lv_obj_align(answer_label, LV_ALIGN_BOTTOM_MID, 0, -104);
+    lv_obj_add_flag(answer_label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(answer_label, web_card_touch_cb, LV_EVENT_ALL, nullptr);
     lv_obj_add_flag(answer_label, LV_OBJ_FLAG_HIDDEN);
 
     talk_button = lv_btn_create(main_panel);
