@@ -279,3 +279,54 @@ test('release bootstrap builds a Provider Escape Capsule from production-shaped 
     DB.close();
   }
 });
+
+
+test('release bootstrap proves long-context compression on a real-shaped archived conversation without returning content', async () => {
+  const DB=sqliteD1();
+  try {
+    await DB.prepare(`CREATE TABLE archive_messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT,
+      timestamp INTEGER
+    )`).run();
+    for (let i=0;i<24;i+=1) {
+      const role=i%2===0?'user':'assistant';
+      const decision=i===2
+        ? 'Décision importante : il faut conserver cette contrainte de production avant le prochain lot. '
+        : '';
+      const content=decision + ('x'.repeat(3600)) + ' message-' + i;
+      await DB.prepare('INSERT INTO archive_messages(id,conversation_id,role,content,timestamp) VALUES(?,?,?,?,?)')
+        .bind('m-'+i,'real-long-conversation',role,content,i+1).run();
+    }
+    const env={
+      MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+      DB,
+      MEL_DEPLOYED_GIT_SHA:'2'.repeat(40),
+      MEL_DEPLOYED_GIT_BRANCH:'release/test',
+    };
+    const response=await maybeHandleReleaseLaunchBootstrap(
+      new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+        method:'POST',
+        headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+        body:JSON.stringify({phase:'long-context-proof'}),
+      }),
+      env,
+    );
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.ok,true);
+    assert.equal(body.status,'MEL_CONTEXT_02_REAL_LONG_CONVERSATION_VERIFIED');
+    assert.ok(body.proof.total_chars>65000);
+    assert.ok(body.proof.omitted_message_count>0);
+    assert.ok(body.proof.decision_anchor_count>0);
+    assert.equal(body.proof.anchor_preserved,true);
+    assert.equal(body.proof.current_turn_preserved_exactly,true);
+    assert.equal(body.private_content_returned,false);
+    assert.match(body.proof.source_key_sha256,/^[0-9a-f]{64}$/);
+    assert.equal(JSON.stringify(body).includes('Décision importante'),false);
+  } finally {
+    DB.close();
+  }
+});
