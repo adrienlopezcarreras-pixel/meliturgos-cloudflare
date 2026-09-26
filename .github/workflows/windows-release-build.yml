@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'assets/MEL-Computer-*.ps1'
+      - 'windows-companion/**'
+      - 'tests/computer-companion-api.test.mjs'
       - 'scripts/*windows-release*.ps1'
       - 'tests/gen2/windows-release-contract.test.mjs'
       - '.github/workflows/windows-release-build.yml'
@@ -13,6 +15,8 @@ on:
       - 'roadmap/gen2-59-windows-release-*'
     paths:
       - 'assets/MEL-Computer-*.ps1'
+      - 'windows-companion/**'
+      - 'tests/computer-companion-api.test.mjs'
       - 'scripts/*windows-release*.ps1'
       - 'tests/gen2/windows-release-contract.test.mjs'
       - '.github/workflows/windows-release-build.yml'
