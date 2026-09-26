@@ -508,4 +508,4 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   });
 }
 
-export const __launchBootstrapTest = Object.freeze({ equalToken, safeReadiness, requestPhase });
+export const __launchBootstrapTest = Object.freeze({ equalToken, safeReadiness, requestPhase, deployedSha, deployedBranch });
