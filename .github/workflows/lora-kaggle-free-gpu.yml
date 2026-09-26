@@ -346,24 +346,23 @@ jobs:
               raise RuntimeError(f"TRAINING_BACKGROUND_FAILED:{code}")
           print("TRAINING_BACKGROUND_COMPLETED")
           ''')
-          wrapper = (
-              "import pathlib, subprocess, sys\\n"
-              "root=pathlib.Path('/kaggle/working')\\n"
-              "script=root/'mel-training-entry.py'\\n"
-              "log=(root/'mel-training-background.log').open('w', encoding='utf-8')\\n"
-              "cmd=[sys.executable, str(script)]\\n"
-              "shell=' '.join(__import__('shlex').quote(x) for x in cmd)\\n"
-              "wrapped=f\"{shell}; code=$?; printf '%s\\\\n' \\\"$code\\\" > {root/'mel-training-exit-code.txt'}\"\\n"
-              "proc=subprocess.Popen(['/bin/bash','-lc',wrapped],stdout=log,stderr=subprocess.STDOUT,cwd=str(root),start_new_session=True)\\n"
-              "print({'status':'TRAINING_BACKGROUND_STARTED','pid':proc.pid})\\n"
-          )
+          wrapper = "\n".join([
+              "import pathlib, subprocess, sys",
+              "root=pathlib.Path('/kaggle/working')",
+              "script=root/'mel-training-entry.py'",
+              "log=(root/'mel-training-background.log').open('w', encoding='utf-8')",
+              "cmd=[sys.executable, str(script)]",
+              "shell=' '.join(__import__('shlex').quote(x) for x in cmd)",
+              "wrapped=f\"{shell}; code=$?; printf '%s\\\\n' \\\"$code\\\" > {root/'mel-training-exit-code.txt'}\"",
+              "proc=subprocess.Popen(['/bin/bash','-lc',wrapped],stdout=log,stderr=subprocess.STDOUT,cwd=str(root),start_new_session=True)",
+              "print({'status':'TRAINING_BACKGROUND_STARTED','pid':proc.pid})",
+          ]) + "\n"
           notebook={
               "cells":[
-                  code_cell(
-                      "import base64, pathlib\\n"
-                      "pathlib.Path('/kaggle/working/mel-training-entry.py').write_bytes("
-                      "base64.b64decode(" + repr(__import__('base64').b64encode(source.encode('utf-8')).decode('ascii')) + "))\\n"
-                  ),
+                  code_cell("\n".join([
+                      "import base64, pathlib",
+                      "pathlib.Path('/kaggle/working/mel-training-entry.py').write_bytes(base64.b64decode(" + repr(__import__('base64').b64encode(source.encode('utf-8')).decode('ascii')) + "))",
+                  ]) + "\n"),
 
                   code_cell(wrapper),
                   *[code_cell(monitor) for _ in range(145)],
