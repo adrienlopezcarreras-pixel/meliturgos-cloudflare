@@ -72,9 +72,13 @@ export async function handleGoogleOAuthApi(request, env, url = new URL(request.u
     }
 
     if (url.pathname === '/api/gen2/connectors/oauth/callback' && request.method === 'GET') {
-      const connectorId = String(url.searchParams.get('connector_id') || '').trim();
       const state = String(url.searchParams.get('state') || '').trim();
       const code = String(url.searchParams.get('code') || '').trim();
+      const requestedConnectorId = String(url.searchParams.get('connector_id') || '').trim();
+      const connectorId = requestedConnectorId || await runtime.transactionVault.resolveConnector({
+        owner: ctx.owner,
+        state,
+      }) || '';
       const providerError = String(url.searchParams.get('error') || '').trim();
       if (providerError) {
         return json({
