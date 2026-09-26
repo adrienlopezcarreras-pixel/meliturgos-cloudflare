@@ -131,7 +131,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-VOICE-01', 'Réveil Bonjour MEL / Allô MEL', 'PLANNED', 'Détection locale/compagnon selon plateforme', 'P1'),
     item('MEL-VOICE-02', 'Conversation audio transcrite en mémoire', 'PARTIAL', 'Clic avatar -> reconnaissance navigateur ou MediaRecorder -> transcription -> chat persistant avec provenance contrôlée voice-browser-recognition / voice-server-transcription; audio brut éphémère, transcription archivée et synchronisée vers la mémoire. Preuve candidate: full-candidate-ci 35837787761 sur 3ea9dab1ce5014a47316d409f2625d64ef5dcbf0. Reste la validation sur Android réel avant DONE_VERIFIED.', 'P0'),
     item('MEL-AVATAR-01', 'Avatar animé temps réel', 'DONE', 'Animation navigateur légère fusionnée par PR #355: états idle/listening/thinking/speaking/error pilotés par chat/voix, transforms CSS sans boucle lourde, prefers-reduced-motion respecté et aucun clignement ajouté. Inclus dans le main exact déployé.', 'P1'),
-    item('MEL-AVATAR-02', 'Talking avatar lip-sync', 'PLANNED', 'Adapter provider interchangeable, fallback zéro coût', 'P2'),
+    item('MEL-AVATAR-02', 'Talking avatar lip-sync', 'DONE', 'Lip-sync provider-neutral fusionné via #447: API provider interchangeable, fallback local zéro coût borné, ouverture de bouche légère et respect reduced-motion. CI mel-avatar-02-lipsync-ci, avatar browser motion et Professor UI audit vertes. Validation visuelle navigateur réelle requise avant DONE_VERIFIED.', 'P2'),
     item('MEL-AVATAR-03', 'Tenue/identité visuelle moderne de MEL', 'PLANNED', 'Créer modèle visuel cohérent sans dépendance à un costume fixe', 'P2')
   ]),
 
