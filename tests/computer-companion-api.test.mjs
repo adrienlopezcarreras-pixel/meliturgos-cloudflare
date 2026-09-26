@@ -116,6 +116,42 @@ test('paired Windows device can fetch its companion with device auth and owner c
   }finally{DB.close();}
 });
 
+test('Windows heartbeats merge telemetry instead of erasing richer engine metadata',async()=>{
+  const DB=sqliteD1();
+  try{
+    const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
+    const codeRes=await maybeHandleComputerApi(ownerRequest('/api/computer/v1/pair-code','POST',{}),env);
+    const code=(await codeRes.json()).code;
+    const pairRes=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/pair',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({pair_code:code,computer_id:'pc-heartbeat'})
+    }),env);
+    const paired=await pairRes.json();
+    const headers={authorization:'Bearer '+paired.token,'x-mel-computer-id':'pc-heartbeat','content-type':'application/json'};
+
+    let response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
+      method:'POST',headers,
+      body:JSON.stringify({version:'2.3.2',hostname:'PC',user:'adrien',screen:{x:0,y:0,width:2560,height:1440}})
+    }),env);
+    assert.equal(response.status,200);
+
+    response=await maybeHandleComputerApi(new Request('https://mel.test/api/computer/v1/heartbeat',{
+      method:'POST',headers,
+      body:JSON.stringify({engine_version:'1.2.0',active_window:'MEL_INPUT_READY'})
+    }),env);
+    assert.equal(response.status,200);
+
+    const row=await DB.prepare('SELECT metadata FROM computer_devices WHERE id=?').bind('pc-heartbeat').first();
+    const metadata=JSON.parse(row.metadata);
+    assert.equal(metadata.version,'2.3.2');
+    assert.equal(metadata.engine_version,'1.2.0');
+    assert.equal(metadata.hostname,'PC');
+    assert.equal(metadata.screen.width,2560);
+    assert.equal(metadata.screen.height,1440);
+    assert.equal(metadata.active_window,'MEL_INPUT_READY');
+  }finally{DB.close();}
+});
+
 test('paired Windows device can read MINI and Android companion status without owner password',async()=>{
   const DB=sqliteD1();
   try{
@@ -179,6 +215,8 @@ test('Windows desktop v2 keeps tray UI, headless engine, and packaged EXE contra
   assert.match(desktop,/MEL-Companion\.exe/);
   assert.match(desktop,/MEL_COMPANION_HEADLESS/);
   assert.match(desktop,/MEL_COMPANION_PARENT_PID/);
+  assert.match(desktop,/SetProcessDpiAwarenessContext/);
+  assert.match(desktop,/"screen",screen/);
   assert.match(desktop,/--self-test/);
   assert.match(desktop,/self-test\.json/);
   assert.match(desktop,/\/api\/computer\/v1\/companions/);
@@ -198,6 +236,7 @@ test('Windows desktop v2 keeps tray UI, headless engine, and packaged EXE contra
   assert.match(companion,/MEL_COMPANION_HEADLESS/);
   assert.match(companion,/MEL_COMPANION_PARENT_PID/);
   assert.match(companion,/SetProcessDpiAwarenessContext/);
+  assert.match(companion,/engine_version/);
   assert.match(companion,/Close-ForegroundFile/);
   assert.match(companion,/FILE_NOT_FOREGROUND/);
   assert.match(companion,/SendKeys\]::SendWait\("\%\{F4\}"\)/);

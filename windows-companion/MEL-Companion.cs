@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Web.Script.Serialization;
 
@@ -34,6 +35,21 @@ static class MelApp
     public static MainForm Main;
     public static bool Exiting;
     const string CompanionB64 = "__COMPANION_B64__";
+
+    [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+    [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
+
+    public static void EnableDpiAwareness()
+    {
+        try
+        {
+            if (!SetProcessDpiAwarenessContext(new IntPtr(-4))) SetProcessDPIAware();
+        }
+        catch
+        {
+            try { SetProcessDPIAware(); } catch { }
+        }
+    }
 
     public static Color Bg = Color.FromArgb(7, 12, 25);
     public static Color Panel = Color.FromArgb(16, 25, 47);
@@ -235,8 +251,12 @@ static class MelApp
     {
         try
         {
+            var bounds = SystemInformation.VirtualScreen;
+            var screen = new Dictionary<string, object> {
+                {"x",bounds.X},{"y",bounds.Y},{"width",bounds.Width},{"height",bounds.Height}
+            };
             var body = Json.Serialize(new Dictionary<string, object> {
-                {"version",Version},{"hostname",Environment.MachineName},{"user",Environment.UserName}
+                {"version",Version},{"hostname",Environment.MachineName},{"user",Environment.UserName},{"screen",screen}
             });
             var o = Obj(Http(Server + "/api/computer/v1/heartbeat", "POST", body, DeviceHeaders()));
             object ok; return o.TryGetValue("ok", out ok) && Convert.ToBoolean(ok);
@@ -658,6 +678,7 @@ class Program
     [STAThread]
     static void Main(string[] args)
     {
+        MelApp.EnableDpiAwareness();
         bool selfTest = args != null && Array.Exists(args, a => a == "--self-test");
         if (selfTest)
         {
