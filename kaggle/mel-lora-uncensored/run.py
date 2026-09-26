@@ -12,6 +12,9 @@ from pathlib import Path
 TARGET_SHA = "__MEL_GIT_SHA__"
 CYCLE = int("__MEL_CYCLE__")
 SHARD_SIZE = int("__MEL_SHARD_SIZE__")
+CYCLE_MAX_STEPS = 32
+CYCLE_MAX_LENGTH = 512
+CYCLE_GRAD_ACCUM = 8
 
 WORK = Path("/kaggle/working")
 INPUT = Path("/kaggle/input")
@@ -332,6 +335,9 @@ def main():
         "--output", plan,
         "--id", f"mel-kaggle-uncensored-c{CYCLE:03d}-{TARGET_SHA[:12]}",
         "--epochs", "1",
+        "--max-steps", str(CYCLE_MAX_STEPS),
+        "--max-length", str(CYCLE_MAX_LENGTH),
+        "--gradient-accumulation-steps", str(CYCLE_GRAD_ACCUM),
         "--rank", "8",
         "--alpha", "16",
         "--dropout", "0.05",
@@ -349,16 +355,20 @@ def main():
         "--base-model-path", base_model,
         "--stage", stage,
         "--epochs", "1",
-        "--max-length", "512",
-        "--gradient-accumulation-steps", "8",
+        "--max-steps", str(CYCLE_MAX_STEPS),
+        "--max-length", str(CYCLE_MAX_LENGTH),
+        "--gradient-accumulation-steps", str(CYCLE_GRAD_ACCUM),
         "--save-steps", "1000000",
         "--seed", "42",
     ]
     if parent_digest:
         cmd += ["--parent-adapter-dir", PARENT, "--parent-artifact-digest", parent_digest]
+    print(json.dumps({"status":"TRAINING_COMMAND_START","max_steps":CYCLE_MAX_STEPS,"max_length":CYCLE_MAX_LENGTH,"gradient_accumulation_steps":CYCLE_GRAD_ACCUM}), flush=True)
     run(cmd)
+    print(json.dumps({"status":"TRAINING_COMMAND_DONE"}), flush=True)
 
     impact_path = OUTPUT / "local-impact-benchmark.json"
+    print(json.dumps({"status":"LOCAL_IMPACT_START"}), flush=True)
     run([
         sys.executable, SCRIPTS / "run-local-lora-impact.py",
         "--base-model-path", base_model,
@@ -366,6 +376,7 @@ def main():
         "--output", impact_path,
     ])
     impact = json.loads(impact_path.read_text(encoding="utf-8"))
+    print(json.dumps({"status":"LOCAL_IMPACT_DONE","next_stage":impact.get("next_stage")}), flush=True)
 
     shutil.copy2(SHARD_META, OUTPUT / "shard-metadata.json")
     dataset_meta = {
@@ -398,6 +409,9 @@ def main():
         "cycle": CYCLE,
         "stage": stage,
         "shard_size": SHARD_SIZE,
+        "max_steps": CYCLE_MAX_STEPS,
+        "max_length": CYCLE_MAX_LENGTH,
+        "gradient_accumulation_steps": CYCLE_GRAD_ACCUM,
         "artifact_digest": artifact["digest"],
         "parent_artifact_digest": parent_digest,
         "train_loss": training.get("training_metrics", {}).get("train_loss"),
