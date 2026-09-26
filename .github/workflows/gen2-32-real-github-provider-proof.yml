@@ -1,0 +1,61 @@
+name: gen2-32-real-github-provider-proof
+
+on:
+  push:
+    branches:
+      - proof/gen2-32-real-github-provider-20260926
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact proof SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Run Connector SDK regression suite
+        run: |
+          node --test             tests/gen2/connector-sdk.test.mjs             tests/gen2/connector-oauth2-pkce.test.mjs             tests/gen2/connector-oauth-persistence.test.mjs             tests/gen2/connector-http-token-client.test.mjs
+
+      - name: Prove real GitHub provider auth through Connector SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createConnector } from './src/connectors/github.js';
+          const connector=createConnector({env:{GITHUB_TOKEN:process.env.GITHUB_TOKEN}});
+          const configured=connector.configure();
+          if(configured.status!=='CONFIGURED') throw new Error('GEN2_32_GITHUB_NOT_CONFIGURED');
+          const connected=await connector.connect();
+          const proof={
+            schema:'mel.gen2-32-real-provider-proof.v1',
+            provider:connected.provider,
+            connector_id:connected.id,
+            status:connected.status,
+            health:connected.health,
+            auth_verified:Boolean(connected.metadata?.auth_verified_at),
+            capabilities:connected.capabilities,
+            secret_references:connected.secret_references,
+            secret_value_returned:false
+          };
+          console.log(JSON.stringify(proof,null,2));
+          if(proof.provider!=='github') throw new Error('GEN2_32_PROVIDER_MISMATCH');
+          if(proof.status!=='CONNECTED') throw new Error('GEN2_32_REAL_PROVIDER_NOT_CONNECTED');
+          if(proof.health!=='CHECKED') throw new Error('GEN2_32_REAL_PROVIDER_HEALTH_NOT_CHECKED');
+          if(proof.auth_verified!==true) throw new Error('GEN2_32_REAL_PROVIDER_AUTH_NOT_VERIFIED');
+          if(!Array.isArray(proof.capabilities) || proof.capabilities.length<3) throw new Error('GEN2_32_CAPABILITIES_MISSING');
+          NODE
