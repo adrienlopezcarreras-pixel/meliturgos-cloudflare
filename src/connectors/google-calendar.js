@@ -8,8 +8,15 @@ export const definition = Object.freeze({
     "GOOGLE_CALENDAR_ACCESS_TOKEN"
   ],
   "capabilities": [
-    "calendar.events.read"
-  ]
+    "calendar.events.read",
+    "calendar.events.create",
+    "calendar.events.update",
+    "calendar.events.delete"
+  ],
+  "oauth_scopes": {
+    "read": "https://www.googleapis.com/auth/calendar.events.readonly",
+    "write": "https://www.googleapis.com/auth/calendar.events"
+  }
 });
-// TODO implement bounded read adapter via CapabilityBus; OAuth grant is external.
+// Runtime execution is registered through CapabilityBus. Mutations require exact owner approval.
 export const createConnector = options => new Connector(definition,options);
