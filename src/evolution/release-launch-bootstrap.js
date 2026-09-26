@@ -16,9 +16,10 @@ import { createD1AgentAutomationPolicyAdapter } from '../automations/d1-agent-au
 import { createAgentAutomationPolicy, PERMISSION_TIERS } from '../automations/agent-automation-policy.js';
 import { createProviderNeutralManifest } from '../portability/provider-neutral-manifest.js';
 import { createProviderEscapeCapsule, providerEscapeSummary, validateProviderEscapeCapsule } from '../portability/provider-escape-capsule.js';
+import { boundRecentMessages, compileHistoricalDecisionCapsule, buildContext } from '../core/orchestrator/context-builder.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof']);
+const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -425,6 +426,101 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     }, { status: ok ? 200 : 500, headers: { 'cache-control': 'no-store' } });
   }
 
+
+
+  if (phase === 'long-context-proof') {
+    if (!env?.DB || typeof env.DB.prepare !== 'function') {
+      return Response.json({ ok: false, code: 'D1_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    const deployedSha = exactDeployedSha(env);
+    if (!/^[0-9a-f]{40}$/.test(deployedSha)) {
+      return Response.json({ ok: false, code: 'DEPLOYED_SHA_INVALID' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+
+    const candidatesResult = await env.DB.prepare(`
+      SELECT conversation_id,
+             COUNT(*) AS message_count,
+             SUM(LENGTH(COALESCE(content,''))) AS total_chars
+      FROM archive_messages
+      WHERE role IN ('user','assistant')
+        AND LENGTH(TRIM(COALESCE(content,''))) > 0
+      GROUP BY conversation_id
+      HAVING COUNT(*) >= 12 AND SUM(LENGTH(COALESCE(content,''))) > 65000
+      ORDER BY total_chars DESC
+      LIMIT 20
+    `).all();
+    const candidates = candidatesResult?.results || [];
+
+    let selected = null;
+    for (const candidate of candidates) {
+      const rowsResult = await env.DB.prepare(`
+        SELECT role,content,timestamp,id
+        FROM archive_messages
+        WHERE conversation_id=? AND role IN ('user','assistant')
+        ORDER BY timestamp ASC,id ASC
+        LIMIT 1000
+      `).bind(candidate.conversation_id).all();
+      const recent = (rowsResult?.results || []).map(row => ({
+        role: row.role,
+        content: String(row.content || ''),
+      }));
+      const bounded = boundRecentMessages(recent);
+      if (bounded.omitted < 1) continue;
+      const capsule = compileHistoricalDecisionCapsule(bounded.decision_source_messages);
+      if (!capsule.anchors.length) continue;
+
+      const current = 'continue la validation du contexte long';
+      const context = buildContext({
+        system: 'MEL production long-context proof',
+        recent,
+        current,
+      });
+      const systemText = String(context?.[0]?.content || '');
+      const currentMessage = context?.at?.(-1);
+      const anchorPreserved = capsule.anchors.some(anchor =>
+        anchor?.content && systemText.includes(anchor.content)
+      );
+      const currentPreserved = currentMessage?.role === 'user' && currentMessage?.content === current;
+      if (!anchorPreserved || !currentPreserved) continue;
+
+      const digest = async value => {
+        const raw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
+        return [...new Uint8Array(raw)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+      };
+
+      selected = {
+        source_key_sha256: await digest(candidate.conversation_id),
+        message_count: recent.length,
+        total_chars: recent.reduce((sum,row)=>sum+row.content.length,0),
+        active_message_count: bounded.messages.length,
+        omitted_message_count: bounded.omitted,
+        decision_anchor_count: capsule.anchors.length,
+        decision_capsule_chars: capsule.chars,
+        anchor_preserved: true,
+        current_turn_preserved_exactly: true,
+      };
+      break;
+    }
+
+    const ok = Boolean(selected)
+      && selected.total_chars > 65000
+      && selected.omitted_message_count > 0
+      && selected.decision_anchor_count > 0
+      && selected.anchor_preserved === true
+      && selected.current_turn_preserved_exactly === true;
+
+    return Response.json({
+      ok,
+      status: ok ? 'MEL_CONTEXT_02_REAL_LONG_CONVERSATION_VERIFIED' : 'MEL_CONTEXT_02_REAL_LONG_CONVERSATION_NOT_FOUND',
+      phase,
+      deployed_sha: deployedSha,
+      proof: selected,
+      candidate_long_conversations: candidates.length,
+      private_content_returned: false,
+      autonomy_started: false,
+      owner_launch_required: true,
+    }, { status: ok ? 200 : 409, headers: { 'cache-control': 'no-store' } });
+  }
 
   if (phase === 'provider-escape-proof') {
     if (!env?.DB || typeof env.DB.prepare !== 'function') {
