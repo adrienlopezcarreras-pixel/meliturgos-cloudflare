@@ -203,6 +203,16 @@ static void set_display_results(const MelChatReply &reply) {
     g_display_items = reply.display_items;
     g_display_title = reply.display_title;
     g_display_index = 0;
+    if (g_answer && lvgl_port_lock(1000)) {
+        if (g_display_items.empty()) {
+            lv_obj_set_height(g_answer, 74);
+            lv_obj_align(g_answer, LV_ALIGN_BOTTOM_MID, 0, -84);
+        } else {
+            lv_obj_set_height(g_answer, 132);
+            lv_obj_align(g_answer, LV_ALIGN_BOTTOM_MID, 0, -84);
+        }
+        lvgl_port_unlock();
+    }
 }
 
 static void ui_show_display_source(size_t index) {
