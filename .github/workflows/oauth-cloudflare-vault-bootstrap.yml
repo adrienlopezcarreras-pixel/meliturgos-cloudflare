@@ -1,0 +1,36 @@
+name: oauth-cloudflare-vault-bootstrap
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap-vault-secrets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Generate and install OAuth vault secrets
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          KEY_ID="mel-oauth-v1"
+          KEY_B64="$(openssl rand -base64 32 | tr -d '\n')"
+          printf '%s' "$KEY_ID" | npx wrangler secret put MEL_OAUTH_ENCRYPTION_KEY_ID
+          printf '%s' "$KEY_B64" | npx wrangler secret put MEL_OAUTH_ENCRYPTION_KEY_B64
+          unset KEY_B64
+          echo "OAuth vault secrets installed."
