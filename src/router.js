@@ -1,5 +1,7 @@
 import { conversationRoutes } from "./api/routes/conversations.js";
 import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
+import { approvedCapabilitiesFromRequest } from "./security/approval-gates.js";
+import { maybeHandleGoogleOAuthApi } from "./api/google-oauth-api.js";
 import { json, html } from "./core/http.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
@@ -37,10 +39,11 @@ const RELEASE_SMOKE_CAPABILITY_ALLOWLIST = Object.freeze([
   "model.council",
 ]);
 
-function capabilityContext(env) {
+function capabilityContext(env, request = null) {
   return {
     owner: env.MELITURGOS_USER || "owner",
     permissions: env.CAPABILITY_PERMISSIONS || [],
+    approvedCapabilities: request ? approvedCapabilitiesFromRequest(request) : [],
     requestId: crypto.randomUUID()
   };
 }
@@ -61,6 +64,9 @@ async function codeSelfCheck(env) {
 
 async function handleConversationApi(request, env, url = new URL(request.url)) {
   const path = url.pathname;
+
+  const googleOAuthResponse = await maybeHandleGoogleOAuthApi(request, env, url);
+  if (googleOAuthResponse) return googleOAuthResponse;
 
   if (path === "/api/gen2/roadmap" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });
@@ -214,7 +220,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
       }, 403);
     }
     const runtime = createGen2Runtime({ env });
-    const result = await runtime.bus.execute(String(body.id), body.input || {}, capabilityContext(env));
+    const result = await runtime.bus.execute(String(body.id), body.input || {}, capabilityContext(env, request));
     return json({ ok: true, capability: body.id, result });
   }
 
