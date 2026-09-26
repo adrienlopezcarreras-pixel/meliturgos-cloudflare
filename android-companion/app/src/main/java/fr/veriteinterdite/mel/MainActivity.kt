@@ -138,6 +138,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var client: MelApiClient
     private lateinit var vault: TokenVault
     private lateinit var model: MelViewModel
+    private lateinit var wakePhraseStore: WakePhraseProfileStore
     private var recorder: MediaRecorder? = null
     private var recordingFile: File? = null
     private var recordingMimeType: String = "audio/mp4"
@@ -147,12 +148,16 @@ class MainActivity : ComponentActivity() {
     private var wakeListening = false
     private val wakeWordContinuousEnabled = false // disabled until a silent hotword engine is available
     private var pushToTalkHeld = false
+    private var pendingWakeEnrollment = false
     private var appResumed = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val recording = mutableStateOf(false)
     private val voiceLevel = mutableStateOf(0f)
     private val voiceMessage = mutableStateOf("Micro prêt")
     private val cameraPhoto = mutableStateOf<Bitmap?>(null)
+    private val wakeEnrollmentCount = mutableStateOf(0)
+    private val wakeEnrollmentActive = mutableStateOf(false)
+    private val wakeEnrolled = mutableStateOf(false)
 
     private val bluetoothPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -170,9 +175,14 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            if (pushToTalkHeld) startPushToTalkRecording() else ensureWakeWordListening()
+            if (pendingWakeEnrollment) {
+                pendingWakeEnrollment = false
+                captureWakeEnrollmentSample()
+            } else if (pushToTalkHeld) startPushToTalkRecording() else ensureWakeWordListening()
         } else {
             pushToTalkHeld = false
+            pendingWakeEnrollment = false
+            wakeEnrollmentActive.value = false
             voiceMessage.value = "Permission micro refusée"
         }
     }
@@ -213,6 +223,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         vault = TokenVault(this)
+        wakePhraseStore = WakePhraseProfileStore(this)
+        wakeEnrollmentCount.value = wakePhraseStore.sampleCount()
+        wakeEnrolled.value = wakePhraseStore.isEnrolled()
         MelVoicePlayer.initialize(this)
         client = MelApiClient(BuildConfig.MEL_BASE_URL, deviceId(), vault)
         val factory = MelViewModel.factory(this, client, vault, conversationId)
@@ -263,7 +276,12 @@ class MainActivity : ComponentActivity() {
                     onSendCamera = ::sendCameraPhoto,
                     onRefreshCompanions = model::refreshCompanions,
                     onConnectMini = { ensureMobileBridge(true) },
-                    onMiniPairCode = model::requestMiniPairCode
+                    onMiniPairCode = model::requestMiniPairCode,
+                    wakeEnrollmentCount = wakeEnrollmentCount.value,
+                    wakeEnrollmentActive = wakeEnrollmentActive.value,
+                    wakeEnrolled = wakeEnrolled.value,
+                    onWakeEnroll = ::startWakeEnrollment,
+                    onWakeReset = ::resetWakeEnrollment
                 )
             }
         }
@@ -442,6 +460,59 @@ class MainActivity : ComponentActivity() {
         }
         MelBackground.showBackgroundEnabled(this)
         voiceMessage.value = "Notifications MEL activées"
+    }
+
+    private fun startWakeEnrollment() {
+        if (wakeEnrollmentActive.value || recording.value) return
+        if (wakeEnrolled.value) {
+            voiceMessage.value = "OK MEL déjà appris · réinitialise pour recommencer"
+            return
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            pendingWakeEnrollment = true
+            microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        captureWakeEnrollmentSample()
+    }
+
+    private fun captureWakeEnrollmentSample() {
+        if (wakeEnrollmentActive.value || recording.value) return
+        stopWakeWordListening()
+        stopSpeechQuietly()
+        wakeEnrollmentActive.value = true
+        val next = (wakeEnrollmentCount.value + 1).coerceAtMost(WakePhraseTrainer.REQUIRED_SAMPLES)
+        voiceMessage.value = "Dis « OK MEL » maintenant · prise $next/${WakePhraseTrainer.REQUIRED_SAMPLES}"
+        WakePhraseTrainer.captureAsync { result ->
+            runOnUiThread {
+                wakeEnrollmentActive.value = false
+                result.onSuccess { vector ->
+                    val state = wakePhraseStore.addSample(vector)
+                    wakeEnrollmentCount.value = state.sampleCount
+                    wakeEnrolled.value = state.enrolled
+                    if (state.enrolled) {
+                        voiceMessage.value = "OK MEL appris · synchronisation MINI…"
+                        ensureMobileBridge(true)
+                    } else {
+                        voiceMessage.value = "OK MEL enregistré · ${state.sampleCount}/${WakePhraseTrainer.REQUIRED_SAMPLES}"
+                    }
+                }.onFailure { error ->
+                    voiceMessage.value = when (error.message) {
+                        "WAKE_PHRASE_TOO_QUIET", "WAKE_PHRASE_NOT_HEARD" -> "Je n’ai pas assez entendu · recommence OK MEL"
+                        else -> "Échec apprentissage OK MEL · ${error.message ?: "micro"}"
+                    }
+                }
+            }
+        }
+    }
+
+    private fun resetWakeEnrollment() {
+        if (wakeEnrollmentActive.value) return
+        wakePhraseStore.resetEnrollment()
+        wakeEnrollmentCount.value = 0
+        wakeEnrolled.value = false
+        voiceMessage.value = "Apprentissage OK MEL réinitialisé"
+        ensureMobileBridge(true)
     }
 
     private fun beginPushToTalk() {
@@ -1187,7 +1258,12 @@ internal fun MelApp(
     onSendCamera: () -> Unit = {},
     onRefreshCompanions: () -> Unit = {},
     onConnectMini: () -> Unit = {},
-    onMiniPairCode: (String, String) -> Unit = { _, _ -> }
+    onMiniPairCode: (String, String) -> Unit = { _, _ -> },
+    wakeEnrollmentCount: Int = 0,
+    wakeEnrollmentActive: Boolean = false,
+    wakeEnrolled: Boolean = false,
+    onWakeEnroll: () -> Unit = {},
+    onWakeReset: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -1232,7 +1308,12 @@ internal fun MelApp(
                 onSendCamera = onSendCamera,
                 onRefreshCompanions = onRefreshCompanions,
                 onConnectMini = onConnectMini,
-                onMiniPairCode = onMiniPairCode
+                onMiniPairCode = onMiniPairCode,
+                wakeEnrollmentCount = wakeEnrollmentCount,
+                wakeEnrollmentActive = wakeEnrollmentActive,
+                wakeEnrolled = wakeEnrolled,
+                onWakeEnroll = onWakeEnroll,
+                onWakeReset = onWakeReset
             )
         }
     }
@@ -1606,7 +1687,12 @@ private fun ConversationScreen(
     onSendCamera: () -> Unit,
     onRefreshCompanions: () -> Unit,
     onConnectMini: () -> Unit,
-    onMiniPairCode: (String, String) -> Unit
+    onMiniPairCode: (String, String) -> Unit,
+    wakeEnrollmentCount: Int,
+    wakeEnrollmentActive: Boolean,
+    wakeEnrolled: Boolean,
+    onWakeEnroll: () -> Unit,
+    onWakeReset: () -> Unit
 ) {
     var section by rememberSaveable { mutableStateOf(MobileSection.MEL) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
@@ -1715,7 +1801,12 @@ private fun ConversationScreen(
                 onClose = { settingsOpen = false },
                 onMode = onMode,
                 onSelect = { section = it },
-                onDisconnect = onDisconnect
+                onDisconnect = onDisconnect,
+                wakeEnrollmentCount = wakeEnrollmentCount,
+                wakeEnrollmentActive = wakeEnrollmentActive,
+                wakeEnrolled = wakeEnrolled,
+                onWakeEnroll = onWakeEnroll,
+                onWakeReset = onWakeReset
             )
         }
     }
@@ -1827,7 +1918,12 @@ private fun MiniSettingsPanel(
     onClose: () -> Unit,
     onMode: (MelMode) -> Unit,
     onSelect: (MobileSection) -> Unit,
-    onDisconnect: () -> Unit
+    onDisconnect: () -> Unit,
+    wakeEnrollmentCount: Int,
+    wakeEnrollmentActive: Boolean,
+    wakeEnrolled: Boolean,
+    onWakeEnroll: () -> Unit,
+    onWakeReset: () -> Unit
 ) {
     Surface(
         modifier = modifier
@@ -1860,6 +1956,26 @@ private fun MiniSettingsPanel(
             SettingsAction("Clavier / Chat", "⌨", "settings-keyboard") { onSelect(MobileSection.KEYBOARD) }
             SettingsAction("Caméra", "◉", "settings-camera") { onSelect(MobileSection.CAMERA) }
             SettingsAction("Compagnon MINI", "◇", "settings-companion") { onSelect(MobileSection.COMPANION) }
+            SettingsAction(
+                label = when {
+                    wakeEnrolled -> "OK MEL appris · 6/6"
+                    wakeEnrollmentActive -> "Écoute OK MEL… ${wakeEnrollmentCount + 1}/6"
+                    else -> "Enregistrer OK MEL · $wakeEnrollmentCount/6"
+                },
+                symbol = "◎",
+                tag = "settings-wake-enroll",
+                accent = if (wakeEnrolled) MelSuccess else MelCyan,
+                enabled = !wakeEnrollmentActive && !wakeEnrolled
+            ) { onWakeEnroll() }
+            if (wakeEnrolled || wakeEnrollmentCount > 0) {
+                SettingsAction(
+                    "Réinitialiser OK MEL",
+                    "↻",
+                    "settings-wake-reset",
+                    MelViolet,
+                    enabled = !wakeEnrollmentActive
+                ) { onWakeReset() }
+            }
             SettingsAction("Tests / Outils", "⌁", "settings-tools") { onSelect(MobileSection.TOOLS) }
             SettingsAction(
                 if (state.mode == MelMode.COMPLETE) "Passer en mode Normal" else "Activer le mode Complet",
@@ -1881,10 +1997,12 @@ private fun SettingsAction(
     symbol: String,
     tag: String,
     accent: Color = MelCyan,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     OutlinedButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier.fillMaxWidth().height(50.dp).testTag(tag),
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, accent.copy(alpha = .42f))
