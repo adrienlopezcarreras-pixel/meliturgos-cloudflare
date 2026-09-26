@@ -12,7 +12,8 @@ export const COMPUTER_ROUTES=Object.freeze({
  resume:"/api/computer/v1/resume",
  installer:"/api/computer/v1/installer",
  companion:"/api/computer/v1/companion",
- screenshot:"/api/computer/v1/screenshot"
+ screenshot:"/api/computer/v1/screenshot",
+ power:"/api/computer/v1/power"
 });
 const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome"];
 const PAIR_TTL_MS=10*60*1000;
@@ -101,6 +102,24 @@ async function ownerCommand(request,env){
 
 async function ownerHalt(request,env,halted){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);await env.DB.prepare("UPDATE computer_devices SET halted=? WHERE id=?").bind(halted?1:0,id).run();const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=?").bind(id).first();return row?json({ok:true,computer:normalizeDevice(row)}):json({ok:false,code:"COMPUTER_NOT_FOUND"},404)}
 
+async function ownerPower(request,env){
+ const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
+ const b=await request.json().catch(()=>({}));
+ const id=safe(b.computer_id),action=safe(b.action,64),confirmation=safe(b.confirmation,128);
+ if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
+ if(!["power.off","power.restart"].includes(action))return json({ok:false,code:"POWER_ACTION_INVALID"},400);
+ const expected=action==="power.off"?"POWER_OFF_APPROVED":"POWER_RESTART_APPROVED";
+ if(confirmation!==expected)return json({ok:false,code:"OWNER_CONFIRMATION_REQUIRED"},403);
+ const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
+ const device=normalizeDevice(row);
+ if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
+ if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"POWER_PLATFORM_UNSUPPORTED"},409);
+ const session=crypto.randomUUID(),cid=crypto.randomUUID();
+ const plan={schema:"mel.devices.power-command.v1",owner_approved:true,steps:[{id:"power-1",action}]};
+ await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)").bind(cid,device.id,session,JSON.stringify(plan),"PENDING",Date.now()).run();
+ return json({ok:true,command_id:cid,status:"PENDING",action,owner_approved:true},202);
+}
+
 async function ownerRevoke(request,env){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);const row=await env.DB.prepare("SELECT id FROM computer_devices WHERE id=?").bind(id).first();if(!row)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);await env.DB.prepare("DELETE FROM computer_commands WHERE device_id=?").bind(id).run();await env.DB.prepare("DELETE FROM computer_devices WHERE id=?").bind(id).run();return json({ok:true,computer_id:id,revoked:true})}
 
 async function asset(request,env,name,{allowDevice=false}={}){const owner=requireAuth(request,env);if(!owner.ok){if(!allowDevice)return owner.response;const device=await authDevice(request,env);if(!device.ok)return device.response}if(!env?.ASSETS?.fetch)return json({ok:false,code:"ASSETS_BINDING_UNAVAILABLE"},503);const u=new URL("/"+name,request.url);const r=await env.ASSETS.fetch(new Request(u.toString(),{method:"GET"}));if(!r.ok)return json({ok:false,code:"ASSET_NOT_FOUND"},404);const h=new Headers(r.headers);h.set("content-type","text/plain; charset=utf-8");h.set("content-disposition",`attachment; filename="${name}"`);h.set("cache-control","no-store");return new Response(r.body,{status:200,headers:h})}
@@ -121,6 +140,7 @@ export async function maybeHandleComputerApi(request,env){
  if(url.pathname===COMPUTER_ROUTES.commands&&request.method==="POST")return ownerCommand(request,env);
  if(url.pathname===COMPUTER_ROUTES.halt&&request.method==="POST")return ownerHalt(request,env,true);
  if(url.pathname===COMPUTER_ROUTES.resume&&request.method==="POST")return ownerHalt(request,env,false);
+ if(url.pathname===COMPUTER_ROUTES.power&&request.method==="POST")return ownerPower(request,env);
  if(url.pathname===COMPUTER_ROUTES.installer&&request.method==="GET")return asset(request,env,"MEL-Computer-Setup.ps1");
  if(url.pathname===COMPUTER_ROUTES.companion&&request.method==="GET")return asset(request,env,"MEL-Computer-Companion.ps1",{allowDevice:true});
  if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="GET")return screenshotView(request,env,url);
