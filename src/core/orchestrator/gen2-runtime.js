@@ -14,6 +14,7 @@ import { registerMemoryCompatibilityCapabilities } from '../../capabilities/memo
 import { registerSelfStateCapability } from '../../capabilities/self-state-capability.js';
 import { registerCommunicationAuditCapability } from '../../capabilities/communication-audit-capability.js';
 import { registerKnowledgeWorkspaceCapabilities } from '../../capabilities/knowledge-workspace-capabilities.js';
+import { registerEvolutionLedgerCapabilities } from '../../capabilities/evolution-ledger-capabilities.js';
 import { registerRecoveryDrillCapability } from '../../capabilities/recovery-drill-capability.js';
 import { registerColdStandbyCapability } from '../../capabilities/cold-standby-capability.js';
 import { validateManifest } from '../../plugins/validator.js';
@@ -76,6 +77,7 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
   registerSelfStateCapability(bus, env);
   registerCommunicationAuditCapability(bus, env);
   registerKnowledgeWorkspaceCapabilities(bus, env);
+  registerEvolutionLedgerCapabilities(bus, env);
   registerRecoveryDrillCapability(bus, env);
   registerColdStandbyCapability(bus, env);
   const plugins = new Map();
