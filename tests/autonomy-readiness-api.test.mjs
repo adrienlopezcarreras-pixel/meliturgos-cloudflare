@@ -6,6 +6,9 @@ import { maybeHandleAutonomyApi } from '../src/evolution/autonomy-api.js';
 const auth = `Basic ${Buffer.from('test:pw').toString('base64')}`;
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
+const TEST_ROADMAP = Object.freeze([
+  { id: 'TEST-READY-01', title: 'Synthetic readiness autonomy', status: 'IN_PROGRESS', next: 'test', priority: 'P0' },
+]);
 
 function fixture() {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
@@ -35,7 +38,7 @@ test('/api/gen2/autonomy/status is an authenticated alias with evidence-based re
   const response = await maybeHandleAutonomyApi(
     new Request('http://mel/api/gen2/autonomy/status', { headers: { authorization: auth } }),
     f.env,
-    { repository: f.repository, fetchImpl: f.fetchImpl },
+    { repository: f.repository, fetchImpl: f.fetchImpl, roadmap: TEST_ROADMAP },
   );
   assert.equal(response.status, 200);
   const body = await response.json();
@@ -50,7 +53,7 @@ test('manual tick records the one-time Work DAG runtime proof and reports that g
   const response = await maybeHandleAutonomyApi(
     new Request('http://mel/api/gen2/autonomy/tick', { method: 'POST', headers: { authorization: auth } }),
     f.env,
-    { repository: f.repository, fetchImpl: f.fetchImpl },
+    { repository: f.repository, fetchImpl: f.fetchImpl, roadmap: TEST_ROADMAP },
   );
   assert.equal(response.status, 200);
   const body = await response.json();
