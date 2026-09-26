@@ -121,7 +121,7 @@ async function mirrorTeacherImmediately({ env, repo, job, state, fetchImpl = fet
   return { status: 'SKIPPED_UNSUPERVISED_REQUESTER', requested_by: job.requested_by || null };
 }
 
-export function devRuntime(request, env, { repository = null, bridgeRepository = null } = {}) {
+export function devRuntime(request, env, { repository = null, bridgeRepository = null, roadmap = null } = {}) {
   const url = new URL(request.url);
   const path = url.pathname;
   if (!path.startsWith('/api/professor/dev') && !path.startsWith('/api/dev-bridge')) return null;
@@ -154,7 +154,7 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
     }
 
     if (path === '/api/professor/dev/autonomy/status' && request.method === 'GET') {
-      const supervisor = new AutonomySupervisor({ repository: repo });
+      const supervisor = new AutonomySupervisor({ repository: repo, ...(roadmap ? { roadmap } : {}) });
       const state = await supervisor.state();
       return Response.json({
         ok: true,
@@ -193,7 +193,7 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
     }
 
     if (path === '/api/dev-bridge/autonomy/next' && request.method === 'POST') {
-      const supervisor = new AutonomySupervisor({ repository: repo });
+      const supervisor = new AutonomySupervisor({ repository: repo, ...(roadmap ? { roadmap } : {}) });
       const result = await supervisor.ensureNextJob();
       return Response.json({ ok: true, ...result });
     }

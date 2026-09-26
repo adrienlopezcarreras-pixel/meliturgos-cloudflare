@@ -8,7 +8,11 @@ process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
 
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
-const FIRST_AUTONOMY_ID = selectNextAutonomyItem()?.id;
+const TEST_ROADMAP = Object.freeze([
+  { id: 'TEST-API-01', title: 'Synthetic API autonomy 1', status: 'IN_PROGRESS', next: 'test', priority: 'P0' },
+  { id: 'TEST-API-02', title: 'Synthetic API autonomy 2', status: 'PLANNED', next: 'test', priority: 'P0' },
+]);
+const FIRST_AUTONOMY_ID = selectNextAutonomyItem({ roadmap: TEST_ROADMAP })?.id;
 
 function authHeader(user = 'test', password = 'pw') {
   return `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`;
@@ -50,7 +54,7 @@ test('autonomy operator API is authenticated', async () => {
   const response = await maybeHandleAutonomyApi(
     new Request('http://mel/api/gen2/autonomy/state'),
     f.env,
-    { repository: f.repository, fetchImpl: f.fetchImpl },
+    { repository: f.repository, fetchImpl: f.fetchImpl, roadmap: TEST_ROADMAP },
   );
   assert.equal(response.status, 401);
   assert.equal((await response.json()).code, 'AUTH_REQUIRED');
@@ -67,7 +71,7 @@ test('autonomy state reports canonical candidate/deployed branches and lifecycle
   const response = await maybeHandleAutonomyApi(
     new Request('http://mel/api/gen2/autonomy/state', { headers: { authorization: authHeader() } }),
     f.env,
-    { repository: f.repository, fetchImpl: f.fetchImpl },
+    { repository: f.repository, fetchImpl: f.fetchImpl, roadmap: TEST_ROADMAP },
   );
   assert.equal(response.status, 200);
   const body = await response.json();
@@ -84,7 +88,7 @@ test('manual autonomy tick executes the same Council-first heartbeat and returns
   const response = await maybeHandleAutonomyApi(
     new Request('http://mel/api/gen2/autonomy/tick', { method: 'POST', headers: { authorization: authHeader() } }),
     f.env,
-    { repository: f.repository, fetchImpl: f.fetchImpl },
+    { repository: f.repository, fetchImpl: f.fetchImpl, roadmap: TEST_ROADMAP },
   );
   assert.equal(response.status, 200);
   const body = await response.json();
@@ -103,13 +107,13 @@ test('autonomy routes enforce method contracts', async () => {
   const wrongState = await maybeHandleAutonomyApi(
     new Request('http://mel/api/gen2/autonomy/state', { method: 'POST', headers: { authorization: authHeader() } }),
     f.env,
-    { repository: f.repository },
+    { repository: f.repository, roadmap: TEST_ROADMAP },
   );
   assert.equal(wrongState.status, 405);
   const wrongTick = await maybeHandleAutonomyApi(
     new Request('http://mel/api/gen2/autonomy/tick', { headers: { authorization: authHeader() } }),
     f.env,
-    { repository: f.repository },
+    { repository: f.repository, roadmap: TEST_ROADMAP },
   );
   assert.equal(wrongTick.status, 405);
 });
