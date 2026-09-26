@@ -227,3 +227,55 @@ test('release bootstrap backend proof drills are durable and replay-safe', async
     DB.close();
   }
 });
+
+
+test('release bootstrap builds a Provider Escape Capsule from production-shaped manifest evidence', async () => {
+  const DB=sqliteD1();
+  try {
+    await DB.prepare(`CREATE TABLE backup_objects (
+      id TEXT PRIMARY KEY,
+      object_key TEXT NOT NULL,
+      metadata_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`).run();
+    await DB.prepare('INSERT INTO backup_objects(id,object_key,metadata_json,created_at) VALUES(?,?,?,?)')
+      .bind(
+        'system-proof',
+        'backups/system/system-proof.json',
+        JSON.stringify({verified:true,encrypted:true,integritySha256:'sha256:'+'a'.repeat(64)}),
+        Date.now(),
+      ).run();
+
+    const env={
+      MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+      DB,
+      MEDIA_BUCKET:{get:async()=>null},
+      AI:{run:async()=>({response:'ok'})},
+      MEL_DEPLOYED_GIT_SHA:'1'.repeat(40),
+      MEL_DEPLOYED_GIT_BRANCH:'release/test',
+    };
+    const response=await maybeHandleReleaseLaunchBootstrap(
+      new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+        method:'POST',
+        headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+        body:JSON.stringify({phase:'provider-escape-proof'}),
+      }),
+      env,
+    );
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.ok,true);
+    assert.equal(body.status,'MEL_RES_03_PRODUCTION_MANIFEST_VERIFIED');
+    assert.equal(body.backup_id,'system-proof');
+    assert.equal(body.backup_verified,true);
+    assert.equal(body.backup_encrypted,true);
+    assert.equal(body.ready_to_escape,true);
+    assert.deepEqual(body.ready_layers,['ai','storage','runtime']);
+    assert.ok(body.alternative_adapter_count>=3);
+    assert.equal(body.validation_issue_count,0);
+    assert.equal(body.execution_started,false);
+    assert.equal(body.activation_allowed,false);
+  } finally {
+    DB.close();
+  }
+});
