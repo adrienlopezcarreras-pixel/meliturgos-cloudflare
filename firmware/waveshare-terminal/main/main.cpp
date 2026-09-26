@@ -9,6 +9,7 @@
 #include "esp_io_expander_tca9554.h"
 #include "esp_lvgl_port.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "esp_event.h"
 #include "esp_wifi.h"
 #include "esp_sntp.h"
@@ -26,6 +27,7 @@
 #include "mel_terminal.h"
 #include "mel_mobile_bridge.h"
 #include "mel_avatar_mode_complet.h"
+#include "mini_visual.h"
 
 extern esp_codec_dev_handle_t input_dev;
 extern esp_codec_dev_handle_t output_dev;
@@ -52,6 +54,9 @@ static lv_obj_t *time_label = nullptr;
 static lv_obj_t *answer_label = nullptr;
 static lv_obj_t *face_obj = nullptr;
 static lv_obj_t *avatar_obj = nullptr;
+static uint8_t *visual_pixels = nullptr;
+static lv_img_dsc_t visual_image = {};
+static bool visual_active = false;
 static lv_obj_t *left_eye = nullptr;
 static lv_obj_t *right_eye = nullptr;
 static lv_obj_t *talk_button = nullptr;
@@ -288,6 +293,70 @@ static void mini_wifi_event_diag(void *, esp_event_base_t base, int32_t id, void
     }
 }
 
+bool mini_ui_visual_active() {
+    return visual_active;
+}
+
+void mini_ui_hide_visual() {
+    if (!avatar_obj) return;
+    uint8_t *old_pixels = nullptr;
+    if (lvgl_port_lock(1000)) {
+        if (visual_active) {
+            lv_img_set_src(avatar_obj, &mel_avatar_mode_complet);
+            lv_obj_set_pos(avatar_obj, 0, 0);
+            lv_img_set_zoom(avatar_obj, 256);
+            visual_active = false;
+            old_pixels = visual_pixels;
+            visual_pixels = nullptr;
+            memset(&visual_image, 0, sizeof(visual_image));
+            lv_obj_invalidate(avatar_obj);
+        }
+        lvgl_port_unlock();
+    }
+    if (old_pixels) heap_caps_free(old_pixels);
+}
+
+bool mini_ui_show_rgb565(const uint8_t *pixels, size_t bytes, uint16_t width, uint16_t height) {
+    if (!pixels || !bytes || !avatar_obj || width == 0 || height == 0 || width > 320 || height > 320) return false;
+    const size_t expected = (size_t)width * (size_t)height * 2u;
+    if (bytes != expected) return false;
+
+    auto *copy = static_cast<uint8_t *>(heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!copy) return false;
+    memcpy(copy, pixels, bytes);
+
+    uint8_t *old_pixels = nullptr;
+    bool applied = false;
+    if (lvgl_port_lock(1000)) {
+        old_pixels = visual_pixels;
+        visual_pixels = copy;
+        memset(&visual_image, 0, sizeof(visual_image));
+        visual_image.header.always_zero = 0;
+        visual_image.header.w = width;
+        visual_image.header.h = height;
+        visual_image.header.cf = LV_IMG_CF_TRUE_COLOR;
+        visual_image.data_size = bytes;
+        visual_image.data = visual_pixels;
+        lv_img_set_src(avatar_obj, &visual_image);
+        lv_obj_center(avatar_obj);
+        lv_img_set_zoom(avatar_obj, 256);
+        visual_active = true;
+        lv_obj_invalidate(avatar_obj);
+        lvgl_port_unlock();
+        applied = true;
+    }
+    if (!applied) {
+        heap_caps_free(copy);
+        return false;
+    }
+    if (old_pixels) heap_caps_free(old_pixels);
+    return true;
+}
+
+static void visual_touch_cb(lv_event_t *event) {
+    if (lv_event_get_code(event) == LV_EVENT_CLICKED && visual_active) mini_ui_hide_visual();
+}
+
 static void mini_anim_cb(lv_timer_t *) {
     mini_apply_requested_view();
 
@@ -307,7 +376,7 @@ static void mini_anim_cb(lv_timer_t *) {
 
     // Keep the portrait completely static. Moving the whole photo looked
     // artificial; future animation should use dedicated facial frames instead.
-    if (avatar_obj) {
+    if (avatar_obj && !visual_active) {
         lv_obj_set_x(avatar_obj, 0);
         lv_obj_set_y(avatar_obj, 0);
         lv_img_set_zoom(avatar_obj, 256);
@@ -1361,6 +1430,8 @@ static void mini_smoke_ui() {
     avatar_obj = lv_img_create(face_obj);
     lv_img_set_src(avatar_obj, &mel_avatar_mode_complet);
     lv_obj_set_pos(avatar_obj, 0, 0);
+    lv_obj_add_flag(avatar_obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(avatar_obj, visual_touch_cb, LV_EVENT_CLICKED, nullptr);
 
     answer_label = lv_label_create(main_panel);
     lv_label_set_long_mode(answer_label, LV_LABEL_LONG_WRAP);

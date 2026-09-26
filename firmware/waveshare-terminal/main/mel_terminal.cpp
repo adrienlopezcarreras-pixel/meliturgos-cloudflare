@@ -1,5 +1,6 @@
 #include "mel_terminal.h"
 #include "mel_mobile_bridge.h"
+#include "mini_visual.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1428,6 +1429,60 @@ void mel_terminal_test_camera(void) {
     xTaskCreatePinnedToCore(camera_task, "mel_camera_test", 6144, nullptr, 4, nullptr, 0);
 }
 
+static bool ends_with_ci(const std::string &value, const char *suffix) {
+    if (!suffix) return false;
+    const size_t n = strlen(suffix);
+    if (value.size() < n) return false;
+    for (size_t i = 0; i < n; ++i) {
+        const unsigned char a = (unsigned char)value[value.size() - n + i];
+        const unsigned char b = (unsigned char)suffix[i];
+        if (std::tolower(a) != std::tolower(b)) return false;
+    }
+    return true;
+}
+
+static bool show_mimg_file(const std::string &path) {
+    FILE *fp = fopen(path.c_str(), "rb");
+    if (!fp) return false;
+    uint8_t header[12] = {};
+    if (fread(header, 1, sizeof(header), fp) != sizeof(header)) {
+        fclose(fp);
+        return false;
+    }
+    if (memcmp(header, "MIMG", 4) != 0) {
+        fclose(fp);
+        return false;
+    }
+    const uint16_t width = (uint16_t)header[4] | ((uint16_t)header[5] << 8);
+    const uint16_t height = (uint16_t)header[6] | ((uint16_t)header[7] << 8);
+    const uint32_t declared = (uint32_t)header[8] |
+                              ((uint32_t)header[9] << 8) |
+                              ((uint32_t)header[10] << 16) |
+                              ((uint32_t)header[11] << 24);
+    const size_t expected = (size_t)width * (size_t)height * 2u;
+    if (!width || !height || width > 320 || height > 320 || declared != expected || expected > 320u * 320u * 2u) {
+        fclose(fp);
+        return false;
+    }
+
+    auto *pixels = static_cast<uint8_t *>(heap_caps_malloc(expected, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!pixels) pixels = static_cast<uint8_t *>(heap_caps_malloc(expected, MALLOC_CAP_8BIT));
+    if (!pixels) {
+        fclose(fp);
+        return false;
+    }
+    const bool read_ok = fread(pixels, 1, expected, fp) == expected;
+    fclose(fp);
+    const bool shown = read_ok && mini_ui_show_rgb565(pixels, expected, width, height);
+    heap_caps_free(pixels);
+    if (shown) {
+        ESP_LOGI(TAG, "MIMG displayed %ux%u from %s", (unsigned)width, (unsigned)height, path.c_str());
+        ui_status("IMAGE");
+        ui_answer("Touchez l'image pour revenir a MEL.");
+    }
+    return shown;
+}
+
 static std::string safe_asset_name(const char *name) {
     std::string out;
     for (const char *p = name; p && *p && out.size() < 80; ++p) {
@@ -1490,6 +1545,7 @@ static bool download_asset(const std::string &key, const std::string &name) {
             return false;
         }
         ESP_LOGI(TAG, "ASSET MOBILE saved: %s (%u bytes)", path.c_str(), (unsigned)ctx.bytes);
+        if (ends_with_ci(name, ".mimg")) show_mimg_file(path);
         return true;
     }
 
@@ -1522,6 +1578,7 @@ static bool download_asset(const std::string &key, const std::string &name) {
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
     if (!ok) remove(path.c_str());
+    else if (ends_with_ci(name, ".mimg")) show_mimg_file(path);
     return ok;
 }
 
