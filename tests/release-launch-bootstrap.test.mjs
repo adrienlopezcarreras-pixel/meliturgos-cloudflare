@@ -157,6 +157,50 @@ test('release bootstrap rejects unknown phase before running preparation', async
   assert.equal(prepared,false);
 });
 
+test('release bootstrap capability-watch proof requires a real waiting Teacher handoff and never auto-approves', async () => {
+  const request=()=>new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+    method:'POST',
+    headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+    body:JSON.stringify({phase:'capability-watch-proof'}),
+  });
+  const calls=[];
+  const env={MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}};
+  const ok=await maybeHandleReleaseLaunchBootstrap(request(),env,{
+    setControl:async(_db,input)=>{calls.push(input);},
+    proveCapabilityWatch:async()=>({
+      ok:true,
+      status:'GEN2_42_TEACHER_HANDOFF_READY',
+      active_teacher_handoff_count:1,
+      job_id:'ecosystem-watch-live',
+      teacher_request_id:'req-live',
+      candidate_sha:'a'.repeat(40),
+      production_activation_allowed:false,
+      auto_approval_allowed:false,
+    }),
+  });
+  assert.equal(ok.status,200);
+  const body=await ok.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.status,'GEN2_42_TEACHER_HANDOFF_READY');
+  assert.equal(body.job_id,'ecosystem-watch-live');
+  assert.equal(body.teacher_request_id,'req-live');
+  assert.equal(body.production_activation_allowed,false);
+  assert.equal(body.auto_approval_allowed,false);
+  assert.equal(body.autonomy_started,false);
+  assert.equal(calls[0].paused,true);
+
+  const blocked=await maybeHandleReleaseLaunchBootstrap(request(),env,{
+    setControl:async()=>{},
+    proveCapabilityWatch:async()=>({
+      ok:false,
+      status:'GEN2_42_TEACHER_HANDOFF_NOT_READY',
+      active_teacher_handoff_count:0,
+    }),
+  });
+  assert.equal(blocked.status,409);
+  assert.equal((await blocked.json()).ok,false);
+});
+
 test('release bootstrap Skill Registry proof persists, restores, rolls back and is replay-safe', async () => {
   const DB=sqliteD1();
   const env={MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB,MEL_DEPLOYED_GIT_SHA:'e'.repeat(40)};

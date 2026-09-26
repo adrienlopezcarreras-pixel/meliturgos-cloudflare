@@ -345,6 +345,23 @@ jobs:
           NODE
 
 
+          CAPABILITY_WATCH_CODE="$(curl --silent --show-error --max-time 120 \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"capability-watch-proof"}' \
+            --output production-capability-watch-proof.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap")"
+          test "${CAPABILITY_WATCH_CODE}" = "200"
+          node - <<'NODE'
+          const d=require('./production-capability-watch-proof.json');
+          if(d?.ok!==true || d?.status!=='GEN2_42_TEACHER_HANDOFF_READY') throw new Error('GEN2_42_TEACHER_HANDOFF_PROOF_FAILED');
+          if(Number(d?.active_teacher_handoff_count||0)<1 || !d?.job_id || !d?.teacher_request_id) throw new Error('GEN2_42_TEACHER_HANDOFF_MISSING');
+          if(d?.production_activation_allowed!==false || d?.auto_approval_allowed!==false) throw new Error('GEN2_42_PROOF_ESCALATED_PRIVILEGES');
+          console.log('GEN2-42 real production Teacher handoff proof passed.');
+          NODE
+
+
           # Backend roadmap certification drills are authenticated, bounded and idempotent.
           # Execute each phase twice: first materializes the production state, second proves replay/restart safety.
           for PROOF_PHASE in plugin-sdk-proof evolution-ledger-proof agent-automation-proof; do
