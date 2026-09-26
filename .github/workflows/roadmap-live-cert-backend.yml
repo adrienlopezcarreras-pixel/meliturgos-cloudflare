@@ -1,0 +1,143 @@
+name: roadmap-live-cert-backend
+
+on:
+  push:
+    branches:
+      - roadmap/live-cert-backend-20260926
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Read production D1 certification state
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json --command "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name" > tables.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const raw=JSON.parse(fs.readFileSync('tables.json','utf8'));
+          const rows=(Array.isArray(raw)?raw:[raw]).flatMap(x=>Array.isArray(x?.results)?x.results:[]);
+          const names=rows.map(x=>String(x.name||'')).filter(Boolean);
+          const wanted=['plugin_versions','plugin_active_versions','plugin_activation_history','evolution_ledger','agent_registry','agent_automation_policies','stable_eval_watch_state','capability_watch_state','dev_jobs','archive_messages'];
+          console.log(JSON.stringify({tables_present:wanted.filter(x=>names.includes(x)),tables_missing:wanted.filter(x=>!names.includes(x))},null,2));
+          fs.writeFileSync('table-names.txt',names.join('\n'));
+          NODE
+
+          query_if_present() {
+            local table="$1"
+            local sql="$2"
+            if grep -Fxq "$table" table-names.txt; then
+              npx wrangler d1 execute DB --remote --json --command "$sql" > "$table.json"
+            else
+              printf '%s\n' '[]' > "$table.json"
+            fi
+          }
+
+          query_if_present plugin_versions "SELECT plugin_id,version,status,manifest_sha256,artifact_ref,artifact_digest,created_at,updated_at FROM plugin_versions ORDER BY plugin_id,created_at"
+          query_if_present plugin_active_versions "SELECT plugin_id,version,activated_at,previous_version FROM plugin_active_versions ORDER BY plugin_id"
+          query_if_present plugin_activation_history "SELECT sequence,plugin_id,version,action,occurred_at,previous_version FROM plugin_activation_history ORDER BY sequence"
+          query_if_present evolution_ledger "SELECT seq,event_id,evolution_id,stage,status,actor,source_sha,branch,evidence_json,occurred_at,previous_hash,entry_hash FROM evolution_ledger ORDER BY seq"
+          query_if_present agent_registry "SELECT * FROM agent_registry LIMIT 100"
+          query_if_present agent_automation_policies "SELECT * FROM agent_automation_policies LIMIT 100"
+          query_if_present stable_eval_watch_state "SELECT * FROM stable_eval_watch_state LIMIT 20"
+          query_if_present capability_watch_state "SELECT id,updated_at,state_json FROM capability_watch_state ORDER BY id"
+          query_if_present archive_messages "SELECT COUNT(*) AS count, COUNT(DISTINCT conversation_id) AS conversations FROM archive_messages"
+
+      - name: Verify production evidence
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+
+          const rows=(file)=>{
+            const raw=JSON.parse(fs.readFileSync(file,'utf8'));
+            return (Array.isArray(raw)?raw:[raw]).flatMap(x=>Array.isArray(x?.results)?x.results:[]);
+          };
+          const stable=(value)=>{
+            if(value===null||typeof value==='string'||typeof value==='boolean') return value;
+            if(typeof value==='number') return value;
+            if(Array.isArray(value)) return value.map(stable);
+            if(value&&typeof value==='object') return Object.fromEntries(Object.keys(value).sort().filter(k=>value[k]!==undefined).map(k=>[k,stable(value[k])]));
+            return String(value);
+          };
+          const sha=v=>crypto.createHash('sha256').update(typeof v==='string'?v:JSON.stringify(stable(v))).digest('hex');
+
+          const result={schema:'mel.roadmap-live-cert-backend/v1',source_sha:process.env.GITHUB_SHA,checks:{}};
+
+          const pv=rows('plugin_versions.json');
+          const pa=rows('plugin_active_versions.json');
+          const ph=rows('plugin_activation_history.json');
+          const identities=new Set(pv.map(x=>String(x.plugin_id)+'@'+String(x.version)));
+          const activeValid=pa.length>0 && pa.every(x=>identities.has(String(x.plugin_id)+'@'+String(x.version)));
+          const historyValid=ph.length>0 && ph.every((x,i)=>Number(x.sequence)>0 && (!i || Number(x.sequence)>Number(ph[i-1].sequence)));
+          result.checks.plugin_sdk={
+            pass: pv.length>0 && activeValid && historyValid,
+            version_rows:pv.length,
+            active_rows:pa.length,
+            history_rows:ph.length,
+            active_identity_valid:activeValid,
+            ordered_history_valid:historyValid,
+          };
+
+          const ledger=rows('evolution_ledger.json');
+          let prev='GENESIS'; const failures=[];
+          for(const row of ledger){
+            if(String(row.previous_hash)!==prev) failures.push({seq:Number(row.seq),code:'PREVIOUS_HASH_MISMATCH'});
+            let evidence={}; try{evidence=JSON.parse(row.evidence_json||'{}')}catch{failures.push({seq:Number(row.seq),code:'EVIDENCE_JSON_INVALID'})}
+            const body={
+              event_id:String(row.event_id||'').trim().slice(0,220),
+              evolution_id:String(row.evolution_id||'').trim().slice(0,220),
+              stage:String(row.stage||'').trim().slice(0,120),
+              status:String(row.status||'').trim().slice(0,80),
+              actor:String(row.actor||'').trim().slice(0,160),
+              source_sha:String(row.source_sha||'').trim().slice(0,80).toLowerCase(),
+              branch:String(row.branch||'').trim().slice(0,240),
+              evidence:stable(evidence),
+              occurred_at:Number(row.occurred_at||0),
+              previous_hash:String(row.previous_hash||'').trim().slice(0,80)||'GENESIS',
+            };
+            const expected=sha(body);
+            if(expected!==String(row.entry_hash||'')) failures.push({seq:Number(row.seq),code:'ENTRY_HASH_MISMATCH'});
+            prev=String(row.entry_hash||'');
+          }
+          result.checks.evolution_ledger={pass:ledger.length>0&&failures.length===0,count:ledger.length,failures};
+
+          const ar=rows('agent_registry.json');
+          const ap=rows('agent_automation_policies.json');
+          result.checks.agents={pass:ar.length>0&&ap.length>0,registry_rows:ar.length,policy_rows:ap.length};
+
+          const sw=rows('stable_eval_watch_state.json');
+          result.checks.stable_eval={pass:sw.length>0,rows:sw.length};
+
+          const cw=rows('capability_watch_state.json');
+          result.checks.capability_watch={pass:cw.length>0,rows:cw.length};
+
+          const am=rows('archive_messages.json');
+          result.checks.archive={pass:Number(am?.[0]?.count||0)>0,message_count:Number(am?.[0]?.count||0),conversation_count:Number(am?.[0]?.conversations||0)};
+
+          fs.writeFileSync('roadmap-live-cert-backend.json',JSON.stringify(result,null,2));
+          console.log(JSON.stringify(result,null,2));
+          if(!result.checks.evolution_ledger.pass) process.exitCode=2;
+          NODE
+
+      - name: Upload sanitized certification proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: roadmap-live-cert-backend-${{ github.sha }}
+          path: roadmap-live-cert-backend.json
+          if-no-files-found: error
