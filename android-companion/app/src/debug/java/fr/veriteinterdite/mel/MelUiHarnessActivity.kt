@@ -55,7 +55,8 @@ class MelUiHarnessActivity : ComponentActivity() {
                         messages = messages + MelChatMessage("user", text)
                     },
                     onSync = {},
-                    onVoice = {},
+                    onVoicePress = {},
+                    onVoiceRelease = {},
                     onFile = {},
                     onNotifications = {},
                     onDiagnostics = {},

@@ -18,6 +18,8 @@ import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -40,6 +42,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -101,6 +106,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -121,6 +127,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.text.Normalizer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -136,6 +143,11 @@ class MainActivity : ComponentActivity() {
     private var recordingMimeType: String = "audio/mp4"
     private var speechRecognizer: SpeechRecognizer? = null
     private var nativeSpeechListening = false
+    private var wakeRecognizer: SpeechRecognizer? = null
+    private var wakeListening = false
+    private var pushToTalkHeld = false
+    private var appResumed = false
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val recording = mutableStateOf(false)
     private val voiceLevel = mutableStateOf(0f)
     private val voiceMessage = mutableStateOf("Micro prêt")
@@ -156,8 +168,12 @@ class MainActivity : ComponentActivity() {
     private val microphonePermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) startVoice()
-        else voiceMessage.value = "Permission micro refusée"
+        if (granted) {
+            if (pushToTalkHeld) startPushToTalkRecording() else ensureWakeWordListening()
+        } else {
+            pushToTalkHeld = false
+            voiceMessage.value = "Permission micro refusée"
+        }
     }
 
     private val cameraCapture = registerForActivityResult(
@@ -204,13 +220,19 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
-            LaunchedEffect(state.busy, state.error, recording.value) {
+            LaunchedEffect(state.session, state.busy, state.error, recording.value) {
                 if (!state.busy && !recording.value &&
                     (voiceMessage.value.startsWith("Fichier") ||
                         voiceMessage.value.startsWith("Voix") ||
                         voiceMessage.value == "Transcription…")
                 ) {
                     voiceMessage.value = "Micro prêt"
+                }
+                if (state.session == SessionStage.CONNECTED && !state.busy && !recording.value) {
+                    delay(650)
+                    ensureWakeWordListening()
+                } else {
+                    stopWakeWordListening()
                 }
             }
             MelTheme {
@@ -225,7 +247,8 @@ class MainActivity : ComponentActivity() {
                     onMode = model::setMode,
                     onSend = { dispatchCompanionText(it, voice = false) },
                     onSync = model::sync,
-                    onVoice = ::toggleVoice,
+                    onVoicePress = ::beginPushToTalk,
+                    onVoiceRelease = ::endPushToTalk,
                     onFile = ::pickFile,
                     onNotifications = ::enableNotifications,
                     onDiagnostics = model::runDiagnostics,
@@ -245,7 +268,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        appResumed = true
+        if (::model.isInitialized) mainHandler.postDelayed({ ensureWakeWordListening() }, 500L)
+    }
+
+    override fun onPause() {
+        appResumed = false
+        stopWakeWordListening()
+        super.onPause()
+    }
+
     override fun onDestroy() {
+        stopWakeWordListening()
         stopSpeechQuietly()
         stopRecorderQuietly()
         super.onDestroy()
@@ -407,17 +443,11 @@ class MainActivity : ComponentActivity() {
         voiceMessage.value = "Notifications MEL activées"
     }
 
-    private fun toggleVoice() {
-        if (recording.value) {
-            if (nativeSpeechListening) {
-                voiceMessage.value = "Finalisation de la dictée…"
-                runCatching { speechRecognizer?.stopListening() }
-            } else {
-                finishVoice()
-            }
-            return
-        }
+    private fun beginPushToTalk() {
+        pushToTalkHeld = true
+        stopWakeWordListening()
         if (model.state.value.session != SessionStage.CONNECTED) {
+            pushToTalkHeld = false
             voiceMessage.value = "Connecte d’abord le téléphone à MEL"
             return
         }
@@ -425,15 +455,125 @@ class MainActivity : ComponentActivity() {
             microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
+        startPushToTalkRecording()
+    }
+
+    private fun startPushToTalkRecording() {
+        if (!pushToTalkHeld || recording.value) return
         startVoice()
     }
 
+    private fun endPushToTalk() {
+        pushToTalkHeld = false
+        if (!recording.value) {
+            scheduleWakeWordRestart()
+            return
+        }
+        if (nativeSpeechListening) {
+            voiceMessage.value = "Transcription…"
+            runCatching { speechRecognizer?.stopListening() }
+        } else {
+            finishVoice()
+        }
+    }
+
     private fun startVoice() {
+        stopWakeWordListening()
         if (SpeechRecognizer.isRecognitionAvailable(this)) {
             startNativeSpeech()
         } else {
             startRecorderFallback("Reconnaissance Android indisponible · secours serveur")
         }
+    }
+
+    private fun ensureWakeWordListening() {
+        if (!appResumed || wakeListening || recording.value || pushToTalkHeld) return
+        if (!::model.isInitialized || model.state.value.session != SessionStage.CONNECTED) return
+        if (model.state.value.busy || model.state.value.speaking) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) return
+
+        stopWakeWordListening()
+        val recognizer = runCatching { SpeechRecognizer.createOnDeviceSpeechRecognizer(this) }.getOrNull() ?: return
+        wakeRecognizer = recognizer
+        wakeListening = true
+        recognizer.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) = Unit
+            override fun onBeginningOfSpeech() = Unit
+            override fun onRmsChanged(rmsdB: Float) = Unit
+            override fun onBufferReceived(buffer: ByteArray?) = Unit
+            override fun onEndOfSpeech() = Unit
+            override fun onEvent(eventType: Int, params: Bundle?) = Unit
+
+            override fun onError(error: Int) {
+                val current = wakeRecognizer
+                wakeRecognizer = null
+                wakeListening = false
+                runCatching { current?.destroy() }
+                if (error != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) scheduleWakeWordRestart()
+            }
+
+            override fun onResults(results: Bundle?) {
+                val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                if (!handleWakeText(text)) {
+                    stopWakeWordListening()
+                    scheduleWakeWordRestart()
+                }
+            }
+
+            override fun onPartialResults(partialResults: Bundle?) {
+                val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                handleWakeText(text)
+            }
+        })
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.FRENCH.toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, Locale.FRENCH.toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+        }
+        runCatching { recognizer.startListening(intent) }
+            .onFailure {
+                stopWakeWordListening()
+                scheduleWakeWordRestart()
+            }
+    }
+
+    private fun handleWakeText(text: String): Boolean {
+        if (!containsWakePhrase(text)) return false
+        stopWakeWordListening()
+        voiceMessage.value = "Oui ?"
+        mainHandler.postDelayed({
+            if (appResumed && !recording.value && model.state.value.session == SessionStage.CONNECTED) {
+                startVoice()
+            }
+        }, 220L)
+        return true
+    }
+
+    private fun containsWakePhrase(text: String): Boolean {
+        val normalized = Normalizer.normalize(text.lowercase(Locale.FRENCH), Normalizer.Form.NFD)
+            .replace("\\p{M}+".toRegex(), "")
+            .replace(Regex("[^a-z0-9]+"), " ")
+            .trim()
+        return normalized.contains("ok mel") || normalized.contains("okay mel")
+    }
+
+    private fun stopWakeWordListening() {
+        val recognizer = wakeRecognizer
+        wakeRecognizer = null
+        wakeListening = false
+        if (recognizer != null) {
+            runCatching { recognizer.cancel() }
+            runCatching { recognizer.destroy() }
+        }
+    }
+
+    private fun scheduleWakeWordRestart() {
+        mainHandler.postDelayed({ ensureWakeWordListening() }, 700L)
     }
 
     private fun startNativeSpeech() {
@@ -1029,7 +1169,8 @@ internal fun MelApp(
     onMode: (MelMode) -> Unit,
     onSend: (String) -> Unit,
     onSync: () -> Unit,
-    onVoice: () -> Unit,
+    onVoicePress: () -> Unit,
+    onVoiceRelease: () -> Unit,
     onFile: () -> Unit,
     onNotifications: () -> Unit,
     onDiagnostics: () -> Unit,
@@ -1073,7 +1214,8 @@ internal fun MelApp(
                 onMode = onMode,
                 onSend = onSend,
                 onSync = onSync,
-                onVoice = onVoice,
+                onVoicePress = onVoicePress,
+                onVoiceRelease = onVoiceRelease,
                 onFile = onFile,
                 onNotifications = onNotifications,
                 onDiagnostics = onDiagnostics,
@@ -1446,7 +1588,8 @@ private fun ConversationScreen(
     onMode: (MelMode) -> Unit,
     onSend: (String) -> Unit,
     onSync: () -> Unit,
-    onVoice: () -> Unit,
+    onVoicePress: () -> Unit,
+    onVoiceRelease: () -> Unit,
     onFile: () -> Unit,
     onNotifications: () -> Unit,
     onDiagnostics: () -> Unit,
@@ -1501,7 +1644,8 @@ private fun ConversationScreen(
                 voiceLevel = voiceLevel,
                 voiceMessage = voiceMessage,
                 recording = recording,
-                onVoice = onVoice
+                onVoicePress = onVoicePress,
+                onVoiceRelease = onVoiceRelease
             )
             MobileSection.KEYBOARD -> SectionSurface("CLAVIER // CHAT") {
                 KeyboardPanel(
@@ -1516,7 +1660,8 @@ private fun ConversationScreen(
                             onSend(outgoing)
                         }
                     },
-                    onVoice = onVoice,
+                    onVoicePress = onVoicePress,
+                    onVoiceRelease = onVoiceRelease,
                     onFile = onFile,
                     recording = recording,
                     voiceMessage = voiceMessage
@@ -1755,7 +1900,8 @@ private fun MiniHomePanel(
     voiceLevel: Float,
     voiceMessage: String,
     recording: Boolean,
-    onVoice: () -> Unit
+    onVoicePress: () -> Unit,
+    onVoiceRelease: () -> Unit
 ) {
     val accent = when (faceState) {
         MelFaceState.LISTENING -> MelSuccess
@@ -1786,7 +1932,8 @@ private fun MiniHomePanel(
             label = if (recording) "ARRÊTER" else stateLabel,
             accent = accent,
             enabled = !state.busy || recording,
-            onClick = onVoice,
+            onPress = onVoicePress,
+            onRelease = onVoiceRelease,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 145.dp)
@@ -1807,7 +1954,8 @@ private fun ReferenceVoiceButton(
     label: String,
     accent: Color,
     enabled: Boolean,
-    onClick: () -> Unit,
+    onPress: () -> Unit,
+    onRelease: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -1834,9 +1982,19 @@ private fun ReferenceVoiceButton(
             contentAlignment = Alignment.Center
         ) {
             Button(
-                onClick = onClick,
+                onClick = {},
                 enabled = enabled,
-                modifier = Modifier.size(126.dp),
+                modifier = Modifier
+                    .size(126.dp)
+                    .pointerInput(enabled) {
+                        awaitEachGesture {
+                            if (!enabled) return@awaitEachGesture
+                            awaitFirstDown(requireUnconsumed = false)
+                            onPress()
+                            waitForUpOrCancellation()
+                            onRelease()
+                        }
+                    },
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xDA071522),
@@ -2120,7 +2278,8 @@ private fun KeyboardPanel(
     draft: String,
     onDraft: (String) -> Unit,
     onSend: () -> Unit,
-    onVoice: () -> Unit,
+    onVoicePress: () -> Unit,
+    onVoiceRelease: () -> Unit,
     onFile: () -> Unit,
     recording: Boolean,
     voiceMessage: String
@@ -2192,11 +2351,23 @@ private fun KeyboardPanel(
                         shape = RoundedCornerShape(14.dp)
                     ) { Text("Fichier", fontSize = 11.sp) }
                     OutlinedButton(
-                        onClick = onVoice,
-                        modifier = Modifier.weight(.28f).height(46.dp).testTag("micro-button"),
+                        onClick = {},
+                        modifier = Modifier
+                            .weight(.28f)
+                            .height(46.dp)
+                            .testTag("micro-button")
+                            .pointerInput(state.busy, recording) {
+                                awaitEachGesture {
+                                    if (state.busy && !recording) return@awaitEachGesture
+                                    awaitFirstDown(requireUnconsumed = false)
+                                    onVoicePress()
+                                    waitForUpOrCancellation()
+                                    onVoiceRelease()
+                                }
+                            },
                         enabled = !state.busy || recording,
                         shape = RoundedCornerShape(14.dp)
-                    ) { Text(if (recording) "Stop" else "Micro", fontSize = 11.sp) }
+                    ) { Text(if (recording) "Relâche" else "Maintenir", fontSize = 11.sp) }
                     Button(
                         onClick = onSend,
                         modifier = Modifier.weight(.44f).height(46.dp).testTag("send-button"),
