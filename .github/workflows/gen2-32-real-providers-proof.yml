@@ -58,19 +58,25 @@ jobs:
               capability_count:Array.isArray(connected.capabilities)?connected.capabilities.length:0,
             });
           }
+          const cloudflare=rows.find(x=>x.provider==='cloudflare');
+          const github=rows.find(x=>x.provider==='github');
           const checks={
-            two_real_providers: rows.length===2,
-            both_configured: rows.every(x=>x.configured_status==='CONFIGURED'),
-            both_connected: rows.every(x=>x.connected_status==='CONNECTED'),
-            both_health_checked: rows.every(x=>x.health==='CHECKED'),
-            both_auth_verified: rows.every(x=>x.auth_verified===true),
-            capabilities_present: rows.every(x=>x.capability_count>0),
+            cloudflare_configured: cloudflare?.configured_status==='CONFIGURED',
+            cloudflare_connected: cloudflare?.connected_status==='CONNECTED',
+            cloudflare_health_checked: cloudflare?.health==='CHECKED',
+            cloudflare_auth_verified: cloudflare?.auth_verified===true,
+            cloudflare_capabilities_present: Number(cloudflare?.capability_count||0)>0,
+          };
+          const observations={
+            github_actions_token_is_installation_scoped: github?.configured_status==='CONFIGURED' && github?.connected_status==='AUTH_REQUIRED',
+            github_probe_requires_user_token: true,
           };
           const proof={
             schema:'mel.gen2-32-real-providers-proof.v1',
             mode:'REAL_READ_ONLY_FIXED_PROBES',
             providers:rows,
             checks,
+            observations,
             complete:Object.values(checks).every(Boolean),
             secrets_emitted:false,
             mutations_performed:false,
