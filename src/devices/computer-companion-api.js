@@ -210,7 +210,22 @@ async function computerCompanions(env){
  if(androidDevices[0]) visibleDevices.push(androidDevices[0]);
  return json({ok:true,devices:visibleDevices});
 }
-async function heartbeat(request,env,a){const b=await request.json().catch(()=>({}));await env.DB.prepare("UPDATE computer_devices SET last_seen_at=?,metadata=? WHERE id=?").bind(Date.now(),JSON.stringify({version:b.version||null,hostname:b.hostname||null,user:b.user||null,screen:b.screen||null,active_window:b.active_window||null}),a.device.id).run();return json({ok:true,server_time:Date.now()})}
+async function heartbeat(request,env,a){
+ const b=await request.json().catch(()=>({}));
+ const row=await env.DB.prepare("SELECT metadata FROM computer_devices WHERE id=? LIMIT 1").bind(a.device.id).first();
+ let metadata={};try{metadata=JSON.parse(row?.metadata||"{}")}catch{}
+ const patch={};
+ if(b.version!==undefined)patch.version=b.version||null;
+ if(b.engine_version!==undefined)patch.engine_version=b.engine_version||null;
+ if(b.hostname!==undefined)patch.hostname=b.hostname||null;
+ if(b.user!==undefined)patch.user=b.user||null;
+ if(b.screen&&typeof b.screen==="object")patch.screen=b.screen;
+ if(b.active_window!==undefined)patch.active_window=b.active_window||null;
+ metadata={...metadata,...patch};
+ const now=Date.now();
+ await env.DB.prepare("UPDATE computer_devices SET last_seen_at=?,metadata=? WHERE id=?").bind(now,JSON.stringify(metadata),a.device.id).run();
+ return json({ok:true,server_time:now})
+}
 async function claim(env,a){if(a.device.halted)return json({ok:true,halted:true,command:null});const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();if(!r)return json({ok:true,halted:false,command:null});await env.DB.prepare("UPDATE computer_commands SET status=?,claimed_at=? WHERE id=? AND status=?").bind("RUNNING",Date.now(),r.id,"PENDING").run();return json({ok:true,halted:false,command:{id:r.id,session_id:r.session_id,plan:parse(r.plan_json,{})}})}
 async function result(request,env,a){const b=await request.json().catch(()=>({}));const id=safe(b.command_id);await env.DB.prepare("UPDATE computer_commands SET status=?,finished_at=?,result_json=?,error_code=? WHERE id=? AND device_id=?").bind(b.ok===true?"SUCCEEDED":"FAILED",Date.now(),JSON.stringify(b.result??null),b.error_code?safe(b.error_code):null,id,a.device.id).run();return json({ok:true})}
 async function uploadShot(request,env,a,url){if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);const id=safe(url.searchParams.get("command_id"));const bytes=await request.arrayBuffer();if(!bytes.byteLength||bytes.byteLength>5*1024*1024)return json({ok:false,code:"SCREENSHOT_SIZE_INVALID"},413);const key=`computer/screenshots/${a.device.id.replace(/[^A-Za-z0-9_.-]/g,"_")}/${id.replace(/[^A-Za-z0-9_.-]/g,"_")}.png`;await env.MEDIA_BUCKET.put(key,bytes,{httpMetadata:{contentType:"image/png"}});return json({ok:true,key,view_url:`${url.origin}${COMPUTER_API_BASE}/screenshot?key=${encodeURIComponent(key)}`})}
