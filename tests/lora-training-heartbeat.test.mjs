@@ -230,3 +230,12 @@ test('canonical Kaggle GPU workflow allows multi-step QLoRA runtime', async () =
   assert.match(source, /kaggle kernels push[\s\S]*-t 10800/);
   assert.doesNotMatch(source, /kaggle kernels push[\s\S]*-t 120(?:\s|$)/);
 });
+
+test('canonical Kaggle GPU workflow retries one transient cancellation and then fails closed', async () => {
+  const source = await readFile(new URL('../.github/workflows/lora-kaggle-free-gpu.yml', import.meta.url), 'utf8');
+  assert.match(source, /CANCEL_RETRY_USED=0/);
+  assert.match(source, /cancel_acknowledged\|cancel acknowledged/);
+  assert.match(source, /Retrying the same immutable cycle once/);
+  assert.match(source, /CANCEL_RETRY_USED=1/);
+  assert.match(source, /Kaggle GPU run cancelled twice/);
+});
