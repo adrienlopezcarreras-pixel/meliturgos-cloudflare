@@ -1,0 +1,22 @@
+name: mel-device-02-power-control-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/devices/computer-companion-api.js'
+      - 'assets/MEL-Computer-Companion.ps1'
+      - 'dist/MEL-Computer-Companion.ps1'
+      - 'tests/mel-device-02-power-control.test.mjs'
+      - '.github/workflows/mel-device-02-power-control-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  power-control:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node --test tests/mel-device-02-power-control.test.mjs tests/computer-companion-api.test.mjs
