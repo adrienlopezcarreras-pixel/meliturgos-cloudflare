@@ -128,20 +128,21 @@ async function asset(request,env,name,{allowDevice=false}={}){const owner=requir
 async function screenshotView(request,env,url){const a=requireAuth(request,env);if(!a.ok)return a.response;if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);const key=String(url.searchParams.get("key")||"");if(!key.startsWith("computer/screenshots/")||key.includes(".."))return json({ok:false,code:"SCREENSHOT_KEY_INVALID"},400);const o=await env.MEDIA_BUCKET.get(key);if(!o)return json({ok:false,code:"SCREENSHOT_NOT_FOUND"},404);const h=new Headers({"content-type":"image/png","cache-control":"private, max-age=30"});return new Response(o.body,{headers:h})}
 
 async function computerCompanions(env){
+ const now=Date.now();
+ const devices=[];
  try{
    const rows=await env.DB.prepare(`SELECT t.device_id,t.model,t.last_seen_at,t.revoked_at,
      s.payload_json,s.updated_at
      FROM device_tokens t
      LEFT JOIN device_status s ON s.device_id=t.device_id
      ORDER BY t.last_seen_at DESC LIMIT 20`).all();
-   const now=Date.now();
-   return json({ok:true,devices:(rows.results||[]).map(row=>{
+   for(const row of rows.results||[]){
      let status={};try{status=JSON.parse(row.payload_json||"{}")}catch{}
-     const model=safe(row.model,120)||"unknown";
-     const name=safe(status.name,80)||(/android/i.test(model)?"Android":"MINI");
-     return {
-       device_id:row.device_id,name,model,
-       kind:/android/i.test(model)?"android":"mini",
+     devices.push({
+       device_id:row.device_id,
+       name:safe(status.name,80)||"MEL MINI",
+       model:safe(row.model,120)||"waveshare-terminal",
+       kind:"mini",
        online:row.revoked_at==null&&now-Number(row.last_seen_at||0)<30000,
        last_seen_at:Number(row.last_seen_at||0),
        phase:safe(status.phase,40)||null,
@@ -152,9 +153,39 @@ async function computerCompanions(env){
        microphone:status.microphone??null,
        speaker:status.speaker??null,
        live_stream:false
-     };
-   })});
- }catch{return json({ok:true,devices:[]})}
+     });
+   }
+ }catch{}
+ try{
+   const rows=await env.DB.prepare(`SELECT t.device_id,t.name,t.app_version,t.last_seen_at,t.revoked_at,
+     s.payload_json,s.updated_at
+     FROM android_device_tokens t
+     LEFT JOIN android_device_status s ON s.device_id=t.device_id
+     ORDER BY t.last_seen_at DESC LIMIT 20`).all();
+   for(const row of rows.results||[]){
+     let status={};try{status=JSON.parse(row.payload_json||"{}")}catch{}
+     devices.push({
+       device_id:row.device_id,
+       name:safe(row.name,80)||"MEL Android",
+       model:"android-companion",
+       kind:"android",
+       online:row.revoked_at==null&&now-Number(row.last_seen_at||0)<30000,
+       last_seen_at:Number(row.last_seen_at||0),
+       phase:safe(status.phase,40)||null,
+       firmware:safe(row.app_version,80)||safe(status.app_version,80)||null,
+       battery:Number.isFinite(Number(status.battery))?Number(status.battery):null,
+       wifi_rssi:null,
+       camera:status.camera??true,
+       microphone:true,
+       speaker:true,
+       network:safe(status.network,40)||null,
+       charging:status.charging===true,
+       live_stream:false
+     });
+   }
+ }catch{}
+ devices.sort((a,b)=>Number(b.last_seen_at||0)-Number(a.last_seen_at||0));
+ return json({ok:true,devices});
 }
 async function heartbeat(request,env,a){const b=await request.json().catch(()=>({}));await env.DB.prepare("UPDATE computer_devices SET last_seen_at=?,metadata=? WHERE id=?").bind(Date.now(),JSON.stringify({version:b.version||null,hostname:b.hostname||null,user:b.user||null,screen:b.screen||null,active_window:b.active_window||null}),a.device.id).run();return json({ok:true,server_time:Date.now()})}
 async function claim(env,a){if(a.device.halted)return json({ok:true,halted:true,command:null});const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();if(!r)return json({ok:true,halted:false,command:null});await env.DB.prepare("UPDATE computer_commands SET status=?,claimed_at=? WHERE id=? AND status=?").bind("RUNNING",Date.now(),r.id,"PENDING").run();return json({ok:true,halted:false,command:{id:r.id,session_id:r.session_id,plan:parse(r.plan_json,{})}})}
