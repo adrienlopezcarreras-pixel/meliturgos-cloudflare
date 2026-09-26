@@ -1,0 +1,159 @@
+name: mel-evol-06-c000-benchmark-proof
+
+on:
+  push:
+    branches:
+      - proof/mel-evol-06-c000-benchmark-20260926
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    environment: preview
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Download immutable c000 checkpoint
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/c000 artifacts/lora-incoming
+          gh release download mel-lora-kaggle-ab6db29b784e-c000 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'mel-lora-bundle.tar.gz' \
+            --pattern 'kaggle-run.json' \
+            --dir artifacts/c000
+          tar -xzf artifacts/c000/mel-lora-bundle.tar.gz -C artifacts/lora-incoming
+          test -s artifacts/lora-incoming/adapter_model.safetensors
+          test -s artifacts/lora-incoming/adapter_config.json
+          test -s artifacts/lora-incoming/training-evidence.json
+          test -s artifacts/lora-incoming/artifact-evidence.json
+          test -s artifacts/lora-incoming/lora-plan.json
+          sha256sum artifacts/c000/mel-lora-bundle.tar.gz > artifacts/c000/bundle.sha256
+
+      - name: Validate immutable checkpoint provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { assertAdapterArtifact } from './src/learning/lora-plan.js';
+          const dir='artifacts/lora-incoming';
+          const plan=JSON.parse(fs.readFileSync(dir+'/lora-plan.json','utf8'));
+          const artifact=JSON.parse(fs.readFileSync(dir+'/artifact-evidence.json','utf8'));
+          const training=JSON.parse(fs.readFileSync(dir+'/training-evidence.json','utf8'));
+          const run=JSON.parse(fs.readFileSync('artifacts/c000/kaggle-run.json','utf8'));
+          const checked=assertAdapterArtifact(artifact);
+          if(String(training.stage||'')!=='uncensored') throw new Error('KAGGLE_STAGE_NOT_UNCENSORED');
+          if(checked.finetune_id) throw new Error('PREEXISTING_FINETUNE_ID_FORBIDDEN');
+          if(String(training.dataset_digest||'')!==String(plan.dataset_digest||'')) throw new Error('KAGGLE_DATASET_MISMATCH');
+          if(String(training.training_manifest_digest||'').toLowerCase()!==String(plan.training_manifest_digest||'').toLowerCase()) throw new Error('KAGGLE_MANIFEST_MISMATCH');
+          fs.writeFileSync('artifacts/c000/provenance-proof.json',JSON.stringify({
+            status:'KAGGLE_C000_BUNDLE_VERIFIED',
+            release_tag:'mel-lora-kaggle-ab6db29b784e-c000',
+            artifact_digest:checked.digest,
+            source_sha:run.source_sha||null,
+            local_next_stage:run.local_next_stage||null,
+            local_uncensored_gate:run.local_uncensored_gate===true
+          },null,2));
+          console.log(fs.readFileSync('artifacts/c000/provenance-proof.json','utf8'));
+          NODE
+
+      - name: Upload exact c000 adapter to Cloudflare preview fine-tunes
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          node scripts/upload-cloudflare-lora.mjs \
+            --dir artifacts/lora-incoming \
+            --name "mel-kaggle-c000-benchmark-${GITHUB_RUN_ID}"
+
+      - name: Approve exact uploaded c000 artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/approve-lora-artifact.mjs \
+            --dir artifacts/lora-incoming \
+            --approval-id "kaggle-c000-benchmark-${GITHUB_RUN_ID}"
+
+      - name: Derive isolated preview credential
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          PREVIEW_PASSWORD="$(python - <<'PY'
+          import hashlib,hmac,os
+          token=os.environ['CLOUDFLARE_API_TOKEN'].encode()
+          print(hmac.new(token,b'meliturgos-preview-auth-v1',hashlib.sha256).hexdigest())
+          PY
+          )"
+          echo "::add-mask::$PREVIEW_PASSWORD"
+          echo "MEL_PREVIEW_PASSWORD=$PREVIEW_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Benchmark exact c000 checkpoint in isolated preview
+        shell: bash
+        env:
+          MELITURGOS_PASSWORD: ${{ env.MEL_PREVIEW_PASSWORD }}
+          MEL_BASE_URL: "https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+        run: |
+          set -euo pipefail
+          node scripts/finalize-lora.mjs \
+            --dir artifacts/lora-incoming \
+            --url "$MEL_BASE_URL" \
+            --activate false \
+            --allow-not-activated true | tee artifacts/finalize-result.json
+
+      - name: Assert canonical benchmark completed
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const d=JSON.parse(fs.readFileSync('artifacts/finalize-result.json','utf8'));
+          const status=String(d.status||'');
+          const next=String(d.next_stage||'');
+          if(!status) throw new Error('LORA_FINALIZE_STATUS_MISSING');
+          if(status==='TRAINED_UNBENCHMARKED') throw new Error('LORA_STILL_UNBENCHMARKED');
+          const proof={
+            schema:'mel.evol-06-c000-benchmark-proof.v1',
+            release_tag:'mel-lora-kaggle-ab6db29b784e-c000',
+            status,
+            next_stage:next||null,
+            activated:d.activated===true,
+            benchmark:d.benchmark||d.evaluation||null,
+            complete:true
+          };
+          fs.writeFileSync('artifacts/mel-evol-06-c000-benchmark-proof.json',JSON.stringify(proof,null,2));
+          console.log(JSON.stringify(proof,null,2));
+          NODE
+
+      - name: Upload benchmark proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-evol-06-c000-benchmark-proof
+          path: |
+            artifacts/c000/bundle.sha256
+            artifacts/c000/provenance-proof.json
+            artifacts/finalize-result.json
+            artifacts/mel-evol-06-c000-benchmark-proof.json
+          if-no-files-found: warn
+          retention-days: 14
