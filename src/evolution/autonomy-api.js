@@ -220,6 +220,6 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   }
 
   const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap });
-  const state = await getAutonomyState(env, { repository: repo });
+  const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
   return Response.json({ ok: true, tick, state }, { headers: { 'cache-control': 'no-store' } });
 }
