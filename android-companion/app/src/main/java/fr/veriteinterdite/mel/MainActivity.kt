@@ -148,6 +148,7 @@ class MainActivity : ComponentActivity() {
     private var wakeListening = false
     @Volatile private var wakeDetectorStop = false
     private var wakeDetectorThread: Thread? = null
+    private var bargeInThread: Thread? = null
     private var pushToTalkHeld = false
     private var pendingWakeEnrollment = false
     private var appResumed = false
@@ -237,6 +238,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
             LaunchedEffect(state.session, state.busy, state.speaking, state.error, recording.value, voiceConversationActive.value) {
+                if (state.speaking && voiceConversationActive.value && !recording.value) {
+                    startBargeInListening()
+                } else {
+                    stopBargeInListening()
+                }
                 if (!state.busy && !recording.value &&
                     (voiceMessage.value.startsWith("Fichier") ||
                         voiceMessage.value.startsWith("Voix") ||
@@ -313,11 +319,13 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         appResumed = false
         voiceConversationActive.value = false
+        stopBargeInListening()
         stopWakeWordListening()
         super.onPause()
     }
 
     override fun onDestroy() {
+        stopBargeInListening()
         stopWakeWordListening()
         wakeDetectorThread?.interrupt()
         wakeDetectorThread = null
@@ -579,6 +587,39 @@ class MainActivity : ComponentActivity() {
             voiceConversationActive.value = false
             startRecorderFallback("Reconnaissance Android indisponible · secours serveur")
         }
+    }
+
+    private fun startBargeInListening() {
+        if (bargeInThread?.isAlive == true) return
+        if (!appResumed || !voiceConversationActive.value || !model.state.value.speaking || recording.value) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+
+        bargeInThread = MelBargeInDetector.start(
+            shouldContinue = {
+                appResumed && voiceConversationActive.value && model.state.value.speaking && !recording.value
+            },
+            onSpeech = {
+                runOnUiThread {
+                    if (!voiceConversationActive.value || !model.state.value.speaking) return@runOnUiThread
+                    stopBargeInListening()
+                    voiceMessage.value = "Je t’écoute…"
+                    model.interruptSpeechForBargeIn()
+                    mainHandler.postDelayed({
+                        if (voiceConversationActive.value && appResumed && !recording.value &&
+                            !model.state.value.busy && !model.state.value.speaking
+                        ) {
+                            startVoice()
+                        }
+                    }, 140L)
+                }
+            }
+        )
+    }
+
+    private fun stopBargeInListening() {
+        val thread = bargeInThread
+        bargeInThread = null
+        if (thread != null && thread !== Thread.currentThread()) thread.interrupt()
     }
 
     private fun ensureWakeWordListening() {

@@ -21,6 +21,8 @@ import java.util.concurrent.atomic.AtomicReference
  * Plays MEL's canonical MINI-compatible TTS stream:
  * PCM signed 16-bit little-endian, 48 kHz, mono.
  */
+class MelPlaybackInterruptedException : Exception("MEL_PLAYBACK_INTERRUPTED")
+
 object MelVoicePlayer {
     private const val SAMPLE_RATE = 48_000
     private val lock = Any()
@@ -31,6 +33,7 @@ object MelVoicePlayer {
     @Volatile private var persistentTts: TextToSpeech? = null
     @Volatile private var ttsInitLatch: CountDownLatch? = null
     @Volatile private var ttsInitError: Throwable? = null
+    @Volatile private var playbackGeneration: Long = 0L
 
     fun initialize(context: Context) {
         Thread {
@@ -200,14 +203,24 @@ object MelVoicePlayer {
             prepare()
         }
 
-        synchronized(lock) {
+        val myGeneration = synchronized(lock) {
             stopLocked()
+            playbackGeneration += 1L
             activePlayer = player
             player.start()
+            playbackGeneration
         }
 
-        val timeoutSeconds = ((player.duration.coerceAtLeast(1) / 1000L) + 8L).coerceIn(10L, 60L)
-        val completed = done.await(timeoutSeconds, TimeUnit.SECONDS)
+        val timeoutSeconds = ((player.duration.coerceAtLeast(1) / 1000L) + 15L).coerceIn(15L, 600L)
+        val deadline = System.currentTimeMillis() + timeoutSeconds * 1000L
+        var completed = false
+        while (System.currentTimeMillis() < deadline) {
+            if (playbackGeneration != myGeneration) throw MelPlaybackInterruptedException()
+            if (done.await(120L, TimeUnit.MILLISECONDS)) {
+                completed = true
+                break
+            }
+        }
         synchronized(lock) {
             if (activePlayer === player) {
                 activePlayer = null
@@ -216,6 +229,7 @@ object MelVoicePlayer {
             }
         }
         file.delete()
+        if (playbackGeneration != myGeneration) throw MelPlaybackInterruptedException()
         if (!completed) throw IllegalStateException("MP3_PLAYBACK_TIMEOUT")
         if (failed) throw IllegalStateException("MP3_PLAYBACK_FAILED")
         return (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
@@ -226,29 +240,62 @@ object MelVoicePlayer {
         val startedAt = System.currentTimeMillis()
         val tts = ensureSystemFrench(context.applicationContext)
         val main = Handler(Looper.getMainLooper())
+        val maxChunk = (TextToSpeech.getMaxSpeechInputLength() - 128).coerceIn(800, 2800)
+        val chunks = splitForTts(text, maxChunk)
+
+        val myGeneration = synchronized(lock) {
+            stopLocked()
+            playbackGeneration += 1L
+            activeTts = tts
+            playbackGeneration
+        }
+
+        try {
+            for (chunk in chunks) {
+                if (playbackGeneration != myGeneration) throw MelPlaybackInterruptedException()
+                speakSystemFrenchChunk(tts, main, chunk, myGeneration)
+            }
+        } finally {
+            synchronized(lock) {
+                if (activeTts === tts) activeTts = null
+            }
+        }
+
+        if (playbackGeneration != myGeneration) throw MelPlaybackInterruptedException()
+        return (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
+    }
+
+    private fun speakSystemFrenchChunk(
+        tts: TextToSpeech,
+        main: Handler,
+        text: String,
+        generation: Long
+    ) {
         val ready = CountDownLatch(1)
         val done = CountDownLatch(1)
         val startError = AtomicReference<Throwable?>(null)
         val playbackError = AtomicReference<Throwable?>(null)
         val utteranceId = "mel-fr-" + UUID.randomUUID().toString()
 
-        synchronized(lock) {
-            activeTts = tts
-        }
-
         main.post {
             try {
                 tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(id: String?) = Unit
-                    override fun onDone(id: String?) { done.countDown() }
+                    override fun onDone(id: String?) {
+                        if (id == utteranceId) done.countDown()
+                    }
                     @Deprecated("Deprecated in Java")
                     override fun onError(id: String?) {
-                        playbackError.set(IllegalStateException("ANDROID_TTS_PLAYBACK_FAILED"))
-                        done.countDown()
+                        if (id == utteranceId) {
+                            playbackError.set(IllegalStateException("ANDROID_TTS_PLAYBACK_FAILED"))
+                            done.countDown()
+                        }
                     }
                     override fun onError(id: String?, errorCode: Int) {
-                        playbackError.set(IllegalStateException("ANDROID_TTS_ERROR_$errorCode"))
-                        done.countDown()
+                        if (id == utteranceId) {
+                            playbackError.set(IllegalStateException("ANDROID_TTS_ERROR_$errorCode"))
+                            done.countDown()
+                        }
                     }
                 })
                 val params = Bundle().apply {
@@ -263,28 +310,56 @@ object MelVoicePlayer {
             }
         }
 
-        if (!ready.await(4, TimeUnit.SECONDS)) {
-            synchronized(lock) { if (activeTts === tts) activeTts = null }
-            throw IllegalStateException("ANDROID_TTS_START_TIMEOUT")
-        }
-        startError.get()?.let { error ->
-            synchronized(lock) { if (activeTts === tts) activeTts = null }
-            throw error
-        }
+        if (!ready.await(4, TimeUnit.SECONDS)) throw IllegalStateException("ANDROID_TTS_START_TIMEOUT")
+        startError.get()?.let { throw it }
 
-        val timeoutSeconds = (text.length / 12L + 8L).coerceIn(10L, 60L)
-        val completed = done.await(timeoutSeconds, TimeUnit.SECONDS)
-        synchronized(lock) { if (activeTts === tts) activeTts = null }
+        val timeoutSeconds = (text.length / 7L + 30L).coerceIn(20L, 240L)
+        val deadline = System.currentTimeMillis() + timeoutSeconds * 1000L
+        var completed = false
+        while (System.currentTimeMillis() < deadline) {
+            if (playbackGeneration != generation) throw MelPlaybackInterruptedException()
+            if (done.await(120L, TimeUnit.MILLISECONDS)) {
+                completed = true
+                break
+            }
+        }
+        if (playbackGeneration != generation) throw MelPlaybackInterruptedException()
         if (!completed) {
             main.post { runCatching { tts.stop() } }
             throw IllegalStateException("ANDROID_TTS_TIMEOUT")
         }
         playbackError.get()?.let { throw it }
-        return (System.currentTimeMillis() - startedAt).coerceAtLeast(1L)
+    }
+
+    private fun splitForTts(text: String, maxLength: Int): List<String> {
+        var remaining = text.trim()
+        if (remaining.length <= maxLength) return listOf(remaining)
+        val result = mutableListOf<String>()
+        while (remaining.length > maxLength) {
+            var cut = maxLength
+            for (index in maxLength downTo maxLength / 2) {
+                if (remaining[index - 1] == '.' || remaining[index - 1] == '!' ||
+                    remaining[index - 1] == '?' || remaining[index - 1] == ';' ||
+                    remaining[index - 1].code == 10
+                ) {
+                    cut = index
+                    break
+                }
+            }
+            if (cut == maxLength) {
+                val space = remaining.lastIndexOf(' ', maxLength)
+                if (space >= maxLength / 2) cut = space + 1
+            }
+            result += remaining.substring(0, cut).trim()
+            remaining = remaining.substring(cut).trimStart()
+        }
+        if (remaining.isNotBlank()) result += remaining
+        return result
     }
 
     fun stop() {
         synchronized(lock) {
+            playbackGeneration += 1L
             stopLocked()
         }
     }

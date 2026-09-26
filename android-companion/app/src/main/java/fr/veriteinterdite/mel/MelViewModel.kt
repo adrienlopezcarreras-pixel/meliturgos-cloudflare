@@ -200,6 +200,19 @@ class MelViewModel(
         }
     }
 
+    fun interruptSpeechForBargeIn() {
+        MelVoicePlayer.stop()
+        if (_state.value.speaking || _state.value.busy) {
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "Je t’écoute…",
+                error = null
+            )
+        }
+        appendDiagnosticLine("Audio MEL: interrompu par la voix utilisateur")
+    }
+
     fun disconnect() {
         MelVoicePlayer.stop()
         vault.clear()
@@ -462,6 +475,15 @@ class MelViewModel(
             )
             appendDiagnosticLine("Audio MEL: OK · Android fr-FR")
             return
+        } catch (error: MelPlaybackInterruptedException) {
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "Je t’écoute…",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: interruption volontaire")
+            return
         } catch (error: Throwable) {
             frenchFailure = error
             MelVoicePlayer.stop()
@@ -484,6 +506,15 @@ class MelViewModel(
                 error = null
             )
             appendDiagnosticLine("Audio MEL: secours Luna MP3")
+        } catch (fallbackError: MelPlaybackInterruptedException) {
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "Je t’écoute…",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: interruption volontaire pendant secours MP3")
+            return
         } catch (fallbackError: Throwable) {
             MelVoicePlayer.stop()
             _state.value = _state.value.copy(
