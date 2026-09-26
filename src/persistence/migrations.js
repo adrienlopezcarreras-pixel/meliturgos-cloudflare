@@ -265,6 +265,26 @@ export const MIGRATIONS = [
       UNIQUE(message_id,content)
     )`).run();
   }},
+  { version: 13, name: 'oauth_encrypted_runtime_vault', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS mel_oauth_transactions (
+      owner TEXT NOT NULL,
+      connector_id TEXT NOT NULL,
+      state_sha256 TEXT NOT NULL,
+      envelope_json TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY(owner,connector_id,state_sha256)
+    )`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS mel_oauth_tokens (
+      owner TEXT NOT NULL,
+      connector_id TEXT NOT NULL,
+      envelope_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY(owner,connector_id)
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mel_oauth_transactions_expiry
+      ON mel_oauth_transactions(expires_at)`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
