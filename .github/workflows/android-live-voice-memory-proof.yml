@@ -1,0 +1,79 @@
+name: android-live-voice-memory-proof
+
+on:
+  push:
+    branches:
+      - proof/android-live-device-current-20260926
+    paths:
+      - .github/workflows/android-live-voice-memory-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout proof branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Query voice-to-memory evidence
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json             --command "SELECT a.id,a.timestamp,a.provenance,a.metadata,a.device_id,CASE WHEN t.device_id IS NULL THEN 0 ELSE 1 END AS android_device,CASE WHEN m.message_id IS NULL THEN 0 ELSE 1 END AS memory_candidate FROM archive_messages a LEFT JOIN android_device_tokens t ON t.device_id=a.device_id LEFT JOIN memory_candidates m ON m.message_id=a.id WHERE a.role='user' AND a.provenance='native-chat:voice-server-transcription' ORDER BY a.timestamp DESC LIMIT 20"             > voice-memory.raw.json
+
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const raw=JSON.parse(fs.readFileSync('voice-memory.raw.json','utf8'));
+          const rows=[];
+          for(const part of Array.isArray(raw)?raw:[raw]){
+            if(part && Array.isArray(part.results)) rows.push(...part.results);
+          }
+          const now=Date.now();
+          const sanitized=rows.map(r=>{
+            let metadata={}; try{metadata=JSON.parse(r.metadata||'{}')}catch{}
+            return {
+              age_ms:Math.max(0,now-Number(r.timestamp||0)),
+              provenance:String(r.provenance||''),
+              android_device:Number(r.android_device||0)===1,
+              memory_candidate:Number(r.memory_candidate||0)===1,
+              transcribed_voice:metadata.transcribed_voice===true,
+              input_source:String(metadata.input_source||'')
+            };
+          });
+          const latest=sanitized[0]||null;
+          const valid=sanitized.filter(x=>x.android_device && x.memory_candidate && x.transcribed_voice && x.input_source==='voice-server-transcription');
+          const proof={
+            schema:'mel.android-live-voice-memory-proof.v1',
+            matching_voice_message_count:valid.length,
+            latest,
+            has_android_voice_archived_to_memory:valid.length>0,
+            identifiers_included:false,
+            content_included:false
+          };
+          console.log(JSON.stringify(proof,null,2));
+          fs.writeFileSync('android-live-voice-memory-proof.json',JSON.stringify(proof,null,2));
+          if(valid.length<1) throw new Error('ANDROID_VOICE_MEMORY_EVIDENCE_NOT_FOUND');
+          NODE
+
+      - name: Upload sanitized proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-live-voice-memory-proof
+          path: android-live-voice-memory-proof.json
+          if-no-files-found: error
+          retention-days: 14
