@@ -55,7 +55,7 @@ test('audio runtime blocks paid provider without explicit approval and budget', 
     estimateCostUsd:async()=>0.02,
     generate:async()=>{calls+=1; return {outputs:[{id:'paid-1'}]};},
   };
-  const runtime=createAudioRuntime({providers:[paidProvider]});
+  const runtime=createAudioRuntime({providers:[paidProvider],authorization:{isAllowed:async()=>true}});
 
   await assert.rejects(
     ()=>runtime.generate({prompt:'music',mode:'MUSIC'},{maxCostUsd:1}),
