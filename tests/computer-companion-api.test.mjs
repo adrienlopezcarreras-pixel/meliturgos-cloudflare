@@ -122,11 +122,17 @@ test('paired Windows device can read MINI and Android companion status without o
     const env={DB,MELITURGOS_USER:'adrien',MELITURGOS_PASSWORD:'test'};
     await DB.prepare('CREATE TABLE device_tokens(device_id TEXT PRIMARY KEY,model TEXT,last_seen_at INTEGER,revoked_at INTEGER)').run();
     await DB.prepare('CREATE TABLE device_status(device_id TEXT PRIMARY KEY,payload_json TEXT,updated_at INTEGER)').run();
+    await DB.prepare('CREATE TABLE android_device_tokens(device_id TEXT PRIMARY KEY,token_hash TEXT,name TEXT,app_version TEXT,created_at INTEGER,last_seen_at INTEGER,revoked_at INTEGER)').run();
+    await DB.prepare('CREATE TABLE android_device_status(device_id TEXT PRIMARY KEY,payload_json TEXT,updated_at INTEGER)').run();
     const now=Date.now();
     await DB.prepare('INSERT INTO device_tokens(device_id,model,last_seen_at,revoked_at) VALUES(?,?,?,NULL)')
       .bind('mini-1','waveshare-terminal',now).run();
     await DB.prepare('INSERT INTO device_status(device_id,payload_json,updated_at) VALUES(?,?,?)')
       .bind('mini-1',JSON.stringify({name:'MEL MINI',phase:'ONLINE',camera:true,microphone:true,speaker:true,battery:82}),now).run();
+    await DB.prepare('INSERT INTO android_device_tokens(device_id,token_hash,name,app_version,created_at,last_seen_at,revoked_at) VALUES(?,?,?,?,?,?,NULL)')
+      .bind('android-1','hash','Téléphone MEL','0.6.24',now,now).run();
+    await DB.prepare('INSERT INTO android_device_status(device_id,payload_json,updated_at) VALUES(?,?,?)')
+      .bind('android-1',JSON.stringify({phase:'ONLINE',battery:61,charging:true,network:'wifi'}),now).run();
 
     const codeRes=await maybeHandleComputerApi(ownerRequest('/api/computer/v1/pair-code','POST',{}),env);
     const code=(await codeRes.json()).code;
@@ -141,11 +147,17 @@ test('paired Windows device can read MINI and Android companion status without o
     }}),env);
     assert.equal(response.status,200);
     const payload=await response.json();
-    assert.equal(payload.devices.length,1);
-    assert.equal(payload.devices[0].name,'MEL MINI');
-    assert.equal(payload.devices[0].kind,'mini');
-    assert.equal(payload.devices[0].camera,true);
-    assert.equal(payload.devices[0].live_stream,false);
+    assert.equal(payload.devices.length,2);
+    const mini=payload.devices.find(device=>device.kind==='mini');
+    const android=payload.devices.find(device=>device.kind==='android');
+    assert.equal(mini.name,'MEL MINI');
+    assert.equal(mini.camera,true);
+    assert.equal(mini.live_stream,false);
+    assert.equal(android.name,'Téléphone MEL');
+    assert.equal(android.firmware,'0.6.24');
+    assert.equal(android.battery,61);
+    assert.equal(android.charging,true);
+    assert.equal(android.live_stream,false);
   }finally{DB.close();}
 });
 
