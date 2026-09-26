@@ -8,6 +8,7 @@ import {
   createR2D1BackupStorage,
   createSystemBackupService,
   runScheduledSystemBackup,
+  systemBackupSources,
 } from '../src/backup/system-backup-runtime.js';
 
 function d1ExportMock() {
@@ -248,4 +249,20 @@ test('GEN2-47 scheduled backup service accepts complete AES-GCM configuration', 
   assert.equal(typeof service.create,'function');
   assert.equal(typeof service.verify,'function');
   assert.equal(typeof service.list,'function');
+});
+
+
+test('GEN2-47 R2 byte-copy source is opt-in and never silently enabled', () => {
+  const base = {
+    DB: { prepare(){} },
+    MEDIA_BUCKET: { list(){}, get(){}, put(){}, delete(){} },
+  };
+  const disabled = systemBackupSources(base);
+  assert.equal(Object.hasOwn(disabled, 'r2_objects'), false);
+
+  const enabled = systemBackupSources({
+    ...base,
+    MEL_SYSTEM_BACKUP_COPY_R2_BYTES: 'true',
+  });
+  assert.equal(typeof enabled.r2_objects, 'function');
 });
