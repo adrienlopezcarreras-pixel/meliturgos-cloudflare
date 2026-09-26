@@ -398,6 +398,23 @@ class MelBleBridgeService : Service() {
         // Serving this tiny manifest locally avoids blocking the BLE link on the
         // firmware-manifest R2 lookup; real heartbeat/chat/voice traffic still
         // traverses MEL over the phone's Internet connection immediately after.
+        if (request.method == "GET" && request.path == "/api/device/v1/wake-profile") {
+            val body = WakePhraseProfileStore(this)
+                .load()
+                .put("device_id", request.deviceId)
+                .toString()
+                .toByteArray(Charsets.UTF_8)
+            Log.i(TAG, "MEL relay local wake profile -> 200")
+            val meta = JSONObject()
+                .put("status", 200)
+                .put("contentType", "application/json")
+                .put("length", body.size)
+            if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)) return
+            if (body.isNotEmpty() && !sendFrame(device, packet(OP_RESPONSE_BODY, request.id, body))) return
+            sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
+            return
+        }
+
         if (request.method == "GET" && request.path == "/api/device/v1/manifest") {
             val body = JSONObject()
                 .put("ok", true)
