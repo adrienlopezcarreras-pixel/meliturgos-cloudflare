@@ -1,0 +1,87 @@
+name: mel-res-05-final-state-proof
+
+on:
+  push:
+    branches:
+      - proof/mel-res-05-final-state-20260926
+    paths:
+      - .github/workflows/mel-res-05-final-state-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify encrypted backup contracts
+        run: node --test tests/encrypted-backup-storage.test.mjs tests/backup-system-runtime.test.mjs
+      - name: Read live encrypted backup state
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler secret list --format json > secrets.json
+          npx wrangler d1 execute DB --remote --json --command "
+            SELECT id, object_key, metadata_json, created_at
+            FROM backup_objects
+            WHERE object_key LIKE 'backups/system/%'
+            ORDER BY created_at DESC
+            LIMIT 30;
+          " > backups.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const sec=JSON.parse(fs.readFileSync('secrets.json','utf8'));
+          const names=new Set((Array.isArray(sec)?sec:(sec.secrets||[])).map(x=>String(x?.name||'')));
+          const parts=JSON.parse(fs.readFileSync('backups.json','utf8'));
+          const rows=[];
+          for(const p of (Array.isArray(parts)?parts:[parts])) if(Array.isArray(p?.results)) rows.push(...p.results);
+          const parsed=rows.map(r=>{
+            let m={}; try{m=JSON.parse(r.metadata_json||'{}')}catch{}
+            return {
+              id:String(r.id||''),
+              object_key:String(r.object_key||''),
+              created_at:Number(r.created_at||0),
+              encrypted:m.encrypted===true,
+              algorithm:m.encryptionAlgorithm||m.algorithm||null,
+              key_id_present:Boolean(m.encryptionKeyId||m.key_id),
+              integrity_sha256_present:Boolean(m.integritySha256||m.plaintext_sha256||m.ciphertext_sha256)
+            };
+          });
+          const encrypted=parsed.filter(x=>x.encrypted);
+          const latest=encrypted[0]||null;
+          const proof={
+            schema:'mel.res-05-final-state-proof.v1',
+            key_id_present:names.has('MEL_BACKUP_ENCRYPTION_KEY_ID'),
+            key_b64_present:names.has('MEL_BACKUP_ENCRYPTION_KEY_B64'),
+            encrypted_backup_count:encrypted.length,
+            latest_encrypted_backup:latest,
+            complete:Boolean(
+              names.has('MEL_BACKUP_ENCRYPTION_KEY_ID') &&
+              names.has('MEL_BACKUP_ENCRYPTION_KEY_B64') &&
+              latest &&
+              latest.algorithm==='AES-GCM-256' &&
+              latest.key_id_present &&
+              latest.integrity_sha256_present
+            )
+          };
+          fs.writeFileSync('mel-res-05-final-state-proof.json',JSON.stringify(proof,null,2));
+          console.log(JSON.stringify(proof,null,2));
+          if(!proof.complete) process.exit(42);
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: mel-res-05-final-state-proof
+          path: mel-res-05-final-state-proof.json
+          if-no-files-found: warn
+          retention-days: 14
