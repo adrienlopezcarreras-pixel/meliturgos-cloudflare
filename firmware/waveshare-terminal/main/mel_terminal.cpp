@@ -81,6 +81,7 @@ struct MelDisplayItem {
     std::string title;
     std::string url;
     std::string snippet;
+    std::string image_url;
 };
 
 struct MelChatReply {
@@ -116,6 +117,7 @@ static int64_t g_last_wake_trigger_us = 0;
 
 static void sync_wake_phrase_profile();
 static void mobile_companion_sync_task(void *);
+static bool render_display_item_card(size_t index);
 
 static void voice_error(const char *reason) {
     g_last_voice_error = reason;
@@ -1017,9 +1019,13 @@ static MelChatReply chat_with_mel(const std::string &text) {
                 MelDisplayItem row;
                 cJSON *item_title = cJSON_GetObjectItemCaseSensitive(item, "title");
                 cJSON *snippet = cJSON_GetObjectItemCaseSensitive(item, "snippet");
+                cJSON *image_url = cJSON_GetObjectItemCaseSensitive(item, "image_url");
                 row.url = url->valuestring;
                 if (cJSON_IsString(item_title) && item_title->valuestring) row.title = item_title->valuestring;
                 if (cJSON_IsString(snippet) && snippet->valuestring) row.snippet = snippet->valuestring;
+                if (cJSON_IsString(image_url) && image_url->valuestring && strncmp(image_url->valuestring, "https://", 8) == 0) {
+                    row.image_url = image_url->valuestring;
+                }
                 reply.display_items.push_back(std::move(row));
             }
         }
@@ -1307,8 +1313,10 @@ static void voice_task(void *) {
         ui_status("TTS ERREUR");
         vTaskDelay(pdMS_TO_TICKS(500));
     }
-    if (!g_display_items.empty()) ui_show_display_source(0);
-    else ui_status("");
+    if (!g_display_items.empty()) {
+        ui_show_display_source(0);
+        if (mel_mobile_bridge_ready()) render_display_item_card(0);
+    } else ui_status("");
     g_runtime_state = MEL_TERMINAL_IDLE;
     g_voice_stop_requested = false;
     g_voice_task_handle = nullptr;
@@ -1538,6 +1546,51 @@ static bool mobile_asset_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
     }
     ctx->bytes += len;
     return true;
+}
+
+static bool render_display_item_card(size_t index) {
+    if (!g_sd_ok || !mel_mobile_bridge_ready() || g_display_items.empty()) return false;
+    if (index >= g_display_items.size()) index = 0;
+    const MelDisplayItem &item = g_display_items[index];
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "title", item.title.c_str());
+    cJSON_AddStringToObject(root, "snippet", item.snippet.c_str());
+    cJSON_AddStringToObject(root, "url", item.url.c_str());
+    if (!item.image_url.empty()) cJSON_AddStringToObject(root, "image_url", item.image_url.c_str());
+    const std::string body = json_string(root);
+    cJSON_Delete(root);
+
+    mkdir("/sdcard/mel", 0775);
+    const std::string path = "/sdcard/mel/web-card.mimg";
+    FILE *fp = fopen(path.c_str(), "wb");
+    if (!fp) return false;
+    MobileAssetContext ctx;
+    ctx.fp = fp;
+    int status = 0;
+    ESP_LOGI(TAG, "DISPLAY card render via MEL MOBILE index=%u", (unsigned)index);
+    const esp_err_t err = mel_mobile_bridge_request_stream(
+        HTTP_METHOD_POST,
+        "/api/device/v1/render/card",
+        "application/json",
+        g_cfg.token,
+        g_device_id,
+        reinterpret_cast<const uint8_t *>(body.data()),
+        body.size(),
+        status,
+        mobile_asset_chunk,
+        &ctx
+    );
+    fclose(fp);
+    const bool ok = err == ESP_OK && status == 200 && ctx.ok && ctx.bytes > 12;
+    if (!ok) {
+        ESP_LOGW(TAG, "DISPLAY card render failed err=%s status=%d bytes=%u",
+                 esp_err_to_name(err), status, (unsigned)ctx.bytes);
+        remove(path.c_str());
+        return false;
+    }
+    ESP_LOGI(TAG, "DISPLAY card received %u bytes", (unsigned)ctx.bytes);
+    return show_mimg_file(path);
 }
 
 static bool download_asset(const std::string &key, const std::string &name) {
