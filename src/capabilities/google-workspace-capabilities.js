@@ -86,7 +86,7 @@ async function requestJson(fetchImpl, token, url, { method = 'GET', body, code =
 
 function safeEmail(value) {
   const email = text(value, 'GMAIL_EMAIL_INVALID', 320);
-  if (/[\\r\\n]/.test(email) || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) throw error('GMAIL_EMAIL_INVALID', 400);
+  if (/[\r\n]/.test(email) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw error('GMAIL_EMAIL_INVALID', 400);
   return email;
 }
 
@@ -103,7 +103,7 @@ function optionalEmails(values, max = 20) {
 
 function header(value, code, max) {
   const v = text(value, code, max);
-  if (/[\\r\\n]/.test(v)) throw error(code, 400);
+  if (/[\r\n]/.test(v)) throw error(code, 400);
   return v;
 }
 
