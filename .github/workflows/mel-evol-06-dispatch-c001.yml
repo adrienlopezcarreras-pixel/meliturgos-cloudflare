@@ -1,0 +1,32 @@
+name: mel-evol-06-dispatch-c001
+
+on:
+  push:
+    branches:
+      - proof/mel-evol-06-dispatch-c001-20260926
+    paths:
+      - .github/workflows/mel-evol-06-dispatch-c001.yml
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch corrected Kaggle c001 chain on main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f source_sha=ab6db29b784ed70623d25a8c56b07f9349a447c4             -f cycle=1             -f parent_release_tag=mel-lora-kaggle-ab6db29b784e-c000             -f shard_size=750             -f max_cycles=100             -f benchmark_preview=false
+          echo '{"schema":"mel.evol-06-dispatch.v1","cycle":1,"dispatched":true,"target_ref":"main"}' > mel-evol-06-dispatch-proof.json
+      - name: Upload dispatch proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-evol-06-dispatch-proof
+          path: mel-evol-06-dispatch-proof.json
+          retention-days: 14
