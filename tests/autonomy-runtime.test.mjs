@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
-import { runAutonomyRuntimeTick as runAutonomyRuntimeTickRaw } from '../src/evolution/autonomy-runtime.js';
+import { runAutonomyRuntimeTick as runAutonomyRuntimeTickRaw, prepareAutonomyTeacherRequest } from '../src/evolution/autonomy-runtime.js';
 import { selectNextAutonomyItem } from '../src/evolution/autonomy-supervisor.js';
 
 process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
