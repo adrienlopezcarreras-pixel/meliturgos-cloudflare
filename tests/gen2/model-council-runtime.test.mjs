@@ -465,3 +465,42 @@ test('all eligible providers failing critiques produces no synthetic answer', as
       && error.failures.length === 2
   );
 });
+
+
+test('transient provider critique failure is retried once without reducing Council independence', async () => {
+  const calls = [];
+  let flakyAttempts = 0;
+  const flaky = {
+    id:'flaky',
+    providerId:'alpha',
+    modelId:'m1',
+    capabilities:['GENERAL'],
+    priority:1,
+    estimatedCost:0,
+    costProvenance:verifiedFree({id:'flaky',providerId:'alpha',modelId:'m1'}),
+    enabled:true,
+    healthStatus:'HEALTHY',
+    health:async()=> 'HEALTHY',
+    async invoke({context={}}={}) {
+      calls.push({id:'flaky',purpose:context.purpose});
+      if (context.purpose === 'model-council-independent-critique') {
+        flakyAttempts += 1;
+        if (flakyAttempts === 1) throw Object.assign(new Error('TRANSIENT_PROVIDER_FAILURE'), {code:'TRANSIENT_PROVIDER_FAILURE'});
+        return {text:'recovered critique',provenance:{provider:'alpha',model:'m1'}};
+      }
+      return {text:'synthesis',provenance:{provider:'alpha',model:'m1'}};
+    },
+  };
+  const stable = provider({id:'stable',providerId:'beta',modelId:'m2',calls});
+  const result = await runModelCouncil({
+    pool:new ProviderPool([flaky,stable]),
+    request:'bounded retry',
+    timeoutMs:5000,
+  });
+
+  assert.equal(result.status,'COMPLETE');
+  assert.equal(result.independent_response_count,2);
+  assert.equal(new Set(result.critiques.map(row=>row.identity)).size,2);
+  assert.equal(flakyAttempts,2);
+  assert.equal(result.provider_failure_count,0);
+});
