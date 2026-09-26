@@ -179,3 +179,51 @@ test('release bootstrap Skill Registry proof persists, restores, rolls back and 
     DB.close();
   }
 });
+
+
+test('release bootstrap backend proof drills are durable and replay-safe', async () => {
+  const DB=sqliteD1();
+  const env={
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+    DB,
+    MEL_DEPLOYED_GIT_SHA:'f'.repeat(40),
+    MEL_DEPLOYED_GIT_BRANCH:'release/test',
+  };
+  const request=phase=>new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+    method:'POST',
+    headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+    body:JSON.stringify({phase}),
+  });
+  try {
+    for (const phase of ['plugin-sdk-proof','evolution-ledger-proof','agent-automation-proof']) {
+      const first=await maybeHandleReleaseLaunchBootstrap(request(phase),env);
+      assert.equal(first.status,200,phase+' first');
+      const firstBody=await first.json();
+      assert.equal(firstBody.ok,true,phase+' first ok');
+
+      const second=await maybeHandleReleaseLaunchBootstrap(request(phase),env);
+      assert.equal(second.status,200,phase+' replay');
+      const secondBody=await second.json();
+      assert.equal(secondBody.ok,true,phase+' replay ok');
+
+      if (phase==='plugin-sdk-proof') {
+        assert.equal(secondBody.status,'GEN2_15_PRODUCTION_D1_VERIFIED');
+        assert.equal(secondBody.active_version,'1.0.0');
+        assert.equal(secondBody.replay_safe,true);
+        assert.ok(secondBody.activation_history_count>=4);
+      }
+      if (phase==='evolution-ledger-proof') {
+        assert.equal(secondBody.status,'MEL_EVOL_04_PRODUCTION_LEDGER_VERIFIED');
+        assert.equal(secondBody.proof_event_count,2);
+        assert.equal(secondBody.replay_safe,true);
+      }
+      if (phase==='agent-automation-proof') {
+        assert.equal(secondBody.status,'GEN2_39_PRODUCTION_D1_VERIFIED');
+        assert.equal(secondBody.run_status,'COMPLETED');
+        assert.equal(secondBody.persisted_across_adapter_recreation,true);
+      }
+    }
+  } finally {
+    DB.close();
+  }
+});
