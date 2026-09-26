@@ -15,7 +15,7 @@ import { createD1AgentRegistryAdapter } from '../agents/d1-agent-registry.js';
 import { createD1AgentAutomationPolicyAdapter } from '../automations/d1-agent-automation-policy.js';
 import { createAgentAutomationPolicy, PERMISSION_TIERS } from '../automations/agent-automation-policy.js';
 
-function deployedSha(env = {}) {
+function resolveDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim();
   if (/^[a-f0-9]{40}$/i.test(direct)) return direct.toLowerCase();
   try {
@@ -28,8 +28,8 @@ function deployedSha(env = {}) {
   }
 }
 
-function deployedBranch(env = {}) {
-  const direct = deployedBranch(env).trim();
+function resolveDeployedBranch(env = {}) {
+  const direct = String(env?.MEL_DEPLOYED_GIT_BRANCH || '').trim();
   if (direct) return direct;
   try {
     const built = typeof MEL_DEPLOYED_GIT_BRANCH !== 'undefined'
@@ -155,7 +155,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       } catch (error) {
         if (error?.message !== 'SKILL_REGISTRY_VERSION_NOT_FOUND') throw error;
       }
-      const deployedSha = deployedSha(env) || 'unknown';
+      const deployedSha = resolveDeployedSha(env) || 'unknown';
       registry.register({
         skillId,
         name: 'MEL-EVOL-05 production D1 proof',
@@ -197,7 +197,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     if (!env?.DB || typeof env.DB.prepare !== 'function') {
       return Response.json({ ok: false, code: 'D1_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
-    const deployedSha = deployedSha(env);
+    const deployedSha = resolveDeployedSha(env);
     if (!/^[0-9a-f]{40}$/.test(deployedSha)) {
       return Response.json({ ok: false, code: 'DEPLOYED_SHA_INVALID' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
@@ -279,7 +279,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     if (!env?.DB || typeof env.DB.prepare !== 'function') {
       return Response.json({ ok: false, code: 'D1_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
-    const deployedSha = deployedSha(env);
+    const deployedSha = resolveDeployedSha(env);
     if (!/^[0-9a-f]{40}$/.test(deployedSha)) {
       return Response.json({ ok: false, code: 'DEPLOYED_SHA_INVALID' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
@@ -292,7 +292,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       status: 'QUEUED',
       actor: 'release-bootstrap',
       source_sha: deployedSha,
-      branch: deployedBranch(env),
+      branch: resolveDeployedBranch(env),
       evidence: { roadmap_id: 'MEL-EVOL-04', proof: 'production-runtime' },
       occurred_at: Date.now(),
     });
@@ -303,7 +303,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       status: 'DONE_VERIFIED',
       actor: 'release-bootstrap',
       source_sha: deployedSha,
-      branch: deployedBranch(env),
+      branch: resolveDeployedBranch(env),
       evidence: { roadmap_id: 'MEL-EVOL-04', exact_sha: true },
       occurred_at: Date.now() + 1,
     });
@@ -330,7 +330,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     if (!env?.DB || typeof env.DB.prepare !== 'function') {
       return Response.json({ ok: false, code: 'D1_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
-    const deployedSha = deployedSha(env);
+    const deployedSha = resolveDeployedSha(env);
     if (!/^[0-9a-f]{40}$/.test(deployedSha)) {
       return Response.json({ ok: false, code: 'DEPLOYED_SHA_INVALID' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
@@ -508,4 +508,4 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   });
 }
 
-export const __launchBootstrapTest = Object.freeze({ equalToken, safeReadiness, requestPhase, deployedSha, deployedBranch });
+export const __launchBootstrapTest = Object.freeze({ equalToken, safeReadiness, requestPhase, resolveDeployedSha, resolveDeployedBranch });
