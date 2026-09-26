@@ -261,6 +261,25 @@ static void save_string(const char *key, const char *value) {
     nvs_close(nvs);
 }
 
+static std::string load_string_dynamic(const char *key) {
+    if (!key) return "";
+    nvs_handle_t nvs;
+    if (nvs_open("mel", NVS_READONLY, &nvs) != ESP_OK) return "";
+    size_t required = 0;
+    if (nvs_get_str(nvs, key, nullptr, &required) != ESP_OK || required <= 1) {
+        nvs_close(nvs);
+        return "";
+    }
+    std::string value(required, '\0');
+    if (nvs_get_str(nvs, key, value.data(), &required) != ESP_OK) {
+        nvs_close(nvs);
+        return "";
+    }
+    nvs_close(nvs);
+    if (!value.empty() && value.back() == '\0') value.pop_back();
+    return value;
+}
+
 static double wake_rms(const int16_t *samples, int start, int end) {
     if (!samples || end <= start) return 0.0;
     double sum = 0.0;
@@ -2102,6 +2121,56 @@ void mel_terminal_set_mobile_connected(bool connected) {
     }
 }
 
+static bool apply_wake_profile_json(const std::string &raw, const char *source, bool persist) {
+    if (raw.empty()) return false;
+    cJSON *root = cJSON_Parse(raw.c_str());
+    if (!root) return false;
+    cJSON *enrolled = cJSON_GetObjectItemCaseSensitive(root, "enrolled");
+    cJSON *features = cJSON_GetObjectItemCaseSensitive(root, "features");
+    cJSON *threshold = cJSON_GetObjectItemCaseSensitive(root, "threshold");
+    const int count = cJSON_IsArray(features) ? cJSON_GetArraySize(features) : 0;
+    bool valid = cJSON_IsTrue(enrolled) && count == WAKE_FEATURE_COUNT;
+    if (valid) {
+        for (int i = 0; i < WAKE_FEATURE_COUNT; ++i) {
+            cJSON *item = cJSON_GetArrayItem(features, i);
+            if (!cJSON_IsNumber(item)) { valid = false; break; }
+            g_wake_template[i] = (float)item->valuedouble;
+        }
+    }
+    if (valid) {
+        g_wake_threshold = cJSON_IsNumber(threshold) ? (float)threshold->valuedouble : 0.78f;
+        g_wake_threshold = std::max(0.66f, std::min(0.86f, g_wake_threshold));
+        g_wake_profile_ready = true;
+        if (persist) save_string("wake_prof", raw.c_str());
+        cJSON *samples = cJSON_GetObjectItemCaseSensitive(root, "sample_count");
+        ESP_LOGI(TAG, "WAKE PROFILE loaded source=%s samples=%d threshold=%.3f",
+                 source ? source : "unknown",
+                 cJSON_IsNumber(samples) ? samples->valueint : 0,
+                 g_wake_threshold);
+        ensure_wake_detector();
+    }
+    cJSON_Delete(root);
+    return valid;
+}
+
+static bool restore_phone_wake_profile_from_mini(const std::string &saved) {
+    if (!mel_mobile_bridge_ready() || saved.empty()) return false;
+    std::string response;
+    int status = 0;
+    const esp_err_t err = http_request(
+        HTTP_METHOD_POST,
+        std::string(SERVER) + "/api/device/v1/wake-profile/import",
+        "application/json",
+        saved.data(),
+        (int)saved.size(),
+        response,
+        status
+    );
+    const bool ok = err == ESP_OK && status == 200;
+    ESP_LOGI(TAG, "WAKE PROFILE restore MINI->Android %s status=%d", ok ? "OK" : "FAILED", status);
+    return ok;
+}
+
 static void sync_wake_phrase_profile() {
     if (!mel_mobile_bridge_ready()) return;
     std::string response;
@@ -2113,50 +2182,42 @@ static void sync_wake_phrase_profile() {
     );
     if (err != ESP_OK || status != 200 || response.empty()) {
         ESP_LOGW(TAG, "WAKE PROFILE sync unavailable err=%s status=%d", esp_err_to_name(err), status);
+        const std::string saved = load_string_dynamic("wake_prof");
+        if (apply_wake_profile_json(saved, "mini-nvs-offline", false)) return;
         return;
     }
+
     cJSON *root = cJSON_Parse(response.c_str());
     if (!root) {
         ESP_LOGW(TAG, "WAKE PROFILE invalid JSON");
+        const std::string saved = load_string_dynamic("wake_prof");
+        apply_wake_profile_json(saved, "mini-nvs-invalid-phone", false);
         return;
     }
     sync_phone_clock_from_json(root);
     cJSON *enrolled = cJSON_GetObjectItemCaseSensitive(root, "enrolled");
-    const bool ready = cJSON_IsTrue(enrolled);
-    if (ready) {
-        cJSON *features = cJSON_GetObjectItemCaseSensitive(root, "features");
-        cJSON *threshold = cJSON_GetObjectItemCaseSensitive(root, "threshold");
-        const int count = cJSON_IsArray(features) ? cJSON_GetArraySize(features) : 0;
-        if (count == WAKE_FEATURE_COUNT) {
-            bool valid = true;
-            for (int i = 0; i < WAKE_FEATURE_COUNT; ++i) {
-                cJSON *item = cJSON_GetArrayItem(features, i);
-                if (!cJSON_IsNumber(item)) { valid = false; break; }
-                g_wake_template[i] = (float)item->valuedouble;
-            }
-            if (valid) {
-                g_wake_threshold = cJSON_IsNumber(threshold) ? (float)threshold->valuedouble : 0.84f;
-                g_wake_threshold = std::max(0.72f, std::min(0.96f, g_wake_threshold));
-                g_wake_profile_ready = true;
-                save_string("wake_prof", response.c_str());
-                cJSON *samples = cJSON_GetObjectItemCaseSensitive(root, "sample_count");
-                ESP_LOGI(TAG, "WAKE PROFILE synced samples=%d threshold=%.3f",
-                         cJSON_IsNumber(samples) ? samples->valueint : 0, g_wake_threshold);
-                ensure_wake_detector();
-            } else {
-                g_wake_profile_ready = false;
-                ESP_LOGW(TAG, "WAKE PROFILE contains invalid feature value");
-            }
-        } else {
-            g_wake_profile_ready = false;
-            ESP_LOGW(TAG, "WAKE PROFILE feature count=%d expected=%d", count, WAKE_FEATURE_COUNT);
-        }
-    } else {
+    cJSON *reset_requested = cJSON_GetObjectItemCaseSensitive(root, "reset_requested");
+    const bool phone_has_profile = cJSON_IsTrue(enrolled);
+    const bool explicit_reset = cJSON_IsTrue(reset_requested);
+    cJSON_Delete(root);
+
+    if (phone_has_profile && apply_wake_profile_json(response, "android", true)) return;
+
+    if (explicit_reset) {
         g_wake_profile_ready = false;
         save_string("wake_prof", "");
-        ESP_LOGI(TAG, "WAKE PROFILE not enrolled");
+        ESP_LOGI(TAG, "WAKE PROFILE cleared by explicit Android reset");
+        return;
     }
-    cJSON_Delete(root);
+
+    const std::string saved = load_string_dynamic("wake_prof");
+    if (apply_wake_profile_json(saved, "mini-nvs-restore", false)) {
+        restore_phone_wake_profile_from_mini(saved);
+        return;
+    }
+
+    g_wake_profile_ready = false;
+    ESP_LOGI(TAG, "WAKE PROFILE not enrolled on Android and no MINI backup exists");
 }
 
 static void mobile_companion_sync_task(void *) {
@@ -2192,6 +2253,8 @@ static int device_session_status() {
 static void online_runtime_task(void *) {
     make_device_id();
     load_config();
+    const std::string saved_wake = load_string_dynamic("wake_prof");
+    if (!saved_wake.empty()) apply_wake_profile_json(saved_wake, "mini-nvs-boot", false);
 
     ui_status("APPAIRAGE...");
     if (!pair_terminal()) {
