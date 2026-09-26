@@ -1,0 +1,4 @@
+MEL-EVAL-01 repeated live CI proof marker
+base_main=f3c0403926425a5ef91dd4e460d6c1ea5bce13eb
+date=2026-09-26
+purpose=trigger_second_consecutive_stable_eval_execution
