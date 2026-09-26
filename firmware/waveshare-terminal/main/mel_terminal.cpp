@@ -1331,6 +1331,9 @@ static void voice_task(void *) {
         if (mel_mobile_bridge_ready()) render_display_item_card(0);
     } else ui_status("");
     g_runtime_state = MEL_TERMINAL_IDLE;
+    if (g_mobile_connected && g_online && mel_mobile_bridge_ready() && !g_wake_sync_task_handle) {
+        xTaskCreatePinnedToCore(mobile_companion_sync_task, "mel_mobile_sync", 6144, nullptr, 3, &g_wake_sync_task_handle, 0);
+    }
     g_voice_stop_requested = false;
     g_voice_task_handle = nullptr;
     vTaskDelete(nullptr);
@@ -2189,7 +2192,7 @@ void mel_terminal_set_mobile_connected(bool connected) {
     g_mobile_connected = connected;
     if (connected) {
         if (!g_wifi_connected) ui_status(g_online ? "MEL MOBILE" : "MOBILE CONNECTE");
-        if (g_online && !g_wake_sync_task_handle) {
+        if (g_online && g_runtime_state == MEL_TERMINAL_IDLE && !g_wake_sync_task_handle) {
             xTaskCreatePinnedToCore(mobile_companion_sync_task, "mel_mobile_sync", 6144, nullptr, 3, &g_wake_sync_task_handle, 0);
         }
         return;
