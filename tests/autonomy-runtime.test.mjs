@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import { runAutonomyRuntimeTick as runAutonomyRuntimeTickRaw, prepareAutonomyTeacherRequest } from '../src/evolution/autonomy-runtime.js';
 import { selectNextAutonomyItem } from '../src/evolution/autonomy-supervisor.js';
+import { completeTeacherCouncil } from './helpers/teacher-review-fixtures.mjs';
 
 process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
 
@@ -470,16 +471,7 @@ test('GEN2-42 minimal inspection skips code search and caps file reads before Te
     plan_json: {
       preflight: {
         stage: 'AI_STATE_OF_PLAY_COMPLETE',
-        council: {
-          status: 'COMPLETE',
-          responses: [],
-          providers_attempted: [],
-          providers_succeeded: [],
-          required_roles_attempted: [],
-          required_roles_succeeded: [],
-          all_required_roles_satisfied: true,
-          synthesis: { status: 'COMPLETE', coordinator: 'MEL' },
-        },
+        council: completeTeacherCouncil(),
       },
     },
   });
