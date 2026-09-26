@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-26.18';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.19';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -141,7 +141,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-26', 'PWA', 'DONE', 'Installabilité PWA et cache offline sûr fusionnés via #438: manifest canonique, theme-color, pré-cache limité aux assets publics, HTML privé et routes API exclus du cache, namespace service-worker versionné et tests de confidentialité verts. Validation install/offline réelle navigateur requise avant DONE_VERIFIED.', 'P2'),
     item('GEN2-27', 'Android Companion runtime / app', 'DONE', 'Runtime Android natif 0.6.5 déjà promu via #212 avec pairing sécurisé, chat/sync, micro Whisper, fichiers HTTPS bornés, WorkManager et probes; CI build/emulator/full-candidate vertes. Validation appareil réel 0.6.5 requise avant DONE_VERIFIED.', 'P0'),
     item('GEN2-58', 'Build et release Android', 'DONE', 'Pipelines Android debug et release signé exact-SHA déjà préparés et promus avec keystore via secrets, apksigner, zipalign, packaging et nettoyage runner. Installation et exécution signée réelle 0.6.5 requises avant DONE_VERIFIED.', 'P1'),
-    item('GEN2-28', 'Windows Companion runtime / agent', 'DONE', 'Runtime Windows compagnon livré: heartbeat, capture écran, computer-use borné, commandes/résultats, appairage one-shot, jeton DPAPI, révocation et protections replay. Validation sur PC Windows réel requise avant DONE_VERIFIED.', 'P0'),
+    item('GEN2-28', 'Windows Companion runtime / agent', 'DONE_VERIFIED', 'Validation réelle acquise le 26/09/2026 avec MEL Companion v2: PR #496 fusionnée, MEL-Companion-v2.1.exe installé et exécuté sur PC Windows réel sous %LOCALAPPDATA%\\MEL, icône de zone de notification persistante et moteur headless présents; tests computer-companion-api 8/8, windows-release-build run 36256704070, hardware-lab-ci 36256704009, mel-device-01-files-apps-ci 36256704073 et mel-device-02-power-control-ci 36256704014 tous verts sur la candidate. Conserver les preuves appareil et non-régression.', 'P0'),
     item('GEN2-59', 'Build et release Windows', 'DONE', 'Pipeline Windows exact-SHA build/sign/verify fusionné via #365 et présent en production. Il reste uniquement la validation réelle build signé + installation + exécution + mise à jour avant DONE_VERIFIED.', 'P2'),
     item('GEN2-30', 'Computer Use abstraction', 'DONE_VERIFIED', 'Abstraction provider-neutral validée: tiers OBSERVE/INTERACT/SENSITIVE/DENY, sandbox apps + origines HTTPS, arrêt propriétaire, approbation explicite par étape sensible, refus shell/process/file/power brut, autorisation globale et audit; maintenir les tests de non-régression.', 'P0'),
     item('GEN2-31', 'Browser capability', 'DONE_VERIFIED', 'Cloudflare Browser Run réel via MEL_BROWSER_COMPANION + Durable Object; browser.execute validé de bout en bout par CapabilityBus (navigate + read-text sur example.com, HTTP 200, audit COMPLETED), run 35708251465 sur 2f3a0e108643fd407ca55760349cc00eb48426c8; 21/21 tests ciblés, 333/333 suite complète, secret smoke supprimé.', 'P0'),
