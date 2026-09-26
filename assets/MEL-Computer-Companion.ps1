@@ -283,6 +283,16 @@ function Perform-Step($step, [string]$commandId) {
       Set-Clipboard -Value ([string]$step.text)
       return @{ action=$action; chars=([string]$step.text).Length }
     }
+    "power.off" {
+      $exe = Join-Path $env:SystemRoot "System32\shutdown.exe"
+      Start-Process -FilePath $exe -ArgumentList @("/s","/t","5","/d","p:0:0","/c","MEL owner-approved shutdown") -WindowStyle Hidden
+      return @{ action=$action; scheduled=$true; delay_seconds=5 }
+    }
+    "power.restart" {
+      $exe = Join-Path $env:SystemRoot "System32\shutdown.exe"
+      Start-Process -FilePath $exe -ArgumentList @("/r","/t","5","/d","p:0:0","/c","MEL owner-approved restart") -WindowStyle Hidden
+      return @{ action=$action; scheduled=$true; delay_seconds=5 }
+    }
     default { throw "ACTION_NOT_SUPPORTED" }
   }
 }
