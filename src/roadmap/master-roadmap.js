@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-26.09';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.10';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -118,7 +118,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-35', 'OneDrive / SharePoint', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
     item('GEN2-36', 'GitHub / Cloudflare / Vercel', 'BLOCKED_HUMAN', 'Code et contrôles GEN2-36 intégrés et déployés; GitHub dispatch réel PASS (35709807443), Cloudflare auth PASS (35709798534), mutation bornée réelle PASS (35712822078) et production canonique PASS (35713600886 puis 35714494562). Seul bloqueur externe restant : aucun projet/équipe Vercel visible et VERCEL_TOKEN absent; fournir une cible Vercel réelle puis effectuer un redéploiement approuvé avant DONE_VERIFIED.', 'P0'),
     item('GEN2-37', 'Web / recherche', 'DONE_VERIFIED', 'Production vérifiée: release 36150649958 sur SHA 231b83e5009bf86af538d802f12e46b339252c70 a exécuté le vrai endpoint /api/gen2/web/research avec seed officiel Cloudflare, scope release strict, provenance complète et marqueur GEN2-37 PRODUCTION_VERIFIED.', 'P1'),
-    item('MEL-CONN-01', 'WordPress Vérité Interdite', 'DONE', 'Connecteur public isolé + endpoint chat public fusionnés via #441/#445/#456: PUBLIC_ONLY, aucune mémoire privée, origine verite-interdite.fr, recherche WordPress bornée, Workers AI zéro-coût et CORS restreint. Preuve live sur le site requise avant DONE_VERIFIED.', 'P3'),
+    item('MEL-CONN-01', 'WordPress Vérité Interdite', 'DONE_VERIFIED', 'Production certifiée le 26/09/2026: correctif public auth #470 fusionné puis déployé sur SHA f33f161dd4b1639e5b32490bfe4dfba05b5c370c par run 36233051273. Preuve depuis PC Windows réel DESKTOP-0S87KA9: GET /public/wordpress-chat = HTTP 200 sans owner auth, tandis que / et /manifest.webmanifest restent HTTP 401; séparation public/privé confirmée en production.', 'P3'),
     item('MEL-CONN-02', 'Catalogue de connecteurs installables', 'DONE_VERIFIED', 'Catalogue installable livré par PR #41 puis release #43: découverte déterministe, manifestes versionnés, permissions/scopes déclarés, installation fail-closed et tests dédiés. Présent dans le main exact actuellement déployé. Certification finale: présent sur le SHA exact 02709095088bf71567350b1b4f4465231440d448, full-suite CI verte avant fusion et déploiement Cloudflare release 36232449914 vert avec preuve identite SHA, autonomie production et HTTP final.', 'P2')
   ]),
 
