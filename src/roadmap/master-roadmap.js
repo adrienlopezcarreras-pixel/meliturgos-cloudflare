@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-26.05';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.06';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -104,7 +104,7 @@ export const MASTER_ROADMAP = Object.freeze([
   phase('P07', 'Work, agents et automatisations', [
     item('MEL-WORK-01', 'Work Engine persistant', 'DONE_VERIFIED', 'DAG Work durable en D1 avec état, checkpoints, artefacts, reprise après nouvelle instance et détection de corruption. Revalidé avec syntaxe globale + work-persistent/work-dag Actions 35641014709.', 'P0'),
     item('GEN2-38', 'Tasks / goals / planning', 'DONE_VERIFIED', 'Production certifiée sur SHA 53774b4dfbac645e250e518c62254365d4bfd3c8 par run 36193962224: planning borné, génération provider zéro-euro, persistance D1 Goal/Task et relecture du plan durable prouvées via CapabilityBus.', 'P1'),
-    item('GEN2-39', 'Agents / automations', 'IN_PROGRESS', 'Politique Agent durable owner-scoped fusionnée par PR #354 et runner Agent -> Work fusionné par PR #361, tous deux présents dans le main déployé. Reste du développement réel: brancher l orchestration Council/Work au cycle Agent puis obtenir une preuve runtime production avant DONE_VERIFIED.', 'P1'),
+    item('GEN2-39', 'Agents / automations', 'DONE', 'Politique Agent durable owner-scoped + runner Agent -> Work complétés par PR #416 avec chemin permissionné Council -> Work: model.council doit être déclaré dans la policy et les grants serveur, s exécute avant work.create et bloque tout side effect Work en cas d échec. Gate gen2-39-guarded-agent-work-ci 36227394626 vert. Reste uniquement une preuve runtime production avant DONE_VERIFIED.', 'P1'),
     item('GEN2-40', 'Event Bus idempotent / follow-ups', 'DONE_VERIFIED', 'Production certifiée sur SHA e749551d6c2786c225d5194a5a3556e4f47c84fd par run 36164971157: event.list exécuté via CapabilityBus sur D1 production avec preuve GEN2-12/13/40 explicitement verte; Event Bus durable/idempotent déjà fusionné.', 'P1'),
     item('GEN2-41', 'Notifications', 'DONE', 'Service durable owner-scoped + store D1 fusionnés sur main; gate gen2-41-notifications-ci vert sur le run 36196457534. Conserver la persistance et étendre les canaux/compagnons sans réouvrir le socle.', 'P2'),
     item('MEL-WORK-02', 'Planifier, reprendre et terminer un travail multi-étapes', 'DONE_VERIFIED', 'Reprise idempotente et terminaison multi-étapes prouvées, dont chaîne autonome 50 tâches + 50 gates Teacher sur plusieurs heartbeats sans duplication. Revalidé par Actions 35641014709.', 'P0'),
