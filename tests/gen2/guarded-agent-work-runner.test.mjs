@@ -256,3 +256,112 @@ test('Work failure marks the authorized automation run FAILED with root code', a
   assert.equal(replay.terminal,true);
   assert.equal(replay.executed,false);
 });
+
+
+test('GEN2-39 optional Council is permissioned and runs before Work side effects', async()=>{
+  let now=2_000;
+  const calls=[];
+  const runner=new GuardedAgentWorkRunner({
+    guard:guardFor(agent({capabilities:['memory.read','model.council']})),
+    bus:{
+      execute:async(id,input)=>{
+        calls.push({id,input});
+        if(id==='model.council') return {ok:true,critics:[{model:'a'},{model:'b'}],synthesis:{summary:'safe plan'}};
+        if(id==='work.create') return {id:input.id,status:'RUNNING',completed:false};
+        if(id==='work.run') return {id:input.id,status:'COMPLETED',completed:true};
+        throw new Error('unexpected capability');
+      },
+    },
+    resolveGrants:async({required_capabilities})=>({
+      capabilities:[...required_capabilities],
+      tier:PERMISSION_TIERS.READ,
+      approved:false,
+      provenance:{source:'server-policy'},
+    }),
+    now:()=>++now,
+  });
+
+  const req=request({
+    policy:{
+      automation_id:'auto-council',
+      agent_id:'agent-1',
+      required_capabilities:['memory.read','model.council'],
+      permission_tier:PERMISSION_TIERS.READ,
+      enabled:true,
+    },
+    council:{capability:'GENERAL',max_candidates:2,timeout_ms:5000},
+  });
+  const result=await runner.execute(req,{owner:'adrien',requestId:'req-council'});
+
+  assert.deepEqual(calls.map(row=>row.id),['model.council','work.create','work.run']);
+  assert.equal(result.council.ok,true);
+  assert.equal(result.claim.status,RUN_STATUSES.COMPLETED);
+  assert.equal(result.claim.result.council.executed,true);
+  assert.equal(result.claim.result.council.capability,'GENERAL');
+});
+
+test('GEN2-39 Council must be declared by policy before grant resolution or Work', async()=>{
+  let resolverCalls=0;
+  let busCalls=0;
+  const runner=new GuardedAgentWorkRunner({
+    guard:guardFor(agent({capabilities:['memory.read','model.council']})),
+    bus:{execute:async()=>{busCalls+=1;}},
+    resolveGrants:async()=>{
+      resolverCalls+=1;
+      return {capabilities:['memory.read','model.council'],tier:PERMISSION_TIERS.READ};
+    },
+  });
+
+  await assert.rejects(
+    ()=>runner.execute(request({
+      council:{capability:'GENERAL'},
+    }),{owner:'adrien'}),
+    {code:'AGENT_WORK_CAPABILITY_UNDECLARED',status:403},
+  );
+  assert.equal(resolverCalls,0);
+  assert.equal(busCalls,0);
+});
+
+test('GEN2-39 Council failure marks run failed before Work is created', async()=>{
+  let now=3_000;
+  const calls=[];
+  const runner=new GuardedAgentWorkRunner({
+    guard:guardFor(agent({capabilities:['memory.read','model.council']})),
+    bus:{
+      execute:async(id)=>{
+        calls.push(id);
+        if(id==='model.council') throw Object.assign(new Error('COUNCIL_UNAVAILABLE'),{code:'COUNCIL_UNAVAILABLE'});
+        throw new Error('Work must not start');
+      },
+    },
+    resolveGrants:async({required_capabilities})=>({
+      capabilities:[...required_capabilities],
+      tier:PERMISSION_TIERS.READ,
+      approved:false,
+    }),
+    now:()=>++now,
+  });
+  const req=request({
+    run_id:'run-council-fail',
+    idempotency_key:'idem-council-fail',
+    policy:{
+      automation_id:'auto-council-fail',
+      agent_id:'agent-1',
+      required_capabilities:['memory.read','model.council'],
+      permission_tier:PERMISSION_TIERS.READ,
+      enabled:true,
+    },
+    council:{capability:'GENERAL'},
+  });
+
+  await assert.rejects(
+    ()=>runner.execute(req,{owner:'adrien'}),
+    error=>error?.code==='COUNCIL_UNAVAILABLE',
+  );
+  assert.deepEqual(calls,['model.council']);
+
+  const replay=await runner.execute(req,{owner:'adrien'});
+  assert.equal(replay.claim.status,RUN_STATUSES.FAILED);
+  assert.equal(replay.executed,false);
+  assert.equal(replay.terminal,true);
+});
