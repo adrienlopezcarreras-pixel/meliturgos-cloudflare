@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-26.07';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.08';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -96,7 +96,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-EVOL-03', 'Tests, benchmark, critique et correction en boucle', 'DONE_VERIFIED', 'Preuve candidate e0dc435ec6daf4971243709c76f5ed077a72f0cc: CI 35100248725; smoke Teacher/runtime 35100248854; preview 35100248729; maintenir la boucle runner et ses tests de non-régression', 'P0'),
     item('MEL-EVOL-04', 'EVOLUTION_LEDGER immuable et explicable', 'DONE', 'Implémentation fusionnée par PR #393: ledger D1 append-only chaîné SHA-256, exposition list/verify via CapabilityBus, capture automatique JOB_CREATED/JOB_UPDATED et provenance exacte source SHA/branche candidate. Conserver les preuves et ajouter une certification production avant toute éventuelle promotion en DONE_VERIFIED.', 'P1'),
     item('MEL-EVOL-05', 'Skill Registry durable', 'DONE_VERIFIED', 'Production certifiée sur SHA e749551d6c2786c225d5194a5a3556e4f47c84fd par run 36164971157: Skill Registry D1 persistant, restauration après recréation runtime, rollback 1.1.0 -> 1.0.0 prouvé, lecture CapabilityBus -> D1 validée et HTTP production final vert.', 'P1'),
-    item('MEL-EVOL-06', 'Fine-tuning / LoRA open-weight continu', 'IN_PROGRESS', 'Heartbeat MEL supervise la chaîne Kaggle GPU gratuite: relance seulement si aucun run actif, checkpoints immuables, benchmark après chaque cycle, UNCENSORED puis AGENTIC sans écraser le parent, aucun fallback payant. Correctif candidate: collector Kaggle rendu dispatch-only pour supprimer les files cron/push longues; full-candidate-ci 35837004893 et lora-runtime-pipeline-ci 35837004932 verts sur 1110d20ac184b434a602e86597fd57f76753fbdb. Suite: vérifier le cycle/checkpoint Kaggle réel restant, laisser le heartbeat reprendre uniquement hors run actif et certifier le prochain benchmark canonique.', 'P0'),
+    item('MEL-EVOL-06', 'Fine-tuning / LoRA open-weight continu', 'DONE', 'Pipeline continu open-weight fusionné: heartbeat, Kaggle GPU gratuit, checkpoints immuables, chaîne UNCENSORED puis AGENTIC, collector dispatch-only, garde zéro coût et benchmark isolé. Le run live 36229951853 a validé auth Kaggle, quota, shard, payload privé, soumission T4 et métadonnées GPU puis attend la fin du cycle. Checkpoint final + benchmark canonique requis avant DONE_VERIFIED.', 'P0'),
     item('GEN2-18', 'Self Healing contrôlé', 'DONE', 'Implémentation candidate-only contrôlée fusionnée par PR #394; rollback/réparation restent bornés et non autonomes en production. Gates self-healing-controlled-ci 36196820120 et gen2-17-multi-cycle-ci 36196820150 verts sur le SHA du PR.', 'P2'),
     item('GEN2-20', 'Learning Engine', 'DONE_VERIFIED', 'Les complétions autonomes exact-SHA vérifiées par full-candidate-ci peuvent transporter des learning_handoffs; le reconciler les injecte automatiquement dans LearningEngine avec validation XP, provenance path+SHA, rejet des SHA périmés et déduplication id+sémantique. Tests handoff-ingestion + autonomy-completion-mentor-learning inclus dans le lot de réconciliation #152.', 'P1')
   ]),
