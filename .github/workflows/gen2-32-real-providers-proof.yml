@@ -28,7 +28,7 @@ jobs:
 
       - name: Run Connector SDK contract tests
         run: |
-          node --test             tests/connectors-sdk.test.mjs             tests/connectors-oauth2-pkce.test.mjs             tests/connectors-oauth-catalog-hooks.test.mjs
+          node --test tests/gen2/connector-catalog.test.mjs tests/gen2/d1-connector-catalog.test.mjs tests/connectors-security.test.mjs
 
       - name: Probe real providers through MEL Connector SDK
         shell: bash
