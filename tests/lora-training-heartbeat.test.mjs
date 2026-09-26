@@ -223,3 +223,10 @@ test('canonical Kaggle collector is dispatch-only and cannot create scheduled/pu
   assert.match(source, /MAX_WAIT_MINUTES:\s*\$\{\{ inputs\.max_wait_minutes \}\}/);
   assert.match(source, /cancel_acknowledged\|cancel acknowledged/);
 });
+
+
+test('canonical Kaggle GPU workflow allows multi-step QLoRA runtime', async () => {
+  const source = await readFile(new URL('../.github/workflows/lora-kaggle-free-gpu.yml', import.meta.url), 'utf8');
+  assert.match(source, /kaggle kernels push[\s\S]*-t 10800/);
+  assert.doesNotMatch(source, /kaggle kernels push[\s\S]*-t 120(?:\s|$)/);
+});
