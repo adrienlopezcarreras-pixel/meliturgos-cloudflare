@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.41-ble-stability"
+        const val APP_VERSION = "0.6.42-ble-diag"
     }
 
     init {
@@ -168,7 +168,8 @@ class MelApiClient(
         appVersion: String = APP_VERSION,
         sdkInt: Int,
         battery: Int? = null,
-        charging: Boolean = false
+        charging: Boolean = false,
+        phase: String = "ONLINE"
     ): JSONObject {
         return jsonRequest(
             "/api/android/v1/heartbeat",
@@ -178,7 +179,7 @@ class MelApiClient(
                 .put("sdk_int", sdkInt)
                 .put("battery", battery)
                 .put("charging", charging)
-                .put("phase", "ONLINE")
+                .put("phase", phase.take(40))
         )
     }
 

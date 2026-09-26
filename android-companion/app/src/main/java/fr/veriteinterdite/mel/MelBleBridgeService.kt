@@ -94,7 +94,9 @@ class MelBleBridgeService : Service() {
     )
 
     private val executor = Executors.newSingleThreadExecutor()
+    private val diagExecutor = Executors.newSingleThreadExecutor()
     private val requests = ConcurrentHashMap<String, PendingRequest>()
+    private val connectedAtMs = ConcurrentHashMap<String, Long>()
     private val mtus = ConcurrentHashMap<String, Int>()
     private val subscribed = ConcurrentHashMap<String, Boolean>()
     private val pullFrames = ConcurrentHashMap<String, ConcurrentLinkedQueue<ByteArray>>()
@@ -157,6 +159,7 @@ class MelBleBridgeService : Service() {
         if (wakeLock?.isHeld == true) wakeLock?.release()
         wakeLock = null
         executor.shutdownNow()
+        diagExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -254,6 +257,28 @@ class MelBleBridgeService : Service() {
         advertiseCallback = null
     }
 
+    private fun publishBleDiagnostic(status: Int, newState: Int, durationMs: Long?) {
+        val seconds = durationMs?.coerceAtLeast(0L)?.div(1000L)
+        val phase = if (newState == BluetoothGatt.STATE_CONNECTED) {
+            "BLE_C st=$status ns=$newState"
+        } else {
+            "BLE_D st=$status ns=$newState d=${seconds ?: -1}s"
+        }
+        diagExecutor.execute {
+            runCatching {
+                val rawAndroidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+                val androidDeviceId = "android-" + (rawAndroidId ?: "unknown").take(64)
+                val vault = TokenVault(this@MelBleBridgeService)
+                if (vault.load().isNullOrBlank()) return@execute
+                MelApiClient(BuildConfig.MEL_BASE_URL, androidDeviceId, vault)
+                    .heartbeat(sdkInt = Build.VERSION.SDK_INT, phase = phase)
+                Log.i(TAG, "BLE diagnostic published $phase version=${BuildConfig.VERSION_NAME}")
+            }.onFailure { error ->
+                Log.w(TAG, "BLE diagnostic publish failed: ${error.message}")
+            }
+        }
+    }
+
     private val gattCallback = object : BluetoothGattServerCallback() {
         override fun onServiceAdded(status: Int, service: BluetoothGattService) {
             if (service.uuid != SERVICE_UUID) return
@@ -269,9 +294,14 @@ class MelBleBridgeService : Service() {
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
             Log.i(TAG, "MINI BLE state=${device.address} status=$status newState=$newState")
             if (newState == BluetoothGatt.STATE_CONNECTED) {
+                connectedAtMs[device.address] = System.currentTimeMillis()
                 subscribed[device.address] = false
                 bridgeState.value = "MINI LI├ëE ┬À INITIALISATION CANAL"
+                publishBleDiagnostic(status, newState, null)
             } else {
+                val started = connectedAtMs.remove(device.address)
+                val duration = started?.let { System.currentTimeMillis() - it }
+                publishBleDiagnostic(status, newState, duration)
                 bridgeState.value = if (adapter?.isEnabled == true) "PR├èT" else "BLUETOOTH OFF"
                 requests.remove(device.address)
                 mtus.remove(device.address)
