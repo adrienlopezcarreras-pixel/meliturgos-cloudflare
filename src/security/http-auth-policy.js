@@ -3,6 +3,8 @@ import { authorizeDevBridge } from '../core/dev-bridge-auth.js';
 
 const PUBLIC_GET_PREFIXES = Object.freeze(['/api/teacher/']);
 const PUBLIC_GET_EXACT = Object.freeze(new Set(['/api/gen2/autonomy/control']));
+const PUBLIC_POST_EXACT = Object.freeze(new Set(['/api/public/wordpress/chat']));
+const PUBLIC_OPTIONS_EXACT = Object.freeze(new Set(['/api/public/wordpress/chat']));
 const DELEGATED_PREFIXES = Object.freeze([
   '/api/device/v1/',
   '/api/computer/v1/',
@@ -34,8 +36,9 @@ export function classifyHttpAuthSurface(request) {
   if (!path.startsWith('/api/')) return Object.freeze({ kind: 'NON_API', path, method });
 
   if (
-    method === 'GET'
-    && (PUBLIC_GET_EXACT.has(path) || PUBLIC_GET_PREFIXES.some(prefix => path.startsWith(prefix)))
+    (method === 'GET' && (PUBLIC_GET_EXACT.has(path) || PUBLIC_GET_PREFIXES.some(prefix => path.startsWith(prefix))))
+    || (method === 'POST' && PUBLIC_POST_EXACT.has(path))
+    || (method === 'OPTIONS' && PUBLIC_OPTIONS_EXACT.has(path))
   ) {
     return Object.freeze({ kind: 'PUBLIC_SANITIZED', path, method });
   }
@@ -72,6 +75,8 @@ export function enforceHttpAuthPolicy(request, env) {
 export const HTTP_AUTH_POLICY = Object.freeze({
   public_get_prefixes: PUBLIC_GET_PREFIXES,
   public_get_exact: Object.freeze([...PUBLIC_GET_EXACT]),
+  public_post_exact: Object.freeze([...PUBLIC_POST_EXACT]),
+  public_options_exact: Object.freeze([...PUBLIC_OPTIONS_EXACT]),
   delegated_prefixes: DELEGATED_PREFIXES,
   delegated_exact: Object.freeze([...DELEGATED_EXACT]),
   default_api_policy: 'OWNER_AUTH',
