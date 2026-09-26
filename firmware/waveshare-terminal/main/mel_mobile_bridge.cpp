@@ -159,7 +159,9 @@ static int cccd_subscribe_complete(uint16_t conn_handle, const struct ble_gatt_e
 static bool write_frame(uint8_t op, uint32_t id, const uint8_t *payload, size_t payload_len) {
     if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE || !g_rx_handle) return false;
     const uint16_t mtu = ble_att_mtu(g_conn_handle);
-    const size_t limit = mtu > 8 ? (size_t)mtu - 8 : 15;
+    // GATT characteristic values are capped at 512 bytes even with MTU 517.
+    // Keep the full MEL frame (5-byte header + payload) comfortably below it.
+    const size_t limit = std::min<size_t>(500, mtu > 8 ? (size_t)mtu - 8 : 15);
     if (payload_len > limit) {
         ESP_LOGE(TAG, "BLE frame too large: %u > %u (MTU %u)",
                  (unsigned)payload_len, (unsigned)limit, (unsigned)mtu);
@@ -518,7 +520,7 @@ static esp_err_t request_common(
     bool ok = write_frame(OP_BEGIN, id, reinterpret_cast<const uint8_t *>(meta.data()), meta.size());
     if (ok && body_len) {
         const uint16_t mtu = ble_att_mtu(g_conn_handle);
-        const size_t chunk = std::max<size_t>(12, mtu > 8 ? (size_t)mtu - 8 : 15);
+        const size_t chunk = std::max<size_t>(12, std::min<size_t>(500, mtu > 8 ? (size_t)mtu - 8 : 15));
         for (size_t off = 0; ok && off < body_len; off += chunk) {
             const size_t n = std::min(chunk, body_len - off);
             ok = write_frame(OP_BODY, id, body + off, n);

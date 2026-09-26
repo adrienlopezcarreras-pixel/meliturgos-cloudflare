@@ -240,7 +240,7 @@ static esp_err_t http_request(
         );
     };
 
-    if (!g_wifi_connected && mel_mobile_bridge_ready()) {
+    if (mel_mobile_bridge_ready()) {
         return mobile_request();
     }
 
@@ -332,7 +332,7 @@ static bool speak_text(const std::string &text) {
     std::string body = json_string(root);
     cJSON_Delete(root);
 
-    if (!g_wifi_connected && mel_mobile_bridge_ready()) {
+    if (mel_mobile_bridge_ready()) {
         MobileTtsContext ctx;
         ctx.started_us = esp_timer_get_time();
         int status = 0;
@@ -442,7 +442,7 @@ static std::string json_string(cJSON *obj) {
 
 static bool pair_terminal() {
     if (g_cfg.token[0]) return true;
-    const bool android_sponsored_pair = mel_mobile_bridge_ready() && !g_wifi_connected;
+    const bool android_sponsored_pair = mel_mobile_bridge_ready();
     if (!g_cfg.pair_code[0] && !android_sponsored_pair) return false;
 
     cJSON *root = cJSON_CreateObject();
@@ -1252,7 +1252,7 @@ static bool ota_download(const std::string &key, const std::string &expected_sha
         ESP_LOGE(TAG, "OTA refused: missing/invalid manifest SHA-256");
         return false;
     }
-    if (!g_wifi_connected && mel_mobile_bridge_ready()) {
+    if (mel_mobile_bridge_ready()) {
         ESP_LOGI(TAG, "OTA via MEL MOBILE");
         return ota_download_mobile(key, expected_sha256);
     }
@@ -1691,7 +1691,7 @@ static void online_runtime_task(void *) {
         g_cfg.token[0] = '\0';
         save_string("token", "");
 
-        if (mel_mobile_bridge_ready() && !g_wifi_connected) {
+        if (mel_mobile_bridge_ready()) {
             ESP_LOGI(TAG, "Retrying MEL pairing through authenticated Android bridge");
             if (pair_terminal()) {
                 session_status = device_session_status();
