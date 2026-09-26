@@ -162,7 +162,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P12', 'Résilience, sauvegarde et indépendance', [
-    item('GEN2-47', 'Backups / export système', 'DONE', 'Backups système complets fusionnés via #417/#436: snapshots D1, AES-GCM, copie bornée des octets R2, SHA-256 après copie, manifest source/backup, restore isolé byte-for-byte et nettoyage fail-closed. Drill live production requis avant DONE_VERIFIED.', 'P1'),
+    item('GEN2-47', 'Backups / export système', 'DONE_VERIFIED', 'Certification production acquise le 26/09/2026 sur le déploiement exact SHA f33f161dd4b1639e5b32490bfe4dfba05b5c370c (run 36233051273): backup frais system-20260926093342886 créé et vérifié, restore dry-run isolé validé, deployed_sha et backup_deployed_sha identiques au SHA déployé, sha_matches=true; le workflow a confirmé LATEST_SYSTEM_BACKUP_RESTORE_VERIFIED.', 'P1'),
     item('GEN2-48', 'Restore / disaster recovery', 'DONE_VERIFIED', 'Production vérifiée: release 36150649958 sur SHA 231b83e5009bf86af538d802f12e46b339252c70 a exécuté le recovery drill isolé sur snapshot system-20260925145625240, avec reconstruction logique, vérification, teardown complet, aucun accès production de restauration et aucune activation.', 'P1'),
     item('GEN2-49', 'Portabilité système provider-neutral', 'DONE', 'Bundle provider-neutral vérifiable, exporteurs runtime réels et restore drill alternatif sans provider/network fusionnés via #268/#305/#345; CI gen2-49-portability-restore-ci 36156772198 verte. Preuve live de bascule provider réelle requise avant DONE_VERIFIED.', 'P1'),
     item('MEL-RES-01', 'Survival Mode: NORMAL/DEGRADED/READ_ONLY/RECOVERY/HALTED', 'DONE_VERIFIED', 'Brancher télémétrie runtime', 'P0'),
