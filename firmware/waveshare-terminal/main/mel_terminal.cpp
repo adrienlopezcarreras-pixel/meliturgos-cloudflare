@@ -8,6 +8,9 @@
 #include <cstdio>
 #include <cctype>
 #include <sys/stat.h>
+#include <sys/time.h>
+#include <ctime>
+#include <cstdlib>
 
 #include "nvs.h"
 #include "esp_log.h"
@@ -88,10 +91,14 @@ static volatile int g_voice_level = 0;
 static const char *g_last_voice_error = nullptr;
 static SemaphoreHandle_t g_mic_mutex = nullptr;
 static TaskHandle_t g_wake_task_handle = nullptr;
+static TaskHandle_t g_wake_sync_task_handle = nullptr;
 static bool g_wake_profile_ready = false;
 static float g_wake_template[WAKE_FEATURE_COUNT] = {};
 static float g_wake_threshold = 0.84f;
 static int64_t g_last_wake_trigger_us = 0;
+
+static void sync_wake_phrase_profile();
+static void mobile_companion_sync_task(void *);
 
 static void voice_error(const char *reason) {
     g_last_voice_error = reason;
@@ -363,6 +370,42 @@ static void wake_detector_task(void *) {
 static void ensure_wake_detector() {
     if (!g_wake_profile_ready || g_wake_task_handle) return;
     xTaskCreatePinnedToCore(wake_detector_task, "mel_wake", 8192, nullptr, 3, &g_wake_task_handle, 0);
+}
+
+static bool sync_phone_clock_from_json(cJSON *root) {
+    if (!root) return false;
+    cJSON *epoch_ms_item = cJSON_GetObjectItemCaseSensitive(root, "epoch_ms");
+    cJSON *offset_item = cJSON_GetObjectItemCaseSensitive(root, "utc_offset_seconds");
+    if (!cJSON_IsNumber(epoch_ms_item) || !cJSON_IsNumber(offset_item)) return false;
+
+    const int64_t epoch_ms = (int64_t)epoch_ms_item->valuedouble;
+    if (epoch_ms < 1700000000000LL) return false;
+    const int utc_offset_seconds = offset_item->valueint;
+
+    struct timeval tv = {};
+    tv.tv_sec = (time_t)(epoch_ms / 1000LL);
+    tv.tv_usec = (suseconds_t)((epoch_ms % 1000LL) * 1000LL);
+    if (settimeofday(&tv, nullptr) != 0) {
+        ESP_LOGW(TAG, "PHONE CLOCK settimeofday failed");
+        return false;
+    }
+
+    // POSIX TZ offsets use the inverse sign: UTC+2 local time => "MEL-2".
+    const int abs_offset = utc_offset_seconds < 0 ? -utc_offset_seconds : utc_offset_seconds;
+    const int hours = abs_offset / 3600;
+    const int minutes = (abs_offset % 3600) / 60;
+    const char sign = utc_offset_seconds >= 0 ? '-' : '+';
+    char tz[32] = {};
+    if (minutes) snprintf(tz, sizeof(tz), "MEL%c%d:%02d", sign, hours, minutes);
+    else snprintf(tz, sizeof(tz), "MEL%c%d", sign, hours);
+    setenv("TZ", tz, 1);
+    tzset();
+
+    cJSON *zone = cJSON_GetObjectItemCaseSensitive(root, "timezone");
+    ESP_LOGI(TAG, "PHONE CLOCK synced epoch=%lld offset=%d tz=%s source=%s",
+             (long long)(epoch_ms / 1000LL), utc_offset_seconds, tz,
+             cJSON_IsString(zone) && zone->valuestring ? zone->valuestring : "phone");
+    return true;
 }
 
 static void clear_config() {
@@ -1845,6 +1888,9 @@ void mel_terminal_set_mobile_connected(bool connected) {
     g_mobile_connected = connected;
     if (connected) {
         if (!g_wifi_connected) ui_status(g_online ? "MEL MOBILE" : "MOBILE CONNECTE");
+        if (g_online && !g_wake_sync_task_handle) {
+            xTaskCreatePinnedToCore(mobile_companion_sync_task, "mel_mobile_sync", 6144, nullptr, 3, &g_wake_sync_task_handle, 0);
+        }
         return;
     }
     if (!g_wifi_connected) {
@@ -1871,6 +1917,7 @@ static void sync_wake_phrase_profile() {
         ESP_LOGW(TAG, "WAKE PROFILE invalid JSON");
         return;
     }
+    sync_phone_clock_from_json(root);
     cJSON *enrolled = cJSON_GetObjectItemCaseSensitive(root, "enrolled");
     const bool ready = cJSON_IsTrue(enrolled);
     if (ready) {
@@ -1909,6 +1956,13 @@ static void sync_wake_phrase_profile() {
     cJSON_Delete(root);
 }
 
+static void mobile_companion_sync_task(void *) {
+    vTaskDelay(pdMS_TO_TICKS(250));
+    if (mel_mobile_bridge_ready()) sync_wake_phrase_profile();
+    g_wake_sync_task_handle = nullptr;
+    vTaskDelete(nullptr);
+}
+
 static int device_session_status() {
     if (!g_cfg.token[0]) return 401;
     std::string response;
@@ -1921,6 +1975,13 @@ static int device_session_status() {
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "MEL session validation unavailable: %s; keeping stored token", esp_err_to_name(err));
         return -1;
+    }
+    if (status == 200 && !response.empty()) {
+        cJSON *root = cJSON_Parse(response.c_str());
+        if (root) {
+            sync_phone_clock_from_json(root);
+            cJSON_Delete(root);
+        }
     }
     return status;
 }
