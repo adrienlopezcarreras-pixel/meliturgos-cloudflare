@@ -212,7 +212,7 @@ export async function runLoraTrainingHeartbeat(env = {}, options = {}) {
 
     const sha = await candidateHead({ fetchImpl, repository, branch, token });
     const shardSize = String(safeInt(env?.MEL_LORA_KAGGLE_SHARD_SIZE, 750, 50, 3000));
-    const maxCyclesNumber = safeInt(env?.MEL_LORA_KAGGLE_MAX_CYCLES, 1000, 1, 2000);
+    const maxCyclesNumber = safeInt(env?.MEL_LORA_KAGGLE_MAX_CYCLES, 100, 1, 100);
     const maxCycles = String(maxCyclesNumber);
     const nextCycle = checkpoint ? checkpoint.cycle + 1 : 0;
     const parentReleaseTag = checkpoint?.tag || '';
@@ -278,6 +278,6 @@ export const LORA_TRAINING_HEARTBEAT_DEFAULTS = Object.freeze({
   interval_minutes: 15,
   retry_minutes: 60,
   shard_size: 750,
-  max_cycles: 1000,
+  max_cycles: 100,
   zero_cost_only: true,
 });
