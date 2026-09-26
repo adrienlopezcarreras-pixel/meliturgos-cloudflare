@@ -30,27 +30,22 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          $openssl=(Get-Command openssl.exe -ErrorAction SilentlyContinue).Source
-          if(-not $openssl){$openssl='C:\Program Files\Git\usr\bin\openssl.exe'}
-          if(-not (Test-Path $openssl)){throw 'GEN2_59_OPENSSL_NOT_FOUND'}
           $password="MelProof-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT!"
-          $key=Join-Path $env:RUNNER_TEMP 'mel-gen2-59-key.pem'
-          $pem=Join-Path $env:RUNNER_TEMP 'mel-gen2-59-cert.pem'
-          $cer=Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.cer'
+          $secure=ConvertTo-SecureString -String $password -AsPlainText -Force
           $pfx=Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.pfx'
-          & $openssl req -x509 -newkey rsa:2048 -sha256 -nodes -keyout $key -out $pem -days 1 -subj '/CN=MEL GEN2-59 Proof' -addext 'extendedKeyUsage=codeSigning' -addext 'keyUsage=digitalSignature'
-          if($LASTEXITCODE -ne 0){throw 'GEN2_59_OPENSSL_CERT_FAILED'}
-          & $openssl x509 -in $pem -outform der -out $cer
-          if($LASTEXITCODE -ne 0){throw 'GEN2_59_OPENSSL_DER_FAILED'}
-          & $openssl pkcs12 -export -out $pfx -inkey $key -in $pem -passout "pass:$password"
-          if($LASTEXITCODE -ne 0){throw 'GEN2_59_OPENSSL_PFX_FAILED'}
-          $trusted=Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPeople'
+          $cer=Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.cer'
+          $cert=New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=MEL GEN2-59 Proof" -CertStoreLocation 'Cert:\CurrentUser\My' -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(1)
+          if(-not $cert.HasPrivateKey){throw 'GEN2_59_CERT_PRIVATE_KEY_MISSING'}
+          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $secure | Out-Null
+          Export-Certificate -Cert $cert -FilePath $cer | Out-Null
+          Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPeople' | Out-Null
+          Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
           $pfxB64=[Convert]::ToBase64String([IO.File]::ReadAllBytes($pfx))
           Write-Output "::add-mask::$password"
           Write-Output "::add-mask::$pfxB64"
           "MEL_WINDOWS_SIGNING_PFX_PASSWORD=$password" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "MEL_WINDOWS_SIGNING_PFX_BASE64=$pfxB64" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "PROOF_CERT_THUMBPRINT=$($trusted.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PROOF_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build and verify signed 2.3.0 package
         shell: powershell
