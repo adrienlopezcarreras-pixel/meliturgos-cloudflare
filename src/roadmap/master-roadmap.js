@@ -74,7 +74,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-CODE-01', 'Lecture sécurisée du propre code de MEL', 'DONE_VERIFIED', 'Production certifiée sur SHA f5f294b1b4167fdbc88926d590f1dd808b73133e : /api/chat a exécuté code.read avec succès sur le Worker déployé; release run 35693911802, job 106636510849.', 'P0'),
     item('MEL-CODE-02', 'Recherche sécurisée dans le dépôt', 'DONE_VERIFIED', 'Production certifiée sur SHA f5f294b1b4167fdbc88926d590f1dd808b73133e : /api/chat a exécuté code.search avec succès et retrouvé src/capabilities/default-bus.js; release run 35693911802, job 106636510849.', 'P0'),
     item('MEL-CODE-03', 'Diagnostic self-code et branche réellement déployée', 'DONE_VERIFIED', 'Le self-check expose branche + commit déployés et inspecte désormais le SHA exact comme snapshot immuable; mismatch de branche/HEAD fail-closed. Syntaxe et suites code/self-state validées par Actions 35640215437.', 'P0'),
-    item('GEN2-15', 'Plugin SDK', 'PLANNED', 'Stabiliser contrat manifest + permissions', 'P1'),
+    item('GEN2-15', 'Plugin SDK', 'PARTIAL', 'Contrat manifest + permissions + registre versions durable fusionnés; reste preuve runtime exacte + redémarrage', 'P1'),
     item('GEN2-50', 'Compatibilité MCP', 'DONE', 'Implémentation livrée par PR #26: adaptateur MCP natif sur CapabilityBus, négociation moderne/legacy, tools/list + tools/call et compatibilité écosystème. Présent dans le main exact déployé e749551d6c2786c225d5194a5a3556e4f47c84fd; conserver les tests de compatibilité.', 'P2')
   ]),
 
