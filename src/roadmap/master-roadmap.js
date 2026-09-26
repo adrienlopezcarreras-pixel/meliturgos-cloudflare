@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-26.06';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.07';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -168,7 +168,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-RES-01', 'Survival Mode: NORMAL/DEGRADED/READ_ONLY/RECOVERY/HALTED', 'DONE_VERIFIED', 'Brancher télémétrie runtime', 'P0'),
     item('MEL-RES-02', 'Recovery Bundle', 'DONE_VERIFIED', 'Ajouter vérification périodique de l’artefact de récupération', 'P0'),
     item('MEL-RES-03', 'Provider Escape Capsule', 'DONE', 'Provider Escape Capsule fusionnée via #389: manifest provider-neutral machine-readable, plan de sortie sans mutation automatique, validation secrets/readiness/rollback et CI verte. Génération sur manifest production réel requise avant DONE_VERIFIED.', 'P1'),
-    item('MEL-RES-04', 'Cold standby autorisé', 'IN_PROGRESS', 'Capability runtime de préparation manuelle ajoutée: elle exige owner + approbation explicite, rejoue un recovery drill isolé sur une sauvegarde vérifiée, refuse les destinations non autorisées/non chiffrées et produit un plan lié au manifest exact. Aucune capability d’activation n’est exposée et aucune bascule automatique n’est possible. Reste avant DONE_VERIFIED: déployer, prouver la préparation live sur une sauvegarde production puis brancher un vrai adaptateur de destination froide externe pour copie/restauration manuelle approuvée.', 'P2'),
+    item('MEL-RES-04', 'Cold standby autorisé', 'DONE', 'Capability runtime manuelle + recovery drill isolé + adaptateur objet externe provider-neutral fusionnés. PR #449 ajoute copie d’un bundle déjà chiffré, vérification SHA-256 par readback et matérialisation du restore sans déploiement, DNS ni bascule trafic; gates mel-res-04-cold-object-adapter-ci 36229784790, MEL-RES-05 encrypted backup CI 36229784814 et augmentio-ci 36229784792 verts. Une preuve live sur une vraie destination froide reste requise avant DONE_VERIFIED.', 'P2'),
     item('MEL-RES-05', 'Intégrité mémoire et sauvegardes chiffrées', 'DONE', 'Implémentation fusionnée par PR #395: enveloppe AES-GCM-256 liée à l’intégrité, stockage objet R2 chiffré + métadonnées D1 et déchiffrement fail-closed si codec/clé absents. Le service chiffré reste opt-in tant que le rollout de clé production n’est pas explicitement réalisé; certification live requise avant DONE_VERIFIED.', 'P1')
   ]),
 
