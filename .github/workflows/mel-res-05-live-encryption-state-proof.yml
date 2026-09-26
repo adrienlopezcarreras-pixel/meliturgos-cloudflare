@@ -1,0 +1,114 @@
+name: mel-res-05-live-encryption-state-proof
+
+on:
+  push:
+    branches:
+      - proof/mel-res-05-live-encryption-state-20260926
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact proof SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Verify encrypted backup contracts
+        run: node --test tests/encrypted-backup-storage.test.mjs tests/backup-system-runtime.test.mjs
+
+      - name: Read production encryption state
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler secret list --format json > secrets.raw.json
+          npx wrangler d1 execute DB --remote --json --command "
+            SELECT id, object_key, metadata_json, created_at
+            FROM backup_objects
+            WHERE object_key LIKE 'backups/system/%'
+            ORDER BY created_at DESC
+            LIMIT 20;
+          " > backups.raw.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Build sanitized proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          raw=json.loads(Path('secrets.raw.json').read_text())
+          names=set()
+          for item in raw if isinstance(raw,list) else raw.get('secrets',[]):
+              if isinstance(item,dict) and item.get('name'):
+                  names.add(str(item['name']))
+
+          parts=json.loads(Path('backups.raw.json').read_text())
+          rows=[]
+          for part in parts if isinstance(parts,list) else [parts]:
+              if isinstance(part,dict) and isinstance(part.get('results'),list):
+                  rows.extend(part['results'])
+
+          parsed=[]
+          for r in rows:
+              try:
+                  m=json.loads(r.get('metadata_json') or '{}')
+              except Exception:
+                  m={}
+              parsed.append({
+                  'id': str(r.get('id') or ''),
+                  'object_key': str(r.get('object_key') or ''),
+                  'created_at': int(r.get('created_at') or 0),
+                  'encrypted': m.get('encrypted') is True,
+                  'algorithm': m.get('encryptionAlgorithm') or m.get('algorithm'),
+                  'key_id_present': bool(m.get('encryptionKeyId') or m.get('key_id')),
+                  'integrity_sha256_present': bool(m.get('integritySha256') or m.get('plaintext_sha256') or m.get('ciphertext_sha256')),
+              })
+
+          encrypted=[r for r in parsed if r['encrypted']]
+          latest=parsed[0] if parsed else None
+          proof={
+              'schema':'mel.res-05-live-encryption-state-proof.v1',
+              'secrets':{
+                  'key_id_present':'MEL_BACKUP_ENCRYPTION_KEY_ID' in names,
+                  'key_b64_present':'MEL_BACKUP_ENCRYPTION_KEY_B64' in names,
+              },
+              'backup_count':len(parsed),
+              'encrypted_backup_count':len(encrypted),
+              'latest_backup':latest,
+              'latest_encrypted_backup':encrypted[0] if encrypted else None,
+          }
+          proof['complete']=bool(
+              proof['secrets']['key_id_present']
+              and proof['secrets']['key_b64_present']
+              and proof['latest_encrypted_backup']
+              and proof['latest_encrypted_backup']['algorithm']=='AES-GCM-256'
+              and proof['latest_encrypted_backup']['key_id_present']
+              and proof['latest_encrypted_backup']['integrity_sha256_present']
+          )
+          Path('mel-res-05-live-encryption-state-proof.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+          print(json.dumps(proof,indent=2))
+          PY
+
+      - name: Upload sanitized proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-res-05-live-encryption-state-proof
+          path: mel-res-05-live-encryption-state-proof.json
+          if-no-files-found: error
+          retention-days: 14
