@@ -237,6 +237,14 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
+            val wakeProfileRevision by MelBleBridgeService.wakeProfileRevision.collectAsStateWithLifecycle()
+            LaunchedEffect(wakeProfileRevision) {
+                refreshWakeEnrollmentState()
+                if (wakeEnrolled.value && state.session == SessionStage.CONNECTED && !state.busy && !state.speaking) {
+                    delay(350)
+                    ensureWakeWordListening()
+                }
+            }
             LaunchedEffect(state.session, state.busy, state.speaking, state.error, recording.value, voiceConversationActive.value) {
                 if (state.speaking && voiceConversationActive.value && !recording.value) {
                     startBargeInListening()
@@ -313,6 +321,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         appResumed = true
+        refreshWakeEnrollmentState()
         if (::model.isInitialized) mainHandler.postDelayed({ ensureWakeWordListening() }, 500L)
     }
 
@@ -622,10 +631,18 @@ class MainActivity : ComponentActivity() {
         if (thread != null && thread !== Thread.currentThread()) thread.interrupt()
     }
 
+    private fun refreshWakeEnrollmentState() {
+        if (!::wakePhraseStore.isInitialized) return
+        val enrolled = wakePhraseStore.isEnrolled()
+        wakeEnrollmentCount.value = wakePhraseStore.sampleCount()
+        wakeEnrolled.value = enrolled
+    }
+
     private fun ensureWakeWordListening() {
         if (voiceConversationActive.value) return
         if (!appResumed || wakeListening || recording.value || pushToTalkHeld || wakeEnrollmentActive.value) return
-        if (!wakeEnrolled.value || !wakePhraseStore.isEnrolled()) return
+        if (!wakePhraseStore.isEnrolled()) return
+        if (!wakeEnrolled.value || wakeEnrollmentCount.value < WakePhraseTrainer.REQUIRED_SAMPLES) refreshWakeEnrollmentState()
         if (!::model.isInitialized || model.state.value.session != SessionStage.CONNECTED) return
         if (model.state.value.busy || model.state.value.speaking) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return

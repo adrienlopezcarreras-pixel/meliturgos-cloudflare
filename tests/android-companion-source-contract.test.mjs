@@ -190,6 +190,12 @@ test('Android voice keeps French speech fallback and uses silent personalized OK
   assert.match(trainer,/fun listenForWake\(/);
   assert.match(store,/fun templateFeatures\(\)/);
   assert.match(store,/\.commit\(\)/);
+  assert.match(store,/createDeviceProtectedStorageContext\(\)/);
+  assert.match(store,/fun importProfile\(profile: JSONObject\)/);
+  assert.match(store,/fun resetRequested\(\): Boolean/);
+  assert.match(store,/KEY_RESET_REQUESTED/);
+  assert.match(activity,/refreshWakeEnrollmentState\(\)/);
+  assert.match(activity,/wakeProfileRevision/);
   assert.match(activity,/private val voiceLevel = mutableStateOf\(0f\)/);
   assert.match(activity,/override fun onRmsChanged\(rmsdB: Float\)/);
   assert.match(activity,/voiceLevel\.value = \(\(rmsdB \+ 2f\) \/ 12f\)\.coerceIn/);
@@ -409,9 +415,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 46/);
-  assert.match(build,/versionName = "0\.6\.37-barge-in"/);
-  assert.match(api,/APP_VERSION = "0\.6\.37-barge-in"/);
+  assert.match(build,/versionCode = 47/);
+  assert.match(build,/versionName = "0\.6\.38-persistent-wake"/);
+  assert.match(api,/APP_VERSION = "0\.6\.38-persistent-wake"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -432,9 +438,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 46/);
-  assert.match(build,/versionName = "0\.6\.37-barge-in"/);
-  assert.match(api,/APP_VERSION = "0\.6\.37-barge-in"/);
+  assert.match(build,/versionCode = 47/);
+  assert.match(build,/versionName = "0\.6\.38-persistent-wake"/);
+  assert.match(api,/APP_VERSION = "0\.6\.38-persistent-wake"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -466,9 +472,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 46/);
-  assert.match(build,/versionName = "0\.6\.37-barge-in"/);
-  assert.match(api,/APP_VERSION = "0\.6\.37-barge-in"/);
+  assert.match(build,/versionCode = 47/);
+  assert.match(build,/versionName = "0\.6\.38-persistent-wake"/);
+  assert.match(api,/APP_VERSION = "0\.6\.38-persistent-wake"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -485,9 +491,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 46/);
-  assert.match(build,/versionName = "0\.6\.37-barge-in"/);
-  assert.match(api,/APP_VERSION = "0\.6\.37-barge-in"/);
+  assert.match(build,/versionCode = 47/);
+  assert.match(build,/versionName = "0\.6\.38-persistent-wake"/);
+  assert.match(api,/APP_VERSION = "0\.6\.38-persistent-wake"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -529,6 +535,15 @@ test('Android MINI mobile shell keeps settings-driven native navigation and comp
   assert.doesNotMatch(activity,/GÉNÉRER LE CODE MINI/);
   assert.match(bridge,/request\.path == "\/api\/device\/v1\/manifest"/);
   assert.match(bridge,/MEL relay local manifest -> 200/);
+  assert.match(bridge,/request\.path == "\/api\/device\/v1\/render\/card"/);
+  assert.match(bridge,/renderMiniCardMimg\(/);
+  assert.match(bridge,/payload\.optString\("image_url", ""\)/);
+  assert.match(bridge,/application\/x-mel-mimg/);
+  assert.match(bridge,/fetchMiniCardImage\(/);
+  assert.match(bridge,/safeMiniImageUrl\(/);
+  assert.match(bridge,/protocol\.equals\("https", ignoreCase = true\)/);
+  assert.match(bridge,/BitmapFactory\.decodeByteArray/);
+  assert.match(bridge,/rgb565/);
   assert.match(bridge,/MINI CONNECTÉE · INTERNET OK/);
 });
 
