@@ -94,7 +94,7 @@ jobs:
               COMPLETE=true
               break
             fi
-            if printf '%s' "$LOWER" | grep -Eq 'error|failed|failure|cancelled|canceled'; then
+            if printf '%s' "$LOWER" | grep -Eq 'error|failed|failure|cancelled|canceled|cancel_acknowledged|cancel acknowledged'; then
               echo "KAGGLE_RUN_FAILED"
               exit 1
             fi
