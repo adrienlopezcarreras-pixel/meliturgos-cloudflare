@@ -187,6 +187,10 @@ test('Windows desktop v2 keeps tray UI, headless engine, and packaged EXE contra
   assert.match(desktop,/DÉSINSTALLER/);
   assert.match(companion,/MEL_COMPANION_HEADLESS/);
   assert.match(companion,/MEL_COMPANION_PARENT_PID/);
+  assert.match(companion,/SetProcessDpiAwarenessContext/);
+  assert.match(companion,/Close-ForegroundFile/);
+  assert.match(companion,/FILE_NOT_FOREGROUND/);
+  assert.match(companion,/SendKeys\]::SendWait\("\%\{F4\}"\)/);
   assert.match(build,/MEL-Companion\.exe/);
   assert.match(build,/unicodeEscape/);
   assert.match(build,/asciiDesktop/);

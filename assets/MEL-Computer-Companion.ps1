@@ -159,6 +159,8 @@ using System.Text;
 using System.Runtime.InteropServices;
 public static class MelNative {
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
   [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT lpPoint);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, int data, UIntPtr extra);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
@@ -167,6 +169,14 @@ public static class MelNative {
 }
 "@
 Add-Type -TypeDefinition $Native -Language CSharp
+try {
+  $dpiContext = [IntPtr]::new(-4)
+  if (-not [MelNative]::SetProcessDpiAwarenessContext($dpiContext)) {
+    [void][MelNative]::SetProcessDPIAware()
+  }
+} catch {
+  try { [void][MelNative]::SetProcessDPIAware() } catch {}
+}
 
 $MOUSE_LEFTDOWN = 0x0002
 $MOUSE_LEFTUP   = 0x0004
