@@ -287,9 +287,16 @@ test('release bootstrap proves long-context compression on a real-shaped archive
     await DB.prepare(`CREATE TABLE archive_messages (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
+      device_id TEXT,
       role TEXT NOT NULL,
-      content TEXT,
-      timestamp INTEGER
+      content TEXT NOT NULL,
+      attachments_json TEXT,
+      model TEXT,
+      capabilities_used_json TEXT,
+      system_prompt_version TEXT,
+      timestamp INTEGER NOT NULL,
+      provenance TEXT NOT NULL DEFAULT '',
+      metadata TEXT NOT NULL DEFAULT '{}'
     )`).run();
     for (let i=0;i<24;i+=1) {
       const role=i%2===0?'user':'assistant';
