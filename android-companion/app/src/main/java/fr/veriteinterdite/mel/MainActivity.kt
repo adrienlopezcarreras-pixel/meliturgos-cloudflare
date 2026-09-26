@@ -146,7 +146,8 @@ class MainActivity : ComponentActivity() {
     private var nativeSpeechListening = false
     private var wakeRecognizer: SpeechRecognizer? = null
     private var wakeListening = false
-    private val wakeWordContinuousEnabled = false // disabled until a silent hotword engine is available
+    @Volatile private var wakeDetectorStop = false
+    private var wakeDetectorThread: Thread? = null
     private var pushToTalkHeld = false
     private var pendingWakeEnrollment = false
     private var appResumed = false
@@ -301,6 +302,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         stopWakeWordListening()
+        wakeDetectorThread?.interrupt()
+        wakeDetectorThread = null
         stopSpeechQuietly()
         stopRecorderQuietly()
         super.onDestroy()
@@ -491,8 +494,9 @@ class MainActivity : ComponentActivity() {
                     wakeEnrollmentCount.value = state.sampleCount
                     wakeEnrolled.value = state.enrolled
                     if (state.enrolled) {
-                        voiceMessage.value = "OK MEL appris · synchronisation MINI…"
+                        voiceMessage.value = "OK MEL appris · écoute silencieuse active"
                         ensureMobileBridge(true)
+                        scheduleWakeWordRestart()
                     } else {
                         voiceMessage.value = "OK MEL enregistré · ${state.sampleCount}/${WakePhraseTrainer.REQUIRED_SAMPLES}"
                     }
@@ -508,6 +512,7 @@ class MainActivity : ComponentActivity() {
 
     private fun resetWakeEnrollment() {
         if (wakeEnrollmentActive.value) return
+        stopWakeWordListening()
         wakePhraseStore.resetEnrollment()
         wakeEnrollmentCount.value = 0
         wakeEnrolled.value = false
@@ -559,85 +564,55 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureWakeWordListening() {
-        if (!wakeWordContinuousEnabled) return
-        if (!appResumed || wakeListening || recording.value || pushToTalkHeld) return
+        if (!appResumed || wakeListening || recording.value || pushToTalkHeld || wakeEnrollmentActive.value) return
+        if (!wakeEnrolled.value || !wakePhraseStore.isEnrolled()) return
         if (!::model.isInitialized || model.state.value.session != SessionStage.CONNECTED) return
         if (model.state.value.busy || model.state.value.speaking) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) return
 
-        stopWakeWordListening()
-        val recognizer = runCatching { SpeechRecognizer.createOnDeviceSpeechRecognizer(this) }.getOrNull() ?: return
-        wakeRecognizer = recognizer
+        val template = wakePhraseStore.templateFeatures() ?: return
+        val threshold = wakePhraseStore.threshold()
+        wakeDetectorStop = false
         wakeListening = true
-        recognizer.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) = Unit
-            override fun onBeginningOfSpeech() = Unit
-            override fun onRmsChanged(rmsdB: Float) = Unit
-            override fun onBufferReceived(buffer: ByteArray?) = Unit
-            override fun onEndOfSpeech() = Unit
-            override fun onEvent(eventType: Int, params: Bundle?) = Unit
-
-            override fun onError(error: Int) {
-                val current = wakeRecognizer
-                wakeRecognizer = null
-                wakeListening = false
-                runCatching { current?.destroy() }
-                // Do not restart automatically: some Android builds play an audible
-                // system chime every time SpeechRecognizer opens/closes the microphone.
+        wakeDetectorThread = Thread({
+            var matchedScore: Float? = null
+            val result = runCatching {
+                WakePhraseTrainer.listenForWake(
+                    template = template,
+                    threshold = threshold,
+                    shouldContinue = {
+                        !wakeDetectorStop && appResumed && !recording.value && !pushToTalkHeld
+                    },
+                    onMatch = { score -> matchedScore = score }
+                )
             }
-
-            override fun onResults(results: Bundle?) {
-                val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-                if (!handleWakeText(text)) {
-                    stopWakeWordListening()
+            runOnUiThread {
+                wakeDetectorThread = null
+                wakeListening = false
+                if (matchedScore != null && !wakeDetectorStop && appResumed &&
+                    !recording.value && model.state.value.session == SessionStage.CONNECTED && !model.state.value.busy
+                ) {
+                    voiceMessage.value = "OK MEL reconnu · oui ?"
+                    mainHandler.postDelayed({
+                        if (appResumed && !recording.value && model.state.value.session == SessionStage.CONNECTED) {
+                            startVoice()
+                        }
+                    }, 300L)
+                } else if (result.isFailure && !wakeDetectorStop) {
+                    voiceMessage.value = "Écoute OK MEL indisponible · ${result.exceptionOrNull()?.message ?: "micro"}"
                 }
             }
-
-            override fun onPartialResults(partialResults: Bundle?) {
-                val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-                handleWakeText(text)
-            }
-        })
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.FRENCH.toLanguageTag())
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, Locale.FRENCH.toLanguageTag())
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+        }, "mel-ok-mel-listener").apply {
+            isDaemon = true
+            start()
         }
-        runCatching { recognizer.startListening(intent) }
-            .onFailure {
-                stopWakeWordListening()
-            }
-    }
-
-    private fun handleWakeText(text: String): Boolean {
-        if (!containsWakePhrase(text)) return false
-        stopWakeWordListening()
-        voiceMessage.value = "Oui ?"
-        mainHandler.postDelayed({
-            if (appResumed && !recording.value && model.state.value.session == SessionStage.CONNECTED) {
-                startVoice()
-            }
-        }, 220L)
-        return true
-    }
-
-    private fun containsWakePhrase(text: String): Boolean {
-        val normalized = Normalizer.normalize(text.lowercase(Locale.FRENCH), Normalizer.Form.NFD)
-            .replace("\\p{M}+".toRegex(), "")
-            .replace(Regex("[^a-z0-9]+"), " ")
-            .trim()
-        return normalized.contains("ok mel") || normalized.contains("okay mel")
     }
 
     private fun stopWakeWordListening() {
+        wakeDetectorStop = true
+        wakeListening = false
         val recognizer = wakeRecognizer
         wakeRecognizer = null
-        wakeListening = false
         if (recognizer != null) {
             runCatching { recognizer.cancel() }
             runCatching { recognizer.destroy() }
@@ -645,9 +620,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun scheduleWakeWordRestart() {
-        if (wakeWordContinuousEnabled) {
-            mainHandler.postDelayed({ ensureWakeWordListening() }, 700L)
-        }
+        mainHandler.postDelayed({
+            if (!recording.value && !pushToTalkHeld && wakeEnrolled.value) ensureWakeWordListening()
+        }, 900L)
     }
 
     private fun startNativeSpeech() {

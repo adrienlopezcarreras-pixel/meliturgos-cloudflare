@@ -75,6 +75,77 @@ object WakePhraseTrainer {
         return out
     }
 
+    fun listenForWake(
+        template: FloatArray,
+        threshold: Float,
+        shouldContinue: () -> Boolean,
+        onScore: (Float) -> Unit = {},
+        onMatch: (Float) -> Unit
+    ) {
+        require(template.isNotEmpty()) { "WAKE_TEMPLATE_EMPTY" }
+        val minBuffer = AudioRecord.getMinBufferSize(
+            SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        require(minBuffer > 0) { "MIC_BUFFER_UNAVAILABLE" }
+        val hopSamples = SAMPLE_RATE / 2
+        val windowSamples = SAMPLE_RATE * CAPTURE_MS / 1000
+        val recorder = AudioRecord(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            max(minBuffer * 2, hopSamples * 2)
+        )
+        require(recorder.state == AudioRecord.STATE_INITIALIZED) { "MIC_INIT_FAILED" }
+        val ring = ShortArray(windowSamples)
+        val hop = ShortArray(hopSamples)
+        var filled = 0
+        var consecutive = 0
+        try {
+            recorder.startRecording()
+            while (shouldContinue()) {
+                var offset = 0
+                while (offset < hop.size && shouldContinue()) {
+                    val read = recorder.read(hop, offset, hop.size - offset, AudioRecord.READ_BLOCKING)
+                    if (read <= 0) error("MIC_READ_$read")
+                    offset += read
+                }
+                if (!shouldContinue()) break
+
+                if (filled < ring.size) {
+                    val copy = minOf(hop.size, ring.size - filled)
+                    System.arraycopy(hop, 0, ring, filled, copy)
+                    filled += copy
+                    if (filled < ring.size) continue
+                } else {
+                    System.arraycopy(ring, hop.size, ring, 0, ring.size - hop.size)
+                    System.arraycopy(hop, 0, ring, ring.size - hop.size, hop.size)
+                }
+
+                val features = runCatching { extract(ring) }.getOrNull() ?: run {
+                    consecutive = 0
+                    continue
+                }
+                val score = cosine(features, template)
+                onScore(score)
+                if (score >= threshold) {
+                    consecutive++
+                    if (consecutive >= 2) {
+                        onMatch(score)
+                        break
+                    }
+                } else {
+                    consecutive = 0
+                }
+            }
+        } finally {
+            runCatching { recorder.stop() }
+            recorder.release()
+        }
+    }
+
     fun template(samples: List<FloatArray>): Pair<FloatArray, Float> {
         require(samples.size >= REQUIRED_SAMPLES) { "WAKE_NEEDS_$REQUIRED_SAMPLES" }
         val size = samples.first().size
