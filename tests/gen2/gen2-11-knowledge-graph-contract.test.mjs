@@ -21,7 +21,7 @@ test('GEN2-11 knowledge graph contract supports sourced entities, relations, que
     async query({ entityId }) {
       return {
         entity: structuredClone(entities.get(entityId) || null),
-        relations: relations.filter(r => r.subject === entityId || r.object === entityId).map(structuredClone),
+        relations: relations.filter(r => r.subject === entityId || r.object === entityId).map(row => structuredClone(row)),
         superseded_by: superseded.get(entityId) || null,
       };
     },
