@@ -1,0 +1,42 @@
+name: windows-companion-input-diagnostic
+
+on:
+  push:
+    branches:
+      - proof/windows-companion-live-stress-20260926
+    paths:
+      - .github/workflows/windows-companion-input-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Read sanitized input results
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT id,status,error_code,json_extract(result_json,'$.active_window') AS active_window,json_extract(result_json,'$.outputs[0].x') AS x,json_extract(result_json,'$.outputs[0].y') AS y,json_extract(result_json,'$.outputs[6].text') AS clipboard_text,CASE WHEN json_extract(result_json,'$.outputs[7].screenshot_key') IS NULL THEN 0 ELSE 1 END AS screenshot_present FROM computer_commands WHERE id LIKE 'input-stress-36262915373-%' ORDER BY created_at" \
+            > diag.json
+          python - <<'PY'
+          import json
+          raw=json.load(open("diag.json"))
+          rows=[]
+          for part in raw if isinstance(raw,list) else [raw]:
+              if isinstance(part,dict) and isinstance(part.get("results"),list):
+                  rows.extend(part["results"])
+          print(json.dumps(rows,indent=2,ensure_ascii=False))
+          PY
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
