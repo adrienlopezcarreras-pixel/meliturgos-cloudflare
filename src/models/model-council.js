@@ -205,10 +205,11 @@ function noProviderError(code, { rejections = [], failures = [] } = {}) {
   return error;
 }
 
-function createScheduler(timeoutMs, maxCandidates) {
+function createScheduler(timeoutMs, maxCandidates, retries = 1) {
   return new ParallelScheduler({
     timeoutMs: Math.max(1, Number(timeoutMs) || DEFAULT_TIMEOUT_MS),
-    retries: 0,
+    retries: Math.max(0, Math.min(1, Number(retries) || 0)),
+    backoffMs: 150,
     globalConcurrency: Math.max(1, Number(maxCandidates) || DEFAULT_MAX_CANDIDATES),
     perProviderConcurrency: 1,
   });
