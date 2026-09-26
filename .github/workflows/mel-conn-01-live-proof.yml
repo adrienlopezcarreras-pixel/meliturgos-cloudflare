@@ -1,0 +1,44 @@
+name: mel-conn-01-live-proof
+
+on:
+  push:
+    branches:
+      - proof/mel-conn-01-live-20260926
+
+permissions:
+  contents: read
+
+jobs:
+  live-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prove public chat page is live
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+            https://meliturgos.adrien-lopezcarreras.workers.dev/public/wordpress-chat \
+            -o /tmp/mel-public.html
+          grep -q "Votre question à MEL" /tmp/mel-public.html
+          grep -q "/api/public/wordpress/chat" /tmp/mel-public.html
+
+      - name: Prove isolated public WordPress chat POST
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+            -H 'Origin: https://verite-interdite.fr' \
+            -H 'Content-Type: application/json' \
+            --data '{"message":"Quels contenus publics puis-je découvrir sur Vérité Interdite ?"}' \
+            https://meliturgos.adrien-lopezcarreras.workers.dev/api/public/wordpress/chat \
+            -o /tmp/mel-public.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('/tmp/mel-public.json','utf8'));
+          if(p.ok!==true) throw new Error('PUBLIC_CHAT_NOT_OK:'+JSON.stringify(p));
+          if(p.scope!=='PUBLIC_ONLY') throw new Error('PUBLIC_SCOPE_INVALID:'+JSON.stringify(p));
+          if(typeof p.answer!=='string'||!p.answer.trim()) throw new Error('PUBLIC_ANSWER_EMPTY');
+          if(!Array.isArray(p.sources)) throw new Error('PUBLIC_SOURCES_INVALID');
+          console.log(JSON.stringify({ok:p.ok,scope:p.scope,provider:p.provider,model:p.model,sources:p.sources.length,answer_chars:p.answer.length}));
+          NODE
