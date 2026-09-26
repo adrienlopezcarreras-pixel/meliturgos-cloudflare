@@ -2,6 +2,7 @@ import { conversationRoutes } from "./api/routes/conversations.js";
 import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
 import { approvedCapabilitiesFromRequest } from "./security/approval-gates.js";
 import { maybeHandleGoogleOAuthApi } from "./api/google-oauth-api.js";
+import { runtimeCapabilityPermissions } from "./security/runtime-permissions.js";
 import { json, html } from "./core/http.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
 import handleResearch from "./api/research-api.js";
@@ -42,7 +43,7 @@ const RELEASE_SMOKE_CAPABILITY_ALLOWLIST = Object.freeze([
 function capabilityContext(env, request = null) {
   return {
     owner: env.MELITURGOS_USER || "owner",
-    permissions: env.CAPABILITY_PERMISSIONS || [],
+    permissions: runtimeCapabilityPermissions(env),
     approvedCapabilities: request ? approvedCapabilitiesFromRequest(request) : [],
     requestId: crypto.randomUUID()
   };
@@ -297,7 +298,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
       const { ModuleRunner } = await import("../src/modules/module-runner.js");
       const runtime = createGen2Runtime({ env });
       const runner = new ModuleRunner(env, runtime.bus);
-      const result = await runner.run(module_uuid, input, { owner: env.MELITURGOS_USER, permissions: env.CAPABILITY_PERMISSIONS || [], requestId: crypto.randomUUID() });
+      const result = await runner.run(module_uuid, input, { owner: env.MELITURGOS_USER, permissions: runtimeCapabilityPermissions(env), requestId: crypto.randomUUID() });
       return json(result);
     } catch (e) { return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500); }
   }
