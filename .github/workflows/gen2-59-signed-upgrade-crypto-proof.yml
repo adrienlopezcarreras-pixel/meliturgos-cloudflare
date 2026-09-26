@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 12
     env:
       OLD_SHA: 50b60689631da67e7633f7937dcde61a48ead8d7
-      CURRENT_SHA: b751465f13a36cb02a30c8f1fdba5637fb7de07d
+      CURRENT_SHA: 2b792bd240bd0f89238a73a35ff418816ef63ba9
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -82,7 +82,8 @@ jobs:
           StopMel
           $installed=Join-Path $mel 'MEL-Companion.exe'
           if(-not (Test-Path $installed)){throw 'GEN2_59_OLD_INSTALL_MISSING'}
-          & $installed --self-test
+          $oldSelf=Start-Process -FilePath $installed -ArgumentList '--self-test' -Wait -PassThru
+          if($oldSelf.ExitCode -ne 0){throw "GEN2_59_OLD_SELF_TEST_EXIT:$($oldSelf.ExitCode)"}
           $old=Get-Content (Join-Path $mel 'self-test.json') -Raw | ConvertFrom-Json
           if($old.version -ne '2.3.0'){throw "GEN2_59_OLD_VERSION:$($old.version)"}
 
@@ -90,7 +91,8 @@ jobs:
           Start-Process $curExe -ArgumentList '--background'
           Start-Sleep -Seconds 3
           StopMel
-          & $installed --self-test
+          $newSelf=Start-Process -FilePath $installed -ArgumentList '--self-test' -Wait -PassThru
+          if($newSelf.ExitCode -ne 0){throw "GEN2_59_CURRENT_SELF_TEST_EXIT:$($newSelf.ExitCode)"}
           $cur=Get-Content (Join-Path $mel 'self-test.json') -Raw | ConvertFrom-Json
           if($cur.version -ne '2.3.4'){throw "GEN2_59_CURRENT_VERSION:$($cur.version)"}
           $expected=(Get-FileHash $curExe -Algorithm SHA256).Hash
