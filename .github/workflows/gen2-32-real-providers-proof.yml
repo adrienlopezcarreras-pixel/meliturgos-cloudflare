@@ -1,0 +1,89 @@
+name: gen2-32-real-providers-proof
+
+on:
+  push:
+    branches:
+      - proof/gen2-32-real-providers-20260926
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact proof SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Run Connector SDK contract tests
+        run: |
+          node --test             tests/connectors-sdk.test.mjs             tests/connectors-oauth2-pkce.test.mjs             tests/connectors-oauth-catalog-hooks.test.mjs
+
+      - name: Probe real providers through MEL Connector SDK
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE' | tee gen2-32-real-providers-proof.json
+          import { createConnector as createGithub } from './src/connectors/github.js';
+          import { createConnector as createCloudflare } from './src/connectors/cloudflare.js';
+
+          const rows=[];
+          for (const [name, make] of [
+            ['github', createGithub],
+            ['cloudflare', createCloudflare],
+          ]) {
+            const connector=make({ env: process.env });
+            const configured=connector.configure();
+            const connected=await connector.connect();
+            rows.push({
+              provider:name,
+              configured_status:configured.status,
+              connected_status:connected.status,
+              health:connected.health,
+              auth_verified:Boolean(connected.metadata?.auth_verified_at),
+              capability_count:Array.isArray(connected.capabilities)?connected.capabilities.length:0,
+            });
+          }
+          const checks={
+            two_real_providers: rows.length===2,
+            both_configured: rows.every(x=>x.configured_status==='CONFIGURED'),
+            both_connected: rows.every(x=>x.connected_status==='CONNECTED'),
+            both_health_checked: rows.every(x=>x.health==='CHECKED'),
+            both_auth_verified: rows.every(x=>x.auth_verified===true),
+            capabilities_present: rows.every(x=>x.capability_count>0),
+          };
+          const proof={
+            schema:'mel.gen2-32-real-providers-proof.v1',
+            mode:'REAL_READ_ONLY_FIXED_PROBES',
+            providers:rows,
+            checks,
+            complete:Object.values(checks).every(Boolean),
+            secrets_emitted:false,
+            mutations_performed:false,
+          };
+          console.log(JSON.stringify(proof,null,2));
+          if(!proof.complete) process.exit(2);
+          NODE
+
+      - name: Upload sanitized proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-32-real-providers-proof
+          path: gen2-32-real-providers-proof.json
+          if-no-files-found: warn
+          retention-days: 14
