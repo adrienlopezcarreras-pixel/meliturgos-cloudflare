@@ -1,0 +1,38 @@
+{
+  "roadmap_item": "GEN2-08",
+  "status": "DONE_VERIFIED",
+  "certified_at": "2026-09-26",
+  "base_main_sha": "6bf2cc53634fab5ee8cb8fdec9d20c50b1b10328",
+  "invariants": {
+    "archive_before_memory_sync": true,
+    "archive_insert_mode": "INSERT OR IGNORE",
+    "empty_message_is_archived": true,
+    "replay_idempotent": true
+  },
+  "evidence": [
+    {
+      "kind": "code_and_tests",
+      "pr": 156,
+      "detail": "ConversationService unconditional archive write; empty-message archival and replay-idempotence tests."
+    },
+    {
+      "kind": "production_conversation_history",
+      "release_run": 36237663912,
+      "sha": "3f7011412d148ca02921a42265b8e28550accdf2",
+      "detail": "Real production long-history conversation consumed from canonical archive path."
+    },
+    {
+      "kind": "production_archive_export",
+      "pr": 342,
+      "detail": "Verified production memory export included archive_messages with completeness/checksum proof."
+    }
+  ],
+  "exclusions": [
+    "Android",
+    "APK",
+    "MEL MINI",
+    "firmware",
+    "BLE",
+    "mobile UI"
+  ]
+}
