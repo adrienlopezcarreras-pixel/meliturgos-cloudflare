@@ -7,9 +7,16 @@ import {
 import { setAutonomyControl } from './autonomy-control.js';
 import { D1SkillRegistryStore } from './d1-skill-registry-store.js';
 import { SkillRegistry } from './skill-registry.js';
+import { D1PluginVersionStore } from '../plugins/d1-version-store.js';
+import { PluginVersionManager } from '../plugins/version-manager.js';
+import { D1EvolutionLedger } from './evolution-ledger.js';
+import { createAgentRegistry } from '../agents/agent-registry.js';
+import { createD1AgentRegistryAdapter } from '../agents/d1-agent-registry.js';
+import { createD1AgentAutomationPolicyAdapter } from '../automations/d1-agent-automation-policy.js';
+import { createAgentAutomationPolicy, PERMISSION_TIERS } from '../automations/agent-automation-policy.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof']);
+const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof']);
 
 async function requestPhase(request) {
   try {
@@ -156,6 +163,238 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       status: ok ? 'MEL_EVOL_05_PRODUCTION_D1_VERIFIED' : 'MEL_EVOL_05_PRODUCTION_D1_FAILED',
       phase, registry_key: registryKey, restored_before_rollback: restoredBeforeRollback,
       restored_after_rollback: restoredAfterRollback, autonomy_started: false, owner_launch_required: true,
+    }, { status: ok ? 200 : 500, headers: { 'cache-control': 'no-store' } });
+  }
+
+
+  if (phase === 'plugin-sdk-proof') {
+    if (!env?.DB || typeof env.DB.prepare !== 'function') {
+      return Response.json({ ok: false, code: 'D1_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    const deployedSha = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(deployedSha)) {
+      return Response.json({ ok: false, code: 'DEPLOYED_SHA_INVALID' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    const pluginId = `release-proof.${deployedSha.slice(0,12)}`;
+    const store = new D1PluginVersionStore(env.DB);
+    const manager = new PluginVersionManager(store);
+    const manifest = version => ({
+      id: pluginId,
+      name: 'Release proof plugin',
+      version,
+      description: 'Production D1 lifecycle proof only',
+      author: 'MEL release bootstrap',
+      capabilities: ['proof.echo'],
+      permissions: ['memory.read'],
+      secrets_required: [],
+      dependencies: [],
+      entrypoint: 'plugin/index.js',
+      healthcheck: 'plugin/health.js',
+      risk: 'LOW',
+    });
+    const testProof = version => ({
+      tests: true,
+      version,
+      suite: 'release-bootstrap-plugin-sdk-v1',
+      run_id: `release-${deployedSha.slice(0,12)}-${version}`,
+    });
+    const releaseProof = (version, seed) => ({
+      tests: true,
+      sandbox: true,
+      security: true,
+      activation: true,
+      version,
+      artifact_digest: 'sha256:' + seed.repeat(64),
+      source_sha: deployedSha,
+      approval_id: `release-bootstrap-${deployedSha.slice(0,12)}-${version}`,
+    });
+
+    const existing = await manager.list(pluginId);
+    if (!existing.length) {
+      for (const [version, seed] of [['1.0.0','a'],['1.1.0','b']]) {
+        await manager.installCandidate({
+          manifest: manifest(version),
+          artifactRef: `r2://release-proof/plugins/${pluginId}/${version}.zip`,
+          metadata: { proof: 'GEN2-15', deployed_sha: deployedSha },
+        });
+        await manager.markTested(pluginId, version, testProof(version));
+        await manager.activate(pluginId, version, releaseProof(version, seed));
+      }
+      await manager.rollback(pluginId, '1.0.0', { approval_id: `release-bootstrap-rollback-${deployedSha.slice(0,12)}` });
+    }
+
+    const restartedStore = new D1PluginVersionStore(env.DB);
+    const restartedManager = new PluginVersionManager(restartedStore);
+    const active = await restartedManager.get(pluginId);
+    const versions = await restartedManager.list(pluginId);
+    const history = await restartedStore.activationHistory(pluginId);
+    const v1 = versions.find(row => row.version === '1.0.0');
+    const v2 = versions.find(row => row.version === '1.1.0');
+    const ok = active?.version === '1.0.0'
+      && active?.status === 'ACTIVE'
+      && v1?.evidence?.release?.source_sha === deployedSha
+      && v2?.status === 'ROLLED_BACK'
+      && history.filter(row => row.action === 'ACTIVATE').length >= 3;
+    return Response.json({
+      ok,
+      status: ok ? 'GEN2_15_PRODUCTION_D1_VERIFIED' : 'GEN2_15_PRODUCTION_D1_FAILED',
+      phase,
+      plugin_id: pluginId,
+      active_version: active?.version || null,
+      version_count: versions.length,
+      activation_history_count: history.length,
+      replay_safe: existing.length > 0,
+      autonomy_started: false,
+      owner_launch_required: true,
+    }, { status: ok ? 200 : 500, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'evolution-ledger-proof') {
+    if (!env?.DB || typeof env.DB.prepare !== 'function') {
+      return Response.json({ ok: false, code: 'D1_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    const deployedSha = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(deployedSha)) {
+      return Response.json({ ok: false, code: 'DEPLOYED_SHA_INVALID' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    const ledger = new D1EvolutionLedger(env.DB);
+    const prefix = `release-proof-${deployedSha.slice(0,12)}`;
+    await ledger.append({
+      event_id: `${prefix}-created`,
+      evolution_id: prefix,
+      stage: 'JOB_CREATED',
+      status: 'QUEUED',
+      actor: 'release-bootstrap',
+      source_sha: deployedSha,
+      branch: String(env?.MEL_DEPLOYED_GIT_BRANCH || ''),
+      evidence: { roadmap_id: 'MEL-EVOL-04', proof: 'production-runtime' },
+      occurred_at: Date.now(),
+    });
+    await ledger.append({
+      event_id: `${prefix}-verified`,
+      evolution_id: prefix,
+      stage: 'PRODUCTION_VERIFIED',
+      status: 'DONE_VERIFIED',
+      actor: 'release-bootstrap',
+      source_sha: deployedSha,
+      branch: String(env?.MEL_DEPLOYED_GIT_BRANCH || ''),
+      evidence: { roadmap_id: 'MEL-EVOL-04', exact_sha: true },
+      occurred_at: Date.now() + 1,
+    });
+    const verification = await ledger.verify();
+    const proofRows = await ledger.list({ evolution_id: prefix, limit: 10 });
+    const ok = verification?.ok === true
+      && proofRows.length === 2
+      && proofRows.every(row => row.source_sha === deployedSha)
+      && proofRows[1]?.previous_hash === proofRows[0]?.entry_hash;
+    return Response.json({
+      ok,
+      status: ok ? 'MEL_EVOL_04_PRODUCTION_LEDGER_VERIFIED' : 'MEL_EVOL_04_PRODUCTION_LEDGER_FAILED',
+      phase,
+      proof_event_count: proofRows.length,
+      total_verified_count: Number(verification?.verified || 0),
+      head_hash: verification?.head_hash || null,
+      replay_safe: proofRows.length === 2,
+      autonomy_started: false,
+      owner_launch_required: true,
+    }, { status: ok ? 200 : 500, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'agent-automation-proof') {
+    if (!env?.DB || typeof env.DB.prepare !== 'function') {
+      return Response.json({ ok: false, code: 'D1_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    const deployedSha = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(deployedSha)) {
+      return Response.json({ ok: false, code: 'DEPLOYED_SHA_INVALID' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    const owner = 'release-bootstrap';
+    const suffix = deployedSha.slice(0,12);
+    const agentId = `release-proof-${suffix}`;
+    const runId = `release-proof-run-${suffix}`;
+    const registry = createAgentRegistry(createD1AgentRegistryAdapter(env.DB));
+    let agent;
+    try {
+      agent = await registry.get({ agent_id: agentId }, { owner });
+    } catch (error) {
+      if (error?.code !== 'AGENT_NOT_FOUND') throw error;
+      agent = await registry.register({
+        agent_id: agentId,
+        name: 'Release Proof Agent',
+        role: 'Bounded production persistence proof only.',
+        capabilities: ['memory.read'],
+        permission_ceiling: PERMISSION_TIERS.READ,
+        enabled: true,
+        metadata: { roadmap_id: 'GEN2-39', deployed_sha: deployedSha },
+      }, { owner });
+    }
+
+    const policy = createAgentAutomationPolicy(createD1AgentAutomationPolicyAdapter(env.DB));
+    let run;
+    try {
+      run = await policy.getRun({ run_id: runId });
+    } catch (error) {
+      if (error?.code !== 'AUTOMATION_RUN_NOT_FOUND') throw error;
+      const authorized = await policy.authorizeRun({
+        run_id: runId,
+        idempotency_key: `release-proof-idem-${suffix}`,
+        owner,
+        granted_capabilities: ['memory.read'],
+        granted_tier: PERMISSION_TIERS.READ,
+        requested_at: Date.now(),
+        approved: false,
+        policy: {
+          automation_id: `release-proof-auto-${suffix}`,
+          agent_id: agentId,
+          required_capabilities: ['memory.read'],
+          permission_tier: PERMISSION_TIERS.READ,
+          enabled: true,
+          metadata: { roadmap_id: 'GEN2-39' },
+        },
+      });
+      const replay = await policy.authorizeRun({
+        run_id: runId,
+        idempotency_key: `release-proof-idem-${suffix}`,
+        owner,
+        granted_capabilities: ['memory.read'],
+        granted_tier: PERMISSION_TIERS.READ,
+        requested_at: authorized.claim.requested_at,
+        approved: false,
+        policy: {
+          automation_id: `release-proof-auto-${suffix}`,
+          agent_id: agentId,
+          required_capabilities: ['memory.read'],
+          permission_tier: PERMISSION_TIERS.READ,
+          enabled: true,
+          metadata: { roadmap_id: 'GEN2-39' },
+        },
+      });
+      if (replay?.deduplicated !== true) throw new Error('AUTOMATION_REPLAY_NOT_DEDUPLICATED');
+      run = await policy.completeRun({
+        run_id: runId,
+        completed_at: Date.now() + 1,
+        result: { ok: true, deployed_sha: deployedSha },
+      });
+    }
+
+    const restartedRegistry = createAgentRegistry(createD1AgentRegistryAdapter(env.DB));
+    const restartedPolicy = createAgentAutomationPolicy(createD1AgentAutomationPolicyAdapter(env.DB));
+    const restoredAgent = await restartedRegistry.get({ agent_id: agentId }, { owner });
+    const restoredRun = await restartedPolicy.getRun({ run_id: runId });
+    const ok = restoredAgent?.agent_id === agentId
+      && restoredAgent?.metadata?.deployed_sha === deployedSha
+      && restoredRun?.status === 'COMPLETED'
+      && restoredRun?.result?.deployed_sha === deployedSha;
+    return Response.json({
+      ok,
+      status: ok ? 'GEN2_39_PRODUCTION_D1_VERIFIED' : 'GEN2_39_PRODUCTION_D1_FAILED',
+      phase,
+      agent_id: agentId,
+      run_id: runId,
+      run_status: restoredRun?.status || null,
+      persisted_across_adapter_recreation: ok,
+      autonomy_started: false,
+      owner_launch_required: true,
     }, { status: ok ? 200 : 500, headers: { 'cache-control': 'no-store' } });
   }
 
