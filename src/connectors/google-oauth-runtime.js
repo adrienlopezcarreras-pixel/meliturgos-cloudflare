@@ -173,10 +173,44 @@ export function createGoogleOAuthRuntime({ env = {}, fetcher = fetch, vaults = n
     tokenClient,
   });
 
+  const accessTokenResolver = async (connectorId, context = {}) => {
+    const id = clean(connectorId, 160);
+    connectorManifest(id);
+    const owner = clean(context.owner, 200);
+    requireValue(owner, 'OAUTH_OWNER_REQUIRED', 401);
+    let tokenSet = await durableVaults.tokenVault.get({ owner, connector_id: id });
+    if (!tokenSet?.access_token) return '';
+    const expiresAt = Number(tokenSet.expires_at);
+    const shouldRefresh = Number.isFinite(expiresAt)
+      && expiresAt <= Date.now() + 60_000
+      && Boolean(tokenSet.refresh_token);
+    if (shouldRefresh) {
+      await oauth.refresh({ connector_id: id }, context);
+      tokenSet = await durableVaults.tokenVault.get({ owner, connector_id: id });
+    }
+    return clean(tokenSet?.access_token, 20000);
+  };
+
+  const status = async (connectorId, context = {}) => {
+    const id = clean(connectorId, 160);
+    connectorManifest(id);
+    const owner = clean(context.owner, 200);
+    requireValue(owner, 'OAUTH_OWNER_REQUIRED', 401);
+    const tokenSet = await durableVaults.tokenVault.get({ owner, connector_id: id });
+    return Object.freeze({
+      connector_id: id,
+      authorized: Boolean(tokenSet?.access_token),
+      scopes: Array.isArray(tokenSet?.scopes) ? [...tokenSet.scopes] : [],
+      expires_at: Number.isFinite(Number(tokenSet?.expires_at)) ? Number(tokenSet.expires_at) : null,
+      refreshable: Boolean(tokenSet?.refresh_token),
+    });
+  };
+
   return Object.freeze({
     oauth,
     vaults: durableVaults,
-    accessTokenResolver: durableVaults.accessTokenResolver(),
+    accessTokenResolver,
+    status,
     connector_ids: googleOAuthConnectorIds(),
     manifest: googleOAuthManifest,
   });
@@ -189,5 +223,11 @@ export function createGoogleAccessTokenResolver(env = {}, options = {}) {
   if (!hasKeyId && !hasKey) return null;
   requireValue(hasKeyId && hasKey, 'OAUTH_VAULT_CONFIGURATION_INCOMPLETE', 503);
   const vaults = options.vaults || createD1OAuthVaults(env, options);
-  return vaults.accessTokenResolver();
+  const fullOAuth = Boolean(
+    clean(env.GOOGLE_OAUTH_CLIENT_ID, 1000)
+    && clean(env.GOOGLE_OAUTH_CLIENT_SECRET, 2000)
+    && clean(env.MEL_PUBLIC_ORIGIN || env.GOOGLE_OAUTH_REDIRECT_ORIGIN, 500)
+  );
+  if (!fullOAuth) return vaults.accessTokenResolver();
+  return createGoogleOAuthRuntime({ env, fetcher: options.fetcher || fetch, vaults }).accessTokenResolver;
 }
