@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-26.14';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.15';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -44,7 +44,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-06', 'Conversation Service', 'DONE_VERIFIED', 'Retirer les derniers chemins legacy', 'P0'),
     item('GEN2-08', 'Archivage exhaustif des messages', 'DONE', 'Garantir archivage non conditionnel', 'P1'),
     item('MEL-CONTEXT-01', 'Saisie continue pendant la réflexion / file de messages', 'DONE_VERIFIED', 'Valider sur mobile réel', 'P0'),
-    item('MEL-CONTEXT-02', 'Contexte long avec compression sans perte de décisions', 'DONE', 'Implémentation de contexte long fusionnée via #314, tests de conservation de décisions verts et déjà incluse en production; seule une preuve runtime authentifiée sur conversation longue réelle reste requise avant DONE_VERIFIED.', 'P1'),
+    item('MEL-CONTEXT-02', 'Contexte long avec compression sans perte de décisions', 'DONE_VERIFIED', 'Certification production acquise le 26/09/2026 sur le SHA exact 3f7011412d148ca02921a42265b8e28550accdf2 (deploy run 36237663912): conversation réelle >65k caractères, omission effective sous budget, ancrage historique de décision préservé, tour utilisateur courant conservé exactement, aucun contenu privé renvoyé. Preuve: proofs/roadmap-context-res03-production-20260926.json.', 'P1'),
     item('MEL-CONTEXT-03', 'Open loops: reprendre automatiquement les travaux inachevés', 'DONE_VERIFIED', 'Clôturé le 25/09/2026: persistance D1 owner-scoped, scheduler openloop.resume, leases, priorités et retry borné; lien durable Conversation -> Plan/Task -> Work -> Open Loop; conversation_id persistant dans plans et Work DAG; checkpoints work.run; transfert Plan -> Work; COMPLETED ferme la boucle et BLOCKED reste passif sans retry infini. PR #360 + #368 fusionnées, 22/22 tests ciblés et full suites CI verts. SHA 78962eca11ed92710479962d7818f82b33890f20 déployé en production par run 36162716840 avec Full test suite, preuve D1/autonomie et Verify production HTTP tous verts.', 'P1'),
     item('MEL-CONTEXT-04', 'Interpréteur de contexte pré-LLM: pédagogique, scientifique et laboratoire', 'DONE_VERIFIED', 'Maintenir les tests de non-régression et la limitation ciblée des seuls détails réellement dangereux', 'P0')
   ]),
@@ -167,7 +167,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-49', 'Portabilité système provider-neutral', 'DONE', 'Bundle provider-neutral vérifiable, exporteurs runtime réels et restore drill alternatif sans provider/network fusionnés via #268/#305/#345; CI gen2-49-portability-restore-ci 36156772198 verte. Preuve live de bascule provider réelle requise avant DONE_VERIFIED.', 'P1'),
     item('MEL-RES-01', 'Survival Mode: NORMAL/DEGRADED/READ_ONLY/RECOVERY/HALTED', 'DONE_VERIFIED', 'Brancher télémétrie runtime', 'P0'),
     item('MEL-RES-02', 'Recovery Bundle', 'DONE_VERIFIED', 'Ajouter vérification périodique de l’artefact de récupération', 'P0'),
-    item('MEL-RES-03', 'Provider Escape Capsule', 'DONE', 'Provider Escape Capsule fusionnée via #389: manifest provider-neutral machine-readable, plan de sortie sans mutation automatique, validation secrets/readiness/rollback et CI verte. Génération sur manifest production réel requise avant DONE_VERIFIED.', 'P1'),
+    item('MEL-RES-03', 'Provider Escape Capsule', 'DONE_VERIFIED', 'Certification production acquise le 26/09/2026 sur le SHA exact 3f7011412d148ca02921a42265b8e28550accdf2 (deploy run 36237663912): dernier backup système revérifié par le service canonique, manifest provider-neutral réel, capsule AI/storage/runtime ready_to_escape, activation automatique interdite et approbation propriétaire requise. Preuve: proofs/roadmap-context-res03-production-20260926.json.', 'P1'),
     item('MEL-RES-04', 'Cold standby autorisé', 'DONE', 'Capability runtime manuelle, recovery drill isolé et adaptateur objet externe provider-neutral fusionnés via #449. Copie du bundle déjà chiffré, readback SHA-256 et matérialisation restore sans déploiement, DNS ni bascule trafic. Preuve live sur une vraie destination froide requise avant DONE_VERIFIED.', 'P2'),
     item('MEL-RES-05', 'Intégrité mémoire et sauvegardes chiffrées', 'DONE', 'Implémentation fusionnée par PR #395: enveloppe AES-GCM-256 liée à l’intégrité, stockage objet R2 chiffré + métadonnées D1 et déchiffrement fail-closed si codec/clé absents. Le service chiffré reste opt-in tant que le rollout de clé production n’est pas explicitement réalisé; certification live requise avant DONE_VERIFIED.', 'P1')
   ]),
