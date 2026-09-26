@@ -19,7 +19,8 @@ try {
   $cert = New-Object Security.Cryptography.X509Certificates.X509Certificate2(
     $tempPfx,
     $secure,
-    [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+    ([Security.Cryptography.X509Certificates.X509KeyStorageFlags]::UserKeySet -bor
+     [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
   )
   if (-not $cert.HasPrivateKey) { throw "WINDOWS_SIGN_PRIVATE_KEY_MISSING" }
 
@@ -33,5 +34,6 @@ try {
   }
 }
 finally {
+  if ($null -ne $cert) { try { $cert.Dispose() } catch {} }
   if (Test-Path -LiteralPath $tempPfx) { Remove-Item -Force $tempPfx }
 }
