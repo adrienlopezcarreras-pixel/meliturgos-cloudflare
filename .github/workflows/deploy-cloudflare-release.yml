@@ -415,6 +415,24 @@ jobs:
           test "$BACKUP_READY" = "1"
           node -e 'const d=require("./production-launch-backup.json"); if(d?.ok!==true||d?.backup?.ok!==true) throw new Error("PRODUCTION_RELEASE_BACKUP_FAILED"); console.log("Production release backup phase passed: "+String(d?.backup?.status||d?.status||"OK"));'
 
+          PROVIDER_ESCAPE_CODE="$(curl --silent --show-error --max-time 90 \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"provider-escape-proof"}' \
+            --output production-provider-escape-proof.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap")"
+          test "$PROVIDER_ESCAPE_CODE" = "200"
+          node - <<'NODE'
+          const d=require('./production-provider-escape-proof.json');
+          if(d?.ok!==true || d?.status!=='MEL_RES_03_PRODUCTION_MANIFEST_VERIFIED') throw new Error('MEL_RES_03_PRODUCTION_PROOF_FAILED');
+          if(d?.ready_to_escape!==true || !Array.isArray(d?.ready_layers) || d.ready_layers.length!==3) throw new Error('MEL_RES_03_READY_LAYERS_FAILED');
+          if(Number(d?.alternative_adapter_count||0)<3) throw new Error('MEL_RES_03_ALTERNATIVES_FAILED');
+          if(d?.backup_verified!==true || !d?.backup_id) throw new Error('MEL_RES_03_BACKUP_EVIDENCE_FAILED');
+          if(d?.execution_started!==false || d?.activation_allowed!==false) throw new Error('MEL_RES_03_SAFETY_INVARIANT_FAILED');
+          console.log('MEL-RES-03 production Provider Escape manifest proof passed.');
+          NODE
+
           CODE_SYNC_READY=0
           for CODE_SYNC_ATTEMPT in $(seq 1 12); do
             CODE_SYNC_CODE="$(curl --silent --show-error --max-time 170 \
