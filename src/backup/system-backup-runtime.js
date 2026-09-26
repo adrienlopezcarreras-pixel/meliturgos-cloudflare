@@ -226,9 +226,24 @@ function systemBackupSources(env) {
 export function createSystemBackupService(env, { now = () => new Date().toISOString() } = {}) {
   requireValue(env?.DB?.prepare, 'BACKUP_DB_UNAVAILABLE', 503);
   requireValue(env?.MEDIA_BUCKET?.put, 'BACKUP_R2_UNAVAILABLE', 503);
+
+  const encryptionKeyId = String(env?.MEL_BACKUP_ENCRYPTION_KEY_ID || '').trim();
+  const encryptionKey = String(env?.MEL_BACKUP_ENCRYPTION_KEY_B64 || '').trim();
+  const encryptionRequested = Boolean(encryptionKeyId || encryptionKey);
+  requireValue(
+    !encryptionRequested || Boolean(encryptionKeyId && encryptionKey),
+    'BACKUP_ENCRYPTION_CONFIG_INCOMPLETE',
+    503,
+  );
+  const encryptionCodec = encryptionRequested ? createEnvBackupEncryptionCodec(env) : null;
+
   return createVerifiedBackupService({
     now,
-    storage: createR2D1BackupStorage({ db: env.DB, bucket: env.MEDIA_BUCKET }),
+    storage: createR2D1BackupStorage({
+      db: env.DB,
+      bucket: env.MEDIA_BUCKET,
+      encryptionCodec,
+    }),
     sources: systemBackupSources(env),
   });
 }
@@ -296,11 +311,11 @@ export async function runScheduledSystemBackup(env, {
 
 
 /**
- * Opt-in encrypted system backup service.
+ * Explicit encrypted system backup service.
  *
- * The scheduled production path intentionally keeps using createSystemBackupService
- * until MEL_BACKUP_ENCRYPTION_KEY_B64 + MEL_BACKUP_ENCRYPTION_KEY_ID are provisioned
- * and an explicit rollout switches it. Missing encryption material fails closed.
+ * The canonical scheduled path now also selects encryption automatically when both
+ * MEL_BACKUP_ENCRYPTION_KEY_B64 and MEL_BACKUP_ENCRYPTION_KEY_ID are provisioned.
+ * A partial encryption configuration fails closed instead of silently downgrading.
  */
 export function createEncryptedSystemBackupService(env, { now = () => new Date().toISOString(), codec = null } = {}) {
   requireValue(env?.DB?.prepare, 'BACKUP_DB_UNAVAILABLE', 503);

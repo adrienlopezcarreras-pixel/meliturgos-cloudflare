@@ -6,6 +6,7 @@ import {
   exportD1SystemState,
   exportR2Inventory,
   createR2D1BackupStorage,
+  createSystemBackupService,
   runScheduledSystemBackup,
 } from '../src/backup/system-backup-runtime.js';
 
@@ -220,4 +221,31 @@ test('GEN2-47 forced scheduled backup ignores a current snapshot for a new relea
   });
   assert.equal(result.status,'CREATED_VERIFIED');
   assert.equal(creates,1);
+});
+
+
+test('GEN2-47 scheduled backup encryption fails closed on partial key configuration', () => {
+  const env = {
+    DB:{prepare(){ return {}; }},
+    MEDIA_BUCKET:{put(){},get(){},delete(){}},
+    MEL_BACKUP_ENCRYPTION_KEY_ID:'scheduled-key',
+  };
+  assert.throws(
+    () => createSystemBackupService(env),
+    error => error?.code === 'BACKUP_ENCRYPTION_CONFIG_INCOMPLETE' && error?.status === 503,
+  );
+});
+
+test('GEN2-47 scheduled backup service accepts complete AES-GCM configuration', () => {
+  const keyBytes = Uint8Array.from({length:32}, (_, index) => index + 1);
+  const env = {
+    DB:{prepare(){ return {}; }},
+    MEDIA_BUCKET:{put(){},get(){},delete(){}},
+    MEL_BACKUP_ENCRYPTION_KEY_ID:'scheduled-key',
+    MEL_BACKUP_ENCRYPTION_KEY_B64:btoa(String.fromCharCode(...keyBytes)),
+  };
+  const service = createSystemBackupService(env);
+  assert.equal(typeof service.create,'function');
+  assert.equal(typeof service.verify,'function');
+  assert.equal(typeof service.list,'function');
 });
