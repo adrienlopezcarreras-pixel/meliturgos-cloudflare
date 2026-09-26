@@ -74,13 +74,17 @@ function benchmarkOverall(evidence){return Number(evidence?.overall??evidence?.s
 export function isSupportedCloudflareLoraRuntimeModel(model){return CLOUDFLARE_LORA_RUNTIME_MODELS.includes(String(model||'').trim());}
 export function isSupportedCloudflareLoraPair(baseModel,runtimeModel){return CLOUDFLARE_LORA_MODEL_PAIRS[String(baseModel||'').trim()]===String(runtimeModel||'').trim();}
 
-export function createLoraTrainingPlan({id=`mel-lora-${Date.now()}`,base_model=DEFAULT_LORA_BASE_MODEL,runtime_model=DEFAULT_LORA_RUNTIME_MODEL,runtime='cloudflare-workers-ai',dataset_digest,examples=0,rank=8,alpha=16,dropout=0.05,learning_rate=2e-4,epochs=2,quantization='none',target_modules=['q_proj','v_proj'],seed=42,min_measured_gain=0.02,status}={}){
+export function createLoraTrainingPlan({id=`mel-lora-${Date.now()}`,base_model=DEFAULT_LORA_BASE_MODEL,runtime_model=DEFAULT_LORA_RUNTIME_MODEL,runtime='cloudflare-workers-ai',dataset_digest,examples=0,rank=8,alpha=16,dropout=0.05,learning_rate=2e-4,epochs=2,max_steps=-1,max_length=2048,gradient_accumulation_steps=8,quantization='none',target_modules=['q_proj','v_proj'],seed=42,min_measured_gain=0.02,status}={}){
   const count=Math.max(0,Math.floor(Number(examples)||0));
   const normalizedRank=Math.max(1,Math.min(32,Math.round(Number(rank)||8)));
   const normalizedAlpha=Math.max(1,Math.min(1024,Math.round(Number(alpha)||16)));
   const normalizedDropout=Math.max(0,Math.min(.5,Number(dropout)||0));
   const normalizedLearningRate=Math.max(1e-7,Math.min(1e-2,Number(learning_rate)||2e-4));
   const normalizedEpochs=Math.max(1,Math.min(20,Math.round(Number(epochs)||2)));
+  const rawMaxSteps=Math.trunc(Number(max_steps));
+  const normalizedMaxSteps=Number.isFinite(rawMaxSteps)&&rawMaxSteps>0?Math.min(100000,rawMaxSteps):-1;
+  const normalizedMaxLength=Math.max(128,Math.min(8192,Math.trunc(Number(max_length)||2048)));
+  const normalizedGradientAccumulationSteps=Math.max(1,Math.min(128,Math.trunc(Number(gradient_accumulation_steps)||8)));
   const normalizedQuantization=ALLOWED_QUANT.has(String(quantization))?String(quantization):'none';
   const normalizedTargetModules=Array.isArray(target_modules)?[...new Set(target_modules.map(x=>safeId(x,'TARGET_MODULE')))].slice(0,32):[];
   const normalizedSeed=Math.round(Number(seed)||42);
@@ -104,12 +108,15 @@ export function createLoraTrainingPlan({id=`mel-lora-${Date.now()}`,base_model=D
     dropout:normalizedDropout,
     learning_rate:normalizedLearningRate,
     epochs:normalizedEpochs,
+    max_steps:normalizedMaxSteps,
+    max_length:normalizedMaxLength,
+    gradient_accumulation_steps:normalizedGradientAccumulationSteps,
     quantization:normalizedQuantization,
     target_modules:[...normalizedTargetModules],
     seed:normalizedSeed,
   });
   const trainingManifestDigest=sha256Digest(stableJson(trainingManifest));
-  return {id:safeId(id,'ID'),base_model:normalizedBaseModel,runtime_model:normalizedRuntimeModel,runtime:normalizedRuntime,dataset_digest:normalizedDatasetDigest,training_manifest_digest:trainingManifestDigest,training_manifest:trainingManifest,examples:count,rank:normalizedRank,alpha:normalizedAlpha,dropout:normalizedDropout,learning_rate:normalizedLearningRate,epochs:normalizedEpochs,quantization:normalizedQuantization,target_modules:normalizedTargetModules,seed:normalizedSeed,min_measured_gain:Math.max(0,Math.min(1,finiteNumber(min_measured_gain,.02))),status:normalizedStatus,readiness:{ready_for_training:ready,enough_examples:count>=MIN_LORA_VALIDATED_EXAMPLES,min_examples:MIN_LORA_VALIDATED_EXAMPLES,base_weights_frozen:true,trainable_parameters:'LORA_ADAPTER_ONLY',benchmark_required_before_activation:true,measured_gain_required:true,runtime_model_supported:runtimeModelSupported,cloudflare_inference_compatible:cloudflareCompatible,cloudflare_requirements:{quantization:'none',max_rank:32,max_adapter_bytes:MAX_CLOUDFLARE_ADAPTER_BYTES,expected_files:['adapter_config.json','adapter_model.safetensors'],supported_runtime_models:[...CLOUDFLARE_LORA_RUNTIME_MODELS]}}};
+  return {id:safeId(id,'ID'),base_model:normalizedBaseModel,runtime_model:normalizedRuntimeModel,runtime:normalizedRuntime,dataset_digest:normalizedDatasetDigest,training_manifest_digest:trainingManifestDigest,training_manifest:trainingManifest,examples:count,rank:normalizedRank,alpha:normalizedAlpha,dropout:normalizedDropout,learning_rate:normalizedLearningRate,epochs:normalizedEpochs,max_steps:normalizedMaxSteps,max_length:normalizedMaxLength,gradient_accumulation_steps:normalizedGradientAccumulationSteps,quantization:normalizedQuantization,target_modules:normalizedTargetModules,seed:normalizedSeed,min_measured_gain:Math.max(0,Math.min(1,finiteNumber(min_measured_gain,.02))),status:normalizedStatus,readiness:{ready_for_training:ready,enough_examples:count>=MIN_LORA_VALIDATED_EXAMPLES,min_examples:MIN_LORA_VALIDATED_EXAMPLES,base_weights_frozen:true,trainable_parameters:'LORA_ADAPTER_ONLY',benchmark_required_before_activation:true,measured_gain_required:true,runtime_model_supported:runtimeModelSupported,cloudflare_inference_compatible:cloudflareCompatible,cloudflare_requirements:{quantization:'none',max_rank:32,max_adapter_bytes:MAX_CLOUDFLARE_ADAPTER_BYTES,expected_files:['adapter_config.json','adapter_model.safetensors'],supported_runtime_models:[...CLOUDFLARE_LORA_RUNTIME_MODELS]}}};
 }
 
 export function assertAdapterArtifact(artifact={}){

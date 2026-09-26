@@ -57,6 +57,9 @@ def main() -> int:
     ap.add_argument("--dropout", type=float, default=0.05)
     ap.add_argument("--learning-rate", type=float, default=2e-4)
     ap.add_argument("--epochs", type=float, default=2)
+    ap.add_argument("--max-steps", type=int, default=-1)
+    ap.add_argument("--max-length", type=int, default=2048)
+    ap.add_argument("--gradient-accumulation-steps", type=int, default=8)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--min-measured-gain", type=float, default=0.02)
     args = ap.parse_args()
@@ -72,6 +75,10 @@ def main() -> int:
     dropout = max(0.0, min(0.5, float(args.dropout or 0.0)))
     learning_rate = max(1e-7, min(1e-2, float(args.learning_rate or 2e-4)))
     epochs = max(1, min(20, round(args.epochs or 2)))
+    max_steps = int(args.max_steps) if int(args.max_steps) > 0 else -1
+    max_steps = min(100000, max_steps) if max_steps > 0 else -1
+    max_length = max(128, min(8192, int(args.max_length or 2048)))
+    gradient_accumulation_steps = max(1, min(128, int(args.gradient_accumulation_steps or 8)))
     seed = round(args.seed or 42)
     min_gain = max(0.0, min(1.0, float(args.min_measured_gain if math.isfinite(args.min_measured_gain) else 0.02)))
     ready = examples >= MIN_EXAMPLES
@@ -89,6 +96,9 @@ def main() -> int:
         "dropout": dropout,
         "learning_rate": learning_rate,
         "epochs": epochs,
+        "max_steps": max_steps,
+        "max_length": max_length,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
         "quantization": "none",
         "target_modules": TARGET_MODULES,
         "seed": seed,
@@ -108,6 +118,9 @@ def main() -> int:
         "dropout": dropout,
         "learning_rate": learning_rate,
         "epochs": epochs,
+        "max_steps": max_steps,
+        "max_length": max_length,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
         "quantization": "none",
         "target_modules": TARGET_MODULES,
         "seed": seed,

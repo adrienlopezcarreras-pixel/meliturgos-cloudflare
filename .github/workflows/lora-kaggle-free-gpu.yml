@@ -323,14 +323,51 @@ jobs:
           import json, os, pathlib, time
           root=pathlib.Path("/kaggle/working")
           exit_file=root/"mel-training-exit-code.txt"
+          state_file=root/"mel-training-background.json"
           if not exit_file.exists():
-              time.sleep(75)
+              time.sleep(45)
           log_file=root/"mel-training-background.log"
           tail=""
+          log_age_seconds=None
+          latest_progress=None
           if log_file.exists():
               data=log_file.read_text(encoding="utf-8", errors="replace")
-              tail="\\n".join(data.splitlines()[-8:])
-          print(json.dumps({"done":exit_file.exists(),"tail":tail[-4000:]}))
+              lines=data.splitlines()
+              tail="\\n".join(lines[-12:])
+              log_age_seconds=max(0.0,time.time()-log_file.stat().st_mtime)
+              for line in reversed(lines):
+                  if "MEL_TRAINING_PROGRESS " in line or "MEL_TRAINING_STAGE " in line or "TRAINING_COMMAND_" in line or "LOCAL_IMPACT_" in line:
+                      latest_progress=line[-4000:]
+                      break
+          pid=None
+          started_at=None
+          alive=None
+          if state_file.exists():
+              state=json.loads(state_file.read_text(encoding="utf-8"))
+              pid=int(state.get("pid") or 0)
+              started_at=float(state.get("started_at") or 0)
+              if pid>0:
+                  try:
+                      os.kill(pid,0)
+                      alive=True
+                  except OSError:
+                      alive=False
+          if not exit_file.exists() and alive is False:
+              raise RuntimeError("TRAINING_BACKGROUND_PROCESS_GONE")
+          elapsed=max(0.0,time.time()-started_at) if started_at else None
+          if not exit_file.exists() and log_file.exists() and log_age_seconds is not None and log_age_seconds>720:
+              raise RuntimeError("TRAINING_BACKGROUND_STALLED")
+          if not exit_file.exists() and not log_file.exists() and elapsed is not None and elapsed>720:
+              raise RuntimeError("TRAINING_BACKGROUND_NO_LOG")
+          print(json.dumps({
+              "done":exit_file.exists(),
+              "pid":pid,
+              "alive":alive,
+              "elapsed_seconds":elapsed,
+              "log_age_seconds":log_age_seconds,
+              "latest_progress":latest_progress,
+              "tail":tail[-6000:],
+          }))
           ''')
           finisher = textwrap.dedent(r'''
           import pathlib
@@ -347,7 +384,7 @@ jobs:
           print("TRAINING_BACKGROUND_COMPLETED")
           ''')
           wrapper = "\n".join([
-              "import pathlib, subprocess, sys",
+              "import json, pathlib, subprocess, sys, time",
               "root=pathlib.Path('/kaggle/working')",
               "script=root/'mel-training-entry.py'",
               "log=(root/'mel-training-background.log').open('w', encoding='utf-8')",
@@ -355,6 +392,7 @@ jobs:
               "shell=' '.join(__import__('shlex').quote(x) for x in cmd)",
               "wrapped=f\"{shell}; code=$?; printf '%s\\\\n' \\\"$code\\\" > {root/'mel-training-exit-code.txt'}\"",
               "proc=subprocess.Popen(['/bin/bash','-lc',wrapped],stdout=log,stderr=subprocess.STDOUT,cwd=str(root),start_new_session=True)",
+              "(root/'mel-training-background.json').write_text(json.dumps({'pid':proc.pid,'started_at':time.time()})+'\\n',encoding='utf-8')",
               "print({'status':'TRAINING_BACKGROUND_STARTED','pid':proc.pid})",
           ]) + "\n"
           notebook={
@@ -365,7 +403,7 @@ jobs:
                   ]) + "\n"),
 
                   code_cell(wrapper),
-                  *[code_cell(monitor) for _ in range(145)],
+                  *[code_cell(monitor) for _ in range(80)],
                   code_cell(finisher),
               ],
               "metadata":{
@@ -448,9 +486,19 @@ jobs:
           set -euo pipefail
           COMPLETE=0
           CANCEL_RETRY_USED=0
-          for attempt in $(seq 1 210); do
+          mkdir -p artifacts
+          : > artifacts/kaggle-live.log
+          for attempt in $(seq 1 120); do
             STATUS="$(kaggle kernels status "$KERNEL_REF" 2>&1 || true)"
             echo "[$attempt] $STATUS"
+            LOGS="$(kaggle kernels logs "$KERNEL_REF" 2>&1 || true)"
+            if [[ -n "$LOGS" ]]; then
+              printf '%s\n' "$LOGS" > artifacts/kaggle-live.log
+              LATEST="$(printf '%s\n' "$LOGS" | grep -E 'MEL_TRAINING_PROGRESS |MEL_TRAINING_STAGE |TRAINING_COMMAND_|LOCAL_IMPACT_' | tail -n 1 || true)"
+              if [[ -n "$LATEST" ]]; then
+                echo "progress[$attempt] $LATEST"
+              fi
+            fi
             LOWER="$(printf '%s' "$STATUS" | tr '[:upper:]' '[:lower:]')"
             if printf '%s' "$LOWER" | grep -Eq 'complete|completed|success'; then
               COMPLETE=1
@@ -480,7 +528,7 @@ jobs:
               echo "::error title=Kaggle GPU run failed::$STATUS"
               exit 1
             fi
-            sleep 60
+            sleep 30
           done
           [[ "$COMPLETE" == "1" ]] || { echo "KAGGLE_GPU_RUN_TIMEOUT"; exit 1; }
 
@@ -613,6 +661,7 @@ jobs:
             artifacts/kaggle-payload-status.json
             artifacts/kaggle-payload-files.txt
             artifacts/kaggle-server-metadata/**/kernel-metadata.json
+            artifacts/kaggle-live.log
           if-no-files-found: warn
           retention-days: 14
 
