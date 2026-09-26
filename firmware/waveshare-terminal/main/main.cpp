@@ -1273,15 +1273,25 @@ static void lv_port_init() {
 }
 
 static void touch_cb(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED || !status_label) return;
-    ESP_LOGI(TAG, "UI BUTTON: PARLER");
-    if (!mel_terminal_online()) {
-        lv_label_set_text(status_label, "MEL HORS LIGNE");
-        ESP_LOGW(TAG, "Talk requested while MEL runtime is offline");
+    if (!status_label) return;
+    const lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_PRESSED) {
+        ESP_LOGI(TAG, "UI BUTTON: PARLER pressed");
+        if (!mel_terminal_online()) {
+            lv_label_set_text(status_label, "MEL HORS LIGNE");
+            ESP_LOGW(TAG, "Talk requested while MEL runtime is offline");
+            return;
+        }
+        mel_terminal_request_voice();
+        ESP_LOGI(TAG, "PARLER recording started");
         return;
     }
-    mel_terminal_request_voice();
-    ESP_LOGI(TAG, "PARLER requested");
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        if (mel_terminal_state() == MEL_TERMINAL_LISTENING) {
+            mel_terminal_request_voice();
+            ESP_LOGI(TAG, "PARLER released -> stop and send");
+        }
+    }
 }
 
 static void mini_smoke_ui() {
@@ -1357,7 +1367,7 @@ static void mini_smoke_ui() {
     lv_obj_set_style_bg_color(talk_button, lv_color_hex(0x08233C), 0);
     lv_obj_set_style_border_width(talk_button, 3, 0);
     lv_obj_set_style_border_color(talk_button, lv_color_hex(0x22D3EE), 0);
-    lv_obj_add_event_cb(talk_button, touch_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_add_event_cb(talk_button, touch_cb, LV_EVENT_ALL, nullptr);
 
     status_label = lv_label_create(talk_button);
     lv_label_set_text(status_label, "PARLER");
