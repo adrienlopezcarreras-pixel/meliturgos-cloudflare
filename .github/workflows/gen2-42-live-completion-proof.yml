@@ -43,7 +43,7 @@ jobs:
           for(const part of Array.isArray(raw)?raw:[raw]){
             if(part && Array.isArray(part.results)) rows.push(...part.results);
           }
-          const parse=v=>{try{return JSON.parse(v||'{}')}catch{return {}}};
+          const parse=v=>{try{const x=JSON.parse(v||'{}');return x&&typeof x==='object'?x:{}}catch{return {}}};
           const candidates=[];
           for(const row of rows){
             const ctx=parse(row.optional_context);
