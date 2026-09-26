@@ -489,6 +489,7 @@ test('GEN2-42 minimal inspection skips code search and caps file reads before Te
   const fetchImpl = async (url) => {
     const target = String(url);
     calls.push(target);
+    if (target.includes('/git/ref/heads/')) return Response.json({ object: { sha: candidateSha } });
     if (target.includes('/branches/')) return Response.json({ commit: { sha: candidateSha } });
     if (target.includes('/contents/')) {
       return Response.json({
