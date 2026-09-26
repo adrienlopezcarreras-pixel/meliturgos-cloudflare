@@ -175,7 +175,7 @@ function requestedInspectionQueries(job) {
   return [...new Set(values.map(value => String(value || '').trim().slice(0, 240)).filter(Boolean))].slice(0, 10);
 }
 
-async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
+async function inspectCandidateCode(env, job, { fetchImpl = fetch, minimal = false } = {}) {
   const { repository, branch } = codeConfig(env);
   const pinnedSha = deployedInspectionSha(env);
   const inspectionRef = resolveAutonomyInspectionRef(env, branch);
@@ -191,7 +191,8 @@ async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
     throw Object.assign(new Error('AUTONOMY_CANDIDATE_HEAD_INVALID'), { code: 'AUTONOMY_CANDIDATE_HEAD_INVALID' });
   }
   const evidence = [];
-  for (const query of requestedInspectionQueries(job)) {
+  const inspectionQueries = minimal ? [] : requestedInspectionQueries(job);
+  for (const query of inspectionQueries) {
     try {
       const search = await reader.search({ query });
       evidence.push({
@@ -206,7 +207,14 @@ async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
     }
   }
 
-  const inspectionFiles = [...new Set([...INSPECTION_FILES, ...requestedInspectionPaths(job)])];
+  const requestedPaths = requestedInspectionPaths(job);
+  const inspectionFiles = minimal
+    ? [...new Set([
+        ...requestedPaths,
+        'src/evaluation/capability-watch-runtime.js',
+        'src/roadmap/master-roadmap.js',
+      ])].slice(0, 3)
+    : [...new Set([...INSPECTION_FILES, ...requestedPaths])];
   for (const path of inspectionFiles) {
     try {
       const file = await reader.read(path);
@@ -243,7 +251,7 @@ async function inspectCandidateCode(env, job, { fetchImpl = fetch } = {}) {
   };
 }
 
-export async function prepareAutonomyTeacherRequest({ env, repository, job, fetchImpl = fetch } = {}) {
+export async function prepareAutonomyTeacherRequest({ env, repository, job, fetchImpl = fetch, minimalInspection = false } = {}) {
   if (!repository || !job) throw Object.assign(new Error('AUTONOMY_RUNTIME_INPUT_REQUIRED'), { code: 'AUTONOMY_RUNTIME_INPUT_REQUIRED' });
   let current = await repository.get(job.id);
   if (!current) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND' });
@@ -274,7 +282,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
     current = await repository.update(current.id, { plan_json: plan, status: 'COUNCIL_COMPLETE' });
   }
 
-  const inspection = await inspectCandidateCode(env, current, { fetchImpl });
+  const inspection = await inspectCandidateCode(env, current, { fetchImpl, minimal: minimalInspection });
   const { repository: repoName, branch } = codeConfig(env);
   const request = createTeacherReviewRequest({
     goal: current.goal,
