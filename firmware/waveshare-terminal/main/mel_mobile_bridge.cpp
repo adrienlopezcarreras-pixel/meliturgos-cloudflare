@@ -498,6 +498,15 @@ void mel_mobile_bridge_rescan(void) {
     start_scan();
 }
 
+bool mel_mobile_bridge_keepalive(void) {
+    if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE || !g_request_mutex) return false;
+    if (xSemaphoreTake(g_request_mutex, 0) != pdTRUE) return false;
+    const bool ok = pull_response_frame();
+    xSemaphoreGive(g_request_mutex);
+    if (ok) ESP_LOGD(TAG, "MEL Mobile keepalive OK");
+    return ok;
+}
+
 bool mel_mobile_bridge_ready(void) {
     return g_ready.load();
 }

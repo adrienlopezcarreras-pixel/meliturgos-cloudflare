@@ -1492,10 +1492,16 @@ static void mobile_bridge_watch_task(void *) {
     bool reported_ready = false;
     bool physical_ready = false;
     int offline_seconds = 0;
+    int keepalive_seconds = 0;
     while (true) {
         const bool ready = mel_mobile_bridge_ready();
         if (ready) {
             offline_seconds = 0;
+            keepalive_seconds++;
+            if (keepalive_seconds >= 8) {
+                mel_mobile_bridge_keepalive();
+                keepalive_seconds = 0;
+            }
             if (!physical_ready) {
                 physical_ready = true;
                 // Every physical BLE reconnection refreshes phone clock + wake profile,
@@ -1510,6 +1516,7 @@ static void mobile_bridge_watch_task(void *) {
             }
         } else if (reported_ready) {
             physical_ready = false;
+            keepalive_seconds = 0;
             offline_seconds++;
             // Android reconnects in ~1-2 s on transient GATT drops. Keep the
             // companion logically online during a short transport handover so
