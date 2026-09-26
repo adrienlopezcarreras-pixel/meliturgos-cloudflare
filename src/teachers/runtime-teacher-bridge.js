@@ -1,4 +1,5 @@
 import { applyTeacherReview } from './teacher-request.js';
+import { createTeacherHandoffPacket, applyTeacherHandoffReview } from './teacher-handoff-packet.js';
 
 const SECRET_KEY = /(secret|token|password|authorization|cookie|api[_-]?key|otp|private[_-]?key|credential)/i;
 const SECRET_VALUE = /(bearer\s+[a-z0-9._~+/=-]{8,}|\bsk-[a-z0-9_-]{8,}|\bgh[pousr]_[a-z0-9]{12,})/i;
@@ -167,4 +168,91 @@ export function teacherBridgePublicView(pending) {
     requested_review: item.requested_review,
     provenance: item.provenance,
   }));
+}
+
+
+/**
+ * New integrity-bound Teacher transport. Kept additive so existing v2 request
+ * consumers remain backward compatible while new callers can require packet
+ * binding end-to-end.
+ */
+export async function queueRuntimeTeacherHandoff(repository, jobId, request, evidence = {}) {
+  const job = await repository.get(jobId);
+  if (!job) throw Object.assign(new Error('JOB_NOT_FOUND'), { code: 'JOB_NOT_FOUND', status: 404 });
+
+  const packet = await createTeacherHandoffPacket({
+    request,
+    job,
+    transport: 'runtime-teacher-bridge',
+    additionalEvidence: evidence,
+  });
+
+  const state = await queueRuntimeTeacherRequest(repository, jobId, request, evidence);
+  const refreshed = await repository.get(jobId);
+  const result = refreshed?.result_json && typeof refreshed.result_json === 'object'
+    ? { ...refreshed.result_json }
+    : {};
+  result.teacher_handoff = clean(packet);
+  await repository.update(jobId, {
+    status: refreshed?.status || 'WAITING_TEACHER',
+    result_json: result,
+  });
+
+  return {
+    state,
+    packet: clean(packet),
+    integrity_verified: true,
+  };
+}
+
+export async function applyRuntimeTeacherHandoffReply(repository, reply) {
+  const requestId = String(reply?.request_id || '');
+  if (!requestId) {
+    throw Object.assign(new Error('TEACHER_REPLY_ID_REQUIRED'), {
+      code: 'TEACHER_REPLY_ID_REQUIRED',
+      status: 422,
+    });
+  }
+
+  const jobs = await repository.list();
+  const job = jobs.find(candidate =>
+    candidate?.result_json?.teacher_handoff?.request_id === requestId
+  );
+  if (!job) {
+    throw Object.assign(new Error('TEACHER_HANDOFF_NOT_FOUND'), {
+      code: 'TEACHER_HANDOFF_NOT_FOUND',
+      status: 404,
+    });
+  }
+
+  const packet = job.result_json.teacher_handoff;
+  const verified = await applyTeacherHandoffReview(packet, reply);
+  const applied = await applyRuntimeTeacherReply(repository, reply);
+
+  const updatedJob = await repository.get(applied.job.id);
+  const result = updatedJob?.result_json && typeof updatedJob.result_json === 'object'
+    ? { ...updatedJob.result_json }
+    : {};
+  result.last_teacher_handoff = clean({
+    packet_id: verified.packet_id,
+    packet_digest: verified.packet_digest,
+    handoff_schema: verified.handoff_schema,
+    request_id: verified.request_id,
+    target_sha: verified.target_sha,
+    verdict: verified.verdict,
+    reviewed_at: verified.reviewed_at,
+    integrity_verified: true,
+  });
+  const persisted = await repository.update(updatedJob.id, {
+    status: updatedJob.status,
+    result_json: result,
+  });
+
+  return {
+    ...applied,
+    job: persisted,
+    handoff_verified: true,
+    packet_id: verified.packet_id,
+    packet_digest: verified.packet_digest,
+  };
 }
