@@ -7,6 +7,8 @@ const MAX_OUTPUT_CHARS = 1_500_000;
 const MAX_PAGES = 5000;
 const DEFAULT_CHUNK_CHARS = 4000;
 const DEFAULT_CHUNK_OVERLAP = 400;
+const DEFAULT_PARSER_TIMEOUT_MS = 15_000;
+const MAX_PARSER_TIMEOUT_MS = 30_000;
 
 function docError(code, status = 400) {
   return new DomainError(code, status);
@@ -146,7 +148,9 @@ function normalizedPage(page, index) {
 
 function normalizeParserResult(result, parserId) {
   requireValue(result && typeof result === 'object', 'DOCUMENT_PARSER_RESULT_INVALID', 502);
-  const rawPages = Array.isArray(result.pages) ? result.pages.slice(0, MAX_PAGES) : [];
+  const sourcePages = Array.isArray(result.pages) ? result.pages : [];
+  const pagesTruncated = sourcePages.length > MAX_PAGES;
+  const rawPages = sourcePages.slice(0, MAX_PAGES);
   const pages = rawPages.map(normalizedPage);
   let extracted = cleanText(result.text ?? result.content ?? '');
   if (!extracted && pages.length) {
@@ -160,11 +164,45 @@ function normalizeParserResult(result, parserId) {
     metadata: result.metadata && typeof result.metadata === 'object' && !Array.isArray(result.metadata)
       ? structuredClone(result.metadata)
       : {},
-    warnings: Array.isArray(result.warnings)
-      ? result.warnings.map(value => cleanText(value, 1000)).slice(0, 100)
-      : [],
+    warnings: [
+      ...(Array.isArray(result.warnings)
+        ? result.warnings.map(value => cleanText(value, 1000)).slice(0, 99)
+        : []),
+      ...(pagesTruncated ? [`DOCUMENT_PAGES_TRUNCATED:${sourcePages.length}->${MAX_PAGES}`] : []),
+    ],
     parser: text(result.parser || parserId).slice(0, 120),
   };
+}
+
+async function invokeParser(parser, payload, { signal = null, timeoutMs = DEFAULT_PARSER_TIMEOUT_MS } = {}) {
+  const timeout = Math.max(100, Math.min(MAX_PARSER_TIMEOUT_MS, Number(timeoutMs) || DEFAULT_PARSER_TIMEOUT_MS));
+  if (signal?.aborted) throw docError('DOCUMENT_PARSER_ABORTED', 499);
+
+  let timer = null;
+  let abortListener = null;
+  try {
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(docError('DOCUMENT_PARSER_TIMEOUT', 504)), timeout);
+    });
+    const abortPromise = signal
+      ? new Promise((_, reject) => {
+          abortListener = () => reject(docError('DOCUMENT_PARSER_ABORTED', 499));
+          signal.addEventListener('abort', abortListener, { once: true });
+        })
+      : new Promise(() => {});
+
+    return await Promise.race([
+      Promise.resolve().then(() => parser(payload)),
+      timeoutPromise,
+      abortPromise,
+    ]);
+  } catch (error) {
+    if (error?.code === 'DOCUMENT_PARSER_TIMEOUT' || error?.code === 'DOCUMENT_PARSER_ABORTED') throw error;
+    throw docError('DOCUMENT_PARSER_FAILED', 502);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (signal && abortListener) signal.removeEventListener('abort', abortListener);
+  }
 }
 
 async function sha256Bytes(bytes) {
@@ -244,12 +282,14 @@ export class DocumentRuntime {
     pdfParser = null,
     docxParser = null,
     maxInputBytes = MAX_INPUT_BYTES,
+    parserTimeoutMs = DEFAULT_PARSER_TIMEOUT_MS,
   } = {}) {
     if (pdfParser != null && typeof pdfParser !== 'function') throw new Error('DOCUMENT_PDF_PARSER_INVALID');
     if (docxParser != null && typeof docxParser !== 'function') throw new Error('DOCUMENT_DOCX_PARSER_INVALID');
     this.pdfParser = pdfParser;
     this.docxParser = docxParser;
     this.maxInputBytes = Math.max(1_000_000, Math.min(MAX_INPUT_BYTES, Number(maxInputBytes) || MAX_INPUT_BYTES));
+    this.parserTimeoutMs = Math.max(100, Math.min(MAX_PARSER_TIMEOUT_MS, Number(parserTimeoutMs) || DEFAULT_PARSER_TIMEOUT_MS));
   }
 
   async extract(input = {}, context = {}) {
@@ -269,23 +309,23 @@ export class DocumentRuntime {
     if (detected.kind === 'pdf') {
       requireValue(this.pdfParser, 'DOCUMENT_PDF_PARSER_UNAVAILABLE', 503);
       parsed = normalizeParserResult(
-        await this.pdfParser({
+        await invokeParser(this.pdfParser, {
           bytes,
           name,
           mime: detected.mime,
           signal: context.signal,
-        }),
+        }, { signal: context.signal, timeoutMs: this.parserTimeoutMs }),
         'pdf-adapter',
       );
     } else if (detected.kind === 'docx') {
       requireValue(this.docxParser, 'DOCUMENT_DOCX_PARSER_UNAVAILABLE', 503);
       parsed = normalizeParserResult(
-        await this.docxParser({
+        await invokeParser(this.docxParser, {
           bytes,
           name,
           mime: detected.mime,
           signal: context.signal,
-        }),
+        }, { signal: context.signal, timeoutMs: this.parserTimeoutMs }),
         'docx-adapter',
       );
     } else if (detected.kind === 'html') {
