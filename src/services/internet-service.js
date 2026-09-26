@@ -39,6 +39,7 @@ class InternetService {
       content: html,
       title: this.extractTitle(html, url),
       snippet: this.extractSnippet(html),
+      image_url: this.extractImageUrl(html, url),
       source_kind: kind,
       provenance: typeof page === 'object' ? {
         source_id: page.source_id,
@@ -226,6 +227,26 @@ class InternetService {
     const match = String(html).match(/<title[^>]*>([^<]*)<\/title>/i);
     if (match?.[1]) return match[1].trim();
     try { return new URL(url).hostname; } catch { return 'Unknown'; }
+  }
+
+  extractImageUrl(html, baseUrl) {
+    const source = String(html || '');
+    const patterns = [
+      /<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image(?::secure_url)?["']/i,
+      /<meta[^>]+name=["']twitter:image(?::src)?["'][^>]*content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]*name=["']twitter:image(?::src)?["']/i,
+    ];
+    for (const pattern of patterns) {
+      const match = source.match(pattern);
+      if (!match?.[1]) continue;
+      try {
+        const candidate = new URL(match[1].trim(), baseUrl);
+        if (candidate.protocol !== 'https:' || candidate.username || candidate.password) continue;
+        return candidate.href.slice(0, 1200);
+      } catch {}
+    }
+    return '';
   }
 
   extractSnippet(html) {
