@@ -554,23 +554,65 @@ class MelBleBridgeService : Service() {
             bridgeState.value = "MINI CONNECT├ëE ┬À INTERNET OK"
             Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
-            val contentLength = connection.contentLengthLong.coerceAtLeast(-1L)
+            val rawContentLength = connection.contentLengthLong.coerceAtLeast(-1L)
+            val downsampleTts = status in 200..299 && request.path == "/api/device/v1/voice/tts"
+            val contentLength = if (downsampleTts && rawContentLength >= 0L) rawContentLength / 3L else rawContentLength
             val meta = JSONObject()
                 .put("status", status)
                 .put("contentType", contentType)
                 .put("length", contentLength)
+            if (downsampleTts) {
+                meta.put("audioFormat", "pcm-s16le")
+                meta.put("audioRate", 16000)
+                meta.put("audioChannels", 1)
+            }
             if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)) return
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             if (stream != null) {
                 stream.use { input ->
                     val mtu = mtus[device.address] ?: 247
                     val maxPayload = (mtu - 8).coerceIn(12, 500)
-                    val buffer = ByteArray(maxPayload)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        if (count == 0) continue
-                        if (!sendFrame(device, packet(OP_RESPONSE_BODY, request.id, buffer.copyOf(count)))) return
+                    if (downsampleTts) {
+                        // Server TTS is PCM S16LE mono 48 kHz. Reduce to 16 kHz for BLE.
+                        // MINI upsamples x3 before feeding its 48 kHz codec.
+                        val inputBuffer = ByteArray(maxPayload * 3)
+                        val outputBuffer = ByteArray(maxPayload)
+                        var pendingLowByte: Byte? = null
+                        var samplePhase = 0
+                        while (true) {
+                            val count = input.read(inputBuffer)
+                            if (count < 0) break
+                            if (count == 0) continue
+                            var src = 0
+                            var dst = 0
+                            if (pendingLowByte != null && count > 0) {
+                                if (samplePhase == 0 && dst + 2 <= outputBuffer.size) {
+                                    outputBuffer[dst++] = pendingLowByte!!
+                                    outputBuffer[dst++] = inputBuffer[0]
+                                }
+                                samplePhase = (samplePhase + 1) % 3
+                                pendingLowByte = null
+                                src = 1
+                            }
+                            while (src + 1 < count) {
+                                if (samplePhase == 0 && dst + 2 <= outputBuffer.size) {
+                                    outputBuffer[dst++] = inputBuffer[src]
+                                    outputBuffer[dst++] = inputBuffer[src + 1]
+                                }
+                                samplePhase = (samplePhase + 1) % 3
+                                src += 2
+                            }
+                            if (src < count) pendingLowByte = inputBuffer[src]
+                            if (dst > 0 && !sendFrame(device, packet(OP_RESPONSE_BODY, request.id, outputBuffer.copyOf(dst)))) return
+                        }
+                    } else {
+                        val buffer = ByteArray(maxPayload)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            if (count == 0) continue
+                            if (!sendFrame(device, packet(OP_RESPONSE_BODY, request.id, buffer.copyOf(count)))) return
+                        }
                     }
                 }
             }
@@ -798,6 +840,20 @@ class MelBleBridgeService : Service() {
         if (latestId != null && latestId != responseId) {
             Log.i(TAG, "Drop stale BLE response id=$responseId latest=$latestId")
             return false
+        }
+        val server = gattServer ?: return false
+        val characteristic = txCharacteristic ?: return false
+        if (subscribed[device.address] == true) {
+            while (notificationAck.poll() != null) { }
+            @Suppress("DEPRECATION")
+            run { characteristic.value = frame.copyOf() }
+            @Suppress("DEPRECATION")
+            val queued = server.notifyCharacteristicChanged(device, characteristic, false)
+            if (queued) {
+                val status = notificationAck.poll(750, TimeUnit.MILLISECONDS)
+                if (status == BluetoothGatt.GATT_SUCCESS) return true
+                Log.w(TAG, "BLE push notify failed/timeout status=$status; falling back to pull")
+            }
         }
         val queue = pullFrames.computeIfAbsent(device.address) { ConcurrentLinkedQueue() }
         queue.offer(frame.copyOf())

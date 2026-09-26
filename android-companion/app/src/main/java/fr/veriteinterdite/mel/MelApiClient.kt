@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.39-ble-voice-queue-fix"
+        const val APP_VERSION = "0.6.40-ble-push-audio"
     }
 
     init {
