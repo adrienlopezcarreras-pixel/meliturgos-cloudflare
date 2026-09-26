@@ -9,6 +9,7 @@ import { registerEventBusCapabilities } from './event-bus-capabilities.js';
 import { registerSkillRegistryCapabilities } from './skill-registry-capabilities.js';
 import { registerBrowserRuntimeCapabilities } from './browser-runtime-capabilities.js';
 import { registerComputerRuntimeCapabilities } from './computer-runtime-capabilities.js';
+import { registerGoogleWorkspaceCapabilities } from './google-workspace-capabilities.js';
 import { registerCreativeMediaCapabilities } from './creative-media-capabilities.js';
 import { createDefaultAugmentioPool } from '../augmentio/default-pool.js';
 import { Augmentio } from '../augmentio/augmentio.js';
@@ -151,6 +152,11 @@ export function createDefaultCapabilityBus({ audit, env, repository, branch, tok
     env: runtimeEnv,
     repository: githubRepository,
     fetchImpl: platformFetch,
+  });
+  registerGoogleWorkspaceCapabilities(bus, {
+    env: runtimeEnv,
+    fetchImpl: platformFetch,
+    resolveAccessToken: runtimeEnv.MEL_GOOGLE_TOKEN_RESOLVER || null,
   });
 
   bus.discover({
