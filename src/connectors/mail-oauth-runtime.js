@@ -29,6 +29,47 @@ const PROVIDERS = Object.freeze({
           authorization_only: Object.freeze(['offline_access']),
         }),
       }),
+      'microsoft-onedrive': Object.freeze({
+        id: 'microsoft-onedrive',
+        name: 'Microsoft OneDrive',
+        version: '1.0.0',
+        auth: 'oauth2',
+        capabilities: Object.freeze([
+          'files.list',
+          'files.read',
+          'files.search',
+          'files.write',
+          'files.delete',
+        ]),
+        scopes: Object.freeze({
+          required: Object.freeze(['https://graph.microsoft.com/Files.Read.All']),
+          optional: Object.freeze(['https://graph.microsoft.com/Files.ReadWrite.All']),
+          authorization_only: Object.freeze(['offline_access']),
+        }),
+      }),
+      'microsoft-sharepoint': Object.freeze({
+        id: 'microsoft-sharepoint',
+        name: 'Microsoft SharePoint',
+        version: '1.0.0',
+        auth: 'oauth2',
+        capabilities: Object.freeze([
+          'sites.list',
+          'sites.read',
+          'sites.search',
+          'sites.write',
+        ]),
+        scopes: Object.freeze({
+          required: Object.freeze([
+            'https://graph.microsoft.com/Files.Read.All',
+            'https://graph.microsoft.com/Sites.Read.All',
+          ]),
+          optional: Object.freeze([
+            'https://graph.microsoft.com/Files.ReadWrite.All',
+            'https://graph.microsoft.com/Sites.ReadWrite.All',
+          ]),
+          authorization_only: Object.freeze(['offline_access']),
+        }),
+      }),
     }),
   }),
   yahoo: Object.freeze({
