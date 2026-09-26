@@ -118,7 +118,7 @@ export const MASTER_ROADMAP = Object.freeze([
     item('GEN2-35', 'OneDrive / SharePoint', 'BLOCKED_HUMAN', 'Configurer OAuth et permissions', 'P1'),
     item('GEN2-36', 'GitHub / Cloudflare / Vercel', 'BLOCKED_HUMAN', 'Code et contrôles GEN2-36 intégrés et déployés; GitHub dispatch réel PASS (35709807443), Cloudflare auth PASS (35709798534), mutation bornée réelle PASS (35712822078) et production canonique PASS (35713600886 puis 35714494562). Seul bloqueur externe restant : aucun projet/équipe Vercel visible et VERCEL_TOKEN absent; fournir une cible Vercel réelle puis effectuer un redéploiement approuvé avant DONE_VERIFIED.', 'P0'),
     item('GEN2-37', 'Web / recherche', 'DONE_VERIFIED', 'Production vérifiée: release 36150649958 sur SHA 231b83e5009bf86af538d802f12e46b339252c70 a exécuté le vrai endpoint /api/gen2/web/research avec seed officiel Cloudflare, scope release strict, provenance complète et marqueur GEN2-37 PRODUCTION_VERIFIED.', 'P1'),
-    item('MEL-CONN-01', 'WordPress Vérité Interdite', 'PLANNED', 'Créer MEL publique isolée de la mémoire privée', 'P3'),
+    item('MEL-CONN-01', 'WordPress Vérité Interdite', 'PARTIAL', 'Connecteur public lecture seule fusionné via #441/#445: périmètre PUBLIC_ONLY, aucune capability mémoire privée, origine fixée verite-interdite.fr, posts/pages/search REST bornés et sans auth. Reste à câbler le chat MEL public sur le site et une preuve live avant DONE.', 'P3'),
     item('MEL-CONN-02', 'Catalogue de connecteurs installables', 'DONE', 'Catalogue installable livré par PR #41 puis release #43: découverte déterministe, manifestes versionnés, permissions/scopes déclarés, installation fail-closed et tests dédiés. Présent dans le main exact actuellement déployé.', 'P2')
   ]),
 
