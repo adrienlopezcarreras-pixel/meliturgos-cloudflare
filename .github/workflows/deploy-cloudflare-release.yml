@@ -415,14 +415,26 @@ jobs:
           test "$BACKUP_READY" = "1"
           node -e 'const d=require("./production-launch-backup.json"); if(d?.ok!==true||d?.backup?.ok!==true) throw new Error("PRODUCTION_RELEASE_BACKUP_FAILED"); console.log("Production release backup phase passed: "+String(d?.backup?.status||d?.status||"OK"));'
 
-          PROVIDER_ESCAPE_CODE="$(curl --silent --show-error --max-time 90 \
-            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-            --header "content-type: application/json" \
-            --data '{"phase":"provider-escape-proof"}' \
-            --output production-provider-escape-proof.json \
-            --write-out '%{http_code}' \
-            "${BASE_URL}/api/internal/release-launch-bootstrap")"
-          test "$PROVIDER_ESCAPE_CODE" = "200"
+          PROVIDER_ESCAPE_READY=0
+          for PROVIDER_ESCAPE_ATTEMPT in $(seq 1 6); do
+            PROVIDER_ESCAPE_CODE="$(curl --silent --show-error --max-time 90 \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"provider-escape-proof"}' \
+              --output production-provider-escape-proof.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "$PROVIDER_ESCAPE_CODE" = "200" ]; then
+              PROVIDER_ESCAPE_READY=1
+              break
+            fi
+            echo "Provider Escape proof attempt ${PROVIDER_ESCAPE_ATTEMPT}/6 returned HTTP ${PROVIDER_ESCAPE_CODE}."
+            if [ -s production-provider-escape-proof.json ]; then
+              node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-provider-escape-proof.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,code:d?.code||null,backup_id:d?.backup_id||null,backup_verified:d?.backup_verified===true,backup_encrypted:d?.backup_encrypted===true,ready_to_escape:d?.ready_to_escape===true,validation_issue_count:Number(d?.validation_issue_count||0)},null,2)); } catch { console.log(JSON.stringify({non_json_response:raw.slice(0,240)})); }'
+            fi
+            sleep 2
+          done
+          test "$PROVIDER_ESCAPE_READY" = "1"
           node - <<'NODE'
           const d=require('./production-provider-escape-proof.json');
           if(d?.ok!==true || d?.status!=='MEL_RES_03_PRODUCTION_MANIFEST_VERIFIED') throw new Error('MEL_RES_03_PRODUCTION_PROOF_FAILED');
