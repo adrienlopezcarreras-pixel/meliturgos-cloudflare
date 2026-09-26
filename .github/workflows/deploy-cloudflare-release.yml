@@ -326,6 +326,25 @@ jobs:
           node -e 'const d=require("./production-skill-registry-proof.json"); if(d?.ok!==true||d?.status!=="MEL_EVOL_05_PRODUCTION_D1_VERIFIED"||d?.restored_before_rollback!=="1.1.0"||d?.restored_after_rollback!=="1.0.0") throw new Error("MEL_EVOL_05_PRODUCTION_D1_PROOF_FAILED"); console.log("MEL-EVOL-05 real D1 restart/rollback proof passed.");'
 
 
+          LONG_CONTEXT_CODE="$(curl --silent --show-error --max-time 90 \
+            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"long-context-proof"}' \
+            --output production-long-context-proof.json \
+            --write-out '%{http_code}' \
+            "${BASE_URL}/api/internal/release-launch-bootstrap")"
+          test "$LONG_CONTEXT_CODE" = "200"
+          node - <<'NODE'
+          const d=require('./production-long-context-proof.json');
+          if(d?.ok!==true || d?.status!=='MEL_CONTEXT_02_REAL_LONG_CONVERSATION_VERIFIED') throw new Error('MEL_CONTEXT_02_PRODUCTION_PROOF_FAILED');
+          const p=d?.proof||{};
+          if(Number(p.total_chars||0)<=65000 || Number(p.omitted_message_count||0)<1) throw new Error('MEL_CONTEXT_02_NOT_ACTUALLY_LONG');
+          if(Number(p.decision_anchor_count||0)<1 || p.anchor_preserved!==true) throw new Error('MEL_CONTEXT_02_DECISION_NOT_PRESERVED');
+          if(p.current_turn_preserved_exactly!==true || d?.private_content_returned!==false) throw new Error('MEL_CONTEXT_02_PRIVACY_OR_CURRENT_TURN_FAILED');
+          console.log('MEL-CONTEXT-02 real production long-conversation proof passed.');
+          NODE
+
+
           # Backend roadmap certification drills are authenticated, bounded and idempotent.
           # Execute each phase twice: first materializes the production state, second proves replay/restart safety.
           for PROOF_PHASE in plugin-sdk-proof evolution-ledger-proof agent-automation-proof; do
