@@ -221,4 +221,5 @@ test('canonical Kaggle collector is dispatch-only and cannot create scheduled/pu
   assert.doesNotMatch(triggerBlock, /\n\s*schedule:/);
   assert.match(source, /WAIT_FOR_COMPLETION:\s*\$\{\{ inputs\.wait_for_completion \}\}/);
   assert.match(source, /MAX_WAIT_MINUTES:\s*\$\{\{ inputs\.max_wait_minutes \}\}/);
+  assert.match(source, /cancel_acknowledged\|cancel acknowledged/);
 });
