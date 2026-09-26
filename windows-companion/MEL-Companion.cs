@@ -14,7 +14,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.3.3";
+    public const string Version = "2.3.4";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -118,6 +118,68 @@ static class MelApp
         File.WriteAllText(ConfigPath, Json.Serialize(d), new UTF8Encoding(false));
     }
 
+    public static List<string> ConfigList(string key)
+    {
+        var result = new List<string>();
+        object value;
+        if (Config == null || !Config.TryGetValue(key, out value) || value == null) return result;
+        var arr = value as object[];
+        if (arr != null)
+        {
+            foreach (var item in arr) if (item != null) result.Add(Convert.ToString(item));
+            return result;
+        }
+        var list = value as System.Collections.ArrayList;
+        if (list != null)
+        {
+            foreach (var item in list) if (item != null) result.Add(Convert.ToString(item));
+        }
+        return result;
+    }
+
+    public static bool ContainsIgnoreCase(List<string> values, string candidate)
+    {
+        foreach (var value in values)
+            if (string.Equals(value, candidate, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    public static readonly string[] PermissionApps = new string[] { "notepad", "calculator", "explorer", "msedge", "firefox", "chrome" };
+    public static readonly string[] PermissionAppLabels = new string[] { "Bloc-notes", "Calculatrice", "Explorateur", "Microsoft Edge", "Firefox", "Google Chrome" };
+
+    public static string[] PermissionPaths()
+    {
+        return new string[] {
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads")
+        };
+    }
+
+    public static void SavePermissions(List<string> apps, List<string> paths)
+    {
+        if (Config == null && !LoadConfig()) throw new InvalidOperationException("Configuration MEL indisponible.");
+        Config["allowed_apps"] = apps.ToArray();
+        Config["allowed_paths"] = paths.ToArray();
+        File.WriteAllText(ConfigPath, Json.Serialize(Config), new UTF8Encoding(false));
+        RestartCompanion();
+    }
+
+    public static void RestartCompanion()
+    {
+        try
+        {
+            if (CompanionProcess != null && !CompanionProcess.HasExited)
+            {
+                CompanionProcess.Kill();
+                CompanionProcess.WaitForExit(1500);
+            }
+        }
+        catch { }
+        CompanionProcess = null;
+        StartCompanion();
+    }
+
     public static void InstallFiles(bool startup)
     {
         Directory.CreateDirectory(MelDir);
@@ -219,6 +281,8 @@ static class MelApp
         report["installed_exe"] = File.Exists(InstalledExe);
         report["installed_engine"] = File.Exists(CompanionPath);
         report["global_hotkey"] = HotKeyLabel;
+        report["allowed_app_count"] = ConfigList("allowed_apps").Count;
+        report["allowed_path_count"] = ConfigList("allowed_paths").Count;
 
         if ((bool)report["config_loaded"])
         {
@@ -314,8 +378,11 @@ static class MelApp
         Tray = new NotifyIcon(); Tray.Icon = MakeIcon(); Tray.Text = "MEL Companion"; Tray.Visible = true;
         var menu = new ContextMenuStrip(); menu.BackColor = Panel; menu.ForeColor = Text; menu.Font = new Font("Segoe UI", 10);
         var open = menu.Items.Add("Ouvrir MEL"); var show = menu.Items.Add("Afficher le compagnon");
+        var permissions = menu.Items.Add("Autorisations");
         menu.Items.Add("-"); var quit = menu.Items.Add("Quitter MEL Companion");
-        open.Click += delegate { OpenMel(); }; show.Click += delegate { ShowMain(); }; quit.Click += delegate { Exit(); };
+        open.Click += delegate { OpenMel(); }; show.Click += delegate { ShowMain(); };
+        permissions.Click += delegate { using (var form = new PermissionsForm()) form.ShowDialog(); };
+        quit.Click += delegate { Exit(); };
         Tray.ContextMenuStrip = menu;
         Tray.MouseClick += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) ShowMain(); };
         Tray.DoubleClick += delegate { OpenMel(); };
@@ -432,6 +499,81 @@ class SetupForm : Form
     }
 }
 
+class PermissionsForm : Form
+{
+    readonly List<CheckBox> appBoxes = new List<CheckBox>();
+    readonly List<CheckBox> pathBoxes = new List<CheckBox>();
+    readonly string[] paths = MelApp.PermissionPaths();
+
+    public PermissionsForm()
+    {
+        Text = "MEL Companion — autorisations";
+        ClientSize = new Size(650, 560);
+        StartPosition = FormStartPosition.CenterParent;
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MaximizeBox = false;
+        MinimizeBox = false;
+        BackColor = MelApp.Bg;
+        ForeColor = MelApp.Text;
+
+        Controls.Add(MelApp.Label("AUTORISATIONS LOCALES",28,22,350,34,16,MelApp.Cyan,FontStyle.Bold));
+        Controls.Add(MelApp.Label("MEL ne pourra jamais dépasser ces autorisations sur ce PC.",30,60,580,28,9.5f,MelApp.Muted,FontStyle.Regular));
+
+        var currentApps = MelApp.ConfigList("allowed_apps");
+        var currentPaths = MelApp.ConfigList("allowed_paths");
+
+        var appsPanel = new Panel(); appsPanel.SetBounds(28,105,594,185); appsPanel.BackColor = MelApp.Panel; Controls.Add(appsPanel);
+        appsPanel.Controls.Add(MelApp.Label("APPLICATIONS",18,12,180,24,9,MelApp.Cyan,FontStyle.Bold));
+        for (int i=0;i<MelApp.PermissionApps.Length;i++)
+        {
+            var box = new CheckBox();
+            box.Text = MelApp.PermissionAppLabels[i];
+            box.Tag = MelApp.PermissionApps[i];
+            box.Checked = MelApp.ContainsIgnoreCase(currentApps, MelApp.PermissionApps[i]);
+            box.ForeColor = MelApp.Text; box.BackColor = Color.Transparent; box.AutoSize = true;
+            int col = i < 3 ? 0 : 1, row = i < 3 ? i : i-3;
+            box.SetBounds(20 + col*280, 46 + row*38, 250, 28);
+            appsPanel.Controls.Add(box); appBoxes.Add(box);
+        }
+
+        var pathsPanel = new Panel(); pathsPanel.SetBounds(28,305,594,155); pathsPanel.BackColor = MelApp.Panel; Controls.Add(pathsPanel);
+        pathsPanel.Controls.Add(MelApp.Label("DOSSIERS",18,12,180,24,9,MelApp.Cyan,FontStyle.Bold));
+        for (int i=0;i<paths.Length;i++)
+        {
+            var box = new CheckBox();
+            box.Text = paths[i];
+            box.Tag = paths[i];
+            box.Checked = MelApp.ContainsIgnoreCase(currentPaths, paths[i]);
+            box.ForeColor = MelApp.Text; box.BackColor = Color.Transparent; box.AutoSize = false;
+            box.SetBounds(20, 44 + i*32, 550, 26);
+            pathsPanel.Controls.Add(box); pathBoxes.Add(box);
+        }
+
+        Controls.Add(MelApp.Label("Désactiver une autorisation la bloque immédiatement. La réactiver reste limitée aux droits accordés lors de l’appairage.",30,472,585,45,8.5f,MelApp.Muted,FontStyle.Regular));
+        var cancel = MelApp.TechButton("ANNULER",402,515,95,34,false); cancel.Click += delegate { Close(); }; Controls.Add(cancel);
+        var save = MelApp.TechButton("APPLIQUER",507,515,115,34,true); save.Click += Apply; Controls.Add(save);
+    }
+
+    void Apply(object sender, EventArgs e)
+    {
+        var apps = new List<string>();
+        foreach (var box in appBoxes) if (box.Checked) apps.Add(Convert.ToString(box.Tag));
+        var allowedPaths = new List<string>();
+        foreach (var box in pathBoxes) if (box.Checked) allowedPaths.Add(Convert.ToString(box.Tag));
+        try
+        {
+            MelApp.SavePermissions(apps, allowedPaths);
+            MessageBox.Show("Autorisations appliquées. Le moteur MEL a été rechargé.", "MEL Companion", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            DialogResult = DialogResult.OK;
+            Close();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Impossible d’appliquer les autorisations : " + ex.Message, "MEL Companion", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+}
+
 class MainForm : Form
 {
     Label state, pcLine; Panel devicePanel; CheckBox startup; System.Windows.Forms.Timer timer;
@@ -451,6 +593,7 @@ class MainForm : Form
         pc.Controls.Add(MelApp.Label("Contrôle autorisé, captures et commandes MEL en arrière-plan.",20,70,650,22,9,MelApp.Muted,FontStyle.Regular));
 
         Controls.Add(MelApp.Label("APPAREILS MEL",28,225,250,26,10,MelApp.Cyan,FontStyle.Bold));
+        var permissions=MelApp.TechButton("AUTORISATIONS",462,216,140,34,false); permissions.Click+=delegate{using(var form=new PermissionsForm()) form.ShowDialog(this);}; Controls.Add(permissions);
         var refresh=MelApp.TechButton("ACTUALISER",612,216,120,34,false); refresh.Click+=delegate{RefreshAll();}; Controls.Add(refresh);
         devicePanel=new Panel(); devicePanel.SetBounds(28,260,704,170); devicePanel.BackColor=MelApp.Panel; devicePanel.AutoScroll=true; Controls.Add(devicePanel);
 
