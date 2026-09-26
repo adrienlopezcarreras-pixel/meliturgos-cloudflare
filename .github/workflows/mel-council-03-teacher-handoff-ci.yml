@@ -1,0 +1,21 @@
+name: mel-council-03-teacher-handoff-ci
+
+on:
+  pull_request:
+    paths:
+      - 'src/teachers/**'
+      - 'tests/gen2/runtime-teacher-handoff.test.mjs'
+      - 'tests/gen2/teacher-handoff-packet.test.mjs'
+      - '.github/workflows/mel-council-03-teacher-handoff-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  teacher-handoff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run targeted Teacher handoff tests
+        run: node --test tests/gen2/teacher-handoff-packet.test.mjs tests/gen2/runtime-teacher-handoff.test.mjs
