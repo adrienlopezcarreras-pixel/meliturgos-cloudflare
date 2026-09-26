@@ -124,7 +124,8 @@ object WakePhraseTrainer {
                     System.arraycopy(hop, 0, ring, ring.size - hop.size, hop.size)
                 }
 
-                val features = runCatching { extract(ring) }.getOrNull() ?: run {
+                val features = runCatching { extract(ring) }.getOrNull()
+                if (features == null) {
                     consecutive = 0
                     continue
                 }
