@@ -1,0 +1,30 @@
+name: temp-dispatch-lora-validation
+
+on:
+  push:
+    branches:
+      - candidate/mel-clean-autonomy
+    paths:
+      - '.github/workflows/temp-dispatch-lora-validation.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch bounded LoRA cycle 1 from corrected source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run lora-kaggle-free-gpu.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f source_sha=723fde199521f3b755a68744ffb28e5fcfe1d0c3 \
+            -f cycle=1 \
+            -f parent_release_tag=mel-lora-kaggle-ab6db29b784e-c000 \
+            -f shard_size=750 \
+            -f max_cycles=2 \
+            -f benchmark_preview=false
