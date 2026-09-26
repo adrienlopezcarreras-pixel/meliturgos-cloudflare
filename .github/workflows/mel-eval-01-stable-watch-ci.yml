@@ -1,0 +1,45 @@
+name: mel-eval-01-stable-watch-ci
+
+on:
+  push:
+    branches:
+      - 'roadmap/mel-eval-01-*'
+      - 'candidate/mel-eval-01-*'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/evaluation/stable-eval-suite.js'
+      - 'src/evaluation/stable-eval-watch.js'
+      - 'tests/gen2/stable-eval-suite.test.mjs'
+      - 'tests/gen2/stable-eval-watch.test.mjs'
+      - '.github/workflows/mel-eval-01-stable-watch-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Targeted MEL-EVAL-01 tests
+        run: node --test tests/gen2/stable-eval-suite.test.mjs tests/gen2/stable-eval-watch.test.mjs
+      - name: Syntax
+        run: npm run check
+      - name: Normalize branch for candidate-only integration tests
+        run: git switch -c candidate/mel-eval-01-ci
+      - name: Full test suite
+        run: npm test
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs
