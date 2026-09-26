@@ -18,9 +18,10 @@ import { createProviderNeutralManifest } from '../portability/provider-neutral-m
 import { createProviderEscapeCapsule, providerEscapeSummary, validateProviderEscapeCapsule } from '../portability/provider-escape-capsule.js';
 import { createSystemBackupService } from '../backup/system-backup-runtime.js';
 import { boundRecentMessages, compileHistoricalDecisionCapsule, buildContext } from '../core/orchestrator/context-builder.js';
+import { proveEcosystemTeacherHandoff } from '../evaluation/capability-watch-runtime.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof']);
+const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -112,6 +113,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   prepareCodeSync = prepareAutonomyLaunchCodeSync,
   readReadiness = getAutonomyLaunchReadiness,
   setControl = setAutonomyControl,
+  proveCapabilityWatch = proveEcosystemTeacherHandoff,
 } = {}) {
   const url = new URL(request.url);
   if (url.pathname !== PATH) return null;
@@ -142,6 +144,24 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     launch_approved_at: null,
     launch_gate_digest: null,
   });
+
+  if (phase === 'capability-watch-proof') {
+    const proof = await proveCapabilityWatch(env);
+    const ok = proof?.ok === true
+      && proof?.status === 'GEN2_42_TEACHER_HANDOFF_READY'
+      && Number(proof?.active_teacher_handoff_count || 0) >= 1
+      && Boolean(proof?.job_id)
+      && Boolean(proof?.teacher_request_id);
+    return Response.json({
+      ...proof,
+      ok,
+      status: ok ? 'GEN2_42_TEACHER_HANDOFF_READY' : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
+      autonomy_started: false,
+      owner_launch_required: true,
+      production_activation_allowed: false,
+      auto_approval_allowed: false,
+    }, { status: ok ? 200 : 409, headers: { 'cache-control': 'no-store' } });
+  }
 
   if (phase === 'skill-registry-proof') {
     if (!env?.DB || typeof env.DB.prepare !== 'function') {
