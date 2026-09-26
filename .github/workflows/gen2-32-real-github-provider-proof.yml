@@ -28,8 +28,7 @@ jobs:
         run: npm ci
 
       - name: Run Connector SDK regression suite
-        run: |
-          node --test             tests/gen2/connector-sdk.test.mjs             tests/gen2/connector-oauth2-pkce.test.mjs             tests/gen2/connector-oauth-persistence.test.mjs             tests/gen2/connector-http-token-client.test.mjs
+        run: node --test tests/gen2/connector-catalog.test.mjs tests/gen2/d1-connector-catalog.test.mjs tests/gen2/oauth2-pkce-runtime.test.mjs tests/gen2/oauth2-http-catalog.test.mjs tests/gen2/d1-oauth-vault.test.mjs tests/connectors-security.test.mjs
 
       - name: Prove real GitHub provider auth through Connector SDK
         shell: bash
