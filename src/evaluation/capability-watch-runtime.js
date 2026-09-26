@@ -119,6 +119,7 @@ export async function reconcileDiscoveryJobs(env, ledger, {
   fetchImpl = fetch,
   resumeTeacherRequest = prepareAutonomyTeacherRequest,
   mirrorTeacherRequest = mirrorRuntimeTeacherRequestToGitHub,
+  resumeQueued = true,
 } = {}) {
   const jobIds = [...new Set(
     (Array.isArray(ledger?.items) ? ledger.items : [])
@@ -144,7 +145,7 @@ export async function reconcileDiscoveryJobs(env, ledger, {
     .filter(job => ['QUEUED', 'COUNCIL_COMPLETE'].includes(String(job?.status || '').toUpperCase()))
     .sort((a, b) => Number(a?.created_at || 0) - Number(b?.created_at || 0) || String(a?.id || '').localeCompare(String(b?.id || '')))[0] || null;
 
-  if (resumable) {
+  if (resumable && resumeQueued) {
     try {
       const teacher = await resumeTeacherRequest({ env, repository: repo, job: resumable, fetchImpl, minimalInspection: true });
       const latest = await repo.get(resumable.id);
@@ -381,6 +382,10 @@ export async function proveEcosystemTeacherHandoff(
     fetchImpl,
     resumeTeacherRequest,
     mirrorTeacherRequest,
+    // Production proof must observe durable handoff state only. Resuming a
+    // QUEUED/COUNCIL_COMPLETE job can invoke Council/GitHub and turn a bounded
+    // smoke check into a long external workflow.
+    resumeQueued: false,
   });
   if (reconciled.changed) {
     ledger = reconciled.ledger;
