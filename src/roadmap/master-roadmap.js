@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-26.15';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.16';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -42,7 +42,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P02', 'Conversation, contexte et continuité', [
     item('GEN2-06', 'Conversation Service', 'DONE_VERIFIED', 'Retirer les derniers chemins legacy', 'P0'),
-    item('GEN2-08', 'Archivage exhaustif des messages', 'DONE', 'Garantir archivage non conditionnel', 'P1'),
+    item('GEN2-08', 'Archivage exhaustif des messages', 'DONE_VERIFIED', 'Archivage non conditionnel certifié: ConversationService écrit chaque message dans archive_messages avant tout enrichissement mémoire via INSERT OR IGNORE; le test dédié prouve qu’un message vide reste archivé sans candidat mémoire inventé et que le rejeu est idempotent. Le chemin archive réel est exercé en production par l’historique conversationnel long certifié le 26/09/2026, et l’export mémoire production a déjà prouvé une collection archive_messages complète et vérifiable. Preuves code: PR #156; preuve production contexte: release 36237663912 / SHA 3f7011412d148ca02921a42265b8e28550accdf2; preuve export: PR #342.', 'P1'),
     item('MEL-CONTEXT-01', 'Saisie continue pendant la réflexion / file de messages', 'DONE_VERIFIED', 'Valider sur mobile réel', 'P0'),
     item('MEL-CONTEXT-02', 'Contexte long avec compression sans perte de décisions', 'DONE_VERIFIED', 'Certification production acquise le 26/09/2026 sur le SHA exact 3f7011412d148ca02921a42265b8e28550accdf2 (deploy run 36237663912): conversation réelle >65k caractères, omission effective sous budget, ancrage historique de décision préservé, tour utilisateur courant conservé exactement, aucun contenu privé renvoyé. Preuve: proofs/roadmap-context-res03-production-20260926.json.', 'P1'),
     item('MEL-CONTEXT-03', 'Open loops: reprendre automatiquement les travaux inachevés', 'DONE_VERIFIED', 'Clôturé le 25/09/2026: persistance D1 owner-scoped, scheduler openloop.resume, leases, priorités et retry borné; lien durable Conversation -> Plan/Task -> Work -> Open Loop; conversation_id persistant dans plans et Work DAG; checkpoints work.run; transfert Plan -> Work; COMPLETED ferme la boucle et BLOCKED reste passif sans retry infini. PR #360 + #368 fusionnées, 22/22 tests ciblés et full suites CI verts. SHA 78962eca11ed92710479962d7818f82b33890f20 déployé en production par run 36162716840 avec Full test suite, preuve D1/autonomie et Verify production HTTP tous verts.', 'P1'),
