@@ -185,6 +185,10 @@ test('Windows desktop v2 keeps tray UI, headless engine, and packaged EXE contra
   assert.match(desktop,/Lancer MEL Companion avec Windows/);
   assert.match(desktop,/RÉAPPAIRER/);
   assert.match(desktop,/DÉSINSTALLER/);
+  assert.match(desktop,/RegisterHotKey/);
+  assert.match(desktop,/UnregisterHotKey/);
+  assert.match(desktop,/Ctrl\+Alt\+M/);
+  assert.match(desktop,/WM_HOTKEY/);
   assert.match(companion,/MEL_COMPANION_HEADLESS/);
   assert.match(companion,/MEL_COMPANION_PARENT_PID/);
   assert.match(companion,/SetProcessDpiAwarenessContext/);
