@@ -5,7 +5,7 @@ on:
     branches:
       - proof/gen2-59-final-signed-upgrade-20260926
     paths:
-      - .github/workflows/gen2-59-signed-windows-upgrade-proof.yml
+      - .github/workflows/gen2-59-final-signed-upgrade-proof.yml
 
 permissions:
   contents: read
