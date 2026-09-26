@@ -1,7 +1,11 @@
 name: oauth-cloudflare-vault-bootstrap
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - proof/oauth-cloudflare-secrets-20260926
+    paths:
+      - .github/workflows/oauth-cloudflare-vault-bootstrap.yml
 
 permissions:
   contents: read
