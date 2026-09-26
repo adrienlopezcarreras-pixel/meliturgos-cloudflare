@@ -14,9 +14,11 @@ import { createAgentRegistry } from '../agents/agent-registry.js';
 import { createD1AgentRegistryAdapter } from '../agents/d1-agent-registry.js';
 import { createD1AgentAutomationPolicyAdapter } from '../automations/d1-agent-automation-policy.js';
 import { createAgentAutomationPolicy, PERMISSION_TIERS } from '../automations/agent-automation-policy.js';
+import { createProviderNeutralManifest } from '../portability/provider-neutral-manifest.js';
+import { createProviderEscapeCapsule, providerEscapeSummary, validateProviderEscapeCapsule } from '../portability/provider-escape-capsule.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof']);
+const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -419,6 +421,129 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       run_status: restoredRun?.status || null,
       persisted_across_adapter_recreation: ok,
       autonomy_started: false,
+      owner_launch_required: true,
+    }, { status: ok ? 200 : 500, headers: { 'cache-control': 'no-store' } });
+  }
+
+
+  if (phase === 'provider-escape-proof') {
+    if (!env?.DB || typeof env.DB.prepare !== 'function') {
+      return Response.json({ ok: false, code: 'D1_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    if (!env?.MEDIA_BUCKET || typeof env.MEDIA_BUCKET.get !== 'function') {
+      return Response.json({ ok: false, code: 'R2_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    if (!env?.AI || typeof env.AI.run !== 'function') {
+      return Response.json({ ok: false, code: 'AI_BINDING_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    const deployedSha = exactDeployedSha(env);
+    const deployedBranch = exactDeployedBranch(env);
+    if (!/^[0-9a-f]{40}$/.test(deployedSha)) {
+      return Response.json({ ok: false, code: 'DEPLOYED_SHA_INVALID' }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+
+    const latest = await env.DB.prepare(
+      "SELECT id,object_key,metadata_json,created_at FROM backup_objects WHERE object_key LIKE 'backups/system/%' ORDER BY created_at DESC LIMIT 1"
+    ).first();
+    if (!latest?.id || !latest?.object_key) {
+      return Response.json({ ok: false, code: 'PRODUCTION_BACKUP_REQUIRED' }, { status: 409, headers: { 'cache-control': 'no-store' } });
+    }
+    let backupMetadata = {};
+    try { backupMetadata = JSON.parse(latest.metadata_json || '{}'); } catch {}
+    if (backupMetadata?.verified !== true) {
+      return Response.json({ ok: false, code: 'PRODUCTION_BACKUP_NOT_VERIFIED' }, { status: 409, headers: { 'cache-control': 'no-store' } });
+    }
+
+    const digest = async (value) => {
+      const bytes = new TextEncoder().encode(JSON.stringify(value));
+      const raw = await crypto.subtle.digest('SHA-256', bytes);
+      return 'sha256:' + [...new Uint8Array(raw)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+    };
+
+    const manifest = createProviderNeutralManifest({
+      generated_at: new Date().toISOString(),
+      source: { branch: deployedBranch, commit: deployedSha },
+      contracts: [
+        { id: 'model.inference', version: '1', required: true, description: 'Production model inference contract' },
+        { id: 'memory.storage', version: '1', required: true, description: 'Production memory and backup storage contract' },
+        { id: 'runtime.http', version: '1', required: true, description: 'Production HTTP runtime contract' },
+      ],
+      artifacts: [
+        {
+          id: 'production-model-binding',
+          contract_id: 'model.inference',
+          format: 'application/json',
+          ref: 'runtime://workers-ai-binding',
+          checksum: await digest({ binding: 'AI', deployed_sha: deployedSha }),
+        },
+        {
+          id: 'production-system-backup',
+          contract_id: 'memory.storage',
+          format: 'application/json',
+          ref: String(latest.object_key),
+          checksum: String(backupMetadata.integritySha256 || await digest({ backup_id: latest.id, object_key: latest.object_key })),
+        },
+        {
+          id: 'production-runtime-release',
+          contract_id: 'runtime.http',
+          format: 'git-commit',
+          ref: `github://adrienlopezcarreras-pixel/meliturgos-cloudflare@${deployedSha}`,
+          checksum: await digest({ deployed_sha: deployedSha, branch: deployedBranch }),
+        },
+      ],
+      adapters: [
+        { id: 'ai.workers-current', contract_id: 'model.inference', provider: 'cloudflare-workers-ai', optional: true },
+        { id: 'ai.ninjachat-alt', contract_id: 'model.inference', provider: 'ninjachat', optional: true },
+        { id: 'storage.d1-r2-current', contract_id: 'memory.storage', provider: 'cloudflare-d1-r2', optional: true },
+        { id: 'storage.cold-object-alt', contract_id: 'memory.storage', provider: 'provider-neutral-object-store', optional: true },
+        { id: 'runtime.worker-current', contract_id: 'runtime.http', provider: 'cloudflare-workers', optional: true },
+        { id: 'runtime.alternate-restore-alt', contract_id: 'runtime.http', provider: 'provider-neutral-alternate-runtime', optional: true },
+      ],
+      metadata: {
+        roadmap_id: 'MEL-RES-03',
+        backup_id: String(latest.id),
+        backup_verified: true,
+        backup_encrypted: backupMetadata.encrypted === true,
+        production_manifest: true,
+      },
+    });
+
+    const capsule = createProviderEscapeCapsule({
+      manifest,
+      generated_at: new Date().toISOString(),
+      source: { branch: deployedBranch, commit: deployedSha },
+      layers: {
+        ai: { contract_ids: ['model.inference'], current_adapter_ids: ['ai.workers-current'] },
+        storage: { contract_ids: ['memory.storage'], current_adapter_ids: ['storage.d1-r2-current'] },
+        runtime: { contract_ids: ['runtime.http'], current_adapter_ids: ['runtime.worker-current'] },
+      },
+    });
+    const validation = validateProviderEscapeCapsule(capsule);
+    const summary = providerEscapeSummary(capsule);
+    const ok = validation.ok === true
+      && summary.ready_to_escape === true
+      && summary.ready_layers.length === 3
+      && summary.alternative_adapter_count >= 3
+      && capsule?.policy?.automatic_activation === false
+      && capsule?.policy?.owner_approval_required === true;
+
+    return Response.json({
+      ok,
+      status: ok ? 'MEL_RES_03_PRODUCTION_MANIFEST_VERIFIED' : 'MEL_RES_03_PRODUCTION_MANIFEST_FAILED',
+      phase,
+      deployed_sha: deployedSha,
+      deployed_branch: deployedBranch,
+      backup_id: String(latest.id),
+      backup_verified: true,
+      backup_encrypted: backupMetadata.encrypted === true,
+      manifest_schema: manifest.schema,
+      capsule_schema: capsule.schema,
+      ready_to_escape: summary.ready_to_escape,
+      ready_layers: summary.ready_layers,
+      alternative_adapter_count: summary.alternative_adapter_count,
+      validation_issue_count: validation.issues.length,
+      execution_started: false,
+      activation_allowed: false,
       owner_launch_required: true,
     }, { status: ok ? 200 : 500, headers: { 'cache-control': 'no-store' } });
   }
