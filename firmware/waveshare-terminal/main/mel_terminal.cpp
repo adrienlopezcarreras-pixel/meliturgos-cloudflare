@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include <vector>
 #include <cstdio>
 #include <cctype>
 #include <sys/stat.h>
@@ -75,6 +76,18 @@ struct HttpBuffer {
     std::string body;
 };
 
+struct MelDisplayItem {
+    std::string title;
+    std::string url;
+    std::string snippet;
+};
+
+struct MelChatReply {
+    std::string text;
+    std::vector<MelDisplayItem> display_items;
+    std::string display_title;
+};
+
 static MelConfig g_cfg = {};
 static char g_device_id[40] = {};
 static char g_ip[20] = {};
@@ -85,6 +98,9 @@ static bool g_online = false;
 static bool g_wifi_connected = false;
 static bool g_mobile_connected = false;
 static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
+static std::vector<MelDisplayItem> g_display_items;
+static size_t g_display_index = 0;
+static std::string g_display_title;
 static TaskHandle_t g_voice_task_handle = nullptr;
 static volatile bool g_voice_stop_requested = false;
 static volatile int g_voice_level = 0;
@@ -180,6 +196,34 @@ static void ui_answer(const char *value) {
         else lv_obj_add_flag(g_answer, LV_OBJ_FLAG_HIDDEN);
         lvgl_port_unlock();
     }
+}
+
+static void set_display_results(const MelChatReply &reply) {
+    g_display_items = reply.display_items;
+    g_display_title = reply.display_title;
+    g_display_index = 0;
+}
+
+static void ui_show_display_source(size_t index) {
+    if (g_display_items.empty()) return;
+    if (index >= g_display_items.size()) index = 0;
+    g_display_index = index;
+    const MelDisplayItem &item = g_display_items[index];
+    char status[48] = {};
+    snprintf(status, sizeof(status), "WEB %u/%u",
+             (unsigned)(index + 1), (unsigned)g_display_items.size());
+    std::string card;
+    if (!item.title.empty()) card += item.title;
+    if (!item.snippet.empty()) {
+        if (!card.empty()) card += "\n";
+        card += item.snippet;
+    }
+    if (card.empty()) card = item.url;
+    if (card.size() > 500) card.resize(500);
+    ui_status(status);
+    ui_answer(card.c_str());
+    ESP_LOGI(TAG, "DISPLAY source %u/%u url=%s",
+             (unsigned)(index + 1), (unsigned)g_display_items.size(), item.url.c_str());
 }
 
 static void make_device_id() {
@@ -897,7 +941,8 @@ static std::string parse_json_text(const std::string &body, const char *field) {
     return value;
 }
 
-static std::string chat_with_mel(const std::string &text) {
+static MelChatReply chat_with_mel(const std::string &text) {
+    MelChatReply reply;
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "text", text.c_str());
     cJSON_AddStringToObject(root, "conversation_id", g_device_id);
@@ -909,7 +954,7 @@ static std::string chat_with_mel(const std::string &text) {
 
     std::string response;
     int status = 0;
-    esp_err_t err = http_request(
+    const esp_err_t err = http_request(
         HTTP_METHOD_POST,
         std::string(SERVER) + "/api/device/v1/chat",
         "application/json",
@@ -918,9 +963,39 @@ static std::string chat_with_mel(const std::string &text) {
         response,
         status
     );
-    if (err != ESP_OK || status != 200) return "Connexion chat impossible.";
-    std::string answer = parse_json_text(response, "text");
-    return answer.empty() ? "MEL n'a pas renvoye de texte." : answer;
+    if (err != ESP_OK || status != 200) {
+        reply.text = "Connexion chat impossible.";
+        return reply;
+    }
+
+    cJSON *json = cJSON_Parse(response.c_str());
+    cJSON *text_node = json ? cJSON_GetObjectItemCaseSensitive(json, "text") : nullptr;
+    if (cJSON_IsString(text_node) && text_node->valuestring) reply.text = text_node->valuestring;
+    if (reply.text.empty()) reply.text = "MEL n'a pas renvoye de texte.";
+
+    cJSON *display = json ? cJSON_GetObjectItemCaseSensitive(json, "display") : nullptr;
+    if (cJSON_IsObject(display)) {
+        cJSON *title = cJSON_GetObjectItemCaseSensitive(display, "title");
+        if (cJSON_IsString(title) && title->valuestring) reply.display_title = title->valuestring;
+        cJSON *items = cJSON_GetObjectItemCaseSensitive(display, "items");
+        if (cJSON_IsArray(items)) {
+            cJSON *item = nullptr;
+            cJSON_ArrayForEach(item, items) {
+                if (reply.display_items.size() >= 5) break;
+                cJSON *url = cJSON_GetObjectItemCaseSensitive(item, "url");
+                if (!cJSON_IsString(url) || !url->valuestring || strncmp(url->valuestring, "http", 4) != 0) continue;
+                MelDisplayItem row;
+                cJSON *item_title = cJSON_GetObjectItemCaseSensitive(item, "title");
+                cJSON *snippet = cJSON_GetObjectItemCaseSensitive(item, "snippet");
+                row.url = url->valuestring;
+                if (cJSON_IsString(item_title) && item_title->valuestring) row.title = item_title->valuestring;
+                if (cJSON_IsString(snippet) && snippet->valuestring) row.snippet = snippet->valuestring;
+                reply.display_items.push_back(std::move(row));
+            }
+        }
+    }
+    if (json) cJSON_Delete(json);
+    return reply;
 }
 
 static void wav_header(uint8_t *h, uint32_t data_size, uint32_t sample_rate) {
@@ -1185,8 +1260,12 @@ static void voice_task(void *) {
     ui_status("REFLEXION...");
     ui_answer("");
     const int64_t chat_started_us = esp_timer_get_time();
-    std::string answer = chat_with_mel(text);
-    ESP_LOGI(TAG, "VOICE PERF: CHAT=%lld ms chars=%u", (long long)((esp_timer_get_time() - chat_started_us) / 1000), (unsigned)answer.size());
+    MelChatReply reply = chat_with_mel(text);
+    set_display_results(reply);
+    const std::string &answer = reply.text;
+    ESP_LOGI(TAG, "VOICE PERF: CHAT=%lld ms chars=%u display_items=%u",
+             (long long)((esp_timer_get_time() - chat_started_us) / 1000),
+             (unsigned)answer.size(), (unsigned)reply.display_items.size());
     g_runtime_state = MEL_TERMINAL_SPEAKING;
     ui_status("MEL PARLE");
     ui_answer("");
@@ -1198,7 +1277,8 @@ static void voice_task(void *) {
         ui_status("TTS ERREUR");
         vTaskDelay(pdMS_TO_TICKS(500));
     }
-    ui_status("");
+    if (!g_display_items.empty()) ui_show_display_source(0);
+    else ui_status("");
     g_runtime_state = MEL_TERMINAL_IDLE;
     g_voice_stop_requested = false;
     g_voice_task_handle = nullptr;
