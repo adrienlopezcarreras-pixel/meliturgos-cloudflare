@@ -37,8 +37,11 @@ jobs:
           $password="MelProof-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT!"
           $secure=ConvertTo-SecureString -String $password -AsPlainText -Force
           $pfx=Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.pfx'
-          $root=New-SelfSignedCertificate -Type Custom -Subject "CN=MEL GEN2-59 Proof Root" -CertStoreLocation 'Cert:\CurrentUser\Root' -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyUsage CertSign,CRLSign,DigitalSignature -KeyUsageProperty Sign -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(1) -TextExtension @("2.5.29.19={critical}{text}ca=true&pathlength=1")
+          $root=New-SelfSignedCertificate -Type Custom -Subject "CN=MEL GEN2-59 Proof Root" -CertStoreLocation 'Cert:\CurrentUser\My' -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyUsage CertSign,CRLSign,DigitalSignature -KeyUsageProperty Sign -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(1) -TextExtension @("2.5.29.19={critical}{text}ca=true&pathlength=1")
           if(-not $root){throw 'GEN2_59_ROOT_CERT_CREATE_FAILED'}
+          $rootCer=Join-Path $env:RUNNER_TEMP 'mel-gen2-59-root.cer'
+          Export-Certificate -Cert $root -FilePath $rootCer | Out-Null
+          Import-Certificate -FilePath $rootCer -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
           $leaf=New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=MEL GEN2-59 Proof Signer" -CertStoreLocation 'Cert:\CurrentUser\My' -Signer $root -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -KeyExportPolicy Exportable -NotAfter (Get-Date).AddHours(20)
           if(-not $leaf.HasPrivateKey){throw 'GEN2_59_LEAF_PRIVATE_KEY_MISSING'}
           Export-PfxCertificate -Cert $leaf -FilePath $pfx -Password $secure -ChainOption BuildChain | Out-Null
@@ -55,7 +58,6 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           git checkout --detach $env:OLD_SHA
-          git show "$($env:CURRENT_SHA):scripts/sign-windows-release.ps1" | Set-Content -LiteralPath .\scripts\sign-windows-release.ps1 -Encoding UTF8
           git show "$($env:CURRENT_SHA):scripts/sign-windows-release.ps1" | Set-Content -LiteralPath .\scripts\sign-windows-release.ps1 -Encoding UTF8
           powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows-release.ps1 -Version $env:OLD_VERSION -SourceSha $env:OLD_SHA -OutputDir artifacts\windows-proof-old -Sign
           powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-windows-release.ps1 -PackageDir artifacts\windows-proof-old -Version $env:OLD_VERSION -SourceSha $env:OLD_SHA
@@ -173,8 +175,10 @@ jobs:
           }
           if($rootThumb){
             Get-ChildItem Cert:\CurrentUser\Root -ErrorAction SilentlyContinue | Where-Object Thumbprint -eq $rootThumb | Remove-Item -Force -ErrorAction SilentlyContinue
+            Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue | Where-Object Thumbprint -eq $rootThumb | Remove-Item -Force -ErrorAction SilentlyContinue
           }
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.pfx') -Force -ErrorAction SilentlyContinue
+          Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-root.cer') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.cer') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-cert.pem') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-key.pem') -Force -ErrorAction SilentlyContinue
