@@ -15,11 +15,37 @@ import { createD1AgentRegistryAdapter } from '../agents/d1-agent-registry.js';
 import { createD1AgentAutomationPolicyAdapter } from '../automations/d1-agent-automation-policy.js';
 import { createAgentAutomationPolicy, PERMISSION_TIERS } from '../automations/agent-automation-policy.js';
 
+function resolveDeployedSha(env = {}) {
+  const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim();
+  if (/^[a-f0-9]{40}$/i.test(direct)) return direct.toLowerCase();
+  try {
+    const built = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined'
+      ? String(MEL_DEPLOYED_GIT_SHA || '').trim()
+      : '';
+    return /^[a-f0-9]{40}$/i.test(built) ? built.toLowerCase() : '';
+  } catch {
+    return '';
+  }
+}
+
+function resolveDeployedBranch(env = {}) {
+  const direct = resolveDeployedBranch(env).trim();
+  if (direct) return direct;
+  try {
+    const built = typeof MEL_DEPLOYED_GIT_BRANCH !== 'undefined'
+      ? String(MEL_DEPLOYED_GIT_BRANCH || '').trim()
+      : '';
+    return built;
+  } catch {
+    return '';
+  }
+}
+
 const PATH = '/api/internal/release-launch-bootstrap';
 const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof']);
 
 function exactDeployedSha(env = {}) {
-  const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+  const direct = resolveDeployedSha(env);
   if (/^[0-9a-f]{40}$/.test(direct)) return direct;
   try {
     const built = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined'
@@ -32,7 +58,7 @@ function exactDeployedSha(env = {}) {
 }
 
 function exactDeployedBranch(env = {}) {
-  const direct = String(env?.MEL_DEPLOYED_GIT_BRANCH || '').trim();
+  const direct = resolveDeployedBranch(env).trim();
   if (direct) return direct;
   try {
     return typeof MEL_DEPLOYED_GIT_BRANCH !== 'undefined'
@@ -154,7 +180,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       } catch (error) {
         if (error?.message !== 'SKILL_REGISTRY_VERSION_NOT_FOUND') throw error;
       }
-      const deployedSha = String(env?.MEL_DEPLOYED_GIT_SHA || 'unknown');
+      const deployedSha = resolveDeployedSha(env) || 'unknown';
       registry.register({
         skillId,
         name: 'MEL-EVOL-05 production D1 proof',
@@ -507,4 +533,4 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   });
 }
 
-export const __launchBootstrapTest = Object.freeze({ equalToken, safeReadiness, requestPhase });
+export const __launchBootstrapTest = Object.freeze({ equalToken, safeReadiness, requestPhase, resolveDeployedSha, resolveDeployedBranch });
