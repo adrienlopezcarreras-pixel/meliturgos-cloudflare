@@ -28,6 +28,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.provider.Settings
 import android.os.ParcelUuid
 import android.util.Log
@@ -105,10 +106,14 @@ class MelBleBridgeService : Service() {
     private var gattServer: BluetoothGattServer? = null
     private var txCharacteristic: BluetoothGattCharacteristic? = null
     private var advertiseCallback: AdvertiseCallback? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        wakeLock = getSystemService(PowerManager::class.java)
+            ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MEL:BleBridge")
+            ?.apply { acquire() }
         bridgeState.value = "D├ëMARRAGE"
         startForeground(
             NOTIFICATION_ID,
@@ -149,6 +154,8 @@ class MelBleBridgeService : Service() {
         runCatching { gattServer?.close() }
         gattServer = null
         bridgeState.value = "OFF"
+        if (wakeLock?.isHeld == true) wakeLock?.release()
+        wakeLock = null
         executor.shutdownNow()
         super.onDestroy()
     }
@@ -191,7 +198,7 @@ class MelBleBridgeService : Service() {
         )
         val tx = BluetoothGattCharacteristic(
             TX_UUID,
-            BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_INDICATE or BluetoothGattCharacteristic.PROPERTY_READ,
+            BluetoothGattCharacteristic.PROPERTY_NOTIFY or BluetoothGattCharacteristic.PROPERTY_READ,
             BluetoothGattCharacteristic.PERMISSION_READ
         )
         tx.addDescriptor(
@@ -295,20 +302,44 @@ class MelBleBridgeService : Service() {
                     requestId,
                     if (validCccd) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED,
                     offset,
-                    value
+                    null
                 )
             }
             if (validCccd) {
                 @Suppress("DEPRECATION")
                 descriptor.value = value.copyOf()
-                val enabled = value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE) ||
-                    value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                val enabled = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                 subscribed[device.address] = enabled
                 if (enabled) {
                     bridgeState.value = "MINI CONNECT├ëE ┬À RELAIS PR├èT"
                     Log.i(TAG, "MINI BLE response channel ready ${device.address}")
                 }
             }
+        }
+
+        override fun onDescriptorReadRequest(
+            device: BluetoothDevice,
+            requestId: Int,
+            offset: Int,
+            descriptor: BluetoothGattDescriptor
+        ) {
+            if (!hasBluetoothPermissions()) return
+            val valid = descriptor.uuid == CCCD_UUID && offset == 0
+            @Suppress("DEPRECATION")
+            val value = if (valid) (descriptor.value ?: BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE) else null
+            gattServer?.sendResponse(
+                device,
+                requestId,
+                if (valid) BluetoothGatt.GATT_SUCCESS else BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED,
+                offset,
+                value
+            )
+        }
+
+        override fun onExecuteWrite(device: BluetoothDevice, requestId: Int, execute: Boolean) {
+            if (!hasBluetoothPermissions()) return
+            // Prepared writes are intentionally unsupported by the MEL bridge.
+            gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED, 0, null)
         }
 
         override fun onCharacteristicWriteRequest(
