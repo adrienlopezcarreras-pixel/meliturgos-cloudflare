@@ -641,4 +641,20 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     created_at: 1790168400000,
   }),
 
+
+  Object.freeze({
+    id: 'oauth-authorization-only-scopes-20260926',
+    source: 'chatgpt-teacher',
+    domain: 'oauth-connectors',
+    task: 'Modéliser les scopes OAuth demandés uniquement à l’autorisation sans les exiger dans le scope retourné par le fournisseur.',
+    input: 'Certains fournisseurs utilisent des scopes comme offline_access ou openid pour modifier le comportement du flux d’autorisation, sans forcément les renvoyer comme droits d’API dans la réponse token.',
+    before: 'Mélanger tous les scopes demandés avec les scopes métier obligatoires et rejeter à tort le callback si le fournisseur ne réémet pas un scope d’autorisation.',
+    after: 'Séparer required, optional et authorization_only; envoyer les trois catégories dans la requête d’autorisation, mais n’exiger au callback que les scopes métier required et n’accepter que des scopes déclarés.',
+    rationale: 'Cette séparation préserve le fail-closed sur les permissions API tout en restant compatible avec les conventions OAuth propres aux fournisseurs.',
+    tests: ['tests/gen2/mail-provider-oauth-runtime.test.mjs', 'PR #527', 'gen2-32-connector-sdk-ci'],
+    tags: ['oauth', 'pkce', 'scopes', 'microsoft', 'yahoo', 'fail-closed'],
+    validated: true,
+    quality: 1,
+    created_at: 1790456400000,
+  }),
 ]);
