@@ -4,6 +4,7 @@ import { APP_VERSION, DB_SCHEMA_VERSION } from '../core/config.js';
 import { migrate } from '../persistence/migrations.js';
 import { stableStringify } from '../resilience/recovery-bundle.js';
 import { ENCRYPTED_BACKUP_SCHEMA, createEnvBackupEncryptionCodec } from './encrypted-backup-storage.js';
+import { backupR2ObjectBytes } from './r2-byte-backup.js';
 
 function deployedGitSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim();
@@ -204,8 +205,8 @@ export function createR2D1BackupStorage({ db, bucket, encryptionCodec = null }) 
   };
 }
 
-function systemBackupSources(env) {
-  return {
+export function systemBackupSources(env) {
+  const sources = {
     database: () => exportD1SystemState(env.DB, {
       maxRowsPerTable: Number(env.MEL_SYSTEM_BACKUP_MAX_ROWS_PER_TABLE) || DEFAULT_MAX_ROWS_PER_TABLE,
     }),
@@ -221,6 +222,16 @@ function systemBackupSources(env) {
       runtimeEnvironment: env.MEL_RUNTIME_ENV || 'production',
     }),
   };
+
+  if (String(env?.MEL_SYSTEM_BACKUP_COPY_R2_BYTES || '').trim().toLowerCase() === 'true') {
+    sources.r2_objects = input => backupR2ObjectBytes(env.MEDIA_BUCKET, {
+      snapshotId: String(input?.id || ''),
+      maxObjects: Number(env.MEL_SYSTEM_BACKUP_R2_MAX_OBJECTS) || undefined,
+      maxObjectBytes: Number(env.MEL_SYSTEM_BACKUP_R2_MAX_OBJECT_BYTES) || undefined,
+    });
+  }
+
+  return sources;
 }
 
 export function createSystemBackupService(env, { now = () => new Date().toISOString() } = {}) {
