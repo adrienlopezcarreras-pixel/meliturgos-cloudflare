@@ -6,6 +6,8 @@ on:
       - 'src/api/public-wordpress-chat.js'
       - 'src/connectors/wordpress.js'
       - 'src/router.js'
+      - 'src/security/http-auth-policy.js'
+      - 'tests/gen2/public-chat-auth-surface.test.mjs'
       - 'tests/gen2/wordpress-public-chat.test.mjs'
       - 'tests/wordpress-public-connector.test.mjs'
       - '.github/workflows/mel-conn-01-public-chat-ci.yml'
@@ -27,7 +29,7 @@ jobs:
       - run: node scripts/runtime-security-gate.mjs
       - run: node --check src/api/public-wordpress-chat.js
       - run: node --check src/router.js
-      - run: node --test tests/gen2/wordpress-public-chat.test.mjs tests/wordpress-public-connector.test.mjs
+      - run: node --test tests/gen2/wordpress-public-chat.test.mjs tests/wordpress-public-connector.test.mjs tests/gen2/public-chat-auth-surface.test.mjs
 
   public-chat-full-suite:
     runs-on: ubuntu-latest
