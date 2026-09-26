@@ -146,7 +146,7 @@ export async function reconcileDiscoveryJobs(env, ledger, {
 
   if (resumable) {
     try {
-      const teacher = await resumeTeacherRequest({ env, repository: repo, job: resumable, fetchImpl });
+      const teacher = await resumeTeacherRequest({ env, repository: repo, job: resumable, fetchImpl, minimalInspection: true });
       const latest = await repo.get(resumable.id);
       if (latest) {
         const index = jobs.findIndex(job => job.id === latest.id);
