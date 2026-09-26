@@ -1385,6 +1385,19 @@ private fun MelAvatar(
     faceState: MelFaceState = if (online) MelFaceState.IDLE else MelFaceState.ERROR,
     voiceLevel: Float = 0f
 ) {
+    val transition = rememberInfiniteTransition(label = "mel-face")
+    val breathe by transition.animateFloat(
+        initialValue = .985f,
+        targetValue = 1.018f,
+        animationSpec = infiniteRepeatable(animation = tween(2600), repeatMode = RepeatMode.Reverse),
+        label = "mel-breathe"
+    )
+    val sway by transition.animateFloat(
+        initialValue = -1.1f,
+        targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(animation = tween(4300), repeatMode = RepeatMode.Reverse),
+        label = "mel-sway"
+    )
     val accent = when (faceState) {
         MelFaceState.LISTENING -> MelSuccess
         MelFaceState.THINKING -> MelViolet
@@ -1392,9 +1405,19 @@ private fun MelAvatar(
         MelFaceState.ERROR -> MelDanger
         MelFaceState.IDLE -> MelCyan
     }
+    val scale = when (faceState) {
+        MelFaceState.LISTENING -> breathe + voiceLevel.coerceIn(0f, 1f) * .018f
+        MelFaceState.THINKING -> breathe + .008f
+        else -> breathe
+    }
     Box(
         modifier = Modifier
             .size((size + 14).dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                rotationZ = if (faceState == MelFaceState.ERROR) 0f else sway * .35f
+            }
             .clip(CircleShape)
             .background(
                 Brush.radialGradient(
@@ -2150,16 +2173,24 @@ private fun MelPortraitStage(
     faceState: MelFaceState,
     voiceLevel: Float
 ) {
-    val transition = rememberInfiniteTransition(label = "mel-photo-mouth-motion")
-    val mouthPhase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(if (faceState == MelFaceState.SPEAKING) 210 else 700),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "mel-photo-mouth"
+    val transition = rememberInfiniteTransition(label = "mel-photo-motion")
+    val breathe by transition.animateFloat(
+        initialValue = .995f,
+        targetValue = 1.012f,
+        animationSpec = infiniteRepeatable(animation = tween(3200), repeatMode = RepeatMode.Reverse),
+        label = "mel-photo-breathe"
     )
+    val sway by transition.animateFloat(
+        initialValue = -1.0f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(animation = tween(4800), repeatMode = RepeatMode.Reverse),
+        label = "mel-photo-sway"
+    )
+    val scale = when (faceState) {
+        MelFaceState.LISTENING -> breathe + voiceLevel.coerceIn(0f, 1f) * .008f
+        MelFaceState.THINKING -> breathe + .006f
+        else -> breathe
+    }
     val portraitTop = 54.dp
 
     Box(
@@ -2187,32 +2218,18 @@ private fun MelPortraitStage(
             Image(
                 painter = painterResource(R.drawable.mel_futuristic_new),
                 contentDescription = "MEL",
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = sway * 1.2f
+                        translationY = if (faceState == MelFaceState.IDLE) sway * .55f else 0f
+                        rotationZ = if (faceState == MelFaceState.THINKING) sway * .12f else 0f
+                    },
                 contentScale = ContentScale.Fit,
                 alignment = Alignment.TopCenter
             )
-
-            Canvas(Modifier.fillMaxSize()) {
-                val imageSide = size.width
-
-                if (faceState == MelFaceState.SPEAKING) {
-                    drawArc(
-                        color = Color(0xFF7A3948).copy(alpha = .28f + mouthPhase * .20f),
-                        startAngle = 16f,
-                        sweepAngle = 148f,
-                        useCenter = false,
-                        topLeft = Offset(
-                            imageSide * (.438f - mouthPhase * .004f),
-                            imageSide * (.604f + mouthPhase * .002f)
-                        ),
-                        size = Size(
-                            imageSide * (.124f + mouthPhase * .008f),
-                            imageSide * (.052f + mouthPhase * .006f)
-                        ),
-                        style = Stroke(width = (imageSide * (.0035f + mouthPhase * .0015f)).coerceAtLeast(1.2f))
-                    )
-                }
-            }
 
             Box(
                 Modifier
