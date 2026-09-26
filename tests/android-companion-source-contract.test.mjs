@@ -192,7 +192,8 @@ test('Android voice keeps French system speech fallback and adds push-to-talk pl
   assert.match(errorBlock,/ERROR_LANGUAGE_NOT_SUPPORTED/);
   assert.match(errorBlock,/ERROR_LANGUAGE_UNAVAILABLE/);
   assert.match(errorBlock,/startRecorderFallback\("Français Android indisponible · secours MEL"\)/);
-  assert.match(activity,/MelFaceState\.LISTENING -> breathe \+ voiceLevel\.coerceIn/);
+  assert.doesNotMatch(activity,/MelFaceState\.LISTENING -> breathe/);
+  assert.doesNotMatch(activity,/translationX = sway/);
   assert.match(activity,/SettingsAction\("Clavier \/ Chat"/);
   assert.match(activity,/SettingsAction\("Caméra"/);
   assert.match(activity,/SettingsAction\("Compagnon MINI"/);
@@ -293,14 +294,15 @@ test('Android 0.6.15 handles everyday assistant commands locally before the netw
   assert.match(unit,/fun unknownRequestFallsBackToMel\(\)/);
 });
 
-test('Android 0.6.15 animates the realistic MEL portrait and voice waveform',async()=>{
+test('Android keeps the MEL portrait static while retaining speaking mouth and voice waveform feedback',async()=>{
   const activity=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MainActivity.kt',root),'utf8');
   assert.match(activity,/enum class MelFaceState \{ IDLE, LISTENING, THINKING, SPEAKING, ERROR \}/);
-  assert.match(activity,/rememberInfiniteTransition\(label = "mel-photo-motion"\)/);
-  assert.match(activity,/label = "mel-photo-breathe"/);
-  assert.match(activity,/label = "mel-photo-sway"/);
-  assert.doesNotMatch(activity,/mel-photo-blink/);
-  assert.doesNotMatch(activity,/if \(blink >/);
+  assert.match(activity,/rememberInfiniteTransition\(label = "mel-photo-mouth-motion"\)/);
+  assert.doesNotMatch(activity,/label = "mel-photo-breathe"/);
+  assert.doesNotMatch(activity,/label = "mel-photo-sway"/);
+  assert.doesNotMatch(activity,/translationX = sway/);
+  assert.doesNotMatch(activity,/translationY = if \(faceState == MelFaceState\.IDLE\)/);
+  assert.doesNotMatch(activity,/rotationZ = if \(faceState == MelFaceState\.THINKING\)/);
   assert.match(activity,/label = "mel-photo-mouth"/);
   assert.match(activity,/rememberInfiniteTransition\(label = "mel-wave"\)/);
   assert.match(activity,/override fun onRmsChanged\(rmsdB: Float\)/);
@@ -395,9 +397,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 41/);
-  assert.match(build,/versionName = "0\.6\.32-wake-enroll"/);
-  assert.match(api,/APP_VERSION = "0\.6\.32-wake-enroll"/);
+  assert.match(build,/versionCode = 42/);
+  assert.match(build,/versionName = "0\.6\.33-static-clock"/);
+  assert.match(api,/APP_VERSION = "0\.6\.33-static-clock"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -418,9 +420,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 41/);
-  assert.match(build,/versionName = "0\.6\.32-wake-enroll"/);
-  assert.match(api,/APP_VERSION = "0\.6\.32-wake-enroll"/);
+  assert.match(build,/versionCode = 42/);
+  assert.match(build,/versionName = "0\.6\.33-static-clock"/);
+  assert.match(api,/APP_VERSION = "0\.6\.33-static-clock"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -452,9 +454,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 41/);
-  assert.match(build,/versionName = "0\.6\.32-wake-enroll"/);
-  assert.match(api,/APP_VERSION = "0\.6\.32-wake-enroll"/);
+  assert.match(build,/versionCode = 42/);
+  assert.match(build,/versionName = "0\.6\.33-static-clock"/);
+  assert.match(api,/APP_VERSION = "0\.6\.33-static-clock"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -471,9 +473,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 41/);
-  assert.match(build,/versionName = "0\.6\.32-wake-enroll"/);
-  assert.match(api,/APP_VERSION = "0\.6\.32-wake-enroll"/);
+  assert.match(build,/versionCode = 42/);
+  assert.match(build,/versionName = "0\.6\.33-static-clock"/);
+  assert.match(api,/APP_VERSION = "0\.6\.33-static-clock"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);

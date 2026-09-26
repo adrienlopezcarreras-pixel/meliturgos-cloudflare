@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.32-wake-enroll"
+        const val APP_VERSION = "0.6.33-static-clock"
     }
 
     init {

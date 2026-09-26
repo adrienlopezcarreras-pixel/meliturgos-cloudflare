@@ -31,6 +31,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
@@ -399,9 +400,14 @@ class MelBleBridgeService : Service() {
         // firmware-manifest R2 lookup; real heartbeat/chat/voice traffic still
         // traverses MEL over the phone's Internet connection immediately after.
         if (request.method == "GET" && request.path == "/api/device/v1/wake-profile") {
+            val nowMs = System.currentTimeMillis()
+            val zone = TimeZone.getDefault()
             val body = WakePhraseProfileStore(this)
                 .load()
                 .put("device_id", request.deviceId)
+                .put("epoch_ms", nowMs)
+                .put("utc_offset_seconds", zone.getOffset(nowMs) / 1000)
+                .put("timezone", zone.id)
                 .toString()
                 .toByteArray(Charsets.UTF_8)
             Log.i(TAG, "MEL relay local wake profile -> 200")
@@ -416,12 +422,17 @@ class MelBleBridgeService : Service() {
         }
 
         if (request.method == "GET" && request.path == "/api/device/v1/manifest") {
+            val nowMs = System.currentTimeMillis()
+            val zone = TimeZone.getDefault()
             val body = JSONObject()
                 .put("ok", true)
                 .put("device_id", request.deviceId)
                 .put("protocol_version", "1.0")
                 .put("bridge", "android")
                 .put("bridge_version", BuildConfig.VERSION_NAME)
+                .put("epoch_ms", nowMs)
+                .put("utc_offset_seconds", zone.getOffset(nowMs) / 1000)
+                .put("timezone", zone.id)
                 .put("firmware", JSONObject().put("available", false))
                 .toString()
                 .toByteArray(Charsets.UTF_8)
