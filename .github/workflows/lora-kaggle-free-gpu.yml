@@ -275,7 +275,7 @@ jobs:
           cp kaggle/mel-lora-uncensored/kernel-metadata.json artifacts/kaggle-kernel/kernel-metadata.json
 
           python - <<'PY'
-          import json, os
+          import json, os, textwrap
           from pathlib import Path
           source=Path("kaggle/mel-lora-uncensored/run.py").read_text(encoding="utf-8")
           replacements={
