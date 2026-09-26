@@ -57,11 +57,13 @@ test('normal mode is keyboard accessible, voice-discoverable and runtime is vers
 });
 
 test('service worker caches only static resources, persists revalidation and leaves private HTML to the network', () => {
-  assert.match(SERVICE_WORKER_SOURCE,/meliturgos-static-v7/);
+  assert.match(SERVICE_WORKER_SOURCE,/meliturgos-static-v8/);
   assert.match(SERVICE_WORKER_SOURCE,/staleWhileRevalidate/);
   assert.match(SERVICE_WORKER_SOURCE,/event\.waitUntil\(update/);
   assert.match(SERVICE_WORKER_SOURCE,/url\.pathname\.startsWith\('\/assets\/'\)/);
   assert.match(SERVICE_WORKER_SOURCE,/request\.mode==='navigate'.*return/);
+  assert.match(SERVICE_WORKER_SOURCE,/const PRECACHE=\['\/normal-runtime\.js','\/assets\/avatars\/mel-full\.webp/);
+  assert.doesNotMatch(SERVICE_WORKER_SOURCE,/PRECACHE=.*['"]\/(?:mvp|professor|api\/)/);
   assert.doesNotMatch(SERVICE_WORKER_SOURCE,/cache\.add\('\/'\)|FALLBACK='\/'/);
 });
 
