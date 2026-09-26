@@ -191,6 +191,7 @@ const importer = Object.freeze({
 
 export async function restoreProviderNeutralBundleToAlternateRuntime(bundle, {
   runtimeId = 'alternate-memory-runtime',
+  provider = null,
   now = () => new Date().toISOString(),
 } = {}) {
   const verification = await verifyProviderNeutralSystemBundle(bundle);
@@ -224,11 +225,16 @@ export async function restoreProviderNeutralBundleToAlternateRuntime(bundle, {
     payloads.set(contractId, payload);
   }
 
+  const providerId = provider == null || provider === '' ? null : text(provider);
+  if (providerId && !/^[a-z0-9._:-]{1,120}$/i.test(providerId)) {
+    throw restoreError('PORTABILITY_RESTORE_PROVIDER_INVALID');
+  }
+
   const runtime = Object.freeze({
     schema: ALTERNATE_RUNTIME_SCHEMA,
     runtime_id: text(runtimeId) || 'alternate-memory-runtime',
     restored_at: now(),
-    provider: null,
+    provider: providerId,
     external_side_effects: 0,
     restored_contracts: Object.freeze([...restored.keys()].sort()),
     required_contracts: Object.freeze(requiredContracts),
