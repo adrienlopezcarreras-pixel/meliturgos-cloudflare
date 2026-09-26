@@ -32,7 +32,7 @@ test('MEL-AVATAR-02 lip-sync follows speaking state and stops outside speaking',
   assert.match(AVATAR_LIPSYNC_SOURCE,/state==='speaking'.*melStartLipSync/s);
   assert.match(AVATAR_LIPSYNC_SOURCE,/else melStopLipSync/);
   assert.match(AVATAR_LIPSYNC_SOURCE,/melSetLipSyncLevel\(0,'stopped'\)/);
-  assert.match(AVATAR_MOTION_SOURCE,/AVATAR_LIPSYNC_SOURCE/);
+  assert.match(AVATAR_MOTION_SOURCE,/window\.melAvatarLipSync/);
 });
 
 test('MEL-AVATAR-02 normal UI exposes lip-sync level without altering image crop contract', async () => {
