@@ -1343,16 +1343,69 @@ static std::string safe_asset_name(const char *name) {
     return out;
 }
 
+struct MobileAssetContext {
+    FILE *fp = nullptr;
+    bool ok = true;
+    size_t bytes = 0;
+};
+
+static bool mobile_asset_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
+    auto *ctx = static_cast<MobileAssetContext *>(ctx_ptr);
+    if (!ctx || !ctx->ok || !ctx->fp || (!data && len > 0)) return false;
+    if (len == 0) return true;
+    if (fwrite(data, 1, len, ctx->fp) != len) {
+        ctx->ok = false;
+        return false;
+    }
+    ctx->bytes += len;
+    return true;
+}
+
 static bool download_asset(const std::string &key, const std::string &name) {
     if (!g_sd_ok || key.empty() || name.empty()) return false;
-    std::string url = std::string(SERVER) + "/api/device/v1/download?key=" + key;
+    mkdir("/sdcard/mel", 0775);
+    const std::string path = std::string("/sdcard/mel/") + safe_asset_name(name.c_str());
+
+    if (mel_mobile_bridge_ready()) {
+        FILE *fp = fopen(path.c_str(), "wb");
+        if (!fp) return false;
+        MobileAssetContext ctx;
+        ctx.fp = fp;
+        int status = 0;
+        const std::string request_path = "/api/device/v1/download?key=" + key;
+        ESP_LOGI(TAG, "ASSET via MEL MOBILE: %s", name.c_str());
+        const esp_err_t err = mel_mobile_bridge_request_stream(
+            HTTP_METHOD_GET,
+            request_path.c_str(),
+            nullptr,
+            g_cfg.token,
+            g_device_id,
+            nullptr,
+            0,
+            status,
+            mobile_asset_chunk,
+            &ctx
+        );
+        fclose(fp);
+        const bool ok = err == ESP_OK && status == 200 && ctx.ok && ctx.bytes > 0;
+        if (!ok) {
+            ESP_LOGW(TAG, "ASSET MOBILE failed err=%s status=%d bytes=%u",
+                     esp_err_to_name(err), status, (unsigned)ctx.bytes);
+            remove(path.c_str());
+            return false;
+        }
+        ESP_LOGI(TAG, "ASSET MOBILE saved: %s (%u bytes)", path.c_str(), (unsigned)ctx.bytes);
+        return true;
+    }
+
+    const std::string url = std::string(SERVER) + "/api/device/v1/download?key=" + key;
     esp_http_client_config_t cfg = {};
     cfg.url = url.c_str();
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms = 60000;
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) return false;
-    std::string auth = std::string("Bearer ") + g_cfg.token;
+    const std::string auth = std::string("Bearer ") + g_cfg.token;
     esp_http_client_set_header(client, "Authorization", auth.c_str());
     esp_http_client_set_header(client, "X-MEL-Device-ID", g_device_id);
     if (esp_http_client_open(client, 0) != ESP_OK) { esp_http_client_cleanup(client); return false; }
@@ -1360,14 +1413,12 @@ static bool download_asset(const std::string &key, const std::string &name) {
     if (esp_http_client_get_status_code(client) != 200) {
         esp_http_client_close(client); esp_http_client_cleanup(client); return false;
     }
-    mkdir("/sdcard/mel", 0775);
-    std::string path = std::string("/sdcard/mel/") + safe_asset_name(name.c_str());
     FILE *fp = fopen(path.c_str(), "wb");
     if (!fp) { esp_http_client_close(client); esp_http_client_cleanup(client); return false; }
     uint8_t buffer[4096];
     bool ok = true;
     while (true) {
-        int n = esp_http_client_read(client, reinterpret_cast<char *>(buffer), sizeof(buffer));
+        const int n = esp_http_client_read(client, reinterpret_cast<char *>(buffer), sizeof(buffer));
         if (n < 0) { ok = false; break; }
         if (n == 0) break;
         if (fwrite(buffer, 1, n, fp) != (size_t)n) { ok = false; break; }
