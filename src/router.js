@@ -17,6 +17,7 @@ import { handleShardVaultStatus } from "./pages/shardvault-status.js";
 import { getLegacyInteractionMigrationStatus, backfillLegacyInteractions } from "./persistence/gen1-interactions-migration.js";
 import { getChatGPTMemoryBackfillStatus, backfillChatGPTArchiveToMemory } from "./persistence/chatgpt-memory-backfill.js";
 import { handleGoogleOAuthApi } from "./api/google-oauth-api.js";
+import { runtimeCapabilityPermissions } from "./security/runtime-permissions.js";
 import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVersionResponse, apiMethodNotAllowedResponse, apiVersionMetadataResponse } from "./api/api-versioning.js";
 export { inferNativeCodeCapability as inferCodeCapability } from "./api/native-chat.js";
 
@@ -41,7 +42,7 @@ const RELEASE_SMOKE_CAPABILITY_ALLOWLIST = Object.freeze([
 function capabilityContext(env) {
   return {
     owner: env.MELITURGOS_USER || "owner",
-    permissions: env.CAPABILITY_PERMISSIONS || [],
+    permissions: runtimeCapabilityPermissions(env),
     requestId: crypto.randomUUID()
   };
 }
@@ -297,7 +298,7 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
       const { ModuleRunner } = await import("../src/modules/module-runner.js");
       const runtime = createGen2Runtime({ env });
       const runner = new ModuleRunner(env, runtime.bus);
-      const result = await runner.run(module_uuid, input, { owner: env.MELITURGOS_USER, permissions: env.CAPABILITY_PERMISSIONS || [], requestId: crypto.randomUUID() });
+      const result = await runner.run(module_uuid, input, { owner: env.MELITURGOS_USER, permissions: runtimeCapabilityPermissions(env), requestId: crypto.randomUUID() });
       return json(result);
     } catch (e) { return json({ error: e.message, code: e.code || "INTERNAL_ERROR" }, e.status || 500); }
   }
