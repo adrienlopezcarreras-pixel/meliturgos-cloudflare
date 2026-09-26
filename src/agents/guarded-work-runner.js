@@ -214,6 +214,10 @@ export class GuardedAgentWorkRunner {
             work_id: workId,
             work_status: text(state.status),
             completed: true,
+            council: council ? {
+              executed: true,
+              capability: council.capability,
+            } : null,
           },
         }, context);
         return {
