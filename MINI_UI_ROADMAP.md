@@ -60,8 +60,8 @@ Faire de la Waveshare ESP32-S3 Touch LCD 3.5 un terminal compagnon MEL complet, 
 ## Internet visuel MINI
 ### Texte / recherche
 - [DONE] La MINI peut déjà appeler MEL/chat via Android et obtenir des réponses Internet.
-- [NEXT] Commandes vocales explicites « cherche », « ouvre », « montre » -> réponse structurée visuelle.
-- [NEXT] Vue résultats : titre + extrait + source + navigation.
+- [PARTIAL] Les réponses vocales MEL peuvent désormais exposer des cartes web sourcées sur la MINI ; les commandes explicites « cherche », « ouvre », « montre » restent à finaliser.
+- [DONE] Vue résultats web : titre + extrait + compteur WEB x/y + navigation tactile (tap suivant, appui long précédent).
 
 ### Pages web
 - [NEXT] Android WebView charge la page.
@@ -70,10 +70,10 @@ Faire de la Waveshare ESP32-S3 Touch LCD 3.5 un terminal compagnon MEL complet, 
 - [NEXT] MINI affiche texte paginé ou capture avec défilement.
 
 ### Images
-- [NEXT] Android télécharge/décode/redimensionne.
-- [NEXT] Conversion en RGB565 320x480 ou zone utile MINI.
-- [NEXT] Transport sur L2CAP CoC.
-- [NEXT] Affichage direct LVGL sans codec lourd côté ESP32-S3.
+- [PARTIAL] Android sait déjà streamer les assets Internet vers la MINI ; la conversion automatique d’images web arbitraires en MIMG reste à brancher.
+- [DONE] Format visuel MINI MIMG/RGB565 pris en charge jusqu’à 320x320 avec buffer PSRAM.
+- [PARTIAL] Transport bulk fonctionnel en GATT fragmenté/streamé via Android ; migration L2CAP CoC conservée pour les gros débits.
+- [DONE] Affichage direct LVGL RGB565 depuis asset MIMG streamé, tap pour revenir à MEL.
 
 ### Vidéo
 - [NEXT] MINI affiche vignette, titre, durée et commandes.
