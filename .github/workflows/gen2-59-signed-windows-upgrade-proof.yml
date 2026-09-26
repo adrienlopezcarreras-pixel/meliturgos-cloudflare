@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 20
     env:
       OLD_SHA: 50b60689631da67e7633f7937dcde61a48ead8d7
-      CURRENT_SHA: c209aaa3b0b84be84bff8034633b4ab83e9ad1fd
+      CURRENT_SHA: 66a8b4e658162722b1f44a209b3247007251a88c
       OLD_VERSION: 2.3.0
       CURRENT_VERSION: 2.3.4
 
@@ -52,6 +52,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           git checkout --detach $env:OLD_SHA
+          git show "$($env:CURRENT_SHA):scripts/sign-windows-release.ps1" | Set-Content -LiteralPath .\scripts\sign-windows-release.ps1 -Encoding UTF8
           powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows-release.ps1 -Version $env:OLD_VERSION -SourceSha $env:OLD_SHA -OutputDir artifacts\windows-proof-old -Sign
           powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-windows-release.ps1 -PackageDir artifacts\windows-proof-old -Version $env:OLD_VERSION -SourceSha $env:OLD_SHA
           Copy-Item .\artifacts\windows-proof-old\MEL-Windows-2.3.0.zip (Join-Path $env:RUNNER_TEMP 'old.zip') -Force
@@ -169,4 +170,4 @@ jobs:
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-proof.cer') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-cert.pem') -Force -ErrorAction SilentlyContinue
           Remove-Item (Join-Path $env:RUNNER_TEMP 'mel-gen2-59-key.pem') -Force -ErrorAction SilentlyContinue
-# proof-retry: 4
+# proof-retry: 5
