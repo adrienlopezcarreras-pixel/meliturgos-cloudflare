@@ -39,3 +39,14 @@ jobs:
           kaggle kernels status "$REF" || true
           echo "=== LOGS ==="
           kaggle kernels logs "$REF" || true
+          echo "=== OUTPUT SNAPSHOT ==="
+          rm -rf /tmp/kaggle-live-output
+          mkdir -p /tmp/kaggle-live-output
+          kaggle kernels output "$REF" -p /tmp/kaggle-live-output --force || true
+          find /tmp/kaggle-live-output -maxdepth 3 -type f -printf '%P %s bytes\n' || true
+          for f in /tmp/kaggle-live-output/*; do
+            if [[ -f "$f" ]]; then
+              echo "--- $(basename "$f") ---"
+              tail -n 40 "$f" 2>/dev/null || true
+            fi
+          done
