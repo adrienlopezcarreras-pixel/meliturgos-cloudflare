@@ -30,7 +30,7 @@ class WakePhraseProfileStore(context: Context) {
         return FloatArray(array.length()) { i -> array.optDouble(i, 0.0).toFloat() }
     }
 
-    fun threshold(): Float = load().optDouble("threshold", 0.78).toFloat().coerceIn(0.68f, 0.94f)
+    fun threshold(): Float = load().optDouble("threshold", 0.78).toFloat().coerceIn(0.66f, 0.86f)
 
     @Synchronized
     fun addSample(vector: FloatArray): EnrollmentState {

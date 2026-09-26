@@ -159,6 +159,7 @@ class MainActivity : ComponentActivity() {
     private val wakeEnrollmentCount = mutableStateOf(0)
     private val wakeEnrollmentActive = mutableStateOf(false)
     private val wakeEnrolled = mutableStateOf(false)
+    private val voiceConversationActive = mutableStateOf(false)
 
     private val bluetoothPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -235,7 +236,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
-            LaunchedEffect(state.session, state.busy, state.error, recording.value) {
+            LaunchedEffect(state.session, state.busy, state.speaking, state.error, recording.value, voiceConversationActive.value) {
                 if (!state.busy && !recording.value &&
                     (voiceMessage.value.startsWith("Fichier") ||
                         voiceMessage.value.startsWith("Voix") ||
@@ -243,9 +244,24 @@ class MainActivity : ComponentActivity() {
                 ) {
                     voiceMessage.value = "Micro prêt"
                 }
-                if (state.session == SessionStage.CONNECTED && !state.busy && !recording.value) {
-                    delay(650)
+                if (state.error != null && voiceConversationActive.value) {
+                    voiceConversationActive.value = false
+                    voiceMessage.value = "Conversation interrompue · dis « OK MEL »"
+                    delay(700)
                     ensureWakeWordListening()
+                    return@LaunchedEffect
+                }
+                if (state.session == SessionStage.CONNECTED && !state.busy && !state.speaking && !recording.value) {
+                    delay(if (voiceConversationActive.value) 850 else 650)
+                    if (state.session == SessionStage.CONNECTED && !model.state.value.busy && !model.state.value.speaking && !recording.value) {
+                        if (voiceConversationActive.value) {
+                            stopWakeWordListening()
+                            voiceMessage.value = "Je t’écoute · conversation"
+                            startVoice()
+                        } else {
+                            ensureWakeWordListening()
+                        }
+                    }
                 } else {
                     stopWakeWordListening()
                 }
@@ -296,6 +312,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         appResumed = false
+        voiceConversationActive.value = false
         stopWakeWordListening()
         super.onPause()
     }
@@ -559,11 +576,13 @@ class MainActivity : ComponentActivity() {
         if (SpeechRecognizer.isRecognitionAvailable(this)) {
             startNativeSpeech()
         } else {
+            voiceConversationActive.value = false
             startRecorderFallback("Reconnaissance Android indisponible · secours serveur")
         }
     }
 
     private fun ensureWakeWordListening() {
+        if (voiceConversationActive.value) return
         if (!appResumed || wakeListening || recording.value || pushToTalkHeld || wakeEnrollmentActive.value) return
         if (!wakeEnrolled.value || !wakePhraseStore.isEnrolled()) return
         if (!::model.isInitialized || model.state.value.session != SessionStage.CONNECTED) return
@@ -592,12 +611,8 @@ class MainActivity : ComponentActivity() {
                 if (matchedScore != null && !wakeDetectorStop && appResumed &&
                     !recording.value && model.state.value.session == SessionStage.CONNECTED && !model.state.value.busy
                 ) {
-                    voiceMessage.value = "OK MEL reconnu · oui ?"
-                    mainHandler.postDelayed({
-                        if (appResumed && !recording.value && model.state.value.session == SessionStage.CONNECTED) {
-                            startVoice()
-                        }
-                    }, 300L)
+                    voiceMessage.value = "OK MEL reconnu · conversation active"
+                    voiceConversationActive.value = true
                 } else if (result.isFailure && !wakeDetectorStop) {
                     voiceMessage.value = "Écoute OK MEL indisponible · ${result.exceptionOrNull()?.message ?: "micro"}"
                 }
@@ -664,9 +679,25 @@ class MainActivity : ComponentActivity() {
                 if (error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
                     error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
                 ) {
+                    voiceConversationActive.value = false
                     startRecorderFallback("Français Android indisponible · secours MEL")
+                } else if (voiceConversationActive.value && error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                    voiceMessage.value = "Micro occupé · je réessaie…"
+                    mainHandler.postDelayed({
+                        if (voiceConversationActive.value && appResumed && !recording.value && !model.state.value.busy) {
+                            startVoice()
+                        }
+                    }, 650L)
+                } else if (voiceConversationActive.value &&
+                    (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
+                ) {
+                    voiceConversationActive.value = false
+                    voiceMessage.value = "Conversation en pause · dis « OK MEL »"
+                    scheduleWakeWordRestart()
                 } else {
+                    voiceConversationActive.value = false
                     voiceMessage.value = speechErrorMessage(error)
+                    scheduleWakeWordRestart()
                 }
             }
 
@@ -678,6 +709,7 @@ class MainActivity : ComponentActivity() {
                     .orEmpty()
                 stopSpeechQuietly()
                 if (text.isBlank()) {
+                    voiceConversationActive.value = false
                     startRecorderFallback("Aucune dictée reconnue · secours serveur")
                     return
                 }
@@ -786,12 +818,35 @@ class MainActivity : ComponentActivity() {
     private fun dispatchCompanionText(text: String, voice: Boolean) {
         val clean = text.trim()
         if (clean.isBlank()) return
+        if (voice && voiceConversationActive.value && isConversationStopPhrase(clean)) {
+            voiceConversationActive.value = false
+            voiceMessage.value = "Conversation terminée · dis « OK MEL » pour me rappeler"
+            model.localCompanionReply(
+                clean,
+                "D’accord. Je reste à l’écoute de « OK MEL ».",
+                true
+            )
+            return
+        }
         val command = MelCompanionCommands.parse(clean)
         if (command == null) {
             model.send(clean, voice = voice)
             return
         }
         executeCompanionCommand(clean, command, voice)
+    }
+
+    private fun isConversationStopPhrase(text: String): Boolean {
+        val normalized = Normalizer.normalize(text.lowercase(Locale.FRENCH), Normalizer.Form.NFD)
+            .replace("\\p{M}+".toRegex(), "")
+            .replace(Regex("[^a-z0-9]+"), " ")
+            .trim()
+        return normalized == "stop mel" ||
+            normalized == "arrete mel" ||
+            normalized == "arrete la conversation" ||
+            normalized == "fin de conversation" ||
+            normalized == "c est bon mel" ||
+            normalized == "au revoir mel"
     }
 
     private fun executeCompanionCommand(

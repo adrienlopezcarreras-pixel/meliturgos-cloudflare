@@ -131,6 +131,11 @@ object WakePhraseTrainer {
                 }
                 val score = cosine(features, template)
                 onScore(score)
+                val strongMatch = score >= (threshold + 0.05f).coerceAtMost(0.93f)
+                if (strongMatch) {
+                    onMatch(score)
+                    break
+                }
                 if (score >= threshold) {
                     consecutive++
                     if (consecutive >= 2) {
@@ -159,7 +164,7 @@ object WakePhraseTrainer {
         normalize(mean)
         val similarities = samples.map { cosine(it, mean) }
         val minSimilarity = similarities.minOrNull() ?: 0.75f
-        val threshold = (minSimilarity - 0.08f).coerceIn(0.68f, 0.90f)
+        val threshold = (minSimilarity - 0.10f).coerceIn(0.66f, 0.86f)
         return mean to threshold
     }
 
