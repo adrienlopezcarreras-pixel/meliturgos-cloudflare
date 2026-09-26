@@ -136,7 +136,7 @@ export const MASTER_ROADMAP = Object.freeze([
   ]),
 
   phase('P10', 'Téléphone, PC et appareils', [
-    item('GEN2-07', 'Sync PC / téléphone', 'DONE', 'Valider avec clients réels', 'P1'),
+    item('GEN2-07', 'Sync PC / téléphone', 'DONE_VERIFIED', 'Validation production réelle acquise le 26/09/2026 par run 36264746244: 14 checkpoints, 17 appareils Android, 2 ordinateurs, 14/14 checkpoints reliés à une conversation et à leur dernier message, 8 checkpoints Android et 1 conversation effectivement multi-appareils (Android + autre appareil). Tests sync endpoint et Android companion verts; preuve agrégée en lecture seule, sans exposition du contenu.', 'P1'),
     item('GEN2-29', 'Device Bus', 'DONE_VERIFIED', 'Brancher vrais compagnons', 'P0'),
     item('GEN2-26', 'PWA', 'DONE_VERIFIED', 'Validation navigateur réelle acquise le 26/09/2026 avec Google Chrome sur PC Windows via DevTools: manifest chargé sans erreur, installabilityErrors=[], service worker /sw.js activé et contrôlant /mvp, /normal-runtime.js servi depuis le cache avec réseau simulé offline (HTTP 200, 18 784 octets), tandis qu une route /api/ reste non servie offline. Test réalisé sur un harnais localhost éphémère important exactement PWA_MANIFEST_JSON, SERVICE_WORKER_SOURCE et NORMAL_RUNTIME_SOURCE du main canonique, sans modification runtime.', 'P2'),
     item('GEN2-27', 'Android Companion runtime / app', 'DONE', 'Runtime Android natif 0.6.5 déjà promu via #212 avec pairing sécurisé, chat/sync, micro Whisper, fichiers HTTPS bornés, WorkManager et probes; CI build/emulator/full-candidate vertes. Validation appareil réel 0.6.5 requise avant DONE_VERIFIED.', 'P0'),
