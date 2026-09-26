@@ -24,6 +24,7 @@ import { requireStateOfPlayCouncil } from '../../teachers/model-council.js';
 import { audit as persistAuditLog } from '../../audit/audit-service.js';
 import { SkillRegistry, MemorySkillRegistryStore } from '../../evolution/skill-registry.js';
 import { D1SkillRegistryStore } from '../../evolution/d1-skill-registry-store.js';
+import { createGoogleAccessTokenResolver } from '../../connectors/google-oauth-runtime.js';
 
 function boundedCapabilityAuditEvent(event = {}) {
   const duration = Number(event.duration_ms);
@@ -53,7 +54,17 @@ function runtimeAuditSink(env = {}, override) {
  * replace handlers, but all execution still crosses the same CapabilityBus.
  */
 export function createGen2Runtime({ audit, env = {} } = {}) {
-  const bus = createDefaultCapabilityBus({ audit: runtimeAuditSink(env, audit), env });
+  let googleAccessTokenResolver = null;
+  try {
+    googleAccessTokenResolver = createGoogleAccessTokenResolver(env);
+  } catch (error) {
+    googleAccessTokenResolver = async () => { throw error; };
+  }
+  const bus = createDefaultCapabilityBus({
+    audit: runtimeAuditSink(env, audit),
+    env,
+    googleAccessTokenResolver,
+  });
   const skillRegistryStore = env?.DB && typeof env.DB.prepare === 'function'
     ? new D1SkillRegistryStore(env.DB, { registryKey: String(env.MEL_SKILL_REGISTRY_KEY || 'system') })
     : new MemorySkillRegistryStore();
