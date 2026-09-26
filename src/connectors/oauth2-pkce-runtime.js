@@ -272,6 +272,8 @@ export class OAuth2PkceRuntime {
     requireValue(provider.connector_id === connectorId, 'OAUTH_PROVIDER_CONNECTOR_ID_MISMATCH', 500);
     const manifest = manifestConfig(await this.resolveManifest(connectorId, context), connectorId);
     const scopes = requestedScopes(manifest, input.optional_scopes || []);
+    const authorizationOnly = new Set(manifest.authorization_only_scopes);
+    const resourceScopes = scopes.filter(scope => !authorizationOnly.has(scope));
 
     const state = randomBase64Url(32);
     const verifier = randomBase64Url(64);
@@ -292,7 +294,7 @@ export class OAuth2PkceRuntime {
         required_scopes: [...manifest.required_scopes],
         optional_scopes: [...manifest.optional_scopes],
         authorization_only_scopes: [...manifest.authorization_only_scopes],
-        requested_scopes: scopes,
+        requested_scopes: resourceScopes,
         redirect_uri: provider.redirect_uri,
         created_at: createdAt,
         expires_at: expiresAt,
