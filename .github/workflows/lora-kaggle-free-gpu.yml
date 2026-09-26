@@ -375,6 +375,7 @@ jobs:
         run: |
           set -euo pipefail
           COMPLETE=0
+          CANCEL_RETRY_USED=0
           for attempt in $(seq 1 210); do
             STATUS="$(kaggle kernels status "$KERNEL_REF" 2>&1 || true)"
             echo "[$attempt] $STATUS"
@@ -383,7 +384,24 @@ jobs:
               COMPLETE=1
               break
             fi
-            if printf '%s' "$LOWER" | grep -Eq 'error|failed|failure|cancelled|canceled|cancel_acknowledged|cancel acknowledged'; then
+            if printf '%s' "$LOWER" | grep -Eq 'cancelled|canceled|cancel_acknowledged|cancel acknowledged'; then
+              mkdir -p artifacts/kaggle-error
+              kaggle kernels output "$KERNEL_REF" -p artifacts/kaggle-error --force || true
+              find artifacts/kaggle-error -type f -maxdepth 4 -print || true
+              if [[ "$CANCEL_RETRY_USED" == "0" ]]; then
+                echo "::warning title=Kaggle GPU run cancelled::Retrying the same immutable cycle once"
+                CANCEL_RETRY_USED=1
+                kaggle kernels push \
+                  -p artifacts/kaggle-kernel \
+                  --accelerator NvidiaTeslaT4 \
+                  -t 10800
+                sleep 30
+                continue
+              fi
+              echo "::error title=Kaggle GPU run cancelled twice::$STATUS"
+              exit 1
+            fi
+            if printf '%s' "$LOWER" | grep -Eq 'error|failed|failure'; then
               mkdir -p artifacts/kaggle-error
               kaggle kernels output "$KERNEL_REF" -p artifacts/kaggle-error --force || true
               find artifacts/kaggle-error -type f -maxdepth 4 -print || true
