@@ -58,9 +58,9 @@ function safeRoadmapItem(item) {
   };
 }
 
-export async function getAutonomyState(env, { repository = null, autonomyControlState = null } = {}) {
+export async function getAutonomyState(env, { repository = null, autonomyControlState = null, roadmap = null } = {}) {
   const repo = repository || new D1DevJobRepository(env.DB);
-  const supervisor = new AutonomySupervisor({ repository: repo });
+  const supervisor = new AutonomySupervisor({ repository: repo, ...(roadmap ? { roadmap } : {}) });
   const [state, readiness, control] = await Promise.all([
     supervisor.state(),
     getAutonomyReadiness({ repository: repo }),
@@ -103,7 +103,7 @@ export async function getAutonomyState(env, { repository = null, autonomyControl
   };
 }
 
-export async function maybeHandleAutonomyApi(request, env, { repository = null, fetchImpl = fetch, autonomyControlState = null } = {}) {
+export async function maybeHandleAutonomyApi(request, env, { repository = null, fetchImpl = fetch, autonomyControlState = null, roadmap = null } = {}) {
   const url = new URL(request.url);
   const isPublicControl = url.pathname === '/api/gen2/autonomy/control';
   const isState = url.pathname === '/api/gen2/autonomy/state' || url.pathname === '/api/gen2/autonomy/status';
@@ -133,7 +133,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
 
   if (isState) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
-    return Response.json(await getAutonomyState(env, { repository, autonomyControlState }), { headers: { 'cache-control': 'no-store' } });
+    return Response.json(await getAutonomyState(env, { repository, autonomyControlState, roadmap }), { headers: { 'cache-control': 'no-store' } });
   }
 
   if (isLaunchReadiness) {
@@ -161,7 +161,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       reason: body?.reason || 'owner-emergency-stop',
       memoryState: autonomyControlState,
     });
-    const state = await getAutonomyState(env, { repository: repo, autonomyControlState });
+    const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
     return Response.json({ ok: true, control, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
@@ -183,7 +183,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       launch_gate_digest: prepared.readiness.gate_digest,
       memoryState: autonomyControlState,
     });
-    const state = await getAutonomyState(env, { repository: repo, autonomyControlState });
+    const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
     return Response.json({ ok: true, launch: prepared, control, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
@@ -213,13 +213,13 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     });
     let tick = null;
     if (enabled) {
-      tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState });
+      tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap });
     }
-    const state = await getAutonomyState(env, { repository: repo, autonomyControlState });
+    const state = await getAutonomyState(env, { repository: repo, autonomyControlState, roadmap });
     return Response.json({ ok: true, launch: prepared, control, tick, state }, { headers: { 'cache-control': 'no-store' } });
   }
 
-  const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState });
+  const tick = await runAutonomyRuntimeTick(env, { repository: repo, fetchImpl, autonomyControlState, roadmap });
   const state = await getAutonomyState(env, { repository: repo });
   return Response.json({ ok: true, tick, state }, { headers: { 'cache-control': 'no-store' } });
 }
