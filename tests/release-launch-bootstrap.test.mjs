@@ -229,46 +229,58 @@ test('release bootstrap backend proof drills are durable and replay-safe', async
 });
 
 
-test('release bootstrap builds a Provider Escape Capsule from production-shaped manifest evidence', async () => {
+test('release bootstrap builds a Provider Escape Capsule from a freshly verified backup', async () => {
   const DB=sqliteD1();
+  const objects=new Map();
+  const MEDIA_BUCKET={
+    async put(key,value){ objects.set(String(key),String(value)); },
+    async get(key){
+      if(!objects.has(String(key))) return null;
+      const value=objects.get(String(key));
+      return {
+        async text(){ return value; },
+        async arrayBuffer(){ return new TextEncoder().encode(value).buffer; },
+      };
+    },
+    async delete(key){ objects.delete(String(key)); },
+    async list({prefix=''}={}){
+      const rows=[...objects.entries()]
+        .filter(([key])=>String(key).startsWith(String(prefix||'')))
+        .map(([key,value])=>({key,size:new TextEncoder().encode(value).byteLength,etag:'test',uploaded:new Date(0)}));
+      return {objects:rows,truncated:false};
+    },
+  };
   try {
-    await DB.prepare(`CREATE TABLE backup_objects (
-      id TEXT PRIMARY KEY,
-      object_key TEXT NOT NULL,
-      metadata_json TEXT NOT NULL,
-      created_at INTEGER NOT NULL
-    )`).run();
-    await DB.prepare('INSERT INTO backup_objects(id,object_key,metadata_json,created_at) VALUES(?,?,?,?)')
-      .bind(
-        'system-proof',
-        'backups/system/system-proof.json',
-        JSON.stringify({verified:true,encrypted:true,integritySha256:'sha256:'+'a'.repeat(64)}),
-        Date.now(),
-      ).run();
-
     const env={
       MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
       DB,
-      MEDIA_BUCKET:{get:async()=>null},
+      MEDIA_BUCKET,
       AI:{run:async()=>({response:'ok'})},
       MEL_DEPLOYED_GIT_SHA:'1'.repeat(40),
       MEL_DEPLOYED_GIT_BRANCH:'release/test',
     };
-    const response=await maybeHandleReleaseLaunchBootstrap(
-      new Request('https://mel.test/api/internal/release-launch-bootstrap',{
-        method:'POST',
-        headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
-        body:JSON.stringify({phase:'provider-escape-proof'}),
-      }),
-      env,
-    );
+    const request=phase=>new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase}),
+    });
+
+    const backupResponse=await maybeHandleReleaseLaunchBootstrap(request('backup'),env);
+    assert.equal(backupResponse.status,200);
+    const backupBody=await backupResponse.json();
+    assert.equal(backupBody.ok,true);
+    assert.equal(backupBody.backup.ok,true);
+    assert.ok(backupBody.backup.id);
+
+    const response=await maybeHandleReleaseLaunchBootstrap(request('provider-escape-proof'),env);
     assert.equal(response.status,200);
     const body=await response.json();
     assert.equal(body.ok,true);
     assert.equal(body.status,'MEL_RES_03_PRODUCTION_MANIFEST_VERIFIED');
-    assert.equal(body.backup_id,'system-proof');
+    assert.equal(body.backup_id,backupBody.backup.id);
     assert.equal(body.backup_verified,true);
-    assert.equal(body.backup_encrypted,true);
+    assert.match(body.backup_integrity_sha256,/^[0-9a-f]{64}$/);
+    assert.equal(body.backup_encrypted,false);
     assert.equal(body.ready_to_escape,true);
     assert.deepEqual(body.ready_layers,['ai','storage','runtime']);
     assert.ok(body.alternative_adapter_count>=3);

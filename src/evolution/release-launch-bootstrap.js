@@ -16,6 +16,7 @@ import { createD1AgentAutomationPolicyAdapter } from '../automations/d1-agent-au
 import { createAgentAutomationPolicy, PERMISSION_TIERS } from '../automations/agent-automation-policy.js';
 import { createProviderNeutralManifest } from '../portability/provider-neutral-manifest.js';
 import { createProviderEscapeCapsule, providerEscapeSummary, validateProviderEscapeCapsule } from '../portability/provider-escape-capsule.js';
+import { createSystemBackupService } from '../backup/system-backup-runtime.js';
 import { boundRecentMessages, compileHistoricalDecisionCapsule, buildContext } from '../core/orchestrator/context-builder.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
@@ -546,8 +547,22 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     }
     let backupMetadata = {};
     try { backupMetadata = JSON.parse(latest.metadata_json || '{}'); } catch {}
-    if (backupMetadata?.verified !== true) {
-      return Response.json({ ok: false, code: 'PRODUCTION_BACKUP_NOT_VERIFIED' }, { status: 409, headers: { 'cache-control': 'no-store' } });
+
+    let backupVerification = null;
+    try {
+      const backupService = createSystemBackupService(env);
+      backupVerification = await backupService.verify({ id: String(latest.id) });
+    } catch (error) {
+      return Response.json({
+        ok: false,
+        code: String(error?.code || error?.message || 'PRODUCTION_BACKUP_VERIFY_FAILED'),
+      }, { status: Number(error?.status || 503), headers: { 'cache-control': 'no-store' } });
+    }
+    if (backupVerification?.ok !== true) {
+      return Response.json({
+        ok: false,
+        code: String(backupVerification?.code || 'PRODUCTION_BACKUP_NOT_VERIFIED'),
+      }, { status: 409, headers: { 'cache-control': 'no-store' } });
     }
 
     const digest = async (value) => {
@@ -598,7 +613,8 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       metadata: {
         roadmap_id: 'MEL-RES-03',
         backup_id: String(latest.id),
-        backup_verified: true,
+        backup_verified: backupVerification?.ok === true,
+        backup_integrity_sha256: String(backupVerification?.integritySha256 || backupMetadata.integritySha256 || ''),
         backup_encrypted: backupMetadata.encrypted === true,
         production_manifest: true,
       },
@@ -630,7 +646,8 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       deployed_sha: deployedSha,
       deployed_branch: deployedBranch,
       backup_id: String(latest.id),
-      backup_verified: true,
+      backup_verified: backupVerification?.ok === true,
+      backup_integrity_sha256: String(backupVerification?.integritySha256 || backupMetadata.integritySha256 || ''),
       backup_encrypted: backupMetadata.encrypted === true,
       manifest_schema: manifest.schema,
       capsule_schema: capsule.schema,
