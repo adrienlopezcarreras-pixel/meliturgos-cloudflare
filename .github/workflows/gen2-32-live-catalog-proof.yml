@@ -1,0 +1,110 @@
+name: gen2-32-live-catalog-proof
+
+on:
+  push:
+    branches:
+      - proof/gen2-32-live-catalog-20260926
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact proof SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Verify GEN2-32 contracts
+        run: node --test tests/gen2/connector-catalog.test.mjs tests/gen2/d1-connector-catalog.test.mjs tests/gen2/oauth2-pkce-runtime.test.mjs tests/gen2/oauth2-http-catalog.test.mjs tests/connectors-security.test.mjs
+
+      - name: Read sanitized production connector catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json --command "
+            SELECT owner, revision, snapshot_json, updated_at
+            FROM mel_connector_catalogs
+            ORDER BY updated_at DESC
+            LIMIT 20;
+          " > catalog.raw.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Build sanitized proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          raw=json.loads(Path('catalog.raw.json').read_text())
+          rows=[]
+          for part in raw if isinstance(raw,list) else [raw]:
+              if isinstance(part,dict) and isinstance(part.get('results'),list):
+                  rows.extend(part['results'])
+          catalogs=[]
+          enabled_healthy=[]
+          for r in rows:
+              try:
+                  snap=json.loads(r.get('snapshot_json') or '{}')
+              except Exception:
+                  snap={}
+              installs=[]
+              for x in snap.get('installations') or []:
+                  if not isinstance(x,dict): continue
+                  row={
+                    'connector_id':str(x.get('connector_id') or '')[:120],
+                    'state':str(x.get('state') or '')[:40],
+                    'health':str((x.get('health') or {}).get('status') or '')[:40],
+                    'granted_scope_count':len(x.get('granted_scopes') or []),
+                    'version':str(x.get('version') or '')[:60],
+                  }
+                  installs.append(row)
+                  if row['state']=='enabled' and row['health']=='healthy':
+                      enabled_healthy.append(row)
+              catalogs.append({
+                'owner_present':bool(r.get('owner')),
+                'revision':int(r.get('revision') or 0),
+                'manifest_count':len(snap.get('manifests') or []),
+                'installation_count':len(installs),
+                'installations':installs,
+                'updated_at':r.get('updated_at'),
+              })
+          proof={
+            'schema':'mel.gen2-32-live-catalog-proof.v1',
+            'catalog_count':len(catalogs),
+            'catalogs':catalogs,
+            'enabled_healthy_count':len(enabled_healthy),
+            'enabled_healthy':enabled_healthy[:20],
+          }
+          proof['complete']=(
+            proof['catalog_count']>0
+            and any(c['revision']>0 and c['manifest_count']>0 for c in catalogs)
+            and proof['enabled_healthy_count']>0
+          )
+          Path('gen2-32-live-catalog-proof.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+          print(json.dumps(proof,indent=2))
+          if not proof['complete']:
+              raise SystemExit(2)
+          PY
+
+      - name: Upload sanitized proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-32-live-catalog-proof
+          path: gen2-32-live-catalog-proof.json
+          if-no-files-found: warn
+          retention-days: 14
