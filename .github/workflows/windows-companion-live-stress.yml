@@ -190,7 +190,7 @@ jobs:
               cid=f"{prefix}-{i+1:02d}"
               clip=f"MEL-CLIP-OK-{i+1:02d}"
               plan={"steps":[
-                  {"id":"move","action":"cursor.move","x":350,"y":410},
+                  {"id":"move","action":"cursor.move","x":363,"y":438},
                   {"id":"click","action":"pointer.click"},
                   {"id":"scroll","action":"pointer.scroll","delta_y":-120},
                   {"id":"f2","action":"keyboard.press","key":"F2"},
@@ -247,7 +247,7 @@ jobs:
               outputs=payload.get("outputs") or []
               if len(outputs)!=8:
                   failures.append({"id":e["id"],"reason":"OUTPUT_COUNT","got":len(outputs)}); continue
-              if outputs[0].get("x")!=350 or outputs[0].get("y")!=410:
+              if outputs[0].get("x")!=363 or outputs[0].get("y")!=438:
                   failures.append({"id":e["id"],"reason":"CURSOR_RESULT"})
               if outputs[6].get("text")!=e["clip"]:
                   failures.append({"id":e["id"],"reason":"CLIPBOARD_ROUNDTRIP","got":outputs[6].get("text")})
