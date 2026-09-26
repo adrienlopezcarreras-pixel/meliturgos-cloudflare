@@ -5,6 +5,7 @@ import {
   handlePublicWordPressChat,
   publicWordPressChatCors,
 } from '../../src/api/public-wordpress-chat.js';
+import { renderPublicWordPressChatPage } from '../../src/pages/public-wordpress-chat-page.js';
 
 test('MEL-CONN-01 public chat rejects foreign browser origins', async () => {
   const request=new Request('https://mel.example/api/public/wordpress/chat',{
@@ -79,4 +80,13 @@ test('MEL-CONN-01 endpoint source has no private-memory or owner-chat dependency
   assert.doesNotMatch(source,/env\.DB|MEDIA_BUCKET/);
   assert.match(source,/scope:'PUBLIC_ONLY'/);
   assert.match(source,/@cf\/zai-org\/glm-4\.7-flash/);
+});
+
+
+test('MEL-CONN-01 embeddable page posts only to the isolated public endpoint', () => {
+  const html=renderPublicWordPressChatPage();
+  assert.match(html,/\/api\/public\/wordpress\/chat/);
+  assert.match(html,/maxlength="1200"/);
+  assert.match(html,/verite-interdite\.fr/);
+  assert.doesNotMatch(html,/owner|private_memory|saved_memories|conversation_history|Gmail|Google_Drive/i);
 });
