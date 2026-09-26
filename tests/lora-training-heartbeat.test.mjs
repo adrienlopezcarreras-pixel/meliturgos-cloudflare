@@ -67,7 +67,7 @@ test('LoRA heartbeat dispatches cycle zero only when no checkpoint exists', asyn
   assert.equal(result.parent_release_tag, '');
   assert.equal(result.resumed_from_checkpoint, false);
   assert.equal(result.shard_size, 750);
-  assert.equal(result.max_cycles, 1000);
+  assert.equal(result.max_cycles, 100);
 
   const dispatch = seen.find((row) => row.href.endsWith('/dispatches'));
   assert.ok(dispatch);
@@ -77,7 +77,7 @@ test('LoRA heartbeat dispatches cycle zero only when no checkpoint exists', asyn
     cycle: '0',
     parent_release_tag: '',
     shard_size: '750',
-    max_cycles: '1000',
+    max_cycles: '100',
     benchmark_preview: 'false',
   });
 });
