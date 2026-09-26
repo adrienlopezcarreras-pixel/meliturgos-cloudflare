@@ -181,6 +181,7 @@ test('GEN2-49 restore drill proves exact payload checksums after alternate-runti
   const bundle = await runtimeBundle();
   const drill = await drillProviderNeutralBundleRestore(bundle, {
     runtimeId: 'portable-drill',
+    provider: 'google-drive',
   });
 
   assert.equal(drill.schema, 'mel.provider-neutral-restore-drill/v1');
@@ -188,7 +189,7 @@ test('GEN2-49 restore drill proves exact payload checksums after alternate-runti
   assert.equal(drill.artifact_count, 5);
   assert.equal(drill.provider_calls, 0);
   assert.equal(drill.external_side_effects, 0);
-  assert.equal(drill.runtime.provider, null);
+  assert.equal(drill.runtime.provider, 'google-drive');
   assert.ok(drill.artifacts.every(row => row.restored === true));
   assert.ok(drill.artifacts.every(row => /^sha256:[0-9a-f]{64}$/.test(row.checksum)));
 
@@ -196,6 +197,14 @@ test('GEN2-49 restore drill proves exact payload checksums after alternate-runti
   for (const row of drill.artifacts) {
     assert.equal(row.checksum, expected.get(row.contract_id));
   }
+});
+
+test('GEN2-49 rejects unsafe provider provenance identifiers', async () => {
+  const bundle = await runtimeBundle();
+  await assert.rejects(
+    () => restoreProviderNeutralBundleToAlternateRuntime(bundle, { provider: 'google drive <script>' }),
+    error => error?.code === 'PORTABILITY_RESTORE_PROVIDER_INVALID',
+  );
 });
 
 test('GEN2-49 rejects tampered bundle before any restore occurs', async () => {
