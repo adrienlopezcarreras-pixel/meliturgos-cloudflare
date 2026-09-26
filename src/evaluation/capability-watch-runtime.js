@@ -8,6 +8,8 @@ import {
 } from './ecosystem-watch-catalog.js';
 import { planEcosystemDiscoveries, mergeEcosystemDiscoveryLedger, selectEcosystemDiscoveryCandidate, buildEcosystemDiscoveryCandidate, markEcosystemDiscoveryOwnerDecision, markEcosystemDiscoveryHandoff, reconcileEcosystemDiscoveryHandoffs } from './ecosystem-discovery-planner.js';
 import { enqueueSupervisedDevelopmentRequest } from '../evolution/owner-development-queue.js';
+import { prepareAutonomyTeacherRequest } from '../evolution/autonomy-runtime.js';
+import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 
 const WATCH_ID = 'ecosystem-canonical';
@@ -111,13 +113,19 @@ async function ensureStore(env, id = WATCH_ID) {
   };
 }
 
-async function reconcileDiscoveryJobs(env, ledger, { repository = null, now = Date.now() } = {}) {
+export async function reconcileDiscoveryJobs(env, ledger, {
+  repository = null,
+  now = Date.now(),
+  fetchImpl = fetch,
+  resumeTeacherRequest = prepareAutonomyTeacherRequest,
+  mirrorTeacherRequest = mirrorRuntimeTeacherRequestToGitHub,
+} = {}) {
   const jobIds = [...new Set(
     (Array.isArray(ledger?.items) ? ledger.items : [])
       .map(item => String(item?.handoff?.job_id || ''))
       .filter(Boolean)
   )];
-  if (!jobIds.length) return { changed: false, ledger };
+  if (!jobIds.length) return { changed: false, ledger, resumed: null };
   const repo = repository || new D1DevJobRepository(env?.DB);
   const jobs = [];
   for (const id of jobIds.slice(0, 50)) {
@@ -128,7 +136,55 @@ async function reconcileDiscoveryJobs(env, ledger, { repository = null, now = Da
       // Keep the last known handoff state if D1 is temporarily unavailable.
     }
   }
-  return reconcileEcosystemDiscoveryHandoffs(ledger, jobs, now);
+
+  let resumed = null;
+  const resumable = jobs
+    .filter(job => job?.requested_by === 'mel-autonomy')
+    .filter(job => String(job?.optional_context?.source || '') === 'ecosystem-watch')
+    .filter(job => ['QUEUED', 'COUNCIL_COMPLETE'].includes(String(job?.status || '').toUpperCase()))
+    .sort((a, b) => Number(a?.created_at || 0) - Number(b?.created_at || 0) || String(a?.id || '').localeCompare(String(b?.id || '')))[0] || null;
+
+  if (resumable) {
+    try {
+      const teacher = await resumeTeacherRequest({ env, repository: repo, job: resumable, fetchImpl });
+      const latest = await repo.get(resumable.id);
+      if (latest) {
+        const index = jobs.findIndex(job => job.id === latest.id);
+        if (index >= 0) jobs[index] = latest;
+        else jobs.push(latest);
+      }
+
+      let mirror = null;
+      if (latest
+        && String(latest.status || '').toUpperCase() === 'WAITING_TEACHER'
+        && latest?.result_json?.teacher_bridge) {
+        mirror = await mirrorTeacherRequest({
+          env,
+          job: latest,
+          state: latest.result_json.teacher_bridge,
+          fetchImpl,
+        });
+      }
+
+      resumed = {
+        job_id: resumable.id,
+        status: latest?.status || resumable.status || null,
+        teacher_request_id: teacher?.request?.request_id
+          || latest?.result_json?.teacher_bridge?.request?.request_id
+          || null,
+        mirror_status: mirror?.status || null,
+      };
+    } catch (error) {
+      resumed = {
+        job_id: resumable.id,
+        status: 'RESUME_FAILED',
+        code: String(error?.code || error?.message || 'ECOSYSTEM_HANDOFF_RESUME_FAILED').slice(0, 180),
+      };
+    }
+  }
+
+  const reconciled = reconcileEcosystemDiscoveryHandoffs(ledger, jobs, now);
+  return { ...reconciled, resumed };
 }
 
 function watchEvaluator(env) {
@@ -340,6 +396,7 @@ export async function runEcosystemCapabilityWatch(
   const reconciled = await reconcileDiscoveryJobs(env, discoveryLedger, {
     repository: developmentRepository,
     now,
+    fetchImpl,
   });
   if (reconciled.changed) {
     discoveryLedger = reconciled.ledger;
@@ -424,6 +481,7 @@ export async function applyEcosystemProposalDecision(
   const reconciled = await reconcileDiscoveryJobs(env, ledger, {
     repository: developmentRepository,
     now,
+    fetchImpl,
   });
   if (reconciled.changed) ledger = reconciled.ledger;
 
