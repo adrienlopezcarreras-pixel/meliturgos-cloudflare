@@ -346,12 +346,12 @@ static void connect_to(const struct ble_gap_disc_desc *disc) {
     struct ble_gap_conn_params params = {};
     params.scan_itvl = 0x0010;
     params.scan_window = 0x0010;
-    params.itvl_min = 6;   // 7.5 ms
-    params.itvl_max = 12;  // 15 ms
-    params.latency = 0;
-    params.supervision_timeout = 256;
-    params.min_ce_len = 0;
-    params.max_ce_len = 0;
+    params.itvl_min = BLE_GAP_INITIAL_CONN_ITVL_MIN;   // 30 ms
+    params.itvl_max = BLE_GAP_INITIAL_CONN_ITVL_MAX;   // 50 ms
+    params.latency = BLE_GAP_INITIAL_CONN_LATENCY;
+    params.supervision_timeout = BLE_GAP_INITIAL_SUPERVISION_TIMEOUT;
+    params.min_ce_len = BLE_GAP_INITIAL_CONN_MIN_CE_LEN;
+    params.max_ce_len = BLE_GAP_INITIAL_CONN_MAX_CE_LEN;
     int rc = ble_gap_connect(own_addr_type, &disc->addr, 15000, &params, gap_event, nullptr);
     if (rc != 0) {
         ESP_LOGW(TAG, "MEL Mobile connect start failed rc=%d", rc);
@@ -394,6 +394,30 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
                 if (xQueueSend(g_notify_queue, &frame, 0) != pdTRUE) {
                     ESP_LOGW(TAG, "BLE notify queue full; dropping frame");
                 }
+            }
+            return 0;
+        }
+        case BLE_GAP_EVENT_CONN_UPDATE_REQ:
+        case BLE_GAP_EVENT_L2CAP_UPDATE_REQ:
+            ESP_LOGI(TAG,
+                     "MEL Mobile conn update req itvl=%u-%u latency=%u timeout=%u",
+                     event->conn_update_req.peer_params->itvl_min,
+                     event->conn_update_req.peer_params->itvl_max,
+                     event->conn_update_req.peer_params->latency,
+                     event->conn_update_req.peer_params->supervision_timeout);
+            // NimBLE pre-fills self_params with the peer request. Return 0 to accept it.
+            return 0;
+        case BLE_GAP_EVENT_CONN_UPDATE: {
+            struct ble_gap_conn_desc desc = {};
+            if (ble_gap_conn_find(event->conn_update.conn_handle, &desc) == 0) {
+                ESP_LOGI(TAG,
+                         "MEL Mobile conn updated status=%d itvl=%u latency=%u timeout=%u",
+                         event->conn_update.status,
+                         desc.conn_itvl,
+                         desc.conn_latency,
+                         desc.supervision_timeout);
+            } else {
+                ESP_LOGI(TAG, "MEL Mobile conn update status=%d", event->conn_update.status);
             }
             return 0;
         }
