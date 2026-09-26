@@ -254,6 +254,23 @@ export class D1OAuthTransactionVault {
     return { stored: true, expires_at: expiresAt };
   }
 
+  async resolveConnector({ owner, state }) {
+    await this.ready();
+    const normalizedOwner = clean(owner, 300);
+    const normalizedState = clean(state, 500);
+    requireValue(normalizedOwner, 'OAUTH_OWNER_REQUIRED', 401);
+    requireValue(normalizedState, 'OAUTH_STATE_REQUIRED', 400);
+    const stateHash = await sha256Hex(normalizedState);
+    const row = await this.db.prepare(`SELECT connector_id FROM oauth_transactions
+      WHERE owner=? AND state_hash=? AND expires_at>=?
+      ORDER BY created_at DESC LIMIT 1`).bind(
+      normalizedOwner,
+      stateHash,
+      this.now(),
+    ).first();
+    return row?.connector_id ? clean(row.connector_id, 160) : null;
+  }
+
   async take({ owner, connector_id, state }) {
     await this.ready();
     const normalizedOwner = clean(owner, 300);
