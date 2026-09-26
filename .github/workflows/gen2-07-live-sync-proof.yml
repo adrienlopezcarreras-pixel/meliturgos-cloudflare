@@ -1,0 +1,99 @@
+name: gen2-07-live-sync-proof
+
+on:
+  push:
+    branches:
+      - proof/gen2-07-live-sync-20260926
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact proof SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Verify sync contracts
+        run: node --test tests/sync-endpoint.test.mjs tests/android-companion-api.test.mjs
+
+      - name: Read sanitized production sync evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json --command "
+            WITH
+            android_ids AS (
+              SELECT DISTINCT device_id FROM android_device_tokens
+            ),
+            per_conversation AS (
+              SELECT
+                m.conversation_id,
+                SUM(CASE WHEN m.device_id IN (SELECT device_id FROM android_ids) THEN 1 ELSE 0 END) AS android_messages,
+                SUM(CASE WHEN m.device_id IS NOT NULL AND m.device_id NOT IN (SELECT device_id FROM android_ids) THEN 1 ELSE 0 END) AS other_device_messages
+              FROM archive_messages m
+              GROUP BY m.conversation_id
+            )
+            SELECT
+              (SELECT COUNT(*) FROM sync_checkpoints) AS checkpoint_count,
+              (SELECT COUNT(*) FROM android_device_tokens) AS android_device_count,
+              (SELECT COUNT(*) FROM computer_devices) AS computer_device_count,
+              (SELECT COUNT(*) FROM sync_checkpoints s JOIN conversations c ON c.id=s.conversation_id) AS checkpoint_conversation_links,
+              (SELECT COUNT(*) FROM sync_checkpoints s JOIN archive_messages m ON m.id=s.last_message_id AND m.conversation_id=s.conversation_id) AS checkpoint_message_links,
+              (SELECT COUNT(*) FROM sync_checkpoints s JOIN android_device_tokens a ON a.device_id=s.device_id) AS android_checkpoint_count,
+              (SELECT COUNT(*) FROM per_conversation WHERE android_messages>0 AND other_device_messages>0) AS cross_device_conversation_count;
+          " > gen2-07-sync-proof.raw.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Validate production sync evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload=json.loads(Path('gen2-07-sync-proof.raw.json').read_text())
+          rows=[]
+          for part in payload if isinstance(payload,list) else [payload]:
+              if isinstance(part,dict) and isinstance(part.get('results'),list):
+                  rows.extend(part['results'])
+          if len(rows)!=1:
+              raise SystemExit('SYNC_PROOF_ROW_MISSING')
+          r={k:int(v or 0) for k,v in rows[0].items()}
+          checks={
+              'checkpoint_exists': r.get('checkpoint_count',0)>0,
+              'android_device_exists': r.get('android_device_count',0)>0,
+              'computer_device_exists': r.get('computer_device_count',0)>0,
+              'checkpoint_conversations_valid': r.get('checkpoint_conversation_links',0)==r.get('checkpoint_count',0),
+              'checkpoint_messages_valid': r.get('checkpoint_message_links',0)==r.get('checkpoint_count',0),
+              'android_checkpoint_exists': r.get('android_checkpoint_count',0)>0,
+              'cross_device_conversation_exists': r.get('cross_device_conversation_count',0)>0,
+          }
+          proof={'schema':'mel.gen2-07-live-sync-proof.v1','counts':r,'checks':checks,'complete':all(checks.values())}
+          Path('gen2-07-live-sync-proof.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+          print(json.dumps(proof,indent=2))
+          if not proof['complete']:
+              raise SystemExit(2)
+          PY
+
+      - name: Upload sanitized proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-07-live-sync-proof
+          path: gen2-07-live-sync-proof.json
+          if-no-files-found: warn
+          retention-days: 14
