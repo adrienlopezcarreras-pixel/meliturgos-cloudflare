@@ -43,12 +43,14 @@ test('generated fallback background inventory remains self-contained and 4K-capa
 
 test('service worker caches static resources while never caching API or private HTML reads', async () => {
   const source = await text('src/pages/service-worker.js');
-  assert.match(source, /meliturgos-static-v7/);
+  assert.match(source, /meliturgos-static-v8/);
   assert.match(source, /staleWhileRevalidate/);
   assert.match(source, /event\.waitUntil\(update/);
   assert.match(source, /pathname\.startsWith\('\/api\/'\)/);
   assert.match(source, /request\.mode==='navigate'.*return/);
   assert.match(source, /pathname\.startsWith\('\/assets\/'\)/);
   assert.match(source, /skipWaiting/);
+  assert.match(source, /const PRECACHE=\['\/normal-runtime\.js','\/assets\/avatars\/mel-full\.webp/);
+  assert.doesNotMatch(source, /PRECACHE=.*['"]\/(?:mvp|professor|api\/)/);
   assert.doesNotMatch(source, /const FALLBACK='\/'|cache\.add\('\/'\)/);
 });
