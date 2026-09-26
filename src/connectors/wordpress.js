@@ -49,4 +49,68 @@ export function assertWordPressPublicContext(input = {}) {
   });
 }
 
-export const createConnector = options => new Connector(definition, options);
+
+function boundedInt(value, fallback, min, max) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
+function publicEndpoint(capability, input = {}) {
+  const base = new URL(definition.site_origin);
+  if (capability === 'wordpress.public.posts.read') {
+    const url = new URL('/wp-json/wp/v2/posts', base);
+    url.searchParams.set('page', String(boundedInt(input.page, 1, 1, 1000)));
+    url.searchParams.set('per_page', String(boundedInt(input.per_page, 10, 1, 20)));
+    url.searchParams.set('_fields', 'id,date,modified,slug,link,title,excerpt,content');
+    return url;
+  }
+  if (capability === 'wordpress.public.pages.read') {
+    const url = new URL('/wp-json/wp/v2/pages', base);
+    url.searchParams.set('page', String(boundedInt(input.page, 1, 1, 1000)));
+    url.searchParams.set('per_page', String(boundedInt(input.per_page, 10, 1, 20)));
+    url.searchParams.set('_fields', 'id,date,modified,slug,link,title,excerpt,content');
+    return url;
+  }
+  if (capability === 'wordpress.public.search') {
+    const query = typeof input.query === 'string' ? input.query.trim().slice(0, 300) : '';
+    if (!query) throw new Error('WORDPRESS_PUBLIC_SEARCH_QUERY_REQUIRED');
+    const url = new URL('/wp-json/wp/v2/search', base);
+    url.searchParams.set('search', query);
+    url.searchParams.set('per_page', String(boundedInt(input.per_page, 10, 1, 20)));
+    return url;
+  }
+  throw new Error('WORDPRESS_PUBLIC_CAPABILITY_NOT_ALLOWED');
+}
+
+export class WordPressPublicConnector extends Connector {
+  async execute(capability, input = {}) {
+    if (!definition.capabilities.includes(String(capability || ''))) {
+      throw new Error('WORDPRESS_PUBLIC_CAPABILITY_NOT_ALLOWED');
+    }
+    assertWordPressPublicContext({
+      query: capability === 'wordpress.public.search' ? input.query : '',
+      locale: input.locale,
+      public_context: input.public_context,
+    });
+    const url = publicEndpoint(capability, input);
+    const response = await this.fetcher(url, {
+      method: 'GET',
+      redirect: 'error',
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      const error = new Error(`WORDPRESS_PUBLIC_HTTP_${response.status}`);
+      error.code = 'WORDPRESS_PUBLIC_HTTP_ERROR';
+      error.status = response.status;
+      throw error;
+    }
+    const payload = await response.json();
+    if (!Array.isArray(payload)) throw new Error('WORDPRESS_PUBLIC_RESPONSE_INVALID');
+    return structuredClone(payload.slice(0, 20));
+  }
+}
+
+export const createConnector = options => new WordPressPublicConnector(definition, options);
