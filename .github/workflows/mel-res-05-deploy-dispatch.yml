@@ -1,0 +1,35 @@
+name: mel-res-05-deploy-dispatch
+
+on:
+  push:
+    branches:
+      - proof/mel-res-05-deploy-dispatch-20260926
+    paths:
+      - .github/workflows/mel-res-05-deploy-dispatch.yml
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch exact release after encrypted-key rollout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          RELEASE_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/commits/release/mel-hardware-v0.1.0" --jq .sha)"
+          test "${MAIN_SHA}" = "${RELEASE_SHA}"
+          gh workflow run deploy-cloudflare-release.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f release_branch=release/mel-hardware-v0.1.0             -f expected_sha="${MAIN_SHA}"             -f approval=DEPLOY_APPROVED
+          printf '{"schema":"mel.res-05-deploy-dispatch.v1","expected_sha":"%s","dispatched":true}\n' "${MAIN_SHA}" > mel-res-05-deploy-dispatch-proof.json
+      - name: Upload dispatch proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-res-05-deploy-dispatch-proof
+          path: mel-res-05-deploy-dispatch-proof.json
+          retention-days: 14
