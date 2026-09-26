@@ -363,6 +363,56 @@ async function queueDiscoveryCandidate(env, candidate, {
   };
 }
 
+export async function proveEcosystemTeacherHandoff(
+  env,
+  {
+    now = Date.now(),
+    developmentRepository = null,
+    fetchImpl = fetch,
+    resumeTeacherRequest = prepareAutonomyTeacherRequest,
+    mirrorTeacherRequest = mirrorRuntimeTeacherRequestToGitHub,
+  } = {},
+) {
+  const discoveryStore = await ensureStore(env, DISCOVERY_ID);
+  let ledger = await discoveryStore.load();
+  const reconciled = await reconcileDiscoveryJobs(env, ledger, {
+    repository: developmentRepository,
+    now,
+    fetchImpl,
+    resumeTeacherRequest,
+    mirrorTeacherRequest,
+  });
+  if (reconciled.changed) {
+    ledger = reconciled.ledger;
+    await discoveryStore.save(ledger);
+  } else {
+    ledger = reconciled.ledger;
+  }
+
+  const active = (Array.isArray(ledger?.items) ? ledger.items : [])
+    .map(item => ({
+      fingerprint: item?.fingerprint || null,
+      handoff: item?.handoff || null,
+    }))
+    .filter(item => item.handoff && item.handoff.closed !== true)
+    .filter(item => String(item.handoff.status || '').toUpperCase() === 'WAITING_TEACHER')
+    .filter(item => String(item.handoff.teacher_request_id || '').trim());
+
+  const handoff = active[0]?.handoff || null;
+  const ok = Boolean(handoff);
+  return {
+    ok,
+    status: ok ? 'GEN2_42_TEACHER_HANDOFF_READY' : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
+    resumed: reconciled.resumed || null,
+    active_teacher_handoff_count: active.length,
+    job_id: handoff?.job_id || null,
+    teacher_request_id: handoff?.teacher_request_id || null,
+    candidate_sha: handoff?.candidate_sha || null,
+    production_activation_allowed: false,
+    auto_approval_allowed: false,
+  };
+}
+
 export async function runEcosystemCapabilityWatch(
   env,
   {
