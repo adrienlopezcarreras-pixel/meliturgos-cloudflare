@@ -1,0 +1,54 @@
+name: gen2-49-live-provider-proof
+
+on:
+  push:
+    branches:
+      - roadmap/gen2-49-real-provider-20260926
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Generate canonical five-contract bundle
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { createProviderNeutralSystemBundle } from './src/portability/system-bundle.js';
+          import { createPortableMemoryExport } from './src/memory/portable-export.js';
+          import { SkillRegistry } from './src/evolution/skill-registry.js';
+          import { drillProviderNeutralBundleRestore } from './src/portability/alternate-runtime-restore.js';
+          const memory=await createPortableMemoryExport([{id:'gen2-49-proof',content:'GEN2-49 real provider portability proof',kind:'proof',source:'coordinator'}],{generatedAt:'2026-09-26T20:42:30.000Z',source:'gen2-49-live-proof'});
+          const skills=new SkillRegistry().exportSnapshot();
+          const components=[
+            {id:'memory',contract:{id:'memory.export',version:'1.0.0',required:true},export:async()=>memory},
+            {id:'projects',contract:{id:'planning.projects',version:'1',required:true},export:async()=>({schema:'mel.planning-projects-export/v1',projects:[],decisions:[],lessons:[]})},
+            {id:'skills',contract:{id:'skills.registry',version:'1',required:true},export:async()=>skills},
+            {id:'plugins',contract:{id:'plugins.registry',version:'1',required:true},export:async()=>({schema:'mel.plugin-runtime-export/v1',plugins:[]})},
+            {id:'config',contract:{id:'core.config',version:'1',required:true},export:async()=>({schema:'mel.core-config-export/v1',app:{name:'MEL',version:'2.3.2'},defaults:{},database:{schema_version:'proof'}})}
+          ];
+          const bundle=await createProviderNeutralSystemBundle({generated_at:'2026-09-26T20:42:30.000Z',source:{repository:'adrienlopezcarreras-pixel/meliturgos-cloudflare',branch:process.env.GITHUB_REF_NAME,commit:process.env.GITHUB_SHA},components,metadata:{purpose:'GEN2-49 real external-provider restore proof'}});
+          const drill=await drillProviderNeutralBundleRestore(bundle,{runtimeId:'pre-drive-proof',provider:'google-drive'});
+          if(!drill.ok||drill.runtime.provider!=='google-drive'||drill.artifact_count!==5) throw new Error('GEN2_49_PRE_DRIVE_PROOF_FAILED');
+          fs.writeFileSync('gen2-49-live-provider-bundle.json',JSON.stringify(bundle,null,2));
+          fs.writeFileSync('gen2-49-pre-drive-proof.json',JSON.stringify({bundle_sha256:bundle.integrity.bundle_sha256,artifact_count:bundle.integrity.artifact_count,provider:drill.runtime.provider,restored_contracts:drill.restored_contracts},null,2));
+          NODE
+      - name: Upload proof bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-49-live-provider-bundle
+          path: |
+            gen2-49-live-provider-bundle.json
+            gen2-49-pre-drive-proof.json
+          if-no-files-found: error
+          retention-days: 14
