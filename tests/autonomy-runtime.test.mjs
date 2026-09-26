@@ -447,3 +447,72 @@ test('cloud autonomy heartbeat rejects divergent canonical and Teacher candidate
     (error) => error?.code === 'AUTONOMY_CANDIDATE_BRANCH_DIVERGENCE',
   );
 });
+
+test('GEN2-42 minimal inspection skips code search and caps file reads before Teacher handoff', async () => {
+  const repo = new D1DevJobRepository(null, { memoryStore: new Map() });
+  const job = await repo.create({
+    id: `minimal-inspection-${crypto.randomUUID()}`,
+    requested_by: 'mel-autonomy',
+    goal: 'Bound GEN2-42 Teacher inspection',
+    optional_context: {
+      roadmap_id: 'GEN2-42',
+      source: 'ecosystem-watch',
+      inspection_paths: [
+        'src/evaluation/capability-watch-runtime.js',
+        'src/evolution/autonomy-runtime-core.js',
+        'src/roadmap/master-roadmap.js',
+        'src/index.js',
+      ],
+    },
+    plan_json: {
+      preflight: {
+        stage: 'AI_STATE_OF_PLAY_COMPLETE',
+        council: {
+          status: 'COMPLETE',
+          responses: [],
+          providers_attempted: [],
+          providers_succeeded: [],
+          required_roles_attempted: [],
+          required_roles_succeeded: [],
+          all_required_roles_satisfied: true,
+          synthesis: { status: 'COMPLETE', coordinator: 'MEL' },
+        },
+      },
+    },
+  });
+
+  const calls = [];
+  const candidateSha = 'c'.repeat(40);
+  const fetchImpl = async (url) => {
+    const target = String(url);
+    calls.push(target);
+    if (target.includes('/branches/')) return Response.json({ commit: { sha: candidateSha } });
+    if (target.includes('/contents/')) {
+      return Response.json({
+        path: decodeURIComponent(target.split('/contents/')[1].split('?')[0]),
+        sha: 'd'.repeat(40),
+        content: Buffer.from('export const ok = true;').toString('base64'),
+        encoding: 'base64',
+      });
+    }
+    if (target.includes('/search/code')) throw new Error('minimal inspection must not search code');
+    return new Response('not found', { status: 404 });
+  };
+
+  const state = await prepareAutonomyTeacherRequest({
+    env: {
+      MEL_GITHUB_REPOSITORY: 'owner/repo',
+      MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy',
+      MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy',
+    },
+    repository: repo,
+    job,
+    fetchImpl,
+    minimalInspection: true,
+  });
+
+  assert.equal(state.status, 'WAITING_TEACHER');
+  assert.match(state.request.request_id, /.+/);
+  assert.equal(calls.some(url => url.includes('/search/code')), false);
+  assert.ok(calls.filter(url => url.includes('/contents/')).length <= 3);
+});
