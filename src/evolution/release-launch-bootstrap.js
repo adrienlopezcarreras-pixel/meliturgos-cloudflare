@@ -18,6 +18,31 @@ import { createAgentAutomationPolicy, PERMISSION_TIERS } from '../automations/ag
 const PATH = '/api/internal/release-launch-bootstrap';
 const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof']);
 
+function exactDeployedSha(env = {}) {
+  const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+  if (/^[0-9a-f]{40}$/.test(direct)) return direct;
+  try {
+    const built = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined'
+      ? String(MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase()
+      : '';
+    return /^[0-9a-f]{40}$/.test(built) ? built : '';
+  } catch {
+    return '';
+  }
+}
+
+function exactDeployedBranch(env = {}) {
+  const direct = String(env?.MEL_DEPLOYED_GIT_BRANCH || '').trim();
+  if (direct) return direct;
+  try {
+    return typeof MEL_DEPLOYED_GIT_BRANCH !== 'undefined'
+      ? String(MEL_DEPLOYED_GIT_BRANCH || '').trim()
+      : '';
+  } catch {
+    return '';
+  }
+}
+
 async function requestPhase(request) {
   try {
     const body = await request.json();
@@ -171,7 +196,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     if (!env?.DB || typeof env.DB.prepare !== 'function') {
       return Response.json({ ok: false, code: 'D1_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
-    const deployedSha = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+    const deployedSha = exactDeployedSha(env);
     if (!/^[0-9a-f]{40}$/.test(deployedSha)) {
       return Response.json({ ok: false, code: 'DEPLOYED_SHA_INVALID' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
@@ -253,7 +278,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     if (!env?.DB || typeof env.DB.prepare !== 'function') {
       return Response.json({ ok: false, code: 'D1_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
-    const deployedSha = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+    const deployedSha = exactDeployedSha(env);
     if (!/^[0-9a-f]{40}$/.test(deployedSha)) {
       return Response.json({ ok: false, code: 'DEPLOYED_SHA_INVALID' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
@@ -266,7 +291,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       status: 'QUEUED',
       actor: 'release-bootstrap',
       source_sha: deployedSha,
-      branch: String(env?.MEL_DEPLOYED_GIT_BRANCH || ''),
+      branch: exactDeployedBranch(env),
       evidence: { roadmap_id: 'MEL-EVOL-04', proof: 'production-runtime' },
       occurred_at: Date.now(),
     });
@@ -277,7 +302,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       status: 'DONE_VERIFIED',
       actor: 'release-bootstrap',
       source_sha: deployedSha,
-      branch: String(env?.MEL_DEPLOYED_GIT_BRANCH || ''),
+      branch: exactDeployedBranch(env),
       evidence: { roadmap_id: 'MEL-EVOL-04', exact_sha: true },
       occurred_at: Date.now() + 1,
     });
@@ -304,7 +329,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     if (!env?.DB || typeof env.DB.prepare !== 'function') {
       return Response.json({ ok: false, code: 'D1_NOT_BOUND' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
-    const deployedSha = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
+    const deployedSha = exactDeployedSha(env);
     if (!/^[0-9a-f]{40}$/.test(deployedSha)) {
       return Response.json({ ok: false, code: 'DEPLOYED_SHA_INVALID' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
