@@ -36,6 +36,21 @@ function workCapabilities(nodes) {
   return [...capabilities].sort((a, b) => a.localeCompare(b));
 }
 
+function councilConfig(value) {
+  if (value == null) return null;
+  requireValue(record(value), 'AGENT_COUNCIL_CONFIG_INVALID', 400);
+  if (value.enabled === false) return null;
+  const capability = text(value.capability || 'GENERAL');
+  requireValue(capability, 'AGENT_COUNCIL_CAPABILITY_INVALID', 400);
+  const maxCandidates = Math.max(2, Math.min(12, Number(value.max_candidates) || 4));
+  const timeoutMs = Math.max(100, Math.min(120000, Number(value.timeout_ms) || 30000));
+  return {
+    capability,
+    maxCandidates,
+    timeoutMs,
+  };
+}
+
 function normalizedGrant(grant) {
   requireValue(record(grant), 'AGENT_WORK_GRANTS_REQUIRED', 500);
   requireValue(Array.isArray(grant.capabilities), 'AGENT_WORK_GRANT_CAPABILITIES_REQUIRED', 500);
@@ -94,14 +109,18 @@ export class GuardedAgentWorkRunner {
         : []
     );
     const requiredByWork = workCapabilities(input.work.nodes);
-    const undeclared = requiredByWork.filter(capability => !policyCapabilities.has(capability));
+    const council = councilConfig(input.council);
+    const requiredCapabilities = council
+      ? [...new Set([...requiredByWork, 'model.council'])].sort((a,b)=>a.localeCompare(b))
+      : requiredByWork;
+    const undeclared = requiredCapabilities.filter(capability => !policyCapabilities.has(capability));
     requireValue(undeclared.length === 0, 'AGENT_WORK_CAPABILITY_UNDECLARED', 403);
 
     const grant = normalizedGrant(await this.resolveGrants({
       owner,
       context,
       policy: structuredClone(input.policy),
-      required_capabilities: requiredByWork,
+      required_capabilities: requiredCapabilities,
     }));
 
     const authorized = await this.guard.authorizeRun({
@@ -138,6 +157,27 @@ export class GuardedAgentWorkRunner {
     requireValue(createInput.goal, 'AGENT_WORK_GOAL_REQUIRED', 400);
 
     try {
+      let councilResult = null;
+      if (council) {
+        councilResult = await this.bus.execute('model.council', {
+          request: {
+            goal: createInput.goal,
+            agent_id: text(input.policy.agent_id),
+            automation_id: text(input.policy.automation_id),
+            run_id: runId,
+            work: {
+              id: workId,
+              node_count: input.work.nodes.length,
+              capabilities: requiredByWork,
+            },
+          },
+          capability: council.capability,
+          maxCandidates: council.maxCandidates,
+          timeoutMs: council.timeoutMs,
+        }, context);
+        requireValue(councilResult && typeof councilResult === 'object', 'AGENT_COUNCIL_RESULT_INVALID', 502);
+      }
+
       let created = null;
       if (authorized.deduplicated) {
         try {
@@ -158,6 +198,7 @@ export class GuardedAgentWorkRunner {
           executed: false,
           terminal: false,
           grant_provenance: grant.provenance,
+          council: councilResult,
         };
       }
 
@@ -173,6 +214,10 @@ export class GuardedAgentWorkRunner {
             work_id: workId,
             work_status: text(state.status),
             completed: true,
+            council: council ? {
+              executed: true,
+              capability: council.capability,
+            } : null,
           },
         }, context);
         return {
@@ -182,6 +227,7 @@ export class GuardedAgentWorkRunner {
           executed: true,
           terminal: true,
           grant_provenance: grant.provenance,
+          council: councilResult,
         };
       }
 
@@ -192,6 +238,7 @@ export class GuardedAgentWorkRunner {
         executed: true,
         terminal: false,
         grant_provenance: grant.provenance,
+        council: councilResult,
       };
     } catch (error) {
       try {
