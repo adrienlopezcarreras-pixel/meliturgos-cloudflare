@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { D1PluginVersionStore } from '../../src/plugins/d1-version-store.js';
+import { createPluginControlPlane } from '../../src/plugins/sdk.js';
 
 function normalize(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();
@@ -264,4 +265,60 @@ test('D1 plugin store keeps manifest and artifact identity immutable after versi
     }),
     error => error?.code === 'PLUGIN_ARTIFACT_DIGEST_IMMUTABLE',
   );
+});
+
+test('GEN2-15 control plane survives recreation with exact-SHA activation evidence', async () => {
+  const db = new FakeD1();
+  let now = 10_000;
+  const version = '2.0.0';
+  const sourceSha = 'c'.repeat(40);
+  const artifactDigest = 'sha256:' + 'd'.repeat(64);
+
+  const first = createPluginControlPlane({ db, now: () => ++now });
+  await first.installCandidate({
+    manifest: manifest(version),
+    artifactRef: 'r2://plugins/fixture/2.0.0.zip',
+    metadata: { source: 'gen2-15-runtime-proof' },
+  });
+  await first.markTested({
+    pluginId: 'fixture.plugin',
+    version,
+    proofs: {
+      tests: true,
+      version,
+      suite: 'plugin-control-plane-runtime-v1',
+      run_id: 'run-gen2-15-runtime-proof',
+    },
+  });
+  const activated = await first.activate({
+    pluginId: 'fixture.plugin',
+    version,
+    proofs: {
+      tests: true,
+      sandbox: true,
+      security: true,
+      activation: true,
+      version,
+      artifact_digest: artifactDigest,
+      source_sha: sourceSha,
+      approval_id: 'approval-gen2-15-runtime-proof',
+    },
+  });
+
+  assert.equal(activated.active.status, 'ACTIVE');
+  assert.equal(activated.active.evidence.release.source_sha, sourceSha);
+  assert.equal(activated.active.artifact_digest, artifactDigest);
+
+  const restarted = createPluginControlPlane({ db, now: () => ++now });
+  const restored = await restarted.load({ pluginId: 'fixture.plugin' });
+  const health = await restarted.health({ pluginId: 'fixture.plugin' });
+
+  assert.equal(restored.version, version);
+  assert.equal(restored.status, 'ACTIVE');
+  assert.equal(restored.evidence.release.source_sha, sourceSha);
+  assert.equal(restored.artifact_digest, artifactDigest);
+  assert.equal(health.active_version, version);
+  assert.equal(health.active_status, 'ACTIVE');
+  assert.equal(health.healthy, true);
+  assert.equal(health.versions, 1);
 });
