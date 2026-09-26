@@ -1,0 +1,24 @@
+{
+  "roadmap_item": "GEN2-10",
+  "status": "DONE_VERIFIED",
+  "certified_at": "2026-09-26",
+  "base_main_sha": "ac81d701a811ef74229ebed4d253cef17e075338",
+  "evidence": {
+    "original_contradiction_commit": "1a58bd3892b1dbc1b05216839b2f48abcce20f23",
+    "provenance_reinforcement_commit": "01937daa2831e4fab95114ef4bc3f66918bedd14",
+    "targeted_test": "tests/gen2/gen2-10-contradiction-provenance-temporal.test.mjs"
+  },
+  "invariants": [
+    "contradiction IDs are durable and explicitly retrievable",
+    "provenance keeps source plus conversation/message identity",
+    "expired memories are excluded from active search by valid_until"
+  ],
+  "exclusions": [
+    "Android",
+    "APK",
+    "MEL MINI",
+    "firmware",
+    "BLE",
+    "mobile UI"
+  ]
+}

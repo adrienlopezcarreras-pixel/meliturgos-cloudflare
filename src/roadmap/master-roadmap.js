@@ -8,7 +8,7 @@ export const ROADMAP_STATUSES = Object.freeze({
   BLOCKED_EXTERNAL: 'BLOCKED_EXTERNAL'
 });
 
-export const ROADMAP_REGISTRY_REVISION = '2026-09-26.16';
+export const ROADMAP_REGISTRY_REVISION = '2026-09-26.17';
 
 const phase = (id, title, items) => ({ id, title, items });
 const item = (id, title, status, next = '', priority = 'P2') => ({ id, title, status, next, priority });
@@ -51,7 +51,7 @@ export const MASTER_ROADMAP = Object.freeze([
 
   phase('P03', 'Mémoire personnelle et connaissance', [
     item('GEN2-09', 'Memory 2.0 cognitive', 'DONE_VERIFIED', 'Consolider MemoryService unique', 'P0'),
-    item('GEN2-10', 'Contradictions, provenance et temporalité', 'DONE', 'Rendre la résolution automatique explicable', 'P1'),
+    item('GEN2-10', 'Contradictions, provenance et temporalité', 'DONE_VERIFIED', 'Contrat courant vérifié sur le runtime: contradictions persistées et relues explicitement via findConflicts, provenance source/conversation/message conservée via getProvenance, et validité temporelle appliquée aux recherches par valid_until. La preuve dédiée est rejouée sur le main du 26/09/2026; le socle de contradiction existe depuis le commit 1a58bd3892b1dbc1b05216839b2f48abcce20f23 et a été renforcé par MEL-MEM-08 avec snapshot explicite des contradictions et provenance archive.', 'P1'),
     item('GEN2-11', 'Knowledge Graph', 'DONE', 'Lier davantage les entités aux projets et décisions', 'P1'),
     item('GEN2-12', 'Timeline personnelle', 'DONE_VERIFIED', 'Production certifiée sur SHA 78962eca11ed92710479962d7818f82b33890f20 par deploy-cloudflare-release run 36162716840: timeline.list exécuté via CapabilityBus sur D1 production, HTTP 200, résultat tableau valide et preuve GEN2-12/13/40 explicitement verte.', 'P1'),
     item('GEN2-13', 'Projects / Decisions', 'DONE_VERIFIED', 'Production certifiée sur SHA 78962eca11ed92710479962d7818f82b33890f20 par deploy-cloudflare-release run 36162716840: project.list exécuté via CapabilityBus sur D1 production, HTTP 200, résultat tableau valide et preuve GEN2-12/13/40 explicitement verte.', 'P1'),
