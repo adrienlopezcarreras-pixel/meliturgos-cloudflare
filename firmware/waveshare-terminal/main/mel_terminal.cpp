@@ -1674,6 +1674,37 @@ void mel_terminal_set_mobile_connected(bool connected) {
     }
 }
 
+static void sync_wake_phrase_profile() {
+    if (!mel_mobile_bridge_ready()) return;
+    std::string response;
+    int status = 0;
+    const esp_err_t err = http_request(
+        HTTP_METHOD_GET,
+        std::string(SERVER) + "/api/device/v1/wake-profile",
+        nullptr, nullptr, 0, response, status
+    );
+    if (err != ESP_OK || status != 200 || response.empty()) {
+        ESP_LOGW(TAG, "WAKE PROFILE sync unavailable err=%s status=%d", esp_err_to_name(err), status);
+        return;
+    }
+    cJSON *root = cJSON_Parse(response.c_str());
+    if (!root) {
+        ESP_LOGW(TAG, "WAKE PROFILE invalid JSON");
+        return;
+    }
+    cJSON *enrolled = cJSON_GetObjectItemCaseSensitive(root, "enrolled");
+    const bool ready = cJSON_IsTrue(enrolled);
+    if (ready) {
+        save_string("wake_prof", response.c_str());
+        cJSON *samples = cJSON_GetObjectItemCaseSensitive(root, "sample_count");
+        ESP_LOGI(TAG, "WAKE PROFILE synced samples=%d", cJSON_IsNumber(samples) ? samples->valueint : 0);
+    } else {
+        save_string("wake_prof", "");
+        ESP_LOGI(TAG, "WAKE PROFILE not enrolled");
+    }
+    cJSON_Delete(root);
+}
+
 static int device_session_status() {
     if (!g_cfg.token[0]) return 401;
     std::string response;
@@ -1739,6 +1770,7 @@ static void online_runtime_task(void *) {
     g_online = true;
     ui_status("");
     ui_answer("");
+    sync_wake_phrase_profile();
     if (!g_heartbeat_task_handle) {
         xTaskCreatePinnedToCore(heartbeat_task, "mel_heartbeat", 6144, nullptr, 2, &g_heartbeat_task_handle, 0);
     }
