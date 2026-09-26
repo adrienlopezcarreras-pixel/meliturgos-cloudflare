@@ -1,0 +1,134 @@
+name: gen2-33-google-oauth-state-proof
+
+on:
+  push:
+    branches:
+      - proof/gen2-33-google-oauth-state-20260926
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact proof SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Read Cloudflare secret names only
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler secret list --format json > secrets.raw.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Read sanitized Google connector state
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json --command "
+            SELECT connector_id,
+                   CASE WHEN auth_verified_at IS NOT NULL THEN 1 ELSE 0 END AS auth_verified,
+                   CASE WHEN last_error_code IS NULL OR trim(last_error_code)='' THEN 0 ELSE 1 END AS has_error
+            FROM connector_states
+            WHERE connector_id IN ('gmail','google-drive','google-calendar','google-contacts')
+            ORDER BY connector_id;
+          " > connector-states.raw.json
+
+          npx wrangler d1 execute DB --remote --json --command "
+            SELECT
+              json_extract(j.value,'$.connector_id') AS connector_id,
+              json_extract(j.value,'$.state') AS state,
+              json_extract(j.value,'$.health.status') AS health,
+              json_array_length(json_extract(j.value,'$.granted_scopes')) AS granted_scope_count
+            FROM mel_connector_catalogs AS c, json_each(c.snapshot_json,'$.installations') AS j
+            WHERE json_extract(j.value,'$.connector_id') IN ('gmail','google-drive','google-calendar','google-contacts')
+            ORDER BY connector_id;
+          " > catalog.raw.json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Build sanitized proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          expected={
+            'gmail':'GMAIL_ACCESS_TOKEN',
+            'google-drive':'GOOGLE_DRIVE_ACCESS_TOKEN',
+            'google-calendar':'GOOGLE_CALENDAR_ACCESS_TOKEN',
+            'google-contacts':'GOOGLE_CONTACTS_ACCESS_TOKEN',
+          }
+
+          secrets=json.loads(Path('secrets.raw.json').read_text())
+          names=set()
+          for item in secrets if isinstance(secrets,list) else secrets.get('secrets',[]):
+              if isinstance(item,dict):
+                  name=item.get('name')
+                  if name: names.add(str(name))
+
+          def rows(path):
+              raw=json.loads(Path(path).read_text())
+              out=[]
+              for part in raw if isinstance(raw,list) else [raw]:
+                  if isinstance(part,dict) and isinstance(part.get('results'),list):
+                      out.extend(part['results'])
+              return out
+
+          states={str(r.get('connector_id')):r for r in rows('connector-states.raw.json')}
+          catalog={str(r.get('connector_id')):r for r in rows('catalog.raw.json')}
+
+          connectors={}
+          for cid,secret in expected.items():
+              st=states.get(cid,{})
+              cat=catalog.get(cid,{})
+              connectors[cid]={
+                'secret_present': secret in names,
+                'auth_verified': int(st.get('auth_verified') or 0)==1,
+                'has_error': int(st.get('has_error') or 0)==1,
+                'catalog_state': cat.get('state'),
+                'health': cat.get('health'),
+                'granted_scope_count': int(cat.get('granted_scope_count') or 0),
+              }
+
+          gmail=connectors['gmail']
+          complete=(
+            gmail['secret_present']
+            and gmail['auth_verified']
+            and gmail['catalog_state']=='enabled'
+            and gmail['health']=='healthy'
+            and gmail['granted_scope_count']>0
+            and not gmail['has_error']
+          )
+          proof={
+            'schema':'mel.gen2-33-google-oauth-state-proof.v1',
+            'connectors':connectors,
+            'gmail_ready':complete,
+          }
+          Path('gen2-33-google-oauth-state-proof.json').write_text(json.dumps(proof,indent=2),encoding='utf-8')
+          print(json.dumps(proof,indent=2))
+          PY
+
+      - name: Upload sanitized proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-33-google-oauth-state-proof
+          path: gen2-33-google-oauth-state-proof.json
+          if-no-files-found: error
+          retention-days: 14
