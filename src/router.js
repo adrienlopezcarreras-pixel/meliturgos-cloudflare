@@ -2,6 +2,7 @@ import { conversationRoutes } from "./api/routes/conversations.js";
 import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
 import { approvedCapabilitiesFromRequest } from "./security/approval-gates.js";
 import { maybeHandleGoogleOAuthApi } from "./api/google-oauth-api.js";
+import { maybeHandleMailOAuthApi } from "./api/mail-oauth-api.js";
 import { runtimeCapabilityPermissions } from "./security/runtime-permissions.js";
 import { json, html } from "./core/http.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
@@ -68,6 +69,9 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
 
   const googleOAuthResponse = await maybeHandleGoogleOAuthApi(request, env, url);
   if (googleOAuthResponse) return googleOAuthResponse;
+
+  const mailOAuthResponse = await maybeHandleMailOAuthApi(request, env, url);
+  if (mailOAuthResponse) return mailOAuthResponse;
 
   if (path === "/api/gen2/roadmap" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });

@@ -76,11 +76,14 @@ function manifestConfig(value, connectorId) {
   const requiredScopes = uniqueStrings(value.scopes?.required || [], 'OAUTH_SCOPE_INVALID');
   const optionalScopes = uniqueStrings(value.scopes?.optional || [], 'OAUTH_SCOPE_INVALID')
     .filter(scope => !requiredScopes.includes(scope));
+  const authorizationOnlyScopes = uniqueStrings(value.scopes?.authorization_only || [], 'OAUTH_SCOPE_INVALID')
+    .filter(scope => !requiredScopes.includes(scope) && !optionalScopes.includes(scope));
   return Object.freeze({
     id: connectorId,
     version: text(value.version),
     required_scopes: requiredScopes,
     optional_scopes: optionalScopes,
+    authorization_only_scopes: authorizationOnlyScopes,
   });
 }
 
@@ -89,7 +92,11 @@ function requestedScopes(manifest, optionalRequested = []) {
   const optional = new Set(manifest.optional_scopes);
   const undeclared = requestedOptional.filter(scope => !optional.has(scope));
   requireValue(undeclared.length === 0, 'OAUTH_SCOPE_UNDECLARED', 403);
-  return [...new Set([...manifest.required_scopes, ...requestedOptional])].sort((a, b) => a.localeCompare(b));
+  return [...new Set([
+    ...manifest.required_scopes,
+    ...requestedOptional,
+    ...manifest.authorization_only_scopes,
+  ])].sort((a, b) => a.localeCompare(b));
 }
 
 function grantedScopesFromToken(tokenSet, transaction) {
@@ -105,6 +112,7 @@ function grantedScopesFromToken(tokenSet, transaction) {
   const declared = new Set([
     ...transaction.required_scopes,
     ...transaction.optional_scopes,
+    ...(transaction.authorization_only_scopes || []),
   ]);
   requireValue(scopes.every(scope => declared.has(scope)), 'OAUTH_RETURNED_SCOPE_UNDECLARED', 409);
   requireValue(
@@ -264,6 +272,8 @@ export class OAuth2PkceRuntime {
     requireValue(provider.connector_id === connectorId, 'OAUTH_PROVIDER_CONNECTOR_ID_MISMATCH', 500);
     const manifest = manifestConfig(await this.resolveManifest(connectorId, context), connectorId);
     const scopes = requestedScopes(manifest, input.optional_scopes || []);
+    const authorizationOnly = new Set(manifest.authorization_only_scopes);
+    const resourceScopes = scopes.filter(scope => !authorizationOnly.has(scope));
 
     const state = randomBase64Url(32);
     const verifier = randomBase64Url(64);
@@ -283,7 +293,8 @@ export class OAuth2PkceRuntime {
         code_verifier: verifier,
         required_scopes: [...manifest.required_scopes],
         optional_scopes: [...manifest.optional_scopes],
-        requested_scopes: scopes,
+        authorization_only_scopes: [...manifest.authorization_only_scopes],
+        requested_scopes: resourceScopes,
         redirect_uri: provider.redirect_uri,
         created_at: createdAt,
         expires_at: expiresAt,
@@ -390,7 +401,11 @@ export class OAuth2PkceRuntime {
     const transaction = {
       required_scopes: manifest.required_scopes,
       optional_scopes: manifest.optional_scopes,
-      requested_scopes: Array.isArray(current.scopes) ? current.scopes : manifest.required_scopes,
+      authorization_only_scopes: manifest.authorization_only_scopes,
+      requested_scopes: Array.isArray(current.scopes) ? current.scopes : [
+        ...manifest.required_scopes,
+        ...manifest.authorization_only_scopes,
+      ],
     };
 
     const refreshed = await this.tokenClient.refresh({
