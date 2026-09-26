@@ -2,6 +2,7 @@
 #include "mel_mobile_bridge.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <cstdio>
@@ -31,6 +32,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
+#include "freertos/semphr.h"
 
 #include "esp_es8311_port.h"
 
@@ -47,6 +49,14 @@ static const int VOICE_CAPTURE_SAMPLES = VOICE_SECONDS * VOICE_CAPTURE_RATE;
 static const int VOICE_CAPTURE_BYTES = VOICE_CAPTURE_SAMPLES * 2;
 static const int VOICE_STT_SAMPLES = VOICE_SECONDS * VOICE_STT_RATE;
 static const int VOICE_STT_BYTES = VOICE_STT_SAMPLES * 2;
+static const int WAKE_RATE = 16000;
+static const int WAKE_WINDOW_MS = 1900;
+static const int WAKE_WINDOW_SAMPLES = WAKE_RATE * WAKE_WINDOW_MS / 1000;
+static const int WAKE_HOP_MS = 500;
+static const int WAKE_HOP_SAMPLES = WAKE_RATE * WAKE_HOP_MS / 1000;
+static const int WAKE_FEATURE_SEGMENTS = 6;
+static const int WAKE_FEATURE_BANDS = 8;
+static const int WAKE_FEATURE_COUNT = WAKE_FEATURE_SEGMENTS * WAKE_FEATURE_BANDS;
 
 extern esp_codec_dev_handle_t input_dev;
 extern esp_codec_dev_handle_t output_dev;
@@ -76,6 +86,12 @@ static TaskHandle_t g_voice_task_handle = nullptr;
 static volatile bool g_voice_stop_requested = false;
 static volatile int g_voice_level = 0;
 static const char *g_last_voice_error = nullptr;
+static SemaphoreHandle_t g_mic_mutex = nullptr;
+static TaskHandle_t g_wake_task_handle = nullptr;
+static bool g_wake_profile_ready = false;
+static float g_wake_template[WAKE_FEATURE_COUNT] = {};
+static float g_wake_threshold = 0.84f;
+static int64_t g_last_wake_trigger_us = 0;
 
 static void voice_error(const char *reason) {
     g_last_voice_error = reason;
@@ -191,6 +207,162 @@ static void save_string(const char *key, const char *value) {
     nvs_set_str(nvs, key, value ? value : "");
     nvs_commit(nvs);
     nvs_close(nvs);
+}
+
+static double wake_rms(const int16_t *samples, int start, int end) {
+    if (!samples || end <= start) return 0.0;
+    double sum = 0.0;
+    for (int i = start; i < end; ++i) {
+        const double v = (double)samples[i];
+        sum += v * v;
+    }
+    return sqrt(sum / (double)(end - start));
+}
+
+static double wake_goertzel(const int16_t *samples, int start, int end, double frequency) {
+    if (!samples || end <= start) return 0.0;
+    constexpr double PI = 3.14159265358979323846;
+    const double omega = 2.0 * PI * frequency / (double)WAKE_RATE;
+    const double coeff = 2.0 * cos(omega);
+    double s1 = 0.0;
+    double s2 = 0.0;
+    for (int i = start; i < end; ++i) {
+        const double x = (double)samples[i] / 32768.0;
+        const double s0 = x + coeff * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+    }
+    const double power = s1 * s1 + s2 * s2 - coeff * s1 * s2;
+    return std::max(0.0, power / (double)(end - start));
+}
+
+static bool wake_extract_features(const int16_t *samples, int count, float out[WAKE_FEATURE_COUNT]) {
+    if (!samples || !out || count < WAKE_RATE / 2) return false;
+    constexpr int FRAME = WAKE_RATE / 50; // 20 ms
+    double peak = 0.0;
+    for (int i = 0; i + FRAME <= count; i += FRAME) {
+        peak = std::max(peak, wake_rms(samples, i, i + FRAME));
+    }
+    const double silence_threshold = std::max(160.0, peak * 0.16);
+    int first = 0;
+    while (first + FRAME <= count && wake_rms(samples, first, first + FRAME) < silence_threshold) first += FRAME;
+    int last = count;
+    while (last - FRAME >= first && wake_rms(samples, last - FRAME, last) < silence_threshold) last -= FRAME;
+    const int pad = WAKE_RATE / 20; // 50 ms
+    first = std::max(0, first - pad);
+    last = std::min(count, last + pad);
+    if (last - first < WAKE_RATE / 3) return false;
+    if (wake_rms(samples, first, last) < 180.0) return false;
+
+    static const double FREQS[WAKE_FEATURE_BANDS] = {300.0, 500.0, 750.0, 1000.0, 1400.0, 2000.0, 2800.0, 3800.0};
+    double norm = 0.0;
+    for (int segment = 0; segment < WAKE_FEATURE_SEGMENTS; ++segment) {
+        const int start = first + segment * (last - first) / WAKE_FEATURE_SEGMENTS;
+        const int end = first + (segment + 1) * (last - first) / WAKE_FEATURE_SEGMENTS;
+        for (int band = 0; band < WAKE_FEATURE_BANDS; ++band) {
+            const float value = (float)log(1.0 + wake_goertzel(samples, start, end, FREQS[band]));
+            const int index = segment * WAKE_FEATURE_BANDS + band;
+            out[index] = value;
+            norm += (double)value * value;
+        }
+    }
+    norm = sqrt(norm);
+    if (norm <= 1e-9) return false;
+    for (int i = 0; i < WAKE_FEATURE_COUNT; ++i) out[i] = (float)(out[i] / norm);
+    return true;
+}
+
+static float wake_cosine(const float *a, const float *b) {
+    double dot = 0.0, aa = 0.0, bb = 0.0;
+    for (int i = 0; i < WAKE_FEATURE_COUNT; ++i) {
+        dot += (double)a[i] * b[i];
+        aa += (double)a[i] * a[i];
+        bb += (double)b[i] * b[i];
+    }
+    if (aa <= 1e-12 || bb <= 1e-12) return 0.0f;
+    return (float)(dot / sqrt(aa * bb));
+}
+
+static void ensure_mic_mutex() {
+    if (!g_mic_mutex) g_mic_mutex = xSemaphoreCreateMutex();
+}
+
+static void wake_detector_task(void *) {
+    auto *ring = static_cast<int16_t *>(heap_caps_calloc(WAKE_WINDOW_SAMPLES, sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    auto *raw = static_cast<int16_t *>(heap_caps_malloc(WAKE_HOP_SAMPLES * 3 * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    auto *hop = static_cast<int16_t *>(heap_caps_malloc(WAKE_HOP_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!ring || !raw || !hop) {
+        if (ring) heap_caps_free(ring);
+        if (raw) heap_caps_free(raw);
+        if (hop) heap_caps_free(hop);
+        ESP_LOGE(TAG, "WAKE detector allocation failed");
+        g_wake_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    ensure_mic_mutex();
+    int filled = 0;
+    while (true) {
+        if (!g_wake_profile_ready || !g_online || !g_audio_ok || !input_dev || g_runtime_state != MEL_TERMINAL_IDLE) {
+            filled = 0;
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
+        }
+        if (!g_mic_mutex || xSemaphoreTake(g_mic_mutex, pdMS_TO_TICKS(800)) != pdTRUE) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+        esp_codec_dev_set_in_gain(input_dev, 35.0);
+        const int rc = esp_codec_dev_read(input_dev, raw, WAKE_HOP_SAMPLES * 3 * (int)sizeof(int16_t));
+        esp_codec_dev_set_in_gain(input_dev, 0.0);
+        xSemaphoreGive(g_mic_mutex);
+        if (rc != ESP_CODEC_DEV_OK) {
+            ESP_LOGW(TAG, "WAKE mic read failed rc=%d", rc);
+            filled = 0;
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
+        }
+        if (g_runtime_state != MEL_TERMINAL_IDLE) {
+            filled = 0;
+            continue;
+        }
+
+        for (int i = 0; i < WAKE_HOP_SAMPLES; ++i) {
+            const int j = i * 3;
+            int32_t v = ((int32_t)raw[j] + raw[j + 1] + raw[j + 2]) / 3;
+            v = std::max<int32_t>(-32768, std::min<int32_t>(32767, v));
+            hop[i] = (int16_t)v;
+        }
+        if (filled < WAKE_WINDOW_SAMPLES) {
+            const int copy = std::min(WAKE_HOP_SAMPLES, WAKE_WINDOW_SAMPLES - filled);
+            memcpy(ring + filled, hop, copy * sizeof(int16_t));
+            filled += copy;
+            if (filled < WAKE_WINDOW_SAMPLES) continue;
+        } else {
+            memmove(ring, ring + WAKE_HOP_SAMPLES, (WAKE_WINDOW_SAMPLES - WAKE_HOP_SAMPLES) * sizeof(int16_t));
+            memcpy(ring + WAKE_WINDOW_SAMPLES - WAKE_HOP_SAMPLES, hop, WAKE_HOP_SAMPLES * sizeof(int16_t));
+        }
+
+        float features[WAKE_FEATURE_COUNT] = {};
+        if (!wake_extract_features(ring, WAKE_WINDOW_SAMPLES, features)) continue;
+        const float score = wake_cosine(features, g_wake_template);
+        if (score > 0.65f) ESP_LOGI(TAG, "WAKE score=%.3f threshold=%.3f", score, g_wake_threshold);
+        const int64_t now = esp_timer_get_time();
+        if (score >= g_wake_threshold && now - g_last_wake_trigger_us > 5000000LL) {
+            g_last_wake_trigger_us = now;
+            filled = 0;
+            ESP_LOGI(TAG, "WAKE OK MEL detected score=%.3f", score);
+            ui_status("OUI ?");
+            mel_terminal_request_voice();
+            vTaskDelay(pdMS_TO_TICKS(900));
+        }
+    }
+}
+
+static void ensure_wake_detector() {
+    if (!g_wake_profile_ready || g_wake_task_handle) return;
+    xTaskCreatePinnedToCore(wake_detector_task, "mel_wake", 8192, nullptr, 3, &g_wake_task_handle, 0);
 }
 
 static void clear_config() {
@@ -744,6 +916,12 @@ static std::string record_and_transcribe() {
     int captured_samples = 0;
     int rc = ESP_CODEC_DEV_OK;
 
+    ensure_mic_mutex();
+    if (!g_mic_mutex || xSemaphoreTake(g_mic_mutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
+        heap_caps_free(capture);
+        voice_error("MICRO OCCUPE");
+        return "";
+    }
     esp_codec_dev_set_in_gain(input_dev, 40.0);
     while (captured_samples < VOICE_CAPTURE_SAMPLES) {
         const int remaining = VOICE_CAPTURE_SAMPLES - captured_samples;
@@ -774,6 +952,7 @@ static std::string record_and_transcribe() {
         }
     }
     esp_codec_dev_set_in_gain(input_dev, 0.0);
+    xSemaphoreGive(g_mic_mutex);
     g_voice_level = 0;
 
     if (rc != ESP_CODEC_DEV_OK) {
@@ -1695,10 +1874,35 @@ static void sync_wake_phrase_profile() {
     cJSON *enrolled = cJSON_GetObjectItemCaseSensitive(root, "enrolled");
     const bool ready = cJSON_IsTrue(enrolled);
     if (ready) {
-        save_string("wake_prof", response.c_str());
-        cJSON *samples = cJSON_GetObjectItemCaseSensitive(root, "sample_count");
-        ESP_LOGI(TAG, "WAKE PROFILE synced samples=%d", cJSON_IsNumber(samples) ? samples->valueint : 0);
+        cJSON *features = cJSON_GetObjectItemCaseSensitive(root, "features");
+        cJSON *threshold = cJSON_GetObjectItemCaseSensitive(root, "threshold");
+        const int count = cJSON_IsArray(features) ? cJSON_GetArraySize(features) : 0;
+        if (count == WAKE_FEATURE_COUNT) {
+            bool valid = true;
+            for (int i = 0; i < WAKE_FEATURE_COUNT; ++i) {
+                cJSON *item = cJSON_GetArrayItem(features, i);
+                if (!cJSON_IsNumber(item)) { valid = false; break; }
+                g_wake_template[i] = (float)item->valuedouble;
+            }
+            if (valid) {
+                g_wake_threshold = cJSON_IsNumber(threshold) ? (float)threshold->valuedouble : 0.84f;
+                g_wake_threshold = std::max(0.72f, std::min(0.96f, g_wake_threshold));
+                g_wake_profile_ready = true;
+                save_string("wake_prof", response.c_str());
+                cJSON *samples = cJSON_GetObjectItemCaseSensitive(root, "sample_count");
+                ESP_LOGI(TAG, "WAKE PROFILE synced samples=%d threshold=%.3f",
+                         cJSON_IsNumber(samples) ? samples->valueint : 0, g_wake_threshold);
+                ensure_wake_detector();
+            } else {
+                g_wake_profile_ready = false;
+                ESP_LOGW(TAG, "WAKE PROFILE contains invalid feature value");
+            }
+        } else {
+            g_wake_profile_ready = false;
+            ESP_LOGW(TAG, "WAKE PROFILE feature count=%d expected=%d", count, WAKE_FEATURE_COUNT);
+        }
     } else {
+        g_wake_profile_ready = false;
         save_string("wake_prof", "");
         ESP_LOGI(TAG, "WAKE PROFILE not enrolled");
     }
