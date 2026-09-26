@@ -35,6 +35,7 @@ class InternetService {
       content: html,
       title: this.extractTitle(html, url),
       snippet: this.extractSnippet(html),
+      image_url: this.extractImageUrl(html, url),
       source_kind: kind,
       provenance: typeof page === 'object' ? {
         source_id: page.source_id,
@@ -219,6 +220,26 @@ class InternetService {
       source.match(/<meta[^>]+content=["']([^"']+)["'][^>]*name=["']description["']/i);
     if (snippet?.[1]) return snippet[1].trim();
     return source.slice(0, 300).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150);
+  }
+
+  extractImageUrl(html, baseUrl) {
+    const source = String(html || '');
+    const patterns = [
+      /<meta[^>]+property=["']og:image(?::url)?["'][^>]*content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image(?::url)?["']/i,
+      /<meta[^>]+name=["']twitter:image(?::src)?["'][^>]*content=["']([^"']+)["']/i,
+      /<meta[^>]+content=["']([^"']+)["'][^>]*name=["']twitter:image(?::src)?["']/i,
+    ];
+    for (const pattern of patterns) {
+      const match = source.match(pattern);
+      if (!match?.[1]) continue;
+      try {
+        const candidate = new URL(match[1].trim(), baseUrl);
+        const validation = validateUrl(candidate.href);
+        if (validation.valid) return validation.url.href;
+      } catch {}
+    }
+    return null;
   }
 
   buildCitation(sources) {

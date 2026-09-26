@@ -81,6 +81,22 @@ test('depth two follows a bounded set of actual public result pages and cites th
   assert.ok(!calls.some(url => /127\.0\.0\.1/.test(url)), 'private search result must never be fetched');
 });
 
+test('page image extraction resolves and validates Open Graph and Twitter images', () => {
+  const s = service();
+  assert.equal(
+    s.extractImageUrl('<meta property="og:image" content="/media/preview.jpg">', 'https://example.com/article'),
+    'https://example.com/media/preview.jpg',
+  );
+  assert.equal(
+    s.extractImageUrl('<meta content="https://cdn.example.org/card.png" name="twitter:image">', 'https://example.com/article'),
+    'https://cdn.example.org/card.png',
+  );
+  assert.equal(
+    s.extractImageUrl('<meta property="og:image" content="http://127.0.0.1/private.jpg">', 'https://example.com/article'),
+    null,
+  );
+});
+
 test('result-link extraction unwraps search redirects, de-duplicates and refuses private or search-engine links', () => {
   const s = service();
   const html = `

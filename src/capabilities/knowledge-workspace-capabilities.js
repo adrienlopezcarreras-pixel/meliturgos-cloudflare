@@ -144,7 +144,7 @@ async function researchAndSave(env,input){
     artifact=await persistArtifact(env,{title,filename,kind:'research',query,content,category:classification.category,tags:classification.tags,verificationStatus:verification.status,sources:(research.sources||[]).map(s=>({url:s.url,title:s.title,source_kind:s.source_kind,provenance:s.provenance||null})),metadata:{research_provenance:research.provenance||null,discovery:research.discovery||null}});
     if(remember)memory=await rememberArtifact(env,artifact,{query,title,classification,verification});
   }
-  return {ok:true,query,classification,verification,research:{summary:research.summary,citation:research.citation,citations_count:research.citations_count,sources:(research.sources||[]).map(s=>({url:s.url,title:s.title,snippet:s.snippet,source_kind:s.source_kind,provenance:s.provenance||null})),provenance:research.provenance||null},artifact,memory};
+  return {ok:true,query,classification,verification,research:{summary:research.summary,citation:research.citation,citations_count:research.citations_count,sources:(research.sources||[]).map(s=>({url:s.url,title:s.title,snippet:s.snippet,image_url:s.image_url||null,source_kind:s.source_kind,provenance:s.provenance||null})),provenance:research.provenance||null},artifact,memory};
 }
 
 async function createFile(env,input){

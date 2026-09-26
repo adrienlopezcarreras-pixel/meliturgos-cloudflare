@@ -16,7 +16,7 @@ function webFetch(url){
   if(u.includes('google.com/search')||u.includes('duckduckgo.com/html')){
     return Promise.resolve(new Response('<html><head><title>Search</title></head><body><a href="https://source-a.example/doc">A</a><a href="https://source-b.example/doc">B</a></body></html>',{status:200,headers:{'content-type':'text/html'}}));
   }
-  if(u.includes('source-a.example'))return Promise.resolve(new Response('<html><head><title>A</title><meta name="description" content="preuve A"></head><body>A</body></html>',{status:200,headers:{'content-type':'text/html'}}));
+  if(u.includes('source-a.example'))return Promise.resolve(new Response('<html><head><title>A</title><meta name="description" content="preuve A"><meta property="og:image" content="/preview.jpg"></head><body>A</body></html>',{status:200,headers:{'content-type':'text/html'}}));
   if(u.includes('source-b.example'))return Promise.resolve(new Response('<html><head><title>B</title><meta name="description" content="preuve B"></head><body>B</body></html>',{status:200,headers:{'content-type':'text/html'}}));
   return Promise.resolve(new Response('<html><head><title>Other</title></head><body>Other</body></html>',{status:200,headers:{'content-type':'text/html'}}));
 }
@@ -50,6 +50,7 @@ test('native chat can research, verify, classify, create a file and remember it 
     assert.equal(data.display.items[0].url,'https://source-a.example/doc');
     assert.equal(data.display.items[0].title,'A');
     assert.equal(data.display.items[0].snippet,'preuve A');
+    assert.equal(data.display.items[0].image_url,'https://source-a.example/preview.jpg');
     const artifact=await DB.prepare('SELECT * FROM knowledge_artifacts ORDER BY created_at DESC LIMIT 1').first();
     assert.ok(artifact?.id);
     assert.equal(MEDIA_BUCKET.objects.size,1);
