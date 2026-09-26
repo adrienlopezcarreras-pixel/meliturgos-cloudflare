@@ -2618,6 +2618,8 @@ private fun CompanionPanel(
 ) {
     val bridgeState by MelBleBridgeService.bridgeState.collectAsStateWithLifecycle()
     val bleReady = bridgeState.contains("MINI CONNECTÉE") || bridgeState.contains("INTERNET OK")
+    var miniPairUser by rememberSaveable { mutableStateOf("adrien") }
+    var miniPairSecret by rememberSaveable { mutableStateOf("") }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
@@ -2669,6 +2671,46 @@ private fun CompanionPanel(
                     color = if (bridgeState.contains("INTERNET OK", ignoreCase = true)) MelSuccess else MelMuted,
                     fontSize = 12.sp
                 )
+                OutlinedTextField(
+                    value = miniPairUser,
+                    onValueChange = { miniPairUser = it },
+                    modifier = Modifier.fillMaxWidth().testTag("mini-pair-user"),
+                    label = { Text("Identifiant MEL") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = miniPairSecret,
+                    onValueChange = { miniPairSecret = it },
+                    modifier = Modifier.fillMaxWidth().testTag("mini-pair-secret"),
+                    label = { Text("Mot de passe MEL") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                )
+                Button(
+                    onClick = { onMiniPairCode(miniPairUser, miniPairSecret) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp).testTag("mini-pair-button"),
+                    enabled = !state.miniPairBusy && miniPairSecret.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MelCyan)
+                ) {
+                    Text(if (state.miniPairBusy) "GÉNÉRATION…" else "GÉNÉRER LE CODE D’APPAIRAGE", fontWeight = FontWeight.Bold)
+                }
+                state.miniPairCode?.let { code ->
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().testTag("mini-pair-code"),
+                        color = MelSuccess.copy(alpha = .10f),
+                        border = BorderStroke(1.dp, MelSuccess.copy(alpha = .30f)),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Code d’appairage MINI", color = MelMuted, fontSize = 11.sp)
+                            Text(code, color = MelInk, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                            state.miniPairExpiresAt?.let { expires ->
+                                Text("Code temporaire · expiration serveur: $expires", color = MelMuted, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
                 state.miniPairError?.let { Text(it, color = MelDanger, fontSize = 12.sp) }
             }
         }
