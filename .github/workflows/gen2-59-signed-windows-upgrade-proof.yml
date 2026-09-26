@@ -38,10 +38,12 @@ jobs:
           if(-not $cert.HasPrivateKey){throw 'GEN2_59_CERT_PRIVATE_KEY_MISSING'}
           Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $secure | Out-Null
           Export-Certificate -Cert $cert -FilePath $cer | Out-Null
-          & certutil.exe -user -f -addstore Root $cer | Out-Null
-          if($LASTEXITCODE -ne 0){throw 'GEN2_59_ROOT_TRUST_IMPORT_FAILED'}
-          Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPeople' | Out-Null
-          Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
+          $publicCert=New-Object Security.Cryptography.X509Certificates.X509Certificate2($cer)
+          foreach($storeName in @('Root','TrustedPeople','TrustedPublisher')){
+            $store=New-Object Security.Cryptography.X509Certificates.X509Store($storeName,'CurrentUser')
+            $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            try { $store.Add($publicCert) } finally { $store.Close() }
+          }
           $pfxB64=[Convert]::ToBase64String([IO.File]::ReadAllBytes($pfx))
           Write-Output "::add-mask::$password"
           Write-Output "::add-mask::$pfxB64"
