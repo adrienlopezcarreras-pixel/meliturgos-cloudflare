@@ -127,7 +127,7 @@ test('Google OAuth runtime performs PKCE callback, stores encrypted token, refre
             access_token:'access-one',
             refresh_token:'refresh-one',
             token_type:'Bearer',
-            expires_in:60,
+            expires_in:120,
             scope:'https://www.googleapis.com/auth/gmail.readonly',
           });
         }
@@ -199,7 +199,7 @@ test('Google OAuth runtime performs PKCE callback, stores encrypted token, refre
 
     assert.equal(await runtime.resolveAccessToken('gmail', ctx), 'access-one');
 
-    now += 120_000;
+    now += 70_000;
     assert.equal(await runtime.resolveAccessToken('gmail', ctx), 'access-two');
 
     const revoked = await runtime.oauth.revoke({ connector_id:'gmail' }, ctx);
