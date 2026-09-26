@@ -18,6 +18,8 @@ export const COMPUTER_ROUTES=Object.freeze({
 });
 const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome"];
 const PAIR_TTL_MS=10*60*1000;
+const MINI_ONLINE_MS=60*1000;
+const ANDROID_ONLINE_MS=35*60*1000;
 
 function json(v,s=200,h={}){return Response.json(v,{status:s,headers:{"cache-control":"no-store",...h}})}
 function safe(v,n=200){return typeof v==="string"?v.trim().slice(0,n):""}
@@ -161,15 +163,16 @@ async function computerCompanions(env){
      s.payload_json,s.updated_at
      FROM android_device_tokens t
      LEFT JOIN android_device_status s ON s.device_id=t.device_id
-     ORDER BY t.last_seen_at DESC LIMIT 20`).all();
-   for(const row of rows.results||[]){
+     ORDER BY t.last_seen_at DESC LIMIT 50`).all();
+   const androidCandidates=(rows.results||[]).map(row=>{
      let status={};try{status=JSON.parse(row.payload_json||"{}")}catch{}
-     devices.push({
+     const name=safe(row.name,80)||"MEL Android";
+     return {
        device_id:row.device_id,
-       name:safe(row.name,80)||"MEL Android",
+       name,
        model:"android-companion",
        kind:"android",
-       online:row.revoked_at==null&&now-Number(row.last_seen_at||0)<30000,
+       online:row.revoked_at==null&&now-Number(row.last_seen_at||0)<ANDROID_ONLINE_MS,
        last_seen_at:Number(row.last_seen_at||0),
        phase:safe(status.phase,40)||null,
        firmware:safe(row.app_version,80)||safe(status.app_version,80)||null,
@@ -180,12 +183,32 @@ async function computerCompanions(env){
        speaker:true,
        network:safe(status.network,40)||null,
        charging:status.charging===true,
-       live_stream:false
-     });
+       live_stream:false,
+       dedupe_key:name.toLowerCase()
+     };
+   });
+   const activeKeys=new Set(androidCandidates.filter(device=>device.online).map(device=>device.dedupe_key));
+   const keptOfflineKeys=new Set();
+   for(const candidate of androidCandidates){
+     if(candidate.online){
+       const {dedupe_key,...device}=candidate;
+       devices.push(device);
+       continue;
+     }
+     if(activeKeys.has(candidate.dedupe_key)||keptOfflineKeys.has(candidate.dedupe_key)) continue;
+     keptOfflineKeys.add(candidate.dedupe_key);
+     const {dedupe_key,...device}=candidate;
+     devices.push(device);
    }
  }catch{}
- devices.sort((a,b)=>Number(b.last_seen_at||0)-Number(a.last_seen_at||0));
- return json({ok:true,devices});
+ const miniDevices=devices.filter(device=>device.kind==="mini")
+   .sort((a,b)=>(Number(b.online)-Number(a.online))||Number(b.last_seen_at||0)-Number(a.last_seen_at||0));
+ const androidDevices=devices.filter(device=>device.kind==="android")
+   .sort((a,b)=>(Number(b.online)-Number(a.online))||Number(b.last_seen_at||0)-Number(a.last_seen_at||0));
+ const visibleDevices=[];
+ if(miniDevices[0]) visibleDevices.push(miniDevices[0]);
+ if(androidDevices[0]) visibleDevices.push(androidDevices[0]);
+ return json({ok:true,devices:visibleDevices});
 }
 async function heartbeat(request,env,a){const b=await request.json().catch(()=>({}));await env.DB.prepare("UPDATE computer_devices SET last_seen_at=?,metadata=? WHERE id=?").bind(Date.now(),JSON.stringify({version:b.version||null,hostname:b.hostname||null,user:b.user||null,screen:b.screen||null,active_window:b.active_window||null}),a.device.id).run();return json({ok:true,server_time:Date.now()})}
 async function claim(env,a){if(a.device.halted)return json({ok:true,halted:true,command:null});const r=await env.DB.prepare("SELECT * FROM computer_commands WHERE device_id=? AND status=? ORDER BY created_at ASC LIMIT 1").bind(a.device.id,"PENDING").first();if(!r)return json({ok:true,halted:false,command:null});await env.DB.prepare("UPDATE computer_commands SET status=?,claimed_at=? WHERE id=? AND status=?").bind("RUNNING",Date.now(),r.id,"PENDING").run();return json({ok:true,halted:false,command:{id:r.id,session_id:r.session_id,plan:parse(r.plan_json,{})}})}
