@@ -5,6 +5,7 @@ import { registerCapabilityAuditCapability } from '../../capabilities/capability
 import { registerDevicePolicyCapabilities } from '../../capabilities/device-policy-capabilities.js';
 import { registerGapDetectorCapability } from '../../capabilities/gap-detector-capability.js';
 import { registerWebResearchCapability } from '../../capabilities/web-research-capability.js';
+import { registerGooglePersonalAgentCapabilities } from '../../capabilities/google-personal-agent-capabilities.js';
 import { registerCodeIntegrityCapability } from '../../capabilities/code-integrity-capability.js';
 import { registerModuleProposalCapability } from '../../capabilities/module-proposal-capability.js';
 import { registerWorkIntrospectionCapabilities } from '../../capabilities/work-introspection-capabilities.js';
@@ -68,6 +69,7 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
   registerCapabilityAuditCapability(bus, env);
   registerGapDetectorCapability(bus);
   registerWebResearchCapability(bus, env);
+  registerGooglePersonalAgentCapabilities(bus, env);
   registerCodeIntegrityCapability(bus, env);
   registerModuleProposalCapability(bus);
   registerWorkIntrospectionCapabilities(bus, env);
