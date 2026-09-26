@@ -132,7 +132,7 @@ jobs:
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.4.9-voice-priority",
+              "version": "0.4.10-ble-push-audio",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",

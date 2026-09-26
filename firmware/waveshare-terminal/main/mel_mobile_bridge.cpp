@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
 #include "host/ble_att.h"
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
@@ -51,6 +52,12 @@ static uint8_t g_read_frame[520] = {};
 static size_t g_read_len = 0;
 static bool g_read_failed = false;
 static std::atomic<uint32_t> g_request_id{1};
+
+struct NotifyFrame {
+    uint16_t len = 0;
+    uint8_t data[520] = {};
+};
+static QueueHandle_t g_notify_queue = nullptr;
 
 struct ActiveResponse {
     uint32_t id = 0;
@@ -336,7 +343,16 @@ static void connect_to(const struct ble_gap_disc_desc *disc) {
         start_scan();
         return;
     }
-    int rc = ble_gap_connect(own_addr_type, &disc->addr, 15000, nullptr, gap_event, nullptr);
+    struct ble_gap_conn_params params = {};
+    params.scan_itvl = 0x0010;
+    params.scan_window = 0x0010;
+    params.itvl_min = 6;   // 7.5 ms
+    params.itvl_max = 12;  // 15 ms
+    params.latency = 0;
+    params.supervision_timeout = 256;
+    params.min_ce_len = 0;
+    params.max_ce_len = 0;
+    int rc = ble_gap_connect(own_addr_type, &disc->addr, 15000, &params, gap_event, nullptr);
     if (rc != 0) {
         ESP_LOGW(TAG, "MEL Mobile connect start failed rc=%d", rc);
         start_scan();
@@ -371,10 +387,13 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         case BLE_GAP_EVENT_NOTIFY_RX: {
             if (event->notify_rx.attr_handle != g_tx_handle || !event->notify_rx.om) return 0;
             const int len = OS_MBUF_PKTLEN(event->notify_rx.om);
-            if (len <= 0 || len > 520) return 0;
-            uint8_t buf[520];
-            if (os_mbuf_copydata(event->notify_rx.om, 0, len, buf) == 0) {
-                handle_rx_frame(buf, (size_t)len);
+            if (len <= 0 || len > 520 || !g_notify_queue) return 0;
+            NotifyFrame frame;
+            frame.len = (uint16_t)len;
+            if (os_mbuf_copydata(event->notify_rx.om, 0, len, frame.data) == 0) {
+                if (xQueueSend(g_notify_queue, &frame, 0) != pdTRUE) {
+                    ESP_LOGW(TAG, "BLE notify queue full; dropping frame");
+                }
             }
             return 0;
         }
@@ -442,8 +461,9 @@ void mel_mobile_bridge_start(void) {
     g_write_done = xSemaphoreCreateBinary();
     g_read_done = xSemaphoreCreateBinary();
     g_response_done = xSemaphoreCreateBinary();
-    if (!g_request_mutex || !g_write_done || !g_read_done || !g_response_done) {
-        ESP_LOGE(TAG, "MEL Mobile semaphore allocation failed");
+    g_notify_queue = xQueueCreate(32, sizeof(NotifyFrame));
+    if (!g_request_mutex || !g_write_done || !g_read_done || !g_response_done || !g_notify_queue) {
+        ESP_LOGE(TAG, "MEL Mobile synchronization allocation failed");
         g_started.store(false);
         return;
     }
@@ -509,6 +529,7 @@ static esp_err_t request_common(
     g_active.cb = cb;
     g_active.cb_ctx = cb_ctx;
     while (xSemaphoreTake(g_response_done, 0) == pdTRUE) {}
+    if (g_notify_queue) xQueueReset(g_notify_queue);
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "m", method == HTTP_METHOD_GET ? "GET" : "POST");
@@ -539,18 +560,35 @@ static esp_err_t request_common(
     const TickType_t wait = pdMS_TO_TICKS(120000);
     const TickType_t started = xTaskGetTickCount();
     bool completed = false;
+    bool push_mode = false;
+    NotifyFrame notify_frame;
     while ((xTaskGetTickCount() - started) < wait) {
         if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
             completed = true;
             break;
         }
         if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE) break;
-        pull_response_frame();
-        if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
-            completed = true;
-            break;
+
+        while (g_notify_queue && xQueueReceive(g_notify_queue, &notify_frame, 0) == pdTRUE) {
+            push_mode = true;
+            handle_rx_frame(notify_frame.data, notify_frame.len);
+            if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
+                completed = true;
+                break;
+            }
         }
-        vTaskDelay(pdMS_TO_TICKS(60));
+        if (completed) break;
+
+        if (!push_mode) {
+            pull_response_frame();
+            if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
+                completed = true;
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(20));
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(2));
+        }
     }
     if (!completed) {
         g_active.failed = true;

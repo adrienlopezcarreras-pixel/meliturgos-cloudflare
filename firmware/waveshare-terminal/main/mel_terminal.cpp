@@ -621,10 +621,26 @@ static bool mobile_tts_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
     if (total > 0) {
         if (ctx->first_audio) {
             ctx->first_audio = false;
-            ESP_LOGI(TAG, "VOICE PERF: TTS first-audio=%lld ms (MOBILE)",
+            ESP_LOGI(TAG, "VOICE PERF: TTS first-audio=%lld ms (MOBILE, PCM16 16k->48k)",
                      (long long)((esp_timer_get_time() - ctx->started_us) / 1000));
         }
-        if (esp_codec_dev_write(output_dev, buffer, total) != ESP_CODEC_DEV_OK) {
+        // Android bridge downsamples server PCM S16LE mono 48 kHz to 16 kHz.
+        // Repeat each sample 3x so the ES8311 48 kHz output keeps natural pitch/speed.
+        const size_t sample_count = total / 2;
+        int16_t expanded[780];
+        if (sample_count * 3 > (sizeof(expanded) / sizeof(expanded[0]))) {
+            ctx->ok = false;
+            return false;
+        }
+        size_t out = 0;
+        for (size_t i = 0; i < sample_count; ++i) {
+            const uint16_t raw = (uint16_t)buffer[i * 2] | ((uint16_t)buffer[i * 2 + 1] << 8);
+            const int16_t sample = (int16_t)raw;
+            expanded[out++] = sample;
+            expanded[out++] = sample;
+            expanded[out++] = sample;
+        }
+        if (esp_codec_dev_write(output_dev, expanded, out * sizeof(int16_t)) != ESP_CODEC_DEV_OK) {
             ctx->ok = false;
             return false;
         }
@@ -651,7 +667,7 @@ static bool speak_text(const std::string &text) {
         MobileTtsContext ctx;
         ctx.started_us = esp_timer_get_time();
         int status = 0;
-        esp_codec_dev_set_out_vol(output_dev, 100.0);
+        esp_codec_dev_set_out_vol(output_dev, 70.0);
         esp_err_t err = mel_mobile_bridge_request_stream(
             HTTP_METHOD_POST,
             "/api/device/v1/voice/tts",
