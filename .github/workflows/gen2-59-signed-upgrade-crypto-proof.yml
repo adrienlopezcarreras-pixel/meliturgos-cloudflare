@@ -1,0 +1,130 @@
+name: gen2-59-signed-upgrade-crypto-proof
+
+on:
+  push:
+    branches:
+      - proof/gen2-59-signed-upgrade-crypto-20260926
+    paths:
+      - .github/workflows/gen2-59-signed-upgrade-crypto-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    env:
+      OLD_SHA: 50b60689631da67e7633f7937dcde61a48ead8d7
+      CURRENT_SHA: b751465f13a36cb02a30c8f1fdba5637fb7de07d
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Create ephemeral Code Signing certificate
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $cert=New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=MEL GEN2-59 Crypto Proof' -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy Exportable -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(1)
+          if(-not $cert.HasPrivateKey){throw 'GEN2_59_CERT_MISSING_PRIVATE_KEY'}
+          "PROOF_THUMB=$($cert.Thumbprint)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build unsigned historical and current packages
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          git checkout --detach $env:OLD_SHA
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows-release.ps1 -Version 2.3.0 -SourceSha $env:OLD_SHA -OutputDir artifacts\old
+          Copy-Item artifacts\old\MEL-Windows-2.3.0.zip $env:RUNNER_TEMP\old.zip -Force
+          git checkout --detach $env:CURRENT_SHA
+          powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-windows-release.ps1 -Version 2.3.4 -SourceSha $env:CURRENT_SHA -OutputDir artifacts\current
+          Copy-Item artifacts\current\MEL-Windows-2.3.4.zip $env:RUNNER_TEMP\current.zip -Force
+
+      - name: Sign packages cryptographically and verify signer identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $cert=Get-Item "Cert:\CurrentUser\My\$env:PROOF_THUMB"
+          foreach($pair in @(@('old','old.zip'),@('current','current.zip'))){
+            $dir=Join-Path $env:RUNNER_TEMP $pair[0]
+            Expand-Archive (Join-Path $env:RUNNER_TEMP $pair[1]) $dir -Force
+            foreach($file in Get-ChildItem $dir -File | Where-Object { $_.Extension -in @('.exe','.ps1') }){
+              $sig=Set-AuthenticodeSignature -FilePath $file.FullName -Certificate $cert -HashAlgorithm SHA256
+              $check=Get-AuthenticodeSignature -FilePath $file.FullName
+              if(-not $check.SignerCertificate){throw "GEN2_59_SIGNATURE_MISSING:$($file.Name)"}
+              if($check.SignerCertificate.Thumbprint -ne $env:PROOF_THUMB){throw "GEN2_59_SIGNER_MISMATCH:$($file.Name)"}
+              if([string]$check.SignatureType -eq 'None'){throw "GEN2_59_SIGNATURE_TYPE_NONE:$($file.Name)"}
+            }
+          }
+
+      - name: Prove install execute and upgrade
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          Add-Type -AssemblyName System.Security
+          $oldDir=Join-Path $env:RUNNER_TEMP 'old'
+          $curDir=Join-Path $env:RUNNER_TEMP 'current'
+          $mel=Join-Path $env:LOCALAPPDATA 'MEL'
+          New-Item -ItemType Directory -Path $mel -Force | Out-Null
+          $raw=[Text.Encoding]::UTF8.GetBytes('gen2-59-proof')
+          $protected=[Security.Cryptography.ProtectedData]::Protect($raw,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+          @{server_url='http://127.0.0.1:9';computer_id='gen2-59-proof';token_protected=[Convert]::ToBase64String($protected);allowed_apps=@('notepad');allowed_paths=@($env:RUNNER_TEMP);installed_at=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()} | ConvertTo-Json -Compress | Set-Content (Join-Path $mel 'computer.json') -Encoding utf8
+
+          function StopMel {
+            Get-Process -Name 'MEL-Companion' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 500
+          }
+
+          $oldExe=Join-Path $oldDir 'MEL-Companion.exe'
+          Start-Process $oldExe -ArgumentList '--background'
+          Start-Sleep -Seconds 3
+          StopMel
+          $installed=Join-Path $mel 'MEL-Companion.exe'
+          if(-not (Test-Path $installed)){throw 'GEN2_59_OLD_INSTALL_MISSING'}
+          & $installed --self-test
+          $old=Get-Content (Join-Path $mel 'self-test.json') -Raw | ConvertFrom-Json
+          if($old.version -ne '2.3.0'){throw "GEN2_59_OLD_VERSION:$($old.version)"}
+
+          $curExe=Join-Path $curDir 'MEL-Companion.exe'
+          Start-Process $curExe -ArgumentList '--background'
+          Start-Sleep -Seconds 3
+          StopMel
+          & $installed --self-test
+          $cur=Get-Content (Join-Path $mel 'self-test.json') -Raw | ConvertFrom-Json
+          if($cur.version -ne '2.3.4'){throw "GEN2_59_CURRENT_VERSION:$($cur.version)"}
+          $expected=(Get-FileHash $curExe -Algorithm SHA256).Hash
+          $actual=(Get-FileHash $installed -Algorithm SHA256).Hash
+          if($expected -ne $actual){throw 'GEN2_59_INSTALLED_HASH_MISMATCH'}
+          $installedSig=Get-AuthenticodeSignature $installed
+          if(-not $installedSig.SignerCertificate -or $installedSig.SignerCertificate.Thumbprint -ne $env:PROOF_THUMB){throw 'GEN2_59_INSTALLED_SIGNATURE_MISSING'}
+
+          $proof=[ordered]@{
+            schema='mel.gen2-59-signed-upgrade-crypto-proof.v1'
+            old_source_sha=$env:OLD_SHA
+            current_source_sha=$env:CURRENT_SHA
+            old_version=$old.version
+            current_version=$cur.version
+            signed_builds=$true
+            signer_thumbprint_matches=$true
+            installation_verified=$true
+            execution_verified=$true
+            upgrade_verified=$true
+            installed_hash_matches_current=$true
+            public_ca_trust_claimed=$false
+          }
+          $proof | ConvertTo-Json -Depth 4 | Set-Content gen2-59-proof.json -Encoding utf8
+          $proof | ConvertTo-Json -Depth 4
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-59-signed-upgrade-crypto-proof
+          path: gen2-59-proof.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup certificate
+        if: always()
+        shell: powershell
+        run: |
+          if($env:PROOF_THUMB){Get-ChildItem Cert:\CurrentUser\My | Where-Object Thumbprint -eq $env:PROOF_THUMB | Remove-Item -Force -ErrorAction SilentlyContinue}
