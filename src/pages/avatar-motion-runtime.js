@@ -1,3 +1,4 @@
+import { AVATAR_LIPSYNC_SOURCE } from './avatar-lipsync-runtime.js';
 export const MEL_AVATAR_MOTION_STATES = Object.freeze([
   'idle',
   'listening',
@@ -35,4 +36,4 @@ window.melAvatarMotion=Object.freeze({
   transient:melAvatarTransient,
   getState:()=>melAvatarMotionState,
 });
-`;
+` + "\n" + AVATAR_LIPSYNC_SOURCE;
