@@ -194,7 +194,7 @@ jobs:
           fi
 
           python - <<'PY'
-          import json, os
+          import json, os, textwrap
           from pathlib import Path
           root=Path("artifacts/kaggle-payload")
           payload={
@@ -297,55 +297,55 @@ jobs:
                   "source":lines.splitlines(keepends=True),
               }
 
-          launcher = r'''
-import json, pathlib, subprocess, sys
-root=pathlib.Path("/kaggle/working")
-script=root/"mel-training-entry.py"
-script.write_text("${source}", encoding="utf-8")
-log=(root/"mel-training-background.log").open("w", encoding="utf-8")
-proc=subprocess.Popen(
-    [sys.executable, str(script)],
-    stdout=log,
-    stderr=subprocess.STDOUT,
-    cwd=str(root),
-    start_new_session=True,
-)
-(root/"mel-training-background.json").write_text(
-    json.dumps({"pid":proc.pid})+"\\n",
-    encoding="utf-8",
-)
-print(json.dumps({"status":"TRAINING_BACKGROUND_STARTED","pid":proc.pid}))
-'''
+          launcher = textwrap.dedent(r'''
+          import json, pathlib, subprocess, sys
+          root=pathlib.Path("/kaggle/working")
+          script=root/"mel-training-entry.py"
+          script.write_text("${source}", encoding="utf-8")
+          log=(root/"mel-training-background.log").open("w", encoding="utf-8")
+          proc=subprocess.Popen(
+              [sys.executable, str(script)],
+              stdout=log,
+              stderr=subprocess.STDOUT,
+              cwd=str(root),
+              start_new_session=True,
+          )
+          (root/"mel-training-background.json").write_text(
+              json.dumps({"pid":proc.pid})+"\\n",
+              encoding="utf-8",
+          )
+          print(json.dumps({"status":"TRAINING_BACKGROUND_STARTED","pid":proc.pid}))
+          ''')
           # Kaggle/papermill enforces a 120-second cell execution timeout even
           # when the kernel runtime cap is much larger. Keep every notebook
           # cell below that ceiling while the detached trainer continues.
-          monitor = r'''
-import json, os, pathlib, time
-root=pathlib.Path("/kaggle/working")
-exit_file=root/"mel-training-exit-code.txt"
-if not exit_file.exists():
-    time.sleep(75)
-log_file=root/"mel-training-background.log"
-tail=""
-if log_file.exists():
-    data=log_file.read_text(encoding="utf-8", errors="replace")
-    tail="\\n".join(data.splitlines()[-8:])
-print(json.dumps({"done":exit_file.exists(),"tail":tail[-4000:]}))
-'''
-          finisher = r'''
-import pathlib
-root=pathlib.Path("/kaggle/working")
-exit_file=root/"mel-training-exit-code.txt"
-if not exit_file.exists():
-    raise RuntimeError("TRAINING_BACKGROUND_TIMEOUT")
-code=int(exit_file.read_text(encoding="utf-8").strip())
-log_file=root/"mel-training-background.log"
-if log_file.exists():
-    print(log_file.read_text(encoding="utf-8", errors="replace")[-12000:])
-if code != 0:
-    raise RuntimeError(f"TRAINING_BACKGROUND_FAILED:{code}")
-print("TRAINING_BACKGROUND_COMPLETED")
-'''
+          monitor = textwrap.dedent(r'''
+          import json, os, pathlib, time
+          root=pathlib.Path("/kaggle/working")
+          exit_file=root/"mel-training-exit-code.txt"
+          if not exit_file.exists():
+              time.sleep(75)
+          log_file=root/"mel-training-background.log"
+          tail=""
+          if log_file.exists():
+              data=log_file.read_text(encoding="utf-8", errors="replace")
+              tail="\\n".join(data.splitlines()[-8:])
+          print(json.dumps({"done":exit_file.exists(),"tail":tail[-4000:]}))
+          ''')
+          finisher = textwrap.dedent(r'''
+          import pathlib
+          root=pathlib.Path("/kaggle/working")
+          exit_file=root/"mel-training-exit-code.txt"
+          if not exit_file.exists():
+              raise RuntimeError("TRAINING_BACKGROUND_TIMEOUT")
+          code=int(exit_file.read_text(encoding="utf-8").strip())
+          log_file=root/"mel-training-background.log"
+          if log_file.exists():
+              print(log_file.read_text(encoding="utf-8", errors="replace")[-12000:])
+          if code != 0:
+              raise RuntimeError(f"TRAINING_BACKGROUND_FAILED:{code}")
+          print("TRAINING_BACKGROUND_COMPLETED")
+          ''')
           wrapper = (
               "import pathlib, subprocess, sys\\n"
               "root=pathlib.Path('/kaggle/working')\\n"
