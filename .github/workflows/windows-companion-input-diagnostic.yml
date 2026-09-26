@@ -37,6 +37,18 @@ jobs:
                   rows.extend(part["results"])
           print(json.dumps(rows,indent=2,ensure_ascii=False))
           PY
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT id,last_seen_at,json_extract(metadata,'$.version') AS version,json_extract(metadata,'$.screen.width') AS screen_width,json_extract(metadata,'$.screen.height') AS screen_height,json_extract(metadata,'$.active_window') AS active_window FROM computer_devices WHERE id='-d8d34846' LIMIT 1" \
+            > heartbeat.json
+          python - <<'PY'
+          import json
+          raw=json.load(open("heartbeat.json"))
+          rows=[]
+          for part in raw if isinstance(raw,list) else [raw]:
+              if isinstance(part,dict) and isinstance(part.get("results"),list):
+                  rows.extend(part["results"])
+          print("HEARTBEAT_DIAG="+json.dumps(rows,ensure_ascii=False))
+          PY
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
