@@ -6,6 +6,7 @@ using System.Drawing;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using System.Web.Script.Serialization;
@@ -13,7 +14,7 @@ using System.Web.Script.Serialization;
 static class MelApp
 {
     public const string DefaultServer = "https://meliturgos.adrien-lopezcarreras.workers.dev";
-    public const string Version = "2.3.2";
+    public const string Version = "2.3.3";
     public static readonly string MelDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MEL");
     public static readonly string ConfigPath = Path.Combine(MelDir, "computer.json");
     public static readonly string InstalledExe = Path.Combine(MelDir, "MEL-Companion.exe");
@@ -28,6 +29,8 @@ static class MelApp
     public static string ComputerId;
     public static Process CompanionProcess;
     public static NotifyIcon Tray;
+    public static HotKeyWindow HotKey;
+    public const string HotKeyLabel = "Ctrl+Alt+M";
     public static MainForm Main;
     public static bool Exiting;
     const string CompanionB64 = "__COMPANION_B64__";
@@ -215,6 +218,7 @@ static class MelApp
         report["startup_enabled"] = StartupEnabled();
         report["installed_exe"] = File.Exists(InstalledExe);
         report["installed_engine"] = File.Exists(CompanionPath);
+        report["global_hotkey"] = HotKeyLabel;
 
         if ((bool)report["config_loaded"])
         {
@@ -329,6 +333,7 @@ static class MelApp
     {
         Exiting = true;
         if (Tray != null) { Tray.Visible = false; Tray.Dispose(); }
+        try { if (HotKey != null) { HotKey.Dispose(); HotKey = null; } } catch { }
         try { if (CompanionProcess != null && !CompanionProcess.HasExited) CompanionProcess.Kill(); } catch { }
         Application.Exit();
     }
@@ -341,6 +346,49 @@ static class MelApp
         var cmd = Path.Combine(Path.GetTempPath(), "mel-remove-" + Guid.NewGuid().ToString("N") + ".cmd");
         File.WriteAllText(cmd, "@echo off\r\ntimeout /t 2 /nobreak >nul\r\nrmdir /s /q \"" + MelDir + "\"\r\ndel \"%~f0\"\r\n", Encoding.ASCII);
         Process.Start(new ProcessStartInfo(cmd){UseShellExecute=true,WindowStyle=ProcessWindowStyle.Hidden}); Application.Exit();
+    }
+}
+
+class HotKeyWindow : NativeWindow, IDisposable
+{
+    const int WM_HOTKEY = 0x0312;
+    const int HOTKEY_ID = 0x4D45;
+    const uint MOD_ALT = 0x0001;
+    const uint MOD_CONTROL = 0x0002;
+    const uint VK_M = 0x4D;
+
+    [DllImport("user32.dll", SetLastError=true)]
+    static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll", SetLastError=true)]
+    static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    public bool Registered { get; private set; }
+
+    public HotKeyWindow()
+    {
+        CreateHandle(new CreateParams());
+        Registered = RegisterHotKey(Handle, HOTKEY_ID, MOD_CONTROL | MOD_ALT, VK_M);
+    }
+
+    protected override void WndProc(ref Message message)
+    {
+        if (message.Msg == WM_HOTKEY && message.WParam.ToInt32() == HOTKEY_ID)
+        {
+            MelApp.ShowMain();
+            return;
+        }
+        base.WndProc(ref message);
+    }
+
+    public void Dispose()
+    {
+        if (Registered)
+        {
+            try { UnregisterHotKey(Handle, HOTKEY_ID); } catch { }
+            Registered = false;
+        }
+        try { DestroyHandle(); } catch { }
     }
 }
 
@@ -414,7 +462,7 @@ class MainForm : Form
         var rePair=MelApp.TechButton("RÉAPPAIRER",480,445,110,34,false); rePair.Click+=RePair; Controls.Add(rePair);
         var uninstall=MelApp.TechButton("DÉSINSTALLER",600,445,120,34,false); uninstall.Click+=delegate{MelApp.Uninstall();}; Controls.Add(uninstall);
 
-        Controls.Add(MelApp.Label("Clic sur l’icône MEL près de l’horloge pour rouvrir ce panneau.",30,510,680,25,9,MelApp.Muted,FontStyle.Regular));
+        Controls.Add(MelApp.Label("Icône MEL près de l’horloge · Ctrl+Alt+M pour ouvrir instantanément.",30,510,680,25,9,MelApp.Muted,FontStyle.Regular));
         FormClosing += delegate(object s, FormClosingEventArgs e){ if (!MelApp.Exiting && e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();} };
         timer=new System.Windows.Forms.Timer(); timer.Interval=15000; timer.Tick+=delegate{RefreshAll();}; timer.Start(); Shown+=delegate{RefreshAll();};
     }
@@ -482,6 +530,9 @@ class Program
             var setup=new SetupForm(); if(setup.ShowDialog()!=DialogResult.OK || !MelApp.LoadConfig()) return;
         }
         MelApp.InstallFiles(MelApp.StartupEnabled()); MelApp.StartCompanion(); MelApp.BuildTray();
-        MelApp.Main=new MainForm(); if(!background) MelApp.Main.Show(); Application.Run(); mutex.ReleaseMutex();
+        MelApp.HotKey=new HotKeyWindow();
+        MelApp.Main=new MainForm(); if(!background) MelApp.Main.Show(); Application.Run();
+        try { if (MelApp.HotKey != null) MelApp.HotKey.Dispose(); } catch { }
+        mutex.ReleaseMutex();
     }
 }
