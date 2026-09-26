@@ -227,3 +227,20 @@ test('release bootstrap backend proof drills are durable and replay-safe', async
     DB.close();
   }
 });
+
+
+test('release bootstrap resolves compiled Wrangler deployment identity when env bindings are absent', () => {
+  const previousSha=globalThis.MEL_DEPLOYED_GIT_SHA;
+  const previousBranch=globalThis.MEL_DEPLOYED_GIT_BRANCH;
+  try {
+    globalThis.MEL_DEPLOYED_GIT_SHA='a'.repeat(40);
+    globalThis.MEL_DEPLOYED_GIT_BRANCH='release/mel-hardware-v0.1.0';
+    assert.equal(__launchBootstrapTest.deployedSha({}),'a'.repeat(40));
+    assert.equal(__launchBootstrapTest.deployedBranch({}),'release/mel-hardware-v0.1.0');
+  } finally {
+    if (previousSha===undefined) delete globalThis.MEL_DEPLOYED_GIT_SHA;
+    else globalThis.MEL_DEPLOYED_GIT_SHA=previousSha;
+    if (previousBranch===undefined) delete globalThis.MEL_DEPLOYED_GIT_BRANCH;
+    else globalThis.MEL_DEPLOYED_GIT_BRANCH=previousBranch;
+  }
+});
