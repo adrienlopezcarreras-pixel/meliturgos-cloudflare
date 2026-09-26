@@ -416,7 +416,7 @@ class MelBleBridgeService : Service() {
                 .put("contentType", "application/json")
                 .put("length", body.size)
             if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)) return
-            if (body.isNotEmpty() && !sendFrame(device, packet(OP_RESPONSE_BODY, request.id, body))) return
+            if (!sendBodyFrames(device, request.id, body)) return
             sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
             return
         }
@@ -443,7 +443,7 @@ class MelBleBridgeService : Service() {
                 .put("contentType", "application/json")
                 .put("length", body.size)
             if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)) return
-            if (body.isNotEmpty() && !sendFrame(device, packet(OP_RESPONSE_BODY, request.id, body))) return
+            if (!sendBodyFrames(device, request.id, body)) return
             sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
             return
         }
@@ -513,6 +513,19 @@ class MelBleBridgeService : Service() {
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun sendBodyFrames(device: BluetoothDevice, requestId: Int, body: ByteArray): Boolean {
+        if (body.isEmpty()) return true
+        val mtu = mtus[device.address] ?: 247
+        val maxPayload = (mtu - 8).coerceIn(12, 500)
+        var offset = 0
+        while (offset < body.size) {
+            val end = (offset + maxPayload).coerceAtMost(body.size)
+            if (!sendFrame(device, packet(OP_RESPONSE_BODY, requestId, body.copyOfRange(offset, end)))) return false
+            offset = end
+        }
+        return true
     }
 
     private fun sendError(device: BluetoothDevice, requestId: Int, code: String) {
