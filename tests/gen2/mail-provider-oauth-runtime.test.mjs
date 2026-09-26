@@ -38,7 +38,7 @@ test('OAuth runtime supports authorization-only scopes without requiring them in
     transactionVault:v.transactionVault,
     tokenVault:v.tokenVault,
     tokenClient:{
-      async exchange(){ return { access_token:'a', refresh_token:'r', scope:'mail.read', expires_in:3600 }; },
+      async exchange(){ return { access_token:'a', refresh_token:'r', expires_in:3600 }; },
       async refresh(){ return { access_token:'b', scope:'mail.read', expires_in:3600 }; },
       async revoke(){ return {ok:true}; },
     },
