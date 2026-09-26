@@ -3,6 +3,7 @@ import { buildContext } from '../core/orchestrator/context-builder.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { requireAuth, isReleaseSmokeRequest } from '../core/security.js';
 import { approvedCapabilitiesFromRequest } from '../security/approval-gates.js';
+import { runtimeCapabilityPermissions } from '../security/runtime-permissions.js';
 import { ModelRouter, classifyTask, extractFinishReason, isTruncationFinishReason } from '../models/ModelRouter.js';
 import { ModelRegistry, standardRegistry } from '../models/ModelRegistry.js';
 import { D1ModelPerformanceStore } from '../models/model-performance-store.js';
@@ -523,7 +524,7 @@ export function createNativeModelRouter(env, inferenceSettings = null, activeAda
 function nativeCapabilityContext(env, request = null) {
   return {
     owner: env.MELITURGOS_USER || 'owner',
-    permissions: env.CAPABILITY_PERMISSIONS || [],
+    permissions: runtimeCapabilityPermissions(env),
     approvedCapabilities: approvedCapabilitiesFromRequest(request),
     requestId: crypto.randomUUID(),
   };
