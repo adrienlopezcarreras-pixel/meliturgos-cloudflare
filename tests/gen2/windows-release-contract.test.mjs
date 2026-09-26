@@ -24,7 +24,10 @@ test('GEN2-59 signing is secret-backed and happens before release hashing', asyn
   assert.match(build, /MEL_WINDOWS_SIGNING_PFX_PASSWORD/);
   assert.ok(build.indexOf('sign-windows-release.ps1') < build.indexOf('$manifestFiles = @()'));
   assert.match(sign, /Set-AuthenticodeSignature/);
-  assert.match(sign, /EphemeralKeySet/);
+  assert.doesNotMatch(sign, /EphemeralKeySet/);
+  assert.match(sign, /X509KeyStorageFlags\]::UserKeySet/);
+  assert.match(sign, /X509KeyStorageFlags\]::Exportable/);
+  assert.match(sign, /\.Dispose\(\)/);
   assert.match(sign, /WINDOWS_SIGN_PRIVATE_KEY_MISSING/);
   assert.match(sign, /Remove-Item -Force \$tempPfx/);
 });
