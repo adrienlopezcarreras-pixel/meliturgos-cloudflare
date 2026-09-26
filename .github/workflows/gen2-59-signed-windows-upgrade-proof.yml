@@ -38,6 +38,7 @@ jobs:
           if(-not $cert.HasPrivateKey){throw 'GEN2_59_CERT_PRIVATE_KEY_MISSING'}
           Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $secure | Out-Null
           Export-Certificate -Cert $cert -FilePath $cer | Out-Null
+          Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
           Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPeople' | Out-Null
           Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
           $pfxB64=[Convert]::ToBase64String([IO.File]::ReadAllBytes($pfx))
