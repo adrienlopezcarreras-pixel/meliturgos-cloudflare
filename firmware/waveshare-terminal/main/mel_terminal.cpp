@@ -641,6 +641,12 @@ static bool speak_text(const std::string &text) {
     std::string body = json_string(root);
     cJSON_Delete(root);
 
+    if (!mel_mobile_bridge_ready() && g_mobile_connected && !g_wifi_connected) {
+        ESP_LOGI(TAG, "MEL MOBILE reconnect grace before TTS");
+        ui_status("RECONNEXION...");
+        wait_for_mobile_bridge_ready(8000);
+    }
+
     if (mel_mobile_bridge_ready()) {
         MobileTtsContext ctx;
         ctx.started_us = esp_timer_get_time();
@@ -662,6 +668,11 @@ static bool speak_text(const std::string &text) {
         const bool ok = err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry;
         if (!ok) ESP_LOGW(TAG, "MOBILE TTS failed err=%s status=%d", esp_err_to_name(err), status);
         return ok;
+    }
+
+    if (!g_wifi_connected) {
+        ESP_LOGW(TAG, "TTS unavailable: MEL MOBILE offline and Wi-Fi unavailable");
+        return false;
     }
 
     std::string url = std::string(SERVER) + "/api/device/v1/voice/tts";
@@ -1304,7 +1315,9 @@ static void voice_task(void *) {
              (unsigned)answer.size(), (unsigned)reply.display_items.size());
     g_runtime_state = MEL_TERMINAL_SPEAKING;
     ui_status("MEL PARLE");
-    ui_answer("");
+    std::string visible_answer = answer;
+    if (visible_answer.size() > 500) visible_answer.resize(500);
+    ui_answer(visible_answer.c_str());
     const int64_t tts_started_us = esp_timer_get_time();
     const bool spoken = speak_text(answer);
     ESP_LOGI(TAG, "VOICE PERF: TTS+PLAY=%lld ms", (long long)((esp_timer_get_time() - tts_started_us) / 1000));
