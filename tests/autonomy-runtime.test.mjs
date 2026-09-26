@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
-import { runAutonomyRuntimeTick } from '../src/evolution/autonomy-runtime.js';
+import { runAutonomyRuntimeTick as runAutonomyRuntimeTickRaw } from '../src/evolution/autonomy-runtime.js';
 import { selectNextAutonomyItem } from '../src/evolution/autonomy-supervisor.js';
 
 process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
@@ -9,9 +9,18 @@ process.env.MEL_TEST_VERIFIED_ZERO_COST_PROVIDERS = '1';
 const CANDIDATE_HEAD_SHA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const NEW_CANDIDATE_HEAD_SHA = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const THIRD_CANDIDATE_HEAD_SHA = 'cccccccccccccccccccccccccccccccccccccccc';
-const FIRST_AUTONOMY_ID = selectNextAutonomyItem()?.id;
-const SECOND_AUTONOMY_ID = selectNextAutonomyItem({ completedIds: [FIRST_AUTONOMY_ID] })?.id;
-const THIRD_AUTONOMY_ID = selectNextAutonomyItem({ completedIds: [FIRST_AUTONOMY_ID, SECOND_AUTONOMY_ID] })?.id;
+const TEST_ROADMAP = Object.freeze([
+  { id: 'TEST-AUTONOMY-01', title: 'Synthetic autonomy item 1', status: 'IN_PROGRESS', next: 'test', priority: 'P0' },
+  { id: 'TEST-AUTONOMY-02', title: 'Synthetic autonomy item 2', status: 'PARTIAL', next: 'test', priority: 'P0' },
+  { id: 'TEST-AUTONOMY-03', title: 'Synthetic autonomy item 3', status: 'PLANNED', next: 'test', priority: 'P0' },
+]);
+const FIRST_AUTONOMY_ID = selectNextAutonomyItem({ roadmap: TEST_ROADMAP })?.id;
+const SECOND_AUTONOMY_ID = selectNextAutonomyItem({ roadmap: TEST_ROADMAP, completedIds: [FIRST_AUTONOMY_ID] })?.id;
+const THIRD_AUTONOMY_ID = selectNextAutonomyItem({ roadmap: TEST_ROADMAP, completedIds: [FIRST_AUTONOMY_ID, SECOND_AUTONOMY_ID] })?.id;
+
+async function runAutonomyRuntimeTick(env, options = {}) {
+  return runAutonomyRuntimeTickRaw(env, { ...options, roadmap: TEST_ROADMAP });
+}
 
 function runtimeFixture() {
   let replies = '';
