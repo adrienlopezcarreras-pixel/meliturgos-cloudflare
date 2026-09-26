@@ -32,8 +32,9 @@ export async function runRecoveryDrillAgainstSnapshot(snapshot, {
   owner = false,
   approved = false,
   now = () => new Date().toISOString(),
+  verifyCandidate = verifyRestoreCandidate,
 } = {}) {
-  const verification = await verifyRestoreCandidate(snapshot);
+  const verification = await verifyCandidate(snapshot);
   requireValue(verification?.ok === true, verification?.code || 'RESTORE_CANDIDATE_INVALID', 409);
   const logicalRestore = reconstructLogicalState(verification, snapshot);
   requireValue(logicalRestore.ok === true, logicalRestore.code || 'D1_LOGICAL_RECONSTRUCTION_FAILED', 409);
@@ -89,17 +90,27 @@ export async function runRecoveryDrillAgainstSnapshot(snapshot, {
       async stage(payload) {
         requireValue(payload?.environment?.isolated === true, 'RECOVERY_DRILL_ISOLATION_REQUIRED');
         requireValue(payload?.environment?.production_access === false, 'RECOVERY_DRILL_PRODUCTION_ACCESS_FORBIDDEN');
-        staged = { snapshot: structuredClone(snapshot), verification: structuredClone(verification) };
+        // The full snapshot has already passed cryptographic/integrity verification
+        // before staging. Do not clone and re-hash the entire production backup
+        // inside a single Worker request: real snapshots can be large enough to
+        // exceed Cloudflare CPU limits. Stage only the verified evidence needed
+        // for the isolated logical drill.
+        staged = {
+          snapshot_id: snapshot.id,
+          integrity_sha256: snapshot.integritySha256,
+          verification_ok: verification.ok === true,
+          runtime_sha: String(verification.runtime?.deployedGitSha || ''),
+          r2_object_count: Number(verification.r2?.objectCount ?? -1),
+          logical_restore_ok: logicalRestore.ok === true,
+        };
       },
       async validate() {
         requireValue(staged, 'RECOVERY_DRILL_STAGE_REQUIRED');
-        const repeated = await verifyRestoreCandidate(staged.snapshot);
-        const repeatedLogical = reconstructLogicalState(repeated, staged.snapshot);
         const checks = [
-          { id: 'snapshot-integrity', ok: repeated.ok === true },
-          { id: 'd1-logical-state', ok: repeatedLogical.ok === true },
-          { id: 'r2-inventory', ok: repeated.r2?.objectCount >= 0 },
-          { id: 'runtime-descriptor', ok: SHA_RE.test(String(repeated.runtime?.deployedGitSha || '')) },
+          { id: 'snapshot-integrity', ok: staged.verification_ok === true && Boolean(staged.integrity_sha256) },
+          { id: 'd1-logical-state', ok: staged.logical_restore_ok === true },
+          { id: 'r2-inventory', ok: staged.r2_object_count >= 0 },
+          { id: 'runtime-descriptor', ok: SHA_RE.test(staged.runtime_sha) },
           { id: 'activation-forbidden', ok: true },
         ];
         return { ok: checks.every((row) => row.ok), checks };

@@ -49,7 +49,12 @@ async function snapshotFixture() {
 }
 test('GEN2-48 runtime drill reconstructs verified logical state without production activation', async () => {
   const snapshot = await snapshotFixture();
+  let verifyCalls = 0;
   const report = await runRecoveryDrillAgainstSnapshot(snapshot, {
+    verifyCandidate: async (value) => {
+      verifyCalls += 1;
+      return (await import('../../src/backup/restore-service.js')).verifyRestoreCandidate(value);
+    },
     owner: true,
     approved: true,
     now: () => '2026-09-25T12:05:00.000Z',
@@ -66,6 +71,7 @@ test('GEN2-48 runtime drill reconstructs verified logical state without producti
   assert.equal(report.teardown_completed, true);
   assert.equal(report.deployed_sha, 'a'.repeat(40));
   assert.ok(report.checks.every((row) => row.ok));
+  assert.equal(verifyCalls, 1);
 });
 
 test('GEN2-48 runtime drill requires explicit approval even though it is non-destructive', async () => {
