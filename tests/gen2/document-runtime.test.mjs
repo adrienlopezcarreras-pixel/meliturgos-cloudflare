@@ -214,3 +214,59 @@ test('GEN2-24 createDocumentAdapters exposes the bounded runtime behind stable p
   assert.equal(index.chunk_count,1);
   assert.equal(index.chunks[0].text,'Portable document text');
 });
+
+
+test('GEN2-24 parser failures are normalized without leaking adapter exceptions', async () => {
+  const runtime = createDocumentRuntime({
+    pdfParser: async () => { throw new Error('sensitive adapter detail'); },
+  });
+  await assert.rejects(
+    () => runtime.extract({
+      bytes:encoder.encode('%PDF-1.4\nmock'),
+      name:'broken.pdf',
+      mime:'application/pdf',
+    }),
+    {code:'DOCUMENT_PARSER_FAILED',status:502},
+  );
+});
+
+test('GEN2-24 parser execution is bounded by timeout and caller abort', async () => {
+  const runtime = createDocumentRuntime({
+    pdfParser: async () => new Promise(() => {}),
+    parserTimeoutMs:100,
+  });
+  await assert.rejects(
+    () => runtime.extract({
+      bytes:encoder.encode('%PDF-1.4\nmock'),
+      name:'slow.pdf',
+      mime:'application/pdf',
+    }),
+    {code:'DOCUMENT_PARSER_TIMEOUT',status:504},
+  );
+
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    () => runtime.extract({
+      bytes:encoder.encode('%PDF-1.4\nmock'),
+      name:'aborted.pdf',
+      mime:'application/pdf',
+    }, {signal:controller.signal}),
+    {code:'DOCUMENT_PARSER_ABORTED',status:499},
+  );
+});
+
+test('GEN2-24 excessive parser pages are bounded and explicitly reported', async () => {
+  const pages = Array.from({length:5001}, (_, index) => ({page_number:index+1,text:'page '+(index+1)}));
+  const runtime = createDocumentRuntime({
+    pdfParser: async () => ({pages}),
+  });
+  const result = await runtime.extract({
+    bytes:encoder.encode('%PDF-1.4\nmock'),
+    name:'huge.pdf',
+    mime:'application/pdf',
+  });
+  assert.equal(result.pages.length,5000);
+  assert.equal(result.page_count,5000);
+  assert.ok(result.warnings.includes('DOCUMENT_PAGES_TRUNCATED:5001->5000'));
+});
