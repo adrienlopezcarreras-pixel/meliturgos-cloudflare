@@ -18,6 +18,11 @@ on:
         required: true
         default: "180"
         type: string
+      existing_finetune_id:
+        description: "Optional already-uploaded Cloudflare finetune id for recovery/benchmark-only runs"
+        required: false
+        default: ""
+        type: string
 permissions:
   contents: read
 
@@ -173,8 +178,29 @@ jobs:
           console.log(JSON.stringify({status:'KAGGLE_BUNDLE_VERIFIED',artifact_digest:checked.digest,examples:training?.dataset?.examples},null,2));
           NODE
 
+      - name: Attach pre-uploaded Cloudflare finetune
+        if: steps.status.outputs.complete == 'true' && inputs.existing_finetune_id != ''
+        shell: bash
+        env:
+          BUNDLE_DIR: ${{ steps.locate.outputs.dir }}
+          EXISTING_FINETUNE_ID: ${{ inputs.existing_finetune_id }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const dir=process.env.BUNDLE_DIR;
+          const id=String(process.env.EXISTING_FINETUNE_ID||'').trim();
+          if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{5,127}$/.test(id)) throw new Error('INVALID_EXISTING_FINETUNE_ID');
+          const path=dir+'/artifact-evidence.json';
+          const artifact=JSON.parse(fs.readFileSync(path,'utf8'));
+          if (artifact.finetune_id) throw new Error('KAGGLE_ARTIFACT_ALREADY_HAS_FINETUNE_ID');
+          artifact.finetune_id=id;
+          artifact.uri='cloudflare-finetune:'+id;
+          fs.writeFileSync(path,JSON.stringify(artifact,null,2)+'\n');
+          console.log(JSON.stringify({status:'EXISTING_FINETUNE_ATTACHED',finetune_id:id,artifact_digest:artifact.digest},null,2));
+          NODE
+
       - name: Upload exact adapter to Cloudflare fine-tunes
-        if: steps.status.outputs.complete == 'true'
+        if: steps.status.outputs.complete == 'true' && inputs.existing_finetune_id == ''
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -229,6 +255,7 @@ jobs:
             artifacts/kaggle-output/**/lora-plan.json
             artifacts/kaggle-output/**/dataset-metadata.json
             artifacts/kaggle-output/**/kaggle-run.json
+            artifacts/kaggle-output/**/approval-evidence.json
             artifacts/finalize-result.json
           if-no-files-found: warn
           retention-days: 14
