@@ -1,6 +1,7 @@
 package fr.veriteinterdite.mel
 
 import android.Manifest
+import android.app.ActivityManager
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.ClipData
