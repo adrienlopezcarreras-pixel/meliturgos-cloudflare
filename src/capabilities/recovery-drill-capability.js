@@ -1,4 +1,5 @@
 import { createR2D1BackupStorage } from '../backup/system-backup-runtime.js';
+import { createEnvBackupEncryptionCodec } from '../backup/encrypted-backup-storage.js';
 import { verifyRestoreCandidate } from '../backup/restore-service.js';
 import { requireValue } from '../core/contracts.js';
 import { RecoveryBundleBuilder } from '../resilience/recovery-bundle.js';
@@ -171,7 +172,20 @@ export function registerRecoveryDrillCapability(bus, env = {}) {
     requireValue(input?.approved === true, 'RECOVERY_DRILL_EXPLICIT_APPROVAL_REQUIRED', 403);
     requireValue(env?.DB?.prepare, 'BACKUP_DB_UNAVAILABLE', 503);
     requireValue(env?.MEDIA_BUCKET?.get, 'BACKUP_R2_UNAVAILABLE', 503);
-    const storage = createR2D1BackupStorage({ db: env.DB, bucket: env.MEDIA_BUCKET });
+    const encryptionKeyId = String(env?.MEL_BACKUP_ENCRYPTION_KEY_ID || '').trim();
+    const encryptionKey = String(env?.MEL_BACKUP_ENCRYPTION_KEY_B64 || '').trim();
+    const encryptionRequested = Boolean(encryptionKeyId || encryptionKey);
+    requireValue(
+      !encryptionRequested || Boolean(encryptionKeyId && encryptionKey),
+      'BACKUP_ENCRYPTION_CONFIG_INCOMPLETE',
+      503,
+    );
+    const encryptionCodec = encryptionRequested ? createEnvBackupEncryptionCodec(env) : null;
+    const storage = createR2D1BackupStorage({
+      db: env.DB,
+      bucket: env.MEDIA_BUCKET,
+      encryptionCodec,
+    });
     let snapshotId = String(input.snapshot_id || '').trim();
     if (!snapshotId) {
       const latest = (await storage.list({ limit: 1 }))[0] || null;
