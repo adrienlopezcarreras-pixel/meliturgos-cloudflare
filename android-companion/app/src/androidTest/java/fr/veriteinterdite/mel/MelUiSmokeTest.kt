@@ -32,8 +32,7 @@ class MelUiSmokeTest {
     @Test
     fun completeModeIsNativeAndExposesToolsWithoutBrowser() {
         compose.onNodeWithTag("settings-button").performClick()
-        compose.onNodeWithTag("settings-tools").performScrollTo().performClick()
-        compose.onNodeWithText("Complet").performScrollTo().performClick()
+        compose.onNodeWithTag("settings-mode").performScrollTo().performClick()
         compose.onNodeWithText("PROFESSOR / MODE COMPLET NATIF").assertIsDisplayed()
         compose.onNodeWithText("Synchroniser").assertIsDisplayed()
         compose.onNodeWithText("Arrière-plan / notifications").assertIsDisplayed()
