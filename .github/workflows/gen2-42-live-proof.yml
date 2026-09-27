@@ -180,6 +180,7 @@ jobs:
                   'completion_ci_run_id': row.get('completion_ci_run_id'),
                   'implementation_code': row.get('implementation_code'),
                   'bridge_code': row.get('bridge_code'),
+            'mentor_failure_codes': json.loads(row.get('mentor_failure_codes')) if row.get('mentor_failure_codes') else [],
                   'implementation_status': row.get('implementation_status'),
                   'bridge_package_status': row.get('bridge_package_status'),
                   'runtime_retry_attempts': row.get('runtime_retry_attempts'),
