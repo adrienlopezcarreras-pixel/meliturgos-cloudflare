@@ -104,6 +104,7 @@ jobs:
           [[ "$SHARD_SIZE" =~ ^[0-9]+$ ]] || { echo "INVALID_SHARD_SIZE"; exit 1; }
           [[ "$MAX_CYCLES" =~ ^[0-9]+$ ]] || { echo "INVALID_MAX_CYCLES"; exit 1; }
           (( SHARD_SIZE >= 50 && SHARD_SIZE <= 3000 )) || { echo "SHARD_SIZE_OUT_OF_RANGE"; exit 1; }
+          if [[ "$SMOKE_ONLY" == "true" && "$SHARD_SIZE" -lt 92 ]]; then SHARD_SIZE="92"; fi
           (( MAX_CYCLES >= 1 && MAX_CYCLES <= 100 )) || { echo "MAX_CYCLES_OUT_OF_RANGE"; exit 1; }
 
           PAYLOAD_SLUG="mel-lora-cycle-payload-${SOURCE_SHA:0:12}-c$(printf '%03d' "$CYCLE")"
