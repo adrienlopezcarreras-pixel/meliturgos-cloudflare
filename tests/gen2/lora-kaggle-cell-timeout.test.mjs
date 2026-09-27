@@ -19,7 +19,13 @@ test('Kaggle LoRA notebook stays observable, bounded and fails stalled backgroun
   assert.match(workflow,/TRAINING_BACKGROUND_COMPLETED/);
   assert.doesNotMatch(workflow,/\"source\":source\.splitlines\(keepends=True\)/);
 
-  assert.match(kernel,/CYCLE_MAX_STEPS = 32/);
+  assert.match(kernel,/CYCLE_MAX_STEPS = int\("__MEL_MAX_STEPS__"\)/);
+  assert.match(kernel,/SMOKE_ONLY = "__MEL_SMOKE_ONLY__"\.lower\(\) == "true"/);
+  assert.match(workflow,/MAX_STEPS="32"/);
+  assert.match(workflow,/SMOKE_ONLY/);
+  assert.match(workflow,/MAX_STEPS="1"/);
+  assert.match(workflow,/if: env\.SMOKE_ONLY != 'true'/);
+  assert.match(kernel,/KAGGLE_SINGLE_STEP_SMOKE_PASSED/);
   assert.match(kernel,/--max-steps", str\(CYCLE_MAX_STEPS\)/);
   assert.match(kernel,/TRAINING_COMMAND_START/);
   assert.match(trainer,/MEL_TRAINING_STAGE/);
