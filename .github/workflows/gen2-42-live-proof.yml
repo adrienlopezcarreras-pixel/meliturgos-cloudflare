@@ -58,7 +58,7 @@ jobs:
             > watch-state.raw.json
 
           npx wrangler d1 execute DB --remote --json \
-            --command "SELECT id,status,requested_by,updated_at,error,json_extract(optional_context,'$.source') AS source,json_extract(optional_context,'$.request_key') AS request_key,json_extract(optional_context,'$.roadmap_id') AS roadmap_id,json_extract(optional_context,'$.discovery_evidence.fingerprint') AS discovery_fingerprint,json_extract(result_json,'$.teacher_bridge.status') AS teacher_status,json_extract(result_json,'$.teacher_bridge.request.request_id') AS teacher_request_id,json_extract(result_json,'$.teacher_bridge.review.verdict') AS teacher_verdict,json_extract(result_json,'$.autonomy_completion.status') AS completion_status,json_extract(result_json,'$.autonomy_completion.candidate_sha') AS completion_candidate_sha,json_extract(result_json,'$.autonomy_completion.ci.run_id') AS completion_ci_run_id FROM dev_jobs WHERE requested_by='mel-autonomy' OR id LIKE 'ecosystem-watch-%' ORDER BY updated_at DESC LIMIT 100" \
+            --command "SELECT id,status,requested_by,updated_at,error,json_extract(optional_context,'$.source') AS source,json_extract(optional_context,'$.request_key') AS request_key,json_extract(optional_context,'$.roadmap_id') AS roadmap_id,json_extract(optional_context,'$.discovery_evidence.fingerprint') AS discovery_fingerprint,json_extract(result_json,'$.teacher_bridge.status') AS teacher_status,json_extract(result_json,'$.teacher_bridge.request.request_id') AS teacher_request_id,json_extract(result_json,'$.teacher_bridge.review.verdict') AS teacher_verdict,json_extract(result_json,'$.autonomy_completion.status') AS completion_status,json_extract(result_json,'$.autonomy_completion.candidate_sha') AS completion_candidate_sha,json_extract(result_json,'$.autonomy_completion.ci.run_id') AS completion_ci_run_id,json_extract(result_json,'$.implementation_planning_diagnostic.code') AS implementation_code,json_extract(result_json,'$.bridge_preparation_diagnostic.code') AS bridge_code FROM dev_jobs WHERE requested_by='mel-autonomy' OR id LIKE 'ecosystem-watch-%' ORDER BY updated_at DESC LIMIT 100" \
             > dev-jobs.raw.json
 
           npx wrangler d1 execute DB --remote --json \
@@ -172,6 +172,8 @@ jobs:
                   'completion_status': row.get('completion_status'),
                   'completion_candidate_sha': row.get('completion_candidate_sha'),
                   'completion_ci_run_id': row.get('completion_ci_run_id'),
+                  'implementation_code': row.get('implementation_code'),
+                  'bridge_code': row.get('bridge_code'),
               })
 
           ecosystem_jobs = [j for j in jobs if j.get('source') == 'ecosystem-watch' or j.get('id') in handoff_job_ids]
@@ -227,6 +229,7 @@ jobs:
               'active_handoffs': len(active_items),
               'verified_completions': len(completed_items),
               'ecosystem_jobs': len(ecosystem_jobs),
+              'ecosystem_job_summaries': ecosystem_jobs[:40],
               'active_handoff_summaries': [
                   {
                       'fingerprint': x.get('fingerprint'),
