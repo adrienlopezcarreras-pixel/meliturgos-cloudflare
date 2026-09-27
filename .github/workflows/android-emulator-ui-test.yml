@@ -4,6 +4,8 @@ on:
   pull_request:
     branches:
       - candidate/mel-clean-autonomy
+      - main
+      - fix/mini-wav-tts-contract-20260928
     paths:
       - "android-companion/**"
       - ".github/workflows/android-emulator-ui-test.yml"
