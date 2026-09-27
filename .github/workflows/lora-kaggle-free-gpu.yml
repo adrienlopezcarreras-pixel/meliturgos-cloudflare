@@ -43,6 +43,11 @@ on:
         required: true
         default: false
         type: boolean
+      smoke_only:
+        description: "Run exactly one optimizer step and stop before checkpoint/benchmark/promotion"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -81,6 +86,7 @@ jobs:
           INPUT_SHARD_SIZE: ${{ inputs.shard_size }}
           INPUT_MAX_CYCLES: ${{ inputs.max_cycles }}
           INPUT_BENCHMARK_PREVIEW: ${{ inputs.benchmark_preview }}
+          INPUT_SMOKE_ONLY: ${{ inputs.smoke_only }}
         run: |
           set -euo pipefail
           SOURCE_SHA="${INPUT_SOURCE_SHA:-$GITHUB_SHA}"
@@ -89,12 +95,16 @@ jobs:
           SHARD_SIZE="${INPUT_SHARD_SIZE:-750}"
           MAX_CYCLES="${INPUT_MAX_CYCLES:-100}"
           BENCHMARK_PREVIEW="${INPUT_BENCHMARK_PREVIEW:-false}"
+          SMOKE_ONLY="${INPUT_SMOKE_ONLY:-false}"
+          MAX_STEPS="32"
+          if [[ "$SMOKE_ONLY" == "true" ]]; then MAX_STEPS="1"; fi
 
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "INVALID_SOURCE_SHA"; exit 1; }
           [[ "$CYCLE" =~ ^[0-9]+$ ]] || { echo "INVALID_CYCLE"; exit 1; }
           [[ "$SHARD_SIZE" =~ ^[0-9]+$ ]] || { echo "INVALID_SHARD_SIZE"; exit 1; }
           [[ "$MAX_CYCLES" =~ ^[0-9]+$ ]] || { echo "INVALID_MAX_CYCLES"; exit 1; }
           (( SHARD_SIZE >= 50 && SHARD_SIZE <= 3000 )) || { echo "SHARD_SIZE_OUT_OF_RANGE"; exit 1; }
+          if [[ "$SMOKE_ONLY" == "true" && "$SHARD_SIZE" -lt 92 ]]; then SHARD_SIZE="92"; fi
           (( MAX_CYCLES >= 1 && MAX_CYCLES <= 100 )) || { echo "MAX_CYCLES_OUT_OF_RANGE"; exit 1; }
 
           PAYLOAD_SLUG="mel-lora-cycle-payload-${SOURCE_SHA:0:12}-c$(printf '%03d' "$CYCLE")"
@@ -105,6 +115,8 @@ jobs:
           echo "SHARD_SIZE=$SHARD_SIZE" >> "$GITHUB_ENV"
           echo "MAX_CYCLES=$MAX_CYCLES" >> "$GITHUB_ENV"
           echo "BENCHMARK_PREVIEW=$BENCHMARK_PREVIEW" >> "$GITHUB_ENV"
+          echo "SMOKE_ONLY=$SMOKE_ONLY" >> "$GITHUB_ENV"
+          echo "MAX_STEPS=$MAX_STEPS" >> "$GITHUB_ENV"
 
       - name: Checkout exact training SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -282,6 +294,8 @@ jobs:
               "__MEL_GIT_SHA__":os.environ["SOURCE_SHA"],
               "__MEL_CYCLE__":os.environ["CYCLE"],
               "__MEL_SHARD_SIZE__":os.environ["SHARD_SIZE"],
+              "__MEL_MAX_STEPS__":os.environ["MAX_STEPS"],
+              "__MEL_SMOKE_ONLY__":os.environ["SMOKE_ONLY"],
           }
           for key,value in replacements.items():
               source=source.replace(key,value)
@@ -533,6 +547,7 @@ jobs:
           [[ "$COMPLETE" == "1" ]] || { echo "KAGGLE_GPU_RUN_TIMEOUT"; exit 1; }
 
       - name: Download trained bundle
+        if: env.SMOKE_ONLY != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -549,6 +564,7 @@ jobs:
           cp artifacts/lora-incoming/kaggle-run.json artifacts/kaggle-run.json
 
       - name: Validate exact provenance
+        if: env.SMOKE_ONLY != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -578,6 +594,7 @@ jobs:
           NODE
 
       - name: Save immutable checkpoint release
+        if: env.SMOKE_ONLY != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -591,7 +608,7 @@ jobs:
           fi
 
       - name: Create zero-cost training result
-        if: env.BENCHMARK_PREVIEW != 'true'
+        if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW != 'true'
         shell: bash
         run: |
           python - <<'PY'
@@ -616,7 +633,7 @@ jobs:
           PY
 
       - name: Upload adapter to Cloudflare open-beta LoRA
-        if: env.BENCHMARK_PREVIEW == 'true'
+        if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -624,7 +641,7 @@ jobs:
           node scripts/approve-lora-artifact.mjs             --dir artifacts/lora-incoming             --approval-id "kaggle-${GITHUB_RUN_ID}-c${CYCLE}"
 
       - name: Benchmark isolated preview
-        if: env.BENCHMARK_PREVIEW == 'true'
+        if: env.SMOKE_ONLY != 'true' && env.BENCHMARK_PREVIEW == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -666,6 +683,7 @@ jobs:
           retention-days: 14
 
       - name: Continue free UNCENSORED chain
+        if: env.SMOKE_ONLY != 'true'
         shell: bash
         run: |
           set -euo pipefail

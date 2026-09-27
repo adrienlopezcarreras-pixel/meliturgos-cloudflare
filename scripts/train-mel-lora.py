@@ -263,7 +263,7 @@ def main() -> int:
         tokenizer.pad_token = tokenizer.eos_token
     emit_runtime_stage("TOKENIZER_LOAD_DONE")
 
-    emit_runtime_stage("MODEL_LOAD_START", cuda=cuda)
+    emit_runtime_stage("MODEL_LOAD_START", cuda=cuda, cuda_device_count=(torch.cuda.device_count() if cuda else 0), training_device="cuda:0" if cuda else "cpu")
     if cuda:
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -275,7 +275,7 @@ def main() -> int:
             model_load_source,
             quantization_config=quantization_config,
             torch_dtype=compute_dtype,
-            device_map="auto",
+            device_map={"": 0},
             local_files_only=bool(args.base_model_path),
         )
         model = prepare_model_for_kbit_training(
@@ -292,7 +292,7 @@ def main() -> int:
         model.gradient_checkpointing_enable()
         training_mode = "cpu-fp32-debug"
 
-    emit_runtime_stage("MODEL_LOAD_DONE", gpu=(torch.cuda.get_device_name(0) if cuda else None))
+    emit_runtime_stage("MODEL_LOAD_DONE", gpu=(torch.cuda.get_device_name(0) if cuda else None), cuda_device_count=(torch.cuda.device_count() if cuda else 0), training_device="cuda:0" if cuda else "cpu")
     model.config.use_cache = False
     config = LoraConfig(
         r=args.rank,
@@ -383,7 +383,24 @@ def main() -> int:
         bf16=bf16,
         remove_unused_columns=False,
     )
-    collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    def collator(features):
+        batch = tokenizer.pad(
+            [{k: v for k, v in feature.items() if k != "labels"} for feature in features],
+            padding=True,
+            return_tensors="pt",
+        )
+        max_len = int(batch["input_ids"].shape[1])
+        padded_labels = []
+        for feature in features:
+            labels = list(feature["labels"])
+            pad_len = max_len - len(labels)
+            if tokenizer.padding_side == "left":
+                labels = ([-100] * pad_len) + labels
+            else:
+                labels = labels + ([-100] * pad_len)
+            padded_labels.append(labels)
+        batch["labels"] = torch.tensor(padded_labels, dtype=torch.long)
+        return batch
 
     training_started_path = output_dir / "training-started.json"
     training_progress_path = output_dir / "training-progress.jsonl"

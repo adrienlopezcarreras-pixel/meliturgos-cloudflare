@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -12,7 +13,8 @@ from pathlib import Path
 TARGET_SHA = "__MEL_GIT_SHA__"
 CYCLE = int("__MEL_CYCLE__")
 SHARD_SIZE = int("__MEL_SHARD_SIZE__")
-CYCLE_MAX_STEPS = 32
+CYCLE_MAX_STEPS = int("__MEL_MAX_STEPS__")
+SMOKE_ONLY = "__MEL_SMOKE_ONLY__".lower() == "true"
 CYCLE_MAX_LENGTH = 512
 CYCLE_GRAD_ACCUM = 8
 
@@ -346,6 +348,7 @@ def count_lines(path: Path) -> int:
         return sum(1 for line in fh if line.strip())
 
 def main():
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     if TARGET_SHA.startswith("__"):
         raise SystemExit("MEL_GIT_SHA_NOT_INJECTED")
     payload = prepare_payload()
@@ -406,7 +409,10 @@ def main():
         cmd += ["--parent-adapter-dir", PARENT, "--parent-artifact-digest", parent_digest]
     print(json.dumps({"status":"TRAINING_COMMAND_START","max_steps":CYCLE_MAX_STEPS,"max_length":CYCLE_MAX_LENGTH,"gradient_accumulation_steps":CYCLE_GRAD_ACCUM}), flush=True)
     run(cmd)
-    print(json.dumps({"status":"TRAINING_COMMAND_DONE"}), flush=True)
+    print(json.dumps({"status":"TRAINING_COMMAND_DONE","global_smoke":SMOKE_ONLY,"max_steps":CYCLE_MAX_STEPS}), flush=True)
+    if SMOKE_ONLY:
+        print(json.dumps({"status":"KAGGLE_SINGLE_STEP_SMOKE_PASSED","max_steps":CYCLE_MAX_STEPS}), flush=True)
+        return
 
     impact_path = OUTPUT / "local-impact-benchmark.json"
     print(json.dumps({"status":"LOCAL_IMPACT_START"}), flush=True)
