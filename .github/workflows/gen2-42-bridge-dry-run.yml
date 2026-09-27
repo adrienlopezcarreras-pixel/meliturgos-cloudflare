@@ -80,10 +80,27 @@ jobs:
           set -euo pipefail
           node --input-type=module <<'NODE'
           import fs from 'node:fs/promises';
+          import crypto from 'node:crypto';
           import { LocalDevBridge } from './src/dev/dev-bridge.js';
           import { runStructuredBridgeJob } from './src/dev/bridge-job-runner.js';
 
           const job=JSON.parse(await fs.readFile('bridge-job.json','utf8'));
+          const planned_file_comparisons=[];
+          for (const item of Array.isArray(job.files_json)?job.files_json:[]) {
+            const path=String(item?.path||'');
+            const proposed=String(item?.content||'');
+            let current='';
+            try { current=await fs.readFile(path,'utf8'); } catch {}
+            const hash=(value)=>crypto.createHash('sha256').update(value).digest('hex');
+            planned_file_comparisons.push({
+              path,
+              proposed_chars: proposed.length,
+              current_chars: current.length,
+              identical: proposed===current,
+              proposed_sha256: hash(proposed),
+              current_sha256: hash(current),
+            });
+          }
           const bridge=new LocalDevBridge({ repoRoot: process.cwd() });
           const result=await runStructuredBridgeJob({ bridge, job });
           if(!result) throw new Error('DRY_RUN_NO_RESULT');
@@ -93,8 +110,9 @@ jobs:
             needs_repair: result.needs_repair === true,
             diff_summary: String(result.diff_summary||'').slice(0,20000),
             planned_files: Array.isArray(job.files_json) ? job.files_json.map(f=>String(f?.path||'')).filter(Boolean).slice(0,20) : [],
+            planned_file_comparisons,
             planned_tests: Array.isArray(job.tests_json) ? job.tests_json.map(t=>({name:String(t?.name||''),command:String(t?.command||'')})).slice(0,10) : [],
-            tests: Array.isArray(result.tests) ? result.tests.map(t=>({
+            tests: Array.isArray(result.tests_json) ? result.tests_json.map(t=>({
               name:t.name, command:t.command, passed:t.passed===true, exit_code:t.exit_code, error:t.error||null
             })) : [],
           };
@@ -103,6 +121,7 @@ jobs:
             status:safe.status,
             needs_repair:safe.needs_repair,
             planned_files:safe.planned_files,
+            planned_file_comparisons:safe.planned_file_comparisons,
             planned_tests:safe.planned_tests,
             tests:safe.tests,
             diff_chars:safe.diff_summary.length,
