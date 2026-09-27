@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import { createVerifiedBackupService } from '../../src/backup/backup-service.js';
 import { createGen2Runtime } from '../../src/core/orchestrator/gen2-runtime.js';
-import { runRecoveryDrillAgainstSnapshot } from '../../src/capabilities/recovery-drill-capability.js';
+import { registerRecoveryDrillCapability, runRecoveryDrillAgainstSnapshot } from '../../src/capabilities/recovery-drill-capability.js';
+import { runScheduledSystemBackup } from '../../src/backup/system-backup-runtime.js';
+import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 
 function memoryStorage() {
   const rows = new Map();
@@ -107,4 +109,94 @@ test('GEN2-48 runtime exposes the latest-backup drill through CapabilityBus', ()
   assert.equal(capability.risk, 'LOW');
   assert.equal(capability.health, 'UNAVAILABLE');
   assert.deepEqual(capability.permissions, []);
+});
+
+
+function bucketStorage() {
+  const rows=new Map();
+  return {
+    async put(key,value){
+      let bytes;
+      if(value instanceof Uint8Array) bytes=value;
+      else if(value instanceof ArrayBuffer) bytes=new Uint8Array(value);
+      else bytes=new TextEncoder().encode(String(value));
+      rows.set(String(key),bytes);
+    },
+    async get(key){
+      const bytes=rows.get(String(key));
+      if(!bytes) return null;
+      return {
+        async text(){ return new TextDecoder().decode(bytes); },
+        async arrayBuffer(){ return bytes.slice().buffer; },
+      };
+    },
+    async delete(key){ rows.delete(String(key)); },
+    async list({prefix=''}={}){
+      return {
+        objects:[...rows.entries()]
+          .filter(([key])=>key.startsWith(String(prefix||'')))
+          .map(([key,bytes])=>({key,size:bytes.byteLength,etag:'test',uploaded:new Date(0)})),
+        truncated:false,
+      };
+    },
+  };
+}
+
+test('GEN2-48 latest recovery drill reads an encrypted system backup with the canonical env codec', async () => {
+  const DB=sqliteD1();
+  const MEDIA_BUCKET=bucketStorage();
+  const env={
+    DB,
+    MEDIA_BUCKET,
+    MEL_RUNTIME_ENV:'production',
+    MEL_DEPLOYED_GIT_SHA:'b'.repeat(40),
+    MEL_DEPLOYED_GIT_BRANCH:'release/test',
+    MEL_BACKUP_ENCRYPTION_KEY_ID:'recovery-drill-test-key',
+    MEL_BACKUP_ENCRYPTION_KEY_B64:Buffer.alloc(32,9).toString('base64'),
+  };
+  try {
+    const backup=await runScheduledSystemBackup(env,{
+      force:true,
+      now:()=> '2026-09-27T11:45:00.000Z',
+    });
+    assert.equal(backup.ok,true,JSON.stringify(backup));
+
+    let handler=null;
+    const bus={
+      discover(_manifest,fn){ handler=fn; },
+    };
+    registerRecoveryDrillCapability(bus,env);
+    assert.equal(typeof handler,'function');
+
+    const report=await handler({approved:true},{owner:true});
+    assert.equal(report.ok,true);
+    assert.equal(report.state,'PASSED');
+    assert.equal(report.snapshot_id,backup.id);
+    assert.equal(report.restore_candidate_verified,true);
+    assert.equal(report.production_access_used,false);
+    assert.equal(report.activation_performed,false);
+  } finally {
+    DB.close();
+  }
+});
+
+test('GEN2-48 recovery drill fails closed on partial backup encryption configuration', async () => {
+  const DB=sqliteD1();
+  const MEDIA_BUCKET=bucketStorage();
+  try {
+    let handler=null;
+    registerRecoveryDrillCapability({
+      discover(_manifest,fn){ handler=fn; },
+    },{
+      DB,
+      MEDIA_BUCKET,
+      MEL_BACKUP_ENCRYPTION_KEY_ID:'missing-key-material',
+    });
+    await assert.rejects(
+      handler({approved:true},{owner:true}),
+      error=>error?.code==='BACKUP_ENCRYPTION_CONFIG_INCOMPLETE',
+    );
+  } finally {
+    DB.close();
+  }
 });
