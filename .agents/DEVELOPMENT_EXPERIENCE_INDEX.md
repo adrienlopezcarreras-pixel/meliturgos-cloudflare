@@ -161,3 +161,5 @@ Le nombre de leçons canoniques **n’a pas de plafond fonctionnel** : 50 reste 
 - `bootstrap-automation-slot-reallocation-canonical-state-20260927` — runs manuels/automatiques unifiés; slots réaffectés sans réinitialiser la vérité des projets.
 
 Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.md`.
+
+- `bootstrap-encrypted-backup-consumer-codec-parity-20260927` — un recovery drill ou autre consommateur d un backup chiffré doit résoudre le même codec canonique; config partielle fail-closed.
