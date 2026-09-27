@@ -39,30 +39,49 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: contract
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
-      - name: Require Dev Bridge machine token
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Create ephemeral bootstrap token and run canonical tick
         shell: bash
         env:
-          MEL_DEV_BRIDGE_TOKEN: ${{ secrets.MEL_DEV_BRIDGE_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          test -n "$MEL_DEV_BRIDGE_TOKEN"
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${BOOTSTRAP_TOKEN}"
+          cleanup_secret() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/gen2-42-bootstrap-delete.log 2>&1
+            set -e
+          }
+          trap cleanup_secret EXIT
+          printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
-      - name: Run canonical autonomy tick through Dev Bridge auth
-        shell: bash
-        env:
-          MEL_DEV_BRIDGE_TOKEN: ${{ secrets.MEL_DEV_BRIDGE_TOKEN }}
-        run: |
-          set -euo pipefail
-          code="$(curl -sS -o tick-response.raw.json -w '%{http_code}' \
-            -X POST 'https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/autonomy/tick' \
-            -H "Authorization: Bearer $MEL_DEV_BRIDGE_TOKEN" \
-            -H 'Content-Type: application/json' \
-            --data '{}')"
-          echo "http_status=$code"
-          test "$code" -ge 200
-          test "$code" -lt 300
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl -sS --max-time 90 \
+              -o tick-response.raw.json \
+              -w '%{http_code}' \
+              -X POST "$BASE_URL/api/internal/release-launch-bootstrap" \
+              -H "x-mel-launch-bootstrap: $BOOTSTRAP_TOKEN" \
+              -H 'Content-Type: application/json' \
+              --data '{"phase":"gen2-42-runtime-tick"}' || true)"
+            if [ "$CODE" = "200" ]; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          test "$READY" = "1"
 
       - name: Build sanitized tick proof
         shell: bash
@@ -71,36 +90,17 @@ jobs:
           node - <<'NODE'
           const fs=require('fs');
           const body=JSON.parse(fs.readFileSync('tick-response.raw.json','utf8'));
-          const tick=body?.tick||{};
-          const completions=tick?.completions||tick?.passive_completions||{};
-          const completed=Array.isArray(completions?.completed)?completions.completed:[];
-          const rejected=Array.isArray(completions?.rejected)?completions.rejected:[];
           const safe={
-            schema:'mel.gen2-42-authenticated-runtime-tick/v1',
+            schema:'mel.gen2-42-authenticated-runtime-tick/v2',
             ok:body?.ok===true,
-            tick_status:tick?.status||null,
-            advanced:tick?.advanced===true,
-            paused:tick?.paused===true || tick?.control?.paused===true,
-            max_autonomy:tick?.control?.max_autonomy===true,
-            completion_reconcile_ok:completions?.ok!==false,
-            completed:completed.map(x=>({
-              job_id:String(x?.job_id||'').slice(0,160),
-              candidate_sha:String(x?.candidate_sha||'').slice(0,40),
-              ci_run_id:Number(x?.ci_run_id||0),
-              mentor_learning:x?.mentor_learning===true,
-              corrections_recorded:Number(x?.corrections_recorded||0),
-              handoffs_ingested:Number(x?.handoffs_ingested||0),
-            })),
-            rejected:rejected.map(x=>({
-              job_id:String(x?.job_id||'').slice(0,160),
-              request_id:String(x?.request_id||'').slice(0,160),
-              code:String(x?.code||'').slice(0,180),
-            })).slice(0,20),
-            current_job:tick?.job?{
-              id:String(tick.job.id||'').slice(0,160),
-              status:String(tick.job.status||'').slice(0,80),
-              roadmap_id:String(tick.job.roadmap_id||'').slice(0,120),
-            }:null,
+            status:body?.status||null,
+            tick_status:body?.tick_status||null,
+            advanced:body?.advanced===true,
+            paused:body?.paused===true,
+            max_autonomy:body?.max_autonomy===true,
+            control_unchanged_by_bootstrap:body?.control_unchanged_by_bootstrap===true,
+            completed:Array.isArray(body?.completed)?body.completed:[],
+            rejected:Array.isArray(body?.rejected)?body.rejected:[],
           };
           fs.writeFileSync('gen2-42-runtime-tick-proof.json',JSON.stringify(safe,null,2));
           console.log(JSON.stringify(safe,null,2));
