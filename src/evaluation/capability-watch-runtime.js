@@ -394,21 +394,30 @@ export async function proveEcosystemTeacherHandoff(
     ledger = reconciled.ledger;
   }
 
-  const active = (Array.isArray(ledger?.items) ? ledger.items : [])
+  const open = (Array.isArray(ledger?.items) ? ledger.items : [])
     .map(item => ({
       fingerprint: item?.fingerprint || null,
       handoff: item?.handoff || null,
     }))
-    .filter(item => item.handoff && item.handoff.closed !== true)
+    .filter(item => item.handoff && item.handoff.closed !== true);
+
+  const active = open
     .filter(item => String(item.handoff.status || '').toUpperCase() === 'WAITING_TEACHER')
     .filter(item => String(item.handoff.teacher_request_id || '').trim());
 
   const handoff = active[0]?.handoff || null;
-  const ok = Boolean(handoff);
+  const idleVerified = open.length === 0;
+  const ok = Boolean(handoff) || idleVerified;
   return {
     ok,
-    status: ok ? 'GEN2_42_TEACHER_HANDOFF_READY' : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
+    status: handoff
+      ? 'GEN2_42_TEACHER_HANDOFF_READY'
+      : idleVerified
+        ? 'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
+        : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
     resumed: reconciled.resumed || null,
+    idle_verified: idleVerified,
+    open_handoff_count: open.length,
     active_teacher_handoff_count: active.length,
     job_id: handoff?.job_id || null,
     teacher_request_id: handoff?.teacher_request_id || null,
