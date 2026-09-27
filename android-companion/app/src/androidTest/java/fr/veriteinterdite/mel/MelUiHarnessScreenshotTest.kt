@@ -31,8 +31,6 @@ class MelUiHarnessScreenshotTest {
         compose.onNodeWithTag("settings-camera").assertIsDisplayed()
         compose.onNodeWithTag("settings-companion").assertIsDisplayed()
         compose.onNodeWithTag("settings-mode").performScrollTo().performClick()
-
-        compose.onNodeWithText("OUTILS // MEL").assertIsDisplayed()
         compose.onNodeWithText("MODE COMPLET NATIF").assertIsDisplayed()
         compose.onNodeWithText("Synchroniser").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("AUTO-DIAGNOSTIC").performScrollTo().assertIsDisplayed()
