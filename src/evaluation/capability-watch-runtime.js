@@ -405,20 +405,43 @@ export async function proveEcosystemTeacherHandoff(
     .filter(item => String(item.handoff.status || '').toUpperCase() === 'WAITING_TEACHER')
     .filter(item => String(item.handoff.teacher_request_id || '').trim());
 
-  const handoff = active[0]?.handoff || null;
+  const teacherProgressStatuses = new Set(['WAITING_TEACHER','TEACHER_APPROVED','CLAIMED','READY_FOR_REVIEW']);
+  const teacherProven = open.filter(item => {
+    const status = String(item.handoff.status || '').toUpperCase();
+    return teacherProgressStatuses.has(status)
+      && Boolean(String(item.handoff.teacher_request_id || '').trim());
+  });
+  const blockedOpen = open.filter(item => !teacherProven.includes(item));
+  const handoff = active[0]?.handoff || teacherProven[0]?.handoff || null;
   const idleVerified = open.length === 0;
-  const ok = Boolean(handoff) || idleVerified;
+  const progressVerified = open.length > 0 && blockedOpen.length === 0;
+  const ok = idleVerified || progressVerified;
   return {
     ok,
-    status: handoff
+    status: active.length > 0
       ? 'GEN2_42_TEACHER_HANDOFF_READY'
-      : idleVerified
-        ? 'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
-        : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
+      : progressVerified
+        ? 'GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED'
+        : idleVerified
+          ? 'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
+          : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
     resumed: reconciled.resumed || null,
     idle_verified: idleVerified,
+    progress_verified: progressVerified,
     open_handoff_count: open.length,
     active_teacher_handoff_count: active.length,
+    teacher_proven_handoff_count: teacherProven.length,
+    blocked_open_handoff_count: blockedOpen.length,
+    open_handoffs: open.slice(0, 20).map(item => ({
+      fingerprint: item.fingerprint,
+      status: String(item.handoff.status || '').toUpperCase() || null,
+      job_id: item.handoff.job_id || null,
+      teacher_request_id: item.handoff.teacher_request_id || null,
+      teacher_verdict: item.handoff.teacher_verdict || null,
+      candidate_sha: item.handoff.candidate_sha || null,
+      retryable: item.handoff.retryable === true,
+      code: item.handoff.code || null,
+    })),
     job_id: handoff?.job_id || null,
     teacher_request_id: handoff?.teacher_request_id || null,
     candidate_sha: handoff?.candidate_sha || null,
