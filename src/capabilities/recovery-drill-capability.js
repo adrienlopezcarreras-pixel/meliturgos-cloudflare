@@ -407,12 +407,15 @@ export function registerRecoveryDrillCapability(bus, env = {}) {
         ? await readReleaseBackupBinding(env, expectedDeployedSha)
         : null;
       if (releaseBinding?.ok === true) {
-        const candidates = await storage.list({ limit: 100 });
-        const bound = candidates.find(row =>
-          String(row?.id || '') === String(releaseBinding.snapshot_id || '')
-          && String(row?.integritySha256 || '').toLowerCase() === String(releaseBinding.snapshot_integrity_sha256 || '').toLowerCase()
-        ) || null;
-        if (bound) {
+        const bound = typeof storage.metadata === 'function'
+          ? await storage.metadata(releaseBinding.snapshot_id)
+          : (await storage.list({ limit: 100 })).find(row =>
+              String(row?.id || '') === String(releaseBinding.snapshot_id || '')
+              && String(row?.integritySha256 || '').toLowerCase() === String(releaseBinding.snapshot_integrity_sha256 || '').toLowerCase()
+            ) || null;
+        if (bound
+          && String(bound?.id || '') === String(releaseBinding.snapshot_id || '')
+          && String(bound?.integritySha256 || '').toLowerCase() === String(releaseBinding.snapshot_integrity_sha256 || '').toLowerCase()) {
           persisted = bound;
           snapshotId = String(bound.id || '');
         }
