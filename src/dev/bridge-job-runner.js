@@ -162,6 +162,15 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
   const actualDiff = diffText(diff);
   const failed = tests.filter((test) => !test.passed);
   const diffSummary = actualDiff.trim() ? actualDiff : 'NO_CHANGES';
+  const noChanges = !actualDiff.trim();
+  const noTests = tests.length === 0;
+  const validationFailure = noChanges && noTests
+    ? 'BRIDGE_NO_CHANGES_NO_TESTS'
+    : noChanges
+      ? 'BRIDGE_NO_CHANGES'
+      : noTests
+        ? 'BRIDGE_NO_TESTS'
+        : null;
   const result = {
     mode: 'STRUCTURED_MENTOR_WORK',
     bridge_pass: pass,
@@ -171,7 +180,8 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
     tests,
     diff_summary: diffSummary,
     changed: actualDiff.trim().length > 0,
-    needs_repair: failed.length > 0,
+    needs_repair: failed.length > 0 || Boolean(validationFailure),
+    validation_failure: validationFailure,
     failed_tests: failed.map((test) => ({
       name: test.name,
       command: test.command,
@@ -187,11 +197,11 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
 
   return {
     job_id: id,
-    status: 'READY_FOR_REVIEW',
+    status: validationFailure ? 'REPAIR_REQUIRED' : 'READY_FOR_REVIEW',
     candidate_branch: expected.branch,
     tests_json: tests,
     diff_summary: diffSummary,
-    needs_repair: failed.length > 0,
+    needs_repair: failed.length > 0 || Boolean(validationFailure),
     result_json: result,
     plan_json: {
       mode: 'STRUCTURED_MENTOR_WORK',
