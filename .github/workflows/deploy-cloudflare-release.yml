@@ -345,6 +345,54 @@ jobs:
           NODE
 
 
+          # The bootstrap secret can take a few seconds to propagate across
+          # production isolates. The pause phase is idempotent, so retry it
+          # independently of ShardVault external-proof mode.
+          PAUSE_READY=0
+          for PAUSE_ATTEMPT in $(seq 1 12); do
+            PAUSE_CODE="$(curl --silent --show-error --max-time 30 \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"pause"}' \
+              --output production-launch-pause.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "$PAUSE_CODE" = "200" ]; then
+              PAUSE_READY=1
+              break
+            fi
+            echo "Launch pause propagation attempt ${PAUSE_ATTEMPT}/12 returned HTTP ${PAUSE_CODE}."
+            if [ -s production-launch-pause.json ]; then
+              node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-pause.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
+            fi
+            sleep 2
+          done
+          test "$PAUSE_READY" = "1"
+          node -e 'const d=require("./production-launch-pause.json"); if(d?.ok!==true||d?.status!=="RELEASE_PAUSED") throw new Error("PRODUCTION_RELEASE_PAUSE_FAILED");'
+
+          BACKUP_READY=0
+          for BACKUP_ATTEMPT in $(seq 1 3); do
+            BACKUP_CODE="$(curl --silent --show-error --max-time 180 \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"backup"}' \
+              --output production-launch-backup.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "$BACKUP_CODE" = "200" ]; then
+              BACKUP_READY=1
+              break
+            fi
+            echo "Launch backup phase attempt ${BACKUP_ATTEMPT}/3 returned HTTP ${BACKUP_CODE}."
+            if [ -s production-launch-backup.json ]; then
+              node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-backup.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,backup:d?.backup||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
+            fi
+            sleep 5
+          done
+          test "$BACKUP_READY" = "1"
+          node -e 'const d=require("./production-launch-backup.json"); if(d?.ok!==true||d?.backup?.ok!==true) throw new Error("PRODUCTION_RELEASE_BACKUP_FAILED"); console.log("Production release backup phase passed: "+String(d?.backup?.status||d?.status||"OK"));'
+
+
           CAPABILITY_WATCH_READY=0
           for CAPABILITY_WATCH_ATTEMPT in $(seq 1 3); do
             CAPABILITY_WATCH_CODE="$(curl --silent --show-error --max-time 90 \
@@ -413,53 +461,6 @@ jobs:
           if(agents?.run_status!=='COMPLETED' || agents?.persisted_across_adapter_recreation!==true) throw new Error('GEN2_39_REPLAY_PROOF_FAILED');
           console.log('GEN2-15, MEL-EVOL-04 and GEN2-39 production D1 proof drills passed twice.');
           NODE
-
-          # The bootstrap secret can take a few seconds to propagate across
-          # production isolates. The pause phase is idempotent, so retry it
-          # independently of ShardVault external-proof mode.
-          PAUSE_READY=0
-          for PAUSE_ATTEMPT in $(seq 1 12); do
-            PAUSE_CODE="$(curl --silent --show-error --max-time 30 \
-              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-              --header "content-type: application/json" \
-              --data '{"phase":"pause"}' \
-              --output production-launch-pause.json \
-              --write-out '%{http_code}' \
-              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
-            if [ "$PAUSE_CODE" = "200" ]; then
-              PAUSE_READY=1
-              break
-            fi
-            echo "Launch pause propagation attempt ${PAUSE_ATTEMPT}/12 returned HTTP ${PAUSE_CODE}."
-            if [ -s production-launch-pause.json ]; then
-              node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-pause.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
-            fi
-            sleep 2
-          done
-          test "$PAUSE_READY" = "1"
-          node -e 'const d=require("./production-launch-pause.json"); if(d?.ok!==true||d?.status!=="RELEASE_PAUSED") throw new Error("PRODUCTION_RELEASE_PAUSE_FAILED");'
-
-          BACKUP_READY=0
-          for BACKUP_ATTEMPT in $(seq 1 3); do
-            BACKUP_CODE="$(curl --silent --show-error --max-time 180 \
-              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-              --header "content-type: application/json" \
-              --data '{"phase":"backup"}' \
-              --output production-launch-backup.json \
-              --write-out '%{http_code}' \
-              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
-            if [ "$BACKUP_CODE" = "200" ]; then
-              BACKUP_READY=1
-              break
-            fi
-            echo "Launch backup phase attempt ${BACKUP_ATTEMPT}/3 returned HTTP ${BACKUP_CODE}."
-            if [ -s production-launch-backup.json ]; then
-              node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-backup.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,backup:d?.backup||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
-            fi
-            sleep 5
-          done
-          test "$BACKUP_READY" = "1"
-          node -e 'const d=require("./production-launch-backup.json"); if(d?.ok!==true||d?.backup?.ok!==true) throw new Error("PRODUCTION_RELEASE_BACKUP_FAILED"); console.log("Production release backup phase passed: "+String(d?.backup?.status||d?.status||"OK"));'
 
           PROVIDER_ESCAPE_READY=0
           for PROVIDER_ESCAPE_ATTEMPT in $(seq 1 6); do
