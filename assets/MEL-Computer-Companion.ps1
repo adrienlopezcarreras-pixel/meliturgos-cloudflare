@@ -355,6 +355,38 @@ function Close-ForegroundFile([string]$path) {
   return @{ path=$full; active_window=$title }
 }
 
+function Ensure-ShutdownEnvironment {
+  $fallbacks = [ordered]@{
+    COMPUTERNAME = [Environment]::MachineName
+    TMP = $env:TEMP
+    ProgramData = if ($env:SystemDrive) { Join-Path $env:SystemDrive "ProgramData" } else { "C:\ProgramData" }
+    ComSpec = if ($env:SystemRoot) { Join-Path $env:SystemRoot "System32\cmd.exe" } else { "C:\Windows\System32\cmd.exe" }
+  }
+  foreach ($name in $fallbacks.Keys) {
+    $current = [Environment]::GetEnvironmentVariable($name,"Process")
+    if (-not [string]::IsNullOrWhiteSpace([string]$current)) { continue }
+    $value = [Environment]::GetEnvironmentVariable($name,"Machine")
+    if ([string]::IsNullOrWhiteSpace([string]$value)) { $value = [Environment]::GetEnvironmentVariable($name,"User") }
+    if ([string]::IsNullOrWhiteSpace([string]$value)) { $value = [string]$fallbacks[$name] }
+    if (-not [string]::IsNullOrWhiteSpace([string]$value)) {
+      [Environment]::SetEnvironmentVariable($name,[string]$value,"Process")
+    }
+  }
+}
+
+function Invoke-ShutdownCommand([string]$action) {
+  Ensure-ShutdownEnvironment
+  $exe = Join-Path $env:SystemRoot "System32\shutdown.exe"
+  $arguments = if ($action -eq "power.off") {
+    @("/s","/t","5","/d","p:0:0","/c","MEL owner-approved shutdown")
+  } else {
+    @("/r","/t","5","/d","p:0:0","/c","MEL owner-approved restart")
+  }
+  $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -Wait
+  if ($process.ExitCode -ne 0) { throw "POWER_SCHEDULE_FAILED:$($process.ExitCode)" }
+  return @{ action=$action; scheduled=$true; delay_seconds=5; exit_code=$process.ExitCode }
+}
+
 function Perform-Step($step, [string]$commandId) {
   $action = [string]$step.action
   switch ($action) {
@@ -416,14 +448,10 @@ function Perform-Step($step, [string]$commandId) {
       return @{ action=$action; chars=([string]$step.text).Length }
     }
     "power.off" {
-      $exe = Join-Path $env:SystemRoot "System32\shutdown.exe"
-      Start-Process -FilePath $exe -ArgumentList @("/s","/t","5","/d","p:0:0","/c","MEL owner-approved shutdown") -WindowStyle Hidden
-      return @{ action=$action; scheduled=$true; delay_seconds=5 }
+      return Invoke-ShutdownCommand $action
     }
     "power.restart" {
-      $exe = Join-Path $env:SystemRoot "System32\shutdown.exe"
-      Start-Process -FilePath $exe -ArgumentList @("/r","/t","5","/d","p:0:0","/c","MEL owner-approved restart") -WindowStyle Hidden
-      return @{ action=$action; scheduled=$true; delay_seconds=5 }
+      return Invoke-ShutdownCommand $action
     }
     default { throw "ACTION_NOT_SUPPORTED" }
   }
