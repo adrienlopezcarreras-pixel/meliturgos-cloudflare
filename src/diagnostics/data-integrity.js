@@ -2,7 +2,7 @@ import { DB_SCHEMA_VERSION } from '../core/config.js';
 import { MIGRATIONS } from '../persistence/migrations.js';
 
 const MAX_SAMPLES = 10;
-const REQUIRED_TABLE_CONTRACT_VERSION = 13;
+const REQUIRED_TABLE_CONTRACT_VERSION = 14;
 const REQUIRED_MIGRATION_TABLES = Object.freeze([
   'schema_migrations',
   'conversations',
@@ -32,6 +32,7 @@ const REQUIRED_MIGRATION_TABLES = Object.freeze([
   'memory_candidates',
   'mel_oauth_transactions',
   'mel_oauth_tokens',
+  'release_backup_bindings',
 ]);
 
 function integrityError(code) {

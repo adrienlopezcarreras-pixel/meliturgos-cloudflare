@@ -2,6 +2,9 @@ import { migrate } from '../persistence/migrations.js';
 import { createVerifiedBackupService, verifySnapshot } from '../backup/backup-service.js';
 import {
   createR2D1BackupStorage,
+  createReleaseBackupBinding,
+  readReleaseBackupBinding,
+  DEFAULT_RELEASE_BACKUP_MAX_AGE_MS,
   exportD1SystemState,
   exportR2Inventory,
   runScheduledSystemBackup,
@@ -162,62 +165,118 @@ export async function evaluateRestoreReadiness(env) {
     const encryptionRequested = Boolean(encryptionKeyId || encryptionKey);
     const encryptionCodec = encryptionRequested ? createEnvBackupEncryptionCodec(env) : null;
     const storage = createR2D1BackupStorage({ db: env.DB, bucket: env.MEDIA_BUCKET, encryptionCodec });
-    const latest = (await storage.list({ limit: 1 }))[0] || null;
-    if (!latest?.id) return { ok: false, status: 'NO_VERIFIED_SYSTEM_BACKUP' };
+    const candidates = await storage.list({ limit: 100 });
+    if (!candidates.length) return { ok: false, status: 'NO_VERIFIED_SYSTEM_BACKUP' };
 
     const deployedSha = runtimeCandidateSha(env);
-    const proofSha = String(latest.restoreDeployedGitSha || '').toLowerCase();
-    const proofIntegrity = String(latest.restoreIntegritySha256 || '').toLowerCase();
-    const snapshotIntegrity = String(latest.integritySha256 || '').toLowerCase();
-    const proofBound = latest.verified === true
-      && latest.restoreVerified === true
-      && /^[a-f0-9]{64}$/i.test(proofIntegrity)
-      && proofIntegrity === snapshotIntegrity;
-    const shaMatches = Boolean(deployedSha) && proofSha === deployedSha;
+    const proofBound = (row) => {
+      const proofIntegrity = String(row?.restoreIntegritySha256 || '').toLowerCase();
+      const snapshotIntegrity = String(row?.integritySha256 || '').toLowerCase();
+      return Boolean(row?.id)
+        && row?.verified === true
+        && row?.restoreVerified === true
+        && /^[a-f0-9]{64}$/i.test(proofIntegrity)
+        && proofIntegrity === snapshotIntegrity;
+    };
 
-    if (!proofBound) {
+    const exact = candidates.find(row => proofBound(row)
+      && Boolean(deployedSha)
+      && String(row?.restoreDeployedGitSha || '').toLowerCase() === deployedSha) || null;
+
+    let selected = exact;
+    let releaseBinding = null;
+    let releaseBound = false;
+
+    if (!selected && deployedSha) {
+      const binding = await readReleaseBackupBinding(env, deployedSha);
+      if (binding?.ok === true) {
+        const maxAgeRequested = Number(env?.MEL_RELEASE_BACKUP_MAX_AGE_MS ?? DEFAULT_RELEASE_BACKUP_MAX_AGE_MS);
+        const maxAge = Number.isFinite(maxAgeRequested) && maxAgeRequested > 0
+          ? Math.max(15 * 60 * 1000, Math.min(48 * 60 * 60 * 1000, maxAgeRequested))
+          : DEFAULT_RELEASE_BACKUP_MAX_AGE_MS;
+        const nowMs = Date.now();
+        const boundSnapshot = candidates.find(row => proofBound(row)
+          && String(row?.id || '') === String(binding.snapshot_id || '')
+          && String(row?.integritySha256 || '').toLowerCase() === String(binding.snapshot_integrity_sha256 || '').toLowerCase()) || null;
+        const createdMs = Date.parse(boundSnapshot?.createdAt || '');
+        const ageOk = Boolean(boundSnapshot)
+          && Number.isFinite(createdMs)
+          && createdMs <= nowMs
+          && nowMs - createdMs <= maxAge
+          && String(binding.snapshot_created_at || '') === String(boundSnapshot?.createdAt || '');
+
+        if (ageOk) {
+          selected = boundSnapshot;
+          releaseBinding = binding;
+          releaseBound = true;
+        }
+      }
+    }
+
+    const latest = candidates[0] || null;
+    if (!selected) {
+      const latestProofSha = String(latest?.restoreDeployedGitSha || '').toLowerCase();
+      const latestProofBound = proofBound(latest);
       return {
         ok: false,
-        status: 'SYSTEM_BACKUP_RESTORE_PROOF_MISSING',
-        snapshot_id: latest.id,
-        created_at: latest.createdAt || null,
-        integritySha256: latest.integritySha256 || null,
+        status: latestProofBound ? 'SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH' : 'SYSTEM_BACKUP_RESTORE_PROOF_MISSING',
+        snapshot_id: latest?.id || null,
+        created_at: latest?.createdAt || null,
+        integritySha256: latest?.integritySha256 || null,
         deployed_sha: deployedSha || null,
-        backup_deployed_sha: proofSha || null,
+        backup_deployed_sha: latestProofSha || null,
+        snapshot_deployed_sha: latestProofSha || null,
         sha_matches: false,
-        proof_bound: false,
+        proof_bound: latestProofBound,
       };
     }
 
-    const ok = shaMatches;
+    const snapshotProofSha = String(selected.restoreDeployedGitSha || '').toLowerCase();
+    const shaMatches = Boolean(deployedSha)
+      && (snapshotProofSha === deployedSha || (releaseBound && releaseBinding?.deployed_sha === deployedSha));
+    const packageBoundSha = releaseBound ? deployedSha : snapshotProofSha;
+
     return {
-      ok,
-      status: ok
-        ? 'LATEST_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED'
+      ok: shaMatches,
+      status: shaMatches
+        ? (releaseBound
+            ? 'RELEASE_BOUND_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED'
+            : 'LATEST_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED')
         : 'SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH',
-      snapshot_id: latest.id,
-      created_at: latest.createdAt || null,
-      integritySha256: latest.integritySha256 || null,
+      snapshot_id: selected.id,
+      created_at: selected.createdAt || null,
+      integritySha256: selected.integritySha256 || null,
       deployed_sha: deployedSha || null,
-      backup_deployed_sha: proofSha || null,
+      backup_deployed_sha: packageBoundSha || null,
+      snapshot_deployed_sha: snapshotProofSha || null,
       sha_matches: shaMatches,
       proof_bound: true,
+      release_binding: releaseBound ? {
+        ok: true,
+        schema: releaseBinding.schema,
+        deployed_sha: releaseBinding.deployed_sha,
+        binding_sha256: releaseBinding.binding_sha256,
+        bound_at: releaseBinding.bound_at,
+      } : null,
       restore: {
         ok: true,
-        code: latest.restoreCode || 'RESTORE_CANDIDATE_VERIFIED',
-        snapshot_id: latest.id,
-        integritySha256: latest.restoreIntegritySha256,
+        code: selected.restoreCode || 'RESTORE_CANDIDATE_VERIFIED',
+        snapshot_id: selected.id,
+        integritySha256: selected.restoreIntegritySha256,
         database: {
-          tableCount: Number(latest.restoreTableCount || 0),
-          rowCount: Number(latest.restoreRowCount || 0),
+          tableCount: Number(selected.restoreTableCount || 0),
+          rowCount: Number(selected.restoreRowCount || 0),
         },
         r2: {
-          objectCount: Number(latest.restoreR2ObjectCount || 0),
+          objectCount: Number(selected.restoreR2ObjectCount || 0),
         },
         runtime: {
-          deployedGitSha: proofSha || null,
+          deployedGitSha: snapshotProofSha || null,
+          releaseBoundGitSha: releaseBound ? deployedSha : null,
         },
-        proof_source: 'verified-backup-persist',
+        proof_source: releaseBound
+          ? 'verified-backup-persist+release-binding'
+          : 'verified-backup-persist',
       },
     };
   } catch (error) {
@@ -390,6 +449,39 @@ export function summarizeAutonomyLaunchCodeSync(value) {
 export async function prepareAutonomyLaunchBackup(env) {
   if (isPreview(env)) return { ok: true, status: 'SKIPPED_PREVIEW' };
   try {
+    const existing = await evaluateRestoreReadiness(env);
+    if (existing?.ok === true) {
+      return {
+        ok: true,
+        status: existing.status === 'RELEASE_BOUND_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED'
+          ? 'REUSED_RELEASE_BOUND_VERIFIED_BACKUP'
+          : 'REUSED_VERIFIED_SHA_BOUND_BACKUP',
+        id: existing.snapshot_id || null,
+        integritySha256: existing.integritySha256 || null,
+        deployedSha: existing.backup_deployed_sha || null,
+      };
+    }
+
+    const binding = await createReleaseBackupBinding(env);
+    if (binding?.ok === true) {
+      const rebound = await evaluateRestoreReadiness(env);
+      if (rebound?.ok === true) {
+        return {
+          ok: true,
+          status: 'RELEASE_BOUND_VERIFIED_BACKUP',
+          id: rebound.snapshot_id || binding.snapshot_id || null,
+          integritySha256: rebound.integritySha256 || binding.snapshot_integrity_sha256 || null,
+          deployedSha: rebound.backup_deployed_sha || binding.deployed_sha || null,
+          snapshotDeployedSha: rebound.snapshot_deployed_sha || binding.snapshot_deployed_sha || null,
+          bindingSha256: binding.binding_sha256 || null,
+        };
+      }
+    }
+
+    // If no recent verified snapshot exists, retain the original fail-closed
+    // full-backup path. Small deployments can still create a fresh snapshot;
+    // large deployments will remain NO_GO until the scheduled maintenance
+    // backup produces one.
     const backup = await runScheduledSystemBackup(env, {
       intervalMs: 15 * 60 * 1000,
       force: true,
