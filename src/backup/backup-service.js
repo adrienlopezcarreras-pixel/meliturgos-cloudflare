@@ -38,8 +38,10 @@ export function createVerifiedBackupService({ sources = {}, storage, now = () =>
       }
 
       const entries = [];
+      const canonicalByName = new Map();
       for (const [name, payload] of Object.entries(exported)) {
         const canonical = stableStringify(payload);
+        canonicalByName.set(name, canonical);
         entries.push({
           name,
           sha256: await sha256Hex(canonical),
@@ -59,10 +61,11 @@ export function createVerifiedBackupService({ sources = {}, storage, now = () =>
           partialSnapshotsForbidden: true,
         },
       };
-      const integritySha256 = await sha256Hex(stableStringify(body));
+      const bodyCanonical = stableStringify(body);
+      const integritySha256 = await sha256Hex(bodyCanonical);
       const id = String(input.id || `snapshot-${createdAt.replace(/[^0-9]/g, '').slice(0, 14)}-${integritySha256.slice(0, 12)}`);
       const snapshot = { id, ...body, integritySha256 };
-      const verification = await verifySnapshot(snapshot);
+      const verification = await verifySnapshotInternal(snapshot, { canonicalByName, bodyCanonical });
 
       if (!verification.ok) {
         throw new DomainError(`BACKUP_SELF_VERIFICATION_FAILED:${verification.code}`, 500);
@@ -97,6 +100,10 @@ export function createVerifiedBackupService({ sources = {}, storage, now = () =>
 }
 
 export async function verifySnapshot(snapshot) {
+  return verifySnapshotInternal(snapshot);
+}
+
+async function verifySnapshotInternal(snapshot, { canonicalByName = null, bodyCanonical = null } = {}) {
   if (!snapshot || snapshot.schema !== VERIFIED_SNAPSHOT_SCHEMA) {
     return { ok: false, code: 'SNAPSHOT_SCHEMA_INVALID' };
   }
@@ -114,7 +121,7 @@ export async function verifySnapshot(snapshot) {
   }
 
   for (const entry of snapshot.entries) {
-    const canonical = stableStringify(snapshot.exports[entry.name]);
+    const canonical = canonicalByName?.get(entry.name) ?? stableStringify(snapshot.exports[entry.name]);
     const actual = await sha256Hex(canonical);
     const bytes = new TextEncoder().encode(canonical).byteLength;
     if (actual !== entry.sha256 || bytes !== entry.bytes) {
@@ -129,7 +136,7 @@ export async function verifySnapshot(snapshot) {
   }
 
   const { id, integritySha256, ...body } = snapshot;
-  const actual = await sha256Hex(stableStringify(body));
+  const actual = await sha256Hex(bodyCanonical ?? stableStringify(body));
   if (actual !== integritySha256) {
     return { ok: false, code: 'SNAPSHOT_INTEGRITY_MISMATCH', expected: integritySha256, actual };
   }
