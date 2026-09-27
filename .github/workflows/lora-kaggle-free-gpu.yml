@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - candidate/mel-clean-autonomy
+      - ops/lora-c001-launch-093f4e99
     paths:
       - ".github/workflows/lora-kaggle-free-gpu.yml"
       - "kaggle/mel-lora-uncensored/**"
@@ -96,6 +97,17 @@ jobs:
           MAX_CYCLES="${INPUT_MAX_CYCLES:-100}"
           BENCHMARK_PREVIEW="${INPUT_BENCHMARK_PREVIEW:-false}"
           SMOKE_ONLY="${INPUT_SMOKE_ONLY:-false}"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_NAME}" == "ops/lora-c001-launch-093f4e99" ]]; then
+            SOURCE_SHA="093f4e996eb77d484c99a246b085b3d24fa34f3b"
+            CYCLE="1"
+            PARENT_RELEASE_TAG="mel-lora-kaggle-ab6db29b784e-c000"
+            SHARD_SIZE="750"
+            MAX_CYCLES="100"
+            BENCHMARK_PREVIEW="false"
+            SMOKE_ONLY="false"
+          fi
+
           MAX_STEPS="32"
           if [[ "$SMOKE_ONLY" == "true" ]]; then MAX_STEPS="1"; fi
 
