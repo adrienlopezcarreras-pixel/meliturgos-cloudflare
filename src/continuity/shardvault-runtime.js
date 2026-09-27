@@ -1682,7 +1682,7 @@ export async function activateValidatedShardVaultEndpoint(env,endpointId){
   return {ok:true,status:'ACTIVATED',endpoint_id:id,used_fragments:used,snapshot_id:latest.snapshotId,active_external_count:actual.length,active_endpoint_ids:actual.map(e=>e.id),staged_endpoint_ids:staged.map(e=>e.id),code_sync,cycle};
 }
 
-export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoints=7,probeLimit=null,probeOffset=0}={}){
+export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoints=7,probeLimit=null,probeOffset=0,knownCandidatesOnly=false}={}){
   let c;
   try{c=await config(env);}catch(error){
     const result={ok:false,error:String(error?.message||error),status:'CONFIG_INVALID',searched_at:new Date().toISOString()};
@@ -1763,7 +1763,8 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
         : targetCount;
       report=await discoverAutonomousRepositories(env,{
         masterKey:c.master,vaultId:c.vaultId,requiredBytes,
-        selectionCount:selectionTarget,probeLimit,probeOffset
+        selectionCount:selectionTarget,probeLimit,probeOffset,
+        internetDiscovery:knownCandidatesOnly!==true
       });
       await rememberValidatedExternalEndpoints(env,[...(report.qualified||[]),...(report.selected||[])]);
       await rememberCodeCandidateEndpoints(env,[...(report.qualified||[]),...(report.selected||[]),...(report.eligible||[])]);
@@ -1833,6 +1834,7 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
       continue_searching:active.length<targetCount,
       search_mode:'MAINTAIN_7_EXTERNAL',
       search_strategy:boundedMode?'INCREMENTAL_BOUNDED':'FULL_REVALIDATION',
+      known_candidates_only:knownCandidatesOnly===true,
       activation_cycle
     };
     if(result.target_reached){
