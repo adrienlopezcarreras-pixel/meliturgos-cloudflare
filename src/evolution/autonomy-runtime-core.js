@@ -177,8 +177,16 @@ function requestedInspectionQueries(job) {
 
 async function inspectCandidateCode(env, job, { fetchImpl = fetch, minimal = false } = {}) {
   const { repository, branch } = codeConfig(env);
-  const pinnedSha = deployedInspectionSha(env);
+  const deployedSha = deployedInspectionSha(env);
   const inspectionRef = resolveAutonomyInspectionRef(env, branch);
+  // A production deployment SHA describes main/release state, not the mutable
+  // candidate branch. Pin only when inspectionRef itself is that immutable SHA
+  // (isolated preview). Normal production candidate inspection is protected by
+  // headBefore/headAfter equality instead of requiring candidate HEAD == main.
+  const pinnedSha = /^[0-9a-f]{40}$/i.test(String(inspectionRef || ''))
+    && String(inspectionRef).toLowerCase() === String(deployedSha || '').toLowerCase()
+    ? deployedSha
+    : '';
   const reader = createGitHubCodeReader({
     repository,
     branch: inspectionRef,

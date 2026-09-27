@@ -106,6 +106,31 @@ test('cloud autonomy heartbeat creates P0 work, runs live Council, inspects cand
   assert.equal(stillWaiting.status, 'WAITING_TEACHER', 'the original Teacher request must remain tracked while MEL advances');
 });
 
+test('production Teacher inspection follows candidate HEAD when deployed main SHA differs', async () => {
+  const fixture = runtimeFixture();
+  const deployedMainSha = 'dddddddddddddddddddddddddddddddddddddddd';
+  fixture.env.MEL_RUNTIME_ENV = 'production';
+  fixture.env.MEL_DEPLOYED_GIT_BRANCH = 'release/main-dddddddd';
+  fixture.env.MEL_DEPLOYED_GIT_SHA = deployedMainSha;
+
+  const result = await runAutonomyRuntimeTick(fixture.env, {
+    fetchImpl: fixture.fetchImpl,
+    repository: fixture.repository,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.job.status, 'WAITING_TEACHER');
+  assert.equal(result.teacher.status, 'WAITING_TEACHER');
+  const stored = await fixture.repository.get(result.job.id);
+  assert.equal(stored.result_json.teacher_bridge.request.candidate.sha, CANDIDATE_HEAD_SHA);
+  assert.equal(stored.result_json.teacher_bridge.request.provenance.candidate_sha, CANDIDATE_HEAD_SHA);
+  assert.equal(
+    fixture.fetchCalls.some((url) => url.includes('/commits/' + deployedMainSha)),
+    false,
+    'production candidate inspection must not pin candidate reads to the deployed main SHA',
+  );
+});
+
 test('manual main preview inspects the exact deployed SHA while preserving canonical candidate governance', async () => {
   const fixture = runtimeFixture();
   fixture.env.MEL_PREVIEW_ISOLATED = 'true';
