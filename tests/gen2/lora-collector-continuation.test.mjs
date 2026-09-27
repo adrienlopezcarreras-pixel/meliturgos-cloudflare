@@ -7,6 +7,9 @@ test('canonical LoRA collector accepts base and continued uncensored checkpoints
 
   assert.match(workflow,/\['uncensored','uncensored-continue'\]\.includes\(String\(training\.stage\|\|''\)\)/);
   assert.match(workflow,/KAGGLE_STAGE_NOT_UNCENSORED/);
+  assert.match(workflow,/KAGGLE_CONTINUATION_PARENT_DIGEST_MISSING/);
+  assert.match(workflow,/KAGGLE_CONTINUATION_ARTIFACT_PARENT_MISMATCH/);
+  assert.match(workflow,/KAGGLE_CONTINUATION_RUN_PARENT_MISMATCH/);
   assert.match(workflow,/Checkout exact collector SHA/);
   assert.match(workflow,/ref: \$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(workflow,/ref: candidate\/mel-clean-autonomy/);
