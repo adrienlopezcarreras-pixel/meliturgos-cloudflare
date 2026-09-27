@@ -92,6 +92,8 @@ jobs:
             candidate_branch: result.candidate_branch || null,
             needs_repair: result.needs_repair === true,
             diff_summary: String(result.diff_summary||'').slice(0,20000),
+            planned_files: Array.isArray(job.files_json) ? job.files_json.map(f=>String(f?.path||'')).filter(Boolean).slice(0,20) : [],
+            planned_tests: Array.isArray(job.tests_json) ? job.tests_json.map(t=>({name:String(t?.name||''),command:String(t?.command||'')})).slice(0,10) : [],
             tests: Array.isArray(result.tests) ? result.tests.map(t=>({
               name:t.name, command:t.command, passed:t.passed===true, exit_code:t.exit_code, error:t.error||null
             })) : [],
@@ -100,10 +102,13 @@ jobs:
           console.log(JSON.stringify({
             status:safe.status,
             needs_repair:safe.needs_repair,
+            planned_files:safe.planned_files,
+            planned_tests:safe.planned_tests,
             tests:safe.tests,
             diff_chars:safe.diff_summary.length,
           },null,2));
-          if(safe.needs_repair || safe.tests.some(t=>!t.passed)) process.exitCode=2;
+          if(safe.diff_summary==='NO_CHANGES') process.exitCode=3;
+          else if(safe.needs_repair || safe.tests.some(t=>!t.passed)) process.exitCode=2;
           NODE
 
       - name: Upload sanitized dry-run evidence
