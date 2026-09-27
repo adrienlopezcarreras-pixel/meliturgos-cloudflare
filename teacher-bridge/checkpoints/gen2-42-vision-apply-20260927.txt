@@ -1,0 +1,13 @@
+GEN2-42 vision handoff application checkpoint
+date=2026-09-27
+job_id=ecosystem-watch-c3bfaf443b1287cf885033ecd760bc94
+teacher_request_id=07e154e0-fc18-4ac7-9a1b-ac944a238103
+approved_base_sha=30e3049ab064a5fbd4905f568a3801d72e90bc0d
+bridge_dry_run=36352650391
+bridge_apply_run=36352903051
+applied_candidate_sha=3e6f9bd48e13c4ec8b4aaf9afdbf1f8ccb76334c
+applied_file=src/capabilities/media-image-analyze.js
+requested_test=test:smoke
+dry_run_status=READY_FOR_REVIEW
+dry_run_needs_repair=false
+production_touched=false
