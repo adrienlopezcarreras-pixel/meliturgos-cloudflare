@@ -15,7 +15,21 @@ export class LocalDevBridge {
  recoverCandidate(jobId){jobId=this.validateJobId(jobId);const stateFile=this.statePath(jobId);if(!existsSync(stateFile))return null;let state;try{state=JSON.parse(readFileSync(stateFile,'utf8'));}catch{throw Object.assign(new Error('CANDIDATE_STATE_INVALID'),{code:'CANDIDATE_STATE_INVALID'});}const dir=path.join(this.candidateRoot,jobId),expectedBranch=`mel-dev/${jobId}`;let stat;try{stat=lstatSync(dir);}catch{return null;}if(stat.isSymbolicLink()||!stat.isDirectory()||state?.jobId!==jobId||state?.branch!==expectedBranch||state?.isolatedCopy!==true||!existsSync(path.join(dir,'.git')))throw Object.assign(new Error('CANDIDATE_STATE_INVALID'),{code:'CANDIDATE_STATE_INVALID'});const status=['CANDIDATE','APPROVED','COMMITTED'].includes(state.status)?state.status:'CANDIDATE';const baseBranch=String(state.baseBranch||state.base||''),baseSha=String(state.baseSha||'');const c={jobId,dir,branch:expectedBranch,base:baseBranch,baseBranch,baseSha,status,isolatedCopy:true,recovered:true};this.candidates.set(jobId,c);return c;}
  candidatePath(jobId){return jobId?this.candidate(jobId).dir:this.repoRoot;}
  async status(jobId){return this.exec(['git','status','--short'],this.candidatePath(jobId));}
- async diff(jobId){return this.exec(['git','diff','--'],this.candidatePath(jobId));}
+ async diff(jobId){
+  const cwd=this.candidatePath(jobId);
+  const tracked=await this.exec(['git','diff','--'],cwd);
+  const untracked=await this.git(['ls-files','--others','--exclude-standard','-z'],cwd);
+  let stdout=String(tracked?.stdout||''),stderr=String(tracked?.stderr||'');
+  for(const rel of String(untracked?.stdout||'').split('\0').filter(Boolean)){
+    if(isSensitivePath(rel))continue;
+    let content='';
+    try{content=await fs.readFile(path.join(cwd,rel),'utf8');}catch{continue;}
+    const lines=content.split('\n');
+    const body=lines.map(line=>`+${line}`).join('\n');
+    stdout+=`${stdout&&!stdout.endsWith('\n')?'\n':''}diff --git a/${rel} b/${rel}\nnew file mode 100644\n--- /dev/null\n+++ b/${rel}\n@@ -0,0 +1,${lines.length} @@\n${body}${content.endsWith('\n')?'\n':''}`;
+  }
+  return {command:'git diff -- (+untracked)',exit_code:tracked?.exit_code||0,stdout:stdout.slice(0,20000),stderr:stderr.slice(0,20000)};
+ }
  async diffCheck(jobId){return this.exec(['git','diff','--check'],this.candidatePath(jobId));}
  async tree(jobId){return (await fs.readdir(this.candidatePath(jobId),{withFileTypes:true})).map(x=>x.name).filter(x=>!isSensitivePath(x));} async currentBranch(){return (await this.exec(['git','branch','--show-current'])).stdout.trim();} async currentHead(){return (await this.git(['rev-parse','HEAD'],this.repoRoot)).stdout.trim();} async log(){return this.exec(['git','log','--oneline','-10']);}
  async search(query,jobId){const q=String(query||'');if(!q)throw Object.assign(new Error('SEARCH_DENIED'),{code:'SEARCH_DENIED'});return this.exec(['rg','-n','--hidden','--glob','!.git','--glob','!.mel-dev-candidates','--glob','!node_modules','--glob','!backups','--glob','!.agents','--glob','!.env','--glob','!.env.*','--glob','!.dev.vars','--glob','!.dev.vars.*','--glob','!*.pem','--glob','!*.key','--glob','!credentials.json','--glob','!secrets.json','--glob','!tokens.json','--glob','!passwords.json',q,'.'],this.candidatePath(jobId));}
