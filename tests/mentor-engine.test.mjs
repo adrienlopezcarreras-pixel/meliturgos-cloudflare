@@ -16,6 +16,22 @@ function provider(id, payload) {
   };
 }
 
+function sequenceProvider(id, payloads, calls) {
+  let index = 0;
+  return {
+    id,
+    providerId: 'test',
+    modelId: id,
+    async invoke(input) {
+      calls.push({ id, input });
+      const payload = payloads[Math.min(index, payloads.length - 1)];
+      index += 1;
+      if (payload instanceof Error) throw payload;
+      return { text: typeof payload === 'string' ? payload : JSON.stringify(payload), provenance: { provider: 'test', model: id } };
+    },
+  };
+}
+
 test('mentor engine selects a valid multi-provider code proposal and stores it as an unvalidated observation', async () => {
   const DB = sqliteD1();
   try {
@@ -66,6 +82,40 @@ test('mentor engine selects a valid multi-provider code proposal and stores it a
     assert.equal(evidence.experience.validated, false);
     assert.equal(evidence.experience.source_type, 'MENTOR_COUNCIL_CODE_PROPOSAL');
   } finally { DB.close(); }
+});
+
+test('mentor engine performs one bounded structured repair pass when every initial proposal is invalid', async () => {
+  const calls = [];
+  const valid = {
+    summary: 'Répare la structure sans élargir le périmètre.',
+    changes: [{ path: 'src/example.js', content: 'export const ready = true;\n', reason: 'Petit changement testable' }],
+    tests: ['test:smoke'],
+    confidence: 0.88,
+    lessons: ['Conserver le contrat existant.'],
+    risks: ['Régression couverte par le smoke test.'],
+  };
+  const engine = new MentorEngine({
+    providerFactory: async () => [
+      sequenceProvider('coder-a', ['pas du json', valid], calls),
+      sequenceProvider('coder-b', ['{"summary":"incomplet","changes":[]}', '{"summary":"toujours invalide","changes":[]}'], calls),
+    ],
+  });
+
+  const result = await engine.propose({
+    env: {},
+    jobId: 'job-repair',
+    goal: 'Corriger un composant existant sans créer de doublon',
+    inspectedFiles: [{ path: 'src/example.js', content: 'export const ready = false;\n' }],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.proposal.changes[0].path, 'src/example.js');
+  assert.equal(result.proposal.changes[0].content, 'export const ready = true;\n');
+  assert.equal(result.council.structured_repair_attempted, true);
+  assert.equal(result.council.structured_repair_valid_proposals, 1);
+  assert.equal(result.council.selected_from_repair, true);
+  assert.equal(calls.length, 4);
+  assert.match(String(calls[2].input?.input || ''), /RÉPONSE_INVALIDE_À_RÉPARER/);
 });
 
 test('mentor engine rejects sensitive and outside-repository paths', async () => {
