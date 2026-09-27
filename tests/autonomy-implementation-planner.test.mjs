@@ -252,6 +252,25 @@ test('planner selects a lower-ranked quality-compliant candidate when the top an
   assert.equal(f.aiCalls.length, 2);
 });
 
+test('planner runs a bounded repair pass when every initial multi-AI candidate misses the quality contract', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository);
+  let call = 0;
+  f.env.AI.run = async (model) => {
+    f.aiCalls.push(model);
+    call += 1;
+    if (call <= 2) {
+      return { response: 'FICHIERS: x\nCHANGEMENTS: y\nTESTS: z\nRISQUES: faibles\nROLLBACK: revert\nCRITERES_DE_FIN: CI verte' };
+    }
+    return { response: 'FICHIERS: src/evolution/autonomy-runtime.js\nCHANGEMENTS: minimal\nREUTILISATION: étendre l’existant\nTESTS: node --test\nRISQUES: faibles\nROLLBACK: revert\nCRITERES_DE_FIN: CI verte' };
+  };
+  const proposal = await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
+  assert.equal(proposal.status, 'READY');
+  assert.equal(proposal.consolidation.quality_repair_attempted, true);
+  assert.match(proposal.selected.text, /REUTILISATION:/);
+  assert.ok(f.aiCalls.length >= 3);
+});
+
 test('planner rejects a multi-AI answer that omits the consolidation and quality contract', async () => {
   const f = fixture();
   const job = await approvedJob(f.repository);

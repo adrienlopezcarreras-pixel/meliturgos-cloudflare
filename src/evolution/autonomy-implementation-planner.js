@@ -219,6 +219,30 @@ async function reusableProposal(env, existing, bridge, { fetchImpl = fetch } = {
   return { ...existing, reused: true };
 }
 
+function qualityRepairPrompt(job, bridge, code, candidates, missingSections = []) {
+  const excerpts = (Array.isArray(candidates) ? candidates : [])
+    .slice(0, 2)
+    .map((candidate, index) => [
+      `CANDIDAT_${index + 1}_PROVIDER: ${String(candidate?.provider || '')}`,
+      String(candidate?.text || '').slice(0, 5000),
+    ].join('\n'))
+    .join('\n\n');
+  return [
+    'Tu répares un plan d\'implémentation MELITURGOS déjà approuvé par le Teacher.',
+    'Ne change pas l’objectif, ne déploie rien, ne crée aucune seconde branche candidate.',
+    'Fusionne uniquement les éléments utiles des candidats ci-dessous et rends un plan strictement conforme.',
+    'Réponds obligatoirement avec exactement ces sections non vides: FICHIERS, CHANGEMENTS, REUTILISATION, TESTS, RISQUES, ROLLBACK, CRITERES_DE_FIN.',
+    `SECTIONS_MANQUANTES_DETECTEES: ${Array.isArray(missingSections) && missingSections.length ? missingSections.join(', ') : 'inconnues'}`,
+    `OBJECTIF: ${String(job?.goal || '').slice(0, 2500)}`,
+    `ROADMAP_ID: ${String(job?.optional_context?.roadmap_id || '')}`,
+    `TEACHER_FEEDBACK: ${String(bridge?.review?.feedback || '').slice(0, 2500)}`,
+    `BRANCHE_CANDIDATE_CANONIQUE: ${code.branch}`,
+    `SHA_CANDIDAT_INSPECTE: ${code.candidate_sha}`,
+    'CANDIDATS_A_REPARER:',
+    excerpts || 'aucun texte exploitable',
+  ].join('\n');
+}
+
 function planningPrompt(job, bridge, code) {
   const reusePaths = (code?.reuse_search?.matches || []).map((match) => match.path).filter(Boolean).slice(0, 12);
   return [
@@ -300,7 +324,42 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
       qualityError = error;
     }
   }
+  let repairFanout = null;
+  if (!selectedCandidate) {
+    repairFanout = await augmentio.fanOut({
+      capability: 'CODE',
+      input: qualityRepairPrompt(current, bridge, code, rankedCandidates, qualityError?.missing_sections || []),
+      context: {
+        purpose: 'MEL_APPROVED_IMPLEMENTATION_PLAN_REPAIR',
+        job_id: current.id,
+        request_id: bridge.request.request_id,
+        roadmap_id: current.optional_context?.roadmap_id || null,
+        candidate_branch: code.branch,
+        candidate_sha: code.candidate_sha,
+        consolidation_policy: 'SINGLE_CANONICAL_CANDIDATE',
+      },
+      maxCandidates: 2,
+    });
+    const repairedCandidates = Array.isArray(repairFanout?.candidates) && repairFanout.candidates.length
+      ? repairFanout.candidates
+      : (repairFanout?.best ? [repairFanout.best] : []);
+    for (const candidate of repairedCandidates) {
+      try {
+        selectedText = assertPlanQualityContract(candidate?.text);
+        selectedCandidate = candidate;
+        break;
+      } catch (error) {
+        if (error?.code !== 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING') throw error;
+        qualityError = error;
+      }
+    }
+  }
   if (!selectedCandidate) throw qualityError || Object.assign(new Error('IMPLEMENTATION_QUALITY_CONTRACT_MISSING'), { code: 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING' });
+
+  const allProvidersAttempted = [...new Set([
+    ...(Array.isArray(fanout.providersAttempted) ? fanout.providersAttempted : []),
+    ...(Array.isArray(repairFanout?.providersAttempted) ? repairFanout.providersAttempted : []),
+  ])];
 
   const proposal = {
     status: 'READY',
@@ -312,12 +371,13 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
     candidate_sha: code.candidate_sha,
     roadmap_id: current.optional_context?.roadmap_id || null,
     inspected_files: code.files.map((file) => ({ path: file.path, sha: file.sha || '' })),
-    providers_attempted: fanout.providersAttempted.slice(0, 8),
+    providers_attempted: allProvidersAttempted.slice(0, 8),
     consolidation: {
       policy: 'SINGLE_CANONICAL_CANDIDATE',
       canonical_branch: code.branch,
       alternate_candidate_allowed: false,
       duplicate_module_allowed: false,
+      quality_repair_attempted: Boolean(repairFanout),
       reuse_search: {
         query: code.reuse_search.query,
         searched_files: code.reuse_search.searched_files,
