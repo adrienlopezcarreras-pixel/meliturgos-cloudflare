@@ -164,9 +164,10 @@ export async function runStructuredBridgeJob({ bridge, job } = {}) {
   const diffSummary = actualDiff.trim() ? actualDiff : 'NO_CHANGES';
   const noChanges = !actualDiff.trim();
   const noTests = tests.length === 0;
+  const verifiedRepairRevert = pass === 'repair' && candidateReused && !noTests && failed.length === 0;
   const validationFailure = noChanges && noTests
     ? 'BRIDGE_NO_CHANGES_NO_TESTS'
-    : noChanges
+    : noChanges && !verifiedRepairRevert
       ? 'BRIDGE_NO_CHANGES'
       : noTests
         ? 'BRIDGE_NO_TESTS'
