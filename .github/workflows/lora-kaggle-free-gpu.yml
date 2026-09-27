@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - candidate/mel-clean-autonomy
+      - fix/lora-single-gpu-kaggle-timeout
     paths:
       - ".github/workflows/lora-kaggle-free-gpu.yml"
       - "kaggle/mel-lora-uncensored/**"
@@ -67,7 +68,7 @@ jobs:
         run: echo "cancel-only; no Kaggle training is submitted"
 
   train-chain:
-    if: ${{ !contains(github.event.head_commit.message, '[cancel-only]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[cancel-only]') && (github.event_name == 'workflow_dispatch' || github.ref_name == 'candidate/mel-clean-autonomy' || contains(github.event.head_commit.message, '[smoke-one]')) }}
     runs-on: ubuntu-latest
     environment: preview
     timeout-minutes: 240
@@ -87,6 +88,7 @@ jobs:
           INPUT_MAX_CYCLES: ${{ inputs.max_cycles }}
           INPUT_BENCHMARK_PREVIEW: ${{ inputs.benchmark_preview }}
           INPUT_SMOKE_ONLY: ${{ inputs.smoke_only }}
+          GITHUB_EVENT_HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
           SOURCE_SHA="${INPUT_SOURCE_SHA:-$GITHUB_SHA}"
@@ -96,6 +98,16 @@ jobs:
           MAX_CYCLES="${INPUT_MAX_CYCLES:-100}"
           BENCHMARK_PREVIEW="${INPUT_BENCHMARK_PREVIEW:-false}"
           SMOKE_ONLY="${INPUT_SMOKE_ONLY:-false}"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF_NAME}" == "fix/lora-single-gpu-kaggle-timeout" && "${GITHUB_EVENT_HEAD_COMMIT_MESSAGE:-}" == *"[smoke-one]"* ]]; then
+            CYCLE="1"
+            PARENT_RELEASE_TAG="mel-lora-kaggle-ab6db29b784e-c000"
+            SHARD_SIZE="92"
+            MAX_CYCLES="1"
+            BENCHMARK_PREVIEW="false"
+            SMOKE_ONLY="true"
+          fi
+
           MAX_STEPS="32"
           if [[ "$SMOKE_ONLY" == "true" ]]; then MAX_STEPS="1"; fi
 
