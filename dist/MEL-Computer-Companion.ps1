@@ -382,9 +382,10 @@ function Invoke-ShutdownCommand([string]$action) {
   } else {
     @("/r","/t","5","/d","p:0:0","/c","MEL owner-approved restart")
   }
-  $process = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Hidden -PassThru -Wait
-  if ($process.ExitCode -ne 0) { throw "POWER_SCHEDULE_FAILED:$($process.ExitCode)" }
-  return @{ action=$action; scheduled=$true; delay_seconds=5; exit_code=$process.ExitCode }
+  & $exe @arguments | Out-Null
+  $exitCode = $LASTEXITCODE
+  if ($exitCode -ne 0) { throw "POWER_SCHEDULE_FAILED:$exitCode" }
+  return @{ action=$action; scheduled=$true; delay_seconds=5; exit_code=$exitCode }
 }
 
 function Perform-Step($step, [string]$commandId) {
