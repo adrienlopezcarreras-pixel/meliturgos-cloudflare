@@ -119,6 +119,13 @@ function compareActiveJobs(left, right) {
     || String(left?.id || '').localeCompare(String(right?.id || ''));
 }
 
+export function selectActionableAutonomyJob(jobs = []) {
+  return (Array.isArray(jobs) ? jobs : [])
+    .filter(isSupervisedAutonomyJob)
+    .filter((job) => !isPassiveRuntimeJob(job))
+    .sort(compareActiveJobs)[0] || null;
+}
+
 export function selectNextAutonomyItem({ roadmap = flattenRoadmap(), completedIds = [], blockedIds = [] } = {}) {
   const completed = new Set(completedIds);
   const blocked = new Set(blockedIds);
@@ -199,10 +206,7 @@ export class AutonomySupervisor {
 
   async ensureNextJob() {
     const current = await this.state();
-    const actionable = current.active
-      .filter(isSupervisedAutonomyJob)
-      .filter((job) => !isPassiveRuntimeJob(job))
-      .sort(compareActiveJobs)[0];
+    const actionable = selectActionableAutonomyJob(current.active);
     if (actionable) return { created: false, job: actionable, next: current.next };
 
     // Teacher, Bridge execution and CI/review are validation/execution lanes,
