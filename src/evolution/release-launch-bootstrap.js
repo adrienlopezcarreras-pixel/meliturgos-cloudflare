@@ -19,9 +19,10 @@ import { createProviderNeutralManifest } from '../portability/provider-neutral-m
 import { createProviderEscapeCapsule, providerEscapeSummary, validateProviderEscapeCapsule } from '../portability/provider-escape-capsule.js';
 import { boundRecentMessages, compileHistoricalDecisionCapsule, buildContext } from '../core/orchestrator/context-builder.js';
 import { proveEcosystemTeacherHandoff } from '../evaluation/capability-watch-runtime.js';
+import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof']);
+const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'gen2-42-runtime-tick']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -114,6 +115,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   readReadiness = getAutonomyLaunchReadiness,
   setControl = setAutonomyControl,
   proveCapabilityWatch = proveEcosystemTeacherHandoff,
+  runAutonomyTick = runAutonomyRuntimeTick,
 } = {}) {
   const url = new URL(request.url);
   if (url.pathname !== PATH) return null;
@@ -130,6 +132,33 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   const phase = await requestPhase(request);
   if (!phase) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_PHASE_INVALID' }, { status: 400, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'gen2-42-runtime-tick') {
+    const tick = await runAutonomyTick(env);
+    const completions = tick?.completions || tick?.passive_completions || {};
+    const completed = Array.isArray(completions?.completed) ? completions.completed : [];
+    const rejected = Array.isArray(completions?.rejected) ? completions.rejected : [];
+    return Response.json({
+      ok: tick?.ok !== false,
+      status: 'GEN2_42_RUNTIME_TICK_EXECUTED',
+      phase,
+      tick_status: tick?.status || null,
+      advanced: tick?.advanced === true,
+      paused: tick?.paused === true || tick?.control?.paused === true,
+      max_autonomy: tick?.control?.max_autonomy === true,
+      completed: completed.map((row) => ({
+        job_id: String(row?.job_id || '').slice(0, 160),
+        candidate_sha: String(row?.candidate_sha || '').slice(0, 40),
+        ci_run_id: Number(row?.ci_run_id || 0),
+      })),
+      rejected: rejected.map((row) => ({
+        job_id: String(row?.job_id || '').slice(0, 160),
+        request_id: String(row?.request_id || '').slice(0, 160),
+        code: String(row?.code || '').slice(0, 180),
+      })).slice(0, 20),
+      control_unchanged_by_bootstrap: true,
+    }, { headers: { 'cache-control': 'no-store' } });
   }
 
   // A deployment may inherit RUNNING/MAX control state from the previous SHA.

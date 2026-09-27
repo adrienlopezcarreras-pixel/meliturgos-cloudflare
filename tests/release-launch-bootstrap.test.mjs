@@ -536,3 +536,45 @@ test('release bootstrap proves long-context compression on a real-shaped archive
     DB.close();
   }
 });
+
+
+test('GEN2-42 runtime tick phase preserves autonomy control and delegates to canonical runtime', async () => {
+  let controlCalls=0;
+  let tickCalls=0;
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'gen2-42-runtime-tick'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},
+    {
+      setControl:async()=>{controlCalls+=1; throw new Error('GEN2_42_TICK_MUST_NOT_TOUCH_CONTROL');},
+      runAutonomyTick:async()=>{
+        tickCalls+=1;
+        return {
+          ok:true,
+          status:'ACTIVE',
+          advanced:true,
+          control:{paused:false,max_autonomy:true},
+          completions:{
+            ok:true,
+            completed:[{job_id:'ecosystem-watch-fixture',candidate_sha:'a'.repeat(40),ci_run_id:123}],
+            rejected:[],
+          },
+        };
+      },
+    },
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.status,'GEN2_42_RUNTIME_TICK_EXECUTED');
+  assert.equal(body.control_unchanged_by_bootstrap,true);
+  assert.equal(body.paused,false);
+  assert.equal(body.max_autonomy,true);
+  assert.equal(body.completed.length,1);
+  assert.equal(body.completed[0].job_id,'ecosystem-watch-fixture');
+  assert.equal(tickCalls,1);
+  assert.equal(controlCalls,0);
+});
