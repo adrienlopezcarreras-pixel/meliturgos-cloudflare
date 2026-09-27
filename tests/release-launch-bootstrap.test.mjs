@@ -236,6 +236,42 @@ test('release bootstrap capability-watch proof requires a real waiting Teacher h
   });
   assert.equal(blocked.status,409);
   assert.equal((await blocked.json()).ok,false);
+
+  const progress=await maybeHandleReleaseLaunchBootstrap(request(),env,{
+    setControl:async()=>{},
+    proveCapabilityWatch:async()=>({
+      ok:true,
+      status:'GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED',
+      progress_verified:true,
+      open_handoff_count:2,
+      active_teacher_handoff_count:0,
+      teacher_proven_handoff_count:2,
+      blocked_open_handoff_count:0,
+      job_id:'ecosystem-watch-approved',
+      teacher_request_id:'req-approved',
+      production_activation_allowed:false,
+      auto_approval_allowed:false,
+    }),
+  });
+  assert.equal(progress.status,200);
+  assert.equal((await progress.json()).status,'GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED');
+
+  const idle=await maybeHandleReleaseLaunchBootstrap(request(),env,{
+    setControl:async()=>{},
+    proveCapabilityWatch:async()=>({
+      ok:true,
+      status:'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED',
+      idle_verified:true,
+      open_handoff_count:0,
+      active_teacher_handoff_count:0,
+      teacher_proven_handoff_count:0,
+      blocked_open_handoff_count:0,
+      production_activation_allowed:false,
+      auto_approval_allowed:false,
+    }),
+  });
+  assert.equal(idle.status,200);
+  assert.equal((await idle.json()).status,'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED');
 });
 
 test('release bootstrap Skill Registry proof persists, restores, rolls back and is replay-safe', async () => {
