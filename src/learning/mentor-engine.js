@@ -18,6 +18,18 @@ function bounded(value, max) {
   return text.length > max ? text.slice(0, max) : text;
 }
 
+function mentorFailureCode(error, fallback = 'MENTOR_PROVIDER_FAILED') {
+  const rawCode = String(error?.code || '').trim().toUpperCase();
+  if (/^[A-Z0-9_]{1,80}$/.test(rawCode)) return rawCode;
+  const message = String(error?.message || '');
+  if (/MENTOR_PATH_DENIED/i.test(message)) return 'MENTOR_PATH_DENIED';
+  if (/MENTOR_INVALID_CHANGE/i.test(message)) return 'MENTOR_INVALID_CHANGE';
+  if (/MENTOR_JSON_REQUIRED/i.test(message)) return 'MENTOR_JSON_REQUIRED';
+  if (/JSON|Unexpected token|Expected property name|unterminated/i.test(message)) return 'MENTOR_JSON_INVALID';
+  if (/timeout/i.test(message)) return 'MENTOR_PROVIDER_TIMEOUT';
+  return fallback;
+}
+
 function evidenceObject(row) {
   const value = row?.evidence;
   if (!value) return {};
@@ -231,7 +243,7 @@ export class MentorEngine {
     settled.forEach((result, index) => {
       const provider = providers[index];
       if (result.status === 'rejected') {
-        const failure = bounded(result.reason?.code || result.reason?.message || 'PROVIDER_FAILED', 300);
+        const failure = mentorFailureCode(result.reason);
         failures.push({ provider: provider.id, error: failure, stage: 'initial' });
         repairInputs.push({ provider, raw: '', failure });
         return;
@@ -241,7 +253,7 @@ export class MentorEngine {
         const proposal = normalizeProposal(raw, result.value?.provenance || { provider: provider.providerId, model: provider.modelId });
         proposals.push({ ...proposal, provider_id: provider.id, score: scoreProposal(proposal), repaired: false });
       } catch (error) {
-        const failure = bounded(error?.code || error?.message || 'INVALID_PROPOSAL', 300);
+        const failure = mentorFailureCode(error, 'MENTOR_PROPOSAL_INVALID');
         failures.push({ provider: provider.id, error: failure, stage: 'initial' });
         repairInputs.push({ provider, raw: bounded(raw, 20_000), failure });
       }
@@ -270,7 +282,7 @@ export class MentorEngine {
         if (result.status === 'rejected') {
           failures.push({
             provider: provider.id,
-            error: bounded(result.reason?.code || result.reason?.message || 'PROVIDER_REPAIR_FAILED', 300),
+            error: mentorFailureCode(result.reason, 'MENTOR_PROVIDER_REPAIR_FAILED'),
             stage: 'repair',
           });
           return;
@@ -285,7 +297,7 @@ export class MentorEngine {
         } catch (error) {
           failures.push({
             provider: provider.id,
-            error: bounded(error?.code || error?.message || 'INVALID_REPAIRED_PROPOSAL', 300),
+            error: mentorFailureCode(error, 'MENTOR_REPAIRED_PROPOSAL_INVALID'),
             stage: 'repair',
           });
         }
