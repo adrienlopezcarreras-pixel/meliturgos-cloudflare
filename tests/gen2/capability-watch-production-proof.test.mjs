@@ -153,3 +153,30 @@ test('GEN2-42 production proof accepts a truly idle ledger without masking open 
     DB.close();
   }
 });
+
+
+test('GEN2-42 production proof accepts only fully Teacher-proven open progress', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    const ledger={
+      schema:'mel.ecosystem-discovery-ledger.v1',
+      items:[
+        {fingerprint:'approved',handoff:{job_id:'job-approved',status:'TEACHER_APPROVED',teacher_request_id:'req-approved',closed:false}},
+        {fingerprint:'review',handoff:{job_id:'job-review',status:'READY_FOR_REVIEW',teacher_request_id:'req-review',closed:false}},
+      ],
+    };
+    await DB.prepare(`INSERT INTO capability_watch_state(id,state_json,updated_at) VALUES(?,?,?)`)
+      .bind('ecosystem-discoveries-canonical',JSON.stringify(ledger),Date.now()).run();
+    const jobs={
+      'job-approved':{id:'job-approved',status:'TEACHER_APPROVED',requested_by:'mel-autonomy',optional_context:{source:'ecosystem-watch'},result_json:{teacher_bridge:{request:{request_id:'req-approved'}}}},
+      'job-review':{id:'job-review',status:'READY_FOR_REVIEW',requested_by:'mel-autonomy',optional_context:{source:'ecosystem-watch'},result_json:{teacher_bridge:{request:{request_id:'req-review'}}}},
+    };
+    const proof=await proveEcosystemTeacherHandoff({DB},{developmentRepository:{async get(id){return jobs[id]||null;}}});
+    assert.equal(proof.ok,true);
+    assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED');
+    assert.equal(proof.progress_verified,true);
+    assert.equal(proof.teacher_proven_handoff_count,2);
+    assert.equal(proof.blocked_open_handoff_count,0);
+  } finally { DB.close(); }
+});
