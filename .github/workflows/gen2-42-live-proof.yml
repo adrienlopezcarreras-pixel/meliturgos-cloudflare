@@ -58,7 +58,7 @@ jobs:
             > watch-state.raw.json
 
           npx wrangler d1 execute DB --remote --json \
-            --command "SELECT id,status,requested_by,updated_at,error,json_extract(optional_context,'$.source') AS source,json_extract(optional_context,'$.request_key') AS request_key,json_extract(optional_context,'$.roadmap_id') AS roadmap_id,json_extract(optional_context,'$.discovery_evidence.fingerprint') AS discovery_fingerprint,json_extract(result_json,'$.teacher_bridge.status') AS teacher_status,json_extract(result_json,'$.teacher_bridge.request.request_id') AS teacher_request_id,json_extract(result_json,'$.teacher_bridge.review.verdict') AS teacher_verdict,json_extract(result_json,'$.autonomy_completion.status') AS completion_status,json_extract(result_json,'$.autonomy_completion.candidate_sha') AS completion_candidate_sha,json_extract(result_json,'$.autonomy_completion.ci.run_id') AS completion_ci_run_id,json_extract(result_json,'$.implementation_planning_diagnostic.code') AS implementation_code,json_extract(result_json,'$.bridge_preparation_diagnostic.code') AS bridge_code FROM dev_jobs WHERE requested_by='mel-autonomy' OR id LIKE 'ecosystem-watch-%' ORDER BY updated_at DESC LIMIT 100" \
+            --command "SELECT id,status,requested_by,updated_at,error,json_extract(optional_context,'$.source') AS source,json_extract(optional_context,'$.request_key') AS request_key,json_extract(optional_context,'$.roadmap_id') AS roadmap_id,json_extract(optional_context,'$.discovery_evidence.fingerprint') AS discovery_fingerprint,json_extract(result_json,'$.teacher_bridge.status') AS teacher_status,json_extract(result_json,'$.teacher_bridge.request.request_id') AS teacher_request_id,json_extract(result_json,'$.teacher_bridge.review.verdict') AS teacher_verdict,json_extract(result_json,'$.autonomy_completion.status') AS completion_status,json_extract(result_json,'$.autonomy_completion.candidate_sha') AS completion_candidate_sha,json_extract(result_json,'$.autonomy_completion.ci.run_id') AS completion_ci_run_id,json_extract(result_json,'$.implementation_planning_diagnostic.code') AS implementation_code,json_extract(result_json,'$.bridge_preparation_diagnostic.code') AS bridge_code,json_extract(result_json,'$.implementation_proposal.status') AS implementation_status,json_extract(result_json,'$.bridge_package.status') AS bridge_package_status,json_extract(result_json,'$.runtime_retry.attempts') AS runtime_retry_attempts,json_extract(result_json,'$.runtime_retry.last_error') AS runtime_retry_last_error,json_extract(plan_json,'$.preflight.council.status') AS council_status,json_extract(plan_json,'$.preflight.council.degraded') AS council_degraded FROM dev_jobs WHERE requested_by='mel-autonomy' OR id LIKE 'ecosystem-watch-%' ORDER BY updated_at DESC LIMIT 100" \
             > dev-jobs.raw.json
 
           npx wrangler d1 execute DB --remote --json \
@@ -180,6 +180,12 @@ jobs:
                   'completion_ci_run_id': row.get('completion_ci_run_id'),
                   'implementation_code': row.get('implementation_code'),
                   'bridge_code': row.get('bridge_code'),
+                  'implementation_status': row.get('implementation_status'),
+                  'bridge_package_status': row.get('bridge_package_status'),
+                  'runtime_retry_attempts': row.get('runtime_retry_attempts'),
+                  'runtime_retry_last_error': row.get('runtime_retry_last_error'),
+                  'council_status': row.get('council_status'),
+                  'council_degraded': row.get('council_degraded'),
               })
 
           ecosystem_jobs = [j for j in jobs if j.get('source') == 'ecosystem-watch' or j.get('id') in handoff_job_ids]
