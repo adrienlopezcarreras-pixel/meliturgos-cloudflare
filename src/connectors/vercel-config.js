@@ -45,10 +45,11 @@ export function createVercelConfigResolver(env = {}) {
 }
 
 export async function saveVercelConnectionConfig(env = {}, config = {}, contextOwner = owner(env)) {
-  const token = clean(config.token, 4000);
-  const teamId = clean(config.team_id, 200);
-  const projectId = clean(config.project_id, 200);
-  const projectName = clean(config.project_name, 200);
+  const existing = await createVercelConfigResolver(env)(contextOwner);
+  const token = clean(config.token, 4000) || clean(existing.token, 4000);
+  const teamId = config.team_id == null ? clean(existing.team_id, 200) : clean(config.team_id, 200);
+  const projectId = config.project_id == null ? clean(existing.project_id, 200) : clean(config.project_id, 200);
+  const projectName = config.project_name == null ? clean(existing.project_name, 200) : clean(config.project_name, 200);
   if (!token) {
     const error = new Error('VERCEL_TOKEN_REQUIRED');
     error.code = 'VERCEL_TOKEN_REQUIRED';
