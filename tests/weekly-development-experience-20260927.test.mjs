@@ -18,6 +18,13 @@ const IDS = [
   'bootstrap-release-proof-persisted-evidence-cpu-budget-20260927',
   'bootstrap-retryable-handoff-release-semantics-20260927',
   'bootstrap-weekly-development-state-20260927',
+  'bootstrap-editorial-master-source-preservation-20260927',
+  'bootstrap-editorial-page-gated-validation-20260927',
+  'bootstrap-editorial-authentic-media-provenance-20260927',
+  'bootstrap-longform-canonical-state-machine-20260927',
+  'bootstrap-longform-provenance-uncertainty-separation-20260927',
+  'bootstrap-automation-slot-reallocation-canonical-state-20260927',
+  'bootstrap-encrypted-backup-consumer-codec-parity-20260927',
 ];
 
 test('weekly validated development experience is canonical and deduplicated', () => {
@@ -50,7 +57,7 @@ test('weekly experience reaches MEL LearningEngine training bundle', async () =>
 
 test('weekly multi-page handoff preserves the dated technical continuity contract', async () => {
   const handoff = await readFile(new URL('../.agents/WEEKLY_HANDOFF_20260927.md', import.meta.url), 'utf8');
-  const markers = ['21–22 septembre','23–24 septembre','25 septembre','26 septembre','27 septembre','Android 0.6.43','GEN2-42','PAUSED_FOR_ROADMAP','BLOCKED_HUMAN','LearningEngine'];
+  const markers = ['21–22 septembre','23–24 septembre','25 septembre','26 septembre','27 septembre','Android 0.6.43','GEN2-42','PAUSED_FOR_ROADMAP','BLOCKED_HUMAN','LearningEngine','magazine et production éditoriale','écriture longue, corpus et tâches'];
   for (const marker of markers) assert.ok(handoff.includes(marker), 'missing weekly marker '+marker);
   assert.equal(/médical|famille|mot de passe|password/i.test(handoff), false);
 });

@@ -86,6 +86,31 @@ Un état daté ci-dessous ne doit jamais être extrapolé comme vérité actuell
 - PR #578 aligne la preuve de release sur la sémantique déjà utilisée par le planner : FAILED + retryable est libéré pour retry, reste visible dans les diagnostics, mais ne doit pas bloquer indéfiniment une release ; QUEUED/FAILED non retryable ou sans provenance Teacher reste bloquant.
 - Le workflow GEN2-42 a reçu un déclencheur PR et des tests ciblés afin que cette logique ne soit plus modifiable sans CI.
 
+
+## 27 septembre — recovery drill et chiffrement
+
+- Le recovery drill production a révélé un faux échec `BACKUP_ENCRYPTION_CODEC_REQUIRED` : le backup/restore canonique utilisait correctement le codec d encryption, mais la capacité secondaire `resilience.recovery.drill.latest` reconstruisait le storage sans ce codec.
+- Correction : résolution des secrets d encryption identique au chemin canonique, config partielle fail-closed, storage du drill construit avec `createEnvBackupEncryptionCodec(env)`, tout en conservant le drill sandboxé, sans accès/mutation production.
+- Leçon : le chiffrement est un contrat transversal des consommateurs de storage ; un outil de preuve ne doit pas utiliser une configuration de lecture différente du système qu il prétend auditer.
+
+## 21–27 septembre — magazine et production éditoriale
+
+- Le magazine a adopté une source graphique canonique stricte : repartir du fichier source d origine, utiliser la page 02 « Note au lecteur » comme référence visuelle absolue, et ne jamais dériver une page depuis la page précédemment corrigée.
+- Quand un header/footer existe déjà dans la source canonique, il doit être conservé à l identique : aucune régénération, aucun déplacement, aucun redimensionnement ni remplacement. Les corrections portent alors uniquement sur le corps de page.
+- Les pages sont traitées une par une : GENERATE/FIX sur la page courante, audit indépendant, validation explicite, puis seulement passage à la suivante. Une page rejetée ne devient jamais la base de la suivante.
+- Les vraies photographies et archives sont privilégiées lorsqu elles sont disponibles et utilisables ; aucune photo ne doit être répétée silencieusement ; chaque image historique passe un reality/historical check. Une image générée doit rester identifiable comme reconstitution et ne jamais être présentée comme document authentique.
+- La fidélité éditoriale est mesurée séparément de la conformité visuelle : texte/script canonique, image, format, fond, marges, header/footer et pagination sont des dimensions de contrôle distinctes.
+- Le registre d audit doit conserver le texte correspondant à chaque page validée afin que rendu visuel et contenu éditorial restent réconciliables.
+
+## 21–27 septembre — écriture longue, corpus et tâches
+
+- Les projets de livres sont gérés comme un corpus canonique avec états explicites : planifié, en rédaction, en audit/révision, puis CLOSED_VERIFIED. Un projet, un manuscrit et une révision ne doivent jamais être confondus.
+- Les cycles automatiques et manuels utilisent le même état canonique et le même compteur ; une reprise doit continuer depuis cet état réel, sans double comptage ni boucle artificielle.
+- Après fermeture vérifiée d un manuscrit, les tâches disponibles sont réallouées au prochain chantier prioritaire plutôt que de continuer à réécrire le projet fermé.
+- La semaine a confirmé une règle de rédaction longue : densifier sans remplissage ni invention, conserver les incertitudes, séparer fait documenté, interprétation et hypothèse, et vérifier structure/doublons/provenance après chaque gros lot.
+- Les audits spécialisés peuvent être parallèles en rôle mais doivent converger sur un seul manuscrit canonique ; leurs findings sont fermés explicitement avant CLOSED_VERIFIED.
+- Les jeux ont conservé leur état canonique et leurs preuves acquises ; lorsqu ils ont été temporairement dépriorisés au profit des livres, le changement de priorité a porté sur les slots de travail, pas sur la vérité de leur dernier état validé.
+
 ## État roadmap au cours de la consolidation
 
 Avant la certification GEN2-58, la lecture canonique donnait 125 items :
