@@ -461,3 +461,80 @@ test('attachment byte backfill is replay-safe and preserves indexed text on dupl
     DB.close();
   }
 });
+
+
+test('official ChatGPT export can confirm its own exhaustive coverage without the retired Collector', async () => {
+  const DB = sqliteD1();
+  try {
+    const env = { DB, MELITURGOS_USER:'adrien' };
+    const payload = {
+      conversations: [{
+        id:'official-complete',
+        title:'Export officiel complet',
+        mapping:{
+          a:{ id:'a', parent:null, message:{
+            id:'m1', author:{role:'user'}, create_time:1700001000,
+            content:{parts:['mémoire officielle']},
+            metadata:{attachments:[{id:'asset-official',name:'preuve.txt',mime_type:'text/plain'}]}
+          }},
+          b:{ id:'b', parent:'a', message:{
+            id:'m2', author:{role:'assistant'}, create_time:1700001001,
+            content:{parts:['réponse officielle']}
+          }}
+        }
+      }],
+      files:[{
+        id:'asset-official',
+        name:'preuve.txt',
+        mime_type:'text/plain',
+        data_base64:Buffer.from('preuve pièce jointe officielle').toString('base64')
+      }]
+    };
+
+    const preview = await importChatGPTArchive(env, payload, { preview:true });
+    assert.equal(preview.official_export, true);
+    assert.equal(preview.coverage_can_be_confirmed, true);
+    assert.equal(preview.attachment_descriptors, 1);
+    assert.equal(preview.attachment_binary_available, 1);
+    assert.equal(preview.attachment_binary_indexed, 1);
+
+    const imported = await importChatGPTArchive(env, payload, { preview:false, confirmFullExport:true });
+    assert.equal(imported.ok, true);
+    assert.equal(imported.coverage_confirmed, true);
+    assert.equal(imported.coverage_confirmation.collector_version, 'official-export-v1');
+
+    const status = await getChatGPTImportStatus(env);
+    assert.equal(status.server_archive_complete, true);
+    assert.equal(status.collector_inventory_confirmed, true);
+    assert.equal(status.collector_inventory.collector_version, 'official-export-v1');
+    assert.equal(status.full_archive_confirmed, true);
+    assert.equal(status.partial_conversations, 0);
+    assert.equal(status.underfilled_conversations, 0);
+    assert.equal(status.attachment_index.descriptors, 1);
+    assert.equal(status.attachment_index.binary_content_available, 1);
+    assert.equal(status.attachment_index.indexed_descriptors, 1);
+  } finally {
+    DB.close();
+  }
+});
+
+test('full export confirmation refuses a non-official linear payload', async () => {
+  const DB = sqliteD1();
+  try {
+    const env = { DB, MELITURGOS_USER:'adrien' };
+    const payload = [{
+      id:'linear-not-official',
+      title:'Linear',
+      messages:[{id:'m1',role:'user',content:'not an official mapping export',timestamp:1}]
+    }];
+    const preview = await importChatGPTArchive(env, payload, { preview:true });
+    assert.equal(preview.official_export, false);
+    assert.equal(preview.coverage_can_be_confirmed, false);
+    await assert.rejects(
+      () => importChatGPTArchive(env, payload, { preview:false, confirmFullExport:true }),
+      error => error?.code === 'CHATGPT_FULL_EXPORT_CONFIRMATION_UNSAFE'
+    );
+  } finally {
+    DB.close();
+  }
+});

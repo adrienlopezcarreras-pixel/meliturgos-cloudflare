@@ -358,7 +358,7 @@ async function maybeHandleChatGPTArchive(request, env) {
   try {
     const runtime = createGen2Runtime({ env });
     const capabilityId = preview ? 'chatgpt.archive.preview' : 'chatgpt.archive.import';
-    const result = await runtime.bus.execute(capabilityId, { archive }, busContext(env, request));
+    const result = await runtime.bus.execute(capabilityId, { archive, confirm_full_export: body.confirm_full_export === true }, busContext(env, request));
     return Response.json(result, { status: result.ok === false ? 207 : 200, headers: { 'cache-control': 'no-store' } });
   } catch (error) {
     return apiError(error, 'CHATGPT_ARCHIVE_IMPORT_FAILED');
