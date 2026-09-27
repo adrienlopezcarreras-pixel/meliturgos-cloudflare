@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { createVerifiedBackupService } from '../../src/backup/backup-service.js';
 import { createGen2Runtime } from '../../src/core/orchestrator/gen2-runtime.js';
-import { registerRecoveryDrillCapability, runRecoveryDrillAgainstSnapshot } from '../../src/capabilities/recovery-drill-capability.js';
+import { registerRecoveryDrillCapability, runRecoveryDrillAgainstSnapshot, verifyPersistedEncryptedRestoreCandidate } from '../../src/capabilities/recovery-drill-capability.js';
 import { runScheduledSystemBackup } from '../../src/backup/system-backup-runtime.js';
 import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 
@@ -199,4 +199,50 @@ test('GEN2-48 recovery drill fails closed on partial backup encryption configura
   } finally {
     DB.close();
   }
+});
+
+
+test('GEN2-48 persisted encrypted proof is exact-bound and fails closed on metadata drift', async () => {
+  const snapshot = await snapshotFixture();
+  const verification = await (await import('../../src/backup/restore-service.js')).verifyRestoreCandidate(snapshot);
+  assert.equal(verification.ok, true);
+
+  const metadata = {
+    id: snapshot.id,
+    integritySha256: snapshot.integritySha256,
+    sourceCount: snapshot.sourceCount,
+    verified: true,
+    encrypted: true,
+    restoreVerified: true,
+    restoreIntegritySha256: snapshot.integritySha256,
+    restoreDeployedGitSha: verification.runtime.deployedGitSha,
+    restoreTableCount: verification.database.tableCount,
+    restoreRowCount: verification.database.rowCount,
+    restoreR2ObjectCount: verification.r2.objectCount,
+  };
+
+  const accepted = verifyPersistedEncryptedRestoreCandidate(snapshot, metadata);
+  assert.equal(accepted.ok, true);
+  assert.equal(accepted.integrity.code, 'ENCRYPTED_STORAGE_AND_PERSISTED_SNAPSHOT_VERIFIED');
+
+  const integrityDrift = verifyPersistedEncryptedRestoreCandidate(snapshot, {
+    ...metadata,
+    restoreIntegritySha256: 'f'.repeat(64),
+  });
+  assert.equal(integrityDrift.ok, false);
+  assert.equal(integrityDrift.code, 'RECOVERY_DRILL_PERSISTED_INTEGRITY_MISMATCH');
+
+  const countDrift = verifyPersistedEncryptedRestoreCandidate(snapshot, {
+    ...metadata,
+    restoreRowCount: metadata.restoreRowCount + 1,
+  });
+  assert.equal(countDrift.ok, false);
+  assert.equal(countDrift.code, 'RECOVERY_DRILL_PERSISTED_RESTORE_COUNTS_MISMATCH');
+
+  const shaDrift = verifyPersistedEncryptedRestoreCandidate(snapshot, {
+    ...metadata,
+    restoreDeployedGitSha: 'b'.repeat(40),
+  });
+  assert.equal(shaDrift.ok, false);
+  assert.equal(shaDrift.code, 'RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_MISMATCH');
 });

@@ -1,6 +1,6 @@
 import { createR2D1BackupStorage } from '../backup/system-backup-runtime.js';
 import { createEnvBackupEncryptionCodec } from '../backup/encrypted-backup-storage.js';
-import { verifyRestoreCandidate } from '../backup/restore-service.js';
+import { inspectRestoreCandidate, verifyRestoreCandidate } from '../backup/restore-service.js';
 import { requireValue } from '../core/contracts.js';
 import { RecoveryBundleBuilder } from '../resilience/recovery-bundle.js';
 import { createRecoveryDrillController } from '../resilience/recovery-drill.js';
@@ -15,18 +15,62 @@ function reconstructLogicalState(verification, snapshot) {
   if (!verification?.ok) return { ok: false, code: 'RESTORE_CANDIDATE_NOT_VERIFIED' };
   const tables = snapshot?.exports?.database?.tables;
   if (!Array.isArray(tables)) return { ok: false, code: 'D1_LOGICAL_EXPORT_REQUIRED' };
-  const reconstructed = new Map();
+  let tableCount = 0;
+  let rowCount = 0;
   for (const table of tables) {
     if (!table?.name || !Array.isArray(table.rows) || Number(table.rowCount) !== table.rows.length) {
       return { ok: false, code: 'D1_LOGICAL_RECONSTRUCTION_FAILED' };
     }
-    reconstructed.set(String(table.name), structuredClone(table.rows));
+    tableCount += 1;
+    rowCount += table.rows.length;
   }
   return {
-    ok: reconstructed.size === verification.database.tableCount,
-    table_count: reconstructed.size,
-    row_count: [...reconstructed.values()].reduce((sum, rows) => sum + rows.length, 0),
+    ok: tableCount === verification.database.tableCount
+      && rowCount === Number(verification.database.rowCount || 0),
+    table_count: tableCount,
+    row_count: rowCount,
   };
+}
+
+export function verifyPersistedEncryptedRestoreCandidate(snapshot, metadata) {
+  const integrity = String(snapshot?.integritySha256 || '').toLowerCase();
+  const metadataIntegrity = String(metadata?.integritySha256 || '').toLowerCase();
+  const restoreIntegrity = String(metadata?.restoreIntegritySha256 || '').toLowerCase();
+  if (metadata?.encrypted !== true) return { ok: false, code: 'RECOVERY_DRILL_ENCRYPTED_METADATA_REQUIRED' };
+  if (metadata?.verified !== true) return { ok: false, code: 'RECOVERY_DRILL_PERSISTED_CRYPTO_PROOF_REQUIRED' };
+  if (metadata?.restoreVerified !== true) return { ok: false, code: 'RECOVERY_DRILL_PERSISTED_RESTORE_PROOF_REQUIRED' };
+  if (!/^[a-f0-9]{64}$/.test(integrity) || integrity !== metadataIntegrity || integrity !== restoreIntegrity) {
+    return { ok: false, code: 'RECOVERY_DRILL_PERSISTED_INTEGRITY_MISMATCH' };
+  }
+  if (String(snapshot?.id || '') !== String(metadata?.id || '')) {
+    return { ok: false, code: 'RECOVERY_DRILL_PERSISTED_SNAPSHOT_ID_MISMATCH' };
+  }
+  if (Number(snapshot?.sourceCount || 0) !== Number(metadata?.sourceCount || 0)) {
+    return { ok: false, code: 'RECOVERY_DRILL_PERSISTED_SOURCE_COUNT_MISMATCH' };
+  }
+
+  const proof = inspectRestoreCandidate(snapshot, {
+    integrity: {
+      ok: true,
+      code: 'ENCRYPTED_STORAGE_AND_PERSISTED_SNAPSHOT_VERIFIED',
+      id: snapshot.id,
+      integritySha256: integrity,
+      sourceCount: Number(snapshot.sourceCount || 0),
+    },
+  });
+  if (!proof?.ok) return proof;
+
+  if (Number(metadata?.restoreTableCount || 0) !== Number(proof.database?.tableCount || 0)
+    || Number(metadata?.restoreRowCount || 0) !== Number(proof.database?.rowCount || 0)
+    || Number(metadata?.restoreR2ObjectCount || 0) !== Number(proof.r2?.objectCount || 0)) {
+    return { ok: false, code: 'RECOVERY_DRILL_PERSISTED_RESTORE_COUNTS_MISMATCH' };
+  }
+  const metadataSha = String(metadata?.restoreDeployedGitSha || '').toLowerCase();
+  const runtimeSha = String(proof.runtime?.deployedGitSha || '').toLowerCase();
+  if (metadataSha && metadataSha !== runtimeSha) {
+    return { ok: false, code: 'RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_MISMATCH' };
+  }
+  return proof;
 }
 
 export async function runRecoveryDrillAgainstSnapshot(snapshot, {
@@ -187,13 +231,32 @@ export function registerRecoveryDrillCapability(bus, env = {}) {
       encryptionCodec,
     });
     let snapshotId = String(input.snapshot_id || '').trim();
+    let persisted = null;
     if (!snapshotId) {
-      const latest = (await storage.list({ limit: 1 }))[0] || null;
-      snapshotId = String(latest?.id || '');
+      persisted = (await storage.list({ limit: 1 }))[0] || null;
+      snapshotId = String(persisted?.id || '');
+    } else {
+      persisted = (await storage.list({ limit: 100 }))
+        .find(row => String(row?.id || '') === snapshotId) || null;
     }
     requireValue(snapshotId, 'RECOVERY_DRILL_BACKUP_NOT_FOUND', 404);
     const snapshot = await storage.get(snapshotId);
     requireValue(snapshot, 'RECOVERY_DRILL_BACKUP_NOT_FOUND', 404);
-    return runRecoveryDrillAgainstSnapshot(snapshot, { owner: Boolean(context?.owner), approved: true });
+
+    // storage.get() has already authenticated and integrity-checked an encrypted
+    // envelope before returning plaintext. If that same snapshot also carries
+    // the persisted create-time cryptographic + restore proof, reuse that exact
+    // evidence instead of stable-stringifying and hashing the full snapshot a
+    // second time inside the same Worker request. Plaintext/legacy backups keep
+    // the full verifier and therefore remain fail-closed.
+    const verifyCandidate = persisted?.encrypted === true
+      ? async value => verifyPersistedEncryptedRestoreCandidate(value, persisted)
+      : verifyRestoreCandidate;
+
+    return runRecoveryDrillAgainstSnapshot(snapshot, {
+      owner: Boolean(context?.owner),
+      approved: true,
+      verifyCandidate,
+    });
   });
 }
