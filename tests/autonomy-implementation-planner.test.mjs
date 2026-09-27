@@ -6,7 +6,7 @@ import { prepareApprovedImplementationProposal } from '../src/evolution/autonomy
 const HEAD_SHA = '1111111111111111111111111111111111111111';
 const NEW_HEAD_SHA = '2222222222222222222222222222222222222222';
 
-function fixture({ headSequence = [HEAD_SHA] } = {}) {
+function fixture({ headSequence = [HEAD_SHA], headUnavailable = false } = {}) {
   const repository = new D1DevJobRepository(null, { memoryStore: new Map() });
   const aiCalls = [];
   let headReads = 0;
@@ -24,6 +24,7 @@ function fixture({ headSequence = [HEAD_SHA] } = {}) {
   const fetchImpl = async (url) => {
     const target = String(url);
     if (target.includes('/commits/candidate%2Faugmentio-core')) {
+      if (headUnavailable) return new Response('head unavailable', { status: 503 });
       const sha = headSequence[Math.min(headReads, headSequence.length - 1)];
       headReads += 1;
       return Response.json({ sha });
@@ -171,6 +172,22 @@ test('legacy READY proposal without consolidation metadata is regenerated instea
   assert.equal(refreshed.candidate_sha, HEAD_SHA);
   assert.equal(refreshed.consolidation.policy, 'SINGLE_CANONICAL_CANDIDATE');
   assert.ok(f.aiCalls.length >= 2);
+});
+
+test('planner continues from the exact Teacher-approved SHA when branch head APIs are temporarily unavailable', async () => {
+  const f = fixture({ headUnavailable: true });
+  const job = await approvedJob(f.repository);
+  const proposal = await prepareApprovedImplementationProposal({
+    env: f.env,
+    repository: f.repository,
+    job,
+    fetchImpl: f.fetchImpl,
+  });
+  assert.equal(proposal.status, 'READY');
+  assert.equal(proposal.candidate_sha, HEAD_SHA);
+  assert.ok(proposal.inspected_files.length >= 1);
+  assert.ok(f.aiCalls.length >= 2);
+  assert.equal(f.getHeadReads(), 0);
 });
 
 test('planner fails closed if candidate head moves during code inspection', async () => {
