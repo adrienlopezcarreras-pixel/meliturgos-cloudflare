@@ -124,12 +124,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EVIDENCE="$(find artifacts/kaggle-output -type f -name training-evidence.json -print -quit)"
-          test -n "$EVIDENCE"
-          DIR="$(dirname "$EVIDENCE")"
+          DIR="artifacts/kaggle-output/mel-lora-output"
+          test -s "$DIR/training-evidence.json"
           for f in adapter_model.safetensors adapter_config.json training-evidence.json artifact-evidence.json lora-plan.json kaggle-run.json; do
             test -s "$DIR/$f"
           done
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const dir='artifacts/kaggle-output/mel-lora-output';
+          const training=JSON.parse(fs.readFileSync(dir+'/training-evidence.json','utf8'));
+          const artifact=JSON.parse(fs.readFileSync(dir+'/artifact-evidence.json','utf8'));
+          const stage=String(training.stage||'');
+          if (stage === 'uncensored-continue') {
+            const parent=String(training.parent_artifact_digest||'').toLowerCase();
+            const current=String(artifact.digest||'').toLowerCase();
+            if (!parent || !current || parent === current) throw new Error('KAGGLE_COLLECTOR_SELECTED_PARENT_INSTEAD_OF_CURRENT');
+          }
+          console.log(JSON.stringify({status:'CURRENT_KAGGLE_CHECKPOINT_SELECTED',stage,artifact_digest:artifact.digest,parent_artifact_digest:training.parent_artifact_digest||null},null,2));
+          NODE
           echo "dir=$DIR" >> "$GITHUB_OUTPUT"
 
       - name: Validate uncensored artifact provenance
