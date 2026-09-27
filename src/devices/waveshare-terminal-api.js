@@ -327,7 +327,7 @@ async function serveDownload(request, env, url) {
     "x-mel-sha256": String(object.customMetadata?.sha256 || "")
   });
   object.writeHttpMetadata?.(headers);
-  if (!headers.get("content-type")) headers.set("content-type", "audio/wav");
+  if (!headers.get("content-type")) headers.set("content-type", "application/octet-stream");
   return new Response(object.body, { status: 200, headers });
 }
 
@@ -353,7 +353,7 @@ async function ownerFirmware(request, env) {
   const object = await env.MEDIA_BUCKET.get(key);
   if (!object) return json({ ok: false, code: "FIRMWARE_NOT_FOUND" }, 404);
   const headers = new Headers({
-    "content-type": "audio/wav",
+    "content-type": "application/octet-stream",
     "content-length": String(object.size),
     "content-disposition": 'attachment; filename="mini-first-install.bin"',
     "cache-control": "no-store",
