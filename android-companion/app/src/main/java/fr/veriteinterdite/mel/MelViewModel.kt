@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 
@@ -50,11 +51,16 @@ data class MelUiState(
     val session: SessionStage = SessionStage.DISCONNECTED,
     val mode: MelMode = MelMode.NORMAL,
     val busy: Boolean = false,
+    val speaking: Boolean = false,
     val status: String = "",
     val error: String? = null,
     val messages: List<MelChatMessage> = emptyList(),
     val companions: List<MelCompanionDevice> = emptyList(),
     val companionStatus: String = "",
+    val miniPairCode: String? = null,
+    val miniPairExpiresAt: Long? = null,
+    val miniPairBusy: Boolean = false,
+    val miniPairError: String? = null,
     val diagnosticReport: String? = null
 )
 
@@ -80,7 +86,35 @@ class MelViewModel(
     fun setMode(mode: MelMode) {
         if (_state.value.busy) return
         prefs.edit().putString("mode", mode.name).apply()
-        _state.value = _state.value.copy(mode = mode, error = null)
+        _state.value = _state.value.copy(
+            mode = mode,
+            status = if (mode == MelMode.COMPLETE) "Mode complet activé · outils natifs disponibles" else "Mode normal activé",
+            error = null
+        )
+    }
+
+    fun requestMiniPairCode(username: String, secret: String) {
+        if (secret.isBlank() || _state.value.miniPairBusy) {
+            if (secret.isBlank()) _state.value = _state.value.copy(miniPairError = "Mot de passe MEL requis")
+            return
+        }
+        _state.value = _state.value.copy(miniPairBusy = true, miniPairError = null, miniPairCode = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val response = client.createMiniPairCodeWithOwnerCredentials(username.trim(), secret)
+                _state.value = _state.value.copy(
+                    miniPairBusy = false,
+                    miniPairCode = response.optString("code").trim().ifBlank { null },
+                    miniPairExpiresAt = response.optLong("expires_at").takeIf { it > 0L },
+                    miniPairError = null
+                )
+            } catch (error: Throwable) {
+                _state.value = _state.value.copy(
+                    miniPairBusy = false,
+                    miniPairError = explain(error)
+                )
+            }
+        }
     }
 
     fun verifyExistingSession() {
@@ -166,7 +200,21 @@ class MelViewModel(
         }
     }
 
+    fun interruptSpeechForBargeIn() {
+        MelVoicePlayer.stop()
+        if (_state.value.speaking || _state.value.busy) {
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "Je t’écoute…",
+                error = null
+            )
+        }
+        appendDiagnosticLine("Audio MEL: interrompu par la voix utilisateur")
+    }
+
     fun disconnect() {
+        MelVoicePlayer.stop()
         vault.clear()
         MelBackground.cancel(appContext)
         _state.value = MelUiState(
@@ -176,10 +224,127 @@ class MelViewModel(
         )
     }
 
+    fun localCompanionReply(userText: String, answer: String, voice: Boolean) {
+        val cleanUser = userText.trim()
+        val cleanAnswer = answer.trim()
+        if (cleanUser.isBlank() || cleanAnswer.isBlank() || _state.value.busy || _state.value.speaking) return
+        val mode = _state.value.mode
+        _state.value = _state.value.copy(
+            busy = voice,
+            speaking = voice,
+            status = if (voice) "MEL répond…" else "Commande locale exécutée",
+            error = null,
+            messages = _state.value.messages +
+                MelChatMessage("user", cleanUser, voice) +
+                MelChatMessage("mel", cleanAnswer)
+        )
+        if (!voice) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                speakAnswer(cleanAnswer, mode)
+                appendDiagnosticLine("Compagnon local: OK · voix MEL")
+            } catch (error: Throwable) {
+                _state.value = _state.value.copy(
+                    busy = false,
+                    speaking = false,
+                    status = "Commande locale exécutée",
+                    error = null
+                )
+                appendDiagnosticLine("Compagnon local: action OK · voix locale indisponible")
+            }
+        }
+    }
+
+    private fun localMiniAnswer(text: String): String? {
+        val normalized = text.lowercase()
+            .replace('’', '\'')
+            .replace('é', 'e')
+            .replace('è', 'e')
+            .replace('ê', 'e')
+            .replace('à', 'a')
+            .replace('ù', 'u')
+        if (!normalized.contains("mini")) return null
+        val diagnosticIntent = listOf(
+            "vois", "voir", "detect", "connect", "bluetooth", "internet",
+            "en ligne", "etat", "statut", "relais", "appair"
+        ).any { normalized.contains(it) }
+        if (!diagnosticIntent) return null
+
+        val bridge = MelBleBridgeService.bridgeState.value
+        return when {
+            bridge.contains("INTERNET OK", ignoreCase = true) ->
+                "Oui. Je vois la MINI, elle est connectée en Bluetooth et son relais Internet fonctionne."
+            bridge.contains("INTERNET ERREUR", ignoreCase = true) ->
+                "Oui. Je vois la MINI en Bluetooth, mais son accès Internet est actuellement en erreur."
+            bridge.contains("MINI CONNECTÉE", ignoreCase = true) ||
+                bridge.contains("MINI LIÉE", ignoreCase = true) ->
+                "Oui. Je vois la MINI en Bluetooth. Le lien local est actif, mais Internet n'est pas encore confirmé."
+            bridge.contains("BLUETOOTH OFF", ignoreCase = true) ->
+                "Non. Le Bluetooth du téléphone est coupé, donc je ne peux pas voir la MINI pour le moment."
+            else ->
+                "Je ne vois pas encore la MINI comme connectée. État Bluetooth actuel : $bridge."
+        }
+    }
+
+    private fun chatWithRecovery(
+        text: String,
+        voice: Boolean,
+        mode: MelMode
+    ): JSONObject {
+        return try {
+            client.chat(
+                text = text,
+                conversationId = conversationId,
+                voice = voice,
+                uiMode = mode.wireValue
+            )
+        } catch (first: Throwable) {
+            if (isInvalidSession(first)) throw first
+            appendDiagnosticLine("Chat: première tentative échouée · ${explain(first)}")
+            val serverFailure = first is MelApiException && first.status >= 500
+            if (!serverFailure) {
+                client.heartbeat(sdkInt = Build.VERSION.SDK_INT)
+                _state.value = _state.value.copy(
+                    session = SessionStage.CONNECTED,
+                    status = "Connexion rétablie · nouvelle tentative…",
+                    error = null
+                )
+            } else {
+                _state.value = _state.value.copy(
+                    status = "MEL réessaie immédiatement…",
+                    error = null
+                )
+            }
+            client.chat(
+                text = text,
+                conversationId = conversationId,
+                voice = voice,
+                uiMode = mode.wireValue
+            )
+        }
+    }
+
     fun send(text: String, voice: Boolean = false) {
         val clean = text.trim()
-        if (clean.isBlank() || _state.value.busy) return
+        if (clean.isBlank() || _state.value.busy || _state.value.speaking) return
         val mode = _state.value.mode
+        val localAnswer = localMiniAnswer(clean)
+        if (localAnswer != null) {
+            _state.value = _state.value.copy(
+                busy = true,
+                speaking = false,
+                status = "Réponse locale MINI…",
+                error = null,
+                messages = _state.value.messages +
+                    MelChatMessage("user", clean, voice) +
+                    MelChatMessage("mel", localAnswer)
+            )
+            viewModelScope.launch(Dispatchers.IO) {
+                appendDiagnosticLine("MINI local fast-path: ${MelBleBridgeService.bridgeState.value}")
+                speakAnswer(localAnswer, mode)
+            }
+            return
+        }
         _state.value = _state.value.copy(
             busy = true,
             status = "MEL réfléchit…",
@@ -188,19 +353,20 @@ class MelViewModel(
         )
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val response = client.chat(
+                val response = chatWithRecovery(
                     text = clean,
-                    conversationId = conversationId,
                     voice = voice,
-                    uiMode = mode.wireValue
+                    mode = mode
                 )
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 _state.value = _state.value.copy(
-                    busy = false,
-                    status = "MEL connectée · mode ${mode.label}",
+                    busy = true,
+                    speaking = false,
+                    status = "MEL prépare sa voix…",
                     messages = _state.value.messages + MelChatMessage("mel", answer)
                 )
+                speakAnswer(answer, mode)
                 if (voice) appendDiagnosticLine("Micro réel: OK · reconnaissance Android")
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
@@ -224,7 +390,7 @@ class MelViewModel(
     }
 
     fun sendVoice(audioBytes: ByteArray, mimeType: String = "audio/mp4") {
-        if (audioBytes.isEmpty() || _state.value.busy) return
+        if (audioBytes.isEmpty() || _state.value.busy || _state.value.speaking) return
         _state.value = _state.value.copy(
             busy = true,
             status = "Transcription de ta voix…",
@@ -235,23 +401,40 @@ class MelViewModel(
                 val transcript = client.transcribe(audioBytes, mimeType).optString("text").trim()
                 if (transcript.isBlank()) throw MelApiException("TRANSCRIPTION_EMPTY", 502)
                 val mode = _state.value.mode
+                val localAnswer = localMiniAnswer(transcript)
+                if (localAnswer != null) {
+                    _state.value = _state.value.copy(
+                        busy = true,
+                        speaking = false,
+                        status = "Réponse locale MINI…",
+                        error = null,
+                        messages = _state.value.messages +
+                            MelChatMessage("user", transcript, voice = true) +
+                            MelChatMessage("mel", localAnswer)
+                    )
+                    appendDiagnosticLine("MINI voice fast-path: ${MelBleBridgeService.bridgeState.value}")
+                    speakAnswer(localAnswer, mode)
+                    appendDiagnosticLine("Micro réel: OK · réponse MINI locale")
+                    return@launch
+                }
                 _state.value = _state.value.copy(
                     status = "MEL réfléchit…",
                     messages = _state.value.messages + MelChatMessage("user", transcript, voice = true)
                 )
-                val response = client.chat(
+                val response = chatWithRecovery(
                     text = transcript,
-                    conversationId = conversationId,
                     voice = true,
-                    uiMode = mode.wireValue
+                    mode = mode
                 )
                 val answer = response.optString("text", response.optString("response", "")).trim()
                 if (answer.isBlank()) throw MelApiException("EMPTY_RESPONSE", 502)
                 _state.value = _state.value.copy(
-                    busy = false,
-                    status = "MEL connectée · mode ${mode.label}",
+                    busy = true,
+                    speaking = false,
+                    status = "MEL prépare sa voix…",
                     messages = _state.value.messages + MelChatMessage("mel", answer)
                 )
+                speakAnswer(answer, mode)
                 appendDiagnosticLine("Micro réel: OK")
             } catch (error: Throwable) {
                 if (isInvalidSession(error)) {
@@ -271,6 +454,76 @@ class MelViewModel(
                     )
                 }
             }
+        }
+    }
+
+    private fun speakAnswer(answer: String, mode: MelMode) {
+        var frenchFailure: Throwable? = null
+        try {
+            _state.value = _state.value.copy(
+                busy = true,
+                speaking = true,
+                status = "MEL parle…",
+                error = null
+            )
+            MelVoicePlayer.playSystemFrench(appContext, answer)
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "MEL connectée · mode ${mode.label}",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: OK · Android fr-FR")
+            return
+        } catch (error: MelPlaybackInterruptedException) {
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "Je t’écoute…",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: interruption volontaire")
+            return
+        } catch (error: Throwable) {
+            frenchFailure = error
+            MelVoicePlayer.stop()
+        }
+
+        try {
+            val audio = client.tts(answer, speaker = "luna", format = "mp3")
+            if (audio.isEmpty()) throw MelApiException("TTS_AUDIO_EMPTY", 502)
+            _state.value = _state.value.copy(
+                busy = true,
+                speaking = true,
+                status = "MEL parle…",
+                error = null
+            )
+            MelVoicePlayer.playMp3(appContext, audio)
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "MEL connectée · mode ${mode.label}",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: secours Luna MP3")
+        } catch (fallbackError: MelPlaybackInterruptedException) {
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "Je t’écoute…",
+                error = null
+            )
+            appendDiagnosticLine("Audio MEL: interruption volontaire pendant secours MP3")
+            return
+        } catch (fallbackError: Throwable) {
+            MelVoicePlayer.stop()
+            _state.value = _state.value.copy(
+                busy = false,
+                speaking = false,
+                status = "MEL connectée · audio indisponible",
+                error = "Réponse reçue · audio indisponible · " +
+                    explain(frenchFailure ?: fallbackError)
+            )
         }
     }
 

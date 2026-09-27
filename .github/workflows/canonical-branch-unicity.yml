@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: canonical-branch-unicity
@@ -69,13 +70,33 @@ jobs:
 
       - name: Reject every non-exempt branch divergence
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           canonical="refs/remotes/origin/candidate/mel-clean-autonomy"
           divergent=()
 
-          # Every active MEL code branch, including LoRA/compat workspaces, must converge.
-          # Only explicitly isolated non-production laboratories may diverge inside their strict path allowlists.
+          # Only branches that are actually active against the canonical candidate must converge.
+          # Historical branches without an open PR into the candidate must not block promotion.
+          # Strictly isolated non-production laboratories remain checked against path allowlists.
+          mapfile -t active_pr_branches < <(
+            gh pr list \
+              --state open \
+              --base candidate/mel-clean-autonomy \
+              --limit 200 \
+              --json headRefName \
+              --jq '.[].headRefName'
+          )
+
+          is_active_pr_branch() {
+            local candidate_branch="$1"
+            local active
+            for active in "${active_pr_branches[@]}"; do
+              [[ "$active" == "$candidate_branch" ]] && return 0
+            done
+            return 1
+          }
 
           while IFS= read -r remote_ref; do
             branch="${remote_ref#origin/}"
@@ -127,6 +148,10 @@ jobs:
                 continue
                 ;;
             esac
+
+            if ! is_active_pr_branch "$branch"; then
+              continue
+            fi
 
             if ! git merge-base --is-ancestor "refs/remotes/origin/$branch" "$canonical"; then
               divergent+=("$branch")

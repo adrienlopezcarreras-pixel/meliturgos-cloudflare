@@ -1,0 +1,390 @@
+package fr.veriteinterdite.mel
+
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import kotlin.math.round
+
+enum class MelAppTarget {
+    CALCULATOR, CALENDAR, CONTACTS, EMAIL, FILES, GALLERY, MAPS, MESSAGING, MUSIC
+}
+
+sealed class MelCompanionCommand {
+    data class Reply(val text: String) : MelCompanionCommand()
+    data class SetTimer(val seconds: Int, val label: String) : MelCompanionCommand()
+    data class SetAlarm(val hour: Int, val minute: Int, val label: String) : MelCompanionCommand()
+    data object ShowAlarms : MelCompanionCommand()
+    data class Dial(val number: String) : MelCompanionCommand()
+    data class Sms(val number: String, val body: String) : MelCompanionCommand()
+    data class Email(val address: String, val body: String) : MelCompanionCommand()
+    data object OpenDialer : MelCompanionCommand()
+    data class Navigate(val query: String) : MelCompanionCommand()
+    data object WifiSettings : MelCompanionCommand()
+    data object BluetoothSettings : MelCompanionCommand()
+    data object LocationSettings : MelCompanionCommand()
+    data object Camera : MelCompanionCommand()
+    data object FilePicker : MelCompanionCommand()
+    data object EnableNotifications : MelCompanionCommand()
+    data class OpenApp(val target: MelAppTarget, val label: String) : MelCompanionCommand()
+    data object BatteryStatus : MelCompanionCommand()
+    data object InternetStatus : MelCompanionCommand()
+    data object VolumeStatus : MelCompanionCommand()
+    data object GeneralSettings : MelCompanionCommand()
+    data object AirplaneSettings : MelCompanionCommand()
+    data object DisplaySettings : MelCompanionCommand()
+    data object SoundSettings : MelCompanionCommand()
+    data class CalendarEvent(val title: String, val beginMillis: Long, val endMillis: Long) : MelCompanionCommand()
+    data class AddShoppingItem(val item: String) : MelCompanionCommand()
+    data object ShowShoppingList : MelCompanionCommand()
+    data object ClearShoppingList : MelCompanionCommand()
+    data class AddNote(val note: String) : MelCompanionCommand()
+    data object ShowNotes : MelCompanionCommand()
+    data object ClearNotes : MelCompanionCommand()
+}
+
+object MelCompanionCommands {
+    private val duration = Regex("""(\d{1,4})\s*(secondes?|minutes?|heures?)""", RegexOption.IGNORE_CASE)
+    private val alarmTime = Regex("""\b([01]?\d|2[0-3])\s*(?:h|:|heures?)\s*([0-5]?\d)?\b""", RegexOption.IGNORE_CASE)
+    private val phone = Regex("""\+?[0-9][0-9 .-]{5,}[0-9]""")
+    private val email = Regex("""[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}""", RegexOption.IGNORE_CASE)
+    private val arithmetic = Regex(
+        """(-?\d+(?:[.,]\d+)?)\s*(\+|-|\*|x|×|/|plus|moins|fois|multipli(?:é|e)\s+par|divis(?:é|e)\s+par)\s*(-?\d+(?:[.,]\d+)?)""",
+        RegexOption.IGNORE_CASE
+    )
+    private val conversion = Regex(
+        """(-?\d+(?:[.,]\d+)?)\s*(km|kilom[eè]tres?|m[eè]tres?|m|cm|centim[eè]tres?|kg|kilogrammes?|g|grammes?|l|litres?|ml|millilitres?|°?c|celsius|°?f|fahrenheit)\s+(?:en|vers)\s*(km|kilom[eè]tres?|m[eè]tres?|m|cm|centim[eè]tres?|kg|kilogrammes?|g|grammes?|l|litres?|ml|millilitres?|°?c|celsius|°?f|fahrenheit)""",
+        RegexOption.IGNORE_CASE
+    )
+
+    fun parse(raw: String, now: Date = Date()): MelCompanionCommand? {
+        val text = raw.trim()
+        if (text.isBlank()) return null
+        val lower = text.lowercase(Locale.FRENCH)
+
+        if (Regex("""\b(?:quelle?\s+heure|il\s+est\s+quelle?\s+heure|donne[- ]moi\s+l['’]heure|heure\s+actuelle)\b""").containsMatchIn(lower)) {
+            val value = SimpleDateFormat("HH:mm", Locale.FRENCH).format(now)
+            return MelCompanionCommand.Reply("Il est $value.")
+        }
+
+        if (Regex("""\b(?:quel\s+jour|quelle\s+date|date\s+d['’]aujourd['’]hui|on\s+est\s+quel\s+jour)\b""").containsMatchIn(lower)) {
+            val value = SimpleDateFormat("EEEE d MMMM yyyy", Locale.FRENCH).format(now)
+            return MelCompanionCommand.Reply("Nous sommes $value.")
+        }
+
+        conversion.find(lower)?.let { match ->
+            convert(match)?.let { return MelCompanionCommand.Reply(it) }
+        }
+
+        arithmetic.find(lower)?.let { match ->
+            calculate(match)?.let { return MelCompanionCommand.Reply(it) }
+        }
+
+        if (Regex("""\b(?:montre|affiche|ouvre)\b.*\b(?:alarmes?|r[eé]veils?)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.ShowAlarms
+        }
+
+        if (Regex("""\b(?:minuteur|timer|compte\s*[àa]\s*rebours|rappelle[- ]moi\s+dans)\b""").containsMatchIn(lower)) {
+            duration.find(lower)?.let { match ->
+                val amount = match.groupValues[1].toIntOrNull() ?: return@let
+                val unit = match.groupValues[2].lowercase(Locale.FRENCH)
+                val seconds = when {
+                    unit.startsWith("seconde") -> amount
+                    unit.startsWith("minute") -> amount * 60
+                    else -> amount * 3600
+                }.coerceIn(1, 86_400)
+                val label = reminderLabel(text, match.range.last + 1).ifBlank { "MEL" }
+                return MelCompanionCommand.SetTimer(seconds, label)
+            }
+        }
+
+        if (Regex("""\b(?:alarme|r[eé]veil|r[eé]veille[- ]moi|rappelle[- ]moi\s+[àa])\b""").containsMatchIn(lower)) {
+            alarmTime.find(lower)?.let { match ->
+                val hour = match.groupValues[1].toInt()
+                val minute = match.groupValues.getOrNull(2)?.takeIf { it.isNotBlank() }?.toInt() ?: 0
+                val label = reminderLabel(text, match.range.last + 1).ifBlank { "MEL" }
+                return MelCompanionCommand.SetAlarm(hour, minute, label)
+            }
+        }
+
+        if (Regex("""\b(?:wifi|wi-fi)\b""").containsMatchIn(lower) &&
+            Regex("""\b(?:ouvre|r[eé]glages?|param[eè]tres?|active|connexion)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.WifiSettings
+        }
+
+        if (lower.contains("bluetooth") &&
+            Regex("""\b(?:ouvre|r[eé]glages?|param[eè]tres?|active|connexion)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.BluetoothSettings
+        }
+
+        if (Regex("""\b(?:gps|localisation|position)\b""").containsMatchIn(lower) &&
+            Regex("""\b(?:ouvre|r[eé]glages?|param[eè]tres?|active)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.LocationSettings
+        }
+
+        if (Regex("""\b(?:prends?|prendre|ouvre)\b.*\b(?:photo|cam[eé]ra)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.Camera
+        }
+
+        if (Regex("""\b(?:choisis|ouvre|s[eé]lectionne)\b.*\b(?:fichier|document)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.FilePicker
+        }
+
+        if (Regex("""\b(?:active|autorise)\b.*\bnotifications?\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.EnableNotifications
+        }
+
+        shoppingCommand(text, lower)?.let { return it }
+        notesCommand(text, lower)?.let { return it }
+        calendarCommand(text, lower, now)?.let { return it }
+
+        if (Regex("""\b(?:batterie|niveau\s+de\s+batterie|charge\s+du\s+t[eé]l[eé]phone)\b""").containsMatchIn(lower) &&
+            Regex("""\b(?:combien|niveau|reste|est|charge)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.BatteryStatus
+        }
+
+        if (Regex("""\b(?:connexion\s+internet|internet\s+(?:marche|fonctionne|disponible)|est[- ]ce\s+que\s+j['’]ai\s+internet|suis[- ]je\s+connect[eé])\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.InternetStatus
+        }
+
+        if (Regex("""\b(?:quel\s+est\s+le\s+volume|niveau\s+du\s+volume|volume\s+actuel)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.VolumeStatus
+        }
+
+        if (Regex("""\b(?:ouvre|affiche)\b.*\b(?:param[eè]tres?|r[eé]glages?)\b""").containsMatchIn(lower)) {
+            when {
+                lower.contains("avion") -> return MelCompanionCommand.AirplaneSettings
+                lower.contains("luminos") || lower.contains("écran") || lower.contains("ecran") -> return MelCompanionCommand.DisplaySettings
+                lower.contains("son") || lower.contains("volume") -> return MelCompanionCommand.SoundSettings
+                else -> return MelCompanionCommand.GeneralSettings
+            }
+        }
+
+        openAppTarget(lower)?.let { return MelCompanionCommand.OpenApp(it.first, it.second) }
+
+        if (Regex("""\b(?:appelle|compose)\b""").containsMatchIn(lower)) {
+            phone.find(text)?.value?.let { number ->
+                return MelCompanionCommand.Dial(cleanPhone(number))
+            }
+        }
+
+        if (Regex("""\b(?:ouvre|lance)\b.*\b(?:t[eé]l[eé]phone|composeur|num[eé]roteur)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.OpenDialer
+        }
+
+        if (Regex("""\b(?:mail|e[- ]?mail|courriel)\b""").containsMatchIn(lower) &&
+            Regex("""\b(?:envoie|pr[eé]pare|[ée]cris)\b""").containsMatchIn(lower)) {
+            email.find(text)?.let { match ->
+                val body = text.substring(match.range.last + 1)
+                    .replace(Regex("""^\s*(?:disant|avec|message|:|-)?\s*""", RegexOption.IGNORE_CASE), "")
+                    .trim()
+                return MelCompanionCommand.Email(match.value, body)
+            }
+        }
+
+        if (Regex("""\b(?:sms|message)\b""").containsMatchIn(lower) &&
+            Regex("""\b(?:envoie|pr[eé]pare|[ée]cris)\b""").containsMatchIn(lower)) {
+            phone.find(text)?.let { match ->
+                val body = text.substring(match.range.last + 1)
+                    .replace(Regex("""^\s*(?:disant|avec|message|:|-)?\s*""", RegexOption.IGNORE_CASE), "")
+                    .trim()
+                return MelCompanionCommand.Sms(cleanPhone(match.value), body)
+            }
+        }
+
+        val navigation = listOf(
+            Regex("""(?:itin[eé]raire|navigation)\s+(?:vers|pour)\s+(.+)""", RegexOption.IGNORE_CASE),
+            Regex("""emm[eè]ne[- ]moi\s+(?:[àa]|au|aux|vers)\s+(.+)""", RegexOption.IGNORE_CASE),
+            Regex("""conduis[- ]moi\s+(?:[àa]|au|aux|vers)\s+(.+)""", RegexOption.IGNORE_CASE)
+        )
+        navigation.forEach { regex ->
+            regex.find(text)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }?.let {
+                return MelCompanionCommand.Navigate(it)
+            }
+        }
+
+        return null
+    }
+
+    private fun shoppingCommand(text: String, lower: String): MelCompanionCommand? {
+        if (!Regex("""\bliste\s+(?:de\s+)?courses?\b""").containsMatchIn(lower)) return null
+
+        if (Regex("""\b(?:vide|efface|supprime|r[eé]initialise)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.ClearShoppingList
+        }
+        if (Regex("""\b(?:montre|affiche|lis|relis|qu['’]?(?:est[- ]ce\s+qu['’])?il\s+y\s+a)\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.ShowShoppingList
+        }
+
+        val patterns = listOf(
+            Regex("""(?:ajoute|mets?)\s+(.+?)\s+(?:[àa]|dans|sur)\s+(?:ma\s+)?liste\s+(?:de\s+)?courses?\b""", RegexOption.IGNORE_CASE),
+            Regex("""(?:ajoute|mets?)\s+(?:[àa]|dans|sur)\s+(?:ma\s+)?liste\s+(?:de\s+)?courses?\s+(.+)""", RegexOption.IGNORE_CASE)
+        )
+        for (pattern in patterns) {
+            val item = pattern.find(text)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+            if (item.isNotBlank()) return MelCompanionCommand.AddShoppingItem(item.take(160))
+        }
+        return null
+    }
+
+    private fun notesCommand(text: String, lower: String): MelCompanionCommand? {
+        if (Regex("""\b(?:efface|supprime|vide)\s+(?:toutes?\s+)?mes\s+notes?\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.ClearNotes
+        }
+        if (Regex("""\b(?:montre|affiche|lis|relis)\s+(?:toutes?\s+)?mes\s+notes?\b""").containsMatchIn(lower)) {
+            return MelCompanionCommand.ShowNotes
+        }
+        val match = Regex(
+            """^(?:note\s+que|note|prends?\s+note\s+(?:que|de)?)\s+(.+)$""",
+            RegexOption.IGNORE_CASE
+        ).find(text)
+        val note = match?.groupValues?.getOrNull(1)?.trim().orEmpty()
+        return if (note.isNotBlank()) MelCompanionCommand.AddNote(note.take(500)) else null
+    }
+
+    private fun calendarCommand(text: String, lower: String, now: Date): MelCompanionCommand? {
+        val hasCalendarWord = Regex("""\b(?:agenda|calendrier|rendez[- ]?vous|[ée]v[eé]nement)\b""").containsMatchIn(lower)
+        val createVerb = Regex("""\b(?:ajoute|cr[eé]e|programme|planifie|mets?)\b""").containsMatchIn(lower)
+        if (!hasCalendarWord || !createVerb) return null
+
+        val timeMatch = alarmTime.find(lower) ?: return null
+        val hour = timeMatch.groupValues[1].toInt()
+        val minute = timeMatch.groupValues.getOrNull(2)?.takeIf { it.isNotBlank() }?.toInt() ?: 0
+
+        val calendar = Calendar.getInstance().apply { time = now }
+        val explicitToday = Regex("""\baujourd['’]hui\b""").containsMatchIn(lower)
+        val tomorrow = Regex("""\bdemain\b""").containsMatchIn(lower)
+        if (tomorrow) calendar.add(Calendar.DAY_OF_YEAR, 1)
+        calendar.set(Calendar.HOUR_OF_DAY, hour)
+        calendar.set(Calendar.MINUTE, minute)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        if (!tomorrow && !explicitToday && calendar.timeInMillis <= now.time) {
+            calendar.add(Calendar.DAY_OF_YEAR, 1)
+        }
+
+        var title = text
+            .replace(Regex("""\b(?:ajoute|cr[eé]e|programme|planifie|mets?)\b""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\b(?:dans|[àa])\s+(?:mon\s+)?(?:agenda|calendrier)\b""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\b(?:un|une)\s+(?:rendez[- ]?vous|[ée]v[eé]nement)\b""", RegexOption.IGNORE_CASE), " ")
+            .replace(Regex("""\b(?:aujourd['’]hui|demain)\b""", RegexOption.IGNORE_CASE), " ")
+            .replace(timeMatch.value, " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim(' ', ',', ':', '-', '.')
+        if (title.isBlank()) title = "Événement MEL"
+
+        val begin = calendar.timeInMillis
+        return MelCompanionCommand.CalendarEvent(
+            title = title.take(180),
+            beginMillis = begin,
+            endMillis = begin + 60 * 60 * 1000L
+        )
+    }
+
+    private fun openAppTarget(lower: String): Pair<MelAppTarget, String>? {
+        if (!Regex("""\b(?:ouvre|lance|affiche)\b""").containsMatchIn(lower)) return null
+        return when {
+            Regex("""\b(?:calculatrice|calculette)\b""").containsMatchIn(lower) ->
+                Pair(MelAppTarget.CALCULATOR, "la calculatrice")
+            Regex("""\b(?:calendrier|agenda)\b""").containsMatchIn(lower) ->
+                Pair(MelAppTarget.CALENDAR, "le calendrier")
+            Regex("""\bcontacts?\b""").containsMatchIn(lower) ->
+                Pair(MelAppTarget.CONTACTS, "les contacts")
+            Regex("""\b(?:e[- ]?mail|mails?|courriels?)\b""").containsMatchIn(lower) ->
+                Pair(MelAppTarget.EMAIL, "les e-mails")
+            Regex("""\b(?:fichiers?|gestionnaire\s+de\s+fichiers?)\b""").containsMatchIn(lower) ->
+                Pair(MelAppTarget.FILES, "les fichiers")
+            Regex("""\b(?:galerie|photos?)\b""").containsMatchIn(lower) ->
+                Pair(MelAppTarget.GALLERY, "la galerie")
+            Regex("""\b(?:cartes?|maps?)\b""").containsMatchIn(lower) ->
+                Pair(MelAppTarget.MAPS, "les cartes")
+            Regex("""\b(?:messages?|messagerie|sms)\b""").containsMatchIn(lower) ->
+                Pair(MelAppTarget.MESSAGING, "la messagerie")
+            Regex("""\b(?:musique|lecteur\s+audio)\b""").containsMatchIn(lower) ->
+                Pair(MelAppTarget.MUSIC, "la musique")
+            else -> null
+        }
+    }
+
+    private fun reminderLabel(text: String, start: Int): String {
+        if (start >= text.length) return ""
+        return text.substring(start)
+            .replace(Regex("""^\s*(?:pour|de|afin\s+de|:|-)?\s*""", RegexOption.IGNORE_CASE), "")
+            .trim()
+            .take(80)
+    }
+
+    private fun cleanPhone(value: String): String =
+        value.replace(Regex("""[^+0-9]"""), "")
+
+    private fun number(value: String): Double? =
+        value.replace(',', '.').toDoubleOrNull()
+
+    private fun calculate(match: MatchResult): String? {
+        val left = number(match.groupValues[1]) ?: return null
+        val right = number(match.groupValues[3]) ?: return null
+        val op = match.groupValues[2].lowercase(Locale.FRENCH)
+        val result = when {
+            op == "+" || op == "plus" -> left + right
+            op == "-" || op == "moins" -> left - right
+            op == "*" || op == "x" || op == "×" || op == "fois" || op.startsWith("multipli") -> left * right
+            op == "/" || op.startsWith("divis") -> if (right == 0.0) return "Je ne peux pas diviser par zéro." else left / right
+            else -> return null
+        }
+        return "Le résultat est ${format(result)}."
+    }
+
+    private fun convert(match: MatchResult): String? {
+        val value = number(match.groupValues[1]) ?: return null
+        val from = canonicalUnit(match.groupValues[2])
+        val target = canonicalUnit(match.groupValues[3])
+        val result = when (from to target) {
+            "km" to "m" -> value * 1000
+            "m" to "km" -> value / 1000
+            "m" to "cm" -> value * 100
+            "cm" to "m" -> value / 100
+            "kg" to "g" -> value * 1000
+            "g" to "kg" -> value / 1000
+            "l" to "ml" -> value * 1000
+            "ml" to "l" -> value / 1000
+            "c" to "f" -> value * 9 / 5 + 32
+            "f" to "c" -> (value - 32) * 5 / 9
+            else -> return null
+        }
+        return "${format(value)} ${spokenUnit(from)} font ${format(result)} ${spokenUnit(target)}."
+    }
+
+    private fun canonicalUnit(raw: String): String {
+        val value = raw.lowercase(Locale.FRENCH)
+        return when {
+            value == "km" || value.startsWith("kilom") -> "km"
+            value == "cm" || value.startsWith("centim") -> "cm"
+            value == "m" || value.startsWith("mè") || value.startsWith("me") -> "m"
+            value == "kg" || value.startsWith("kilogram") -> "kg"
+            value == "g" || value.startsWith("gram") -> "g"
+            value == "ml" || value.startsWith("millil") -> "ml"
+            value == "l" || value.startsWith("litr") -> "l"
+            value.contains("fahren") || value.contains("°f") || value == "f" -> "f"
+            else -> "c"
+        }
+    }
+
+    private fun spokenUnit(unit: String): String = when (unit) {
+        "km" -> "kilomètres"
+        "m" -> "mètres"
+        "cm" -> "centimètres"
+        "kg" -> "kilogrammes"
+        "g" -> "grammes"
+        "l" -> "litres"
+        "ml" -> "millilitres"
+        "c" -> "degrés Celsius"
+        "f" -> "degrés Fahrenheit"
+        else -> unit
+    }
+
+    private fun format(value: Double): String {
+        val rounded = round(value * 100.0) / 100.0
+        return if (rounded % 1.0 == 0.0) rounded.toLong().toString()
+        else String.format(Locale.FRENCH, "%.2f", rounded).trimEnd('0').trimEnd(',')
+    }
+}

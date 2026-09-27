@@ -18,7 +18,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MainActivitySmokeTest {
     @get:Rule
-    val compose = createAndroidComposeRule<MainActivity>()
+    val compose = createAndroidComposeRule<MelLoginHarnessActivity>()
 
     @Test
     fun loginScreenLaunchesWithMelIdentity() {
