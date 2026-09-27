@@ -20,7 +20,7 @@ function delegatedButtonAttrs(html) {
     .map(match => match[1])
     .filter(attrs => !/\bid=["']/.test(attrs))
     .map(attrs => {
-      const match = attrs.match(/\b(data-(?:jump|pc-app|pc-key|view|mode))=["'][^"']+["']/);
+      const match = attrs.match(/\b(data-(?:jump|pc-app|pc-key|view|mode|connect-provider|test-provider|save-app))=["'][^"']+["']/);
       return match?.[1] || null;
     });
 }
@@ -168,9 +168,15 @@ test('all anonymous canonical buttons use a declared delegated control family', 
   assert.ok(families.has('data-pc-app'));
   assert.ok(families.has('data-pc-key'));
   assert.ok(families.has('data-mode'));
+  assert.ok(families.has('data-connect-provider'));
+  assert.ok(families.has('data-test-provider'));
+  assert.ok(families.has('data-save-app'));
   assert.match(source, /qsa\('#nav button\[data-view\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-jump\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-pc-app\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /qsa\('\[data-pc-key\]'\)\.forEach\(b=>b\.onclick=/);
   assert.match(source, /modeTabs\.forEach\(tab=>tab\.onclick=/);
+  assert.match(source, /qsa\('\[data-connect-provider\]'\)\.forEach\(btn=>btn\.onclick=/);
+  assert.match(source, /qsa\('\[data-test-provider\]'\)\.forEach\(btn=>btn\.onclick=/);
+  assert.match(source, /qsa\('\[data-save-app\]'\)\.forEach\(btn=>btn\.onclick=/);
 });
