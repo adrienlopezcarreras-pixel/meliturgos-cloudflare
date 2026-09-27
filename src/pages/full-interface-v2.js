@@ -521,6 +521,7 @@ const connectionUiMap={
 function setConnectionBadge(selector,text,kind='warn'){
   const el=qs(selector);if(!el)return;el.textContent=text;el.className='tag '+kind;
 }
+function connectionApi(provider,action){return '/api/gen2/connections/'+encodeURIComponent(provider)+'/'+encodeURIComponent(action)}
 function connectorStatus(data,id){return data?.connectors?.[id]||null}
 function renderOAuthConnection(provider,data){
   const appLabel=provider==='google'?'#connAppGoogle':provider==='microsoft'?'#connAppMicrosoft':'#connAppYahoo';
@@ -545,7 +546,7 @@ function renderOAuthConnection(provider,data){
 }
 async function loadConnections(){
   const providers=['google','microsoft','yahoo','roundcube'];
-  const results=await Promise.allSettled(providers.map(p=>jfetch('/api/gen2/connections/'+p+'/status')));
+  const results=await Promise.allSettled(providers.map(p=>jfetch(connectionApi(p,'status'))));
   const data={};providers.forEach((p,i)=>{if(results[i].status==='fulfilled')data[p]=results[i].value});
   if(data.google)renderOAuthConnection('google',data.google);
   if(data.microsoft)renderOAuthConnection('microsoft',data.microsoft);
@@ -580,7 +581,7 @@ async function beginConnection(provider,connector,button){
 async function testConnection(provider,connector,button){
   const original=button.textContent;button.disabled=true;button.textContent='Test…';
   try{
-    await jfetch('/api/gen2/connections/'+provider+'/test',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({connector_id:connector})});
+    await jfetch(connectionApi(provider,'test'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({connector_id:connector})});
     const ui=connectionUiMap[connector];if(ui)setConnectionBadge(ui.state,'TEST RÉEL OK','good');
   }catch(e){
     const ui=connectionUiMap[connector];if(ui)setConnectionBadge(ui.state,'TEST ÉCHOUÉ','bad');
@@ -592,7 +593,7 @@ async function saveOAuthApp(provider,button){
   if(!id?.value.trim()||!secret?.value.trim())return;
   const original=button.textContent;button.disabled=true;button.textContent='Enregistrement…';
   try{
-    await jfetch('/api/gen2/connections/'+provider+'/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_id:id.value.trim(),client_secret:secret.value})});
+    await jfetch(connectionApi(provider,'save'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_id:id.value.trim(),client_secret:secret.value})});
     secret.value='';id.value='';
     await loadConnections();
   }catch(e){
@@ -604,7 +605,7 @@ async function saveRoundcube(){
   const body={imap_host:qs('#rcImapHost')?.value,imap_port:Number(qs('#rcImapPort')?.value||993),imap_security:qs('#rcImapSecurity')?.value,smtp_host:qs('#rcSmtpHost')?.value,smtp_port:Number(qs('#rcSmtpPort')?.value||465),smtp_security:qs('#rcSmtpSecurity')?.value,username:qs('#rcUsername')?.value,password:qs('#rcPassword')?.value};
   const original=btn.textContent;btn.disabled=true;btn.textContent='Chiffrement…';
   try{
-    await jfetch('/api/gen2/connections/roundcube/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    await jfetch(connectionApi('roundcube','save'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
     if(qs('#rcPassword'))qs('#rcPassword').value='';
     await loadConnections();
   }catch(e){
@@ -614,7 +615,7 @@ async function saveRoundcube(){
 async function testRoundcube(){
   const btn=qs('#roundcubeTest');if(!btn)return;const original=btn.textContent;btn.disabled=true;btn.textContent='Test IMAP + SMTP…';
   try{
-    await jfetch('/api/gen2/connections/roundcube/test',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+    await jfetch(connectionApi('roundcube','test'),{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
     setConnectionBadge('#connStateRoundcube','IMAP + SMTP OK','good');
     const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner good';banner.textContent='Roundcube : authentification IMAP et SMTP vérifiée.'}
   }catch(e){
