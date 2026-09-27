@@ -5,6 +5,7 @@ import { migrate } from '../persistence/migrations.js';
 import { stableStringify } from '../resilience/recovery-bundle.js';
 import { ENCRYPTED_BACKUP_SCHEMA, createEnvBackupEncryptionCodec } from './encrypted-backup-storage.js';
 import { backupR2ObjectBytes } from './r2-byte-backup.js';
+import { inspectRestoreCandidate } from './restore-service.js';
 
 function deployedGitSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim();
@@ -136,8 +137,12 @@ export function createR2D1BackupStorage({ db, bucket, encryptionCodec = null }) 
   requireValue(bucket?.put && bucket?.get && bucket?.delete, 'BACKUP_R2_UNAVAILABLE', 503);
 
   return {
-    async put(snapshot) {
+    async put(snapshot, context = {}) {
       const id = String(snapshot?.id || '');
+      const cryptographicVerification = context?.verification?.ok === true ? context.verification : null;
+      const restoreProof = cryptographicVerification
+        ? inspectRestoreCandidate(snapshot, { integrity: cryptographicVerification })
+        : null;
       requireValue(/^[A-Za-z0-9._-]{1,160}$/.test(id), 'BACKUP_ID_INVALID');
       const existing = await db.prepare('SELECT object_key FROM backup_objects WHERE id=?').bind(id).first();
       requireValue(!existing, 'BACKUP_ID_EXISTS', 409);
@@ -153,11 +158,18 @@ export function createR2D1BackupStorage({ db, bucket, encryptionCodec = null }) 
             createdAt: snapshot.createdAt,
             integritySha256: snapshot.integritySha256,
             sourceCount: snapshot.sourceCount,
-            verified: snapshot.verified === true,
+            verified: cryptographicVerification?.ok === true || snapshot.verified === true,
             encrypted,
             encryptionSchema: encrypted ? encryptionCodec.schema : null,
             encryptionAlgorithm: encrypted ? encryptionCodec.algorithm : null,
             encryptionKeyId: encrypted ? encryptionCodec.key_id : null,
+            restoreVerified: restoreProof?.ok === true,
+            restoreCode: restoreProof?.code || null,
+            restoreIntegritySha256: restoreProof?.ok === true ? snapshot.integritySha256 : null,
+            restoreDeployedGitSha: restoreProof?.ok === true ? (restoreProof?.runtime?.deployedGitSha || null) : null,
+            restoreTableCount: restoreProof?.ok === true ? Number(restoreProof?.database?.tableCount || 0) : null,
+            restoreRowCount: restoreProof?.ok === true ? Number(restoreProof?.database?.rowCount || 0) : null,
+            restoreR2ObjectCount: restoreProof?.ok === true ? Number(restoreProof?.r2?.objectCount || 0) : null,
           }), Date.parse(snapshot.createdAt) || Date.now())
           .run();
       } catch (error) {
@@ -200,6 +212,13 @@ export function createR2D1BackupStorage({ db, bucket, encryptionCodec = null }) 
         encryptionSchema: parseMetadata(row.metadata_json).encryptionSchema || null,
         encryptionAlgorithm: parseMetadata(row.metadata_json).encryptionAlgorithm || null,
         encryptionKeyId: parseMetadata(row.metadata_json).encryptionKeyId || null,
+        restoreVerified: parseMetadata(row.metadata_json).restoreVerified === true,
+        restoreCode: parseMetadata(row.metadata_json).restoreCode || null,
+        restoreIntegritySha256: parseMetadata(row.metadata_json).restoreIntegritySha256 || null,
+        restoreDeployedGitSha: parseMetadata(row.metadata_json).restoreDeployedGitSha || null,
+        restoreTableCount: Number(parseMetadata(row.metadata_json).restoreTableCount || 0),
+        restoreRowCount: Number(parseMetadata(row.metadata_json).restoreRowCount || 0),
+        restoreR2ObjectCount: Number(parseMetadata(row.metadata_json).restoreR2ObjectCount || 0),
       }));
     },
   };

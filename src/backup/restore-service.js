@@ -68,17 +68,14 @@ function validateRuntimeDescriptor(value) {
   };
 }
 
-export async function verifyRestoreCandidate(snapshot) {
-  const integrity = await verifySnapshot(snapshot);
-  if (!integrity?.ok) return { ok: false, code: integrity?.code || 'RESTORE_SNAPSHOT_INVALID', integrity };
-
+export function inspectRestoreCandidate(snapshot, { integrity = null } = {}) {
   const exported = snapshot?.exports || {};
   const database = validateDatabaseExport(exported.database);
-  if (!database.ok) return { ok: false, ...database, integrity };
+  if (!database.ok) return { ok: false, ...database, ...(integrity ? { integrity } : {}) };
   const r2 = validateR2Inventory(exported.r2_inventory);
-  if (!r2.ok) return { ok: false, ...r2, integrity };
+  if (!r2.ok) return { ok: false, ...r2, ...(integrity ? { integrity } : {}) };
   const runtime = validateRuntimeDescriptor(exported.runtime);
-  if (!runtime.ok) return { ok: false, ...runtime, integrity };
+  if (!runtime.ok) return { ok: false, ...runtime, ...(integrity ? { integrity } : {}) };
 
   return {
     ok: true,
@@ -88,6 +85,7 @@ export async function verifyRestoreCandidate(snapshot) {
     database,
     r2,
     runtime,
+    ...(integrity ? { integrity } : {}),
     critical_recovery_scope: {
       d1_logical_state_reconstructable: true,
       r2_inventory_verified: true,
@@ -95,6 +93,12 @@ export async function verifyRestoreCandidate(snapshot) {
       production_activation_automatic: false,
     },
   };
+}
+
+export async function verifyRestoreCandidate(snapshot) {
+  const integrity = await verifySnapshot(snapshot);
+  if (!integrity?.ok) return { ok: false, code: integrity?.code || 'RESTORE_SNAPSHOT_INVALID', integrity };
+  return inspectRestoreCandidate(snapshot, { integrity });
 }
 
 export function buildRestorePlan(snapshot, verification) {

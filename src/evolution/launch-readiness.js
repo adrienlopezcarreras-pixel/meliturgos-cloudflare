@@ -164,26 +164,61 @@ export async function evaluateRestoreReadiness(env) {
     const storage = createR2D1BackupStorage({ db: env.DB, bucket: env.MEDIA_BUCKET, encryptionCodec });
     const latest = (await storage.list({ limit: 1 }))[0] || null;
     if (!latest?.id) return { ok: false, status: 'NO_VERIFIED_SYSTEM_BACKUP' };
-    const snapshot = await storage.get(latest.id);
-    const integrity = await verifySnapshot(snapshot);
-    if (!integrity?.ok) return { ok: false, status: 'SYSTEM_BACKUP_INTEGRITY_FAILED', code: integrity?.code || null, snapshot_id: latest.id };
-    const restore = await verifyRestoreCandidate(snapshot);
+
     const deployedSha = runtimeCandidateSha(env);
-    const backupSha = String(restore?.runtime?.deployedGitSha || '').toLowerCase();
-    const shaMatches = Boolean(deployedSha) && backupSha === deployedSha;
-    const ok = restore.ok === true && shaMatches;
+    const proofSha = String(latest.restoreDeployedGitSha || '').toLowerCase();
+    const proofIntegrity = String(latest.restoreIntegritySha256 || '').toLowerCase();
+    const snapshotIntegrity = String(latest.integritySha256 || '').toLowerCase();
+    const proofBound = latest.verified === true
+      && latest.restoreVerified === true
+      && /^[a-f0-9]{64}$/i.test(proofIntegrity)
+      && proofIntegrity === snapshotIntegrity;
+    const shaMatches = Boolean(deployedSha) && proofSha === deployedSha;
+
+    if (!proofBound) {
+      return {
+        ok: false,
+        status: 'SYSTEM_BACKUP_RESTORE_PROOF_MISSING',
+        snapshot_id: latest.id,
+        created_at: latest.createdAt || null,
+        integritySha256: latest.integritySha256 || null,
+        deployed_sha: deployedSha || null,
+        backup_deployed_sha: proofSha || null,
+        sha_matches: false,
+        proof_bound: false,
+      };
+    }
+
+    const ok = shaMatches;
     return {
       ok,
       status: ok
-        ? 'LATEST_SYSTEM_BACKUP_RESTORE_VERIFIED'
-        : (restore.ok === true ? 'SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH' : 'LATEST_SYSTEM_BACKUP_RESTORE_FAILED'),
+        ? 'LATEST_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED'
+        : 'SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH',
       snapshot_id: latest.id,
       created_at: latest.createdAt || null,
-      integritySha256: latest.integritySha256 || snapshot?.integritySha256 || null,
+      integritySha256: latest.integritySha256 || null,
       deployed_sha: deployedSha || null,
-      backup_deployed_sha: backupSha || null,
+      backup_deployed_sha: proofSha || null,
       sha_matches: shaMatches,
-      restore,
+      proof_bound: true,
+      restore: {
+        ok: true,
+        code: latest.restoreCode || 'RESTORE_CANDIDATE_VERIFIED',
+        snapshot_id: latest.id,
+        integritySha256: latest.restoreIntegritySha256,
+        database: {
+          tableCount: Number(latest.restoreTableCount || 0),
+          rowCount: Number(latest.restoreRowCount || 0),
+        },
+        r2: {
+          objectCount: Number(latest.restoreR2ObjectCount || 0),
+        },
+        runtime: {
+          deployedGitSha: proofSha || null,
+        },
+        proof_source: 'verified-backup-persist',
+      },
     };
   } catch (error) {
     return { ok: false, status: 'RESTORE_READINESS_ERROR', code: String(error?.code || error?.message || error) };
