@@ -262,7 +262,7 @@ jobs:
 
           if [ "$SHARD_ACTIVE" -lt 7 ]; then
             SHARD_READY=0
-            for SHARD_ATTEMPT in $(seq 1 8); do
+            for SHARD_ATTEMPT in $(seq 1 17); do
               SHARD_OFFSET=$((SHARD_ATTEMPT - 1))
               SHARD_SEARCH_CODE="$(curl --silent --show-error --max-time 175 \
                 --header "x-mel-release-smoke: 1" \
