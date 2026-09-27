@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { createVerifiedBackupService } from '../../src/backup/backup-service.js';
 import { createGen2Runtime } from '../../src/core/orchestrator/gen2-runtime.js';
-import { registerRecoveryDrillCapability, runRecoveryDrillAgainstSnapshot, verifyPersistedEncryptedRestoreCandidate } from '../../src/capabilities/recovery-drill-capability.js';
+import { registerRecoveryDrillCapability, runRecoveryDrillAgainstPersistedEvidence, runRecoveryDrillAgainstSnapshot, verifyPersistedEncryptedRestoreCandidate } from '../../src/capabilities/recovery-drill-capability.js';
 import { runScheduledSystemBackup } from '../../src/backup/system-backup-runtime.js';
 import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 
@@ -245,4 +245,60 @@ test('GEN2-48 persisted encrypted proof is exact-bound and fails closed on metad
   });
   assert.equal(shaDrift.ok, false);
   assert.equal(shaDrift.code, 'RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_MISMATCH');
+});
+
+
+test('GEN2-48 release smoke accepts older verified snapshot only through exact verified release binding', async () => {
+  const snapshotSha='a'.repeat(40);
+  const releaseSha='b'.repeat(40);
+  const integrity='c'.repeat(64);
+  const metadata={
+    id:'release-bound-snapshot',
+    objectKey:'backups/system/release-bound-snapshot.enc.json',
+    integritySha256:integrity,
+    restoreIntegritySha256:integrity,
+    restoreDeployedGitSha:snapshotSha,
+    restoreVerified:true,
+    verified:true,
+    encrypted:true,
+    restoreTableCount:2,
+    restoreRowCount:3,
+    restoreR2ObjectCount:1,
+  };
+  const binding={
+    ok:true,
+    deployed_sha:releaseSha,
+    snapshot_id:metadata.id,
+    snapshot_integrity_sha256:integrity,
+    snapshot_deployed_sha:snapshotSha,
+    binding_sha256:'d'.repeat(64),
+  };
+
+  const accepted=await runRecoveryDrillAgainstPersistedEvidence(metadata,{
+    owner:true,
+    approved:true,
+    expectedDeployedSha:releaseSha,
+    releaseBinding:binding,
+    backupObjectPresent:true,
+    backupObjectBytes:128,
+    now:()=> '2026-09-27T12:20:00.000Z',
+  });
+  assert.equal(accepted.ok,true);
+  assert.equal(accepted.deployed_sha,releaseSha);
+  assert.equal(accepted.snapshot_deployed_sha,snapshotSha);
+  assert.equal(accepted.release_bound,true);
+  assert.equal(accepted.release_binding_sha256,binding.binding_sha256);
+
+  await assert.rejects(
+    runRecoveryDrillAgainstPersistedEvidence(metadata,{
+      owner:true,
+      approved:true,
+      expectedDeployedSha:releaseSha,
+      releaseBinding:{...binding,snapshot_id:'wrong-snapshot'},
+      backupObjectPresent:true,
+      backupObjectBytes:128,
+      now:()=> '2026-09-27T12:20:00.000Z',
+    }),
+    error=>error?.code==='RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_MISMATCH',
+  );
 });
