@@ -148,3 +148,5 @@ jobs:
           path: mel-device-02-restart-proof.json
           if-no-files-found: error
           retention-days: 14
+
+# live-retry: 2
