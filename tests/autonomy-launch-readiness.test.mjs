@@ -8,6 +8,7 @@ import {
   evaluateShardVaultLaunchReadiness,
   getAutonomyLaunchReadiness,
   prepareAutonomyLaunchCodeSync,
+  prepareAutonomyLaunchBackup,
   prepareAutonomyLaunch,
 } from '../src/evolution/launch-readiness.js';
 import { maybeHandlePublicTeacherBridge } from '../src/teachers/public-teacher-api.js';
@@ -97,6 +98,38 @@ test('isolated preview can prove launch gate with synthetic restore without prod
     assert.equal(readiness.restore.status, 'SYNTHETIC_PREVIEW_RESTORE_VERIFIED');
     assert.equal(readiness.shardvault.preview_only, true);
     assert.match(readiness.gate_digest, /^[a-f0-9]{64}$/);
+  } finally {
+    DB.close();
+  }
+});
+
+test('release launch backup uses compact post-persist proof without rereading the R2 payload', async () => {
+  const DB = sqliteD1();
+  const MEDIA_BUCKET = bucket();
+  let getCount = 0;
+  const originalGet = MEDIA_BUCKET.get.bind(MEDIA_BUCKET);
+  MEDIA_BUCKET.get = async (...args) => {
+    getCount += 1;
+    return originalGet(...args);
+  };
+  const sha = 'abababababababababababababababababababab';
+  const env = {
+    DB,
+    MEDIA_BUCKET,
+    MEL_RUNTIME_ENV: 'production',
+    MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy',
+    MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy',
+    MEL_DEPLOYED_GIT_SHA: sha,
+  };
+  try {
+    const backup = await prepareAutonomyLaunchBackup(env);
+    assert.equal(backup.ok, true, JSON.stringify(backup));
+    assert.equal(getCount, 0, 'release backup must not reread the persisted R2 payload');
+
+    const restore = await evaluateRestoreReadiness(env);
+    assert.equal(restore.ok, true, JSON.stringify(restore));
+    assert.equal(restore.backup_deployed_sha, sha);
+    assert.equal(getCount, 0, 'compact launch readiness must remain metadata-only');
   } finally {
     DB.close();
   }
