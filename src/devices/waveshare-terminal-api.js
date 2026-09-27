@@ -327,7 +327,7 @@ async function serveDownload(request, env, url) {
     "x-mel-sha256": String(object.customMetadata?.sha256 || "")
   });
   object.writeHttpMetadata?.(headers);
-  if (!headers.get("content-type")) headers.set("content-type", "application/octet-stream");
+  if (!headers.get("content-type")) headers.set("content-type", "audio/wav");
   return new Response(object.body, { status: 200, headers });
 }
 
@@ -353,7 +353,7 @@ async function ownerFirmware(request, env) {
   const object = await env.MEDIA_BUCKET.get(key);
   if (!object) return json({ ok: false, code: "FIRMWARE_NOT_FOUND" }, 404);
   const headers = new Headers({
-    "content-type": "application/octet-stream",
+    "content-type": "audio/wav",
     "content-length": String(object.size),
     "content-disposition": 'attachment; filename="mini-first-install.bin"',
     "cache-control": "no-store",
@@ -422,15 +422,15 @@ async function deviceTts(request, env, auth) {
       text,
       speaker,
       encoding: "linear16",
-      container: "none",
+      container: "wav",
       sample_rate: 48000
     }, { returnRawResponse: true });
 
     if (result instanceof Response) {
       const headers = new Headers(result.headers);
-      headers.set("content-type", "application/octet-stream");
+      headers.set("content-type", "audio/wav");
       headers.set("cache-control", "no-store");
-      headers.set("x-mel-audio-format", "pcm-s16le");
+      headers.set("x-mel-audio-format", "wav-pcm-s16le");
       headers.set("x-mel-audio-rate", "48000");
       headers.set("x-mel-audio-channels", "1");
       return new Response(result.body, { status: result.status, headers });
@@ -440,9 +440,9 @@ async function deviceTts(request, env, auth) {
       return new Response(result.body, {
         status: 200,
         headers: {
-          "content-type": "application/octet-stream",
+          "content-type": "audio/wav",
           "cache-control": "no-store",
-          "x-mel-audio-format": "pcm-s16le",
+          "x-mel-audio-format": "wav-pcm-s16le",
           "x-mel-audio-rate": "48000",
           "x-mel-audio-channels": "1"
         }
