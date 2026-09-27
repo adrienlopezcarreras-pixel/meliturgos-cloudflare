@@ -256,6 +256,7 @@ jobs:
             artifacts/kaggle-output/**/dataset-metadata.json
             artifacts/kaggle-output/**/kaggle-run.json
             artifacts/kaggle-output/**/approval-evidence.json
+            artifacts/kaggle-output/**/benchmark-evidence.json
             artifacts/finalize-result.json
           if-no-files-found: warn
           retention-days: 14
