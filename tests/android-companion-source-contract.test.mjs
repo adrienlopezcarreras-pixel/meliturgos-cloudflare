@@ -366,7 +366,7 @@ test('Android owner password state is not saveable and emulator smoke tests are 
   assert.match(activity,/testTag\("login-password"\)/);
   assert.match(build,/testInstrumentationRunner = "androidx\.test\.runner\.AndroidJUnitRunner"/);
   assert.match(build,/androidx\.compose\.ui:ui-test-junit4/);
-  assert.match(uiTest,/createAndroidComposeRule<MainActivity>/);
+  assert.match(uiTest,/createAndroidComposeRule<MelLoginHarnessActivity>/);
   assert.match(uiTest,/passwordIsNotRestoredAcrossActivityRecreation/);
   assert.match(screenshotTest,/completeModeRendersForVisualProof/);
   assert.match(harness,/getStringExtra\("mode"\)/);
@@ -528,8 +528,8 @@ test('Android MINI mobile shell keeps settings-driven native navigation and comp
   assert.match(activity,/"settings-companion"/);
   assert.doesNotMatch(activity,/"settings-web"/);
   assert.match(activity,/MobileSection\.WEB -> SectionSurface\("NAVIGATION \/\/ WEB"\)/);
-  assert.match(activity,/"settings-tools"/);
-  assert.match(screenshotTest,/settings-tools/);
+  assert.match(activity,/"settings-mode"/);
+  assert.match(screenshotTest,/settings-mode/);
   assert.doesNotMatch(activity,/Intent\(Intent\.ACTION_VIEW,\s*Uri\.parse\("https?:/);
   assert.doesNotMatch(activity,/CODE MINI/);
   assert.doesNotMatch(activity,/GÉNÉRER LE CODE MINI/);
