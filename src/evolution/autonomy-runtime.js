@@ -1,6 +1,6 @@
 import { runAutonomyRuntimeTick as runCoreAutonomyRuntimeTick } from './autonomy-runtime-core.js';
 import { getAutonomyControl } from './autonomy-control.js';
-import { AutonomySupervisor } from './autonomy-supervisor.js';
+import { AutonomySupervisor, selectActionableAutonomyJob } from './autonomy-supervisor.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import { applyOwnerMaxApproval } from '../teachers/owner-max-approval.js';
 import { mirrorRuntimeTeacherRequestToGitHub } from '../teachers/github-request-mirror.js';
@@ -165,7 +165,10 @@ function preservePreEnsureCreation(result, preEnsure) {
 
 async function recordCoreRuntimeFailure(repository, error, { maxAttempts = 3 } = {}) {
   const jobs = await repository.list();
-  const candidate = jobs
+  const schedulerSelected = selectActionableAutonomyJob(
+    jobs.filter(job => ACTIONABLE_FAILURE_STATES.has(String(job?.status || '').toUpperCase()))
+  );
+  const candidate = schedulerSelected || jobs
     .filter(supervised)
     .filter(job => ACTIONABLE_FAILURE_STATES.has(String(job?.status || '').toUpperCase()))
     .sort(failureCandidateSort)[0] || null;
