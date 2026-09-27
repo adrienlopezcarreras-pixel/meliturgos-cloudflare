@@ -129,6 +129,30 @@ function parseMetadata(raw) {
   catch { return {}; }
 }
 
+function backupMetadataRow(row) {
+  if (!row) return null;
+  const metadata = parseMetadata(row.metadata_json);
+  return {
+    id: row.id,
+    objectKey: row.object_key,
+    createdAt: metadata.createdAt || new Date(Number(row.created_at) || 0).toISOString(),
+    integritySha256: metadata.integritySha256 || null,
+    sourceCount: Number(metadata.sourceCount || 0),
+    verified: metadata.verified === true,
+    encrypted: metadata.encrypted === true,
+    encryptionSchema: metadata.encryptionSchema || null,
+    encryptionAlgorithm: metadata.encryptionAlgorithm || null,
+    encryptionKeyId: metadata.encryptionKeyId || null,
+    restoreVerified: metadata.restoreVerified === true,
+    restoreCode: metadata.restoreCode || null,
+    restoreIntegritySha256: metadata.restoreIntegritySha256 || null,
+    restoreDeployedGitSha: metadata.restoreDeployedGitSha || null,
+    restoreTableCount: Number(metadata.restoreTableCount || 0),
+    restoreRowCount: Number(metadata.restoreRowCount || 0),
+    restoreR2ObjectCount: Number(metadata.restoreR2ObjectCount || 0),
+  };
+}
+
 export function createR2D1BackupStorage({ db, bucket, encryptionCodec = null }) {
   requireValue(db?.prepare, 'BACKUP_DB_UNAVAILABLE', 503);
   requireValue(bucket?.put && bucket?.get && bucket?.delete, 'BACKUP_R2_UNAVAILABLE', 503);
@@ -193,30 +217,19 @@ export function createR2D1BackupStorage({ db, bucket, encryptionCodec = null }) 
       return parsed;
     },
 
+    async metadata(id) {
+      const row = await db.prepare(
+        "SELECT id, object_key, metadata_json, created_at FROM backup_objects WHERE id=? AND object_key LIKE 'backups/system/%'"
+      ).bind(String(id || '')).first();
+      return backupMetadataRow(row);
+    },
+
     async list({ limit = 20 } = {}) {
       const safeLimit = Math.max(1, Math.min(100, Number(limit) || 20));
       const result = await db.prepare(
         "SELECT id, object_key, metadata_json, created_at FROM backup_objects WHERE object_key LIKE 'backups/system/%' ORDER BY created_at DESC LIMIT ?"
       ).bind(safeLimit).all();
-      return rows(result).map((row) => ({
-        id: row.id,
-        objectKey: row.object_key,
-        createdAt: parseMetadata(row.metadata_json).createdAt || new Date(Number(row.created_at) || 0).toISOString(),
-        integritySha256: parseMetadata(row.metadata_json).integritySha256 || null,
-        sourceCount: Number(parseMetadata(row.metadata_json).sourceCount || 0),
-        verified: parseMetadata(row.metadata_json).verified === true,
-        encrypted: parseMetadata(row.metadata_json).encrypted === true,
-        encryptionSchema: parseMetadata(row.metadata_json).encryptionSchema || null,
-        encryptionAlgorithm: parseMetadata(row.metadata_json).encryptionAlgorithm || null,
-        encryptionKeyId: parseMetadata(row.metadata_json).encryptionKeyId || null,
-        restoreVerified: parseMetadata(row.metadata_json).restoreVerified === true,
-        restoreCode: parseMetadata(row.metadata_json).restoreCode || null,
-        restoreIntegritySha256: parseMetadata(row.metadata_json).restoreIntegritySha256 || null,
-        restoreDeployedGitSha: parseMetadata(row.metadata_json).restoreDeployedGitSha || null,
-        restoreTableCount: Number(parseMetadata(row.metadata_json).restoreTableCount || 0),
-        restoreRowCount: Number(parseMetadata(row.metadata_json).restoreRowCount || 0),
-        restoreR2ObjectCount: Number(parseMetadata(row.metadata_json).restoreR2ObjectCount || 0),
-      }));
+      return rows(result).map(backupMetadataRow).filter(Boolean);
     },
   };
 }
@@ -248,11 +261,13 @@ function releaseBindingCanonical(value = {}) {
 function verifiedRestoreMetadata(row) {
   const integrity = String(row?.integritySha256 || '').toLowerCase();
   const restoreIntegrity = String(row?.restoreIntegritySha256 || '').toLowerCase();
+  const restoreSha = String(row?.restoreDeployedGitSha || '').toLowerCase();
   return Boolean(row?.id)
     && row?.verified === true
     && row?.restoreVerified === true
     && /^[a-f0-9]{64}$/.test(integrity)
-    && integrity === restoreIntegrity;
+    && integrity === restoreIntegrity
+    && /^[a-f0-9]{40}$/.test(restoreSha);
 }
 
 function backupStorageForEnv(env) {
