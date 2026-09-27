@@ -29,7 +29,9 @@ function deployedGitBranch(env = {}) {
 }
 
 export const SYSTEM_BACKUP_PREFIX = 'backups/system/';
+export const RELEASE_BACKUP_BINDING_SCHEMA = 'MEL_RELEASE_BACKUP_BINDING_V1';
 export const DEFAULT_SYSTEM_BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_RELEASE_BACKUP_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 const MIN_SYSTEM_BACKUP_INTERVAL_MS = 15 * 60 * 1000;
 const MAX_SYSTEM_BACKUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_ROWS_PER_PAGE = 1000;
@@ -217,6 +219,154 @@ export function createR2D1BackupStorage({ db, bucket, encryptionCodec = null }) 
       }));
     },
   };
+}
+
+function releaseBackupMaxAgeMs(env, override) {
+  const requested = Number(override ?? env?.MEL_RELEASE_BACKUP_MAX_AGE_MS ?? DEFAULT_RELEASE_BACKUP_MAX_AGE_MS);
+  if (!Number.isFinite(requested) || requested <= 0) return DEFAULT_RELEASE_BACKUP_MAX_AGE_MS;
+  return Math.max(15 * 60 * 1000, Math.min(24 * 60 * 60 * 1000, requested));
+}
+
+async function sha256HexText(value) {
+  const bytes = new TextEncoder().encode(String(value || ''));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function releaseBindingCanonical(value = {}) {
+  return JSON.stringify({
+    schema: RELEASE_BACKUP_BINDING_SCHEMA,
+    deployed_sha: String(value.deployed_sha || '').toLowerCase(),
+    snapshot_id: String(value.snapshot_id || ''),
+    snapshot_integrity_sha256: String(value.snapshot_integrity_sha256 || '').toLowerCase(),
+    snapshot_deployed_sha: String(value.snapshot_deployed_sha || '').toLowerCase(),
+    snapshot_created_at: String(value.snapshot_created_at || ''),
+    bound_at: Number(value.bound_at || 0),
+  });
+}
+
+function verifiedRestoreMetadata(row) {
+  const integrity = String(row?.integritySha256 || '').toLowerCase();
+  const restoreIntegrity = String(row?.restoreIntegritySha256 || '').toLowerCase();
+  return Boolean(row?.id)
+    && row?.verified === true
+    && row?.restoreVerified === true
+    && /^[a-f0-9]{64}$/.test(integrity)
+    && integrity === restoreIntegrity;
+}
+
+function backupStorageForEnv(env) {
+  const keyId = String(env?.MEL_BACKUP_ENCRYPTION_KEY_ID || '').trim();
+  const key = String(env?.MEL_BACKUP_ENCRYPTION_KEY_B64 || '').trim();
+  const requested = Boolean(keyId || key);
+  requireValue(!requested || Boolean(keyId && key), 'BACKUP_ENCRYPTION_CONFIG_INCOMPLETE', 503);
+  const codec = requested ? createEnvBackupEncryptionCodec(env) : null;
+  return createR2D1BackupStorage({ db: env.DB, bucket: env.MEDIA_BUCKET, encryptionCodec: codec });
+}
+
+export async function createReleaseBackupBinding(env, {
+  now = () => new Date().toISOString(),
+  maxAgeMs,
+} = {}) {
+  requireValue(env?.DB?.prepare, 'BACKUP_DB_UNAVAILABLE', 503);
+  requireValue(env?.MEDIA_BUCKET?.put && env?.MEDIA_BUCKET?.get, 'BACKUP_R2_UNAVAILABLE', 503);
+  await migrate(env.DB);
+
+  const deployedSha = deployedGitSha(env);
+  if (!deployedSha) return { ok: false, status: 'DEPLOYED_SHA_INVALID' };
+
+  const currentIso = now();
+  const currentMs = Date.parse(currentIso);
+  if (!Number.isFinite(currentMs)) return { ok: false, status: 'BACKUP_TIME_INVALID' };
+
+  const maxAge = releaseBackupMaxAgeMs(env, maxAgeMs);
+  const storage = backupStorageForEnv(env);
+  const candidates = await storage.list({ limit: 100 });
+  const snapshot = candidates.find((row) => {
+    if (!verifiedRestoreMetadata(row)) return false;
+    const createdMs = Date.parse(row?.createdAt || '');
+    return Number.isFinite(createdMs) && createdMs <= currentMs && currentMs - createdMs <= maxAge;
+  }) || null;
+
+  if (!snapshot) {
+    return {
+      ok: false,
+      status: 'NO_RECENT_VERIFIED_SYSTEM_BACKUP',
+      max_age_ms: maxAge,
+    };
+  }
+
+  const boundAt = currentMs;
+  const payload = {
+    schema: RELEASE_BACKUP_BINDING_SCHEMA,
+    deployed_sha: deployedSha,
+    snapshot_id: snapshot.id,
+    snapshot_integrity_sha256: String(snapshot.integritySha256 || '').toLowerCase(),
+    snapshot_deployed_sha: String(snapshot.restoreDeployedGitSha || '').toLowerCase(),
+    snapshot_created_at: snapshot.createdAt,
+    bound_at: boundAt,
+  };
+  const bindingSha256 = await sha256HexText(releaseBindingCanonical(payload));
+
+  await env.DB.prepare(`INSERT OR REPLACE INTO release_backup_bindings(
+    deployed_sha,snapshot_id,snapshot_integrity_sha256,snapshot_deployed_sha,snapshot_created_at,bound_at,binding_sha256
+  ) VALUES(?,?,?,?,?,?,?)`)
+    .bind(
+      payload.deployed_sha,
+      payload.snapshot_id,
+      payload.snapshot_integrity_sha256,
+      payload.snapshot_deployed_sha || null,
+      payload.snapshot_created_at,
+      payload.bound_at,
+      bindingSha256,
+    )
+    .run();
+
+  return {
+    ok: true,
+    status: 'RELEASE_BACKUP_BOUND',
+    deployed_sha: deployedSha,
+    snapshot_id: snapshot.id,
+    snapshot_integrity_sha256: payload.snapshot_integrity_sha256,
+    snapshot_deployed_sha: payload.snapshot_deployed_sha || null,
+    snapshot_created_at: payload.snapshot_created_at,
+    binding_sha256: bindingSha256,
+    max_age_ms: maxAge,
+  };
+}
+
+export async function readReleaseBackupBinding(env, sha = deployedGitSha(env)) {
+  requireValue(env?.DB?.prepare, 'BACKUP_DB_UNAVAILABLE', 503);
+  await migrate(env.DB);
+  const deployedSha = String(sha || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{40}$/.test(deployedSha)) return { ok: false, status: 'DEPLOYED_SHA_INVALID' };
+
+  const row = await env.DB.prepare(`SELECT deployed_sha,snapshot_id,snapshot_integrity_sha256,snapshot_deployed_sha,
+    snapshot_created_at,bound_at,binding_sha256 FROM release_backup_bindings WHERE deployed_sha=?`)
+    .bind(deployedSha)
+    .first();
+  if (!row) return { ok: false, status: 'RELEASE_BACKUP_BINDING_MISSING', deployed_sha: deployedSha };
+
+  const payload = {
+    schema: RELEASE_BACKUP_BINDING_SCHEMA,
+    deployed_sha: String(row.deployed_sha || '').toLowerCase(),
+    snapshot_id: String(row.snapshot_id || ''),
+    snapshot_integrity_sha256: String(row.snapshot_integrity_sha256 || '').toLowerCase(),
+    snapshot_deployed_sha: String(row.snapshot_deployed_sha || '').toLowerCase(),
+    snapshot_created_at: String(row.snapshot_created_at || ''),
+    bound_at: Number(row.bound_at || 0),
+  };
+  const expected = await sha256HexText(releaseBindingCanonical(payload));
+  const valid = payload.deployed_sha === deployedSha
+    && Boolean(payload.snapshot_id)
+    && /^[a-f0-9]{64}$/.test(payload.snapshot_integrity_sha256)
+    && Number.isFinite(payload.bound_at)
+    && payload.bound_at > 0
+    && String(row.binding_sha256 || '').toLowerCase() === expected;
+
+  return valid
+    ? { ok: true, status: 'RELEASE_BACKUP_BINDING_VERIFIED', ...payload, binding_sha256: expected }
+    : { ok: false, status: 'RELEASE_BACKUP_BINDING_INVALID', deployed_sha: deployedSha };
 }
 
 export function systemBackupSources(env) {
