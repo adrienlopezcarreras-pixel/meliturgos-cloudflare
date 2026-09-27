@@ -193,7 +193,44 @@ jobs:
           ecosystem_jobs = [j for j in jobs if j.get('source') == 'ecosystem-watch' or j.get('id') in handoff_job_ids]
           sourced_items = [x for x in discovery_items if x.get('evidence_status') == 'SOURCED_OBSERVATION' and x.get('source_count', 0) > 0]
           handoff_items = [x for x in discovery_items if isinstance(x.get('handoff'), dict) and x['handoff'].get('job_id')]
-          completed_items = [x for x in handoff_items if x['handoff'].get('status') == 'COMPLETED' and x['handoff'].get('completion_verified')]
+
+          primary_verified_jobs = {
+              str(j.get('id')): j
+              for j in ecosystem_jobs
+              if str(j.get('status') or '').upper() == 'COMPLETED'
+              and str(j.get('completion_status') or '').upper() == 'VERIFIED'
+              and isinstance(j.get('completion_candidate_sha'), str)
+              and len(j.get('completion_candidate_sha')) == 40
+              and int(j.get('completion_ci_run_id') or 0) > 0
+          }
+
+          completed_items = []
+          normalized_handoff_items = []
+          for item in handoff_items:
+              handoff = item.get('handoff') or {}
+              job_id = str(handoff.get('job_id') or '')
+              primary = primary_verified_jobs.get(job_id)
+              if primary:
+                  merged = {
+                      **item,
+                      'handoff': {
+                          **handoff,
+                          'status': 'COMPLETED',
+                          'candidate_sha': primary.get('completion_candidate_sha') or handoff.get('candidate_sha'),
+                          'ci_run_id': primary.get('completion_ci_run_id') or handoff.get('ci_run_id'),
+                          'completion_verified': True,
+                          'closed': True,
+                          'terminal_reason': 'VERIFIED_COMPLETION',
+                      },
+                  }
+                  normalized_handoff_items.append(merged)
+                  completed_items.append(merged)
+              else:
+                  normalized_handoff_items.append(item)
+                  if handoff.get('status') == 'COMPLETED' and handoff.get('completion_verified'):
+                      completed_items.append(item)
+
+          handoff_items = normalized_handoff_items
           active_items = [x for x in handoff_items if not x['handoff'].get('closed')]
 
           proof_status = 'COMPLETE' if completed_items else ('HANDOFF_PRESENT' if handoff_items else ('DISCOVERIES_PRESENT' if sourced_items else ('WATCH_RAN' if int(watch_state.get('run_count') or 0) > 0 else 'NO_WATCH_PROOF')))
