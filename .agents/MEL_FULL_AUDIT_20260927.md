@@ -186,16 +186,21 @@ Principe : une preuve de release lourde doit réutiliser une preuve persistée c
 
 ## 13. ShardVault
 
-ShardVault reste volontairement `PAUSED_FOR_ROADMAP`.
+ShardVault n’est plus `PAUSED_FOR_ROADMAP`.
 
-Ce n’est ni un échec ni un oubli.
-La règle propriétaire est explicite : réactiver ShardVault **en dernier**, après nettoyage, réconciliation et audit des autres surfaces.
+La réactivation finale a été intégrée par la PR #598 : `MEL_SHARDVAULT_ENABLED=true`, autonomie réactivée et pause roadmap désactivée dans la politique de release. Le workflow canonique exige de nouveau la preuve externe **7/7** avant de considérer cette étape finale comme validée en production.
 
-Les workflows doivent :
-- reconnaître la pause ;
-- ne pas tenter de réactivation implicite ;
-- maintenir les autres garanties backup/restore ;
-- reprendre ensuite la preuve externe 7/7 et la reconstruction comme étape finale.
+Au moment de la réactivation, la production n’exposait encore que **3/7 endpoints externes actifs**. L’analyse a montré que les tentatives bornées réutilisaient le même candidat validé au lieu d’appliquer correctement `probe_offset` au pool caché.
+
+La PR #600 corrige ce point en appliquant `probe_offset` aux endpoints validés mis en cache, sans changer la cible 7/7. Après correction du test de régression lui-même, `shardvault-ci` est entièrement vert sur le SHA de branche `2044190265c76ff8f150f1cf6ca5ee550ac2ac38`, puis #600 a été fusionnée dans `main` au SHA `41be13b2321e8e30a2750ff0252f2a9a4782453d`.
+
+État de preuve à ce stade :
+- réactivation de la politique ShardVault : **faite** (#598) ;
+- correctif de rotation `probe_offset` : **fusionné et CI verte** (#600) ;
+- preuve production exacte du nouveau SHA et atteinte réelle **7/7** : **à revalider par le workflow de release** ;
+- reconstruction/external code proof : à considérer acquise uniquement si le run de release exact-SHA la confirme.
+
+Principe : ne jamais confondre correctif fusionné + CI verte avec preuve live 7/7. Le statut final dépend de la release exacte et de l’état runtime observé après déploiement.
 
 ## 14. LoRA / MEL-EVOL-06
 
@@ -301,8 +306,8 @@ Ordre de clôture après la release verte :
 2. fusionner et certifier le présent audit/pack d'expérience hebdomadaire ;
 3. recompiler l'état roadmap et conserver les sept BLOCKED_HUMAN comme actions réellement humaines ;
 4. traiter #592 seulement si son delta reste nécessaire et compatible avec le main courant ;
-5. seulement ensuite réactiver ShardVault et refaire ses preuves externes/reconstruction ;
-6. produire le checkpoint final.
+5. ShardVault a désormais été réactivé (#598) et son correctif de rotation bornée fusionné (#600) ; exécuter maintenant la release exacte du `main` courant et exiger la preuve live 7/7 + reconstruction ;
+6. une fois cette preuve obtenue, produire le checkpoint final et réconcilier l’audit avec le SHA réellement déployé.
 
 ## 22. Conclusion d’audit
 
@@ -344,3 +349,10 @@ Après la première release totalement verte `f3d75ea9...`, deux consolidations 
 - #592 : scaffold déterministe des sections de gouvernance manquantes d’un plan GEN2-42 après tentatives IA bornées, tout en conservant les invariants fail-closed, la non-activation production et le diff minimal.
 
 Ces deux fusions portent le `main` de réconciliation à `a342834729c11f4f2c083f0ed36ff6ea62d1500a`. Elles n’autorisent aucune promotion artificielle des sept `BLOCKED_HUMAN` et ne modifient pas le chantier LoRA ni MINI.
+
+
+## 24. Réconciliation post-audit — ShardVault #598 / #600
+
+L’état historique `PAUSED_FOR_ROADMAP` présent dans la première version de cet audit est désormais obsolète. La séquence réelle de clôture est : #598 réactive ShardVault, #599 durcit le Dev Bridge, puis #600 corrige la rotation des candidats validés lors des tentatives bornées. Le `main` courant après #600 est `41be13b2321e8e30a2750ff0252f2a9a4782453d`.
+
+Le CI ShardVault du correctif #600 est totalement vert (`shardvault-targeted` + `shardvault-full-suite`). Cette réussite valide le code et la régression associée, mais ne constitue pas à elle seule la preuve que la production a déjà atteint 7/7. Cette dernière reste liée au déploiement exact-SHA et au contrôle runtime de la release correspondante.
