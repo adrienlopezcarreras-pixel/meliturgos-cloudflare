@@ -326,14 +326,26 @@ jobs:
           node -e 'const d=require("./production-skill-registry-proof.json"); if(d?.ok!==true||d?.status!=="MEL_EVOL_05_PRODUCTION_D1_VERIFIED"||d?.restored_before_rollback!=="1.1.0"||d?.restored_after_rollback!=="1.0.0") throw new Error("MEL_EVOL_05_PRODUCTION_D1_PROOF_FAILED"); console.log("MEL-EVOL-05 real D1 restart/rollback proof passed.");'
 
 
-          LONG_CONTEXT_CODE="$(curl --silent --show-error --max-time 90 \
-            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-            --header "content-type: application/json" \
-            --data '{"phase":"long-context-proof"}' \
-            --output production-long-context-proof.json \
-            --write-out '%{http_code}' \
-            "${BASE_URL}/api/internal/release-launch-bootstrap")"
-          test "$LONG_CONTEXT_CODE" = "200"
+          LONG_CONTEXT_READY=0
+          for LONG_CONTEXT_ATTEMPT in $(seq 1 12); do
+            LONG_CONTEXT_CODE="$(curl --silent --show-error --max-time 90 \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"long-context-proof"}' \
+              --output production-long-context-proof.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "$LONG_CONTEXT_CODE" = "200" ]; then
+              LONG_CONTEXT_READY=1
+              break
+            fi
+            echo "Long-context proof propagation attempt ${LONG_CONTEXT_ATTEMPT}/12 returned HTTP ${LONG_CONTEXT_CODE}."
+            if [ -s production-long-context-proof.json ]; then
+              node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-long-context-proof.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,code:d?.code||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
+            fi
+            sleep 2
+          done
+          test "$LONG_CONTEXT_READY" = "1"
           node - <<'NODE'
           const d=require('./production-long-context-proof.json');
           if(d?.ok!==true || d?.status!=='MEL_CONTEXT_02_REAL_LONG_CONVERSATION_VERIFIED') throw new Error('MEL_CONTEXT_02_PRODUCTION_PROOF_FAILED');
