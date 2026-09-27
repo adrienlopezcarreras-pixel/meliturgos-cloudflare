@@ -1,0 +1,115 @@
+name: GEN2-42 authenticated runtime tick
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - src/dev/runtime-api.js
+      - tests/integration/dev-runtime-api.test.mjs
+      - .github/workflows/gen2-42-runtime-tick.yml
+  push:
+    branches:
+      - ops/gen2-42-runtime-tick
+    paths:
+      - .ops/gen2-42-runtime-tick-trigger.txt
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Syntax gate
+        run: npm run check
+      - name: Dev Bridge runtime contract
+        run: node --test tests/integration/dev-runtime-api.test.mjs
+
+  tick:
+    if: github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require Dev Bridge machine token
+        shell: bash
+        env:
+          MEL_DEV_BRIDGE_TOKEN: ${{ secrets.MEL_DEV_BRIDGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MEL_DEV_BRIDGE_TOKEN"
+
+      - name: Run canonical autonomy tick through Dev Bridge auth
+        shell: bash
+        env:
+          MEL_DEV_BRIDGE_TOKEN: ${{ secrets.MEL_DEV_BRIDGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o tick-response.raw.json -w '%{http_code}' \
+            -X POST 'https://meliturgos.adrien-lopezcarreras.workers.dev/api/dev-bridge/autonomy/tick' \
+            -H "Authorization: Bearer $MEL_DEV_BRIDGE_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data '{}')"
+          echo "http_status=$code"
+          test "$code" -ge 200
+          test "$code" -lt 300
+
+      - name: Build sanitized tick proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs');
+          const body=JSON.parse(fs.readFileSync('tick-response.raw.json','utf8'));
+          const tick=body?.tick||{};
+          const completions=tick?.completions||tick?.passive_completions||{};
+          const completed=Array.isArray(completions?.completed)?completions.completed:[];
+          const rejected=Array.isArray(completions?.rejected)?completions.rejected:[];
+          const safe={
+            schema:'mel.gen2-42-authenticated-runtime-tick/v1',
+            ok:body?.ok===true,
+            tick_status:tick?.status||null,
+            advanced:tick?.advanced===true,
+            paused:tick?.paused===true || tick?.control?.paused===true,
+            max_autonomy:tick?.control?.max_autonomy===true,
+            completion_reconcile_ok:completions?.ok!==false,
+            completed:completed.map(x=>({
+              job_id:String(x?.job_id||'').slice(0,160),
+              candidate_sha:String(x?.candidate_sha||'').slice(0,40),
+              ci_run_id:Number(x?.ci_run_id||0),
+              mentor_learning:x?.mentor_learning===true,
+              corrections_recorded:Number(x?.corrections_recorded||0),
+              handoffs_ingested:Number(x?.handoffs_ingested||0),
+            })),
+            rejected:rejected.map(x=>({
+              job_id:String(x?.job_id||'').slice(0,160),
+              request_id:String(x?.request_id||'').slice(0,160),
+              code:String(x?.code||'').slice(0,180),
+            })).slice(0,20),
+            current_job:tick?.job?{
+              id:String(tick.job.id||'').slice(0,160),
+              status:String(tick.job.status||'').slice(0,80),
+              roadmap_id:String(tick.job.roadmap_id||'').slice(0,120),
+            }:null,
+          };
+          fs.writeFileSync('gen2-42-runtime-tick-proof.json',JSON.stringify(safe,null,2));
+          console.log(JSON.stringify(safe,null,2));
+          NODE
+
+      - name: Upload sanitized tick proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-42-runtime-tick-proof-${{ github.run_id }}
+          path: gen2-42-runtime-tick-proof.json
+          if-no-files-found: error
+          retention-days: 7
