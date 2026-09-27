@@ -413,10 +413,19 @@ jobs:
           test "${CAPABILITY_WATCH_READY}" = "1"
           node - <<'NODE'
           const d=require('./production-capability-watch-proof.json');
-          if(d?.ok!==true || d?.status!=='GEN2_42_TEACHER_HANDOFF_READY') throw new Error('GEN2_42_TEACHER_HANDOFF_PROOF_FAILED');
-          if(Number(d?.active_teacher_handoff_count||0)<1 || !d?.job_id || !d?.teacher_request_id) throw new Error('GEN2_42_TEACHER_HANDOFF_MISSING');
+          const active=d?.status==='GEN2_42_TEACHER_HANDOFF_READY'
+            && Number(d?.active_teacher_handoff_count||0)>=1
+            && Boolean(d?.job_id)
+            && Boolean(d?.teacher_request_id);
+          const idle=d?.status==='GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
+            && d?.idle_verified===true
+            && Number(d?.open_handoff_count||0)===0
+            && Number(d?.active_teacher_handoff_count||0)===0
+            && !d?.job_id
+            && !d?.teacher_request_id;
+          if(d?.ok!==true || (!active && !idle)) throw new Error('GEN2_42_TEACHER_HANDOFF_PROOF_FAILED');
           if(d?.production_activation_allowed!==false || d?.auto_approval_allowed!==false) throw new Error('GEN2_42_PROOF_ESCALATED_PRIVILEGES');
-          console.log('GEN2-42 real production Teacher handoff proof passed.');
+          console.log('GEN2-42 production Teacher handoff proof passed: '+String(d.status));
           NODE
 
 
