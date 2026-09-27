@@ -5,7 +5,22 @@ const MAX_AUDIO_BYTES = 15_000_000;
 
 function resultText(value) {
   if (typeof value === 'string') return value;
-  return value?.response ?? value?.text ?? value?.transcription ?? value?.result?.response ?? '';
+  return value?.response
+    ?? value?.text
+    ?? value?.transcription
+    ?? value?.transcription_info?.text
+    ?? value?.result?.response
+    ?? value?.result?.text
+    ?? '';
+}
+
+function bytesToBase64(bytes) {
+  let binary = '';
+  const chunkSize = 0x4000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)));
+  }
+  return btoa(binary);
 }
 
 export async function handleVoiceTranscription(request, env, options = {}) {
@@ -37,11 +52,23 @@ export async function handleVoiceTranscription(request, env, options = {}) {
   }
 
   try {
-    const result = await env.AI.run(MODEL, { audio:new Uint8Array(await file.arrayBuffer()), language:'fr' });
+    const audioBytes = new Uint8Array(await file.arrayBuffer());
+    const audio = bytesToBase64(audioBytes);
+    const result = await env.AI.run(MODEL, {
+      audio,
+      task:'transcribe',
+      language:'fr'
+    });
     const text = String(resultText(result) || '').trim();
     if (!text) return Response.json({ ok:false, available:false, fallback:'text', reason:'EMPTY_TRANSCRIPTION' }, { status:503 });
     return Response.json({ ok:true, text, language:'fr', model:MODEL, stored:false, archive_via:'chat', input_source:'voice-server-transcription' }, { headers:{'cache-control':'no-store'} });
-  } catch {
-    return Response.json({ ok:false, available:false, fallback:'text', reason:'TRANSCRIPTION_UNAVAILABLE' }, { status:503 });
+  } catch (error) {
+    return Response.json({
+      ok:false,
+      available:false,
+      fallback:'text',
+      reason:'TRANSCRIPTION_UNAVAILABLE',
+      detail:String(error?.message || error).slice(0,180)
+    }, { status:503 });
   }
 }
