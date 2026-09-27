@@ -120,13 +120,20 @@ function deploymentRow(row = {}) {
   };
 }
 
-export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '' } = {}) {
+export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null } = {}) {
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
   const githubToken = String(env.MEL_GITHUB_TOKEN || '').trim();
   const cloudflareToken = String(env.CLOUDFLARE_API_TOKEN || '').trim();
   const cloudflareAccountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  const vercelToken = String(env.VERCEL_TOKEN || '').trim();
-  const vercelTeamId = String(env.VERCEL_TEAM_ID || '').trim();
+  const staticVercelToken = String(env.VERCEL_TOKEN || '').trim();
+  const staticVercelTeamId = String(env.VERCEL_TEAM_ID || '').trim();
+  const getVercelConfig = async () => {
+    const dynamic = typeof resolveVercelConfig === 'function' ? await resolveVercelConfig() : null;
+    return {
+      token: String(dynamic?.token || staticVercelToken || '').trim(),
+      teamId: String(dynamic?.team_id || staticVercelTeamId || '').trim(),
+    };
+  };
 
   bus.discover({
     id: 'github.repository.read',
@@ -327,26 +334,30 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW',
     permissions: [],
-    health: configured(env, 'VERCEL_TOKEN') ? 'DEGRADED' : 'UNAVAILABLE',
+    health: staticVercelToken || typeof resolveVercelConfig === 'function' ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
-    healthcheck: async () => probeHealth(
-      () => {
-        const params = new URLSearchParams({ limit: '1' });
-        if (vercelTeamId) params.set('teamId', vercelTeamId);
-        return requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
-          token: vercelToken,
-          code: 'VERCEL_PROJECTS_READ_FAILED',
-        });
-      },
-      vercelToken ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
-    ),
+    healthcheck: async () => {
+      const cfg = await getVercelConfig();
+      return probeHealth(
+        () => {
+          const params = new URLSearchParams({ limit: '1' });
+          if (cfg.teamId) params.set('teamId', cfg.teamId);
+          return requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
+            token: cfg.token,
+            code: 'VERCEL_PROJECTS_READ_FAILED',
+          });
+        },
+        cfg.token ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
+      );
+    },
   }, async input => {
-    if (!vercelToken) throw capabilityError('VERCEL_AUTH_REQUIRED', 503);
+    const cfg = await getVercelConfig();
+    if (!cfg.token) throw capabilityError('VERCEL_AUTH_REQUIRED', 503);
     const count = limit(input.limit);
     const params = new URLSearchParams({ limit: String(count) });
-    if (vercelTeamId) params.set('teamId', vercelTeamId);
+    if (cfg.teamId) params.set('teamId', cfg.teamId);
     const body = await requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
-      token: vercelToken,
+      token: cfg.token,
       code: 'VERCEL_PROJECTS_READ_FAILED',
     });
     const projects = (Array.isArray(body?.projects) ? body.projects : []).slice(0, count).map(projectRow);
@@ -372,27 +383,31 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW',
     permissions: [],
-    health: configured(env, 'VERCEL_TOKEN') ? 'DEGRADED' : 'UNAVAILABLE',
+    health: staticVercelToken || typeof resolveVercelConfig === 'function' ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
-    healthcheck: async () => probeHealth(
-      () => {
-        const params = new URLSearchParams({ limit: '1' });
-        if (vercelTeamId) params.set('teamId', vercelTeamId);
-        return requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
-          token: vercelToken,
-          code: 'VERCEL_PROJECTS_READ_FAILED',
-        });
-      },
-      vercelToken ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
-    ),
+    healthcheck: async () => {
+      const cfg = await getVercelConfig();
+      return probeHealth(
+        () => {
+          const params = new URLSearchParams({ limit: '1' });
+          if (cfg.teamId) params.set('teamId', cfg.teamId);
+          return requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
+            token: cfg.token,
+            code: 'VERCEL_PROJECTS_READ_FAILED',
+          });
+        },
+        cfg.token ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
+      );
+    },
   }, async input => {
-    if (!vercelToken) throw capabilityError('VERCEL_AUTH_REQUIRED', 503);
+    const cfg = await getVercelConfig();
+    if (!cfg.token) throw capabilityError('VERCEL_AUTH_REQUIRED', 503);
     const projectId = safeResource(input.projectId, 'VERCEL_PROJECT_ID_INVALID', 200);
     const count = limit(input.limit);
     const params = new URLSearchParams({ projectId, limit: String(count) });
-    if (vercelTeamId) params.set('teamId', vercelTeamId);
+    if (cfg.teamId) params.set('teamId', cfg.teamId);
     const body = await requestJson(fetchImpl, `${VERCEL_API}/v6/deployments?${params.toString()}`, {
-      token: vercelToken,
+      token: cfg.token,
       code: 'VERCEL_DEPLOYMENTS_READ_FAILED',
     });
     const deployments = (Array.isArray(body?.deployments) ? body.deployments : []).slice(0, count).map(deploymentRow);
