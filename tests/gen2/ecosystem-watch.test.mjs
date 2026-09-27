@@ -69,15 +69,11 @@ test('sourced creative watch observations reuse canonical media capabilities bef
           summary: 'Official visual tools observed.',
           citations_count: 1,
           sources: [{ title: 'Official', url: 'https://example.com/visual' }],
-          detected_capabilities: ['vision', 'image.generate', 'art-history'],
+          detected_capabilities: ['image.generate', 'art-history'],
         },
       }],
     },
   });
-  const vision = plan.items.find(item => item.capability_hint === 'vision');
-  assert.ok(vision);
-  assert.equal(vision.action, 'REUSE_EXISTING');
-  assert.equal(vision.best_match.id, 'media.image.analyze');
   const generation = plan.items.find(item => item.capability_hint === 'image.generate');
   assert.ok(generation);
   assert.equal(generation.action, 'UNBLOCK_EXISTING');
@@ -569,4 +565,34 @@ test('GEN2-42 resumes at most one requeued ecosystem handoff and refreshes Teach
   const newer = result.ledger.items.find(item => item.handoff.job_id === 'job-newer').handoff;
   assert.equal(newer.status, 'QUEUED');
   assert.equal(newer.attempts, 1);
+});
+
+
+test('GEN2-42 maps vision discovery to the existing canonical image analysis capability', () => {
+  const runtime = createGen2Runtime({ env: {} });
+  const plan = planEcosystemDiscoveries({
+    catalog: {
+      targets: [{
+        id: 'vision-watch',
+        metadata: { label: 'Vision', category: 'ai-platform', capabilities: ['vision'] },
+      }],
+    },
+    capabilities: runtime.bus.list(),
+    watchResult: {
+      status: 'RAN',
+      results: [{
+        id: 'vision-watch',
+        evidence: {
+          status: 'OBSERVED',
+          citations_count: 1,
+          sources: [{ title: 'Official', url: 'https://example.com/vision' }],
+          detected_capabilities: ['vision'],
+        },
+      }],
+    },
+  });
+  const vision = plan.items.find(item => item.capability_hint === 'vision');
+  assert.ok(vision);
+  assert.equal(vision.action, 'REUSE_EXISTING');
+  assert.equal(vision.best_match.id, 'media.image.analyze');
 });
