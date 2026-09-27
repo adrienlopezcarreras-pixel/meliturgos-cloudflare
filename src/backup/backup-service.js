@@ -68,7 +68,7 @@ export function createVerifiedBackupService({ sources = {}, storage, now = () =>
         throw new DomainError(`BACKUP_SELF_VERIFICATION_FAILED:${verification.code}`, 500);
       }
 
-      await storage.put(snapshot, context);
+      await storage.put(snapshot, { ...context, verification });
       return {
         id,
         schema: VERIFIED_SNAPSHOT_SCHEMA,
