@@ -19,7 +19,7 @@ test('release workflow requires external ShardVault 7x proof after roadmap close
   assert.match(workflow, /MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'/);
   assert.match(workflow, /if \[ "\$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" \]/);
   assert.match(workflow, /for SHARD_STATUS_ATTEMPT in \$\(seq 1 12\); do/);
-  assert.match(workflow, /for SHARD_ATTEMPT in \$\(seq 1 8\); do/);
+  assert.match(workflow, /for SHARD_ATTEMPT in \$\(seq 1 17\); do/);
   assert.match(workflow, /PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7/);
   assert.match(workflow, /PRODUCTION_SHARDVAULT_EXTERNAL_LT_7/);
   assert.match(workflow, /for PAUSE_ATTEMPT in \$\(seq 1 12\); do/);
