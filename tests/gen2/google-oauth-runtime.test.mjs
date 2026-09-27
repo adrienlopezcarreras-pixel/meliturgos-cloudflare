@@ -252,3 +252,20 @@ test('router propagates request-scoped capability approvals into CapabilityBus c
   assert.match(source, /capabilityContext\(env, request\)/);
   assert.match(source, /maybeHandleGoogleOAuthApi\(request, env, url\)/);
 });
+
+
+test('Google browser callback returns to the persistent connections interface', async () => {
+  const f = fixture();
+  const begun = await f.runtime.oauth.begin({
+    connector_id: 'gmail',
+    optional_scopes: ['https://www.googleapis.com/auth/gmail.send'],
+  }, { owner: 'adrien' });
+  const state = new URL(begun.authorization_url).searchParams.get('state');
+  const request = new Request('https://mel.example/api/gen2/oauth/google/gmail/callback?state=' + encodeURIComponent(state) + '&code=provider-code', {
+    method: 'GET',
+    headers: { accept: 'text/html' },
+  });
+  const response = await maybeHandleGoogleOAuthApi(request, env(), new URL(request.url), { runtime: f.runtime });
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get('location'), '/professor?view=connections&oauth=connected&connector=gmail');
+});
