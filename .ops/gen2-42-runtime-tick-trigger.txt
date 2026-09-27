@@ -3,4 +3,4 @@ job_id=ecosystem-watch-c3bfaf443b1287cf885033ecd760bc94
 completion_sha=7b68211addd42baaa891a06532ea56833b0dba04
 ci_run_id=36352974858
 request_id=07e154e0-fc18-4ac7-9a1b-ac944a238103
-trigger_seq=3
+trigger_seq=4
