@@ -24,6 +24,7 @@ const IDS = [
   'bootstrap-longform-canonical-state-machine-20260927',
   'bootstrap-longform-provenance-uncertainty-separation-20260927',
   'bootstrap-automation-slot-reallocation-canonical-state-20260927',
+  'bootstrap-encrypted-backup-consumer-codec-parity-20260927',
 ];
 
 test('weekly validated development experience is canonical and deduplicated', () => {
