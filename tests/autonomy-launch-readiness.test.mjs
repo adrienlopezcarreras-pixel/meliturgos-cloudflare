@@ -4,11 +4,13 @@ import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
 import {
   evaluateFailureHygiene,
+  evaluateRestoreReadiness,
   evaluateShardVaultLaunchReadiness,
   getAutonomyLaunchReadiness,
   prepareAutonomyLaunchCodeSync,
 } from '../src/evolution/launch-readiness.js';
 import { maybeHandlePublicTeacherBridge } from '../src/teachers/public-teacher-api.js';
+import { runScheduledSystemBackup } from '../src/backup/system-backup-runtime.js';
 import { sqliteD1 } from './helpers/sqlite-d1.mjs';
 
 function bucket() {
@@ -99,6 +101,37 @@ test('isolated preview can prove launch gate with synthetic restore without prod
   }
 });
 
+test('encrypted production backup is readable by restore readiness', async () => {
+  const DB = sqliteD1();
+  const MEDIA_BUCKET = bucket();
+  const sha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  const env = {
+    DB,
+    MEDIA_BUCKET,
+    MEL_RUNTIME_ENV: 'production',
+    MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy',
+    MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy',
+    MEL_DEPLOYED_GIT_SHA: sha,
+    MEL_BACKUP_ENCRYPTION_KEY_ID: 'launch-readiness-test-key',
+    MEL_BACKUP_ENCRYPTION_KEY_B64: Buffer.alloc(32, 7).toString('base64'),
+  };
+  try {
+    const backup = await runScheduledSystemBackup(env, {
+      force: true,
+      now: () => '2026-09-27T06:30:00.000Z',
+    });
+    assert.equal(backup.ok, true, JSON.stringify(backup));
+    assert.equal(backup.status, 'CREATED_VERIFIED');
+
+    const restore = await evaluateRestoreReadiness(env);
+    assert.equal(restore.ok, true, JSON.stringify(restore));
+    assert.equal(restore.status, 'LATEST_SYSTEM_BACKUP_RESTORE_VERIFIED');
+    assert.equal(restore.sha_matches, true);
+    assert.equal(restore.backup_deployed_sha, sha);
+  } finally {
+    DB.close();
+  }
+});
 test('public launch-readiness proof is read-only and minimized', async () => {
   const response = await maybeHandlePublicTeacherBridge(
     new Request('http://mel/api/teacher/launch-readiness'),
