@@ -4,19 +4,19 @@ import { readFile } from 'node:fs/promises';
 
 import { __launchBootstrapTest } from '../src/evolution/release-launch-bootstrap.js';
 
-test('roadmap completion restores ShardVault external replication policy', async () => {
+test('human-blocked phase keeps ShardVault external replication paused', async () => {
   const wrangler = JSON.parse(await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
   assert.equal(wrangler.vars.MEL_SHARDVAULT_ENABLED, 'true');
-  assert.equal(wrangler.vars.MEL_SHARDVAULT_AUTONOMOUS, 'true');
-  assert.equal(wrangler.vars.MEL_SHARDVAULT_ROADMAP_PAUSED, 'false');
+  assert.equal(wrangler.vars.MEL_SHARDVAULT_AUTONOMOUS, 'false');
+  assert.equal(wrangler.vars.MEL_SHARDVAULT_ROADMAP_PAUSED, 'true');
   assert.equal(wrangler.env.preview.vars.MEL_SHARDVAULT_ENABLED, 'true');
-  assert.equal(wrangler.env.preview.vars.MEL_SHARDVAULT_AUTONOMOUS, 'true');
-  assert.equal(wrangler.env.preview.vars.MEL_SHARDVAULT_ROADMAP_PAUSED, 'false');
+  assert.equal(wrangler.env.preview.vars.MEL_SHARDVAULT_AUTONOMOUS, 'false');
+  assert.equal(wrangler.env.preview.vars.MEL_SHARDVAULT_ROADMAP_PAUSED, 'true');
 });
 
-test('release workflow executes external ShardVault proof after roadmap completion', async () => {
+test('release workflow skips external ShardVault proof while human blockers remain', async () => {
   const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'/);
+  assert.match(workflow, /MEL_ROADMAP_SHARDVAULT_PAUSED: 'true'/);
   assert.match(workflow, /ShardVault external replication is PAUSED_FOR_ROADMAP/);
   assert.match(workflow, /if \[ "\$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" \]/);
   assert.match(workflow, /for PAUSE_ATTEMPT in \$\(seq 1 12\); do/);
