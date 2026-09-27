@@ -282,8 +282,25 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
   if (!Array.isArray(fanout.providersAttempted) || fanout.providersAttempted.length < 2) {
     throw Object.assign(new Error('IMPLEMENTATION_MULTI_AI_NOT_PROVEN'), { code: 'IMPLEMENTATION_MULTI_AI_NOT_PROVEN' });
   }
-  if (!fanout.best?.text) throw Object.assign(new Error('IMPLEMENTATION_PROPOSAL_EMPTY'), { code: 'IMPLEMENTATION_PROPOSAL_EMPTY' });
-  const selectedText = assertPlanQualityContract(fanout.best.text);
+  const rankedCandidates = Array.isArray(fanout.candidates) && fanout.candidates.length
+    ? fanout.candidates
+    : (fanout.best ? [fanout.best] : []);
+  if (!rankedCandidates.length) throw Object.assign(new Error('IMPLEMENTATION_PROPOSAL_EMPTY'), { code: 'IMPLEMENTATION_PROPOSAL_EMPTY' });
+
+  let selectedCandidate = null;
+  let selectedText = '';
+  let qualityError = null;
+  for (const candidate of rankedCandidates) {
+    try {
+      selectedText = assertPlanQualityContract(candidate?.text);
+      selectedCandidate = candidate;
+      break;
+    } catch (error) {
+      if (error?.code !== 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING') throw error;
+      qualityError = error;
+    }
+  }
+  if (!selectedCandidate) throw qualityError || Object.assign(new Error('IMPLEMENTATION_QUALITY_CONTRACT_MISSING'), { code: 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING' });
 
   const proposal = {
     status: 'READY',
@@ -308,11 +325,11 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
       },
     },
     selected: {
-      provider: fanout.best.provider,
-      model: fanout.best.model,
+      provider: selectedCandidate.provider,
+      model: selectedCandidate.model,
       text: String(selectedText).slice(0, MAX_PLAN_TEXT),
     },
-    alternatives: fanout.candidates.slice(1, 3).map((candidate) => ({
+    alternatives: rankedCandidates.filter((candidate) => candidate !== selectedCandidate).slice(0, 2).map((candidate) => ({
       provider: candidate.provider,
       model: candidate.model,
       text: String(candidate.text || '').slice(0, 4000),

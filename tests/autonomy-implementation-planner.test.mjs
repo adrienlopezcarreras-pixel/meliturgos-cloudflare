@@ -234,6 +234,24 @@ test('planner refuses a Teacher approval for another candidate branch', async ()
   assert.equal(f.getHeadReads(), 0);
 });
 
+test('planner selects a lower-ranked quality-compliant candidate when the top answer is incomplete', async () => {
+  const f = fixture();
+  const job = await approvedJob(f.repository);
+  let call = 0;
+  f.env.AI.run = async (model) => {
+    f.aiCalls.push(model);
+    call += 1;
+    if (call === 1) {
+      return { response: 'FICHIERS: x\nCHANGEMENTS: y\nTESTS: z\nRISQUES: faibles\nROLLBACK: revert\nCRITERES_DE_FIN: CI verte' };
+    }
+    return { response: 'FICHIERS: src/evolution/autonomy-runtime.js\nCHANGEMENTS: minimal\nREUTILISATION: étendre l’existant\nTESTS: node --test\nRISQUES: faibles\nROLLBACK: revert\nCRITERES_DE_FIN: CI verte' };
+  };
+  const proposal = await prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl });
+  assert.equal(proposal.status, 'READY');
+  assert.match(proposal.selected.text, /REUTILISATION:/);
+  assert.equal(f.aiCalls.length, 2);
+});
+
 test('planner rejects a multi-AI answer that omits the consolidation and quality contract', async () => {
   const f = fixture();
   const job = await approvedJob(f.repository);
