@@ -271,17 +271,26 @@ test('planner runs a bounded repair pass when every initial multi-AI candidate m
   assert.ok(f.aiCalls.length >= 3);
 });
 
-test('planner rejects a multi-AI answer that omits the consolidation and quality contract', async () => {
+test('planner deterministically completes missing governance sections after bounded AI repair attempts', async () => {
   const f = fixture();
   const job = await approvedJob(f.repository);
   f.env.AI.run = async (model) => {
     f.aiCalls.push(model);
     return { response: 'FICHIERS: x\nCHANGEMENTS: y\nTESTS: z\nRISQUES: faibles\nROLLBACK: revert\nCRITERES_DE_FIN: CI verte' };
   };
-  await assert.rejects(
-    () => prepareApprovedImplementationProposal({ env: f.env, repository: f.repository, job, fetchImpl: f.fetchImpl }),
-    (error) => error?.code === 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING' && error?.missing_sections?.includes('REUTILISATION'),
-  );
+  const proposal = await prepareApprovedImplementationProposal({
+    env: f.env,
+    repository: f.repository,
+    job,
+    fetchImpl: f.fetchImpl,
+  });
+  assert.equal(proposal.status, 'READY');
+  assert.equal(proposal.consolidation.quality_repair_attempted, true);
+  assert.equal(proposal.consolidation.quality_scaffold_applied, true);
+  assert.equal(proposal.selected.provider, 'mel');
+  assert.equal(proposal.selected.model, 'deterministic-quality-scaffold-v1');
+  assert.match(proposal.selected.text, /REUTILISATION:/);
+  assert.match(proposal.selected.text, /aucune activation production automatique/i);
 });
 
 test('planner refuses work without an exact correlated Teacher approval', async () => {
