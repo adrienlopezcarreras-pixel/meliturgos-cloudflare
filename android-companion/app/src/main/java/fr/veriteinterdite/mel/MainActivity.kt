@@ -1,21 +1,34 @@
 package fr.veriteinterdite.mel
 
 import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.media.AudioManager
 import android.media.MediaRecorder
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.provider.AlarmClock
+import android.provider.CalendarContract
 import android.provider.OpenableColumns
 import android.provider.Settings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -28,12 +41,17 @@ import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -81,9 +99,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -96,33 +119,75 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.text.Normalizer
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import org.json.JSONArray
 
 class MainActivity : ComponentActivity() {
     private lateinit var client: MelApiClient
     private lateinit var vault: TokenVault
     private lateinit var model: MelViewModel
+    private lateinit var wakePhraseStore: WakePhraseProfileStore
     private var recorder: MediaRecorder? = null
     private var recordingFile: File? = null
     private var recordingMimeType: String = "audio/mp4"
     private var speechRecognizer: SpeechRecognizer? = null
     private var nativeSpeechListening = false
+    private var wakeRecognizer: SpeechRecognizer? = null
+    private var wakeListening = false
+    @Volatile private var wakeDetectorStop = false
+    private var wakeDetectorThread: Thread? = null
+    private var bargeInThread: Thread? = null
+    private var pushToTalkHeld = false
+    private var pendingWakeEnrollment = false
+    private var appResumed = false
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val recording = mutableStateOf(false)
     private val voiceLevel = mutableStateOf(0f)
     private val voiceMessage = mutableStateOf("Micro prêt")
     private val cameraPhoto = mutableStateOf<Bitmap?>(null)
+    private val wakeEnrollmentCount = mutableStateOf(0)
+    private val wakeEnrollmentActive = mutableStateOf(false)
+    private val wakeEnrolled = mutableStateOf(false)
+    private val voiceConversationActive = mutableStateOf(false)
+
+    private val bluetoothPermissions = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.all { it }) startMobileBridge()
+    }
+
+    private val enableBluetooth = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        ensureMobileBridge()
+    }
 
     private val microphonePermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) startVoice()
-        else voiceMessage.value = "Permission micro refusée"
+        if (granted) {
+            if (pendingWakeEnrollment) {
+                pendingWakeEnrollment = false
+                captureWakeEnrollmentSample()
+            } else if (pushToTalkHeld) startPushToTalkRecording() else ensureWakeWordListening()
+        } else {
+            pushToTalkHeld = false
+            pendingWakeEnrollment = false
+            wakeEnrollmentActive.value = false
+            voiceMessage.value = "Permission micro refusée"
+        }
     }
 
     private val cameraCapture = registerForActivityResult(
@@ -154,22 +219,65 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
         enableEdgeToEdge()
 
         vault = TokenVault(this)
+        wakePhraseStore = WakePhraseProfileStore(this)
+        wakeEnrollmentCount.value = wakePhraseStore.sampleCount()
+        wakeEnrolled.value = wakePhraseStore.isEnrolled()
+        MelVoicePlayer.initialize(this)
         client = MelApiClient(BuildConfig.MEL_BASE_URL, deviceId(), vault)
         val factory = MelViewModel.factory(this, client, vault, conversationId)
         model = ViewModelProvider(this, factory)[MelViewModel::class.java]
+        ensureMobileBridge()
 
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
-            LaunchedEffect(state.busy, state.error, recording.value) {
+            val wakeProfileRevision by MelBleBridgeService.wakeProfileRevision.collectAsStateWithLifecycle()
+            LaunchedEffect(wakeProfileRevision) {
+                refreshWakeEnrollmentState()
+                if (wakeEnrolled.value && state.session == SessionStage.CONNECTED && !state.busy && !state.speaking) {
+                    delay(350)
+                    ensureWakeWordListening()
+                }
+            }
+            LaunchedEffect(state.session, state.busy, state.speaking, state.error, recording.value, voiceConversationActive.value) {
+                if (state.speaking && voiceConversationActive.value && !recording.value) {
+                    startBargeInListening()
+                } else {
+                    stopBargeInListening()
+                }
                 if (!state.busy && !recording.value &&
                     (voiceMessage.value.startsWith("Fichier") ||
                         voiceMessage.value.startsWith("Voix") ||
                         voiceMessage.value == "Transcription…")
                 ) {
                     voiceMessage.value = "Micro prêt"
+                }
+                if (state.error != null && voiceConversationActive.value) {
+                    voiceConversationActive.value = false
+                    voiceMessage.value = "Conversation interrompue · dis « OK MEL »"
+                    delay(700)
+                    ensureWakeWordListening()
+                    return@LaunchedEffect
+                }
+                if (state.session == SessionStage.CONNECTED && !state.busy && !state.speaking && !recording.value) {
+                    delay(if (voiceConversationActive.value) 850 else 650)
+                    if (state.session == SessionStage.CONNECTED && !model.state.value.busy && !model.state.value.speaking && !recording.value) {
+                        if (voiceConversationActive.value) {
+                            stopWakeWordListening()
+                            voiceMessage.value = "Je t’écoute · conversation"
+                            startVoice()
+                        } else {
+                            ensureWakeWordListening()
+                        }
+                    }
+                } else {
+                    stopWakeWordListening()
                 }
             }
             MelTheme {
@@ -182,9 +290,10 @@ class MainActivity : ComponentActivity() {
                     onRetrySession = model::verifyExistingSession,
                     onDisconnect = model::disconnect,
                     onMode = model::setMode,
-                    onSend = { model.send(it) },
+                    onSend = { dispatchCompanionText(it, voice = false) },
                     onSync = model::sync,
-                    onVoice = ::toggleVoice,
+                    onVoicePress = ::beginPushToTalk,
+                    onVoiceRelease = ::endPushToTalk,
                     onFile = ::pickFile,
                     onNotifications = ::enableNotifications,
                     onDiagnostics = model::runDiagnostics,
@@ -192,24 +301,96 @@ class MainActivity : ComponentActivity() {
                     onNormalProbe = model::runNormalProbe,
                     onFileProbe = model::runFileProbe,
                     onBackgroundProbe = model::runBackgroundProbe,
+                    onTestVoice = ::testFrenchVoice,
                     cameraPhoto = cameraPhoto.value,
                     onCamera = ::openCamera,
                     onSendCamera = ::sendCameraPhoto,
-                    onRefreshCompanions = model::refreshCompanions
+                    onRefreshCompanions = model::refreshCompanions,
+                    onConnectMini = { ensureMobileBridge(true) },
+                    onMiniPairCode = model::requestMiniPairCode,
+                    wakeEnrollmentCount = wakeEnrollmentCount.value,
+                    wakeEnrollmentActive = wakeEnrollmentActive.value,
+                    wakeEnrolled = wakeEnrolled.value,
+                    onWakeEnroll = ::startWakeEnrollment,
+                    onWakeReset = ::resetWakeEnrollment
                 )
             }
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        appResumed = true
+        refreshWakeEnrollmentState()
+        if (::model.isInitialized) mainHandler.postDelayed({ ensureWakeWordListening() }, 500L)
+    }
+
+    override fun onPause() {
+        appResumed = false
+        voiceConversationActive.value = false
+        stopBargeInListening()
+        stopWakeWordListening()
+        super.onPause()
+    }
+
     override fun onDestroy() {
+        stopBargeInListening()
+        stopWakeWordListening()
+        wakeDetectorThread?.interrupt()
+        wakeDetectorThread = null
         stopSpeechQuietly()
         stopRecorderQuietly()
         super.onDestroy()
     }
 
+    private fun ensureMobileBridge(forceRestart: Boolean = false) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val permissions = arrayOf(
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.BLUETOOTH_CONNECT
+            )
+            val missing = permissions.filter {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                bluetoothPermissions.launch(missing.toTypedArray())
+                return
+            }
+        }
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return
+        if (!adapter.isEnabled) {
+            enableBluetooth.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            return
+        }
+        startMobileBridge(forceRestart)
+    }
+
+    private fun startMobileBridge(forceRestart: Boolean = false) {
+        val intent = Intent(this, MelBleBridgeService::class.java)
+        if (forceRestart) intent.action = MelBleBridgeService.ACTION_RESTART
+        ContextCompat.startForegroundService(this, intent)
+    }
+
     private fun deviceId(): String {
         val raw = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         return "android-" + (raw ?: "unknown").take(64)
+    }
+
+    private fun testFrenchVoice() {
+        voiceMessage.value = "Test de la voix française…"
+        Thread {
+            try {
+                MelVoicePlayer.playSystemFrench(
+                    this,
+                    "Bonjour Adrien. La voix française de MEL fonctionne correctement."
+                )
+                runOnUiThread { voiceMessage.value = "Voix française OK" }
+            } catch (error: Throwable) {
+                runOnUiThread {
+                    voiceMessage.value = "Voix française en erreur : ${error.message ?: error.javaClass.simpleName}"
+                }
+            }
+        }.start()
     }
 
     private fun pickFile() {
@@ -271,11 +452,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openCamera() {
-        if (model.state.value.session != SessionStage.CONNECTED) {
-            voiceMessage.value = "Connecte d’abord le téléphone à MEL"
-            return
-        }
-        cameraCapture.launch(null)
+        runCatching { cameraCapture.launch(null) }
+            .onFailure { voiceMessage.value = "Caméra indisponible sur ce téléphone" }
     }
 
     private fun sendCameraPhoto() {
@@ -321,17 +499,66 @@ class MainActivity : ComponentActivity() {
         voiceMessage.value = "Notifications MEL activées"
     }
 
-    private fun toggleVoice() {
-        if (recording.value) {
-            if (nativeSpeechListening) {
-                voiceMessage.value = "Finalisation de la dictée…"
-                runCatching { speechRecognizer?.stopListening() }
-            } else {
-                finishVoice()
-            }
+    private fun startWakeEnrollment() {
+        if (wakeEnrollmentActive.value || recording.value) return
+        if (wakeEnrolled.value) {
+            voiceMessage.value = "OK MEL déjà appris · réinitialise pour recommencer"
             return
         }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            pendingWakeEnrollment = true
+            microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        captureWakeEnrollmentSample()
+    }
+
+    private fun captureWakeEnrollmentSample() {
+        if (wakeEnrollmentActive.value || recording.value) return
+        stopWakeWordListening()
+        stopSpeechQuietly()
+        wakeEnrollmentActive.value = true
+        val next = (wakeEnrollmentCount.value + 1).coerceAtMost(WakePhraseTrainer.REQUIRED_SAMPLES)
+        voiceMessage.value = "Dis « OK MEL » maintenant · prise $next/${WakePhraseTrainer.REQUIRED_SAMPLES}"
+        WakePhraseTrainer.captureAsync { result ->
+            runOnUiThread {
+                wakeEnrollmentActive.value = false
+                result.onSuccess { vector ->
+                    val state = wakePhraseStore.addSample(vector)
+                    wakeEnrollmentCount.value = state.sampleCount
+                    wakeEnrolled.value = state.enrolled
+                    if (state.enrolled) {
+                        voiceMessage.value = "OK MEL appris · écoute silencieuse active"
+                        ensureMobileBridge(true)
+                        scheduleWakeWordRestart()
+                    } else {
+                        voiceMessage.value = "OK MEL enregistré · ${state.sampleCount}/${WakePhraseTrainer.REQUIRED_SAMPLES}"
+                    }
+                }.onFailure { error ->
+                    voiceMessage.value = when (error.message) {
+                        "WAKE_PHRASE_TOO_QUIET", "WAKE_PHRASE_NOT_HEARD" -> "Je n’ai pas assez entendu · recommence OK MEL"
+                        else -> "Échec apprentissage OK MEL · ${error.message ?: "micro"}"
+                    }
+                }
+            }
+        }
+    }
+
+    private fun resetWakeEnrollment() {
+        if (wakeEnrollmentActive.value) return
+        stopWakeWordListening()
+        wakePhraseStore.resetEnrollment()
+        wakeEnrollmentCount.value = 0
+        wakeEnrolled.value = false
+        voiceMessage.value = "Apprentissage OK MEL réinitialisé"
+        ensureMobileBridge(true)
+    }
+
+    private fun beginPushToTalk() {
+        pushToTalkHeld = true
+        stopWakeWordListening()
         if (model.state.value.session != SessionStage.CONNECTED) {
+            pushToTalkHeld = false
             voiceMessage.value = "Connecte d’abord le téléphone à MEL"
             return
         }
@@ -339,24 +566,142 @@ class MainActivity : ComponentActivity() {
             microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
             return
         }
+        startPushToTalkRecording()
+    }
+
+    private fun startPushToTalkRecording() {
+        if (!pushToTalkHeld || recording.value) return
         startVoice()
     }
 
+    private fun endPushToTalk() {
+        pushToTalkHeld = false
+        if (!recording.value) {
+            scheduleWakeWordRestart()
+            return
+        }
+        if (nativeSpeechListening) {
+            voiceMessage.value = "Transcription…"
+            runCatching { speechRecognizer?.stopListening() }
+        } else {
+            finishVoice()
+        }
+    }
+
     private fun startVoice() {
+        stopWakeWordListening()
         if (SpeechRecognizer.isRecognitionAvailable(this)) {
             startNativeSpeech()
         } else {
+            voiceConversationActive.value = false
             startRecorderFallback("Reconnaissance Android indisponible · secours serveur")
         }
     }
 
+    private fun startBargeInListening() {
+        if (bargeInThread?.isAlive == true) return
+        if (!appResumed || !voiceConversationActive.value || !model.state.value.speaking || recording.value) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+
+        bargeInThread = MelBargeInDetector.start(
+            shouldContinue = {
+                appResumed && voiceConversationActive.value && model.state.value.speaking && !recording.value
+            },
+            onSpeech = {
+                runOnUiThread {
+                    if (!voiceConversationActive.value || !model.state.value.speaking) return@runOnUiThread
+                    stopBargeInListening()
+                    voiceMessage.value = "Je t’écoute…"
+                    model.interruptSpeechForBargeIn()
+                    mainHandler.postDelayed({
+                        if (voiceConversationActive.value && appResumed && !recording.value &&
+                            !model.state.value.busy && !model.state.value.speaking
+                        ) {
+                            startVoice()
+                        }
+                    }, 140L)
+                }
+            }
+        )
+    }
+
+    private fun stopBargeInListening() {
+        val thread = bargeInThread
+        bargeInThread = null
+        if (thread != null && thread !== Thread.currentThread()) thread.interrupt()
+    }
+
+    private fun refreshWakeEnrollmentState() {
+        if (!::wakePhraseStore.isInitialized) return
+        val enrolled = wakePhraseStore.isEnrolled()
+        wakeEnrollmentCount.value = wakePhraseStore.sampleCount()
+        wakeEnrolled.value = enrolled
+    }
+
+    private fun ensureWakeWordListening() {
+        if (voiceConversationActive.value) return
+        if (!appResumed || wakeListening || recording.value || pushToTalkHeld || wakeEnrollmentActive.value) return
+        if (!wakePhraseStore.isEnrolled()) return
+        if (!wakeEnrolled.value || wakeEnrollmentCount.value < WakePhraseTrainer.REQUIRED_SAMPLES) refreshWakeEnrollmentState()
+        if (!::model.isInitialized || model.state.value.session != SessionStage.CONNECTED) return
+        if (model.state.value.busy || model.state.value.speaking) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+
+        val template = wakePhraseStore.templateFeatures() ?: return
+        val threshold = wakePhraseStore.threshold()
+        wakeDetectorStop = false
+        wakeListening = true
+        wakeDetectorThread = Thread({
+            var matchedScore: Float? = null
+            val result = runCatching {
+                WakePhraseTrainer.listenForWake(
+                    template = template,
+                    threshold = threshold,
+                    shouldContinue = {
+                        !wakeDetectorStop && appResumed && !recording.value && !pushToTalkHeld
+                    },
+                    onMatch = { score -> matchedScore = score }
+                )
+            }
+            runOnUiThread {
+                wakeDetectorThread = null
+                wakeListening = false
+                if (matchedScore != null && !wakeDetectorStop && appResumed &&
+                    !recording.value && model.state.value.session == SessionStage.CONNECTED && !model.state.value.busy
+                ) {
+                    voiceMessage.value = "OK MEL reconnu · conversation active"
+                    voiceConversationActive.value = true
+                } else if (result.isFailure && !wakeDetectorStop) {
+                    voiceMessage.value = "Écoute OK MEL indisponible · ${result.exceptionOrNull()?.message ?: "micro"}"
+                }
+            }
+        }, "mel-ok-mel-listener").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    private fun stopWakeWordListening() {
+        wakeDetectorStop = true
+        wakeListening = false
+        val recognizer = wakeRecognizer
+        wakeRecognizer = null
+        if (recognizer != null) {
+            runCatching { recognizer.cancel() }
+            runCatching { recognizer.destroy() }
+        }
+    }
+
+    private fun scheduleWakeWordRestart() {
+        mainHandler.postDelayed({
+            if (!recording.value && !pushToTalkHeld && wakeEnrolled.value) ensureWakeWordListening()
+        }, 900L)
+    }
+
     private fun startNativeSpeech() {
         stopSpeechQuietly()
-        val onDevice = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
         val recognizer = runCatching {
-            if (onDevice) SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
-            else SpeechRecognizer.createSpeechRecognizer(this)
+            SpeechRecognizer.createSpeechRecognizer(this)
         }.getOrNull()
         if (recognizer == null) {
             startRecorderFallback("Reconnaissance Android indisponible · secours serveur")
@@ -366,7 +711,7 @@ class MainActivity : ComponentActivity() {
         nativeSpeechListening = true
         recording.value = true
         voiceLevel.value = .08f
-        voiceMessage.value = if (onDevice) "J’écoute · moteur local" else "J’écoute · moteur système"
+        voiceMessage.value = "J’écoute · français système"
 
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
@@ -389,7 +734,29 @@ class MainActivity : ComponentActivity() {
 
             override fun onError(error: Int) {
                 stopSpeechQuietly()
-                voiceMessage.value = speechErrorMessage(error)
+                if (error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
+                    error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
+                ) {
+                    voiceConversationActive.value = false
+                    startRecorderFallback("Français Android indisponible · secours MEL")
+                } else if (voiceConversationActive.value && error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                    voiceMessage.value = "Micro occupé · je réessaie…"
+                    mainHandler.postDelayed({
+                        if (voiceConversationActive.value && appResumed && !recording.value && !model.state.value.busy) {
+                            startVoice()
+                        }
+                    }, 650L)
+                } else if (voiceConversationActive.value &&
+                    (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
+                ) {
+                    voiceConversationActive.value = false
+                    voiceMessage.value = "Conversation en pause · dis « OK MEL »"
+                    scheduleWakeWordRestart()
+                } else {
+                    voiceConversationActive.value = false
+                    voiceMessage.value = speechErrorMessage(error)
+                    scheduleWakeWordRestart()
+                }
             }
 
             override fun onResults(results: Bundle?) {
@@ -400,11 +767,12 @@ class MainActivity : ComponentActivity() {
                     .orEmpty()
                 stopSpeechQuietly()
                 if (text.isBlank()) {
+                    voiceConversationActive.value = false
                     startRecorderFallback("Aucune dictée reconnue · secours serveur")
                     return
                 }
-                voiceMessage.value = "Voix comprise · envoi à MEL…"
-                model.send(text, voice = true)
+                voiceMessage.value = "Voix comprise · traitement…"
+                dispatchCompanionText(text, voice = true)
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
@@ -423,6 +791,7 @@ class MainActivity : ComponentActivity() {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.FRENCH.toLanguageTag())
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, Locale.FRENCH.toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
@@ -489,8 +858,12 @@ class MainActivity : ComponentActivity() {
             try {
                 val bytes = file.readBytes()
                 file.delete()
-                model.sendVoice(bytes, mimeType)
-                runOnUiThread { voiceMessage.value = "Voix envoyée · MEL traite…" }
+                val transcript = client.transcribe(bytes, mimeType).optString("text").trim()
+                if (transcript.isBlank()) throw IllegalStateException("TRANSCRIPTION_EMPTY")
+                runOnUiThread {
+                    voiceMessage.value = "Voix comprise · traitement…"
+                    dispatchCompanionText(transcript, voice = true)
+                }
             } catch (error: Throwable) {
                 file.delete()
                 runOnUiThread {
@@ -498,6 +871,381 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun dispatchCompanionText(text: String, voice: Boolean) {
+        val clean = text.trim()
+        if (clean.isBlank()) return
+        if (voice && voiceConversationActive.value && isConversationStopPhrase(clean)) {
+            voiceConversationActive.value = false
+            voiceMessage.value = "Conversation terminée · dis « OK MEL » pour me rappeler"
+            model.localCompanionReply(
+                clean,
+                "D’accord. Je reste à l’écoute de « OK MEL ».",
+                true
+            )
+            return
+        }
+        val command = MelCompanionCommands.parse(clean)
+        if (command == null) {
+            model.send(clean, voice = voice)
+            return
+        }
+        executeCompanionCommand(clean, command, voice)
+    }
+
+    private fun isConversationStopPhrase(text: String): Boolean {
+        val normalized = Normalizer.normalize(text.lowercase(Locale.FRENCH), Normalizer.Form.NFD)
+            .replace("\\p{M}+".toRegex(), "")
+            .replace(Regex("[^a-z0-9]+"), " ")
+            .trim()
+        return normalized == "stop mel" ||
+            normalized == "arrete mel" ||
+            normalized == "arrete la conversation" ||
+            normalized == "fin de conversation" ||
+            normalized == "c est bon mel" ||
+            normalized == "au revoir mel"
+    }
+
+    private fun executeCompanionCommand(
+        raw: String,
+        command: MelCompanionCommand,
+        voice: Boolean
+    ) {
+        when (command) {
+            is MelCompanionCommand.Reply -> {
+                model.localCompanionReply(raw, command.text, voice)
+            }
+            is MelCompanionCommand.SetTimer -> {
+                val intent = Intent(AlarmClock.ACTION_SET_TIMER).apply {
+                    putExtra(AlarmClock.EXTRA_LENGTH, command.seconds)
+                    putExtra(AlarmClock.EXTRA_MESSAGE, command.label)
+                    putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                }
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "Minuteur lancé pour ${spokenDuration(command.seconds)}.",
+                    voice
+                )
+            }
+            is MelCompanionCommand.SetAlarm -> {
+                val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
+                    putExtra(AlarmClock.EXTRA_HOUR, command.hour)
+                    putExtra(AlarmClock.EXTRA_MINUTES, command.minute)
+                    putExtra(AlarmClock.EXTRA_MESSAGE, command.label)
+                    putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                }
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "Alarme réglée pour %02d:%02d.".format(command.hour, command.minute),
+                    voice
+                )
+            }
+            MelCompanionCommand.ShowAlarms -> {
+                launchCompanionIntent(
+                    Intent(AlarmClock.ACTION_SHOW_ALARMS),
+                    raw,
+                    "J’ouvre tes alarmes.",
+                    voice
+                )
+            }
+            is MelCompanionCommand.Dial -> {
+                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${command.number}"))
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "J’ouvre le téléphone avec le numéro prêt. Tu gardes la validation de l’appel.",
+                    voice
+                )
+            }
+            is MelCompanionCommand.Sms -> {
+                val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${command.number}")).apply {
+                    putExtra("sms_body", command.body)
+                }
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "Je prépare le SMS. Tu gardes la validation de l’envoi.",
+                    voice
+                )
+            }
+            is MelCompanionCommand.Email -> {
+                val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${command.address}")).apply {
+                    putExtra(Intent.EXTRA_TEXT, command.body)
+                }
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "Je prépare l’e-mail. Tu gardes la validation de l’envoi.",
+                    voice
+                )
+            }
+            MelCompanionCommand.OpenDialer -> {
+                launchCompanionIntent(
+                    Intent(Intent.ACTION_DIAL),
+                    raw,
+                    "J’ouvre le téléphone.",
+                    voice
+                )
+            }
+            is MelCompanionCommand.Navigate -> {
+                val uri = Uri.parse("geo:0,0?q=" + Uri.encode(command.query))
+                launchCompanionIntent(
+                    Intent(Intent.ACTION_VIEW, uri),
+                    raw,
+                    "J’ouvre l’itinéraire vers ${command.query}.",
+                    voice
+                )
+            }
+            MelCompanionCommand.WifiSettings -> {
+                launchCompanionIntent(
+                    Intent(Settings.ACTION_WIFI_SETTINGS),
+                    raw,
+                    "J’ouvre les réglages Wi-Fi.",
+                    voice
+                )
+            }
+            MelCompanionCommand.BluetoothSettings -> {
+                launchCompanionIntent(
+                    Intent(Settings.ACTION_BLUETOOTH_SETTINGS),
+                    raw,
+                    "J’ouvre les réglages Bluetooth.",
+                    voice
+                )
+            }
+            MelCompanionCommand.LocationSettings -> {
+                launchCompanionIntent(
+                    Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS),
+                    raw,
+                    "J’ouvre les réglages de localisation.",
+                    voice
+                )
+            }
+            MelCompanionCommand.Camera -> {
+                openCamera()
+                model.localCompanionReply(raw, "J’ouvre la caméra.", voice)
+            }
+            MelCompanionCommand.FilePicker -> {
+                pickFile()
+                model.localCompanionReply(raw, "J’ouvre les fichiers.", voice)
+            }
+            MelCompanionCommand.EnableNotifications -> {
+                enableNotifications()
+                model.localCompanionReply(raw, "J’active les notifications MEL.", voice)
+            }
+            is MelCompanionCommand.OpenApp -> {
+                val intent = Intent.makeMainSelectorActivity(
+                    Intent.ACTION_MAIN,
+                    appCategory(command.target)
+                )
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "J’ouvre ${command.label}.",
+                    voice
+                )
+            }
+            MelCompanionCommand.BatteryStatus -> {
+                val percent = batteryPercent()
+                val answer = if (percent == null)
+                    "Je n’arrive pas à lire la batterie."
+                else
+                    "La batterie est à $percent pour cent."
+                model.localCompanionReply(raw, answer, voice)
+            }
+            MelCompanionCommand.InternetStatus -> {
+                val connected = internetValidated()
+                val answer = if (connected)
+                    "Oui, Android confirme une connexion Internet active."
+                else
+                    "Non, Android ne confirme pas de connexion Internet utilisable."
+                model.localCompanionReply(raw, answer, voice)
+            }
+            MelCompanionCommand.VolumeStatus -> {
+                val percent = mediaVolumePercent()
+                val answer = if (percent == null)
+                    "Je n’arrive pas à lire le volume multimédia."
+                else
+                    "Le volume multimédia est à $percent pour cent."
+                model.localCompanionReply(raw, answer, voice)
+            }
+            MelCompanionCommand.GeneralSettings -> {
+                launchCompanionIntent(Intent(Settings.ACTION_SETTINGS), raw, "J’ouvre les réglages Android.", voice)
+            }
+            MelCompanionCommand.AirplaneSettings -> {
+                launchCompanionIntent(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS), raw, "J’ouvre le mode avion.", voice)
+            }
+            MelCompanionCommand.DisplaySettings -> {
+                launchCompanionIntent(Intent(Settings.ACTION_DISPLAY_SETTINGS), raw, "J’ouvre les réglages d’écran.", voice)
+            }
+            MelCompanionCommand.SoundSettings -> {
+                launchCompanionIntent(Intent(Settings.ACTION_SOUND_SETTINGS), raw, "J’ouvre les réglages du son.", voice)
+            }
+            is MelCompanionCommand.CalendarEvent -> {
+                val intent = Intent(Intent.ACTION_INSERT).apply {
+                    data = CalendarContract.Events.CONTENT_URI
+                    putExtra(CalendarContract.Events.TITLE, command.title)
+                    putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, command.beginMillis)
+                    putExtra(CalendarContract.EXTRA_EVENT_END_TIME, command.endMillis)
+                }
+                launchCompanionIntent(
+                    intent,
+                    raw,
+                    "Je prépare l’événement « ${command.title} » dans ton agenda. Tu gardes la validation finale.",
+                    voice
+                )
+            }
+            is MelCompanionCommand.AddShoppingItem -> {
+                val items = appendLocalItem("shopping", command.item, 80)
+                model.localCompanionReply(
+                    raw,
+                    "J’ai ajouté ${command.item} à ta liste de courses. Elle contient ${items.size} élément${if (items.size > 1) "s" else ""}.",
+                    voice
+                )
+            }
+            MelCompanionCommand.ShowShoppingList -> {
+                val items = readLocalItems("shopping")
+                val answer = if (items.isEmpty()) {
+                    "Ta liste de courses est vide."
+                } else {
+                    "Ta liste de courses contient : " + items.joinToString(", ") + "."
+                }
+                model.localCompanionReply(raw, answer, voice)
+            }
+            MelCompanionCommand.ClearShoppingList -> {
+                writeLocalItems("shopping", emptyList())
+                model.localCompanionReply(raw, "Ta liste de courses est vidée.", voice)
+            }
+            is MelCompanionCommand.AddNote -> {
+                val notes = appendLocalItem("notes", command.note, 60)
+                model.localCompanionReply(
+                    raw,
+                    "C’est noté. Tu as ${notes.size} note${if (notes.size > 1) "s" else ""} locale${if (notes.size > 1) "s" else ""}.",
+                    voice
+                )
+            }
+            MelCompanionCommand.ShowNotes -> {
+                val notes = readLocalItems("notes")
+                val answer = if (notes.isEmpty()) {
+                    "Tu n’as aucune note locale."
+                } else {
+                    "Tes notes : " + notes.joinToString(". ") + "."
+                }
+                model.localCompanionReply(raw, answer, voice)
+            }
+            MelCompanionCommand.ClearNotes -> {
+                writeLocalItems("notes", emptyList())
+                model.localCompanionReply(raw, "Tes notes locales sont effacées.", voice)
+            }
+        }
+    }
+
+    private fun readLocalItems(key: String): List<String> {
+        val prefs = getSharedPreferences("mel_companion_local", Context.MODE_PRIVATE)
+        val raw = prefs.getString(key, "[]").orEmpty()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val value = array.optString(index).trim()
+                    if (value.isNotBlank()) add(value)
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun writeLocalItems(key: String, items: List<String>) {
+        val array = JSONArray()
+        items.forEach { array.put(it) }
+        getSharedPreferences("mel_companion_local", Context.MODE_PRIVATE)
+            .edit()
+            .putString(key, array.toString())
+            .apply()
+    }
+
+    private fun appendLocalItem(key: String, value: String, maxItems: Int): List<String> {
+        val clean = value.trim().take(500)
+        if (clean.isBlank()) return readLocalItems(key)
+        val items = (readLocalItems(key) + clean)
+            .distinctBy { it.lowercase(Locale.FRENCH) }
+            .takeLast(maxItems)
+        writeLocalItems(key, items)
+        return items
+    }
+
+    private fun appCategory(target: MelAppTarget): String = when (target) {
+        MelAppTarget.CALCULATOR -> Intent.CATEGORY_APP_CALCULATOR
+        MelAppTarget.CALENDAR -> Intent.CATEGORY_APP_CALENDAR
+        MelAppTarget.CONTACTS -> Intent.CATEGORY_APP_CONTACTS
+        MelAppTarget.EMAIL -> Intent.CATEGORY_APP_EMAIL
+        MelAppTarget.FILES -> Intent.CATEGORY_APP_FILES
+        MelAppTarget.GALLERY -> Intent.CATEGORY_APP_GALLERY
+        MelAppTarget.MAPS -> Intent.CATEGORY_APP_MAPS
+        MelAppTarget.MESSAGING -> Intent.CATEGORY_APP_MESSAGING
+        MelAppTarget.MUSIC -> Intent.CATEGORY_APP_MUSIC
+    }
+
+    private fun batteryPercent(): Int? {
+        val battery = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null
+        val level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        if (level < 0 || scale <= 0) return null
+        return ((level * 100f) / scale).toInt().coerceIn(0, 100)
+    }
+
+    private fun internetValidated(): Boolean {
+        val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private fun mediaVolumePercent(): Int? {
+        val manager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val max = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (max <= 0) return null
+        val current = manager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        return ((current * 100f) / max).toInt().coerceIn(0, 100)
+    }
+
+    private fun launchCompanionIntent(
+        intent: Intent,
+        raw: String,
+        confirmation: String,
+        voice: Boolean
+    ) {
+        if (intent.resolveActivity(packageManager) == null) {
+            model.localCompanionReply(
+                raw,
+                "Je n’ai trouvé aucune application Android compatible pour cette action.",
+                voice
+            )
+            return
+        }
+        runCatching { startActivity(intent) }
+            .onSuccess { model.localCompanionReply(raw, confirmation, voice) }
+            .onFailure {
+                model.localCompanionReply(
+                    raw,
+                    "Android a refusé d’ouvrir cette action.",
+                    voice
+                )
+            }
+    }
+
+    private fun spokenDuration(seconds: Int): String = when {
+        seconds % 3600 == 0 -> {
+            val hours = seconds / 3600
+            if (hours == 1) "une heure" else "$hours heures"
+        }
+        seconds % 60 == 0 -> {
+            val minutes = seconds / 60
+            if (minutes == 1) "une minute" else "$minutes minutes"
+        }
+        else -> if (seconds == 1) "une seconde" else "$seconds secondes"
     }
 
     private fun stopSpeechQuietly() {
@@ -583,7 +1331,8 @@ internal fun MelApp(
     onMode: (MelMode) -> Unit,
     onSend: (String) -> Unit,
     onSync: () -> Unit,
-    onVoice: () -> Unit,
+    onVoicePress: () -> Unit,
+    onVoiceRelease: () -> Unit,
     onFile: () -> Unit,
     onNotifications: () -> Unit,
     onDiagnostics: () -> Unit,
@@ -591,10 +1340,18 @@ internal fun MelApp(
     onNormalProbe: () -> Unit,
     onFileProbe: () -> Unit,
     onBackgroundProbe: () -> Unit,
+    onTestVoice: () -> Unit,
     cameraPhoto: Bitmap? = null,
     onCamera: () -> Unit = {},
     onSendCamera: () -> Unit = {},
-    onRefreshCompanions: () -> Unit = {}
+    onRefreshCompanions: () -> Unit = {},
+    onConnectMini: () -> Unit = {},
+    onMiniPairCode: (String, String) -> Unit = { _, _ -> },
+    wakeEnrollmentCount: Int = 0,
+    wakeEnrollmentActive: Boolean = false,
+    wakeEnrolled: Boolean = false,
+    onWakeEnroll: () -> Unit = {},
+    onWakeReset: () -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -624,7 +1381,8 @@ internal fun MelApp(
                 onMode = onMode,
                 onSend = onSend,
                 onSync = onSync,
-                onVoice = onVoice,
+                onVoicePress = onVoicePress,
+                onVoiceRelease = onVoiceRelease,
                 onFile = onFile,
                 onNotifications = onNotifications,
                 onDiagnostics = onDiagnostics,
@@ -632,10 +1390,18 @@ internal fun MelApp(
                 onNormalProbe = onNormalProbe,
                 onFileProbe = onFileProbe,
                 onBackgroundProbe = onBackgroundProbe,
+                onTestVoice = onTestVoice,
                 cameraPhoto = cameraPhoto,
                 onCamera = onCamera,
                 onSendCamera = onSendCamera,
-                onRefreshCompanions = onRefreshCompanions
+                onRefreshCompanions = onRefreshCompanions,
+                onConnectMini = onConnectMini,
+                onMiniPairCode = onMiniPairCode,
+                wakeEnrollmentCount = wakeEnrollmentCount,
+                wakeEnrollmentActive = wakeEnrollmentActive,
+                wakeEnrolled = wakeEnrolled,
+                onWakeEnroll = onWakeEnroll,
+                onWakeReset = onWakeReset
             )
         }
     }
@@ -711,67 +1477,15 @@ private fun MelAvatar(
     val breathe by transition.animateFloat(
         initialValue = .985f,
         targetValue = 1.018f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2600),
-            repeatMode = RepeatMode.Reverse
-        ),
+        animationSpec = infiniteRepeatable(animation = tween(2600), repeatMode = RepeatMode.Reverse),
         label = "mel-breathe"
     )
     val sway by transition.animateFloat(
-        initialValue = -1.2f,
-        targetValue = 1.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(4300),
-            repeatMode = RepeatMode.Reverse
-        ),
+        initialValue = -1.1f,
+        targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(animation = tween(4300), repeatMode = RepeatMode.Reverse),
         label = "mel-sway"
     )
-    val gaze by transition.animateFloat(
-        initialValue = -1.8f,
-        targetValue = 1.8f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(3600),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "mel-gaze"
-    )
-    val blink by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = keyframes {
-                durationMillis = 6200
-                0f at 0
-                0f at 2350
-                1f at 2420
-                0f at 2500
-                0f at 4520
-                1f at 4590
-                0f at 4680
-                0f at 6200
-            }
-        ),
-        label = "mel-blink"
-    )
-    val pulse by transition.animateFloat(
-        initialValue = .34f,
-        targetValue = .72f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(if (faceState == MelFaceState.THINKING) 680 else 1300),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "mel-pulse"
-    )
-    val mouthPhase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(if (faceState == MelFaceState.SPEAKING) 220 else 680),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "mel-mouth"
-    )
-
     val accent = when (faceState) {
         MelFaceState.LISTENING -> MelSuccess
         MelFaceState.THINKING -> MelViolet
@@ -779,126 +1493,44 @@ private fun MelAvatar(
         MelFaceState.ERROR -> MelDanger
         MelFaceState.IDLE -> MelCyan
     }
-    val liveScale = when (faceState) {
-        MelFaceState.LISTENING -> 1f + voiceLevel.coerceIn(0f, 1f) * .025f
+    val scale = when (faceState) {
+        MelFaceState.LISTENING -> breathe + voiceLevel.coerceIn(0f, 1f) * .018f
         MelFaceState.THINKING -> breathe + .008f
         else -> breathe
     }
-    val tilt = when (faceState) {
-        MelFaceState.LISTENING -> sway * .35f
-        MelFaceState.THINKING -> sway * 1.4f
-        MelFaceState.SPEAKING -> sway * .55f
-        MelFaceState.ERROR -> 0f
-        MelFaceState.IDLE -> sway
-    }
-    val blinkHeight = (size * .042f * blink).dp
-    val eyeY = (-size * .062f).dp
-    val pupilShift = (gaze * if (faceState == MelFaceState.THINKING) 1.5f else 1f).dp
-    val mouthY = (size * .105f).dp
-    val mouthWidth = when (faceState) {
-        MelFaceState.SPEAKING -> (size * (.14f + mouthPhase * .08f)).dp
-        MelFaceState.LISTENING -> (size * (.13f + voiceLevel.coerceIn(0f, 1f) * .05f)).dp
-        else -> (size * .14f).dp
-    }
-    val mouthHeight = when (faceState) {
-        MelFaceState.SPEAKING -> (size * (.025f + mouthPhase * .035f)).dp
-        MelFaceState.LISTENING -> (size * .026f).dp
-        MelFaceState.ERROR -> 2.dp
-        else -> (size * .024f).dp
-    }
-
     Box(
         modifier = Modifier
             .size((size + 14).dp)
             .graphicsLayer {
-                scaleX = liveScale
-                scaleY = liveScale
-                rotationZ = tilt
-                translationY = if (faceState == MelFaceState.IDLE) sway * .7f else 0f
+                scaleX = scale
+                scaleY = scale
+                rotationZ = if (faceState == MelFaceState.ERROR) 0f else sway * .35f
             }
             .clip(CircleShape)
             .background(
                 Brush.radialGradient(
-                    listOf(
-                        accent.copy(alpha = if (online) pulse else .10f),
-                        accent.copy(alpha = .08f),
-                        Color.Transparent
-                    )
+                    listOf(accent.copy(alpha = if (online) .48f else .12f), Color.Transparent)
                 )
             )
             .testTag("mel-animated-avatar"),
         contentAlignment = Alignment.Center
     ) {
         Image(
-            painter = painterResource(R.drawable.ic_mel_avatar),
+            painter = painterResource(R.drawable.mel_futuristic_new),
             contentDescription = "Avatar de MEL",
             modifier = Modifier
                 .size(size.dp)
                 .clip(CircleShape)
                 .border(
                     width = if (online) 2.dp else 1.dp,
-                    color = if (online) accent.copy(alpha = .92f) else MelMuted.copy(alpha = .55f),
+                    color = if (online) accent.copy(alpha = .88f) else MelMuted.copy(alpha = .45f),
                     shape = CircleShape
                 )
-                .semantics { contentDescription = "Avatar MEL" }
+                .semantics { contentDescription = "Avatar MEL" },
+            contentScale = ContentScale.Crop
         )
-
-        if (online) {
-            Row(
-                modifier = Modifier.offset(y = eyeY),
-                horizontalArrangement = Arrangement.spacedBy((size * .10f).dp)
-            ) {
-                repeat(2) {
-                    Box(
-                        Modifier
-                            .size((size * .078f).dp, (size * .038f).dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF14212A))
-                    ) {
-                        Box(
-                            Modifier
-                                .align(Alignment.Center)
-                                .offset(x = pupilShift)
-                                .size((size * .020f).dp)
-                                .clip(CircleShape)
-                                .background(accent.copy(alpha = .95f))
-                        )
-                        if (blink > .02f) {
-                            Box(
-                                Modifier
-                                    .align(Alignment.Center)
-                                    .fillMaxWidth()
-                                    .height(blinkHeight)
-                                    .background(Color(0xFFD7A382))
-                            )
-                        }
-                    }
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .offset(y = mouthY)
-                    .size((size * .22f).dp, (size * .085f).dp)
-                    .background(Color(0xFFD7A382)),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    Modifier
-                        .size(mouthWidth, mouthHeight)
-                        .clip(CircleShape)
-                        .background(
-                            if (faceState == MelFaceState.ERROR) MelDanger.copy(alpha = .85f)
-                            else Color(0xFFB87867)
-                        )
-                )
-            }
-        }
-
         Surface(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .size((size * .20f).dp),
+            modifier = Modifier.align(Alignment.BottomEnd).size((size * .20f).dp),
             shape = CircleShape,
             color = if (online) accent else Color(0xFF64748B),
             border = BorderStroke(2.dp, Color(0xFF071523))
@@ -1105,6 +1737,7 @@ private enum class MobileSection(val label: String) {
     KEYBOARD("Clavier"),
     CAMERA("Caméra"),
     COMPANION("MINI"),
+    WEB("Web"),
     TOOLS("Outils")
 }
 
@@ -1118,7 +1751,8 @@ private fun ConversationScreen(
     onMode: (MelMode) -> Unit,
     onSend: (String) -> Unit,
     onSync: () -> Unit,
-    onVoice: () -> Unit,
+    onVoicePress: () -> Unit,
+    onVoiceRelease: () -> Unit,
     onFile: () -> Unit,
     onNotifications: () -> Unit,
     onDiagnostics: () -> Unit,
@@ -1126,96 +1760,63 @@ private fun ConversationScreen(
     onNormalProbe: () -> Unit,
     onFileProbe: () -> Unit,
     onBackgroundProbe: () -> Unit,
+    onTestVoice: () -> Unit,
     cameraPhoto: Bitmap?,
     onCamera: () -> Unit,
     onSendCamera: () -> Unit,
-    onRefreshCompanions: () -> Unit
+    onRefreshCompanions: () -> Unit,
+    onConnectMini: () -> Unit,
+    onMiniPairCode: (String, String) -> Unit,
+    wakeEnrollmentCount: Int,
+    wakeEnrollmentActive: Boolean,
+    wakeEnrolled: Boolean,
+    onWakeEnroll: () -> Unit,
+    onWakeReset: () -> Unit
 ) {
     var section by rememberSaveable { mutableStateOf(MobileSection.MEL) }
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf("") }
-    var speaking by remember { mutableStateOf(false) }
+    var clock by remember { mutableStateOf(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())) }
     val focus = LocalFocusManager.current
 
-    LaunchedEffect(state.messages.size) {
-        if (state.messages.lastOrNull()?.role == "mel") {
-            speaking = true
-            delay(1800)
-            speaking = false
+    LaunchedEffect(Unit) {
+        while (true) {
+            clock = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+            delay(30_000)
         }
     }
     LaunchedEffect(section) {
+        settingsOpen = false
         if (section == MobileSection.COMPANION) onRefreshCompanions()
     }
 
     val faceState = when {
         !state.error.isNullOrBlank() -> MelFaceState.ERROR
         recording -> MelFaceState.LISTENING
+        state.speaking -> MelFaceState.SPEAKING
         state.busy -> MelFaceState.THINKING
-        speaking -> MelFaceState.SPEAKING
         else -> MelFaceState.IDLE
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        modifier = Modifier
+    Box(
+        Modifier
+            .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .imePadding(),
-        topBar = {
-            Surface(
-                color = Color(0xE605111F),
-                contentColor = MelInk,
-                border = BorderStroke(.5.dp, MelCyan.copy(alpha = .10f))
-            ) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "MINI // MEL",
-                            color = MelInk,
-                            fontWeight = FontWeight.Black,
-                            fontSize = 19.sp,
-                            letterSpacing = 1.8.sp
-                        )
-                        Text(
-                            state.status.ifBlank { "PARLER" },
-                            color = MelMuted,
-                            fontSize = 10.sp,
-                            maxLines = 1
-                        )
-                    }
-                    StatusPill(if (state.mode == MelMode.COMPLETE) "COMPLET" else "NORMAL",
-                        if (state.mode == MelMode.COMPLETE) MelViolet else MelCyan)
-                    Spacer(Modifier.width(6.dp))
-                    TextButton(onClick = onDisconnect) { Text("Quitter", color = MelMuted) }
-                }
-            }
-        },
-        bottomBar = {
-            MobileNavigationBar(section) { section = it }
-        }
-    ) { padding ->
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            when (section) {
-                MobileSection.MEL -> MiniHomePanel(
-                    state = state,
-                    faceState = faceState,
-                    voiceLevel = voiceLevel,
-                    voiceMessage = voiceMessage,
-                    recording = recording,
-                    onVoice = onVoice,
-                    onKeyboard = { section = MobileSection.KEYBOARD }
-                )
-                MobileSection.KEYBOARD -> KeyboardPanel(
+            .imePadding()
+    ) {
+        when (section) {
+            MobileSection.MEL -> MiniHomePanel(
+                state = state,
+                faceState = faceState,
+                voiceLevel = voiceLevel,
+                voiceMessage = voiceMessage,
+                recording = recording,
+                onVoicePress = onVoicePress,
+                onVoiceRelease = onVoiceRelease
+            )
+            MobileSection.KEYBOARD -> SectionSurface("CLAVIER // CHAT") {
+                KeyboardPanel(
                     state = state,
                     draft = draft,
                     onDraft = { draft = it },
@@ -1227,21 +1828,29 @@ private fun ConversationScreen(
                             onSend(outgoing)
                         }
                     },
-                    onVoice = onVoice,
+                    onVoicePress = onVoicePress,
+                    onVoiceRelease = onVoiceRelease,
                     onFile = onFile,
                     recording = recording,
                     voiceMessage = voiceMessage
                 )
-                MobileSection.CAMERA -> CameraPanel(
-                    photo = cameraPhoto,
-                    onCamera = onCamera,
-                    onSend = onSendCamera
-                )
-                MobileSection.COMPANION -> CompanionPanel(
+            }
+            MobileSection.CAMERA -> SectionSurface("CAMERA // MEL") {
+                CameraPanel(photo = cameraPhoto, onCamera = onCamera, onSend = onSendCamera)
+            }
+            MobileSection.COMPANION -> SectionSurface("COMPAGNON // MINI") {
+                CompanionPanel(
                     state = state,
-                    onRefresh = onRefreshCompanions
+                    onRefresh = onRefreshCompanions,
+                    onConnectMini = onConnectMini,
+                    onMiniPairCode = onMiniPairCode
                 )
-                MobileSection.TOOLS -> NativeToolsPanel(
+            }
+            MobileSection.WEB -> SectionSurface("NAVIGATION // WEB") {
+                WebPanel()
+            }
+            MobileSection.TOOLS -> SectionSurface("OUTILS // MEL") {
+                NativeToolsPanel(
                     state = state,
                     onMode = onMode,
                     onSync = onSync,
@@ -1251,44 +1860,236 @@ private fun ConversationScreen(
                     onCopyDiagnostic = onCopyDiagnostic,
                     onNormalProbe = onNormalProbe,
                     onFileProbe = onFileProbe,
-                    onBackgroundProbe = onBackgroundProbe
+                    onBackgroundProbe = onBackgroundProbe,
+                    onTestVoice = onTestVoice
                 )
+            }
+        }
+
+        MiniReferenceTopBar(
+            modifier = Modifier.align(Alignment.TopCenter),
+            time = clock,
+            onHome = { section = MobileSection.MEL },
+            onSettings = { settingsOpen = !settingsOpen }
+        )
+
+        if (settingsOpen) {
+            MiniSettingsPanel(
+                modifier = Modifier.align(Alignment.TopEnd),
+                state = state,
+                onClose = { settingsOpen = false },
+                onMode = onMode,
+                onSelect = { section = it },
+                onDisconnect = onDisconnect,
+                wakeEnrollmentCount = wakeEnrollmentCount,
+                wakeEnrollmentActive = wakeEnrollmentActive,
+                wakeEnrolled = wakeEnrolled,
+                onWakeEnroll = onWakeEnroll,
+                onWakeReset = onWakeReset
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionSurface(
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xFF030914))
+            .padding(top = 70.dp, start = 12.dp, end = 12.dp, bottom = 10.dp)
+    ) {
+        Text(
+            title,
+            color = MelCyan,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 1.4.sp,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        Box(Modifier.weight(1f).fillMaxWidth()) { content() }
+    }
+}
+
+@Composable
+private fun MiniReferenceTopBar(
+    modifier: Modifier = Modifier,
+    time: String,
+    onHome: () -> Unit,
+    onSettings: () -> Unit
+) {
+    Surface(
+        modifier = modifier,
+        color = Color(0xC7030A13),
+        border = BorderStroke(.5.dp, MelCyan.copy(alpha = .15f))
+    ) {
+        Row(
+            Modifier.fillMaxWidth().height(62.dp).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = onHome, modifier = Modifier.testTag("home-button")) {
+                Text("◈", color = MelCyan, fontSize = 23.sp, fontWeight = FontWeight.Black)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "MEL",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            WifiGlyph()
+            Spacer(Modifier.width(10.dp))
+            Text(time, color = MelInk, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(10.dp))
+            OutlinedButton(
+                onClick = onSettings,
+                modifier = Modifier.size(46.dp).testTag("settings-button"),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, MelCyan.copy(alpha = .72f))
+            ) {
+                Text("⚙", color = Color.White, fontSize = 22.sp)
             }
         }
     }
 }
 
 @Composable
-private fun MobileNavigationBar(
-    selected: MobileSection,
-    onSelect: (MobileSection) -> Unit
+private fun WifiGlyph() {
+    Canvas(Modifier.size(28.dp)) {
+        val stroke = size.width * .075f
+        val color = Color.White.copy(alpha = .94f)
+        drawArc(
+            color = color,
+            startAngle = 218f,
+            sweepAngle = 104f,
+            useCenter = false,
+            topLeft = Offset(size.width * .06f, size.height * .04f),
+            size = Size(size.width * .88f, size.height * .72f),
+            style = Stroke(width = stroke)
+        )
+        drawArc(
+            color = color,
+            startAngle = 218f,
+            sweepAngle = 104f,
+            useCenter = false,
+            topLeft = Offset(size.width * .23f, size.height * .27f),
+            size = Size(size.width * .54f, size.height * .44f),
+            style = Stroke(width = stroke)
+        )
+        drawCircle(
+            color = MelCyan,
+            radius = size.width * .065f,
+            center = Offset(size.width * .50f, size.height * .72f)
+        )
+    }
+}
+
+@Composable
+private fun MiniSettingsPanel(
+    modifier: Modifier = Modifier,
+    state: MelUiState,
+    onClose: () -> Unit,
+    onMode: (MelMode) -> Unit,
+    onSelect: (MobileSection) -> Unit,
+    onDisconnect: () -> Unit,
+    wakeEnrollmentCount: Int,
+    wakeEnrollmentActive: Boolean,
+    wakeEnrolled: Boolean,
+    onWakeEnroll: () -> Unit,
+    onWakeReset: () -> Unit
 ) {
     Surface(
-        color = Color(0xF505111F),
-        border = BorderStroke(.5.dp, MelCyan.copy(alpha = .10f))
+        modifier = modifier
+            .padding(top = 66.dp, end = 10.dp)
+            .width(304.dp)
+            .heightIn(max = 620.dp)
+            .testTag("settings-panel"),
+        color = Color(0xF20A1626),
+        border = BorderStroke(1.dp, MelCyan.copy(alpha = .72f)),
+        shape = RoundedCornerShape(20.dp)
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        Column(
+            Modifier.padding(12.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
-            MobileSection.entries.forEach { item ->
-                val active = item == selected
-                TextButton(
-                    onClick = { onSelect(item) },
-                    modifier = Modifier.weight(1f).testTag("nav-" + item.name.lowercase()),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text(
-                        item.label,
-                        color = if (active) MelCyan else MelMuted,
-                        fontSize = 10.sp,
-                        fontWeight = if (active) FontWeight.Black else FontWeight.Medium
-                    )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Paramètres", modifier = Modifier.weight(1f), color = MelInk, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                TextButton(onClick = onClose) { Text("×", color = MelCyan, fontSize = 25.sp) }
+            }
+            Surface(
+                color = MelSuccess.copy(alpha = .08f),
+                border = BorderStroke(1.dp, MelSuccess.copy(alpha = .24f)),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(11.dp)) {
+                    Text("Connexion", color = MelInk, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(state.status.ifBlank { "MEL connectée" }, color = MelSuccess, fontSize = 11.sp)
                 }
             }
+            SettingsAction("Clavier / Chat", "⌨", "settings-keyboard") { onSelect(MobileSection.KEYBOARD) }
+            SettingsAction("Caméra", "◉", "settings-camera") { onSelect(MobileSection.CAMERA) }
+            SettingsAction("Compagnon MINI", "◇", "settings-companion") { onSelect(MobileSection.COMPANION) }
+            SettingsAction(
+                label = when {
+                    wakeEnrolled -> "OK MEL appris · 6/6"
+                    wakeEnrollmentActive -> "Écoute OK MEL… ${wakeEnrollmentCount + 1}/6"
+                    else -> "Enregistrer OK MEL · $wakeEnrollmentCount/6"
+                },
+                symbol = "◎",
+                tag = "settings-wake-enroll",
+                accent = if (wakeEnrolled) MelSuccess else MelCyan,
+                enabled = !wakeEnrollmentActive && !wakeEnrolled
+            ) { onWakeEnroll() }
+            if (wakeEnrolled || wakeEnrollmentCount > 0) {
+                SettingsAction(
+                    "Réinitialiser OK MEL",
+                    "↻",
+                    "settings-wake-reset",
+                    MelViolet,
+                    enabled = !wakeEnrollmentActive
+                ) { onWakeReset() }
+            }
+            SettingsAction("Tests / Outils", "⌁", "settings-tools") { onSelect(MobileSection.TOOLS) }
+            SettingsAction(
+                if (state.mode == MelMode.COMPLETE) "Passer en mode Normal" else "Activer le mode Complet",
+                if (state.mode == MelMode.COMPLETE) "N" else "C",
+                "settings-mode"
+            ) {
+                val next = if (state.mode == MelMode.COMPLETE) MelMode.NORMAL else MelMode.COMPLETE
+                onMode(next)
+                if (next == MelMode.COMPLETE) onSelect(MobileSection.TOOLS)
+            }
+            SettingsAction("Déconnexion", "×", "settings-disconnect", MelDanger) { onDisconnect() }
         }
+    }
+}
+
+@Composable
+private fun SettingsAction(
+    label: String,
+    symbol: String,
+    tag: String,
+    accent: Color = MelCyan,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.fillMaxWidth().height(50.dp).testTag(tag),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = .42f))
+    ) {
+        Text(symbol, color = accent, fontSize = 18.sp)
+        Spacer(Modifier.width(9.dp))
+        Text(label, modifier = Modifier.weight(1f), color = MelInk, textAlign = TextAlign.Start, fontSize = 12.sp)
+        Text("›", color = accent, fontSize = 18.sp)
     }
 }
 
@@ -1299,71 +2100,343 @@ private fun MiniHomePanel(
     voiceLevel: Float,
     voiceMessage: String,
     recording: Boolean,
-    onVoice: () -> Unit,
-    onKeyboard: () -> Unit
+    onVoicePress: () -> Unit,
+    onVoiceRelease: () -> Unit
 ) {
-    val lastMel = state.messages.lastOrNull { it.role == "mel" }?.text
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(Modifier.height(8.dp))
-        MelCoreVisual(faceState, voiceLevel)
-        Spacer(Modifier.height(8.dp))
+    val accent = when (faceState) {
+        MelFaceState.LISTENING -> MelSuccess
+        MelFaceState.THINKING -> MelViolet
+        MelFaceState.SPEAKING -> MelBlue
+        MelFaceState.ERROR -> MelDanger
+        MelFaceState.IDLE -> MelCyan
+    }
+    val stateLabel = when (faceState) {
+        MelFaceState.LISTENING -> "ÉCOUTE"
+        MelFaceState.THINKING -> "RÉFLEXION"
+        MelFaceState.SPEAKING -> "MEL"
+        MelFaceState.ERROR -> "ERREUR"
+        MelFaceState.IDLE -> "PARLER"
+    }
 
-        if (!lastMel.isNullOrBlank()) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MelGlass,
-                border = BorderStroke(1.dp, MelCyan.copy(alpha = .14f)),
-                shape = RoundedCornerShape(20.dp)
+    Box(Modifier.fillMaxSize().testTag("mini-stage")) {
+        MelPortraitStage(faceState = faceState, voiceLevel = voiceLevel)
+
+        VoiceWaveform(
+            active = recording || faceState == MelFaceState.SPEAKING,
+            level = if (recording) voiceLevel else if (faceState == MelFaceState.SPEAKING) .58f else .12f,
+            accent = accent,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 176.dp)
+        )
+
+        ReferenceVoiceButton(
+            label = if (recording) "ARRÊTER" else stateLabel,
+            accent = accent,
+            enabled = !state.busy || recording,
+            onPress = onVoicePress,
+            onRelease = onVoiceRelease,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 145.dp)
+        )
+
+        Text(
+            voiceMessage,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 108.dp),
+            color = if (recording) accent else MelMuted,
+            fontSize = 10.sp,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun ReferenceVoiceButton(
+    label: String,
+    accent: Color,
+    enabled: Boolean,
+    onPress: () -> Unit,
+    onRelease: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(158.dp)
+            .testTag("mini-talk-button")
+            .background(
+                Brush.radialGradient(
+                    listOf(
+                        accent.copy(alpha = .20f),
+                        Color(0xF0081828),
+                        Color(0xE6040B14)
+                    )
+                ),
+                CircleShape
+            )
+            .border(2.dp, accent.copy(alpha = .92f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            Modifier
+                .size(142.dp)
+                .border(1.5.dp, accent.copy(alpha = .78f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Button(
+                onClick = {},
+                enabled = enabled,
+                modifier = Modifier
+                    .size(126.dp)
+                    .pointerInput(enabled) {
+                        awaitEachGesture {
+                            if (!enabled) return@awaitEachGesture
+                            awaitFirstDown(requireUnconsumed = false)
+                            onPress()
+                            waitForUpOrCancellation()
+                            onRelease()
+                        }
+                    },
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xDA071522),
+                    contentColor = Color.White,
+                    disabledContainerColor = Color(0xAA071522),
+                    disabledContentColor = Color.White.copy(alpha = .60f)
+                ),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
             ) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("MEL", color = MelCyan, fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Spacer(Modifier.height(4.dp))
-                    Text(lastMel, color = MelInk, fontSize = 14.sp, lineHeight = 20.sp, maxLines = 5)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    MicrophoneGlyph(accent)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        label,
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 13.sp,
+                        letterSpacing = 1.4.sp
+                    )
                 }
             }
-            Spacer(Modifier.height(10.dp))
+        }
+    }
+}
+
+@Composable
+private fun MicrophoneGlyph(accent: Color) {
+    Canvas(Modifier.size(40.dp)) {
+        val stroke = size.width * .075f
+        val white = Color.White
+        drawRoundRect(
+            color = white,
+            topLeft = Offset(size.width * .36f, size.height * .08f),
+            size = Size(size.width * .28f, size.height * .48f),
+            cornerRadius = CornerRadius(size.width * .14f, size.width * .14f),
+            style = Stroke(width = stroke)
+        )
+        drawArc(
+            color = accent,
+            startAngle = 0f,
+            sweepAngle = 180f,
+            useCenter = false,
+            topLeft = Offset(size.width * .23f, size.height * .28f),
+            size = Size(size.width * .54f, size.height * .48f),
+            style = Stroke(width = stroke)
+        )
+        drawLine(
+            color = white,
+            start = Offset(size.width * .50f, size.height * .75f),
+            end = Offset(size.width * .50f, size.height * .90f),
+            strokeWidth = stroke
+        )
+        drawLine(
+            color = white,
+            start = Offset(size.width * .36f, size.height * .90f),
+            end = Offset(size.width * .64f, size.height * .90f),
+            strokeWidth = stroke
+        )
+    }
+}
+
+@Composable
+private fun MelPortraitStage(
+    faceState: MelFaceState,
+    voiceLevel: Float
+) {
+    val transition = rememberInfiniteTransition(label = "mel-photo-motion")
+    val breathe by transition.animateFloat(
+        initialValue = .995f,
+        targetValue = 1.012f,
+        animationSpec = infiniteRepeatable(animation = tween(3200), repeatMode = RepeatMode.Reverse),
+        label = "mel-photo-breathe"
+    )
+    val sway by transition.animateFloat(
+        initialValue = -1.0f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(animation = tween(4800), repeatMode = RepeatMode.Reverse),
+        label = "mel-photo-sway"
+    )
+    val scale = when (faceState) {
+        MelFaceState.LISTENING -> breathe + voiceLevel.coerceIn(0f, 1f) * .008f
+        MelFaceState.THINKING -> breathe + .006f
+        else -> breathe
+    }
+    val portraitTop = 54.dp
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF020812),
+                        Color(0xFF06101C),
+                        Color(0xFF020812)
+                    )
+                )
+            )
+            .testTag("mel-animated-avatar")
+    ) {
+        Box(
+            Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = portraitTop)
+                .fillMaxWidth()
+                .aspectRatio(.78f)
+                .clip(RoundedCornerShape(bottomStart = 34.dp, bottomEnd = 34.dp))
+        ) {
+            Image(
+                painter = painterResource(R.drawable.mel_futuristic_new),
+                contentDescription = "MEL",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = sway * 1.2f
+                        translationY = if (faceState == MelFaceState.IDLE) sway * .55f else 0f
+                        rotationZ = if (faceState == MelFaceState.THINKING) sway * .12f else 0f
+                    },
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.TopCenter
+            )
+
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.Transparent,
+                                Color(0x08030A12),
+                                Color(0xA8030912)
+                            )
+                        )
+                    )
+            )
         }
 
-        Button(
-            onClick = onVoice,
-            modifier = Modifier
-                .fillMaxWidth(.74f)
-                .height(62.dp)
-                .testTag("mini-talk-button"),
-            enabled = !state.busy || recording,
-            shape = RoundedCornerShape(24.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (recording) MelDanger else MelBlue,
-                contentColor = Color.White
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(350.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.Transparent,
+                            Color(0x88030912),
+                            Color(0xFF030912)
+                        )
+                    )
+                )
+        )
+    }
+}
+
+@Composable
+private fun VoiceWaveform(
+    active: Boolean,
+    level: Float,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    val transition = rememberInfiniteTransition(label = "mel-wave")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(900), repeatMode = RepeatMode.Restart),
+        label = "mel-wave-phase"
+    )
+    Canvas(modifier.size(width = 330.dp, height = 86.dp).testTag("voice-waveform")) {
+        val bars = 35
+        val step = size.width / bars
+        val center = size.height / 2f
+        for (i in 0 until bars) {
+            val x = step * (i + .5f)
+            val distance = kotlin.math.abs(i - (bars - 1) / 2f) / (bars / 2f)
+            val envelope = (1f - distance * .70f).coerceIn(.18f, 1f)
+            val oscillation = ((kotlin.math.sin((i * .72f + phase * 6.28318f).toDouble()) + 1.0) / 2.0).toFloat()
+            val signal = if (active) (.30f + level.coerceIn(0f, 1f) * .70f) else (.13f + oscillation * .10f)
+            val h = center * envelope * signal
+            drawLine(
+                color = accent.copy(alpha = if (active) .92f else .46f),
+                start = Offset(x, center - h),
+                end = Offset(x, center + h),
+                strokeWidth = if (active) 3.2f else 2.2f
             )
-        ) {
-            Text(
-                if (recording) "ARRÊTER" else "PARLER",
-                fontWeight = FontWeight.Black,
-                fontSize = 16.sp,
-                letterSpacing = 2.sp
+        }
+    }
+}
+
+@Composable
+private fun WebPanel() {
+    var input by rememberSaveable { mutableStateOf("https://www.google.com") }
+    var target by rememberSaveable { mutableStateOf("https://www.google.com") }
+    Column(Modifier.fillMaxSize()) {
+        HudLabel("WEB // MEL", "NAVIGATION NATIVE · AUCUN NAVIGATEUR EXTERNE", MelCyan)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = { input = it },
+                modifier = Modifier.weight(1f).testTag("web-url"),
+                singleLine = true,
+                label = { Text("Adresse") }
             )
+            Button(
+                onClick = {
+                    val clean = input.trim()
+                    target = when {
+                        clean.startsWith("https://") -> clean
+                        clean.startsWith("http://") -> "https://" + clean.removePrefix("http://")
+                        else -> "https://" + clean
+                    }
+                },
+                modifier = Modifier.height(56.dp).testTag("web-go"),
+                shape = RoundedCornerShape(14.dp)
+            ) { Text("GO") }
         }
         Spacer(Modifier.height(8.dp))
-        Text(voiceMessage, color = if (recording) MelCyan else MelMuted, fontSize = 11.sp)
-        Spacer(Modifier.height(10.dp))
-        OutlinedButton(
-            onClick = onKeyboard,
-            modifier = Modifier.fillMaxWidth(.74f),
+        Surface(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            color = Color.Black,
+            border = BorderStroke(1.dp, MelCyan.copy(alpha = .28f)),
             shape = RoundedCornerShape(18.dp)
         ) {
-            Text("CLAVIER", letterSpacing = 1.2.sp)
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatusPill("VOICE", MelCyan)
-            StatusPill("CAMERA", MelBlue)
-            StatusPill("MINI", MelViolet)
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { context ->
+                    WebView(context).apply {
+                        webViewClient = WebViewClient()
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        loadUrl(target)
+                    }
+                },
+                update = { web ->
+                    if (web.url != target) web.loadUrl(target)
+                }
+            )
         }
     }
 }
@@ -1374,7 +2447,8 @@ private fun KeyboardPanel(
     draft: String,
     onDraft: (String) -> Unit,
     onSend: () -> Unit,
-    onVoice: () -> Unit,
+    onVoicePress: () -> Unit,
+    onVoiceRelease: () -> Unit,
     onFile: () -> Unit,
     recording: Boolean,
     voiceMessage: String
@@ -1446,11 +2520,23 @@ private fun KeyboardPanel(
                         shape = RoundedCornerShape(14.dp)
                     ) { Text("Fichier", fontSize = 11.sp) }
                     OutlinedButton(
-                        onClick = onVoice,
-                        modifier = Modifier.weight(.28f).height(46.dp).testTag("micro-button"),
+                        onClick = {},
+                        modifier = Modifier
+                            .weight(.28f)
+                            .height(46.dp)
+                            .testTag("micro-button")
+                            .pointerInput(state.busy, recording) {
+                                awaitEachGesture {
+                                    if (state.busy && !recording) return@awaitEachGesture
+                                    awaitFirstDown(requireUnconsumed = false)
+                                    onVoicePress()
+                                    waitForUpOrCancellation()
+                                    onVoiceRelease()
+                                }
+                            },
                         enabled = !state.busy || recording,
                         shape = RoundedCornerShape(14.dp)
-                    ) { Text(if (recording) "Stop" else "Micro", fontSize = 11.sp) }
+                    ) { Text(if (recording) "Relâche" else "Maintenir", fontSize = 11.sp) }
                     Button(
                         onClick = onSend,
                         modifier = Modifier.weight(.44f).height(46.dp).testTag("send-button"),
@@ -1526,58 +2612,132 @@ private fun CameraPanel(
 @Composable
 private fun CompanionPanel(
     state: MelUiState,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onConnectMini: () -> Unit,
+    onMiniPairCode: (String, String) -> Unit
 ) {
-    Column(Modifier.fillMaxSize()) {
+    val bridgeState by MelBleBridgeService.bridgeState.collectAsStateWithLifecycle()
+    val bleReady = bridgeState.contains("MINI CONNECTÉE") || bridgeState.contains("INTERNET OK")
+    var miniPairUser by rememberSaveable { mutableStateOf("adrien") }
+    var miniPairSecret by rememberSaveable { mutableStateOf("") }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            HudLabel("COMPAGNON // MINI", state.companionStatus.ifBlank { "APPAREILS MEL" }, MelViolet)
+            HudLabel("COMPAGNON // MINI", if (bleReady) "BLUETOOTH CONNECTÉ" else "BLUETOOTH À CONNECTER", MelViolet)
             Spacer(Modifier.weight(1f))
             OutlinedButton(onClick = onRefresh, shape = RoundedCornerShape(14.dp)) { Text("Actualiser") }
         }
-        Spacer(Modifier.height(10.dp))
-        if (state.companions.isEmpty()) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MelGlass,
-                border = BorderStroke(1.dp, MelViolet.copy(alpha = .22f)),
-                shape = RoundedCornerShape(22.dp)
-            ) {
-                Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    MelAvatar(104, online = false, faceState = MelFaceState.IDLE)
-                    Spacer(Modifier.height(10.dp))
-                    Text("Aucun MINI détecté", color = MelInk, fontWeight = FontWeight.Bold)
-                    Text("Appaire MINI à MEL puis actualise.", color = MelMuted, fontSize = 12.sp)
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = if (bleReady) MelSuccess.copy(alpha = .08f) else MelGlass,
+            border = BorderStroke(1.dp, (if (bleReady) MelSuccess else MelViolet).copy(alpha = .30f)),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Lien Bluetooth réel", color = MelInk, fontWeight = FontWeight.Bold)
+                Text(bridgeState, color = if (bleReady) MelSuccess else MelMuted, fontSize = 12.sp)
+                Button(
+                    onClick = onConnectMini,
+                    modifier = Modifier.fillMaxWidth().height(48.dp).testTag("mini-connect-button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (bleReady) MelBlue else MelViolet)
+                ) {
+                    Text(if (bleReady) "RELANCER LA CONNEXION MINI" else "CONNECTER MINI", fontWeight = FontWeight.Bold)
                 }
             }
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                itemsIndexed(state.companions) { _, device ->
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MelPanel,
+            border = BorderStroke(1.dp, MelCyan.copy(alpha = .20f)),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Internet de la MINI", color = MelInk, fontWeight = FontWeight.Bold)
+                Text(
+                    if (bridgeState.contains("INTERNET OK", ignoreCase = true))
+                        "Relais Internet actif"
+                    else if (bleReady)
+                        "MINI connectée · activation Internet automatique"
+                    else
+                        "Le relais Internet s’active automatiquement dès que la MINI se connecte.",
+                    color = if (bridgeState.contains("INTERNET OK", ignoreCase = true)) MelSuccess else MelMuted,
+                    fontSize = 12.sp
+                )
+                OutlinedTextField(
+                    value = miniPairUser,
+                    onValueChange = { miniPairUser = it },
+                    modifier = Modifier.fillMaxWidth().testTag("mini-pair-user"),
+                    label = { Text("Identifiant MEL") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = miniPairSecret,
+                    onValueChange = { miniPairSecret = it },
+                    modifier = Modifier.fillMaxWidth().testTag("mini-pair-secret"),
+                    label = { Text("Mot de passe MEL") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+                )
+                Button(
+                    onClick = { onMiniPairCode(miniPairUser, miniPairSecret) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp).testTag("mini-pair-button"),
+                    enabled = !state.miniPairBusy && miniPairSecret.isNotBlank(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MelCyan)
+                ) {
+                    Text(if (state.miniPairBusy) "GÉNÉRATION…" else "GÉNÉRER LE CODE D’APPAIRAGE", fontWeight = FontWeight.Bold)
+                }
+                state.miniPairCode?.let { code ->
                     Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MelPanel,
-                        border = BorderStroke(
-                            1.dp,
-                            (if (device.online) MelSuccess else MelMuted).copy(alpha = .24f)
-                        ),
-                        shape = RoundedCornerShape(20.dp)
+                        modifier = Modifier.fillMaxWidth().testTag("mini-pair-code"),
+                        color = MelSuccess.copy(alpha = .10f),
+                        border = BorderStroke(1.dp, MelSuccess.copy(alpha = .30f)),
+                        shape = RoundedCornerShape(14.dp)
                     ) {
-                        Column(Modifier.padding(14.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(device.name, color = MelInk, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                                StatusPill(if (device.online) "ONLINE" else "OFFLINE",
-                                    if (device.online) MelSuccess else MelMuted)
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Code d’appairage MINI", color = MelMuted, fontSize = 11.sp)
+                            Text(code, color = MelInk, fontWeight = FontWeight.Bold, fontSize = 24.sp)
+                            state.miniPairExpiresAt?.let { expires ->
+                                Text("Code temporaire · expiration serveur: $expires", color = MelMuted, fontSize = 10.sp)
                             }
-                            Spacer(Modifier.height(6.dp))
-                            Text(device.phase ?: device.model, color = MelMuted, fontSize = 11.sp)
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                StatusPill("CAM " + hardwareState(device.camera), if (device.camera == true) MelSuccess else MelMuted)
-                                StatusPill("MIC " + hardwareState(device.microphone), if (device.microphone == true) MelSuccess else MelMuted)
-                                device.battery?.let { StatusPill("BAT $it%", MelBlue) }
-                            }
+                        }
+                    }
+                }
+                state.miniPairError?.let { Text(it, color = MelDanger, fontSize = 12.sp) }
+            }
+        }
+
+        Text("Appareils MEL", color = MelInk, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        if (state.companions.isEmpty()) {
+            Text("Aucun appareil remonté par le serveur.", color = MelMuted, fontSize = 12.sp)
+        } else {
+            state.companions.forEach { device ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MelPanel,
+                    border = BorderStroke(1.dp, (if (device.online) MelSuccess else MelMuted).copy(alpha = .24f)),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(device.name, color = MelInk, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            StatusPill(if (device.online) "ONLINE" else "OFFLINE", if (device.online) MelSuccess else MelMuted)
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(device.phase ?: device.model, color = MelMuted, fontSize = 11.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            StatusPill("CAM " + hardwareState(device.camera), if (device.camera == true) MelSuccess else MelMuted)
+                            StatusPill("MIC " + hardwareState(device.microphone), if (device.microphone == true) MelSuccess else MelMuted)
+                            device.battery?.let { StatusPill("BAT $it%", MelBlue) }
                         }
                     }
                 }
@@ -1603,7 +2763,8 @@ private fun NativeToolsPanel(
     onCopyDiagnostic: (String) -> Unit,
     onNormalProbe: () -> Unit,
     onFileProbe: () -> Unit,
-    onBackgroundProbe: () -> Unit
+    onBackgroundProbe: () -> Unit,
+    onTestVoice: () -> Unit
 ) {
     Column(
         Modifier
@@ -1619,10 +2780,22 @@ private fun NativeToolsPanel(
         Button(
             onClick = { onMode(MelMode.COMPLETE) },
             modifier = Modifier.fillMaxWidth().height(50.dp).testTag("native-complete-button"),
-            enabled = !state.busy,
+            enabled = !state.busy && state.mode != MelMode.COMPLETE,
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MelViolet)
-        ) { Text("PROFESSOR / MODE COMPLET NATIF", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+        ) {
+            Text(
+                if (state.mode == MelMode.COMPLETE) "MODE COMPLET ACTIF" else "ACTIVER LE MODE COMPLET",
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onTestVoice,
+            modifier = Modifier.fillMaxWidth().testTag("test-french-voice-button"),
+            enabled = !state.busy
+        ) { Text("TEST VOIX FRANÇAISE") }
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             OutlinedButton(onClick = onSync, modifier = Modifier.weight(1f), enabled = !state.busy) { Text("Synchroniser") }
@@ -1804,3 +2977,5 @@ private fun MessageBubble(message: MelChatMessage) {
         }
     }
 }
+
+// VISUAL_SHELL: 0.6.11-mini-reference-luna-audio
