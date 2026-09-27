@@ -288,16 +288,57 @@ def ensure_dependencies():
         )
 
 def extract_parent(payload: Path) -> str | None:
-    archive = payload / "parent-bundle.tar.gz"
-    if not archive.is_file():
-        return None
+    payload_meta_path = _payload_file(payload, "payload.json")
+    payload_meta = {}
+    if payload_meta_path and payload_meta_path.is_file():
+        payload_meta = json.loads(payload_meta_path.read_text(encoding="utf-8"))
+    parent_expected = bool(str(payload_meta.get("parent_release_tag") or "").strip())
+
+    archive = _payload_file(payload, "parent-bundle.tar.gz")
+    expanded_candidates = [
+        payload / "parent-bundle",
+        *sorted(p for p in payload.rglob("parent-bundle") if p.is_dir()),
+    ]
+    expanded = next((p for p in expanded_candidates if (p / "artifact-evidence.json").is_file()), None)
+
     PARENT.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive, "r:gz") as tar:
-        tar.extractall(PARENT)
-    artifact = json.loads((PARENT / "artifact-evidence.json").read_text(encoding="utf-8"))
+    if archive and archive.is_file():
+        with tarfile.open(archive, "r:gz") as tar:
+            tar.extractall(PARENT)
+    elif expanded is not None:
+        for source in expanded.rglob("*"):
+            if not source.is_file():
+                continue
+            target = PARENT / source.relative_to(expanded)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+    elif parent_expected:
+        available = sorted(str(p.relative_to(payload)) for p in payload.rglob("*") if p.is_file())[:200]
+        print(json.dumps({
+            "parent_release_tag": payload_meta.get("parent_release_tag"),
+            "available_payload_files": available,
+        }, indent=2), flush=True)
+        raise SystemExit("KAGGLE_PARENT_REQUIRED_BUT_MISSING")
+    else:
+        return None
+
+    artifact_path = PARENT / "artifact-evidence.json"
+    weights_path = PARENT / "adapter_model.safetensors"
+    config_path = PARENT / "adapter_config.json"
+    if not artifact_path.is_file() or not weights_path.is_file() or not config_path.is_file():
+        raise SystemExit("KAGGLE_PARENT_ARTIFACT_INCOMPLETE")
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
     digest = str(artifact.get("digest") or "").lower()
     if not digest.startswith("sha256:"):
         raise SystemExit("KAGGLE_PARENT_DIGEST_INVALID")
+    if sha256_file(weights_path) != digest:
+        raise SystemExit("KAGGLE_PARENT_DIGEST_MISMATCH")
+    print(json.dumps({
+        "status": "PARENT_ADAPTER_READY",
+        "parent_release_tag": payload_meta.get("parent_release_tag"),
+        "parent_artifact_digest": digest,
+        "source": "archive" if archive and archive.is_file() else "expanded-directory",
+    }), flush=True)
     return digest
 
 def count_lines(path: Path) -> int:
