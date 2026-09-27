@@ -57,3 +57,21 @@ test('full interface exposes persistent connection controls for Gmail Yahoo Micr
   assert.match(html, /CONNECTÉ DURABLEMENT/);
   assert.match(html, /initialView=new URLSearchParams\(location\.search\)\.get\('view'\)/);
 });
+
+
+test('full interface exposes Vercel connection controls and bounded redeploy actions', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  assert.match(html, />Vercel</);
+  assert.match(html, /id="vercelToken"/);
+  assert.match(html, /id="vercelTeamId"/);
+  assert.match(html, /id="vercelProjectId"/);
+  assert.match(html, /id="vercelProjectName"/);
+  assert.match(html, /id="vercelSave"/);
+  assert.match(html, /id="vercelTest"/);
+  assert.match(html, /id="vercelDeploymentSelect"/);
+  assert.match(html, /id="vercelRedeployPreview"/);
+  assert.match(html, /id="vercelRedeployProduction"/);
+  assert.match(html, /x-mel-approve-capability/);
+  assert.match(html, /vercel\.deployments\.redeploy/);
+});

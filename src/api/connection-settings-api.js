@@ -1,8 +1,9 @@
 import { createD1OAuthVaults } from '../connectors/d1-oauth-vault.js';
 import { createGoogleOAuthRuntime } from '../connectors/google-oauth-runtime.js';
 import { createMailOAuthRuntime } from '../connectors/mail-oauth-runtime.js';
+import { createVercelConfigResolver, saveVercelConnectionConfig } from '../connectors/vercel-config.js';
 
-const PROVIDERS = new Set(['google','microsoft','yahoo','roundcube']);
+const PROVIDERS = new Set(['google','microsoft','yahoo','roundcube','vercel']);
 const OAUTH_APP_KEYS = Object.freeze({
   google: Object.freeze({ id: 'oauth-app-google', clientIdEnv: 'GOOGLE_OAUTH_CLIENT_ID', clientSecretEnv: 'GOOGLE_OAUTH_CLIENT_SECRET' }),
   microsoft: Object.freeze({ id: 'oauth-app-microsoft', clientIdEnv: 'MICROSOFT_OAUTH_CLIENT_ID', clientSecretEnv: 'MICROSOFT_OAUTH_CLIENT_SECRET' }),
@@ -296,6 +297,105 @@ async function saveRoundcube(env, contextOwner, body) {
   return roundcubeStatus(env, contextOwner);
 }
 
+async function vercelStatus(env, contextOwner) {
+  const cfg = await createVercelConfigResolver(env)(contextOwner);
+  return {
+    provider: 'vercel',
+    configured: Boolean(cfg.token),
+    token_present: Boolean(cfg.token),
+    team_id: clean(cfg.team_id, 200) || null,
+    project_id: clean(cfg.project_id, 200) || null,
+    project_name: clean(cfg.project_name, 200) || null,
+    target_configured: Boolean(cfg.project_id && cfg.project_name),
+    stored_securely: true,
+    source: cfg.source || null,
+  };
+}
+
+async function vercelJson(url, token, signal, code) {
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
+      redirect: 'error',
+      signal: signal || AbortSignal.timeout(12_000),
+    });
+  } catch {
+    const error = new Error(code);
+    error.code = code;
+    error.status = 503;
+    throw error;
+  }
+  if (!response.ok) {
+    await response.body?.cancel?.();
+    const error = new Error(response.status === 401 || response.status === 403 ? code + '_AUTH' : code);
+    error.code = response.status === 401 || response.status === 403 ? code + '_AUTH' : code;
+    error.status = response.status === 401 || response.status === 403 ? 409 : 502;
+    throw error;
+  }
+  try {
+    return await response.json();
+  } catch {
+    const error = new Error(code + '_INVALID_RESPONSE');
+    error.code = code + '_INVALID_RESPONSE';
+    error.status = 502;
+    throw error;
+  }
+}
+
+async function testVercelConnection(env, contextOwner, signal) {
+  const cfg = await createVercelConfigResolver(env)(contextOwner);
+  if (!cfg.token) {
+    const error = new Error('VERCEL_TOKEN_REQUIRED');
+    error.code = 'VERCEL_TOKEN_REQUIRED';
+    error.status = 409;
+    throw error;
+  }
+  const user = await vercelJson('https://api.vercel.com/v2/user', cfg.token, signal, 'VERCEL_AUTH_TEST_FAILED');
+  const params = new URLSearchParams({ limit: '50' });
+  if (cfg.team_id) params.set('teamId', cfg.team_id);
+  const projectsBody = await vercelJson('https://api.vercel.com/v9/projects?' + params.toString(), cfg.token, signal, 'VERCEL_PROJECTS_TEST_FAILED');
+  const projects = (Array.isArray(projectsBody?.projects) ? projectsBody.projects : []).slice(0, 50).map(row => ({
+    id: clean(row?.id, 200),
+    name: clean(row?.name, 200),
+    framework: clean(row?.framework, 100),
+    updated_at: Number(row?.updatedAt || 0),
+  })).filter(row => row.id && row.name);
+
+  let project = projects.find(row => row.id === cfg.project_id)
+    || projects.find(row => row.name === cfg.project_name)
+    || null;
+  if (!project && projects.length === 1) project = projects[0];
+
+  let deployments = [];
+  if (project?.id) {
+    const dp = new URLSearchParams({ projectId: project.id, limit: '10' });
+    if (cfg.team_id) dp.set('teamId', cfg.team_id);
+    const deploymentsBody = await vercelJson('https://api.vercel.com/v6/deployments?' + dp.toString(), cfg.token, signal, 'VERCEL_DEPLOYMENTS_TEST_FAILED');
+    deployments = (Array.isArray(deploymentsBody?.deployments) ? deploymentsBody.deployments : []).slice(0, 10).map(row => ({
+      id: clean(row?.uid || row?.id, 200),
+      name: clean(row?.name, 200),
+      url: clean(row?.url, 500),
+      state: clean(row?.state || row?.readyState, 80),
+      target: clean(row?.target, 80),
+      created_at: Number(row?.createdAt || row?.created || 0),
+    })).filter(row => row.id);
+  }
+
+  return {
+    ok: true,
+    provider: 'vercel',
+    authenticated: Boolean(user?.user?.id),
+    user_id_present: Boolean(user?.user?.id),
+    configured_project: project,
+    projects,
+    project_count: projects.length,
+    deployments,
+    deployment_count: deployments.length,
+    target_ready: Boolean(project?.id && project?.name),
+  };
+}
+
 async function saveOAuthApp(env, provider, contextOwner, body) {
   const clientId = clean(body.client_id, 1000);
   const clientSecret = clean(body.client_secret, 2000);
@@ -328,7 +428,7 @@ async function bodyObject(request) {
 }
 
 export async function maybeHandleConnectionSettingsApi(request, env = {}, url = new URL(request.url)) {
-  const match = url.pathname.match(/^\/api\/gen2\/connections\/(google|microsoft|yahoo|roundcube)\/(status|save|test)$/);
+  const match = url.pathname.match(/^\/api\/gen2\/connections\/(google|microsoft|yahoo|roundcube|vercel)\/(status|save|test)$/);
   if (!match) return null;
   const provider = match[1];
   const action = match[2];
@@ -340,7 +440,9 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
       if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
       const result = provider === 'roundcube'
         ? await roundcubeStatus(env, contextOwner)
-        : await oauthStatus(env, provider, contextOwner);
+        : provider === 'vercel'
+          ? await vercelStatus(env, contextOwner)
+          : await oauthStatus(env, provider, contextOwner);
       return json({ ok: true, ...result });
     }
 
@@ -349,7 +451,9 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
       const body = await bodyObject(request);
       const result = provider === 'roundcube'
         ? await saveRoundcube(env, contextOwner, body)
-        : await saveOAuthApp(env, provider, contextOwner, body);
+        : provider === 'vercel'
+          ? await saveVercelConnectionConfig(env, body, contextOwner)
+          : await saveOAuthApp(env, provider, contextOwner, body);
       return json({ ok: true, ...result });
     }
 
@@ -361,6 +465,9 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
         if (!stored) return json({ ok: false, code: 'ROUNDCUBE_NOT_CONFIGURED' }, 409);
         const [imap, smtp] = await Promise.all([imapAuthProbe(stored), smtpAuthProbe(stored)]);
         return json({ ok: true, provider, imap, smtp, persistent: true });
+      }
+      if (provider === 'vercel') {
+        return json(await testVercelConnection(env, contextOwner, request.signal));
       }
       const body = await bodyObject(request);
       const connectorId = clean(body.connector_id, 160);

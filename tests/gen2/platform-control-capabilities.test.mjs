@@ -314,3 +314,31 @@ test('upstream mutation errors never echo response bodies or credentials', async
     assert.equal(String(caught.message).includes('secret'), false);
   }
 });
+
+
+test('Vercel redeploy accepts encrypted runtime resolver when env target is absent', async () => {
+  const seen = [];
+  const bus = new CapabilityBus();
+  registerPlatformControlCapabilities(bus, {
+    env: {},
+    resolveVercelConfig: async () => ({
+      token: 'vault-vercel-token',
+      team_id: 'team_vault',
+      project_id: 'prj_vault',
+      project_name: 'mel-vault',
+    }),
+    fetchImpl: async (url, init) => {
+      seen.push({ url: String(url), init });
+      return json({ uid: 'dpl_new', name: 'mel-vault', readyState: 'QUEUED' });
+    },
+  });
+  const result = await bus.execute('vercel.deployments.redeploy', {
+    deploymentId: 'dpl_existing',
+    target: 'preview',
+  }, approved('vercel.deployments.redeploy'));
+  assert.equal(result.project_id, 'prj_vault');
+  assert.equal(result.project_name, 'mel-vault');
+  assert.match(seen[0].url, /teamId=team_vault/);
+  assert.equal(seen[0].init.headers.authorization, 'Bearer vault-vercel-token');
+  assert.equal(JSON.stringify(result).includes('vault-vercel-token'), false);
+});

@@ -134,3 +134,35 @@ test('Roundcube IMAP/SMTP password is encrypted and status returns only non-secr
   assert.equal(state.password_present, true);
   assert.equal(state.password, undefined);
 });
+
+
+test('Vercel token is encrypted at rest and status never returns it', async () => {
+  const runtimeEnv = env();
+  const response = await call('/api/gen2/connections/vercel/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      token: 'vercel-secret-token-value',
+      team_id: 'team_123',
+      project_id: 'prj_123',
+      project_name: 'meliturgos',
+    }),
+  }, runtimeEnv);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.token_present, true);
+  assert.equal(body.project_id, 'prj_123');
+  assert.equal(body.token, undefined);
+  assert.equal(JSON.stringify(body).includes('vercel-secret-token-value'), false);
+
+  const raw = JSON.stringify([...runtimeEnv.DB.tokens.values()]);
+  assert.equal(raw.includes('vercel-secret-token-value'), false);
+  assert.match(raw, /MEL_OAUTH_VAULT_V1/);
+
+  const status = await call('/api/gen2/connections/vercel/status', { method: 'GET' }, runtimeEnv);
+  const state = await status.json();
+  assert.equal(state.configured, true);
+  assert.equal(state.target_configured, true);
+  assert.equal(state.project_name, 'meliturgos');
+  assert.equal(state.token, undefined);
+});

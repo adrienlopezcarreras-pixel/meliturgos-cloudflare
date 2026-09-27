@@ -191,3 +191,28 @@ test('platform read healthchecks turn working GitHub reads healthy and explain u
   assert.equal(vercel.health, 'UNAVAILABLE');
   assert.equal(vercel.health_detail, 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED');
 });
+
+
+test('Vercel reads accept encrypted runtime resolver when env token is absent', async () => {
+  const seen = [];
+  const bus = new CapabilityBus();
+  registerPlatformReadCapabilities(bus, {
+    env: {},
+    resolveVercelConfig: async () => ({
+      token: 'vault-vercel-token',
+      team_id: 'team_vault',
+      project_id: 'prj_vault',
+      project_name: 'mel-vault',
+    }),
+    fetchImpl: async (url, init) => {
+      seen.push({ url: String(url), authorization: init.headers.authorization });
+      return json({ projects: [{ id: 'prj_vault', name: 'mel-vault' }] });
+    },
+  });
+  const result = await bus.execute('vercel.projects.read', { limit: 1 }, owner);
+  assert.equal(result.count, 1);
+  assert.equal(result.projects[0].id, 'prj_vault');
+  assert.match(seen[0].url, /teamId=team_vault/);
+  assert.equal(seen[0].authorization, 'Bearer vault-vercel-token');
+  assert.equal(JSON.stringify(result).includes('vault-vercel-token'), false);
+});
