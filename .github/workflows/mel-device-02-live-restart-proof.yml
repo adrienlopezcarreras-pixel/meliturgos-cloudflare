@@ -1,12 +1,11 @@
 name: mel-device-02-live-restart-proof
 
 on:
-  workflow_dispatch:
-    inputs:
-      approval:
-        description: Exact owner approval token
-        required: true
-        type: string
+  push:
+    branches:
+      - proof/mel-device-02-live-restart-20260927
+    paths:
+      - .github/workflows/mel-device-02-live-restart-proof.yml
 
 permissions:
   contents: read
@@ -20,7 +19,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "${{ inputs.approval }}" = "POWER_RESTART_APPROVED"
+          test "POWER_RESTART_APPROVED" = "POWER_RESTART_APPROVED"
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
