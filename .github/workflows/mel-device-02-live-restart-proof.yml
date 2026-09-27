@@ -1,0 +1,151 @@
+name: mel-device-02-live-restart-proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      approval:
+        description: Exact owner approval token
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  restart:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Require exact owner approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ inputs.approval }}" = "POWER_RESTART_APPROVED"
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Select live Windows companion
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json             --command "SELECT id,last_seen_at FROM computer_devices WHERE lower(platform)='windows' ORDER BY last_seen_at DESC LIMIT 1"             > device.raw.json
+          python - <<'PY'
+          import json,time,os
+          raw=json.load(open("device.raw.json"))
+          rows=[]
+          for part in raw if isinstance(raw,list) else [raw]:
+              if isinstance(part,dict) and isinstance(part.get("results"),list):
+                  rows.extend(part["results"])
+          if not rows:
+              raise SystemExit("MEL_DEVICE_02_WINDOWS_DEVICE_NOT_FOUND")
+          row=rows[0]
+          seen=int(row.get("last_seen_at") or 0)
+          age=int(time.time()*1000)-seen
+          if age > 120000:
+              raise SystemExit(f"MEL_DEVICE_02_WINDOWS_DEVICE_STALE:{age}")
+          device=str(row["id"])
+          print(f"::add-mask::{device}")
+          with open(os.environ["GITHUB_ENV"],"a",encoding="utf-8") as fh:
+              fh.write(f"COMPUTER_ID={device}\n")
+              fh.write(f"PRE_RESTART_LAST_SEEN={seen}\n")
+          print(json.dumps({"windows_companion_online":True,"heartbeat_age_ms":age}))
+          PY
+
+      - name: Queue exactly one owner-approved MEL restart
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          export COMMAND_ID="mel-device-02-live-restart-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "COMMAND_ID=$COMMAND_ID" >> "$GITHUB_ENV"
+          python - <<'PY'
+          import json,os,time
+          def q(s): return str(s).replace("'","''")
+          cid=os.environ["COMMAND_ID"]
+          did=os.environ["COMPUTER_ID"]
+          plan={
+            "schema":"mel.devices.power-command.v1",
+            "owner_approved":True,
+            "steps":[{"id":"power-1","action":"power.restart"}]
+          }
+          sql=("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES("
+               f"'{q(cid)}','{q(did)}','{q(cid)}','{q(json.dumps(plan,separators=(',',':')))}','PENDING',{int(time.time()*1000)});")
+          open("restart.sql","w",encoding="utf-8").write(sql+"\n")
+          PY
+          npx wrangler d1 execute DB --remote --file restart.sql
+
+      - name: Wait for companion to schedule the restart
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          ok=0
+          for n in $(seq 1 45); do
+            npx wrangler d1 execute DB --remote --json               --command "SELECT status,error_code,result_json,claimed_at,finished_at FROM computer_commands WHERE id='${COMMAND_ID}' LIMIT 1"               > command.raw.json
+            if python - <<'PY'
+          import json,sys
+          raw=json.load(open("command.raw.json"))
+          rows=[]
+          for part in raw if isinstance(raw,list) else [raw]:
+              if isinstance(part,dict) and isinstance(part.get("results"),list):
+                  rows.extend(part["results"])
+          if not rows: raise SystemExit(1)
+          r=rows[0]
+          if r.get("status")=="FAILED":
+              print(json.dumps({"status":"FAILED","error_code":r.get("error_code")}))
+              raise SystemExit(2)
+          if r.get("status")!="SUCCEEDED":
+              raise SystemExit(1)
+          payload=json.loads(r.get("result_json") or "{}")
+          outputs=payload.get("outputs") or []
+          if not outputs or outputs[0].get("action")!="power.restart" or outputs[0].get("scheduled") is not True:
+              print(json.dumps({"status":"INVALID_RESULT","outputs":outputs}))
+              raise SystemExit(3)
+          proof={
+            "schema":"mel.mel-device-02-live-restart.v1",
+            "command_status":"SUCCEEDED",
+            "action":"power.restart",
+            "scheduled":True,
+            "delay_seconds":outputs[0].get("delay_seconds"),
+            "owner_approval_token":"POWER_RESTART_APPROVED",
+            "claimed_at":r.get("claimed_at"),
+            "finished_at":r.get("finished_at")
+          }
+          json.dump(proof,open("mel-device-02-restart-proof.json","w"),indent=2)
+          print(json.dumps(proof))
+          PY
+            then
+              ok=1
+              break
+            else
+              code=$?
+              if [ "$code" = "2" ] || [ "$code" = "3" ]; then exit "$code"; fi
+            fi
+            sleep 2
+          done
+          test "$ok" = "1"
+
+      - name: Upload restart scheduling proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-device-02-live-restart-proof
+          path: mel-device-02-restart-proof.json
+          if-no-files-found: error
+          retention-days: 14
