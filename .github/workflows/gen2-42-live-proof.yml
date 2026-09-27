@@ -52,6 +52,25 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Read exact completion gate diagnostics
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT id,status,json_extract(result_json,'$.teacher_bridge.status') AS teacher_status,json_extract(result_json,'$.teacher_bridge.review.verdict') AS teacher_verdict,json_extract(result_json,'$.teacher_bridge.review.development_allowed') AS teacher_development_allowed,json_extract(result_json,'$.teacher_bridge.request.request_id') AS teacher_request_id,json_extract(result_json,'$.implementation_proposal.status') AS proposal_status,json_extract(result_json,'$.implementation_proposal.teacher_request_id') AS proposal_request_id,json_extract(result_json,'$.implementation_proposal.candidate_branch') AS proposal_candidate_branch,json_array_length(json_extract(result_json,'$.implementation_proposal.providers_attempted')) AS providers_attempted_count,json_array_length(json_extract(result_json,'$.implementation_proposal.inspected_files')) AS inspected_files_count,length(COALESCE(json_extract(result_json,'$.implementation_proposal.selected.text'),'')) AS selected_text_chars,json_extract(result_json,'$.implementation_proposal.selected.model') AS selected_model,json_extract(result_json,'$.implementation_proposal.production_touched') AS production_touched,json_extract(result_json,'$.implementation_proposal.candidate_write_performed') AS candidate_write_performed,json_extract(result_json,'$.autonomy_completion.status') AS completion_status,json_extract(result_json,'$.autonomy_completion.candidate_sha') AS completion_candidate_sha,json_extract(result_json,'$.autonomy_completion.ci.run_id') AS completion_ci_run_id FROM dev_jobs WHERE id='ecosystem-watch-c3bfaf443b1287cf885033ecd760bc94' LIMIT 1" \
+            > completion-gate.raw.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const raw=JSON.parse(fs.readFileSync('completion-gate.raw.json','utf8'));
+          const parts=Array.isArray(raw)?raw:[raw];
+          const rows=parts.flatMap(x=>Array.isArray(x?.results)?x.results:[]);
+          console.log(JSON.stringify({completion_gate:rows[0]||null},null,2));
+          NODE
+
       - name: Build sanitized GEN2-42 proof
         shell: bash
         run: |
