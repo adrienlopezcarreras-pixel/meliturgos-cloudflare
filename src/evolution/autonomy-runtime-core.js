@@ -103,9 +103,16 @@ async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic)
   const latest = await repository.get(jobId);
   if (!latest) return null;
   const result = latest.result_json && typeof latest.result_json === 'object' ? { ...latest.result_json } : {};
+  const failures = Array.isArray(diagnostic?.failures)
+    ? diagnostic.failures.slice(0, 8).map((row) => ({
+        stage: String(row?.stage || '').slice(0, 24),
+        code: safeDiagnosticCode({ code: row?.error || row?.code }, 'MENTOR_PROPOSAL_REJECTED'),
+      }))
+    : [];
   result.bridge_preparation_diagnostic = {
     status: diagnostic.status === 'READY' ? 'READY' : 'NOT_READY',
     code: diagnostic.status === 'READY' ? null : safeDiagnosticCode({ code: diagnostic.code }, 'BRIDGE_PREPARATION_FAILED'),
+    mentor_failure_codes: failures,
     observed_at: new Date().toISOString(),
   };
   return repository.update(jobId, { result_json: result });
@@ -485,6 +492,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
         bridgePreparation = {
           status: 'NOT_READY',
           code: safeDiagnosticCode(error, 'BRIDGE_PREPARATION_FAILED'),
+          failures: Array.isArray(error?.failures) ? error.failures : [],
         };
         await persistBridgePreparationDiagnostic(jobRepository, job.id, bridgePreparation);
         job = await jobRepository.get(job.id);
