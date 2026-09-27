@@ -285,6 +285,19 @@ export const MIGRATIONS = [
     await db.prepare(`CREATE INDEX IF NOT EXISTS idx_mel_oauth_transactions_expiry
       ON mel_oauth_transactions(expires_at)`).run();
   }},
+  { version: 14, name: 'release_backup_bindings', run: async db => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS release_backup_bindings (
+      deployed_sha TEXT PRIMARY KEY,
+      snapshot_id TEXT NOT NULL,
+      snapshot_integrity_sha256 TEXT NOT NULL,
+      snapshot_deployed_sha TEXT,
+      snapshot_created_at TEXT NOT NULL,
+      bound_at INTEGER NOT NULL,
+      binding_sha256 TEXT NOT NULL
+    )`).run();
+    await db.prepare(`CREATE INDEX IF NOT EXISTS idx_release_backup_bindings_bound_at
+      ON release_backup_bindings(bound_at DESC)`).run();
+  }},
 ];
 
 export async function migrate(db, targetVersion = DB_SCHEMA_VERSION) {
