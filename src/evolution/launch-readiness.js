@@ -390,7 +390,11 @@ export function summarizeAutonomyLaunchCodeSync(value) {
 export async function prepareAutonomyLaunchBackup(env) {
   if (isPreview(env)) return { ok: true, status: 'SKIPPED_PREVIEW' };
   try {
-    const backup = await runScheduledSystemBackup(env, { intervalMs: 15 * 60 * 1000, force: true });
+    const backup = await runScheduledSystemBackup(env, {
+      intervalMs: 15 * 60 * 1000,
+      force: true,
+      compactPostPersistVerify: true,
+    });
     return {
       ok: backup?.ok === true,
       status: backup?.status || 'BACKUP_PREPARED',
