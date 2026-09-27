@@ -106,3 +106,50 @@ test('GEN2-42 production proof reads a real WAITING_TEACHER handoff without exte
     DB.close();
   }
 });
+
+
+test('GEN2-42 production proof accepts a truly idle ledger without masking open blocked handoffs', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    await DB.prepare(
+      `INSERT INTO capability_watch_state(id,state_json,updated_at) VALUES(?,?,?)`
+    ).bind('ecosystem-discoveries-canonical',JSON.stringify({schema:'mel.ecosystem-discovery-ledger.v1',items:[]}),Date.now()).run();
+
+    const idle=await proveEcosystemTeacherHandoff({DB},{
+      developmentRepository:{ async get(){ return null; } },
+    });
+    assert.equal(idle.ok,true);
+    assert.equal(idle.status,'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED');
+    assert.equal(idle.idle_verified,true);
+    assert.equal(idle.open_handoff_count,0);
+    assert.equal(idle.active_teacher_handoff_count,0);
+    assert.equal(idle.job_id,null);
+    assert.equal(idle.teacher_request_id,null);
+
+    const blockedLedger={
+      schema:'mel.ecosystem-discovery-ledger.v1',
+      items:[{
+        fingerprint:'blocked-proof',
+        handoff:{job_id:'job-blocked',status:'QUEUED',teacher_request_id:null,closed:false},
+      }],
+    };
+    await DB.prepare(
+      `UPDATE capability_watch_state SET state_json=?,updated_at=? WHERE id=?`
+    ).bind(JSON.stringify(blockedLedger),Date.now(),'ecosystem-discoveries-canonical').run();
+
+    const blocked=await proveEcosystemTeacherHandoff({DB},{
+      developmentRepository:{
+        async get(id){
+          return {id,status:'QUEUED',requested_by:'mel-autonomy',optional_context:{source:'ecosystem-watch'},created_at:1,result_json:{}};
+        },
+      },
+    });
+    assert.equal(blocked.ok,false);
+    assert.equal(blocked.status,'GEN2_42_TEACHER_HANDOFF_NOT_READY');
+    assert.equal(blocked.idle_verified,false);
+    assert.equal(blocked.open_handoff_count,1);
+  } finally {
+    DB.close();
+  }
+});
