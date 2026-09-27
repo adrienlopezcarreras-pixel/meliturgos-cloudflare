@@ -4,5 +4,6 @@
         <activity
             android:name=".MelUiHarnessActivity"
             android:exported="true" />
+            <activity android:name=".MelLoginHarnessActivity" android:exported="true" />
     </application>
 </manifest>
