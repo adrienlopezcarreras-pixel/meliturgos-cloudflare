@@ -7,6 +7,7 @@ import {
   runScheduledSystemBackup,
 } from '../backup/system-backup-runtime.js';
 import { verifyRestoreCandidate } from '../backup/restore-service.js';
+import { createEnvBackupEncryptionCodec } from '../backup/encrypted-backup-storage.js';
 import { getShardVaultStatus, syncShardVaultCodeExternally } from '../continuity/shardvault-runtime.js';
 import { D1DevJobRepository } from '../dev/d1-dev-job-repository.js';
 import {
@@ -156,7 +157,11 @@ export async function evaluateRestoreReadiness(env) {
   }
 
   try {
-    const storage = createR2D1BackupStorage({ db: env.DB, bucket: env.MEDIA_BUCKET });
+    const encryptionKeyId = String(env?.MEL_BACKUP_ENCRYPTION_KEY_ID || '').trim();
+    const encryptionKey = String(env?.MEL_BACKUP_ENCRYPTION_KEY_B64 || '').trim();
+    const encryptionRequested = Boolean(encryptionKeyId || encryptionKey);
+    const encryptionCodec = encryptionRequested ? createEnvBackupEncryptionCodec(env) : null;
+    const storage = createR2D1BackupStorage({ db: env.DB, bucket: env.MEDIA_BUCKET, encryptionCodec });
     const latest = (await storage.list({ limit: 1 }))[0] || null;
     if (!latest?.id) return { ok: false, status: 'NO_VERIFIED_SYSTEM_BACKUP' };
     const snapshot = await storage.get(latest.id);
