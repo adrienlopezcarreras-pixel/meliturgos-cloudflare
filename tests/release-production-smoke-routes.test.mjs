@@ -7,9 +7,30 @@ const TOKEN = 's'.repeat(64);
 const SHA = 'b'.repeat(40);
 const BRANCH = 'release/mel-hardware-v0.1.0';
 
-function db(backupSnapshot = null) {
+function db(backupSnapshot = null, backupMetadata = null) {
   const auditRows = [];
-  const backupObjectKey = backupSnapshot ? `backups/system/${backupSnapshot.id}.json` : null;
+  const backupObjectKey = backupMetadata?.objectKey
+    || (backupSnapshot ? `backups/system/${backupSnapshot.id}.json` : null);
+  const backupRow = backupMetadata
+    ? {
+        id: String(backupMetadata.id || ''),
+        object_key: backupObjectKey,
+        metadata_json: JSON.stringify(backupMetadata),
+        created_at: Date.parse(String(backupMetadata.createdAt || '')),
+      }
+    : backupSnapshot
+      ? {
+          id: backupSnapshot.id,
+          object_key: backupObjectKey,
+          metadata_json: JSON.stringify({
+            createdAt: backupSnapshot.createdAt,
+            integritySha256: backupSnapshot.integritySha256,
+            sourceCount: backupSnapshot.sourceCount,
+            verified: backupSnapshot.verified === true,
+          }),
+          created_at: Date.parse(backupSnapshot.createdAt),
+        }
+      : null;
   return {
     prepare(sql) {
       return {
@@ -17,26 +38,14 @@ function db(backupSnapshot = null) {
         bind(...params) { this.params = params; return this; },
         async first() {
           if (/COUNT\(\*\)/i.test(String(sql))) return { count: 3 };
-          if (backupSnapshot && /SELECT\s+object_key\s+FROM\s+backup_objects\s+WHERE\s+id=/i.test(String(sql))) {
-            return String(this.params[0] || '') === backupSnapshot.id ? { object_key: backupObjectKey } : null;
+          if (backupRow && /SELECT\s+object_key\s+FROM\s+backup_objects\s+WHERE\s+id=/i.test(String(sql))) {
+            return String(this.params[0] || '') === backupRow.id ? { object_key: backupObjectKey } : null;
           }
           return null;
         },
         async all() {
-          if (backupSnapshot && /FROM\s+backup_objects/i.test(String(sql))) {
-            return {
-              results: [{
-                id: backupSnapshot.id,
-                object_key: backupObjectKey,
-                metadata_json: JSON.stringify({
-                  createdAt: backupSnapshot.createdAt,
-                  integritySha256: backupSnapshot.integritySha256,
-                  sourceCount: backupSnapshot.sourceCount,
-                  verified: backupSnapshot.verified === true,
-                }),
-                created_at: Date.parse(backupSnapshot.createdAt),
-              }],
-            };
+          if (backupRow && /FROM\s+backup_objects/i.test(String(sql))) {
+            return { results: [structuredClone(backupRow)] };
           }
           if (/FROM\s+audit_logs/i.test(String(sql))) {
             const since = Number(this.params[0]) || 0;
@@ -145,6 +154,48 @@ async function recoveryEnv() {
   return runtimeEnv;
 }
 
+
+function compactEncryptedRecoveryEnv() {
+  const id = 'release-recovery-encrypted-smoke';
+  const metadata = {
+    id,
+    objectKey: `backups/system/${id}.enc.json`,
+    createdAt: '2026-09-27T12:10:00.000Z',
+    integritySha256: 'd'.repeat(64),
+    sourceCount: 3,
+    verified: true,
+    encrypted: true,
+    encryptionSchema: 'MEL_ENCRYPTED_BACKUP_V1',
+    encryptionAlgorithm: 'AES-GCM-256',
+    encryptionKeyId: 'release-smoke-key',
+    restoreVerified: true,
+    restoreCode: 'RESTORE_CANDIDATE_VERIFIED',
+    restoreIntegritySha256: 'd'.repeat(64),
+    restoreDeployedGitSha: SHA,
+    restoreTableCount: 2,
+    restoreRowCount: 3,
+    restoreR2ObjectCount: 1,
+  };
+  const runtimeEnv = env();
+  runtimeEnv.DB = db(null, metadata);
+  runtimeEnv.MEL_BACKUP_ENCRYPTION_KEY_ID = 'release-smoke-key';
+  runtimeEnv.MEL_BACKUP_ENCRYPTION_KEY_B64 = Buffer.alloc(32, 7).toString('base64');
+  const calls = { head:0, get:0 };
+  runtimeEnv.MEDIA_BUCKET = {
+    async head(key) {
+      calls.head += 1;
+      return key === metadata.objectKey ? { key, size:4096 } : null;
+    },
+    async get() {
+      calls.get += 1;
+      throw new Error('FULL_BACKUP_READ_FORBIDDEN_IN_RELEASE_SMOKE');
+    },
+    async put() {},
+    async delete() {},
+  };
+  return { runtimeEnv, calls };
+}
+
 function smokeRequest(path, method = 'GET', init = {}) {
   return new Request('https://mel.test' + path, {
     method,
@@ -244,6 +295,35 @@ test('GEN2-48 release token runs the isolated recovery drill but never activates
   assert.equal(body.result.activation_performed, false);
   assert.equal(body.result.teardown_completed, true);
   assert.equal(body.result.reconstructed_tables, 1);
+});
+
+
+test('GEN2-48 release token reuses exact persisted encrypted evidence without reading the full R2 snapshot', async () => {
+  const { runtimeEnv, calls } = compactEncryptedRecoveryEnv();
+  const response = await worker.fetch(
+    smokeRequest('/api/gen2/capabilities/execute', 'POST', {
+      headers: { 'content-type':'application/json' },
+      body: JSON.stringify({ id:'resilience.recovery.drill.latest', input:{ approved:true } }),
+    }),
+    runtimeEnv,
+    {},
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.result.state, 'PASSED');
+  assert.equal(body.result.restore_candidate_verified, true);
+  assert.equal(body.result.persisted_evidence_reused, true);
+  assert.equal(body.result.backup_object_present, true);
+  assert.equal(body.result.backup_object_bytes, 4096);
+  assert.equal(body.result.reconstructed_tables, 2);
+  assert.equal(body.result.reconstructed_rows, 3);
+  assert.equal(body.result.deployed_sha, SHA);
+  assert.equal(body.result.production_access_used, false);
+  assert.equal(body.result.activation_performed, false);
+  assert.equal(body.result.teardown_completed, true);
+  assert.equal(calls.head, 1);
+  assert.equal(calls.get, 0);
 });
 
 test('GEN2-37 release token proves high-provenance official web research and rejects broader scope', async () => {
