@@ -9,6 +9,7 @@ import { recoverPassiveRuntimeStates } from './passive-state-recovery.js';
 import { retireObsoleteQueueJobs } from './queue-hygiene.js';
 import { tryAcquireAutonomyRuntimeLease, releaseAutonomyRuntimeLease } from './autonomy-runtime-lease.js';
 import { createZeroCostBenchmarkEvaluator } from '../learning/operator-actions.js';
+import { reconcileRuntimeCompletions } from '../teachers/github-completion-reconciler.js';
 
 export * from './autonomy-runtime-core.js';
 
@@ -53,6 +54,33 @@ function launchApprovalValid(env, control, options = {}) {
     };
   }
   return { ok: true, enforced: true, deployed_sha: sha, approved_sha: sha };
+}
+
+export async function reconcileVerifiedCompletionsBehindLaunchGate(env = {}, options = {}) {
+  const repository = options.repository || (env?.DB ? new D1DevJobRepository(env.DB) : null);
+  if (!repository) {
+    return { ok: true, skipped: true, reason: 'COMPLETION_REPOSITORY_UNAVAILABLE', completed: [], rejected: [] };
+  }
+  const benchmarkRuntime = resolveRuntimeBenchmarkEvaluator(env, options);
+  const reconcile = typeof options.completionReconciler === 'function'
+    ? options.completionReconciler
+    : reconcileRuntimeCompletions;
+  try {
+    return await reconcile({
+      repository,
+      env,
+      fetchImpl: options.fetchImpl || fetch,
+      benchmarkEvaluator: benchmarkRuntime.evaluator,
+      benchmarkModelId: benchmarkRuntime.model_id,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: String(error?.code || error?.message || 'COMPLETION_RECONCILE_FAILED').slice(0, 180),
+      completed: [],
+      rejected: [],
+    };
+  }
 }
 
 export function resolveRuntimeBenchmarkEvaluator(env = {}, options = {}) {
@@ -550,6 +578,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
 
   const launchApproval = launchApprovalValid(env, control, options);
   if (!launchApproval.ok) {
+    const passiveCompletions = await reconcileVerifiedCompletionsBehindLaunchGate(env, options);
     return {
       ok: false,
       status: launchApproval.code,
@@ -557,6 +586,7 @@ export async function runAutonomyRuntimeTick(env, options = {}) {
       candidate_branch: env?.MEL_GITHUB_BRANCH || CANONICAL_CANDIDATE_BRANCH,
       control,
       launch_gate: launchApproval,
+      passive_completions: passiveCompletions,
     };
   }
 
