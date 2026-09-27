@@ -11,6 +11,7 @@ const MAX_CHANGE_CHARS = 200_000;
 const ALLOWED_TESTS = new Set(['test', 'test:mel', 'test:integration', 'test:acceptance', 'test:smoke', 'test:mvp', 'test:routes']);
 const DENIED_PATH = /(^|\/)(?:\.git|node_modules|\.wrangler|\.env(?:\.|$)|dev\.vars|secrets?|credentials?)(?:\/|$)|(?:^|[._/-])(?:token|password|api[_-]?key|private[_-]?key)(?:[._/-]|$)/i;
 const ALLOWED_TEXT_PATH = /^(?:src|tests|scripts|docs|migrations|\.github)\/[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)$|^(?:package\.json|wrangler\.jsonc)$/;
+const SAFE_INSPECTION_TEXT_PATH = /^[A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|md|txt|yml|yaml|toml|css|html|sql|sh|ps1)$/;
 
 function bounded(value, max) {
   const text = String(value ?? '');
@@ -24,10 +25,30 @@ function evidenceObject(row) {
   try { return JSON.parse(value); } catch { return {}; }
 }
 
-function safePath(path) {
+function normalizedRepositoryPath(path) {
   const value = String(path || '').trim().replace(/\\/g, '/');
-  if (!value || value.startsWith('/') || value.includes('..') || DENIED_PATH.test(value) || !ALLOWED_TEXT_PATH.test(value)) {
+  if (!value || value.startsWith('/') || value.includes('..') || DENIED_PATH.test(value)) {
     const error = new Error(`MENTOR_PATH_DENIED:${value || 'empty'}`);
+    error.code = 'MENTOR_PATH_DENIED';
+    throw error;
+  }
+  return value;
+}
+
+function safeInspectionPath(path) {
+  const value = normalizedRepositoryPath(path);
+  if (!SAFE_INSPECTION_TEXT_PATH.test(value)) {
+    const error = new Error(`MENTOR_PATH_DENIED:${value}`);
+    error.code = 'MENTOR_PATH_DENIED';
+    throw error;
+  }
+  return value;
+}
+
+function safePath(path) {
+  const value = normalizedRepositoryPath(path);
+  if (!ALLOWED_TEXT_PATH.test(value)) {
+    const error = new Error(`MENTOR_PATH_DENIED:${value}`);
     error.code = 'MENTOR_PATH_DENIED';
     throw error;
   }
@@ -49,7 +70,7 @@ function normalizeInspectedFiles(files = []) {
   const out = [];
   for (const item of Array.isArray(files) ? files : []) {
     if (out.length >= MAX_FILES || total >= MAX_TOTAL_SOURCE_CHARS) break;
-    const path = safePath(item?.path);
+    const path = safeInspectionPath(item?.path);
     const remaining = MAX_TOTAL_SOURCE_CHARS - total;
     const content = bounded(item?.content ?? item?.result?.content ?? '', Math.min(MAX_FILE_CHARS, remaining));
     total += content.length;
