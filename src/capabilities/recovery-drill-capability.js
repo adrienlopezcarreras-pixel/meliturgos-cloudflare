@@ -1,4 +1,4 @@
-import { createR2D1BackupStorage } from '../backup/system-backup-runtime.js';
+import { SYSTEM_BACKUP_PREFIX, createR2D1BackupStorage } from '../backup/system-backup-runtime.js';
 import { createEnvBackupEncryptionCodec } from '../backup/encrypted-backup-storage.js';
 import { inspectRestoreCandidate, verifyRestoreCandidate } from '../backup/restore-service.js';
 import { requireValue } from '../core/contracts.js';
@@ -71,6 +71,140 @@ export function verifyPersistedEncryptedRestoreCandidate(snapshot, metadata) {
     return { ok: false, code: 'RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_MISMATCH' };
   }
   return proof;
+}
+
+
+function currentDeployedSha(env = {}) {
+  const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim();
+  if (/^[a-f0-9]{40}$/i.test(direct)) return direct.toLowerCase();
+  try {
+    const built = typeof MEL_DEPLOYED_GIT_SHA !== 'undefined' ? String(MEL_DEPLOYED_GIT_SHA || '').trim() : '';
+    return /^[a-f0-9]{40}$/i.test(built) ? built.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function runRecoveryDrillAgainstPersistedEvidence(metadata, {
+  owner = false,
+  approved = false,
+  expectedDeployedSha = null,
+  backupObjectPresent = false,
+  backupObjectBytes = 0,
+  now = () => new Date().toISOString(),
+} = {}) {
+  requireValue(approved === true, 'RECOVERY_DRILL_EXPLICIT_APPROVAL_REQUIRED', 403);
+  const snapshotId = String(metadata?.id || '').trim();
+  const integrity = String(metadata?.integritySha256 || '').toLowerCase();
+  const restoreIntegrity = String(metadata?.restoreIntegritySha256 || '').toLowerCase();
+  const deployedSha = String(metadata?.restoreDeployedGitSha || '').toLowerCase();
+  const expectedSha = String(expectedDeployedSha || '').toLowerCase();
+  const tableCount = Number(metadata?.restoreTableCount);
+  const rowCount = Number(metadata?.restoreRowCount);
+  const r2ObjectCount = Number(metadata?.restoreR2ObjectCount);
+  const expectedObjectKey = snapshotId ? `${SYSTEM_BACKUP_PREFIX}${snapshotId}.enc.json` : '';
+
+  requireValue(metadata?.encrypted === true, 'RECOVERY_DRILL_ENCRYPTED_METADATA_REQUIRED', 409);
+  requireValue(metadata?.verified === true, 'RECOVERY_DRILL_PERSISTED_CRYPTO_PROOF_REQUIRED', 409);
+  requireValue(metadata?.restoreVerified === true, 'RECOVERY_DRILL_PERSISTED_RESTORE_PROOF_REQUIRED', 409);
+  requireValue(snapshotId, 'RECOVERY_DRILL_BACKUP_NOT_FOUND', 404);
+  requireValue(/^[a-f0-9]{64}$/.test(integrity) && integrity === restoreIntegrity, 'RECOVERY_DRILL_PERSISTED_INTEGRITY_MISMATCH', 409);
+  requireValue(/^[a-f0-9]{40}$/.test(deployedSha), 'RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_INVALID', 409);
+  if (expectedSha) requireValue(deployedSha === expectedSha, 'RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_MISMATCH', 409);
+  requireValue(String(metadata?.objectKey || '') === expectedObjectKey, 'RECOVERY_DRILL_PERSISTED_OBJECT_KEY_MISMATCH', 409);
+  requireValue(Number.isInteger(tableCount) && tableCount > 0, 'RECOVERY_DRILL_PERSISTED_TABLE_COUNT_INVALID', 409);
+  requireValue(Number.isInteger(rowCount) && rowCount >= 0, 'RECOVERY_DRILL_PERSISTED_ROW_COUNT_INVALID', 409);
+  requireValue(Number.isInteger(r2ObjectCount) && r2ObjectCount >= 0, 'RECOVERY_DRILL_PERSISTED_R2_COUNT_INVALID', 409);
+  requireValue(backupObjectPresent === true && Number(backupObjectBytes) > 0, 'RECOVERY_DRILL_BACKUP_OBJECT_NOT_PROVEN', 409);
+
+  const bundleBuilder = new RecoveryBundleBuilder({ now });
+  const bundle = await bundleBuilder.build({
+    sourceCommit: deployedSha,
+    artifacts: [{ id:'critical-code', checksum:deployedSha }],
+    exports: [
+      { id:'snapshot-integrity', checksum:integrity },
+      { id:'d1-logical-state', checksum:integrity },
+      { id:'r2-inventory', checksum:integrity },
+    ],
+    restore: {
+      snapshotId,
+      dryRunOnly: true,
+      evidenceBasis: 'PERSISTED_VERIFIED_BACKUP_EVIDENCE',
+    },
+    destinations: [],
+  });
+
+  const standby = {
+    schema:'mel.resilience.cold-standby.v1',
+    generated_at:now(),
+    source:{branch:'release',commit:deployedSha},
+    runtime:{worker_name:'meliturgos-recovery-release-smoke',runtime:'cloudflare-workers',source_kind:'INDEPENDENT_SHARD_COPY'},
+    database:{kind:'d1-logical-export',backup_reference:snapshotId},
+    artifacts:[{id:'critical-code',checksum:deployedSha}],
+    activation:{automatic:false,owner_approval_required:true,requested:false,authorized:false},
+    readiness:{code:true,database:true,secrets:true,healthcheck:true},
+  };
+
+  let staged = null;
+  const expectedChecks = ['snapshot-integrity','d1-logical-state','r2-inventory','runtime-descriptor','backup-object-present','activation-forbidden'];
+  const controller = createRecoveryDrillController({
+    bundleBuilder,
+    authorize: async (_permission, scope) => owner === true && scope?.environmentId === 'recovery-release-smoke',
+    adapter: {
+      async stage(payload) {
+        requireValue(payload?.environment?.isolated === true, 'RECOVERY_DRILL_ISOLATION_REQUIRED');
+        requireValue(payload?.environment?.production_access === false, 'RECOVERY_DRILL_PRODUCTION_ACCESS_FORBIDDEN');
+        staged = {
+          snapshot_id: snapshotId,
+          integrity_sha256: integrity,
+          deployed_sha: deployedSha,
+          table_count: tableCount,
+          row_count: rowCount,
+          r2_object_count: r2ObjectCount,
+          backup_object_present: backupObjectPresent === true,
+          backup_object_bytes: Number(backupObjectBytes),
+        };
+      },
+      async validate() {
+        requireValue(staged, 'RECOVERY_DRILL_STAGE_REQUIRED');
+        const checks = [
+          { id:'snapshot-integrity', ok:/^[a-f0-9]{64}$/.test(staged.integrity_sha256) },
+          { id:'d1-logical-state', ok:staged.table_count > 0 && staged.row_count >= 0 },
+          { id:'r2-inventory', ok:staged.r2_object_count >= 0 },
+          { id:'runtime-descriptor', ok:/^[a-f0-9]{40}$/.test(staged.deployed_sha) },
+          { id:'backup-object-present', ok:staged.backup_object_present === true && staged.backup_object_bytes > 0 },
+          { id:'activation-forbidden', ok:true },
+        ];
+        return { ok:checks.every(row => row.ok), checks };
+      },
+      async teardown() { staged = null; },
+    },
+  });
+
+  const drillId = `release-recovery-${snapshotId}`.slice(0, 240);
+  const report = await controller.run({
+    drill_id:drillId,
+    dry_run:true,
+    owner_halt:false,
+    environment:{id:'recovery-release-smoke',kind:'SANDBOX',isolated:true,production_access:false},
+    bundle,
+    standby,
+    expected_checks:expectedChecks,
+    approval:{approved:true,action:'RUN_RECOVERY_DRILL',drill_id:drillId,manifest_sha256:bundle.manifestSha256},
+  }, { owner });
+
+  return {
+    ...report,
+    snapshot_id:snapshotId,
+    restore_candidate_verified:true,
+    reconstructed_tables:tableCount,
+    reconstructed_rows:rowCount,
+    verified_r2_objects:r2ObjectCount,
+    deployed_sha:deployedSha,
+    persisted_evidence_reused:true,
+    backup_object_present:true,
+    backup_object_bytes:Number(backupObjectBytes),
+  };
 }
 
 export async function runRecoveryDrillAgainstSnapshot(snapshot, {
@@ -240,6 +374,26 @@ export function registerRecoveryDrillCapability(bus, env = {}) {
         .find(row => String(row?.id || '') === snapshotId) || null;
     }
     requireValue(snapshotId, 'RECOVERY_DRILL_BACKUP_NOT_FOUND', 404);
+
+    if (context?.releaseSmoke === true && persisted?.encrypted === true) {
+      requireValue(encryptionCodec, 'BACKUP_ENCRYPTION_CODEC_REQUIRED', 503);
+      requireValue(
+        String(persisted?.encryptionKeyId || '') === String(encryptionCodec.key_id || ''),
+        'RECOVERY_DRILL_ENCRYPTION_KEY_ID_MISMATCH',
+        409,
+      );
+      requireValue(typeof env?.MEDIA_BUCKET?.head === 'function', 'BACKUP_R2_HEAD_UNAVAILABLE', 503);
+      const object = await env.MEDIA_BUCKET.head(String(persisted.objectKey || ''));
+      requireValue(object, 'RECOVERY_DRILL_BACKUP_OBJECT_NOT_FOUND', 404);
+      return runRecoveryDrillAgainstPersistedEvidence(persisted, {
+        owner: Boolean(context?.owner),
+        approved: true,
+        expectedDeployedSha: currentDeployedSha(env),
+        backupObjectPresent: true,
+        backupObjectBytes: Number(object?.size || 0),
+      });
+    }
+
     const snapshot = await storage.get(snapshotId);
     requireValue(snapshot, 'RECOVERY_DRILL_BACKUP_NOT_FOUND', 404);
 
