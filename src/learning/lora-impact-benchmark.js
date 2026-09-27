@@ -119,20 +119,34 @@ function average(values) {
   return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
 }
 
-export async function runLoraImpactBenchmark({ respond, cases = MEL_LORA_IMPACT_CASES } = {}) {
+async function mapImpactWithConcurrency(items, concurrency, worker) {
+  const list = Array.from(items || []);
+  const results = new Array(list.length);
+  const width = Math.max(1, Math.min(list.length || 1, Math.trunc(Number(concurrency) || 1)));
+  let cursor = 0;
+  await Promise.all(Array.from({ length: width }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= list.length) return;
+      results[index] = await worker(list[index], index);
+    }
+  }));
+  return results;
+}
+
+export async function runLoraImpactBenchmark({ respond, cases = MEL_LORA_IMPACT_CASES, concurrency = 1 } = {}) {
   if (typeof respond !== 'function') {
     const error = new Error('LORA_IMPACT_RESPONDER_REQUIRED');
     error.code = 'LORA_IMPACT_RESPONDER_REQUIRED';
     throw error;
   }
 
-  const results = [];
-  for (const testCase of cases) {
+  const results = await mapImpactWithConcurrency(cases, concurrency, async (testCase) => {
     const started = Date.now();
     try {
       const response = await respond(testCase.prompt, testCase);
       const scored = scoreLoraImpactResponse(response, testCase);
-      results.push({
+      return {
         id: testCase.id,
         domain: testCase.domain,
         kind: testCase.kind,
@@ -141,9 +155,9 @@ export async function runLoraImpactBenchmark({ respond, cases = MEL_LORA_IMPACT_
         latency_ms: Date.now() - started,
         metrics: scored.metrics,
         error: null,
-      });
+      };
     } catch (error) {
-      results.push({
+      return {
         id: testCase.id,
         domain: testCase.domain,
         kind: testCase.kind,
@@ -152,9 +166,9 @@ export async function runLoraImpactBenchmark({ respond, cases = MEL_LORA_IMPACT_
         latency_ms: Date.now() - started,
         metrics: {},
         error: String(error?.code || error?.message || 'LORA_IMPACT_CASE_FAILED').slice(0, 240),
-      });
+      };
     }
-  }
+  });
 
   const legitimate = results.filter((row) => row.kind === 'legitimate_sensitive');
   const technical = results.filter((row) => row.domain === 'technical_depth');
