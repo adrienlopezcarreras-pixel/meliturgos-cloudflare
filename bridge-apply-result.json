@@ -1,0 +1,12 @@
+{
+  "status": "READY_FOR_REVIEW",
+  "needs_repair": false,
+  "tests": [
+    {
+      "name": "test:smoke",
+      "command": "test:smoke",
+      "passed": true,
+      "exit_code": 0
+    }
+  ]
+}
