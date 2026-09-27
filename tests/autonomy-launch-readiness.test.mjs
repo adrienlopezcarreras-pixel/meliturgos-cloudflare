@@ -135,6 +135,59 @@ test('release launch backup uses compact post-persist proof without rereading th
   }
 });
 
+test('release binding reuses a recent verified snapshot for a new deployed SHA without touching the R2 payload', async () => {
+  const DB = sqliteD1();
+  const MEDIA_BUCKET = bucket();
+  let getCount = 0;
+  let putCount = 0;
+  const originalGet = MEDIA_BUCKET.get.bind(MEDIA_BUCKET);
+  const originalPut = MEDIA_BUCKET.put.bind(MEDIA_BUCKET);
+  MEDIA_BUCKET.get = async (...args) => { getCount += 1; return originalGet(...args); };
+  MEDIA_BUCKET.put = async (...args) => { putCount += 1; return originalPut(...args); };
+
+  const oldSha = '1111111111111111111111111111111111111111';
+  const newSha = '2222222222222222222222222222222222222222';
+  const env = {
+    DB,
+    MEDIA_BUCKET,
+    MEL_RUNTIME_ENV: 'production',
+    MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy',
+    MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy',
+    MEL_DEPLOYED_GIT_SHA: oldSha,
+  };
+
+  try {
+    const snapshotTime = new Date(Date.now() - 60_000).toISOString();
+    const initial = await runScheduledSystemBackup(env, {
+      force: true,
+      now: () => snapshotTime,
+    });
+    assert.equal(initial.ok, true, JSON.stringify(initial));
+
+    getCount = 0;
+    putCount = 0;
+    env.MEL_DEPLOYED_GIT_SHA = newSha;
+
+    const prepared = await prepareAutonomyLaunchBackup(env);
+    assert.equal(prepared.ok, true, JSON.stringify(prepared));
+    assert.equal(prepared.status, 'RELEASE_BOUND_VERIFIED_BACKUP');
+    assert.equal(getCount, 0, 'release binding must not read the stored snapshot payload');
+    assert.equal(putCount, 0, 'release binding must not rewrite the stored snapshot payload');
+
+    const restore = await evaluateRestoreReadiness(env);
+    assert.equal(restore.ok, true, JSON.stringify(restore));
+    assert.equal(restore.status, 'RELEASE_BOUND_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED');
+    assert.equal(restore.sha_matches, true);
+    assert.equal(restore.backup_deployed_sha, newSha);
+    assert.equal(restore.snapshot_deployed_sha, oldSha);
+    assert.equal(restore.release_binding?.ok, true);
+    assert.match(String(restore.release_binding?.binding_sha256 || ''), /^[a-f0-9]{64}$/);
+    assert.equal(getCount, 0, 'release-bound readiness must remain metadata-only');
+  } finally {
+    DB.close();
+  }
+});
+
 test('encrypted production backup is readable by restore readiness', async () => {
   const DB = sqliteD1();
   const MEDIA_BUCKET = bucket();
