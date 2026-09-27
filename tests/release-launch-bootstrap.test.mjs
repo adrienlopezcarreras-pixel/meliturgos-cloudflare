@@ -578,3 +578,97 @@ test('GEN2-42 runtime tick phase preserves autonomy control and delegates to can
   assert.equal(tickCalls,1);
   assert.equal(controlCalls,0);
 });
+
+
+test('GEN2-42 owner MAX bootstrap fails closed when exact launch readiness is not green', async () => {
+  let controlCalls=0;
+  let tickCalls=0;
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'gen2-42-owner-max'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},
+    {
+      prepare:async()=>({ok:false,status:'LAUNCH_EVIDENCE_INCOMPLETE',readiness:{
+        ok:true,status:'NO_GO',launch_ready:false,candidate_sha:'c'.repeat(40),blockers:['EXACT_GATE_NOT_READY'],
+      }}),
+      setControl:async()=>{controlCalls+=1; throw new Error('OWNER_MAX_CONTROL_MUST_NOT_RUN');},
+      runAutonomyTick:async()=>{tickCalls+=1; throw new Error('OWNER_MAX_TICK_MUST_NOT_RUN');},
+    },
+  );
+  assert.equal(response.status,409);
+  const body=await response.json();
+  assert.equal(body.ok,false);
+  assert.equal(body.code,'GEN2_42_OWNER_MAX_LAUNCH_GATE_BLOCKED');
+  assert.equal(controlCalls,0);
+  assert.equal(tickCalls,0);
+});
+
+test('GEN2-42 owner MAX bootstrap approves only the gated SHA then runs one canonical tick', async () => {
+  const sha='7'.repeat(40);
+  const digest='8'.repeat(64);
+  const controls=[];
+  let tickCalls=0;
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'gen2-42-owner-max'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB:{}},
+    {
+      prepare:async()=>({ok:true,status:'LAUNCH_EVIDENCE_READY',readiness:{
+        ok:true,
+        status:'GO_FOR_SUPERVISED_AUTONOMY',
+        launch_ready:true,
+        candidate_branch:'candidate/mel-clean-autonomy',
+        candidate_sha:sha,
+        evaluated_at:'2026-09-27T22:30:00.000Z',
+        gate_digest:digest,
+        blockers:[],
+        gates:{verified_restore_dry_run:true},
+      }}),
+      setControl:async(_db,input)=>{
+        controls.push(input);
+        return {
+          paused:input.paused,
+          max_autonomy:input.max_autonomy,
+          launch_approved_sha:input.launch_approved_sha,
+        };
+      },
+      runAutonomyTick:async()=>{
+        tickCalls+=1;
+        return {
+          ok:true,
+          status:'ACTIVE',
+          advanced:true,
+          control:{paused:false,max_autonomy:true},
+          completions:{
+            ok:true,
+            completed:[{job_id:'ecosystem-watch-fixture',candidate_sha:sha,ci_run_id:12345}],
+            rejected:[],
+          },
+        };
+      },
+    },
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.status,'GEN2_42_OWNER_MAX_EXECUTED');
+  assert.equal(body.paused,false);
+  assert.equal(body.max_autonomy,true);
+  assert.equal(body.launch_approved_sha,sha);
+  assert.equal(body.completed.length,1);
+  assert.equal(body.completed[0].candidate_sha,sha);
+  assert.equal(body.owner_authorized_bootstrap,true);
+  assert.equal(tickCalls,1);
+  assert.equal(controls.length,1);
+  assert.equal(controls[0].paused,false);
+  assert.equal(controls[0].max_autonomy,true);
+  assert.equal(controls[0].source,'owner-authorized-bootstrap');
+  assert.equal(controls[0].launch_approved_sha,sha);
+  assert.equal(controls[0].launch_gate_digest,digest);
+});
