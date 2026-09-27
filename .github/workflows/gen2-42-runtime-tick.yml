@@ -2,6 +2,13 @@ name: GEN2-42 authenticated runtime tick
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - src/dev/runtime-api.js
+      - tests/integration/dev-runtime-api.test.mjs
+      - .github/workflows/gen2-42-runtime-tick.yml
   push:
     branches:
       - ops/gen2-42-runtime-tick
@@ -12,7 +19,25 @@ permissions:
   contents: read
 
 jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Syntax gate
+        run: npm run check
+      - name: Dev Bridge runtime contract
+        run: node --test tests/integration/dev-runtime-api.test.mjs
+
   tick:
+    if: github.event_name != 'pull_request'
+    needs: contract
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
