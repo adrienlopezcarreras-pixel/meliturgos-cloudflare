@@ -199,7 +199,11 @@ export async function evaluateRestoreReadiness(env) {
           && String(row?.id || '') === String(binding.snapshot_id || '')
           && String(row?.integritySha256 || '').toLowerCase() === String(binding.snapshot_integrity_sha256 || '').toLowerCase()) || null;
         const createdMs = Date.parse(boundSnapshot?.createdAt || '');
+        const boundSnapshotSha = String(boundSnapshot?.restoreDeployedGitSha || '').toLowerCase();
+        const bindingSnapshotSha = String(binding?.snapshot_deployed_sha || '').toLowerCase();
         const ageOk = Boolean(boundSnapshot)
+          && /^[a-f0-9]{40}$/.test(boundSnapshotSha)
+          && bindingSnapshotSha === boundSnapshotSha
           && Number.isFinite(createdMs)
           && createdMs <= nowMs
           && nowMs - createdMs <= maxAge
