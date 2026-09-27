@@ -70,13 +70,16 @@ test('runtime has one canonical scheduler topology with maintenance separated fr
   assert.match(fullControls, /clearInterval\(activityTimer\)/);
 });
 
-test('active branch unicity no longer exempts LoRA or compat development branches', async () => {
+test('active branch unicity checks open candidate PR branches and keeps strict lab isolation', async () => {
   const source = await readFile(new URL('../.github/workflows/canonical-branch-unicity.yml', import.meta.url), 'utf8');
   assert.match(source, /teacher-bridge\/runtime\|archive\/\*/);
   assert.doesNotMatch(source, /\*lora\*/i);
   assert.doesNotMatch(source, /compat-activateadapter-1/);
   assert.doesNotMatch(source, /compatfix-main/);
-  assert.match(source, /Every active MEL code branch, including LoRA\/compat workspaces, must converge/);
+  assert.match(source, /Only branches that are actually active against the canonical candidate must converge/);
+  assert.match(source, /gh pr list/);
+  assert.match(source, /--base candidate\/mel-clean-autonomy/);
+  assert.match(source, /is_active_pr_branch/);
   assert.match(source, /godot-private-test-\*/);
   assert.match(source, /ci-godot-test\//);
   assert.match(source, /GODOT_LAB_SCOPE_VIOLATION/);
