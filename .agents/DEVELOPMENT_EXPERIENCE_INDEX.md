@@ -149,3 +149,15 @@ Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, 
 Total bootstrap statique actuel : **84 leçons canoniques réparties entre historique, pack développement, réconciliation et LoRA**, auxquelles s’ajoute le corpus Expert PLUS de **10 000 cycles de guidance**.
 
 Le nombre de leçons canoniques **n’a pas de plafond fonctionnel** : 50 reste uniquement le seuil minimal de readiness LoRA. Toute nouvelle leçon validée et dédupliquée s’ajoute au corpus complet ; les fenêtres de contexte runtime peuvent rester bornées pour la performance sans supprimer ni exclure les leçons stockées.
+
+
+## Expériences toutes-pages — semaine du 21 au 27 septembre 2026
+
+- `bootstrap-editorial-master-source-preservation-20260927` — source maître immuable; préserver header/footer déjà validés; corriger seulement la zone fautive.
+- `bootstrap-editorial-page-gated-validation-20260927` — une page à la fois; audit indépendant; FAIL reste sur la même page; PASS avant la suivante.
+- `bootstrap-editorial-authentic-media-provenance-20260927` — provenance réelle, pas de doublons silencieux, reality/historical check, reconstitution explicitement identifiée.
+- `bootstrap-longform-canonical-state-machine-20260927` — corpus canonique et états explicites jusqu à CLOSED_VERIFIED; réallocation après clôture.
+- `bootstrap-longform-provenance-uncertainty-separation-20260927` — densifier sans invention; distinguer fait, interprétation et hypothèse; auditer provenance/doublons.
+- `bootstrap-automation-slot-reallocation-canonical-state-20260927` — runs manuels/automatiques unifiés; slots réaffectés sans réinitialiser la vérité des projets.
+
+Chronologie technique et éditoriale datée : `.agents/WEEKLY_HANDOFF_20260927.md`.
