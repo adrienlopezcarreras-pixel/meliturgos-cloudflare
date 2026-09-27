@@ -187,22 +187,33 @@ async function inspectCandidateCode(env, job, { fetchImpl = fetch, minimal = fal
     && String(inspectionRef).toLowerCase() === String(deployedSha || '').toLowerCase()
     ? deployedSha
     : '';
-  const reader = createGitHubCodeReader({
+  const liveReader = createGitHubCodeReader({
     repository,
     branch: inspectionRef,
     token: String(env?.MEL_GITHUB_TOKEN || ''),
     pinnedSha,
     fetchImpl,
   });
-  const headBefore = await reader.head();
+  const headBefore = await liveReader.head();
   if (!/^[0-9a-f]{40}$/i.test(String(headBefore?.sha || ''))) {
     throw Object.assign(new Error('AUTONOMY_CANDIDATE_HEAD_INVALID'), { code: 'AUTONOMY_CANDIDATE_HEAD_INVALID' });
   }
+  // Inspect an immutable snapshot captured at the start. Concurrent candidate
+  // commits may advance the branch, but they cannot change the evidence under
+  // review. Later approval/implementation stages still reject stale SHAs.
+  const snapshotSha = String(headBefore.sha).toLowerCase();
+  const snapshotReader = createGitHubCodeReader({
+    repository,
+    branch: snapshotSha,
+    token: String(env?.MEL_GITHUB_TOKEN || ''),
+    pinnedSha: snapshotSha,
+    fetchImpl,
+  });
   const evidence = [];
   const inspectionQueries = minimal ? [] : requestedInspectionQueries(job);
   for (const query of inspectionQueries) {
     try {
-      const search = await reader.search({ query });
+      const search = await snapshotReader.search({ query });
       evidence.push({
         kind: 'CODE_SEARCH',
         query,
@@ -225,7 +236,7 @@ async function inspectCandidateCode(env, job, { fetchImpl = fetch, minimal = fal
     : [...new Set([...INSPECTION_FILES, ...requestedPaths])];
   for (const path of inspectionFiles) {
     try {
-      const file = await reader.read(path);
+      const file = await snapshotReader.read(path);
       evidence.push({
         kind: 'CODE_READ',
         path: file.path,
@@ -243,18 +254,23 @@ async function inspectCandidateCode(env, job, { fetchImpl = fetch, minimal = fal
   if (!successful.length) {
     throw Object.assign(new Error('AUTONOMY_CODE_INSPECTION_FAILED'), { code: 'AUTONOMY_CODE_INSPECTION_FAILED' });
   }
-  const headAfter = await reader.head();
-  if (!/^[0-9a-f]{40}$/i.test(String(headAfter?.sha || ''))) {
-    throw Object.assign(new Error('AUTONOMY_CANDIDATE_HEAD_INVALID'), { code: 'AUTONOMY_CANDIDATE_HEAD_INVALID' });
+  let headAfter = null;
+  try {
+    headAfter = await liveReader.head();
+  } catch {
+    // The immutable snapshot remains valid evidence even if a later freshness
+    // probe is temporarily unavailable. Approval remains bound to snapshotSha.
   }
-  if (String(headBefore.sha).toLowerCase() !== String(headAfter.sha).toLowerCase()) {
-    throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), { code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
-  }
+  const headAfterSha = /^[0-9a-f]{40}$/i.test(String(headAfter?.sha || ''))
+    ? String(headAfter.sha).toLowerCase()
+    : null;
   return {
     status: 'COMPLETE',
-    candidate_sha: headAfter.sha,
-    candidate_sha_source: headAfter.source || headBefore.source || null,
-    candidate_remote_verified: headAfter.remote_verified === true || headBefore.remote_verified === true,
+    candidate_sha: snapshotSha,
+    candidate_sha_source: headBefore.source || null,
+    candidate_remote_verified: headBefore.remote_verified === true,
+    candidate_head_after: headAfterSha,
+    candidate_head_changed_during_inspection: Boolean(headAfterSha && headAfterSha !== snapshotSha),
     evidence,
   };
 }
