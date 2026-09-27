@@ -901,4 +901,21 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     created_at: 1790509500000,
   }),
 
+
+  Object.freeze({
+    id: 'bootstrap-release-bound-recovery-drill-20260927',
+    source: 'chatgpt-teacher',
+    domain: 'release-recovery',
+    task: 'Réutiliser un snapshot historique vérifié pour un recovery drill d une release plus récente sans affaiblir la liaison exact-SHA.',
+    input: 'Une release courante possède un binding vérifié vers un snapshot chiffré créé sous un SHA historique et le recovery drill doit prouver la récupérabilité sans reconstruire inutilement une sauvegarde.',
+    before: 'Exiger que le SHA embarqué historiquement dans le snapshot soit identique au SHA de la release courante, ou accepter un snapshot ancien sans preuve explicite de liaison; le premier crée un faux blocage et le second affaiblit la sécurité.',
+    after: 'Accepter un snapshot historique seulement si un release binding vérifié relie exactement le SHA déployé courant, le snapshot_id, le snapshot_integrity_sha256 et le snapshot_deployed_sha; utiliser le SHA courant comme provenance effective du drill tout en conservant le SHA historique du snapshot; refuser toute divergence de binding, snapshot ou intégrité.',
+    rationale: 'Un snapshot peut rester une preuve de restauration valide pour une release ultérieure lorsque la release a explicitement et cryptographiquement lié ce snapshot à son SHA. La liaison doit remplacer l égalité naïve de SHA, jamais la vérification d intégrité.',
+    tests: ['PR #595: recovery binding exact et mismatch fail-closed', 'deploy-cloudflare-release 36325378964: post-deploy autonomy evidence SUCCESS', 'deploy-cloudflare-release 36325378964: Verify production HTTP SUCCESS'],
+    tags: ['release', 'recovery', 'backup', 'exact-sha', 'binding', 'integrity', 'fail-closed'],
+    validated: true,
+    quality: 1,
+    created_at: 1790520000000,
+  }),
+
 ]);
