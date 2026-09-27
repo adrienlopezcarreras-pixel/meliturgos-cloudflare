@@ -33,10 +33,10 @@ class MelUiSmokeTest {
     fun completeModeIsNativeAndExposesToolsWithoutBrowser() {
         compose.onNodeWithTag("settings-button").performClick()
         compose.onNodeWithTag("settings-mode").performScrollTo().performClick()
-        compose.onNodeWithText("PROFESSOR / MODE COMPLET NATIF").assertIsDisplayed()
-        compose.onNodeWithText("Synchroniser").assertIsDisplayed()
-        compose.onNodeWithText("Arrière-plan / notifications").assertIsDisplayed()
-        compose.onNodeWithText("AUTO-DIAGNOSTIC").assertIsDisplayed()
+        compose.onNodeWithText("OUTILS // MEL").assertIsDisplayed()\n        compose.onNodeWithText("MODE COMPLET NATIF").assertIsDisplayed()
+        compose.onNodeWithText("Synchroniser").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Arrière-plan / notifications").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("AUTO-DIAGNOSTIC").performScrollTo().assertIsDisplayed()
     }
 
     @Test
