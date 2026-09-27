@@ -884,4 +884,21 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     created_at: 1790510700000,
   }),
 
+
+  Object.freeze({
+    id: 'bootstrap-encrypted-backup-consumer-codec-parity-20260927',
+    source: 'chatgpt-teacher',
+    domain: 'resilience-encryption',
+    task: 'Faire consommer un backup chiffré par un drill ou un outil secondaire sans créer un faux échec de restauration.',
+    input: 'Le chemin canonique backup/restore sait ouvrir un snapshot chiffré avec les secrets environnement, mais un consommateur secondaire reconstruit le storage sans fournir le codec.',
+    before: 'Créer createR2D1BackupStorage sans encryptionCodec dans un recovery drill; le snapshot existe et est valide mais storage.get échoue avec BACKUP_ENCRYPTION_CODEC_REQUIRED.',
+    after: 'Résoudre la configuration d encryption de la même façon que le chemin canonique; échouer fermé si key id ou key material sont partiels; construire le storage avec createEnvBackupEncryptionCodec(env); conserver le drill isolé et sans activation production.',
+    rationale: 'Le chiffrement est un contrat de stockage transversal. Tous les lecteurs autorisés d un objet chiffré doivent partager la même résolution de codec; sinon un test de résilience mesure une divergence d intégration et non la récupérabilité réelle.',
+    tests: ['PR #591: full test suite SUCCESS', 'GEN2-48 test: encrypted latest backup recovery drill PASSED', 'GEN2-48 test: partial encryption configuration fails closed'],
+    tags: ['backup', 'encryption', 'recovery-drill', 'codec', 'resilience', 'fail-closed', 'integration'],
+    validated: true,
+    quality: 1,
+    created_at: 1790509500000,
+  }),
+
 ]);
