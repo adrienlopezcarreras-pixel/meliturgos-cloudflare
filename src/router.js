@@ -75,8 +75,10 @@ async function handleConversationApi(request, env, url = new URL(request.url)) {
   const mailOAuthResponse = await maybeHandleMailOAuthApi(request, env, url);
   if (mailOAuthResponse) return mailOAuthResponse;
 
-  const connectionSettingsResponse = await maybeHandleConnectionSettingsApi(request, env, url);
-  if (connectionSettingsResponse) return connectionSettingsResponse;
+  if (path.startsWith("/api/gen2/connections/")) {
+    const connectionSettingsResponse = await maybeHandleConnectionSettingsApi(request, env, url);
+    if (connectionSettingsResponse) return connectionSettingsResponse;
+  }
 
   if (path === "/api/gen2/roadmap" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });
