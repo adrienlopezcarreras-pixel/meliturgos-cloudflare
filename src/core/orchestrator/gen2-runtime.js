@@ -25,6 +25,7 @@ import { audit as persistAuditLog } from '../../audit/audit-service.js';
 import { SkillRegistry, MemorySkillRegistryStore } from '../../evolution/skill-registry.js';
 import { D1SkillRegistryStore } from '../../evolution/d1-skill-registry-store.js';
 import { createGoogleAccessTokenResolver } from '../../connectors/google-oauth-runtime.js';
+import { createVercelConfigResolver } from '../../connectors/vercel-config.js';
 
 function boundedCapabilityAuditEvent(event = {}) {
   const duration = Number(event.duration_ms);
@@ -60,10 +61,12 @@ export function createGen2Runtime({ audit, env = {} } = {}) {
   } catch (error) {
     googleAccessTokenResolver = async () => { throw error; };
   }
+  const vercelConfigResolver = createVercelConfigResolver(env);
   const bus = createDefaultCapabilityBus({
     audit: runtimeAuditSink(env, audit),
     env,
     googleAccessTokenResolver,
+    vercelConfigResolver,
   });
   const skillRegistryStore = env?.DB && typeof env.DB.prepare === 'function'
     ? new D1SkillRegistryStore(env.DB, { registryKey: String(env.MEL_SKILL_REGISTRY_KEY || 'system') })
