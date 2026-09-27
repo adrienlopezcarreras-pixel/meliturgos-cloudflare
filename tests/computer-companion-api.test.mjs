@@ -237,6 +237,11 @@ test('Windows desktop v2 keeps tray UI, headless engine, and packaged EXE contra
   assert.match(companion,/MEL_COMPANION_PARENT_PID/);
   assert.match(companion,/SetProcessDpiAwarenessContext/);
   assert.match(companion,/engine_version/);
+  assert.match(companion,/function Ensure-ShutdownEnvironment/);
+  assert.match(companion,/\[Environment\]::SetEnvironmentVariable/);
+  assert.match(companion,/function Invoke-ShutdownCommand/);
+  assert.match(companion,/POWER_SCHEDULE_FAILED/);
+  assert.match(companion,/-PassThru -Wait/);
   assert.match(companion,/Close-ForegroundFile/);
   assert.match(companion,/FILE_NOT_FOREGROUND/);
   assert.match(companion,/SendKeys\]::SendWait\("\%\{F4\}"\)/);
