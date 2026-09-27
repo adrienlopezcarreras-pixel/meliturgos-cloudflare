@@ -69,11 +69,13 @@ async function codeSelfCheck(env) {
 async function handleConversationApi(request, env, url = new URL(request.url)) {
   const path = url.pathname;
 
-  const googleOAuthResponse = await maybeHandleGoogleOAuthApi(request, env, url);
-  if (googleOAuthResponse) return googleOAuthResponse;
+  if (path.startsWith("/api/gen2/oauth/")) {
+    const googleOAuthResponse = await maybeHandleGoogleOAuthApi(request, env, url);
+    if (googleOAuthResponse) return googleOAuthResponse;
 
-  const mailOAuthResponse = await maybeHandleMailOAuthApi(request, env, url);
-  if (mailOAuthResponse) return mailOAuthResponse;
+    const mailOAuthResponse = await maybeHandleMailOAuthApi(request, env, url);
+    if (mailOAuthResponse) return mailOAuthResponse;
+  }
 
   if (path.startsWith("/api/gen2/connections/")) {
     const connectionSettingsResponse = await maybeHandleConnectionSettingsApi(request, env, url);
