@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { DEVELOPMENT_EXPERIENCE_PACK } from '../src/learning/development-experience-pack.js';
 import { BOOTSTRAP_CORRECTIONS } from '../src/learning/bootstrap-corrections.js';
 import { LearningEngine } from '../src/learning/learning-engine.js';
@@ -14,6 +15,9 @@ const IDS = [
   'bootstrap-active-pr-branch-unicity-20260927',
   'bootstrap-deploy-success-vs-postproof-failure-20260927',
   'bootstrap-shardvault-explicit-pause-release-respect-20260927',
+  'bootstrap-release-proof-persisted-evidence-cpu-budget-20260927',
+  'bootstrap-retryable-handoff-release-semantics-20260927',
+  'bootstrap-weekly-development-state-20260927',
 ];
 
 test('weekly validated development experience is canonical and deduplicated', () => {
@@ -41,4 +45,12 @@ test('weekly experience reaches MEL LearningEngine training bundle', async () =>
     assert.equal(pair.chosen, lesson.after);
     assert.equal(pair.rejected, lesson.before);
   }
+});
+
+
+test('weekly multi-page handoff preserves the dated technical continuity contract', async () => {
+  const handoff = await readFile(new URL('../.agents/WEEKLY_HANDOFF_20260927.md', import.meta.url), 'utf8');
+  const markers = ['21–22 septembre','23–24 septembre','25 septembre','26 septembre','27 septembre','Android 0.6.43','GEN2-42','PAUSED_FOR_ROADMAP','BLOCKED_HUMAN','LearningEngine'];
+  for (const marker of markers) assert.ok(handoff.includes(marker), 'missing weekly marker '+marker);
+  assert.equal(/médical|famille|mot de passe|password/i.test(handoff), false);
 });

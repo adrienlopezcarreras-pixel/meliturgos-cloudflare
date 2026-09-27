@@ -131,6 +131,10 @@ Preuves principales : commits `04f6f5b`, `162914d`, `f464c50`, `01937da`, `4c213
 - `bootstrap-deploy-success-vs-postproof-failure-20260927` — distinguer l’étape de mutation production réussie d’une preuve post-déploiement incomplète ; annoncer séparément ces deux vérités.
 - `bootstrap-shardvault-explicit-pause-release-respect-20260927` — propager et respecter `PAUSED_FOR_ROADMAP` sans réactivation implicite, tout en maintenant les autres preuves de résilience indépendantes.
 
+- `bootstrap-release-proof-persisted-evidence-cpu-budget-20260927` — réutiliser une preuve persistée SHA/intégrité/restauration pour les gates bornés au lieu de répéter une vérification R2 lourde qui dépasse le budget Worker.
+- `bootstrap-retryable-handoff-release-semantics-20260927` — conserver les FAILED retryable dans l historique/diagnostic sans les compter comme blockers actifs, tout en gardant les vrais états non prouvés fail-closed.
+- `bootstrap-weekly-development-state-20260927` — charger un bilan technique daté multi-pages du 21–27 septembre et imposer une relecture de main/roadmap/runs avant toute affirmation d état actuel.
+
 Preuves principales : PR `#566`, SHA production `c8e65fe1dc8e5cd0e4bf1a80e001195d4164dab3`, runs `36302234698`, `36301800118` et `36302365325`.
 
 
@@ -142,6 +146,6 @@ Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le
 
 Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, Benchmark/LoRA, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, Dev Bridge, observabilité, UI partagée, gouvernance de preuve, readiness zéro-euro runtime, checkpoint XP systématique et ingénierie de protocoles matériels versionnés.
 
-Total bootstrap statique actuel : **81 leçons canoniques réparties entre historique, pack développement, réconciliation et LoRA**, auxquelles s’ajoute le corpus Expert PLUS de **10 000 cycles de guidance**.
+Total bootstrap statique actuel : **84 leçons canoniques réparties entre historique, pack développement, réconciliation et LoRA**, auxquelles s’ajoute le corpus Expert PLUS de **10 000 cycles de guidance**.
 
 Le nombre de leçons canoniques **n’a pas de plafond fonctionnel** : 50 reste uniquement le seuil minimal de readiness LoRA. Toute nouvelle leçon validée et dédupliquée s’ajoute au corpus complet ; les fenêtres de contexte runtime peuvent rester bornées pour la performance sans supprimer ni exclure les leçons stockées.
