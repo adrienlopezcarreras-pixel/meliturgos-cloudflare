@@ -113,13 +113,18 @@ Un état daté ci-dessous ne doit jamais être extrapolé comme vérité actuell
 
 ## État roadmap au cours de la consolidation
 
-Après certification GEN2-58 et clôture de la release du 27/09, la lecture canonique donne 125 items :
+Après certification GEN2-58, clôture des connecteurs externes côté développement et mise à jour du 27/09 au soir, la lecture canonique donne 125 items :
 - 117 DONE_VERIFIED ;
-- 7 BLOCKED_HUMAN ;
-- 1 DONE : MEL-EVOL-06 LoRA.
+- 7 DONE ;
+- 1 BLOCKED_HUMAN : GEN2-42.
 
-Les 7 BLOCKED_HUMAN étaient : MEL-MEM-05, GEN2-33, GEN2-34, GEN2-35, GEN2-36, MEL-CONN-03 et GEN2-42.
-MEL-EVOL-06 reste la propriété d’un autre chantier/page et ne doit pas être modifié par cette consolidation.
+Les 7 DONE encore à vérifier avant DONE_VERIFIED sont : MEL-MEM-05, MEL-EVOL-06, GEN2-33, GEN2-34, GEN2-35, GEN2-36 et MEL-CONN-03.
+
+MEL-MEM-05 est considéré développement/traitement terminé sur la source réellement disponible : 2 808/2 808 messages éligibles synchronisés, remaining_eligible_messages=0 et remaining_conversations=0. La source primaire disponible reste toutefois incomplète pour les pièces jointes (0 descripteur, 81 conversations partielles et 59 sous-remplies) et aucune source plus complète ne sera obtenue ; cette limite doit rester explicite et interdit DONE_VERIFIED sans nouvelle source primaire.
+
+GEN2-33/34/35/36 et MEL-CONN-03 sont également développement terminé, avec vérifications externes réelles encore dues : credentials/consentements Google et Microsoft, cible Vercel réelle, credentials Yahoo et configuration Roundcube IMAP/SMTP.
+
+MEL-EVOL-06 reste la propriété de son chantier LoRA et attend checkpoint final + benchmark canonique. GEN2-42 reste le seul BLOCKED_HUMAN de la roadmap.
 
 ## ShardVault
 
@@ -137,6 +142,17 @@ ShardVault reste volontairement PAUSED_FOR_ROADMAP. Les workflows respectent cet
 8. Les autorisations humaines réelles doivent rester BLOCKED_HUMAN ; aucun test backend ne les remplace.
 9. Les chantiers actifs appartenant à d’autres pages ne doivent pas être nettoyés au nom de la convergence.
 10. Toute clôture passe par nettoyage, unification, réconciliation, adaptation et checkpoint XP.
+
+## 27 septembre au soir — connecteurs externes, mémoire et preuve production
+
+- PR #629 a été réconciliée sur le main courant, ses 11 CI sont passées, puis elle a été fusionnée. Le SHA ffc4312be3ebe1f3184d12f15243c1a176b60c9b a été déployé par le run 36350142056 avec sécurité, syntaxe, full suite, bundle R2, preuve Workers AI, déploiement exact-SHA, preuve d autonomie et HTTP final verts.
+- Le centre Vercel chiffré est donc présent en production ; la connexion Vercel reste à vérifier réellement car le compte connecté expose 0 équipe et 0 projet.
+- Les workflows de preuve Google et Microsoft ont été exécutés en production : runs 36350478390 et 36350480385. Contrats et preuves sont verts ; le vault chiffré et sa table sont présents, mais les identifiants d application Google/Microsoft et les tokens correspondants sont absents.
+- PR #634 a ajouté un workflow de preuve MEL-CONN-03 pour Yahoo/Ymail et Roundcube/IMAP-SMTP. Le run production 36350717992 est entièrement vert ; verdict : vault sain, credentials Yahoo absents, token Yahoo absent et configuration Roundcube absente.
+- PR #622, ancienne implémentation du centre de connexions, a été fermée comme supersédée plutôt que réinjectée au-dessus du main plus récent.
+- MEL-MEM-05 a épuisé les données réellement disponibles : 2 808/2 808 messages éligibles synchronisés. La complétude des pièces jointes ne peut pas être certifiée faute de source primaire plus complète ; cette limite est désormais considérée comme un plafond documentaire permanent, pas comme un développement restant.
+- La règle de preuve n est pas affaiblie : DONE signifie ici développement/traitement terminé avec vérification réelle ultérieure ; DONE_VERIFIED reste réservé à une preuve E2E ou primaire correspondant exactement au niveau revendiqué.
+- ShardVault reste volontairement PAUSED_FOR_ROADMAP. GEN2-42 doit être traité avant sa réactivation finale.
 
 ## Chargement dans MEL
 
