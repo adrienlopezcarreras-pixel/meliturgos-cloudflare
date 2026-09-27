@@ -288,6 +288,7 @@ export async function runScheduledSystemBackup(env, {
   intervalMs,
   force = false,
   service: injectedService = null,
+  compactPostPersistVerify = false,
 } = {}) {
   if (String(env?.MEL_PREVIEW_ISOLATED || '').toLowerCase() === 'true' || String(env?.MEL_RUNTIME_ENV || '').toLowerCase() === 'preview') {
     return { ok: true, status: 'SKIPPED_PREVIEW' };
@@ -322,8 +323,30 @@ export async function runScheduledSystemBackup(env, {
   }
 
   const created = await service.create({ id: snapshotId(currentIso) }, { requestId: `scheduled-backup:${currentIso}` });
-  const verification = await service.verify({ id: created.id });
-  requireValue(verification?.ok, 'BACKUP_POST_PERSIST_VERIFY_FAILED', 503);
+  if (compactPostPersistVerify === true) {
+    const persistedRows = await service.list({ limit: 5 });
+    const persisted = (Array.isArray(persistedRows) ? persistedRows : [])
+      .find(row => String(row?.id || '') === String(created.id || '')) || null;
+    requireValue(persisted, 'BACKUP_COMPACT_METADATA_MISSING', 503);
+    requireValue(persisted.verified === true, 'BACKUP_COMPACT_CRYPTO_PROOF_MISSING', 503);
+    requireValue(persisted.restoreVerified === true, 'BACKUP_COMPACT_RESTORE_PROOF_MISSING', 503);
+    requireValue(
+      String(persisted.integritySha256 || '') === String(created.integritySha256 || ''),
+      'BACKUP_COMPACT_INTEGRITY_MISMATCH',
+      503,
+    );
+    const expectedSha = deployedGitSha(env);
+    if (expectedSha) {
+      requireValue(
+        String(persisted.restoreDeployedGitSha || '').toLowerCase() === expectedSha,
+        'BACKUP_COMPACT_RESTORE_SHA_MISMATCH',
+        503,
+      );
+    }
+  } else {
+    const verification = await service.verify({ id: created.id });
+    requireValue(verification?.ok, 'BACKUP_POST_PERSIST_VERIFY_FAILED', 503);
+  }
   return {
     ok: true,
     status: 'CREATED_VERIFIED',
@@ -331,6 +354,7 @@ export async function runScheduledSystemBackup(env, {
     integritySha256: created.integritySha256,
     sourceCount: created.sourceCount,
     nextDueAt: new Date(currentMs + interval).toISOString(),
+    postPersistVerification: compactPostPersistVerify === true ? 'COMPACT_METADATA' : 'FULL_PAYLOAD',
   };
 }
 
