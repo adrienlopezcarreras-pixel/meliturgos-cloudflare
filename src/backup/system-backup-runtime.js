@@ -31,7 +31,7 @@ function deployedGitBranch(env = {}) {
 export const SYSTEM_BACKUP_PREFIX = 'backups/system/';
 export const RELEASE_BACKUP_BINDING_SCHEMA = 'MEL_RELEASE_BACKUP_BINDING_V1';
 export const DEFAULT_SYSTEM_BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
-export const DEFAULT_RELEASE_BACKUP_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+export const DEFAULT_RELEASE_BACKUP_MAX_AGE_MS = 26 * 60 * 60 * 1000;
 const MIN_SYSTEM_BACKUP_INTERVAL_MS = 15 * 60 * 1000;
 const MAX_SYSTEM_BACKUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_ROWS_PER_PAGE = 1000;
@@ -224,7 +224,7 @@ export function createR2D1BackupStorage({ db, bucket, encryptionCodec = null }) 
 function releaseBackupMaxAgeMs(env, override) {
   const requested = Number(override ?? env?.MEL_RELEASE_BACKUP_MAX_AGE_MS ?? DEFAULT_RELEASE_BACKUP_MAX_AGE_MS);
   if (!Number.isFinite(requested) || requested <= 0) return DEFAULT_RELEASE_BACKUP_MAX_AGE_MS;
-  return Math.max(15 * 60 * 1000, Math.min(24 * 60 * 60 * 1000, requested));
+  return Math.max(15 * 60 * 1000, Math.min(48 * 60 * 60 * 1000, requested));
 }
 
 async function sha256HexText(value) {
