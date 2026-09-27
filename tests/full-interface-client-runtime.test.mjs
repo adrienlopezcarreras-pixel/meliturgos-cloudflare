@@ -47,11 +47,11 @@ test('full interface exposes persistent connection controls for Gmail Yahoo Micr
   assert.match(html, />OneDrive</);
   assert.match(html, />SharePoint</);
   assert.match(html, />Roundcube</);
-  assert.match(html, /data-connect-provider="google" data-connect-id="gmail"/);
-  assert.match(html, /data-connect-provider="microsoft" data-connect-id="microsoft-mail"/);
-  assert.match(html, /data-connect-provider="microsoft" data-connect-id="microsoft-onedrive"/);
-  assert.match(html, /data-connect-provider="microsoft" data-connect-id="microsoft-sharepoint"/);
-  assert.match(html, /data-connect-provider="yahoo" data-connect-id="yahoo-mail"/);
+  assert.match(html, /data-connect-provider="google" data-connector="gmail"/);
+  assert.match(html, /data-connect-provider="microsoft" data-connector="microsoft-mail"/);
+  assert.match(html, /data-connect-provider="microsoft" data-connector="microsoft-onedrive"/);
+  assert.match(html, /data-connect-provider="microsoft" data-connector="microsoft-sharepoint"/);
+  assert.match(html, /data-connect-provider="yahoo" data-connector="yahoo-mail"/);
   assert.match(html, /roundcubeSave/);
   assert.match(html, /roundcubeTest/);
   assert.match(html, /CONNECTÉ DURABLEMENT/);
