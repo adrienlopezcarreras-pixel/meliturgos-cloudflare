@@ -2,7 +2,7 @@
 
 Date de l’audit : 2026-09-27.
 Portée : état canonique de MEL, travail réalisé sur la semaine du 21 au 27 septembre 2026, cohérence dépôt/roadmap/release, frontières de preuve et expérience réutilisable.
-Source de vérité de départ : `main` après fusion du correctif Provider Escape release-binding, SHA `3847a861e2f935ccdb9eabf63570e9a9a1fe07b5`.
+Source de vérité finale : `main` au SHA `f3d75ea94af8df09a4b797b65adba52537d9294e`.
 Règle : toute affirmation d’état futur doit être revalidée contre `main`, la roadmap et les runs GitHub courants.
 
 ## 1. Verdict général
@@ -18,7 +18,7 @@ MEL est dans un état techniquement très avancé et largement vérifié, mais l
 Le lot Android `GEN2-58` est bien passé en `DONE_VERIFIED`.
 Les éléments humains restent explicitement humains ; aucun test backend ne doit les transformer en faux vert.
 
-La production a reçu les releases exact-SHA successives. Le SHA `3847a861...` a franchi les gates pré-déploiement et l’étape `Deploy exact approved SHA to production`. Au moment de la rédaction initiale de ce rapport, sa preuve post-déploiement complète est encore en cours ; le verdict final est ajouté avant clôture de l’audit.
+La production est désormais entièrement certifiée sur le SHA `f3d75ea94af8df09a4b797b65adba52537d9294e` : le run canonique `36325378964` a réussi le déploiement exact-SHA, toute la preuve post-déploiement/autonomie et la vérification HTTP finale.
 
 ## 2. Discipline de vérité et niveaux de preuve
 
@@ -273,13 +273,13 @@ La garde canonique ne dépend plus de cette accumulation historique, ce qui évi
 
 ## 19. PR encore actives au moment de l’audit
 
-À l’instant de l’inventaire :
-- #589 : expérience toutes-pages, CI dédiée verte ;
-- #586 : qualité déterministe du plan, CI GEN2-17 verte, autre chantier actif ;
+À l’instant de l’inventaire final :
+- #592 : qualité déterministe du plan GEN2-42, CI GEN2-17 verte et delta encore absent de main ;
 - #540 : LoRA, autre chantier ;
 - #221 : MINI, autre chantier.
+- #596 est apparue après la release verte et doit être évaluée contre l'état déjà certifié avant toute fusion.
 
-#590 a été fusionnée avant cette photographie finale du rapport.
+#586 a été fermée comme doublon exact de #592. #595 a été fusionnée et a fermé le mismatch recovery de production.
 Les PR d’autres pages ne sont pas fermées au nom du nettoyage global.
 
 ## 20. Blockers humains restants
@@ -297,15 +297,13 @@ Attention : GEN2-42 a désormais des preuves techniques et release très avancé
 
 ## 21. Actions de clôture
 
-Ordre de clôture retenu :
-1. terminer la release exact-SHA avec Provider Escape release-bound ;
-2. fusionner #589 pour charger l’expérience toutes-pages dans le moteur d’apprentissage ;
-3. relancer la release du SHA contenant cette expérience afin que la production l’embarque ;
-4. vérifier HTTP final et les preuves post-déploiement ;
-5. réconcilier/fermer les PR obsolètes restantes sans toucher aux chantiers actifs ;
-6. recompiler l’état roadmap et les blockers humains ;
-7. seulement ensuite réactiver ShardVault et refaire ses preuves externes/reconstruction ;
-8. produire le checkpoint final.
+Ordre de clôture après la release verte :
+1. réconcilier/fermer les PR obsolètes restantes sans toucher à LoRA/MINI ;
+2. fusionner et certifier le présent audit/pack d'expérience hebdomadaire ;
+3. recompiler l'état roadmap et conserver les sept BLOCKED_HUMAN comme actions réellement humaines ;
+4. traiter #592 seulement si son delta reste nécessaire et compatible avec le main courant ;
+5. seulement ensuite réactiver ShardVault et refaire ses preuves externes/reconstruction ;
+6. produire le checkpoint final.
 
 ## 22. Conclusion d’audit
 
@@ -320,3 +318,21 @@ Les principaux problèmes rencontrés cette semaine ne provenaient pas d’un ma
 - tâche automatique confondue avec état canonique du projet.
 
 Les corrections apportées convergent vers la même architecture de gouvernance : une source canonique, des états explicites, des preuves liées au SHA, des transitions fail-closed, des lots minimaux, une provenance conservée et une XP dédupliquée réellement chargée par MEL.
+
+
+## 23. Clôture release exacte — SHA f3d75ea94af8df09a4b797b65adba52537d9294e
+
+La cause finale du rouge précédent était `RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_MISMATCH` : le recovery drill comparait naïvement le SHA historique du snapshot au SHA courant malgré l'existence d'un release binding vérifié.
+
+La PR #595 a conservé le fail-closed tout en rendant la preuve correcte :
+- binding `deployed_sha` = SHA de release courant ;
+- `snapshot_id` exact ;
+- intégrité SHA-256 exacte ;
+- `snapshot_deployed_sha` exact ;
+- tout mismatch reste refusé.
+
+Le workflow canonique `deploy-cloudflare-release` run `36325378964` est **SUCCESS** de bout en bout. Les étapes `Deploy exact approved SHA to production`, `Prepare and prove production autonomy launch evidence` et `Verify production HTTP` sont toutes **SUCCESS**.
+
+La roadmap lue sur ce SHA contient exactement 125 items : 117 `DONE_VERIFIED`, 1 `DONE` (`MEL-EVOL-06`) et 7 `BLOCKED_HUMAN`, sans `PARTIAL`, `IN_PROGRESS` ni `PLANNED`.
+
+L'expérience hebdomadaire est chargée par le chemin canonique `DEVELOPMENT_EXPERIENCE_PACK -> BOOTSTRAP_CORRECTIONS -> LearningEngine.corrections()/trainingBundle()`. Le handoff hebdomadaire conserve la chronologie détaillée ; les XP distillent les règles réutilisables.
