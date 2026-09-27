@@ -33,10 +33,10 @@ jobs:
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
     steps:
-      - name: Checkout candidate branch
+      - name: Checkout exact collector SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: candidate/mel-clean-autonomy
+          ref: ${{ github.sha }}
 
       - name: Credentials preflight
         id: creds
