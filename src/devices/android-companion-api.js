@@ -126,7 +126,7 @@ async function pairDevice(request,env) {
     metadata:{
       protocol_version:ANDROID_PROTOCOL_VERSION,
       app_version:appVersion,
-      capabilities:["chat","conversation.sync","voice.stt","files.upload","heartbeat"],
+      capabilities:["chat","conversation.sync","voice.stt","voice.tts","files.upload","heartbeat"],
     },
   });
 
@@ -245,6 +245,16 @@ async function companionDevices(env) {
   }
 }
 
+function approximateNetworkLocation(request) {
+  const cf = request?.cf || {};
+  const parts = [
+    safe(cf.city, 120),
+    safe(cf.region, 120),
+    safe(cf.country, 80),
+  ].filter(Boolean);
+  return parts.join(", ").slice(0, 240);
+}
+
 async function deviceChat(request,env,auth) {
   const body = await request.json().catch(()=>({}));
   const text = safe(body.text ?? body.message,100000);
@@ -261,10 +271,12 @@ async function deviceChat(request,env,auth) {
       ui_theme:safe(body.ui_theme,40)||"futuristic",
       ui_mode:uiMode,
       input_source:inputSource,
+      voice_reply:body.voice_reply === true || inputSource !== "text",
       intent_context:{
         surface:uiMode === "complete" ? "mel-android-complete" : "mel-android-normal",
         ui_mode:uiMode,
         device:"android-companion",
+        approximate_location:approximateNetworkLocation(request),
       },
     }),
   });
@@ -301,6 +313,48 @@ async function deviceVoice(request,env,auth) {
   return handleVoiceTranscription(internal,env,{authorized:true,source:"android-companion",device_id:auth.deviceId});
 }
 
+async function deviceTts(request,env,auth) {
+  const body = await request.json().catch(()=>({}));
+  const text = safe(body.text,1200);
+  if (!text) return json({ok:false,code:"TEXT_REQUIRED"},400);
+  if (!env?.AI || typeof env.AI.run !== "function") {
+    return json({ok:false,code:"TTS_UNAVAILABLE",reason:"AI_BINDING_MISSING"},503);
+  }
+
+  const speaker = safe(body.speaker,32) || "luna";
+  const format = safe(body.format,16).toLowerCase() === "mp3" ? "mp3" : "pcm";
+  const model = String(env.MEL_TTS_MODEL || "@cf/deepgram/aura-1");
+  const ttsInput = format === "mp3"
+    ? { text, speaker, encoding:"mp3" }
+    : { text, speaker, encoding:"linear16", container:"none", sample_rate:48000 };
+  try {
+    const result = await env.AI.run(model,ttsInput,{returnRawResponse:true});
+
+    const audioHeaders = {
+      "content-type": format === "mp3" ? "audio/mpeg" : "application/octet-stream",
+      "cache-control":"no-store",
+      "x-mel-audio-format": format === "mp3" ? "mp3" : "pcm-s16le",
+      "x-mel-speaker":speaker
+    };
+    if (format !== "mp3") {
+      audioHeaders["x-mel-audio-rate"]="48000";
+      audioHeaders["x-mel-audio-channels"]="1";
+    }
+
+    if (result instanceof Response) {
+      const headers = new Headers(result.headers);
+      Object.entries(audioHeaders).forEach(([key,value])=>headers.set(key,value));
+      return new Response(result.body,{status:result.status,headers});
+    }
+    if (result?.body) {
+      return new Response(result.body,{status:200,headers:audioHeaders});
+    }
+    return json({ok:false,code:"TTS_EMPTY_RESPONSE"},503);
+  } catch (error) {
+    return json({ok:false,code:"TTS_FAILED",detail:String(error?.message||error).slice(0,180)},503);
+  }
+}
+
 async function deviceFileUpload(request,env,auth) {
   const type = String(request.headers.get("content-type")||"");
   if (!type.toLowerCase().includes("multipart/form-data")) return json({ok:false,code:"FILE_REQUIRED"},415);
@@ -330,6 +384,7 @@ export async function maybeHandleAndroidCompanionApi(request,env) {
   if (url.pathname === ANDROID_API_BASE+"/sync" && request.method === "GET") return syncMessages(request,env,auth,url);
   if (url.pathname === ANDROID_API_BASE+"/sync/ack" && request.method === "POST") return ackMessages(request,env,auth);
   if (url.pathname === ANDROID_API_BASE+"/voice/transcribe" && request.method === "POST") return deviceVoice(request,env,auth);
+  if (url.pathname === ANDROID_API_BASE+"/voice/tts" && request.method === "POST") return deviceTts(request,env,auth);
   if (url.pathname === ANDROID_API_BASE+"/files/upload" && request.method === "POST") return deviceFileUpload(request,env,auth);
   return json({ok:false,code:"ANDROID_ROUTE_NOT_FOUND"},404);
 }
