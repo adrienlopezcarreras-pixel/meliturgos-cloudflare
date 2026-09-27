@@ -34,3 +34,26 @@ test('full interface keeps capabilities while avoiding eager heavy hidden-panel 
   assert.match(runtime, /document\.createDocumentFragment\(\)/);
   assert.match(html, /content-visibility:auto/);
 });
+
+
+test('full interface exposes persistent connection controls for Gmail Yahoo Microsoft and Roundcube', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  assert.match(html, /data-view="connections"/);
+  assert.match(html, /data-panel="connections"/);
+  assert.match(html, />Gmail</);
+  assert.match(html, />Yahoo \/ Ymail</);
+  assert.match(html, />Outlook</);
+  assert.match(html, />OneDrive</);
+  assert.match(html, />SharePoint</);
+  assert.match(html, />Roundcube</);
+  assert.match(html, /id="gmailConnect"/);
+  assert.match(html, /id="outlookConnect"/);
+  assert.match(html, /id="oneDriveConnect"/);
+  assert.match(html, /id="sharePointConnect"/);
+  assert.match(html, /id="yahooConnect"/);
+  assert.match(html, /roundcubeSave/);
+  assert.match(html, /roundcubeTest/);
+  assert.match(html, /CONNECTÉ DURABLEMENT/);
+  assert.match(html, /initialView=new URLSearchParams\(location\.search\)\.get\('view'\)/);
+});

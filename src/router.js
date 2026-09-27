@@ -3,6 +3,7 @@ import { requireAuth, isReleaseSmokeRequest } from "./core/security.js";
 import { approvedCapabilitiesFromRequest } from "./security/approval-gates.js";
 import { maybeHandleGoogleOAuthApi } from "./api/google-oauth-api.js";
 import { maybeHandleMailOAuthApi } from "./api/mail-oauth-api.js";
+import { maybeHandleConnectionSettingsApi } from "./api/connection-settings-api.js";
 import { runtimeCapabilityPermissions } from "./security/runtime-permissions.js";
 import { json, html } from "./core/http.js";
 import { createGen2Runtime } from "./core/orchestrator/gen2-runtime.js";
@@ -68,11 +69,18 @@ async function codeSelfCheck(env) {
 async function handleConversationApi(request, env, url = new URL(request.url)) {
   const path = url.pathname;
 
-  const googleOAuthResponse = await maybeHandleGoogleOAuthApi(request, env, url);
-  if (googleOAuthResponse) return googleOAuthResponse;
+  if (path.startsWith("/api/gen2/oauth/")) {
+    const googleOAuthResponse = await maybeHandleGoogleOAuthApi(request, env, url);
+    if (googleOAuthResponse) return googleOAuthResponse;
 
-  const mailOAuthResponse = await maybeHandleMailOAuthApi(request, env, url);
-  if (mailOAuthResponse) return mailOAuthResponse;
+    const mailOAuthResponse = await maybeHandleMailOAuthApi(request, env, url);
+    if (mailOAuthResponse) return mailOAuthResponse;
+  }
+
+  if (path.startsWith("/api/gen2/connections/")) {
+    const connectionSettingsResponse = await maybeHandleConnectionSettingsApi(request, env, url);
+    if (connectionSettingsResponse) return connectionSettingsResponse;
+  }
 
   if (path === "/api/gen2/roadmap" && request.method === "GET") {
     const runtime = createGen2Runtime({ env });

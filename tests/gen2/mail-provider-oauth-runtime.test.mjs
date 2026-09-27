@@ -107,3 +107,21 @@ test('generic IMAP/SMTP connector is explicit standards backend for Roundcube', 
   assert.ok(genericMail.capabilities.includes('mail.messages.read'));
   assert.ok(genericMail.capabilities.includes('mail.messages.send'));
 });
+
+
+test('Microsoft and Yahoo browser callbacks return to the persistent connections interface', async () => {
+  for (const [provider, connector] of [['microsoft','microsoft-mail'],['yahoo','yahoo-mail']]) {
+    const runtime = {
+      oauth: {
+        async callback() { return { authorized: true, refreshable: true }; },
+      },
+    };
+    const request = new Request('https://mel.example/api/gen2/oauth/' + provider + '/' + connector + '/callback?state=s&code=c', {
+      method: 'GET',
+      headers: { accept: 'text/html' },
+    });
+    const response = await maybeHandleMailOAuthApi(request, { MELITURGOS_USER: 'adrien' }, new URL(request.url), { runtime });
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get('location'), '/professor?view=connections&oauth=connected&connector=' + connector);
+  }
+});
