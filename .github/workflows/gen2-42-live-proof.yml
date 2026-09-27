@@ -227,6 +227,23 @@ jobs:
               'active_handoffs': len(active_items),
               'verified_completions': len(completed_items),
               'ecosystem_jobs': len(ecosystem_jobs),
+              'active_handoff_summaries': [
+                  {
+                      'fingerprint': x.get('fingerprint'),
+                      'capability_hint': x.get('capability_hint'),
+                      'job_id': x.get('handoff', {}).get('job_id'),
+                      'status': x.get('handoff', {}).get('status'),
+                      'teacher_request_id': x.get('handoff', {}).get('teacher_request_id'),
+                      'teacher_verdict': x.get('handoff', {}).get('teacher_verdict'),
+                      'candidate_sha': x.get('handoff', {}).get('candidate_sha'),
+                      'ci_run_id': x.get('handoff', {}).get('ci_run_id'),
+                      'completion_verified': x.get('handoff', {}).get('completion_verified'),
+                      'retryable': x.get('handoff', {}).get('retryable'),
+                      'terminal_reason': x.get('handoff', {}).get('terminal_reason'),
+                      'attempts': x.get('handoff', {}).get('attempts'),
+                  }
+                  for x in active_items[:20]
+              ],
               'top_failed_errors': proof['failed_job_errors'][:8],
           }, indent=2, ensure_ascii=False))
 
