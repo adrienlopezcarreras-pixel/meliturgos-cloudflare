@@ -64,6 +64,10 @@ jobs:
           npx wrangler d1 execute DB --remote --json \
             --command "SELECT COALESCE(error,'(no error)') AS error, COUNT(*) AS count FROM dev_jobs WHERE status='FAILED' GROUP BY COALESCE(error,'(no error)') ORDER BY count DESC, error ASC LIMIT 30" \
             > failed-jobs.raw.json
+
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT status,last_seen,json_extract(metadata_json,'$.paused') AS paused,json_extract(metadata_json,'$.max_autonomy') AS max_autonomy,json_extract(metadata_json,'$.launch_approved_sha') AS launch_approved_sha,json_extract(metadata_json,'$.launch_approved_at') AS launch_approved_at FROM dev_bridge_state WHERE bridge_id='mel-autonomy-control'" \
+            > autonomy-control.raw.json
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -94,6 +98,8 @@ jobs:
           watch_rows = load_rows('watch-state.raw.json')
           job_rows = load_rows('dev-jobs.raw.json')
           failure_rows = load_rows('failed-jobs.raw.json')
+          control_rows = load_rows('autonomy-control.raw.json')
+          control_row = control_rows[0] if control_rows else {}
 
           watch_by_id = {str(row.get('id')): row for row in watch_rows}
           watch_state = {}
@@ -229,6 +235,14 @@ jobs:
               'active_handoffs': len(active_items),
               'verified_completions': len(completed_items),
               'ecosystem_jobs': len(ecosystem_jobs),
+              'autonomy_control': {
+                  'status': control_row.get('status'),
+                  'paused': control_row.get('paused'),
+                  'max_autonomy': control_row.get('max_autonomy'),
+                  'launch_approved_sha': control_row.get('launch_approved_sha'),
+                  'launch_approved_at': control_row.get('launch_approved_at'),
+                  'deployed_sha': os.environ.get('MEL_DEPLOYED_GIT_SHA') or os.environ.get('GITHUB_SHA'),
+              },
               'ecosystem_job_summaries': ecosystem_jobs[:40],
               'active_handoff_summaries': [
                   {
