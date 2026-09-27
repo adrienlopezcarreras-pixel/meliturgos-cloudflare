@@ -1,0 +1,57 @@
+name: production-capability-health-audit
+
+on:
+  push:
+    branches:
+      - 'ops/capability-health-audit'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Query production CapabilityBus health
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/capabilities?refresh=1"
+          CODE="$(curl -sS --max-time 120 -o capabilities.json -w '%{http_code}' "$URL" || true)"
+          echo "HTTP=$CODE"
+          test "$CODE" = "200"
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('capabilities.json','utf8'));
+          if(d?.ok!==true || !Array.isArray(d?.capabilities)) throw new Error('CAPABILITY_HEALTH_RESPONSE_INVALID');
+          const rows=d.capabilities.map(x=>({
+            id:String(x?.id||'').slice(0,180),
+            name:String(x?.name||'').slice(0,220),
+            provider:String(x?.provider||'').slice(0,120),
+            health:String(x?.enabled===false?'DISABLED':x?.health||'UNKNOWN').toUpperCase().slice(0,80),
+            detail:String(x?.health_detail||'').slice(0,240),
+            enabled:x?.enabled!==false
+          }));
+          const groups={};
+          for(const r of rows)(groups[r.health]??=[]).push(r);
+          const badStates=new Set(['ERROR','FAILED','FAIL','DOWN','UNHEALTHY','BROKEN']);
+          const unavailableStates=new Set(['OFFLINE','UNAVAILABLE','BLOCKED','DISABLED']);
+          const degradedStates=new Set(['DEGRADED','UNKNOWN','UNTESTED','NOT_TESTED']);
+          const protectedStates=new Set(['PROTECTED']);
+          const summary={
+            total:rows.length,
+            degraded:rows.filter(r=>degradedStates.has(r.health)).length,
+            unavailable:rows.filter(r=>unavailableStates.has(r.health)).length,
+            protected:rows.filter(r=>protectedStates.has(r.health)).length,
+            failed:rows.filter(r=>badStates.has(r.health)).length,
+            healthy:rows.filter(r=>['HEALTHY','ONLINE'].includes(r.health)).length
+          };
+          console.log('SUMMARY '+JSON.stringify(summary));
+          for(const state of ['DEGRADED','UNKNOWN','UNTESTED','NOT_TESTED','UNAVAILABLE','OFFLINE','BLOCKED','DISABLED','PROTECTED','ERROR','FAILED','FAIL','DOWN','UNHEALTHY','BROKEN']){
+            const arr=groups[state]||[];
+            if(!arr.length)continue;
+            console.log('\n## '+state+' '+arr.length);
+            for(const r of arr) console.log(JSON.stringify(r));
+          }
+          NODE
