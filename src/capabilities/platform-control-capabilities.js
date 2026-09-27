@@ -143,7 +143,7 @@ function deploymentRow(row = {}) {
   };
 }
 
-export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '' } = {}) {
+export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null } = {}) {
   if (!bus || typeof bus.discover !== 'function') throw new TypeError('CAPABILITY_BUS_REQUIRED');
 
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
@@ -154,10 +154,21 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
   const cloudflareAccountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
   const cloudflareScript = String(env.MEL_CLOUDFLARE_SCRIPT || '').trim();
 
-  const vercelToken = String(env.VERCEL_TOKEN || '').trim();
-  const vercelTeamId = String(env.VERCEL_TEAM_ID || '').trim();
-  const vercelProjectId = String(env.MEL_VERCEL_PROJECT_ID || '').trim();
-  const vercelProjectName = String(env.MEL_VERCEL_PROJECT_NAME || '').trim();
+  const staticVercel = Object.freeze({
+    token: String(env.VERCEL_TOKEN || '').trim(),
+    teamId: String(env.VERCEL_TEAM_ID || '').trim(),
+    projectId: String(env.MEL_VERCEL_PROJECT_ID || '').trim(),
+    projectName: String(env.MEL_VERCEL_PROJECT_NAME || '').trim(),
+  });
+  const getVercelConfig = async () => {
+    const dynamic = typeof resolveVercelConfig === 'function' ? await resolveVercelConfig() : null;
+    return {
+      token: String(dynamic?.token || staticVercel.token || '').trim(),
+      teamId: String(dynamic?.team_id || staticVercel.teamId || '').trim(),
+      projectId: String(dynamic?.project_id || staticVercel.projectId || '').trim(),
+      projectName: String(dynamic?.project_name || staticVercel.projectName || '').trim(),
+    };
+  };
 
   bus.discover({
     id: 'github.actions.workflow.dispatch',
@@ -320,15 +331,16 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     risk: 'HIGH',
     permissions: [],
     approval: { required: true, scope: 'vercel.deployments.redeploy', reason: 'VERCEL_DEPLOYMENT_MUTATION' },
-    health: configured(env, 'VERCEL_TOKEN', 'MEL_VERCEL_PROJECT_ID', 'MEL_VERCEL_PROJECT_NAME') ? 'DEGRADED' : 'UNAVAILABLE',
+    health: (staticVercel.token && staticVercel.projectId && staticVercel.projectName) || typeof resolveVercelConfig === 'function' ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
   }, async input => {
-    if (!vercelToken || !vercelProjectId || !vercelProjectName) throw capabilityError('VERCEL_CONTROL_NOT_CONFIGURED', 503);
+    const cfg = await getVercelConfig();
+    if (!cfg.token || !cfg.projectId || !cfg.projectName) throw capabilityError('VERCEL_CONTROL_NOT_CONFIGURED', 503);
     const deploymentId = safeResource(input.deploymentId, 'VERCEL_DEPLOYMENT_ID_INVALID', 200);
-    const projectId = safeResource(vercelProjectId, 'VERCEL_PROJECT_ID_INVALID', 200);
-    const projectName = safeResource(vercelProjectName, 'VERCEL_PROJECT_NAME_INVALID', 200);
+    const projectId = safeResource(cfg.projectId, 'VERCEL_PROJECT_ID_INVALID', 200);
+    const projectName = safeResource(cfg.projectName, 'VERCEL_PROJECT_NAME_INVALID', 200);
     const params = new URLSearchParams();
-    if (vercelTeamId) params.set('teamId', safeResource(vercelTeamId, 'VERCEL_TEAM_ID_INVALID', 200));
+    if (cfg.teamId) params.set('teamId', safeResource(cfg.teamId, 'VERCEL_TEAM_ID_INVALID', 200));
     const url = `${VERCEL_API}/v13/deployments${params.size ? '?' + params.toString() : ''}`;
     const requestBody = {
       name: projectName,
@@ -337,7 +349,7 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     };
     if (input.target === 'production') requestBody.target = 'production';
     const body = await requestJson(fetchImpl, url, {
-      token: vercelToken,
+      token: cfg.token,
       body: requestBody,
       code: 'VERCEL_REDEPLOY_FAILED',
     });
