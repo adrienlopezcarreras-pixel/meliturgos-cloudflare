@@ -88,15 +88,29 @@ export function scoreBenchmarkResponse(response, rubric = {}) {
   return { score: passed / checks.length, checks, valid: true };
 }
 
-export async function runLearningBenchmark({ respond, cases = DEFAULT_CASES, metadata = {}, provenance = {} } = {}) {
+async function mapWithConcurrency(items, concurrency, worker) {
+  const list = Array.from(items || []);
+  const results = new Array(list.length);
+  const width = Math.max(1, Math.min(list.length || 1, Math.trunc(Number(concurrency) || 1)));
+  let cursor = 0;
+  await Promise.all(Array.from({ length: width }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= list.length) return;
+      results[index] = await worker(list[index], index);
+    }
+  }));
+  return results;
+}
+
+export async function runLearningBenchmark({ respond, cases = DEFAULT_CASES, metadata = {}, provenance = {}, concurrency = 1 } = {}) {
   if (typeof respond !== 'function') throw Object.assign(new Error('LEARNING_BENCHMARK_RESPONDER_REQUIRED'), { code: 'LEARNING_BENCHMARK_RESPONDER_REQUIRED' });
-  const results = [];
-  for (const item of cases) {
+  const results = await mapWithConcurrency(cases, concurrency, async (item) => {
     const started = Date.now();
     try {
       const response = await respond(item.prompt, item);
       const scored = scoreBenchmarkResponse(response, item.rubric);
-      results.push({
+      return {
         id: item.id,
         domain: item.domain,
         score: scored.score,
@@ -104,9 +118,9 @@ export async function runLearningBenchmark({ respond, cases = DEFAULT_CASES, met
         latency_ms: Date.now() - started,
         checks: scored.checks,
         error: null,
-      });
+      };
     } catch (error) {
-      results.push({
+      return {
         id: item.id,
         domain: item.domain,
         score: 0,
@@ -114,9 +128,9 @@ export async function runLearningBenchmark({ respond, cases = DEFAULT_CASES, met
         latency_ms: Date.now() - started,
         checks: [],
         error: String(error?.code || error?.message || 'BENCHMARK_CASE_FAILED').slice(0, 300),
-      });
+      };
     }
-  }
+  });
   const scored = scoreBenchmarkResults(results);
   const completedAt = Date.now();
   const boundProvenance = normalizeProvenance(provenance);
