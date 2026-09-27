@@ -145,10 +145,12 @@ test('CapabilityBus and import counters do not convert missing payload fields in
   const runtime=html.match(/<script>([\s\S]*?)<\/script>/)?.[1]||'';
   assert.match(runtime,/if\(!Array\.isArray\(d\?\.capabilities\)\)throw Error\('Liste CapabilityBus absente'\)/);
   assert.match(runtime,/const fmt=v=>v==null\|\|!Number\.isFinite\(Number\(v\)\)\?'—'/);
-  assert.match(runtime,/chatgptServerConversations'\)\.textContent=fmt\(d\.conversations\)/);
-  assert.match(runtime,/chatgptServerMessages'\)\.textContent=fmt\(d\.messages\)/);
-  assert.match(runtime,/chatgptServerCandidates'\)\.textContent=fmt\(d\.memory_candidates\)/);
-  assert.match(runtime,/chatgptServerUnsynced'\)\.textContent=fmt\(d\.unsynced_messages\)/);
+  assert.match(runtime,/'#chatgptServerConversations':fmt\(d\.conversations\)/);
+  assert.match(runtime,/'#chatgptServerMessages':fmt\(d\.messages\)/);
+  assert.match(runtime,/'#chatgptServerUnsynced':fmt\(d\.unsynced_messages\)/);
+  assert.match(runtime,/'#chatgptServerAttachments':fmt\(d\.attachment_index\?\.descriptors\)/);
+  assert.match(runtime,/'#chatgptServerPartial':fmt\(d\.partial_conversations\)/);
+  assert.match(runtime,/'#chatgptServerUnderfilled':fmt\(d\.underfilled_conversations\)/);
   assert.doesNotMatch(runtime,/Number\(d\.conversations\|\|0\)/);
   assert.doesNotMatch(runtime,/Number\(d\.messages\|\|0\)/);
 });
