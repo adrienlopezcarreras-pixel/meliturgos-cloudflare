@@ -135,21 +135,34 @@ export async function runRecoveryDrillAgainstPersistedEvidence(metadata, {
   });
 
   const standby = {
-    schema:'mel.resilience.cold-standby.v1',
-    generated_at:now(),
-    source:{branch:'release',commit:deployedSha},
-    runtime:{worker_name:'meliturgos-recovery-release-smoke',runtime:'cloudflare-workers',source_kind:'INDEPENDENT_SHARD_COPY'},
-    database:{kind:'d1-logical-export',backup_reference:snapshotId},
-    artifacts:[{id:'critical-code',checksum:deployedSha}],
-    activation:{automatic:false,owner_approval_required:true,requested:false,authorized:false},
-    readiness:{code:true,database:true,secrets:true,healthcheck:true},
+    standby_id: `release-evidence-${snapshotId}`.slice(0, 240),
+    recovery: {
+      bundle_id: snapshotId,
+      source_commit: deployedSha,
+      manifest_sha256: bundle.manifestSha256,
+      verified: true,
+    },
+    destination: {
+      id: 'release-smoke-evidence',
+      provider: 'r2-head-plus-d1-metadata',
+      authorized: true,
+      encrypted: true,
+    },
+    readiness: {
+      snapshot_present: backupObjectPresent === true,
+      config_present: true,
+      identity_present: true,
+      restore_tested: metadata?.restoreVerified === true,
+      integrity_verified: integrity === restoreIntegrity,
+      checked_at: now(),
+    },
   };
 
   let staged = null;
   const expectedChecks = ['snapshot-integrity','d1-logical-state','r2-inventory','runtime-descriptor','backup-object-present','activation-forbidden'];
   const controller = createRecoveryDrillController({
     bundleBuilder,
-    authorize: async (_permission, scope) => owner === true && scope?.environmentId === 'recovery-release-smoke',
+    authorize: async (permission, scope) => permission === 'resilience:recovery:drill' && owner === true && scope?.owner === true && scope?.environmentId === 'recovery-release-smoke',
     adapter: {
       async stage(payload) {
         requireValue(payload?.environment?.isolated === true, 'RECOVERY_DRILL_ISOLATION_REQUIRED');
