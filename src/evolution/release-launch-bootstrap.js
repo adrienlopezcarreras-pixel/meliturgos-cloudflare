@@ -692,6 +692,41 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   }
 
   if (phase === 'backup') {
+    let existing = null;
+    try {
+      existing = safeReadiness(await readReadiness(env));
+    } catch {
+      existing = null;
+    }
+    const deployedSha = exactDeployedSha(env);
+    const restore = existing?.restore || null;
+    const reusable = Boolean(deployedSha)
+      && existing?.launch_ready === true
+      && String(existing?.candidate_sha || '').toLowerCase() === deployedSha
+      && restore?.ok === true
+      && restore?.sha_matches === true
+      && String(restore?.deployed_sha || '').toLowerCase() === deployedSha
+      && String(restore?.backup_deployed_sha || '').toLowerCase() === deployedSha
+      && Boolean(restore?.snapshot_id);
+
+    if (reusable) {
+      const backup = {
+        ok: true,
+        status: 'REUSED_VERIFIED_SHA_BOUND_BACKUP',
+        id: restore.snapshot_id,
+        deployed_sha: deployedSha,
+        sha_matches: true,
+      };
+      return Response.json({
+        ok: true,
+        status: backup.status,
+        phase,
+        backup,
+        autonomy_started: false,
+        owner_launch_required: true,
+      }, { status: 200, headers: { 'cache-control': 'no-store' } });
+    }
+
     const backup = await prepareBackup(env);
     return Response.json({
       ok: backup?.ok === true,

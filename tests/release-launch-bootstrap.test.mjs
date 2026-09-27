@@ -96,6 +96,43 @@ test('release bootstrap returns 409 and leaves autonomy paused when evidence is 
 });
 
 
+test('release backup phase reuses exact SHA-bound restore proof without rebuilding backup', async () => {
+  const sha='e'.repeat(40);
+  let backupCalls=0;
+  const readiness={
+    ok:true,
+    status:'GO_FOR_SUPERVISED_AUTONOMY',
+    launch_ready:true,
+    candidate_sha:sha,
+    gates:{verified_restore_dry_run:true,shardvault_critical_survival:true},
+    blockers:[],
+    failure_hygiene:{ok:true,retry_cap:3,historical_failed_count:0,unbounded_failed_count:0,code:'FAILURE_HISTORY_BOUNDED'},
+    restore:{ok:true,status:'LATEST_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED',snapshot_id:'system-existing',deployed_sha:sha,backup_deployed_sha:sha,sha_matches:true},
+    shardvault:{ok:true,status:'PAUSED_FOR_ROADMAP',paused:true,temporary:true,resume_condition:'ROADMAP_COMPLETE',recoverable:false,active_external_count:0,external_code_status:'PAUSED_FOR_ROADMAP',external_code_endpoints:0,target_count:7},
+  };
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'backup'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,MEL_DEPLOYED_GIT_SHA:sha,DB:{}},
+    {
+      setControl:async()=>({}),
+      readReadiness:async()=>readiness,
+      prepareBackup:async()=>{backupCalls+=1; throw new Error('HEAVY_BACKUP_MUST_NOT_RUN');},
+    },
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.status,'REUSED_VERIFIED_SHA_BOUND_BACKUP');
+  assert.equal(body.backup.status,'REUSED_VERIFIED_SHA_BOUND_BACKUP');
+  assert.equal(body.backup.id,'system-existing');
+  assert.equal(body.backup.deployed_sha,sha);
+  assert.equal(backupCalls,0);
+});
+
 test('release bootstrap exposes bounded pause, backup, code-sync and readiness phases', async () => {
   const calls=[];
   const ready={
