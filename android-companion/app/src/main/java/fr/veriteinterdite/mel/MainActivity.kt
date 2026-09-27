@@ -233,8 +233,6 @@ class MainActivity : ComponentActivity() {
         client = MelApiClient(BuildConfig.MEL_BASE_URL, deviceId(), vault)
         val factory = MelViewModel.factory(this, client, vault, conversationId)
         model = ViewModelProvider(this, factory)[MelViewModel::class.java]
-        ensureMobileBridge()
-
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
             val wakeProfileRevision by MelBleBridgeService.wakeProfileRevision.collectAsStateWithLifecycle()
@@ -316,6 +314,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        window.decorView.post { ensureMobileBridge() }
     }
 
     override fun onResume() {
