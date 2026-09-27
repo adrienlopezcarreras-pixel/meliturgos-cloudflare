@@ -383,7 +383,24 @@ def main() -> int:
         bf16=bf16,
         remove_unused_columns=False,
     )
-    collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    def collator(features):
+        batch = tokenizer.pad(
+            [{k: v for k, v in feature.items() if k != "labels"} for feature in features],
+            padding=True,
+            return_tensors="pt",
+        )
+        max_len = int(batch["input_ids"].shape[1])
+        padded_labels = []
+        for feature in features:
+            labels = list(feature["labels"])
+            pad_len = max_len - len(labels)
+            if tokenizer.padding_side == "left":
+                labels = ([-100] * pad_len) + labels
+            else:
+                labels = labels + ([-100] * pad_len)
+            padded_labels.append(labels)
+        batch["labels"] = torch.tensor(padded_labels, dtype=torch.long)
+        return batch
 
     training_started_path = output_dir / "training-started.json"
     training_progress_path = output_dir / "training-progress.jsonl"
