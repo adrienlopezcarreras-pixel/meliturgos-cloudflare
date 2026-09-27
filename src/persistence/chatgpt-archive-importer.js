@@ -724,12 +724,13 @@ export async function importChatGPTArchive(env, payload, { preview = false, conf
   let coverageConfirmation = null;
   if (confirmFullExport && failed === 0) {
     try {
+      const coveredConversations = normalized.conversations.filter(conversation => conversation.messages.length > 0);
       coverageConfirmation = await recordChatGPTCollectorCoverage(env, {
         collector_version: 'official-export-v1',
         deep_discovery_done: true,
-        discovered_count: normalized.conversations.length,
+        discovered_count: coveredConversations.length,
         captured_at: Date.now(),
-        items: normalized.conversations.map(conversation => ({
+        items: coveredConversations.map(conversation => ({
           id: conversation.sourceId,
           status: 'DONE',
           messages: conversation.messages.length,
