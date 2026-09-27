@@ -1,4 +1,5 @@
 import {
+  evaluateRestoreReadiness,
   getAutonomyLaunchReadiness,
   prepareAutonomyLaunch,
   prepareAutonomyLaunchBackup,
@@ -566,24 +567,49 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       return Response.json({ ok: false, code: 'DEPLOYED_SHA_INVALID' }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
 
-    const latest = await env.DB.prepare(
-      "SELECT id,object_key,metadata_json,created_at FROM backup_objects WHERE object_key LIKE 'backups/system/%' ORDER BY created_at DESC LIMIT 1"
-    ).first();
-    if (!latest?.id || !latest?.object_key) {
+    const restoreReadiness = await evaluateRestoreReadiness(env);
+    const releaseBound = restoreReadiness?.status === 'RELEASE_BOUND_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED';
+    const releaseBinding = restoreReadiness?.release_binding || null;
+    const restoreVerified = restoreReadiness?.ok === true
+      && restoreReadiness?.sha_matches === true
+      && String(restoreReadiness?.backup_deployed_sha || '').toLowerCase() === deployedSha
+      && Boolean(restoreReadiness?.snapshot_id)
+      && /^[0-9a-f]{64}$/i.test(String(restoreReadiness?.integritySha256 || ''))
+      && restoreReadiness?.restore?.ok === true;
+    const releaseBindingVerified = !releaseBound || (
+      releaseBinding?.ok === true
+      && String(releaseBinding?.deployed_sha || '').toLowerCase() === deployedSha
+      && /^[0-9a-f]{64}$/i.test(String(releaseBinding?.binding_sha256 || ''))
+    );
+    if (!restoreVerified || !releaseBindingVerified) {
+      return Response.json({
+        ok: false,
+        code: 'PRODUCTION_BACKUP_PERSISTED_VERIFICATION_REQUIRED',
+        restore_status: restoreReadiness?.status || null,
+      }, { status: 409, headers: { 'cache-control': 'no-store' } });
+    }
+
+    const snapshot = await env.DB.prepare(
+      "SELECT id,object_key,metadata_json,created_at FROM backup_objects WHERE id=? LIMIT 1"
+    ).bind(String(restoreReadiness.snapshot_id)).first();
+    if (!snapshot?.id || !snapshot?.object_key) {
       return Response.json({ ok: false, code: 'PRODUCTION_BACKUP_REQUIRED' }, { status: 409, headers: { 'cache-control': 'no-store' } });
     }
     let backupMetadata = {};
-    try { backupMetadata = JSON.parse(latest.metadata_json || '{}'); } catch {}
+    try { backupMetadata = JSON.parse(snapshot.metadata_json || '{}'); } catch {}
 
+    const snapshotIntegrity = String(backupMetadata.integritySha256 || '').toLowerCase();
+    const restoreIntegrity = String(backupMetadata.restoreIntegritySha256 || '').toLowerCase();
     const backupVerified = backupMetadata.verified === true
       && backupMetadata.restoreVerified === true
-      && String(backupMetadata.restoreDeployedGitSha || '').toLowerCase() === deployedSha
-      && Boolean(backupMetadata.integritySha256)
-      && String(backupMetadata.restoreIntegritySha256 || '') === String(backupMetadata.integritySha256 || '');
+      && /^[0-9a-f]{64}$/.test(snapshotIntegrity)
+      && restoreIntegrity === snapshotIntegrity
+      && snapshotIntegrity === String(restoreReadiness.integritySha256 || '').toLowerCase();
     if (!backupVerified) {
       return Response.json({
         ok: false,
         code: 'PRODUCTION_BACKUP_PERSISTED_VERIFICATION_REQUIRED',
+        restore_status: restoreReadiness?.status || null,
       }, { status: 409, headers: { 'cache-control': 'no-store' } });
     }
 
@@ -613,8 +639,8 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
           id: 'production-system-backup',
           contract_id: 'memory.storage',
           format: 'application/json',
-          ref: String(latest.object_key),
-          checksum: String(backupMetadata.integritySha256 || await digest({ backup_id: latest.id, object_key: latest.object_key })),
+          ref: String(snapshot.object_key),
+          checksum: String(backupMetadata.integritySha256 || await digest({ backup_id: snapshot.id, object_key: latest.object_key })),
         },
         {
           id: 'production-runtime-release',
@@ -634,10 +660,13 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       ],
       metadata: {
         roadmap_id: 'MEL-RES-03',
-        backup_id: String(latest.id),
+        backup_id: String(snapshot.id),
         backup_verified: backupVerified,
         backup_integrity_sha256: String(backupMetadata.integritySha256 || ''),
         backup_encrypted: backupMetadata.encrypted === true,
+        release_bound: releaseBound,
+        release_binding_sha256: releaseBound ? String(releaseBinding?.binding_sha256 || '') : null,
+        snapshot_deployed_sha: String(restoreReadiness?.snapshot_deployed_sha || '') || null,
         production_manifest: true,
       },
     });
@@ -667,10 +696,13 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       phase,
       deployed_sha: deployedSha,
       deployed_branch: deployedBranch,
-      backup_id: String(latest.id),
+      backup_id: String(snapshot.id),
       backup_verified: backupVerified,
       backup_integrity_sha256: String(backupMetadata.integritySha256 || ''),
       backup_encrypted: backupMetadata.encrypted === true,
+      release_bound: releaseBound,
+      release_binding_sha256: releaseBound ? String(releaseBinding?.binding_sha256 || '') : null,
+      snapshot_deployed_sha: String(restoreReadiness?.snapshot_deployed_sha || '') || null,
       manifest_schema: manifest.schema,
       capsule_schema: capsule.schema,
       ready_to_escape: summary.ready_to_escape,
