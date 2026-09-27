@@ -106,6 +106,34 @@ test('cloud autonomy heartbeat creates P0 work, runs live Council, inspects cand
   assert.equal(stillWaiting.status, 'WAITING_TEACHER', 'the original Teacher request must remain tracked while MEL advances');
 });
 
+test('Teacher inspection stays bound to captured candidate snapshot when branch moves concurrently', async () => {
+  const fixture = runtimeFixture();
+  let headReads = 0;
+  const movingFetch = async (url, options) => {
+    const target = String(url);
+    if (target.includes('/git/ref/heads/candidate/mel-clean-autonomy')) {
+      headReads += 1;
+      return Response.json({ object: { sha: headReads === 1 ? CANDIDATE_HEAD_SHA : NEW_CANDIDATE_HEAD_SHA } });
+    }
+    return fixture.fetchImpl(url, options);
+  };
+
+  const result = await runAutonomyRuntimeTick(fixture.env, {
+    fetchImpl: movingFetch,
+    repository: fixture.repository,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.job.status, 'WAITING_TEACHER');
+  const stored = await fixture.repository.get(result.job.id);
+  assert.equal(stored.result_json.teacher_bridge.request.candidate.sha, CANDIDATE_HEAD_SHA);
+  assert.equal(stored.result_json.teacher_bridge.request.provenance.candidate_sha, CANDIDATE_HEAD_SHA);
+  assert.ok(
+    fixture.fetchCalls.some((url) => url.includes('?ref=' + CANDIDATE_HEAD_SHA)),
+    'inspection reads must use the immutable captured candidate SHA',
+  );
+});
+
 test('production Teacher inspection follows candidate HEAD when deployed main SHA differs', async () => {
   const fixture = runtimeFixture();
   const deployedMainSha = 'dddddddddddddddddddddddddddddddddddddddd';
