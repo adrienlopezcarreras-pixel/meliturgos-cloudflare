@@ -1,7 +1,7 @@
 # MEL — Handoff technique canonique — semaine du 21 au 27 septembre 2026
 
 Date de consolidation : 2026-09-27.
-Base de consolidation finale : main f3d75ea94af8df09a4b797b65adba52537d9294e.
+Base de réconciliation avant fusion de l’audit : main a342834729c11f4f2c083f0ed36ff6ea62d1500a.
 
 ## Portée et règle de vérité
 
@@ -150,4 +150,6 @@ Ce handoff conserve la chronologie et les références datées. MEL doit traiter
 - Le SHA exact `f3d75ea94af8df09a4b797b65adba52537d9294e` a été promu via la branche canonique `release/mel-hardware-v0.1.0`.
 - Le run production `36325378964` est intégralement vert : approbation, identité exact-SHA, sécurité, syntaxe, full suite, bundle critique R2, preuve Workers AI zéro-coût, déploiement, preuve post-déploiement/autonomie et HTTP final.
 - Le recovery drill accepte désormais un snapshot vérifié historiquement seulement si un binding de release vérifié relie exactement le SHA courant, l'identité du snapshot, son intégrité et son SHA d'origine. Toute incohérence reste fail-closed.
+- La PR #596 a ensuite supprimé la fenêtre arbitraire des 100 snapshots pour le recovery release-bound : le snapshot lié est retrouvé par identifiant exact et ses métadonnées SHA/intégrité restent vérifiées.
+- La PR #592 a fusionné le scaffold qualité déterministe GEN2-42 après réparations IA bornées, sans activation production automatique.
 - ShardVault reste volontairement `PAUSED_FOR_ROADMAP` et doit être réactivé/testé en dernier, après nettoyage et audit.
