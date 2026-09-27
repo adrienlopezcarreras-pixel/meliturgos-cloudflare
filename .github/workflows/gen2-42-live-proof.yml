@@ -2,11 +2,24 @@ name: gen2-42-live-proof
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - src/evaluation/capability-watch-runtime.js
+      - src/evaluation/ecosystem-discovery-planner.js
+      - tests/gen2/capability-watch-production-proof.test.mjs
+      - tests/gen2/capability-watch.test.mjs
+      - .github/workflows/gen2-42-live-proof.yml
   push:
     branches:
       - candidate/mel-clean-autonomy
     paths:
       - .github/workflows/gen2-42-live-proof.yml
+      - src/evaluation/capability-watch-runtime.js
+      - src/evaluation/ecosystem-discovery-planner.js
+      - tests/gen2/capability-watch-production-proof.test.mjs
+      - tests/gen2/capability-watch.test.mjs
 
 permissions:
   contents: read
@@ -32,7 +45,11 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
 
+      - name: Run GEN2-42 targeted contract tests
+        run: node --test tests/gen2/capability-watch-production-proof.test.mjs tests/gen2/capability-watch.test.mjs
+
       - name: Read production capability watch state
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -52,6 +69,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Build sanitized GEN2-42 proof
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -231,6 +249,7 @@ jobs:
           PY
 
       - name: Upload sanitized proof
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: gen2-42-live-proof-${{ github.sha }}
