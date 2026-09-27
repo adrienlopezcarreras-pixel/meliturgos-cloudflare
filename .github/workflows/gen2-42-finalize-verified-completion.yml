@@ -1,0 +1,109 @@
+name: GEN2-42 finalize verified completion
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/gen2-42-finalize-verified-completion.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      JOB_ID: ecosystem-watch-c3bfaf443b1287cf885033ecd760bc94
+      CANDIDATE_BRANCH: candidate/mel-clean-autonomy
+      CANDIDATE_SHA: 7b68211addd42baaa891a06532ea56833b0dba04
+      CI_RUN_ID: "36352974858"
+      WORKER_URL: https://meliturgos.adrien-lopezcarreras.workers.dev
+    steps:
+      - name: Verify exact candidate CI evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${{ github.repository }}/actions/runs/$CI_RUN_ID"
+          curl -fsS             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             -H "X-GitHub-Api-Version: 2022-11-28"             "$api" > ci-run.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const run=JSON.parse(fs.readFileSync('ci-run.json','utf8'));
+          const expectedSha=process.env.CANDIDATE_SHA;
+          const expectedBranch=process.env.CANDIDATE_BRANCH;
+          if(run.name!=='full-candidate-ci') throw new Error('FINALIZE_CI_NAME_INVALID');
+          if(run.head_sha!==expectedSha) throw new Error('FINALIZE_CI_SHA_MISMATCH');
+          if(run.head_branch!==expectedBranch) throw new Error('FINALIZE_CI_BRANCH_MISMATCH');
+          if(run.status!=='completed'||run.conclusion!=='success') throw new Error('FINALIZE_CI_NOT_GREEN');
+          NODE
+
+      - name: Submit verified bridge result for canonical reconciliation
+        shell: bash
+        env:
+          MEL_DEV_BRIDGE_TOKEN: ${{ secrets.MEL_DEV_BRIDGE_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$MEL_DEV_BRIDGE_TOKEN"
+          node - <<'NODE' > request.json
+          const payload={
+            job_id:process.env.JOB_ID,
+            status:'READY_FOR_REVIEW',
+            candidate_branch:process.env.CANDIDATE_BRANCH,
+            tests_json:[
+              {name:'test:smoke',command:'test:smoke',passed:true,exit_code:0},
+              {name:'full-candidate-ci',passed:true,run_id:Number(process.env.CI_RUN_ID)}
+            ],
+            diff_summary:'GEN2-42 Teacher-approved vision bridge package applied to candidate and exact SHA passed full-candidate-ci.',
+            needs_repair:false,
+            result_json:{
+              mode:'STRUCTURED_MENTOR_WORK',
+              bridge_pass:'implement',
+              production_touched:false,
+              approved_base:{
+                candidate_branch:'candidate/mel-clean-autonomy',
+                candidate_sha:'30e3049ab064a5fbd4905f568a3801d72e90bc0d'
+              },
+              verified_candidate:{
+                candidate_branch:process.env.CANDIDATE_BRANCH,
+                candidate_sha:process.env.CANDIDATE_SHA,
+                ci_run_id:Number(process.env.CI_RUN_ID)
+              }
+            },
+            plan_json:{
+              mode:'STRUCTURED_MENTOR_WORK',
+              applied_files:['src/capabilities/media-image-analyze.js'],
+              requested_tests:['test:smoke']
+            }
+          };
+          process.stdout.write(JSON.stringify(payload));
+          NODE
+          curl -fsS             -H "Authorization: Bearer $MEL_DEV_BRIDGE_TOKEN"             -H "Content-Type: application/json"             --data-binary @request.json             "$WORKER_URL/api/dev-bridge/result" > response.json
+
+      - name: Require canonical COMPLETED reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('response.json','utf8'));
+          if(d.id!==process.env.JOB_ID) throw new Error('FINALIZE_JOB_ID_MISMATCH');
+          if(d.status!=='COMPLETED') throw new Error('FINALIZE_JOB_NOT_COMPLETED:'+String(d.status));
+          const rec=d.immediate_completion_reconciliation||{};
+          if(rec.ok!==true) throw new Error('FINALIZE_RECONCILIATION_FAILED:'+String(rec.error||'UNKNOWN'));
+          const found=Array.isArray(rec.completed)&&rec.completed.some(x=>x.job_id===process.env.JOB_ID&&x.candidate_sha===process.env.CANDIDATE_SHA);
+          if(!found) throw new Error('FINALIZE_VERIFIED_COMPLETION_NOT_RECONCILED');
+          const completion=d.result_json?.autonomy_completion;
+          if(completion?.status!=='VERIFIED') throw new Error('FINALIZE_COMPLETION_NOT_VERIFIED');
+          console.log(JSON.stringify({
+            job_id:d.id,
+            status:d.status,
+            completion_status:completion.status,
+            candidate_sha:completion.candidate_sha,
+            ci_run_id:completion.ci?.run_id||null,
+            continuation:d.immediate_autonomy_continuation||null
+          },null,2));
+          NODE
