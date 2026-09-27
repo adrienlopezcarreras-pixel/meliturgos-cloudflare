@@ -1,7 +1,7 @@
 import { createConversationService } from '../conversations/conversation-service.js';
 import { createSyncService } from '../conversations/sync-service.js';
 
-const MAX_CONVERSATIONS = 1000;
+const MAX_CONVERSATIONS = 25000;
 const MAX_MESSAGES = 100000;
 const MAX_MESSAGE_CHARS = 200000;
 const MAX_ATTACHMENTS_PER_MESSAGE = 32;
@@ -484,20 +484,36 @@ async function persistConversationImportReceipt(db, conversation) {
 }
 
 export function normalizeChatGPTArchive(payload) {
-  const conversations = asArray(payload).slice(0, MAX_CONVERSATIONS);
+  const rawConversations = asArray(payload);
+  const conversations = rawConversations.slice(0, MAX_CONVERSATIONS);
   const attachmentLookup = buildAttachmentByteLookup(payload);
   const normalized = [];
   let messageCount = 0;
+  let truncatedMessages = false;
+  let attachmentDescriptors = 0;
+  let attachmentBinaryAvailable = 0;
+  let attachmentBinaryIndexed = 0;
   for (let i = 0; i < conversations.length; i++) {
-    if (messageCount >= MAX_MESSAGES) break;
+    if (messageCount >= MAX_MESSAGES) {
+      truncatedMessages = true;
+      break;
+    }
     const raw = conversations[i] || {};
     const sourceId = String(raw.id || raw.conversation_id || `conversation-${i + 1}`);
     const id = `chatgpt:${sourceId}`;
     const title = String(raw.title || `Conversation ChatGPT ${i + 1}`).slice(0, 500);
     let messages = flattenMapping(raw, i, attachmentLookup);
     if (!messages.length) messages = flattenLinearConversation(raw, i, attachmentLookup);
-    messages = messages.slice(0, Math.max(0, MAX_MESSAGES - messageCount));
+    const remaining = Math.max(0, MAX_MESSAGES - messageCount);
+    if (messages.length > remaining) truncatedMessages = true;
+    messages = messages.slice(0, remaining);
     messageCount += messages.length;
+    for (const message of messages) {
+      const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+      attachmentDescriptors += attachments.length;
+      attachmentBinaryAvailable += attachments.filter(item => item?.binary_content_available === true).length;
+      attachmentBinaryIndexed += attachments.filter(item => item?.binary_content_indexed === true).length;
+    }
     normalized.push({
       id,
       sourceId,
@@ -508,13 +524,22 @@ export function normalizeChatGPTArchive(payload) {
       collector: collectorReceipt(raw, messages)
     });
   }
+  const officialExport = rawConversations.length > 0
+    && rawConversations.every(raw => raw?.mapping && typeof raw.mapping === 'object' && !Array.isArray(raw.mapping));
+  const truncatedConversations = rawConversations.length > MAX_CONVERSATIONS;
   return {
     conversations: normalized,
     summary: {
       conversations: normalized.length,
       messages: messageCount,
       empty_conversations: normalized.filter(x => !x.messages.length).length,
-      truncated_conversations: asArray(payload).length > MAX_CONVERSATIONS,
+      official_export: officialExport,
+      truncated_conversations: truncatedConversations,
+      truncated_messages: truncatedMessages,
+      coverage_can_be_confirmed: officialExport && !truncatedConversations && !truncatedMessages,
+      attachment_descriptors: attachmentDescriptors,
+      attachment_binary_available: attachmentBinaryAvailable,
+      attachment_binary_indexed: attachmentBinaryIndexed,
       limits: { conversations: MAX_CONVERSATIONS, messages: MAX_MESSAGES, message_chars: MAX_MESSAGE_CHARS }
     }
   };
@@ -613,9 +638,20 @@ function archiveMessageId(conversationSourceId, messageId) {
   return `chatgpt:${conversationSourceId}:${messageId}`.slice(0, 500);
 }
 
-export async function importChatGPTArchive(env, payload, { preview = false } = {}) {
+export async function importChatGPTArchive(env, payload, { preview = false, confirmFullExport = false } = {}) {
   const normalized = normalizeChatGPTArchive(payload);
   if (preview) return { ok: true, preview: true, ...normalized.summary };
+  if (confirmFullExport && normalized.summary.coverage_can_be_confirmed !== true) {
+    throw Object.assign(new Error('CHATGPT_FULL_EXPORT_CONFIRMATION_UNSAFE'), {
+      code: 'CHATGPT_FULL_EXPORT_CONFIRMATION_UNSAFE',
+      status: 400,
+      details: {
+        official_export: normalized.summary.official_export === true,
+        truncated_conversations: normalized.summary.truncated_conversations === true,
+        truncated_messages: normalized.summary.truncated_messages === true,
+      },
+    });
+  }
   if (!env?.DB) throw Object.assign(new Error('DB_BINDING_REQUIRED'), { code: 'DB_BINDING_REQUIRED', status: 503 });
 
   const service = createConversationService(env);
@@ -685,8 +721,31 @@ export async function importChatGPTArchive(env, payload, { preview = false } = {
       memorySync.failed_conversations++;
     }
   }
+  let coverageConfirmation = null;
+  if (confirmFullExport && failed === 0) {
+    try {
+      coverageConfirmation = await recordChatGPTCollectorCoverage(env, {
+        collector_version: 'official-export-v1',
+        deep_discovery_done: true,
+        discovered_count: normalized.conversations.length,
+        captured_at: Date.now(),
+        items: normalized.conversations.map(conversation => ({
+          id: conversation.sourceId,
+          status: 'DONE',
+          messages: conversation.messages.length,
+        })),
+      });
+    } catch (error) {
+      coverageConfirmation = {
+        ok: false,
+        code: error?.code || 'CHATGPT_OFFICIAL_EXPORT_COVERAGE_FAILED',
+        error: error?.message || 'CHATGPT_OFFICIAL_EXPORT_COVERAGE_FAILED',
+      };
+    }
+  }
+  const coverageOk = !confirmFullExport || coverageConfirmation?.ok === true;
   return {
-    ok: failed === 0,
+    ok: failed === 0 && coverageOk,
     preview: false,
     conversations: normalized.summary.conversations,
     messages: normalized.summary.messages,
@@ -697,6 +756,12 @@ export async function importChatGPTArchive(env, payload, { preview = false } = {
     content_backfills: contentBackfills,
     failed,
     provenance: 'chatgpt_export',
+    official_export: normalized.summary.official_export === true,
+    coverage_confirmed: coverageConfirmation?.ok === true,
+    coverage_confirmation: coverageConfirmation,
+    attachment_descriptors: normalized.summary.attachment_descriptors,
+    attachment_binary_available: normalized.summary.attachment_binary_available,
+    attachment_binary_indexed: normalized.summary.attachment_binary_indexed,
     memory_sync: {
       ...memorySync,
       ok: memorySync.failed_conversations === 0,
