@@ -45,7 +45,10 @@ function quoteIdentifier(value) {
 }
 
 function deterministicRows(input) {
-  return [...input].sort((a, b) => stableStringify(a).localeCompare(stableStringify(b)));
+  return input
+    .map((row) => ({ row, canonical: stableStringify(row) }))
+    .sort((a, b) => a.canonical.localeCompare(b.canonical))
+    .map(({ row }) => row);
 }
 
 export async function exportD1SystemState(db, {
