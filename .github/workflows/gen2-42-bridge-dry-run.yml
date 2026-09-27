@@ -65,14 +65,16 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_ENV,`CANDIDATE_BRANCH=${prep.candidate_branch}\nCANDIDATE_SHA=${prep.candidate_sha}\n`);
           NODE
 
-      - name: Pin checkout to exact approved candidate
+      - name: Materialize exact approved candidate separately
         shell: bash
         run: |
           set -euo pipefail
           git fetch origin "$CANDIDATE_BRANCH" --depth=100
-          git checkout -B "$CANDIDATE_BRANCH" "$CANDIDATE_SHA"
-          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
-          test "$(git branch --show-current)" = "$CANDIDATE_BRANCH"
+          rm -rf candidate-source .dry-run-candidates
+          git worktree add --detach candidate-source "$CANDIDATE_SHA"
+          git -C candidate-source checkout -B "$CANDIDATE_BRANCH" "$CANDIDATE_SHA"
+          test "$(git -C candidate-source rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git -C candidate-source branch --show-current)" = "$CANDIDATE_BRANCH"
 
       - name: Run isolated bridge package without commit or push
         shell: bash
@@ -86,11 +88,12 @@ jobs:
 
           const job=JSON.parse(await fs.readFile('bridge-job.json','utf8'));
           const planned_file_comparisons=[];
+          const candidateRootPath=new URL('./candidate-source/', import.meta.url).pathname;
           for (const item of Array.isArray(job.files_json)?job.files_json:[]) {
             const path=String(item?.path||'');
             const proposed=String(item?.content||'');
             let current='';
-            try { current=await fs.readFile(path,'utf8'); } catch {}
+            try { current=await fs.readFile(new URL(path, new URL('./candidate-source/', import.meta.url)),'utf8'); } catch {}
             const hash=(value)=>crypto.createHash('sha256').update(value).digest('hex');
             planned_file_comparisons.push({
               path,
@@ -101,7 +104,10 @@ jobs:
               current_sha256: hash(current),
             });
           }
-          const bridge=new LocalDevBridge({ repoRoot: process.cwd() });
+          const bridge=new LocalDevBridge({
+            repoRoot: candidateRootPath,
+            candidateRoot: new URL('./.dry-run-candidates/', import.meta.url).pathname,
+          });
           const result=await runStructuredBridgeJob({ bridge, job });
           if(!result) throw new Error('DRY_RUN_NO_RESULT');
           const safe={

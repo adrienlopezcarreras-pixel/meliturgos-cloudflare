@@ -14,5 +14,5 @@ export function registerChatGPTArchiveImportCapability(bus, env = {}) {
     permissions: [],
     health: env.DB ? 'HEALTHY' : 'DEGRADED',
     enabled: true,
-  }, async input => importChatGPTArchive(env, input.archive ?? input, { preview: false }));
+  }, async input => importChatGPTArchive(env, input.archive ?? input, { preview: false, confirmFullExport: input?.confirm_full_export === true }));
 }

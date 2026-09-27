@@ -37,6 +37,11 @@ test('canonical Professor interface is self-contained HTML with chat and complet
   }
   assert.match(html, /id="melUnifiedTabs"/);
   assert.match(html, /data-mode-panel="development" hidden/);
+  assert.match(html, /id="chatgptPreaudit"/);
+  assert.match(html, /id="chatgptImport" class="primary" disabled/);
+  assert.match(html, /confirm_full_export:true/);
+  assert.match(html, /\/api\/gen2\/migration\/chatgpt-memory-backfill/);
+  assert.match(html, /MEL-MEM-05 peut être certifié/);
   assert.doesNotMatch(html, /data-panel="work"/);
   assert.doesNotMatch(html, /conversationSelect|newConversation|interaction_count/i);
 });

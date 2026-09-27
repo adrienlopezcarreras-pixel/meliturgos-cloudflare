@@ -12,7 +12,7 @@ const SYNONYMS = Object.freeze({
   appareil: ['device','pc','telephone','android','windows'],
   telephone: ['android','mobile','device','appareil'],
   ordinateur: ['pc','windows','device','appareil'],
-  image: ['vision','photo','picture'], video: ['multimodal','media'],
+  image: ['vision','photo','picture'], vision: ['image','photo','picture'], video: ['multimodal','media'],
   autonomie: ['autonomy','agent','work','evolution'],
 });
 
