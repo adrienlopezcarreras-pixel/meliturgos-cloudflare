@@ -1,4 +1,4 @@
-import { SYSTEM_BACKUP_PREFIX, createR2D1BackupStorage } from '../backup/system-backup-runtime.js';
+import { SYSTEM_BACKUP_PREFIX, createR2D1BackupStorage, readReleaseBackupBinding } from '../backup/system-backup-runtime.js';
 import { createEnvBackupEncryptionCodec } from '../backup/encrypted-backup-storage.js';
 import { inspectRestoreCandidate, verifyRestoreCandidate } from '../backup/restore-service.js';
 import { requireValue } from '../core/contracts.js';
@@ -89,6 +89,7 @@ export async function runRecoveryDrillAgainstPersistedEvidence(metadata, {
   owner = false,
   approved = false,
   expectedDeployedSha = null,
+  releaseBinding = null,
   backupObjectPresent = false,
   backupObjectBytes = 0,
   now = () => new Date().toISOString(),
@@ -110,7 +111,15 @@ export async function runRecoveryDrillAgainstPersistedEvidence(metadata, {
   requireValue(snapshotId, 'RECOVERY_DRILL_BACKUP_NOT_FOUND', 404);
   requireValue(/^[a-f0-9]{64}$/.test(integrity) && integrity === restoreIntegrity, 'RECOVERY_DRILL_PERSISTED_INTEGRITY_MISMATCH', 409);
   requireValue(/^[a-f0-9]{40}$/.test(deployedSha), 'RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_INVALID', 409);
-  if (expectedSha) requireValue(deployedSha === expectedSha, 'RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_MISMATCH', 409);
+  const releaseBound = Boolean(expectedSha)
+    && deployedSha !== expectedSha
+    && releaseBinding?.ok === true
+    && String(releaseBinding?.deployed_sha || '').toLowerCase() === expectedSha
+    && String(releaseBinding?.snapshot_id || '') === snapshotId
+    && String(releaseBinding?.snapshot_integrity_sha256 || '').toLowerCase() === integrity
+    && String(releaseBinding?.snapshot_deployed_sha || '').toLowerCase() === deployedSha;
+  if (expectedSha) requireValue(deployedSha === expectedSha || releaseBound, 'RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_MISMATCH', 409);
+  const effectiveDeployedSha = releaseBound ? expectedSha : deployedSha;
   requireValue(String(metadata?.objectKey || '') === expectedObjectKey, 'RECOVERY_DRILL_PERSISTED_OBJECT_KEY_MISMATCH', 409);
   requireValue(Number.isInteger(tableCount) && tableCount > 0, 'RECOVERY_DRILL_PERSISTED_TABLE_COUNT_INVALID', 409);
   requireValue(Number.isInteger(rowCount) && rowCount >= 0, 'RECOVERY_DRILL_PERSISTED_ROW_COUNT_INVALID', 409);
@@ -119,8 +128,8 @@ export async function runRecoveryDrillAgainstPersistedEvidence(metadata, {
 
   const bundleBuilder = new RecoveryBundleBuilder({ now });
   const bundle = await bundleBuilder.build({
-    sourceCommit: deployedSha,
-    artifacts: [{ id:'critical-code', checksum:deployedSha }],
+    sourceCommit: effectiveDeployedSha,
+    artifacts: [{ id:'critical-code', checksum:effectiveDeployedSha }],
     exports: [
       { id:'snapshot-integrity', checksum:integrity },
       { id:'d1-logical-state', checksum:integrity },
@@ -138,7 +147,7 @@ export async function runRecoveryDrillAgainstPersistedEvidence(metadata, {
     standby_id: `release-evidence-${snapshotId}`.slice(0, 240),
     recovery: {
       bundle_id: snapshotId,
-      source_commit: deployedSha,
+      source_commit: effectiveDeployedSha,
       manifest_sha256: bundle.manifestSha256,
       verified: true,
     },
@@ -170,7 +179,7 @@ export async function runRecoveryDrillAgainstPersistedEvidence(metadata, {
         staged = {
           snapshot_id: snapshotId,
           integrity_sha256: integrity,
-          deployed_sha: deployedSha,
+          deployed_sha: effectiveDeployedSha,
           table_count: tableCount,
           row_count: rowCount,
           r2_object_count: r2ObjectCount,
@@ -213,7 +222,10 @@ export async function runRecoveryDrillAgainstPersistedEvidence(metadata, {
     reconstructed_tables:tableCount,
     reconstructed_rows:rowCount,
     verified_r2_objects:r2ObjectCount,
-    deployed_sha:deployedSha,
+    deployed_sha:effectiveDeployedSha,
+    snapshot_deployed_sha:deployedSha,
+    release_bound:releaseBound,
+    release_binding_sha256:releaseBound ? String(releaseBinding?.binding_sha256 || '') : null,
     persisted_evidence_reused:true,
     backup_object_present:true,
     backup_object_bytes:Number(backupObjectBytes),
@@ -390,6 +402,21 @@ export function registerRecoveryDrillCapability(bus, env = {}) {
 
     if (context?.releaseSmoke === true && persisted?.encrypted === true) {
       requireValue(encryptionCodec, 'BACKUP_ENCRYPTION_CODEC_REQUIRED', 503);
+      const expectedDeployedSha = currentDeployedSha(env);
+      const releaseBinding = expectedDeployedSha
+        ? await readReleaseBackupBinding(env, expectedDeployedSha)
+        : null;
+      if (releaseBinding?.ok === true) {
+        const candidates = await storage.list({ limit: 100 });
+        const bound = candidates.find(row =>
+          String(row?.id || '') === String(releaseBinding.snapshot_id || '')
+          && String(row?.integritySha256 || '').toLowerCase() === String(releaseBinding.snapshot_integrity_sha256 || '').toLowerCase()
+        ) || null;
+        if (bound) {
+          persisted = bound;
+          snapshotId = String(bound.id || '');
+        }
+      }
       requireValue(
         String(persisted?.encryptionKeyId || '') === String(encryptionCodec.key_id || ''),
         'RECOVERY_DRILL_ENCRYPTION_KEY_ID_MISMATCH',
@@ -401,7 +428,8 @@ export function registerRecoveryDrillCapability(bus, env = {}) {
       return runRecoveryDrillAgainstPersistedEvidence(persisted, {
         owner: Boolean(context?.owner),
         approved: true,
-        expectedDeployedSha: currentDeployedSha(env),
+        expectedDeployedSha,
+        releaseBinding,
         backupObjectPresent: true,
         backupObjectBytes: Number(object?.size || 0),
       });
