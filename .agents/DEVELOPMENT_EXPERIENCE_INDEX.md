@@ -122,6 +122,18 @@ Preuves principales : commits `04f6f5b`, `162914d`, `f464c50`, `01937da`, `4c213
 - `oauth-authorization-only-scopes-20260926` — séparer les scopes métier exigibles des scopes demandés uniquement pendant l’autorisation (ex. `offline_access`, `openid`) afin de rester fail-closed sans rejeter à tort un token valide.
 
 
+
+## Expériences 2026-09-27 — promotion, branches et release
+
+- `bootstrap-divergent-candidate-targeted-promotion-20260927` — quand une candidate historique est fortement divergente, reconstruire le lot validé sur une branche fraîche depuis le `main` courant au lieu de fusionner/forcer tout l’historique.
+- `bootstrap-preserve-newer-main-hardening-20260927` — sur les fichiers partagés, préserver les durcissements plus récents de `main` et ne réappliquer que le delta réellement manquant du lot.
+- `bootstrap-active-pr-branch-unicity-20260927` — définir les branches actives par les PR réellement ouvertes, fermer les branches/PR supersédées et conserver des exceptions de lab strictement bornées.
+- `bootstrap-deploy-success-vs-postproof-failure-20260927` — distinguer l’étape de mutation production réussie d’une preuve post-déploiement incomplète ; annoncer séparément ces deux vérités.
+- `bootstrap-shardvault-explicit-pause-release-respect-20260927` — propager et respecter `PAUSED_FOR_ROADMAP` sans réactivation implicite, tout en maintenant les autres preuves de résilience indépendantes.
+
+Preuves principales : PR `#566`, SHA production `c8e65fe1dc8e5cd0e4bf1a80e001195d4164dab3`, runs `36302234698`, `36301800118` et `36302365325`.
+
+
 ## Règle de déduplication
 
 Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le corpus. Une différence de vocabulaire ne justifie pas une nouvelle leçon si la préférence comportementale est déjà couverte.
@@ -130,6 +142,6 @@ Avant d’ajouter une XP, comparer son comportement `after` avec cet index et le
 
 Le corpus couvre : architecture, coûts, sécurité, contexte/intention, tests, CI, diagnostics, contrats Teacher, mémoire d’apprentissage, Benchmark/LoRA, auto-évolution, détection de gaps, multi-agent/multi-IA, roadmap, reprise, déploiement, canary/rollback, capacités réelles, providers, Dev Bridge, observabilité, UI partagée, gouvernance de preuve, readiness zéro-euro runtime, checkpoint XP systématique et ingénierie de protocoles matériels versionnés.
 
-Total bootstrap statique actuel : **72 leçons canoniques réparties entre historique, pack développement, réconciliation et LoRA**, auxquelles s’ajoute le corpus Expert PLUS de **10 000 cycles de guidance**.
+Total bootstrap statique actuel : **81 leçons canoniques réparties entre historique, pack développement, réconciliation et LoRA**, auxquelles s’ajoute le corpus Expert PLUS de **10 000 cycles de guidance**.
 
 Le nombre de leçons canoniques **n’a pas de plafond fonctionnel** : 50 reste uniquement le seuil minimal de readiness LoRA. Toute nouvelle leçon validée et dédupliquée s’ajoute au corpus complet ; les fenêtres de contexte runtime peuvent rester bornées pour la performance sans supprimer ni exclure les leçons stockées.
