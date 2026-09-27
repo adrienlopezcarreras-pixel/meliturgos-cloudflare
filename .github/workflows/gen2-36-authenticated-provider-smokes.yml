@@ -34,27 +34,24 @@ jobs:
 
           RUN_ID=""
           for attempt in $(seq 1 20); do
-            RUN_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/gen2-36-provider-write-smoke.yml/runs?event=workflow_dispatch&branch=main&per_page=20")"
-            RUN_ID="$(RUN_JSON="$RUN_JSON" STARTED_AT="$STARTED_AT" node - <<'NODE'
-          const payload = JSON.parse(process.env.RUN_JSON || '{}');
-          const started = Date.parse(process.env.STARTED_AT || 0);
-          const run = (payload.workflow_runs || []).find(row =>
-            row?.event === 'workflow_dispatch'
-            && row?.head_branch === 'main'
-            && Date.parse(row?.created_at || 0) >= started - 5000
-          );
-          process.stdout.write(run ? String(run.id) : '');
-          NODE
-            )"
+            RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/gen2-36-provider-write-smoke.yml/runs?event=workflow_dispatch&branch=main&per_page=20" \
+              | jq -r --arg started "$STARTED_AT" '
+                  [.workflow_runs[]
+                    | select(
+                        .event == "workflow_dispatch"
+                        and .head_branch == "main"
+                        and ((.created_at | fromdateiso8601) >= (($started | fromdateiso8601) - 5))
+                      )
+                    | .id][0] // empty
+                ')"
             if [ -n "$RUN_ID" ]; then break; fi
             sleep 3
           done
           test -n "$RUN_ID"
 
           for attempt in $(seq 1 30); do
-            RUN_STATE="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}")"
-            STATUS="$(RUN_STATE="$RUN_STATE" node -e "const x=JSON.parse(process.env.RUN_STATE||'{}'); process.stdout.write(String(x.status||''))")"
-            CONCLUSION="$(RUN_STATE="$RUN_STATE" node -e "const x=JSON.parse(process.env.RUN_STATE||'{}'); process.stdout.write(String(x.conclusion||''))")"
+            STATUS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq '.status // ""')"
+            CONCLUSION="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq '.conclusion // ""')"
             if [ "$STATUS" = "completed" ]; then
               test "$CONCLUSION" = "success"
               echo "GitHub authenticated workflow dispatch smoke passed: run ${RUN_ID}"
