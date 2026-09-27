@@ -2,7 +2,6 @@ import { createVerifiedBackupService } from './backup-service.js';
 import { requireValue } from '../core/contracts.js';
 import { APP_VERSION, DB_SCHEMA_VERSION } from '../core/config.js';
 import { migrate } from '../persistence/migrations.js';
-import { stableStringify } from '../resilience/recovery-bundle.js';
 import { ENCRYPTED_BACKUP_SCHEMA, createEnvBackupEncryptionCodec } from './encrypted-backup-storage.js';
 import { backupR2ObjectBytes } from './r2-byte-backup.js';
 import { inspectRestoreCandidate } from './restore-service.js';
@@ -44,13 +43,6 @@ function quoteIdentifier(value) {
   return `"${String(value).replaceAll('"', '""')}"`;
 }
 
-function deterministicRows(input) {
-  return input
-    .map((row) => ({ row, canonical: stableStringify(row) }))
-    .sort((a, b) => a.canonical.localeCompare(b.canonical))
-    .map(({ row }) => row);
-}
-
 export async function exportD1SystemState(db, {
   pageSize = DEFAULT_ROWS_PER_PAGE,
   maxRowsPerTable = DEFAULT_MAX_ROWS_PER_TABLE,
@@ -75,14 +67,14 @@ export async function exportD1SystemState(db, {
     let offset = 0;
     while (true) {
       const page = rows(await db.prepare(
-        `SELECT * FROM ${quoteIdentifier(name)} LIMIT ? OFFSET ?`
+        `SELECT * FROM ${quoteIdentifier(name)} ORDER BY rowid LIMIT ? OFFSET ?`
       ).bind(safePageSize, offset).all());
       tableRows.push(...page);
       if (page.length < safePageSize) break;
       offset += page.length;
       if (tableRows.length >= safeMaxRows) {
         const probe = rows(await db.prepare(
-          `SELECT * FROM ${quoteIdentifier(name)} LIMIT 1 OFFSET ?`
+          `SELECT * FROM ${quoteIdentifier(name)} ORDER BY rowid LIMIT 1 OFFSET ?`
         ).bind(tableRows.length).all());
         if (probe.length) throw new Error(`BACKUP_TABLE_ROW_LIMIT:${name}`);
         break;
@@ -92,7 +84,7 @@ export async function exportD1SystemState(db, {
       name,
       schema: descriptor?.sql || null,
       rowCount: tableRows.length,
-      rows: deterministicRows(tableRows),
+      rows: tableRows,
     });
   }
 
