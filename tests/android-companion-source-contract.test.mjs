@@ -372,7 +372,7 @@ test('Android owner password state is not saveable and emulator smoke tests are 
   assert.match(harness,/getStringExtra\("mode"\)/);
   assert.match(harness,/getBooleanExtra\("diagnostics"/);
   assert.match(debugManifest,/android:exported="true"/);
-  assert.match(debugManifest,/android:permission="android\.permission\.DUMP"/);
+  assert.doesNotMatch(debugManifest, /android:permission="android\\.permission\\.DUMP"/);
   assert.match(workflow,/connectedDebugAndroidTest/);
   assert.match(workflow,/:app:installDebug/);
   assert.match(workflow,/fr\.veriteinterdite\.mel\/\.MainActivity/);
