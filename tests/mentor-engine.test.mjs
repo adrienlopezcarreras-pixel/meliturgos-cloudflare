@@ -210,3 +210,22 @@ test('mentor still refuses writing to inspection-only repository paths', async (
     error => error.code === 'MENTOR_NO_VALID_CODE_PROPOSAL'
   );
 });
+
+
+test('mentor failure diagnostics classify malformed JSON without exposing model output', async () => {
+  const engine = new MentorEngine({
+    providerFactory: async () => [sequenceProvider('bad-json', ['not json', 'still not json'], [])],
+  });
+  await assert.rejects(
+    () => engine.propose({
+      env: {},
+      goal: 'Classify malformed output safely',
+      inspectedFiles: [{ path: 'src/example.js', content: 'export const ready = false;\n' }],
+    }),
+    error => {
+      assert.equal(error.code, 'MENTOR_NO_VALID_CODE_PROPOSAL');
+      assert.deepEqual(error.failures.map(x => x.error), ['MENTOR_JSON_REQUIRED', 'MENTOR_JSON_REQUIRED']);
+      return true;
+    }
+  );
+});
