@@ -1726,9 +1726,11 @@ export async function searchAutonomousShardVaultRepositories(env,{maxNewEndpoint
 
     if(boundedMode&&active.length<targetCount){
       const activeIds=new Set(active.map(e=>e.id));
-      const validated=(await readValidatedExternalEndpoints(env,requiredBytes))
-        .filter(e=>!activeIds.has(e.id))
-        .slice(0,boundedMaxNew);
+      const validatedPool=(await readValidatedExternalEndpoints(env,requiredBytes))
+        .filter(e=>!activeIds.has(e.id));
+      const validatedOffset=Math.max(0,Math.trunc(Number(probeOffset)||0));
+      const validated=validatedPool
+        .slice(validatedOffset,validatedOffset+boundedMaxNew);
       if(validated.length){
         const staged=await stageActiveExternalEndpoints(env,c,last,validated);
         if(staged.length>active.length){
