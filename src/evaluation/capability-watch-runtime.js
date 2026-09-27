@@ -394,12 +394,21 @@ export async function proveEcosystemTeacherHandoff(
     ledger = reconciled.ledger;
   }
 
-  const open = (Array.isArray(ledger?.items) ? ledger.items : [])
+  const rawOpen = (Array.isArray(ledger?.items) ? ledger.items : [])
     .map(item => ({
       fingerprint: item?.fingerprint || null,
       handoff: item?.handoff || null,
     }))
     .filter(item => item.handoff && item.handoff.closed !== true);
+
+  // A retryable FAILED handoff is deliberately released by handoffOwnsDiscovery()
+  // so the next watch can retry/rebuild it. Keep it observable, but do not let
+  // stale retryable failures block a release proof forever.
+  const releasedRetryableFailures = rawOpen.filter(item =>
+    String(item.handoff.status || '').toUpperCase() === 'FAILED'
+      && item.handoff.retryable === true
+  );
+  const open = rawOpen.filter(item => !releasedRetryableFailures.includes(item));
 
   const active = open
     .filter(item => String(item.handoff.status || '').toUpperCase() === 'WAITING_TEACHER')
@@ -432,6 +441,15 @@ export async function proveEcosystemTeacherHandoff(
     active_teacher_handoff_count: active.length,
     teacher_proven_handoff_count: teacherProven.length,
     blocked_open_handoff_count: blockedOpen.length,
+    released_retryable_failure_count: releasedRetryableFailures.length,
+    released_retryable_failures: releasedRetryableFailures.slice(0, 20).map(item => ({
+      fingerprint: item.fingerprint,
+      status: String(item.handoff.status || '').toUpperCase() || null,
+      job_id: item.handoff.job_id || null,
+      teacher_request_id: item.handoff.teacher_request_id || null,
+      candidate_sha: item.handoff.candidate_sha || null,
+      code: item.handoff.code || null,
+    })),
     open_handoffs: open.slice(0, 20).map(item => ({
       fingerprint: item.fingerprint,
       status: String(item.handoff.status || '').toUpperCase() || null,
