@@ -19,7 +19,7 @@ function d1ExportMock() {
   return {
     prepare(sql) {
       if (sql.includes('sqlite_master')) return { async all(){ return {results:[{name:'alpha',sql:'CREATE TABLE alpha'},{name:'beta',sql:'CREATE TABLE beta'}]}; } };
-      const match = sql.match(/FROM "([^"]+)" ORDER BY rowid LIMIT (\\?|1)/);
+      const match = sql.match(/FROM "([^"]+)" ORDER BY rowid LIMIT (\?|1)/);
       if (!match) throw new Error(`unexpected sql ${sql}`);
       const table = match[1];
       return {
@@ -66,7 +66,7 @@ test('GEN2-47 skips Cloudflare internal D1 tables that are visible but unreadabl
           {name:'mel_state',sql:'CREATE TABLE mel_state'},
         ]}; } };
       }
-      const match = sql.match(/FROM "([^"]+)" ORDER BY rowid LIMIT (\\?|1)/);
+      const match = sql.match(/FROM "([^"]+)" ORDER BY rowid LIMIT (\?|1)/);
       if (!match) throw new Error('unexpected sql '+sql);
       const table = match[1];
       reads.push(table);
