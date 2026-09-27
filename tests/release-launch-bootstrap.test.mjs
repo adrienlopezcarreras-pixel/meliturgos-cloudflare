@@ -274,6 +274,76 @@ test('release bootstrap capability-watch proof requires a real waiting Teacher h
   assert.equal((await idle.json()).status,'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED');
 });
 
+
+test('Provider Escape accepts an exact release binding without rereading the backup payload', async () => {
+  const DB=sqliteD1();
+  const objects=new Map();
+  let getCount=0;
+  const MEDIA_BUCKET={
+    async put(key,value){ objects.set(String(key),String(value)); },
+    async get(key){
+      getCount+=1;
+      if(!objects.has(String(key))) return null;
+      const value=objects.get(String(key));
+      return {
+        async text(){ return value; },
+        async arrayBuffer(){ return new TextEncoder().encode(value).buffer; },
+      };
+    },
+    async delete(key){ objects.delete(String(key)); },
+    async list({prefix=''}={}){
+      const rows=[...objects.entries()]
+        .filter(([key])=>String(key).startsWith(String(prefix||'')))
+        .map(([key,value])=>({key,size:new TextEncoder().encode(value).byteLength,etag:'test',uploaded:new Date(0)}));
+      return {objects:rows,truncated:false};
+    },
+  };
+  const oldSha='1'.repeat(40);
+  const newSha='2'.repeat(40);
+  const env={
+    MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+    DB,
+    MEDIA_BUCKET,
+    AI:{run:async()=>({response:'ok'})},
+    MEL_DEPLOYED_GIT_SHA:oldSha,
+    MEL_DEPLOYED_GIT_BRANCH:'release/test',
+    MEL_SHARDVAULT_ROADMAP_PAUSED:'true',
+  };
+  const request=phase=>new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+    method:'POST',
+    headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+    body:JSON.stringify({phase}),
+  });
+  try {
+    const initial=await maybeHandleReleaseLaunchBootstrap(request('backup'),env);
+    assert.equal(initial.status,200);
+    const initialBody=await initial.json();
+    assert.equal(initialBody.backup.ok,true);
+
+    env.MEL_DEPLOYED_GIT_SHA=newSha;
+    const rebound=await maybeHandleReleaseLaunchBootstrap(request('backup'),env);
+    assert.equal(rebound.status,200);
+    const reboundBody=await rebound.json();
+    assert.equal(reboundBody.backup.ok,true);
+    assert.equal(reboundBody.backup.status,'RELEASE_BOUND_VERIFIED_BACKUP');
+
+    getCount=0;
+    const response=await maybeHandleReleaseLaunchBootstrap(request('provider-escape-proof'),env);
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.ok,true);
+    assert.equal(body.status,'MEL_RES_03_PRODUCTION_MANIFEST_VERIFIED');
+    assert.equal(body.backup_id,reboundBody.backup.id);
+    assert.equal(body.backup_verified,true);
+    assert.equal(body.release_bound,true);
+    assert.equal(body.snapshot_deployed_sha,oldSha);
+    assert.match(body.release_binding_sha256,/^[0-9a-f]{64}$/);
+    assert.equal(getCount,0,'Provider Escape release-bound proof must remain metadata-only');
+  } finally {
+    DB.close();
+  }
+});
+
 test('release bootstrap Skill Registry proof persists, restores, rolls back and is replay-safe', async () => {
   const DB=sqliteD1();
   const env={MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB,MEL_DEPLOYED_GIT_SHA:'e'.repeat(40)};
