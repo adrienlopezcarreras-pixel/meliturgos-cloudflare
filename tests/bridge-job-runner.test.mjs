@@ -171,3 +171,19 @@ test('changed structured package without tests fails closed to repair', async ()
   assert.equal(result.result_json.validation_failure, 'BRIDGE_NO_TESTS');
   assert.match(result.diff_summary, /diff --git/);
 });
+
+
+test('reused repair may legitimately end with no diff when tests pass', async () => {
+  const bridge = fakeBridge({ diff: '', existingCandidate: true, testExitCodes: [0] });
+  const repairJob = {
+    ...job,
+    patch_json: { source: 'MentorEngine', mode: 'repair' },
+    tests_json: [{ name: 'smoke', command: 'test:smoke' }],
+  };
+  const result = await runStructuredBridgeJob({ bridge, job: repairJob });
+  assert.equal(result.status, 'READY_FOR_REVIEW');
+  assert.equal(result.needs_repair, false);
+  assert.equal(result.result_json.validation_failure, null);
+  assert.equal(result.result_json.candidate_reused, true);
+  assert.equal(result.diff_summary, 'NO_CHANGES');
+});
