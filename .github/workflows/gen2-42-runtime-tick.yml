@@ -48,7 +48,7 @@ jobs:
           cache: npm
       - name: Install exact lockfile
         run: npm ci
-      - name: Create ephemeral bootstrap token and run canonical tick
+      - name: Create ephemeral bootstrap token and run bounded GEN2-42 action
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -56,6 +56,17 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          MODE="tick"
+          if [ -f .ops/gen2-42-runtime-tick-trigger.txt ]; then
+            REQUESTED_MODE="$(awk -F= '$1=="mode"{print $2}' .ops/gen2-42-runtime-tick-trigger.txt | tail -n1 | tr -d '\r' || true)"
+            if [ -n "$REQUESTED_MODE" ]; then MODE="$REQUESTED_MODE"; fi
+          fi
+          case "$MODE" in
+            tick) PHASE="gen2-42-runtime-tick" ;;
+            owner-max) PHASE="gen2-42-owner-max" ;;
+            *) echo "Unsupported GEN2-42 ops mode: $MODE"; exit 64 ;;
+          esac
+          echo "GEN2-42 bounded mode: $MODE"
           BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
           echo "::add-mask::${BOOTSTRAP_TOKEN}"
           cleanup_secret() {
@@ -68,17 +79,19 @@ jobs:
 
           READY=0
           for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl -sS --max-time 90 \
+            printf '{"phase":"%s"}' "$PHASE" > tick-request.json
+            CODE="$(curl -sS --max-time 180 \
               -o tick-response.raw.json \
               -w '%{http_code}' \
               -X POST "$BASE_URL/api/internal/release-launch-bootstrap" \
               -H "x-mel-launch-bootstrap: $BOOTSTRAP_TOKEN" \
               -H 'Content-Type: application/json' \
-              --data '{"phase":"gen2-42-runtime-tick"}' || true)"
+              --data-binary @tick-request.json || true)"
             if [ "$CODE" = "200" ]; then
               READY=1
               break
             fi
+            if [ -s tick-response.raw.json ]; then cat tick-response.raw.json; fi
             sleep 2
           done
           test "$READY" = "1"
@@ -91,14 +104,17 @@ jobs:
           const fs=require('fs');
           const body=JSON.parse(fs.readFileSync('tick-response.raw.json','utf8'));
           const safe={
-            schema:'mel.gen2-42-authenticated-runtime-tick/v2',
+            schema:'mel.gen2-42-authenticated-runtime-tick/v3',
             ok:body?.ok===true,
             status:body?.status||null,
+            phase:body?.phase||null,
             tick_status:body?.tick_status||null,
             advanced:body?.advanced===true,
             paused:body?.paused===true,
             max_autonomy:body?.max_autonomy===true,
+            launch_approved_sha:body?.launch_approved_sha||null,
             control_unchanged_by_bootstrap:body?.control_unchanged_by_bootstrap===true,
+            owner_authorized_bootstrap:body?.owner_authorized_bootstrap===true,
             completed:Array.isArray(body?.completed)?body.completed:[],
             rejected:Array.isArray(body?.rejected)?body.rejected:[],
           };
