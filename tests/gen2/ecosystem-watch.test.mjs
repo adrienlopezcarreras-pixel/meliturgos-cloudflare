@@ -69,11 +69,15 @@ test('sourced creative watch observations reuse canonical media capabilities bef
           summary: 'Official visual tools observed.',
           citations_count: 1,
           sources: [{ title: 'Official', url: 'https://example.com/visual' }],
-          detected_capabilities: ['image.generate', 'art-history'],
+          detected_capabilities: ['vision', 'image.generate', 'art-history'],
         },
       }],
     },
   });
+  const vision = plan.items.find(item => item.capability_hint === 'vision');
+  assert.ok(vision);
+  assert.equal(vision.action, 'REUSE_EXISTING');
+  assert.equal(vision.best_match.id, 'media.image.analyze');
   const generation = plan.items.find(item => item.capability_hint === 'image.generate');
   assert.ok(generation);
   assert.equal(generation.action, 'UNBLOCK_EXISTING');
