@@ -314,7 +314,9 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-        window.decorView.post { ensureMobileBridge() }
+        if (!ActivityManager.isRunningInTestHarness()) {
+            window.decorView.post { ensureMobileBridge() }
+        }
     }
 
     override fun onResume() {
