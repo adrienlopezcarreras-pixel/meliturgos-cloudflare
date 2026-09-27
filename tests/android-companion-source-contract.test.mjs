@@ -415,9 +415,9 @@ test('Android Complete mode exposes an authenticated self diagnostic',async()=>{
   const vm=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelViewModel.kt',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
-  assert.match(build,/versionCode = 52/);
-  assert.match(build,/versionName = "0\.6\.43-pair-controls"/);
-  assert.match(api,/APP_VERSION = "0\.6\.43-pair-controls"/);
+  assert.match(build,/versionCode = 53/);
+  assert.match(build,/versionName = "0\.6\.44-audio-contract"/);
+  assert.match(api,/APP_VERSION = "0\.6\.44-audio-contract"/);
   assert.match(vm,/val diagnosticReport: String\? = null/);
   assert.match(vm,/fun runDiagnostics\(\)/);
   assert.match(vm,/client\.heartbeat\(sdkInt = Build\.VERSION\.SDK_INT\)/);
@@ -438,9 +438,9 @@ test('Android device validation probes are authenticated and bounded',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 52/);
-  assert.match(build,/versionName = "0\.6\.43-pair-controls"/);
-  assert.match(api,/APP_VERSION = "0\.6\.43-pair-controls"/);
+  assert.match(build,/versionCode = 53/);
+  assert.match(build,/versionName = "0\.6\.44-audio-contract"/);
+  assert.match(api,/APP_VERSION = "0\.6\.44-audio-contract"/);
 
   assert.match(activity,/private const val MAX_FILE_BYTES = 25_000_000/);
   assert.match(activity,/private fun readUriBounded\(uri: Uri\): ByteArray/);
@@ -472,9 +472,9 @@ test('real mic and file successes feed the diagnostic report',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 52/);
-  assert.match(build,/versionName = "0\.6\.43-pair-controls"/);
-  assert.match(api,/APP_VERSION = "0\.6\.43-pair-controls"/);
+  assert.match(build,/versionCode = 53/);
+  assert.match(build,/versionName = "0\.6\.44-audio-contract"/);
+  assert.match(api,/APP_VERSION = "0\.6\.44-audio-contract"/);
 
   const voice=vm.slice(vm.indexOf('fun sendVoice('),vm.indexOf('fun sendFile('));
   assert.match(voice,/appendDiagnosticLine\("Micro réel: OK"\)/);
@@ -491,9 +491,9 @@ test('Android dark UI keeps readable content contrast',async()=>{
   const build=await readFile(new URL('app/build.gradle.kts',root),'utf8');
   const api=await readFile(new URL('app/src/main/java/fr/veriteinterdite/mel/MelApiClient.kt',root),'utf8');
 
-  assert.match(build,/versionCode = 52/);
-  assert.match(build,/versionName = "0\.6\.43-pair-controls"/);
-  assert.match(api,/APP_VERSION = "0\.6\.43-pair-controls"/);
+  assert.match(build,/versionCode = 53/);
+  assert.match(build,/versionName = "0\.6\.44-audio-contract"/);
+  assert.match(api,/APP_VERSION = "0\.6\.44-audio-contract"/);
 
   assert.match(activity,/contentColor = MelInk/);
   assert.match(activity,/CardDefaults\.cardColors\(containerColor = MelPanel, contentColor = MelInk\)/);
@@ -624,6 +624,8 @@ test('Android 0.6.15 plays the same Luna PCM voice contract as MINI for chat and
   assert.match(player,/Locale\.FRANCE/);
   assert.match(player,/splitForTts\(text, maxChunk\)/);
   assert.match(player,/MelPlaybackInterruptedException/);
+  assert.match(player,/isLikelyMp3\(bytes: ByteArray\)/);
+  assert.match(player,/TTS_AUDIO_FORMAT_INVALID/);
   assert.match(player,/coerceIn\(20L, 240L\)/);
   assert.doesNotMatch(player,/coerceIn\(10L, 60L\)/);
   assert.match(vm,/fun interruptSpeechForBargeIn\(\)/);
