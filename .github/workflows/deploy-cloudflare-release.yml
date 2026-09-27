@@ -34,7 +34,7 @@ jobs:
       RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.ref_name }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
       APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'DEPLOY_APPROVED' }}
-      MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'
+      MEL_ROADMAP_SHARDVAULT_PAUSED: 'true'
     steps:
       - name: Require explicit production approval
         shell: bash
