@@ -47,6 +47,14 @@ test('GEN2-47 exports all discovered D1 tables deterministically', async () => {
 });
 
 
+
+test('GEN2-47 deterministic D1 ordering precomputes canonical row keys instead of serializing inside sort comparisons', async () => {
+  const source = await readFile(new URL('../src/backup/system-backup-runtime.js', import.meta.url), 'utf8');
+  assert.match(source, /\.map\(\(row\) => \(\{ row, canonical: stableStringify\(row\) \}\)\)/);
+  assert.match(source, /\.sort\(\(a, b\) => a\.canonical\.localeCompare\(b\.canonical\)\)/);
+  assert.doesNotMatch(source, /sort\(\(a, b\) => stableStringify\(a\)\.localeCompare\(stableStringify\(b\)\)\)/);
+});
+
 test('GEN2-47 skips Cloudflare internal D1 tables that are visible but unreadable', async () => {
   const reads = [];
   const db = {
