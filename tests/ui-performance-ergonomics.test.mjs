@@ -36,7 +36,9 @@ test('Professor boot is lightweight and live refresh is visibility-aware', async
   const source = await read('src/pages/full-interface-v2.js');
   const boot = source.match(/async function boot\(\)\{[\s\S]*?\n\}/)?.[0] || '';
   assert.doesNotMatch(boot,/codeCheck\(/);
-  assert.match(boot,/loadDashboardSummary\(\)/);
+  assert.match(boot,/loadDashboardSummary\(false\)/);
+  assert.match(boot,/loadDashboardSummary\(true\)/, 'real capability health refresh must run after the fast initial render');
+  assert.doesNotMatch(boot,/await loadDashboardSummary\(true\)/, 'real health refresh must stay non-blocking on the hot path');
   assert.doesNotMatch(boot,/loadCapabilitySummary\(\)|loadRoadmapSummary\(\)/);
   assert.match(source,/if\(document\.hidden\)return/);
   assert.match(source,/active==='roadmap'/);
@@ -122,7 +124,7 @@ test('MEL techno avatar is the canonical favicon in normal and Professor modes',
   }
 });
 
-test('Professor skills surface uses cached health on open and forces a real refresh only on explicit request', async () => {
+test('Professor skills surface refreshes real health on open and on explicit request', async () => {
   const html = await (await renderProfessor()).text();
   assert.match(html, /id="skillsHealthy"/);
   assert.match(html, /id="skillsProtected"/);
@@ -131,6 +133,7 @@ test('Professor skills surface uses cached health on open and forces a real refr
   assert.match(html, /id="skillsFailed"/);
   assert.match(html, /id="skillsProviderSummary"/);
   assert.ok(html.includes('loadCapabilitiesData(force)'));
+  assert.ok(html.includes("skills:()=>loadSkills(true)"));
   assert.ok(html.includes("loadSkills(true)"));
   assert.ok(html.includes('health_detail'));
   assert.ok(html.includes('NON CONFIGURÉ'));
