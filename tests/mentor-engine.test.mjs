@@ -166,3 +166,47 @@ test('mentor policy keeps deployment approval explicit', () => {
   assert.equal(mentorPolicy.deployment_requires_human_approval, true);
   assert.ok(mentorPolicy.allowed_tests.includes('test:integration'));
 });
+
+
+test('mentor may read safe repository context outside writable paths while writes stay restricted', async () => {
+  const engine = new MentorEngine({
+    providerFactory: async () => [provider('coder-safe-context', {
+      summary: 'Use read-only roadmap context while changing an allowed source file.',
+      changes: [{ path: 'src/example.js', content: 'export const ready = true;\n', reason: 'Allowed implementation path' }],
+      tests: ['test:smoke'],
+      confidence: 0.9,
+    })],
+  });
+
+  const result = await engine.propose({
+    env: {},
+    goal: 'Use existing roadmap context safely',
+    inspectedFiles: [
+      { path: '.agents/roadmap-note.md', content: '# Read-only context\n' },
+      { path: 'src/example.js', content: 'export const ready = false;\n' },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.proposal.changes[0].path, 'src/example.js');
+});
+
+test('mentor still refuses writing to inspection-only repository paths', async () => {
+  const engine = new MentorEngine({
+    providerFactory: async () => [provider('coder-bad-write', {
+      summary: 'Unsafe write target',
+      changes: [{ path: '.agents/roadmap-note.md', content: '# changed\n' }],
+      tests: ['test:smoke'],
+      confidence: 1,
+    })],
+  });
+
+  await assert.rejects(
+    () => engine.propose({
+      env: {},
+      goal: 'Do not allow writes outside the writable set',
+      inspectedFiles: [{ path: '.agents/roadmap-note.md', content: '# context\n' }],
+    }),
+    error => error.code === 'MENTOR_NO_VALID_CODE_PROPOSAL'
+  );
+});
