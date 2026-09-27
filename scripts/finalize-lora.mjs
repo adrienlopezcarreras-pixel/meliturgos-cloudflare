@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 function argsMap(argv) {
@@ -43,6 +43,14 @@ async function main() {
     body: JSON.stringify({ plan, artifact, approval, activate }),
   });
   const data = await response.json().catch(() => ({}));
+  const evidencePath = path.join(dir, 'benchmark-evidence.json');
+  await writeFile(evidencePath, JSON.stringify({
+    schema: 'mel.lora-canonical-benchmark-evidence.v1',
+    measured_at: new Date().toISOString(),
+    http_status: response.status,
+    response_ok: response.ok,
+    data,
+  }, null, 2) + '\n', 'utf8');
   if (!response.ok || data?.ok === false) {
     throw new Error(data?.detail || data?.error || `HTTP_${response.status}`);
   }
@@ -63,6 +71,13 @@ async function main() {
     canonical_gate_passed: data?.canonical_gate_passed === true,
     activation_blocker: data?.activation_blocker || null,
     impact: data?.impact?.comparison || null,
+    benchmark_evidence_file: evidencePath,
+    baseline_case_errors: Array.isArray(data?.baseline?.cases)
+      ? data.baseline.cases.filter((row) => row?.error).map((row) => ({ id: row.id, error: row.error }))
+      : [],
+    candidate_case_errors: Array.isArray(data?.candidate?.cases)
+      ? data.candidate.cases.filter((row) => row?.error).map((row) => ({ id: row.id, error: row.error }))
+      : [],
   };
   process.stdout.write(JSON.stringify(summary, null, 2) + '\n');
   if (!summary.activated && !allowNotActivated) process.exitCode = 2;
