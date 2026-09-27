@@ -146,7 +146,7 @@ jobs:
           const artifact=JSON.parse(fs.readFileSync(dir+'/artifact-evidence.json','utf8'));
           const training=JSON.parse(fs.readFileSync(dir+'/training-evidence.json','utf8'));
           const checked=assertAdapterArtifact(artifact);
-          if (String(training.stage||'') !== 'uncensored') throw new Error('KAGGLE_STAGE_NOT_UNCENSORED');
+          if (!['uncensored','uncensored-continue'].includes(String(training.stage||''))) throw new Error('KAGGLE_STAGE_NOT_UNCENSORED');
           if (checked.finetune_id) throw new Error('PREEXISTING_FINETUNE_ID_FORBIDDEN');
           if (String(training.dataset_digest||'') !== String(plan.dataset_digest||'')) throw new Error('KAGGLE_DATASET_MISMATCH');
           if (String(training.training_manifest_digest||'').toLowerCase() !== String(plan.training_manifest_digest||'').toLowerCase()) throw new Error('KAGGLE_MANIFEST_MISMATCH');
