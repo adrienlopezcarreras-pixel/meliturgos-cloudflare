@@ -146,15 +146,23 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
 
   if (phase === 'capability-watch-proof') {
     const proof = await proveCapabilityWatch(env);
-    const ok = proof?.ok === true
-      && proof?.status === 'GEN2_42_TEACHER_HANDOFF_READY'
+    const status = String(proof?.status || '');
+    const ready = status === 'GEN2_42_TEACHER_HANDOFF_READY'
       && Number(proof?.active_teacher_handoff_count || 0) >= 1
       && Boolean(proof?.job_id)
       && Boolean(proof?.teacher_request_id);
+    const progress = status === 'GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED'
+      && proof?.progress_verified === true
+      && Number(proof?.blocked_open_handoff_count || 0) === 0
+      && Number(proof?.teacher_proven_handoff_count || 0) >= 1;
+    const idle = status === 'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
+      && proof?.idle_verified === true
+      && Number(proof?.open_handoff_count || 0) === 0;
+    const ok = proof?.ok === true && (ready || progress || idle);
     return Response.json({
       ...proof,
       ok,
-      status: ok ? 'GEN2_42_TEACHER_HANDOFF_READY' : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
+      status: ok ? status : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
       autonomy_started: false,
       owner_launch_required: true,
       production_activation_allowed: false,
