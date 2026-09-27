@@ -449,6 +449,24 @@ export async function prepareAutonomyLaunchCodeSync(env) {
 export async function prepareAutonomyLaunch(env, {
   repository = null,
 } = {}) {
+  const existingReadiness = await getAutonomyLaunchReadiness(env, { repository });
+  if (existingReadiness?.launch_ready === true) {
+    return {
+      ok: true,
+      status: 'LAUNCH_EVIDENCE_REUSED',
+      backup: {
+        ok: true,
+        status: 'REUSED_VERIFIED_SHA_BOUND_BACKUP',
+        id: existingReadiness?.restore?.snapshot_id || null,
+        integritySha256: existingReadiness?.restore?.integritySha256 || null,
+      },
+      code_sync: existingReadiness?.shardvault?.status === 'PAUSED_FOR_ROADMAP'
+        ? { ok: true, complete: true, paused: true, status: 'PAUSED_FOR_ROADMAP', target_count: 7, endpoints: [], successful_endpoints: [] }
+        : null,
+      readiness: existingReadiness,
+    };
+  }
+
   const backup = await prepareAutonomyLaunchBackup(env);
   if (backup?.ok !== true) {
     return {

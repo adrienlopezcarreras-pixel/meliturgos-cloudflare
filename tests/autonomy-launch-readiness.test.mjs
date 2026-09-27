@@ -8,6 +8,7 @@ import {
   evaluateShardVaultLaunchReadiness,
   getAutonomyLaunchReadiness,
   prepareAutonomyLaunchCodeSync,
+  prepareAutonomyLaunch,
 } from '../src/evolution/launch-readiness.js';
 import { maybeHandlePublicTeacherBridge } from '../src/teachers/public-teacher-api.js';
 import { runScheduledSystemBackup } from '../src/backup/system-backup-runtime.js';
@@ -159,6 +160,38 @@ test('legacy backup without compact restore proof fails closed without loading R
     assert.equal(restore.ok, false);
     assert.equal(restore.status, 'SYSTEM_BACKUP_RESTORE_PROOF_MISSING');
     assert.equal(getCount, 0);
+  } finally {
+    DB.close();
+  }
+});
+
+test('prepareAutonomyLaunch reuses exact SHA-bound compact restore proof without creating another backup', async () => {
+  const DB = sqliteD1();
+  const MEDIA_BUCKET = bucket();
+  const sha = 'cccccccccccccccccccccccccccccccccccccccc';
+  const env = {
+    DB,
+    MEDIA_BUCKET,
+    MEL_RUNTIME_ENV: 'production',
+    MEL_GITHUB_BRANCH: 'candidate/mel-clean-autonomy',
+    MEL_TEACHER_BRANCH: 'candidate/mel-clean-autonomy',
+    MEL_DEPLOYED_GIT_SHA: sha,
+    MEL_SHARDVAULT_ENABLED: 'false',
+    MEL_SHARDVAULT_ROADMAP_PAUSED: 'true',
+  };
+  try {
+    await runScheduledSystemBackup(env, {
+      force: true,
+      now: () => '2026-09-27T06:50:00.000Z',
+    });
+    const first = await getAutonomyLaunchReadiness(env, { repository: new D1DevJobRepository(DB) });
+    assert.equal(first.launch_ready, true, JSON.stringify(first));
+
+    const prepared = await prepareAutonomyLaunch(env, { repository: new D1DevJobRepository(DB) });
+    assert.equal(prepared.ok, true, JSON.stringify(prepared));
+    assert.equal(prepared.status, 'LAUNCH_EVIDENCE_REUSED');
+    assert.equal(prepared.backup.status, 'REUSED_VERIFIED_SHA_BOUND_BACKUP');
+    assert.equal(prepared.readiness.candidate_sha, sha);
   } finally {
     DB.close();
   }
