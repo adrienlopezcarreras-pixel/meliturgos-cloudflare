@@ -347,6 +347,7 @@ def count_lines(path: Path) -> int:
         return sum(1 for line in fh if line.strip())
 
 def main():
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     if TARGET_SHA.startswith("__"):
         raise SystemExit("MEL_GIT_SHA_NOT_INJECTED")
     payload = prepare_payload()
