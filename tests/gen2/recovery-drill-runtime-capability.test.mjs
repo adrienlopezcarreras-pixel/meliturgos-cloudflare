@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createVerifiedBackupService } from '../../src/backup/backup-service.js';
 import { createGen2Runtime } from '../../src/core/orchestrator/gen2-runtime.js';
 import { registerRecoveryDrillCapability, runRecoveryDrillAgainstPersistedEvidence, runRecoveryDrillAgainstSnapshot, verifyPersistedEncryptedRestoreCandidate } from '../../src/capabilities/recovery-drill-capability.js';
-import { runScheduledSystemBackup } from '../../src/backup/system-backup-runtime.js';
+import { createReleaseBackupBinding, runScheduledSystemBackup } from '../../src/backup/system-backup-runtime.js';
 import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 
 function memoryStorage() {
@@ -131,6 +131,10 @@ function bucketStorage() {
       };
     },
     async delete(key){ rows.delete(String(key)); },
+    async head(key){
+      const bytes=rows.get(String(key));
+      return bytes ? {size:bytes.byteLength} : null;
+    },
     async list({prefix=''}={}){
       return {
         objects:[...rows.entries()]
@@ -247,6 +251,78 @@ test('GEN2-48 persisted encrypted proof is exact-bound and fails closed on metad
   assert.equal(shaDrift.code, 'RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_MISMATCH');
 });
 
+
+test('GEN2-48 release smoke resolves the bound snapshot by exact id even beyond the 100-row list window', async () => {
+  const DB=sqliteD1();
+  const MEDIA_BUCKET=bucketStorage();
+  const snapshotSha='a'.repeat(40);
+  const releaseSha='b'.repeat(40);
+  const noiseSha='c'.repeat(40);
+  const env={
+    DB,
+    MEDIA_BUCKET,
+    MEL_RUNTIME_ENV:'production',
+    MEL_DEPLOYED_GIT_SHA:snapshotSha,
+    MEL_DEPLOYED_GIT_BRANCH:'release/snapshot',
+    MEL_BACKUP_ENCRYPTION_KEY_ID:'recovery-bound-lookup-key',
+    MEL_BACKUP_ENCRYPTION_KEY_B64:Buffer.alloc(32,11).toString('base64'),
+  };
+  try {
+    const backup=await runScheduledSystemBackup(env,{
+      force:true,
+      now:()=> '2026-09-27T10:00:00.000Z',
+    });
+    assert.equal(backup.ok,true,JSON.stringify(backup));
+
+    env.MEL_DEPLOYED_GIT_SHA=releaseSha;
+    env.MEL_DEPLOYED_GIT_BRANCH='release/current';
+    const binding=await createReleaseBackupBinding(env,{
+      now:()=> '2026-09-27T10:05:00.000Z',
+    });
+    assert.equal(binding.ok,true,JSON.stringify(binding));
+    assert.equal(binding.snapshot_id,backup.id);
+    assert.equal(binding.snapshot_deployed_sha,snapshotSha);
+
+    const baseMs=Date.parse('2026-09-27T10:06:00.000Z');
+    for(let i=0;i<101;i+=1){
+      const id=`noise-${String(i).padStart(3,'0')}`;
+      const integrity=(i.toString(16).padStart(2,'0').repeat(32)).slice(0,64);
+      const createdAt=new Date(baseMs+i*1000).toISOString();
+      const metadata={
+        createdAt,
+        integritySha256:integrity,
+        sourceCount:3,
+        verified:true,
+        encrypted:true,
+        encryptionKeyId:env.MEL_BACKUP_ENCRYPTION_KEY_ID,
+        restoreVerified:true,
+        restoreCode:'RESTORE_CANDIDATE_VERIFIED',
+        restoreIntegritySha256:integrity,
+        restoreDeployedGitSha:noiseSha,
+        restoreTableCount:1,
+        restoreRowCount:0,
+        restoreR2ObjectCount:0,
+      };
+      await DB.prepare('INSERT INTO backup_objects(id,object_key,metadata_json,created_at) VALUES(?,?,?,?)')
+        .bind(id,`backups/system/${id}.enc.json`,JSON.stringify(metadata),Date.parse(createdAt))
+        .run();
+    }
+
+    let handler=null;
+    registerRecoveryDrillCapability({
+      discover(_manifest,fn){ handler=fn; },
+    },env);
+    const report=await handler({approved:true},{owner:true,releaseSmoke:true});
+    assert.equal(report.ok,true,JSON.stringify(report));
+    assert.equal(report.state,'PASSED');
+    assert.equal(report.snapshot_id,backup.id);
+    assert.equal(report.deployed_sha,releaseSha);
+    assert.equal(report.snapshot_deployed_sha,snapshotSha);
+    assert.equal(report.release_bound,true);
+  } finally {
+    DB.close();
+  }
+});
 
 test('GEN2-48 release smoke accepts older verified snapshot only through exact verified release binding', async () => {
   const snapshotSha='a'.repeat(40);
