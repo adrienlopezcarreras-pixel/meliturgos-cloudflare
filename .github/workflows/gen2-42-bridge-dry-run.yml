@@ -1,0 +1,116 @@
+name: GEN2-42 bridge dry run
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "Exact dev_jobs id to validate"
+        required: true
+        default: "ecosystem-watch-c3bfaf443b1287cf885033ecd760bc94"
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Read exact READY bridge package from production D1
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          JOB_ID: ${{ inputs.job_id }}
+        run: |
+          set -euo pipefail
+          [[ "$JOB_ID" =~ ^[A-Za-z0-9_-]+$ ]]
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT id,status,files_json,tests_json,patch_json,result_json FROM dev_jobs WHERE id='$JOB_ID' LIMIT 1" \
+            > bridge-job.raw.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const raw=JSON.parse(fs.readFileSync('bridge-job.raw.json','utf8'));
+          const parts=Array.isArray(raw)?raw:[raw];
+          const rows=parts.flatMap(x=>Array.isArray(x?.results)?x.results:[]);
+          if(rows.length!==1) throw new Error('DRY_RUN_JOB_NOT_FOUND');
+          const row=rows[0];
+          const parse=(v)=>typeof v==='string'&&v?JSON.parse(v):v;
+          const job={
+            ...row,
+            files_json:parse(row.files_json)||[],
+            tests_json:parse(row.tests_json)||[],
+            patch_json:parse(row.patch_json)||{},
+            result_json:parse(row.result_json)||{},
+          };
+          const prep=job?.result_json?.bridge_preparation;
+          if(prep?.status!=='READY') throw new Error('DRY_RUN_BRIDGE_NOT_READY');
+          if(!/^candidate\//.test(String(prep.candidate_branch||''))) throw new Error('DRY_RUN_CANDIDATE_BRANCH_INVALID');
+          if(!/^[a-f0-9]{40}$/i.test(String(prep.candidate_sha||''))) throw new Error('DRY_RUN_CANDIDATE_SHA_INVALID');
+          fs.writeFileSync('bridge-job.json',JSON.stringify(job));
+          fs.appendFileSync(process.env.GITHUB_ENV,`CANDIDATE_BRANCH=${prep.candidate_branch}\nCANDIDATE_SHA=${prep.candidate_sha}\n`);
+          NODE
+
+      - name: Pin checkout to exact approved candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$CANDIDATE_BRANCH" --depth=100
+          git checkout -B "$CANDIDATE_BRANCH" "$CANDIDATE_SHA"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git branch --show-current)" = "$CANDIDATE_BRANCH"
+
+      - name: Run isolated bridge package without commit or push
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs/promises';
+          import { LocalDevBridge } from './src/dev/dev-bridge.js';
+          import { runStructuredBridgeJob } from './src/dev/bridge-job-runner.js';
+
+          const job=JSON.parse(await fs.readFile('bridge-job.json','utf8'));
+          const bridge=new LocalDevBridge({ repoRoot: process.cwd() });
+          const result=await runStructuredBridgeJob({ bridge, job });
+          if(!result) throw new Error('DRY_RUN_NO_RESULT');
+          const safe={
+            status: result.status || null,
+            candidate_branch: result.candidate_branch || null,
+            needs_repair: result.needs_repair === true,
+            diff_summary: String(result.diff_summary||'').slice(0,20000),
+            tests: Array.isArray(result.tests) ? result.tests.map(t=>({
+              name:t.name, command:t.command, passed:t.passed===true, exit_code:t.exit_code, error:t.error||null
+            })) : [],
+          };
+          await fs.writeFile('bridge-dry-run-result.json',JSON.stringify(safe,null,2));
+          console.log(JSON.stringify({
+            status:safe.status,
+            needs_repair:safe.needs_repair,
+            tests:safe.tests,
+            diff_chars:safe.diff_summary.length,
+          },null,2));
+          if(safe.needs_repair || safe.tests.some(t=>!t.passed)) process.exitCode=2;
+          NODE
+
+      - name: Upload sanitized dry-run evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: gen2-42-bridge-dry-run-${{ github.run_id }}
+          path: bridge-dry-run-result.json
+          if-no-files-found: warn
+          retention-days: 7
