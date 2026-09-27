@@ -144,3 +144,30 @@ test('package parsing is bounded', () => {
   assert.equal(structuredFiles({ files_json: JSON.stringify(manyFiles) }).length, 10);
   assert.equal(requestedTests({ tests_json: JSON.stringify(manyTests) }).length, 4);
 });
+
+
+test('empty untested structured package fails closed to repair', async () => {
+  const bridge = fakeBridge({ diff: '' });
+  const emptyUntested = { ...job, tests_json: [] };
+  const result = await runStructuredBridgeJob({ bridge, job: emptyUntested });
+  assert.equal(result.status, 'REPAIR_REQUIRED');
+  assert.equal(result.needs_repair, true);
+  assert.equal(result.result_json.validation_failure, 'BRIDGE_NO_CHANGES_NO_TESTS');
+});
+
+test('no-change structured package with tests fails closed to repair', async () => {
+  const bridge = fakeBridge({ diff: '' });
+  const result = await runStructuredBridgeJob({ bridge, job });
+  assert.equal(result.status, 'REPAIR_REQUIRED');
+  assert.equal(result.result_json.validation_failure, 'BRIDGE_NO_CHANGES');
+  assert.ok(result.tests_json.every(row => row.passed));
+});
+
+test('changed structured package without tests fails closed to repair', async () => {
+  const bridge = fakeBridge();
+  const untested = { ...job, tests_json: [] };
+  const result = await runStructuredBridgeJob({ bridge, job: untested });
+  assert.equal(result.status, 'REPAIR_REQUIRED');
+  assert.equal(result.result_json.validation_failure, 'BRIDGE_NO_TESTS');
+  assert.match(result.diff_summary, /diff --git/);
+});
