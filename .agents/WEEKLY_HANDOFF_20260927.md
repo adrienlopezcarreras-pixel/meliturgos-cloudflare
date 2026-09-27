@@ -87,6 +87,12 @@ Un état daté ci-dessous ne doit jamais être extrapolé comme vérité actuell
 - Le workflow GEN2-42 a reçu un déclencheur PR et des tests ciblés afin que cette logique ne soit plus modifiable sans CI.
 
 
+## 27 septembre — recovery drill et chiffrement
+
+- Le recovery drill production a révélé un faux échec `BACKUP_ENCRYPTION_CODEC_REQUIRED` : le backup/restore canonique utilisait correctement le codec d encryption, mais la capacité secondaire `resilience.recovery.drill.latest` reconstruisait le storage sans ce codec.
+- Correction : résolution des secrets d encryption identique au chemin canonique, config partielle fail-closed, storage du drill construit avec `createEnvBackupEncryptionCodec(env)`, tout en conservant le drill sandboxé, sans accès/mutation production.
+- Leçon : le chiffrement est un contrat transversal des consommateurs de storage ; un outil de preuve ne doit pas utiliser une configuration de lecture différente du système qu il prétend auditer.
+
 ## 21–27 septembre — magazine et production éditoriale
 
 - Le magazine a adopté une source graphique canonique stricte : repartir du fichier source d origine, utiliser la page 02 « Note au lecteur » comme référence visuelle absolue, et ne jamais dériver une page depuis la page précédemment corrigée.
