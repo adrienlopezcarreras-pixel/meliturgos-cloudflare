@@ -243,6 +243,42 @@ function qualityRepairPrompt(job, bridge, code, candidates, missingSections = []
   ].join('\n');
 }
 
+function deterministicQualityScaffold(job, code, candidates = []) {
+  const source = (Array.isArray(candidates) ? candidates : [])
+    .map(candidate => String(candidate?.text || '').trim())
+    .find(text => text.length >= 40);
+  if (!source) {
+    const error = new Error('IMPLEMENTATION_QUALITY_CONTRACT_MISSING');
+    error.code = 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING';
+    error.missing_sections = QUALITY_SECTIONS.map(([name]) => name);
+    throw error;
+  }
+
+  const files = (Array.isArray(code?.files) ? code.files : [])
+    .map(file => String(file?.path || '').trim())
+    .filter(Boolean)
+    .slice(0, MAX_FILES);
+  const reuse = (Array.isArray(code?.reuse_search?.matches) ? code.reuse_search.matches : [])
+    .map(match => String(match?.path || '').trim())
+    .filter(Boolean)
+    .slice(0, MAX_FILES);
+  const defaults = {
+    FICHIERS: files.join(', ') || 'Conserver le périmètre des fichiers déjà inspectés.',
+    CHANGEMENTS: 'Appliquer uniquement le plus petit diff réversible nécessaire à l’objectif approuvé, sur la branche candidate canonique.',
+    REUTILISATION: `Étendre en priorité les composants existants déjà inspectés${reuse.length ? ': ' + reuse.join(', ') : ''}; ne pas créer de module parallèle dupliquant une capacité existante.`,
+    TESTS: 'Exécuter les tests ciblés des composants modifiés puis la suite complète; arrêter le cycle si une régression apparaît.',
+    RISQUES: 'Régression fonctionnelle, duplication de capacité, dérive du périmètre approuvé ou changement du SHA candidat; rester fail-closed dans chacun de ces cas.',
+    ROLLBACK: 'Revert du commit candidat uniquement; aucune activation production automatique depuis ce plan.',
+    CRITERES_DE_FIN: `SHA candidat approuvé inchangé, diff minimal, tests ciblés et suite complète verts, preuves persistées pour ${String(job?.optional_context?.roadmap_id || 'le travail approuvé')}.`,
+  };
+
+  let text = source;
+  for (const [name, pattern] of QUALITY_SECTIONS) {
+    if (!pattern.test(text)) text += `\n${name}: ${defaults[name]}`;
+  }
+  return assertPlanQualityContract(text);
+}
+
 function planningPrompt(job, bridge, code) {
   const reusePaths = (code?.reuse_search?.matches || []).map((match) => match.path).filter(Boolean).slice(0, 12);
   return [
@@ -354,7 +390,20 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
       }
     }
   }
-  if (!selectedCandidate) throw qualityError || Object.assign(new Error('IMPLEMENTATION_QUALITY_CONTRACT_MISSING'), { code: 'IMPLEMENTATION_QUALITY_CONTRACT_MISSING' });
+  let qualityScaffoldApplied = false;
+  if (!selectedCandidate) {
+    const scaffoldCandidates = [
+      ...rankedCandidates,
+      ...((Array.isArray(repairFanout?.candidates) ? repairFanout.candidates : [])),
+    ];
+    selectedText = deterministicQualityScaffold(current, code, scaffoldCandidates);
+    selectedCandidate = {
+      provider: 'mel',
+      model: 'deterministic-quality-scaffold-v1',
+      text: selectedText,
+    };
+    qualityScaffoldApplied = true;
+  }
 
   const allProvidersAttempted = [...new Set([
     ...(Array.isArray(fanout.providersAttempted) ? fanout.providersAttempted : []),
@@ -378,6 +427,7 @@ export async function prepareApprovedImplementationProposal({ env, repository, j
       alternate_candidate_allowed: false,
       duplicate_module_allowed: false,
       quality_repair_attempted: Boolean(repairFanout),
+      quality_scaffold_applied: qualityScaffoldApplied,
       reuse_search: {
         query: code.reuse_search.query,
         searched_files: code.reuse_search.searched_files,
