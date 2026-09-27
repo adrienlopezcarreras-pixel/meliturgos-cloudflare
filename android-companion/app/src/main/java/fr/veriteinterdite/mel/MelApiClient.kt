@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.8"
+        const val APP_VERSION = "0.6.43-pair-controls"
     }
 
     init {
@@ -76,6 +76,25 @@ class MelApiClient(
         }
     }
 
+    private fun readBytes(connection: HttpURLConnection): ByteArray {
+        try {
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                val body = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                val json = runCatching { JSONObject(body) }.getOrNull()
+                throw MelApiException(
+                    code = json?.let { it.optString("code", it.optString("error", "HTTP_$status")) }
+                        ?: "HTTP_$status",
+                    status = status,
+                    detail = json?.optString("detail").orEmpty()
+                )
+            }
+            return connection.inputStream.use { it.readBytes() }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     /**
      * Owner credentials are used exactly once to request a one-use pairing code.
      * If username is blank, the server's supported owner Bearer-password fallback
@@ -105,6 +124,24 @@ class MelApiClient(
         return pair(code, name, appVersion)
     }
 
+    fun createMiniPairCodeWithOwnerCredentials(username: String, secret: String): JSONObject {
+        require(secret.isNotBlank()) { "OWNER_PASSWORD_REQUIRED" }
+        val connection = connection("/api/device/v1/pair-code", "POST", authenticated = false)
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/json")
+        if (username.isBlank()) {
+            connection.setRequestProperty("Authorization", "Bearer $secret")
+        } else {
+            val credentials = Base64.encodeToString(
+                "$username:$secret".toByteArray(Charsets.UTF_8),
+                Base64.NO_WRAP
+            )
+            connection.setRequestProperty("Authorization", "Basic $credentials")
+        }
+        connection.outputStream.use { it.write("{}".toByteArray(Charsets.UTF_8)) }
+        return readJson(connection)
+    }
+
     fun pair(
         pairCode: String,
         name: String = "MEL Android",
@@ -131,7 +168,8 @@ class MelApiClient(
         appVersion: String = APP_VERSION,
         sdkInt: Int,
         battery: Int? = null,
-        charging: Boolean = false
+        charging: Boolean = false,
+        phase: String = "ONLINE"
     ): JSONObject {
         return jsonRequest(
             "/api/android/v1/heartbeat",
@@ -141,7 +179,7 @@ class MelApiClient(
                 .put("sdk_int", sdkInt)
                 .put("battery", battery)
                 .put("charging", charging)
-                .put("phase", "ONLINE")
+                .put("phase", phase.take(40))
         )
     }
 
@@ -167,6 +205,7 @@ class MelApiClient(
                 .put("ui_mode", mode)
                 .put("ui_theme", "futuristic")
                 .put("input_source", if (voice) "voice-server-transcription" else "text")
+                .put("voice_reply", voice)
         )
     }
 
@@ -214,6 +253,22 @@ class MelApiClient(
                 .put("last_message_id", messageId)
                 .put("last_message_timestamp", timestamp)
         )
+    }
+
+    fun tts(text: String, speaker: String = "luna", format: String = "mp3"): ByteArray {
+        require(text.isNotBlank()) { "TEXT_REQUIRED" }
+        val connection = connection("/api/android/v1/voice/tts", "POST")
+        connection.connectTimeout = 2_500
+        connection.readTimeout = 4_500
+        connection.doOutput = true
+        connection.setRequestProperty("Accept", "audio/mpeg, application/octet-stream")
+        connection.setRequestProperty("Content-Type", "application/json")
+        val payload = JSONObject()
+            .put("text", text.take(1200))
+            .put("speaker", speaker)
+            .put("format", if (format == "mp3") "mp3" else "pcm")
+        connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+        return readBytes(connection)
     }
 
     fun transcribe(audioBytes: ByteArray, mimeType: String = "audio/webm"): JSONObject {

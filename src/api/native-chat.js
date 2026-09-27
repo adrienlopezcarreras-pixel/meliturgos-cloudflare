@@ -3,10 +3,8 @@ import { buildContext } from '../core/orchestrator/context-builder.js';
 import { createConversationService } from '../conversations/conversation-service.js';
 import { requireAuth, isReleaseSmokeRequest } from '../core/security.js';
 import { approvedCapabilitiesFromRequest } from '../security/approval-gates.js';
-import { runtimeCapabilityPermissions } from '../security/runtime-permissions.js';
 import { ModelRouter, classifyTask, extractFinishReason, isTruncationFinishReason } from '../models/ModelRouter.js';
 import { ModelRegistry, standardRegistry } from '../models/ModelRegistry.js';
-import { D1ModelPerformanceStore } from '../models/model-performance-store.js';
 import { buildMelIdentityPrompt } from '../identity/mel-persona.js';
 import { getMelThemeContract } from '../identity/mel-theme-persona.js';
 import { buildMelOperatingManualPrompt } from '../identity/mel-operating-manual.js';
@@ -22,7 +20,6 @@ import { buildConversationFocusInstruction, deriveConversationFocus } from './co
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
 import { assessResponseQuality, enforceResponseQuality, persistResponseQualityEvent } from './response-quality-audit.js';
 import { inferKnowledgeCapability } from './knowledge-intent.js';
-import { inferCurrentFactVerificationPolicy, hasAuthoritativeCurrentFactEvidence, currentFactReliabilityInstruction } from './current-fact-reliability.js';
 
 export function inferChatGPTHistoryCapability(text) {
   const value = String(text || '').trim();
@@ -265,41 +262,10 @@ async function loadOperationalExperience(env, goal) {
 function summarizeToolResult(result) {
   try {
     return JSON.parse(JSON.stringify(result, (_k, value) => {
-      if (typeof value === 'string' && value.length > 12000) return value.slice(0,6000) + '\n[TRUNCATED_MIDDLE]\n' + value.slice(-6000);
+      if (typeof value === 'string' && value.length > 12000) return value.slice(0,12000) + '\n[TRUNCATED]';
       return value;
     }));
   } catch { return { error: 'TOOL_RESULT_SERIALIZATION_FAILED' }; }
-}
-
-export function buildCompanionDisplay(toolResults = []) {
-  const rows = Array.isArray(toolResults) ? toolResults : [];
-  const sourceRow = rows.find(row =>
-    row?.status === 'SUCCEEDED' &&
-    (row?.capability === 'web.research' || row?.capability === 'knowledge.research')
-  );
-  if (!sourceRow) return null;
-
-  const result = sourceRow.result || {};
-  const research = result.research && typeof result.research === 'object' ? result.research : result;
-  const sources = Array.isArray(research.sources) ? research.sources : [];
-  const items = sources
-    .map(source => ({
-      title: String(source?.title || '').trim().slice(0, 180),
-      url: String(source?.url || '').trim().slice(0, 1200),
-      snippet: String(source?.snippet || '').trim().replace(/\s+/g, ' ').slice(0, 420),
-      image_url: /^https:\/\//i.test(String(source?.image_url || '').trim()) ? String(source.image_url).trim().slice(0, 1200) : '',
-      source_kind: String(source?.source_kind || '').trim().slice(0, 80),
-    }))
-    .filter(item => /^https?:\/\//i.test(item.url))
-    .slice(0, 5);
-  if (!items.length) return null;
-
-  return {
-    type: 'web_sources',
-    primary_url: items[0].url,
-    title: String(research.query || items[0].title || 'Résultats web').trim().slice(0, 180),
-    items,
-  };
 }
 
 function secretLike(value) {
@@ -427,48 +393,6 @@ export function inferenceGenerationOptions(settings = null) {
   return out;
 }
 
-
-function compactInferenceText(value, limit) {
-  const text = String(value || '');
-  if (text.length <= limit) return text;
-  const marker = '\n[CONTEXTE COMPACTÉ POUR REPRISE INFERENCE]\n';
-  const room = Math.max(0, limit - marker.length);
-  const head = Math.ceil(room * 0.55);
-  const tail = Math.max(0, room - head);
-  return `${text.slice(0, head)}${marker}${tail ? text.slice(-tail) : ''}`;
-}
-
-export function compactInferenceMessages(messages = [], {
-  systemChars = 24000,
-  historyChars = 12000,
-  maxHistoryMessages = 8,
-} = {}) {
-  const rows = Array.isArray(messages) ? messages : [];
-  const system = rows.find(row => String(row?.role || '') === 'system');
-  const nonSystem = rows.filter(row => String(row?.role || '') !== 'system');
-  const current = nonSystem.length ? nonSystem.at(-1) : null;
-  const history = current ? nonSystem.slice(0, -1) : nonSystem.slice();
-  const selected = history.slice(-Math.max(0, Math.min(12, Number(maxHistoryMessages) || 8)));
-  let remaining = Math.max(2000, Math.min(30000, Number(historyChars) || 12000));
-  const compactHistory = [];
-
-  for (let i = selected.length - 1; i >= 0; i -= 1) {
-    const row = selected[i];
-    const content = String(row?.content || '');
-    if (!remaining) break;
-    const bounded = compactInferenceText(content, Math.min(content.length || 0, remaining));
-    compactHistory.push({ role: String(row?.role || 'user'), content: bounded });
-    remaining = Math.max(0, remaining - bounded.length);
-  }
-  compactHistory.reverse();
-
-  return [
-    ...(system ? [{ role: 'system', content: compactInferenceText(system.content, Math.max(8000, Math.min(40000, Number(systemChars) || 24000))) }] : []),
-    ...compactHistory,
-    ...(current ? [{ role: String(current.role || 'user'), content: String(current.content || '') }] : []),
-  ];
-}
-
 async function activePromotedInferenceSettings(env) {
   if (!env?.DB) return null;
   try {
@@ -511,7 +435,6 @@ export function createNativeModelRouter(env, inferenceSettings = null, activeAda
   return new ModelRouter({
     registry,
     maxCalls: 3,
-    performanceStore: env?.DB ? new D1ModelPerformanceStore(env.DB) : null,
     invoke: async (selected, messages) => {
       const modelId = selected.model_id || selected.id;
       const input = { messages, ...generation };
@@ -524,7 +447,7 @@ export function createNativeModelRouter(env, inferenceSettings = null, activeAda
 function nativeCapabilityContext(env, request = null) {
   return {
     owner: env.MELITURGOS_USER || 'owner',
-    permissions: runtimeCapabilityPermissions(env),
+    permissions: env.CAPABILITY_PERMISSIONS || [],
     approvedCapabilities: approvedCapabilitiesFromRequest(request),
     requestId: crypto.randomUUID(),
   };
@@ -580,13 +503,13 @@ export async function runNativeInference({ env, messages, text, parallel = false
   }, { source: 'native-chat', inference_settings: inferenceSettings || null });
 }
 
+
 function inferDirectCurrentWebCapability(text, intentContext = {}) {
   const value = String(text || '').trim();
   if (!value) return null;
   if (/\b(?:mes\s+(?:mails?|emails?|fichiers?|documents?|photos?|messages?|contacts?|calendriers?|agendas?)|gmail|outlook|onedrive|google\s+drive|agenda|calendrier)\b/i.test(value)) return null;
 
-  const verificationPolicy = inferCurrentFactVerificationPolicy(value);
-  const currentInfo = Boolean(verificationPolicy) || /\b(?:m[ée]t[ée]o|quel\s+temps|temp[ée]rature|pluie|vent|pr[ée]visions?|actualit[ée]s?|news|aujourd['’]hui|demain|ce\s+soir|maintenant|actuellement|en\s+ce\s+moment|derni[eè]res?\s+(?:infos?|nouvelles?|donn[ée]es?)|latest|r[ée]cent(?:e|es|s)?|prix|tarif|cours|cotation|bourse|bitcoin|crypto|taux\s+de\s+change|horaires?|ouvert|ouverte|fermeture|trafic|score|r[ée]sultat|classement|programme|disponibilit[ée]|disponible|date\s+de\s+sortie|pr[ée]sident\s+actuel|ministre\s+actuel|maire\s+actuel|pdg\s+actuel|ceo\s+actuel)\b/i.test(value);
+  const currentInfo = /\b(?:m[ée]t[ée]o|quel\s+temps|temp[ée]rature|pluie|vent|pr[ée]visions?|actualit[ée]s?|news|aujourd['’]hui|demain|ce\s+soir|maintenant|actuellement|en\s+ce\s+moment|derni[eè]res?\s+(?:infos?|nouvelles?|donn[ée]es?)|latest|r[ée]cent(?:e|es|s)?|prix|tarif|cours|cotation|bourse|bitcoin|crypto|taux\s+de\s+change|horaires?|ouvert|ouverte|fermeture|trafic|score|r[ée]sultat|classement|programme|disponibilit[ée]|disponible|date\s+de\s+sortie|pr[ée]sident\s+actuel|ministre\s+actuel|maire\s+actuel|pdg\s+actuel|ceo\s+actuel)\b/i.test(value);
   const nearbyInfo = /\b(?:pr[eè]s\s+de\s+moi|proche\s+de\s+moi|[àa]\s+proximit[ée]|aux\s+alentours|le\s+plus\s+proche|la\s+plus\s+proche|restaurants?|pizzerias?|pharmacies?|caf[ée]s?|stations?\s+service|supermarch[ée]s?|magasins?)\b/i.test(value);
   if (!currentInfo && !nearbyInfo) return null;
 
@@ -594,10 +517,7 @@ function inferDirectCurrentWebCapability(text, intentContext = {}) {
   const query = nearbyInfo && approximateLocation
     ? `${value} — zone réseau approximative: ${approximateLocation}`
     : value;
-  const input = { query: query.slice(0, 2000), depth: 2 };
-  if (verificationPolicy?.preferred_domains?.length) input.domains = verificationPolicy.preferred_domains.slice(0, 3);
-  if (verificationPolicy?.official_seed_urls?.length) input.seed_urls = verificationPolicy.official_seed_urls.slice(0, 6);
-  return { id: 'web.research', input };
+  return { id: 'web.research', input: { query: query.slice(0, 2000), depth: 2 } };
 }
 
 export async function handleNativeChat(request, env, options = {}) {
@@ -625,7 +545,6 @@ export async function handleNativeChat(request, env, options = {}) {
   const inputSource = ['voice-server-transcription','voice-browser-recognition'].includes(requestedInputSource)
     ? requestedInputSource
     : 'text';
-  const voiceReply = body.voice_reply === true && inputSource !== 'text';
   const userProvenance = inputSource === 'text' ? 'native-chat' : `native-chat:${inputSource}`;
   const userMetadata = inputSource === 'text' ? {} : { input_source: inputSource, transcribed_voice: true };
   const runtime = createGen2Runtime({ env });
@@ -643,7 +562,6 @@ export async function handleNativeChat(request, env, options = {}) {
   if (!releaseSmoke) await saveConversationFocusState(env, conversationId, conversationFocus);
   const conversationFocusInstruction = buildConversationFocusInstruction(recent, text, persistedFocus);
 
-  const currentFactVerification = releaseSmoke ? null : inferCurrentFactVerificationPolicy(text);
   const personalProfileIntent = isPersonalProfileRecall(text);
   const inferredCapability = releaseSmoke
     ? inferNativeCodeCapability(text, [])
@@ -708,35 +626,6 @@ export async function handleNativeChat(request, env, options = {}) {
     }
   }
 
-  if (!releaseSmoke && currentFactVerification?.strict && String(capability?.id || '') === 'web.research') {
-    const evidence = toolResults.find(row => row.capability === 'web.research') || null;
-    const authoritative = evidence?.status === 'SUCCEEDED'
-      && hasAuthoritativeCurrentFactEvidence(evidence?.result, currentFactVerification);
-    if (!authoritative) {
-      const responseText = 'Je ne peux pas confirmer ce fait actuel avec une source suffisamment fiable maintenant. Je préfère ne pas deviner.';
-      let archiveSaved = false;
-      if (service) {
-        try {
-          await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
-          await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText, timestamp:Date.now()+1, provenance:'native-chat:current-fact-guard', metadata:{ verification_kind:currentFactVerification.kind, verified:false } });
-          archiveSaved = true;
-        } catch {}
-      }
-      return Response.json({
-        ok:true,
-        text:responseText,
-        model:'deterministic-current-fact-guard',
-        provider:'mel',
-        response_mode:'verified-current-fact',
-        verified_current_fact:false,
-        verification_kind:currentFactVerification.kind,
-        capability_used:capabilitiesUsed,
-        tool_results:toolResults,
-        archive_saved:archiveSaved,
-      }, { headers:{'cache-control':'no-store'} });
-    }
-  }
-
   if (!releaseSmoke) capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
 
   if (releaseSmoke) {
@@ -797,11 +686,7 @@ export async function handleNativeChat(request, env, options = {}) {
     buildResponseQualityInstruction(text),
     conversationFocusInstruction,
     operatingManual,
-    currentFactReliabilityInstruction(currentFactVerification),
     themeInstruction,
-    voiceReply
-      ? 'MODE VOCAL MOBILE : réponds immédiatement avec 1 à 3 phrases courtes, naturelles et directement prononçables. Va à l’essentiel, sans listes longues, sans préambule et sans dépasser environ 350 caractères sauf nécessité absolue.'
-      : '',
     'Réponds en français sauf demande contraire.',
     'TUTOIEMENT ABSOLU AVEC ADRIEN : adresse-toi toujours à lui avec « tu », « ton », « ta », « tes ». N’utilise jamais « vous », « votre » ou « vos » pour lui parler. Avant d’envoyer ta réponse, relis-la et reformule toute adresse formelle résiduelle en tutoiement naturel.',
     'Tu dois être factuelle sur tes capacités réelles.',
@@ -844,12 +729,6 @@ export async function handleNativeChat(request, env, options = {}) {
   ].filter(Boolean).join(' ');
   const messages = buildContext({ system, recent, retrieved, toolResults, current: text, memoryQuery: conversationFocus.anchor || text });
   const parallel = !personalProfileIntent && (body.parallel === true || String(env.MEL_AUGMENTIO_CHAT || '') === '1');
-  const effectiveInferenceSettings = voiceReply
-    ? {
-        ...(activeInferenceSettings || {}),
-        max_tokens: Math.min(Number(activeInferenceSettings?.max_tokens) || 180, 180),
-      }
-    : activeInferenceSettings;
   let ai;
   try {
     ai = await runNativeInference({
@@ -858,92 +737,26 @@ export async function handleNativeChat(request, env, options = {}) {
       text,
       parallel,
       maxCandidates: body.max_candidates ?? env.MEL_AUGMENTIO_MAX_CANDIDATES ?? activeInferenceSettings?.council_min_responses ?? 4,
-      inferenceSettings: effectiveInferenceSettings,
+      inferenceSettings: activeInferenceSettings,
       activeAdapter,
       runtime,
       taskOverride: personalProfileIntent ? 'REASONING' : null,
       preferredModel: personalProfileIntent ? '@cf/meta/llama-3.3-70b-instruct-fp8-fast' : null,
     });
   } catch (error) {
-    if (personalProfileIntent && personalProfileFallback) {
-      ai = {
-        text: personalProfileFallback,
-        model: 'deterministic-personal-profile-fallback',
-        provider: 'mel',
-        task: 'REASONING',
-        attempts: 0,
-        fallback_used: true,
-        tool_succeeded: true,
-        finish_reason: null,
-        truncated: false,
-        usage: null,
-      };
-    } else {
-      const fallbackModels = [
-        String(env.MEL_NATIVE_CHAT_FALLBACK_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast'),
-        '@cf/google/gemma-3-12b-it',
-      ].filter((model, index, list) => model && list.indexOf(model) === index);
-      const attempts = [
-        { messages, generation: inferenceGenerationOptions(effectiveInferenceSettings), compacted: false },
-        { messages: compactInferenceMessages(messages), generation: {}, compacted: true },
-      ];
-      let fallbackError = null;
-      let recovered = null;
-
-      for (const attempt of attempts) {
-        for (const fallbackModel of fallbackModels) {
-          try {
-            const fallbackResult = await env.AI.run(fallbackModel, {
-              messages: attempt.messages,
-              ...attempt.generation,
-            });
-            const fallbackText = typeof fallbackResult === 'string'
-              ? fallbackResult
-              : fallbackResult?.response
-                ?? fallbackResult?.text
-                ?? fallbackResult?.message?.content
-                ?? fallbackResult?.choices?.[0]?.message?.content
-                ?? fallbackResult?.choices?.[0]?.text
-                ?? '';
-            if (!String(fallbackText || '').trim()) {
-              throw Object.assign(new Error('CHAT_FALLBACK_EMPTY'), { code: 'CHAT_FALLBACK_EMPTY' });
-            }
-            recovered = {
-              text: String(fallbackText),
-              model: fallbackModel,
-              provider: 'workers-ai',
-              task: classifyTask(text || ''),
-              attempts: 1,
-              fallback_used: true,
-              fallback_compacted: attempt.compacted === true,
-              tool_succeeded: true,
-              finish_reason: extractFinishReason(fallbackResult),
-              truncated: isTruncationFinishReason(extractFinishReason(fallbackResult)),
-              usage: fallbackResult?.usage || null,
-            };
-            break;
-          } catch (candidateError) {
-            fallbackError = candidateError;
-          }
-        }
-        if (recovered) break;
-      }
-
-      if (recovered) {
-        ai = recovered;
-      } else {
-        console.error('[native-chat] inference and fallback failed', {
-          primary: error?.code || error?.message || String(error),
-          fallback: fallbackError?.code || fallbackError?.message || String(fallbackError),
-        });
-        return Response.json({
-          ok: false,
-          error: 'CHAT_INFERENCE_FAILED',
-          code: 'CHAT_INFERENCE_FAILED',
-          detail: String(fallbackError?.code || fallbackError?.message || 'FALLBACK_FAILED').slice(0, 180),
-        }, { status: 503, headers: { 'cache-control': 'no-store' } });
-      }
-    }
+    if (!personalProfileIntent || !personalProfileFallback) throw error;
+    ai = {
+      text: personalProfileFallback,
+      model: 'deterministic-personal-profile-fallback',
+      provider: 'mel',
+      task: 'REASONING',
+      attempts: 0,
+      fallback_used: true,
+      tool_succeeded: true,
+      finish_reason: null,
+      truncated: false,
+      usage: null,
+    };
   }
 
   const modelResponseText = stripInternalCounters(ai.text);
@@ -1049,7 +862,6 @@ export async function handleNativeChat(request, env, options = {}) {
     capability_used: capabilitiesUsed,
     capability_manifest: capabilityManifest,
     tool_results: toolResults,
-    display: buildCompanionDisplay(toolResults),
     development_job: developmentQueued ? {
       job_id: developmentQueued.job_id || null,
       status: developmentQueued.status || null,

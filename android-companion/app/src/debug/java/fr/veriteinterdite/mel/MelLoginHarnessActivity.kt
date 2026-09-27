@@ -6,12 +6,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 
-class MelUiHarnessActivity : ComponentActivity() {
+class MelLoginHarnessActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -19,30 +15,16 @@ class MelUiHarnessActivity : ComponentActivity() {
             hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
-        val initialMode = if (intent.getStringExtra("mode") == "complete") {
-            MelMode.COMPLETE
-        } else {
-            MelMode.NORMAL
-        }
-        val showDiagnostics = intent.getBooleanExtra("diagnostics", false)
-
         setContent {
-            var mode by remember { mutableStateOf(initialMode) }
-            var messages by remember { mutableStateOf(emptyList<MelChatMessage>()) }
             MelTheme {
                 MelApp(
                     state = MelUiState(
-                        session = SessionStage.CONNECTED,
-                        mode = mode,
+                        session = SessionStage.DISCONNECTED,
+                        mode = MelMode.NORMAL,
                         busy = false,
-                        status = "MEL test · connectée",
+                        status = "",
                         error = null,
-                        messages = messages,
-                        diagnosticReport = if (showDiagnostics) {
-                            "MEL Android ${MelApiClient.APP_VERSION}\nSession: CONNECTED\nHeartbeat: OK\nKeystore: OK"
-                        } else {
-                            null
-                        }
+                        messages = emptyList()
                     ),
                     recording = false,
                     voiceLevel = 0f,
@@ -50,10 +32,8 @@ class MelUiHarnessActivity : ComponentActivity() {
                     onLogin = { _, _ -> },
                     onRetrySession = {},
                     onDisconnect = {},
-                    onMode = { mode = it },
-                    onSend = { text ->
-                        messages = messages + MelChatMessage("user", text)
-                    },
+                    onMode = {},
+                    onSend = {},
                     onSync = {},
                     onVoicePress = {},
                     onVoiceRelease = {},
