@@ -258,7 +258,32 @@ qs('#diagCaps').onclick=async()=>{try{const c=await loadSkills(true);qs('#diagCa
 qs('#diagRoadmap').onclick=async()=>{try{roadmapCache=null;await loadRoadmap();qs('#diagRoadmapOut').textContent='OK · '+roadmapCache.summary.total+' étapes'}catch(e){qs('#diagRoadmapOut').textContent='Échec · '+e.message}};
 qs('#diagAug').onclick=async()=>{try{const d=await jfetch('/api/gen2/capabilities?refresh=0');const a=(d.capabilities||[]).find(x=>x.id==='augmentio.fanout');qs('#diagAugOut').textContent=a?'Présent · '+a.health:'Non enregistré'}catch(e){qs('#diagAugOut').textContent='Échec · '+e.message}};
 qs('#multiRun').onclick=async()=>{const input=qs('#multiInput').value.trim();if(!input)return;qs('#multiRun').disabled=true;qs('#multiOut').textContent='Consultation des IA…';try{const d=await jfetch('/api/gen2/augmentio/fanout',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({input,maxCandidates:Number(qs('#multiN').value),teacherReview:qs('#multiTeacher').value==='true'})});qs('#multiOut').textContent=JSON.stringify(d,null,2)}catch(e){qs('#multiOut').textContent='Erreur : '+e.message}finally{qs('#multiRun').disabled=false}};
-async function loadChatGPTImportStatus(){try{const d=await jfetch('/api/gen2/import/chatgpt-status');const state=qs('#chatgptServerState');if(state){state.textContent=d.status==='ONLINE'?'ACTIF':d.status?'INDISPONIBLE':'ÉTAT INCONNU';state.className='tag '+(d.status==='ONLINE'?'good':'bad')}const fmt=v=>v==null||!Number.isFinite(Number(v))?'—':Number(v).toLocaleString('fr-FR');qs('#chatgptServerConversations').textContent=fmt(d.conversations);qs('#chatgptServerMessages').textContent=fmt(d.messages);qs('#chatgptServerCandidates').textContent=fmt(d.memory_candidates);qs('#chatgptServerUnsynced').textContent=fmt(d.unsynced_messages);qs('#chatgptServerLast').textContent=d.last_received?.title||d.last_received?.conversation_id||'—';qs('#chatgptServerMemoryStage').textContent=d.stages?.memory_candidate_extraction||'—';qs('#chatgptStatusOut').textContent=JSON.stringify(d,null,2);return d}catch(e){const state=qs('#chatgptServerState');if(state){state.textContent='ERREUR';state.className='tag bad'}qs('#chatgptServerConversations').textContent='—';qs('#chatgptServerMessages').textContent='—';qs('#chatgptServerCandidates').textContent='—';qs('#chatgptServerUnsynced').textContent='—';qs('#chatgptStatusOut').textContent='Suivi import indisponible : '+e.message;return null}}
+async function loadChatGPTImportStatus(){
+  try{
+    const d=await jfetch('/api/gen2/import/chatgpt-status');
+    const state=qs('#chatgptServerState');
+    if(state){state.textContent=d.status==='ONLINE'?'ACTIF':d.status?'INDISPONIBLE':'ÉTAT INCONNU';state.className='tag '+(d.status==='ONLINE'?'good':'bad')}
+    const fmt=v=>v==null||!Number.isFinite(Number(v))?'—':Number(v).toLocaleString('fr-FR');
+    const values={
+      '#chatgptServerConversations':fmt(d.conversations),
+      '#chatgptServerMessages':fmt(d.messages),
+      '#chatgptServerUnsynced':fmt(d.unsynced_messages),
+      '#chatgptServerAttachments':fmt(d.attachment_index?.descriptors),
+      '#chatgptServerPartial':fmt(d.partial_conversations),
+      '#chatgptServerUnderfilled':fmt(d.underfilled_conversations),
+      '#chatgptServerFull':d.full_archive_confirmed===true?'CONFIRMÉE':'NON CONFIRMÉE',
+      '#chatgptServerMemoryStage':d.stages?.memory_candidate_extraction||'—',
+    };
+    for(const [id,value] of Object.entries(values)){const el=qs(id);if(el)el.textContent=value}
+    qs('#chatgptStatusOut').textContent=JSON.stringify(d,null,2);
+    return d;
+  }catch(e){
+    const state=qs('#chatgptServerState');if(state){state.textContent='ERREUR';state.className='tag bad'}
+    for(const id of ['#chatgptServerConversations','#chatgptServerMessages','#chatgptServerUnsynced','#chatgptServerAttachments','#chatgptServerPartial','#chatgptServerUnderfilled','#chatgptServerFull','#chatgptServerMemoryStage']){const el=qs(id);if(el)el.textContent='—'}
+    qs('#chatgptStatusOut').textContent='Suivi import indisponible : '+e.message;
+    return null;
+  }
+}
 async function loadShardVaultStatus(){try{const d=await jfetch('/api/gen2/shardvault/status');const state=qs('#shardVaultState');if(state){state.textContent=d.ok?'ACTIF':(d.status||'À VÉRIFIER');state.className='tag '+(d.ok?'good':'warn')}const selected=Array.isArray(d.selected_endpoints)?d.selected_endpoints:[];qs('#shardVaultOut').textContent='Sauvegardes réelles : '+selected.length+' cible(s) mémoire · code GitHub '+(d.code_survival?.repository?'identifié':'à vérifier')+' · copie R2 '+(d.code_survival?.status||'—')+'\\nExploration Internet : ouvre ShardVault pour lancer une recherche complète.\\n'+JSON.stringify({status:d.status,storage_mode:d.storage_mode,selected_endpoints:selected,code_survival:d.code_survival,health:d.health,scheme:d.scheme},null,2);return d}catch(e){const state=qs('#shardVaultState');if(state){state.textContent='ERREUR';state.className='tag bad'}qs('#shardVaultOut').textContent='ShardVault indisponible : '+e.message;return null}}
 async function forceShardVaultSnapshot(){const btn=qs('#shardVaultSnapshot');btn.disabled=true;btn.textContent='Sauvegarde en cours…';qs('#shardVaultOut').textContent='Création immédiate du snapshot mémoire + copie du code…';try{const d=await jfetch('/api/gen2/shardvault/snapshot',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});qs('#shardVaultOut').textContent='Sauvegarde créée · '+(d.snapshot_id||'snapshot')+' · '+(d.shards==null?'nombre de fragments indisponible':Number(d.shards).toLocaleString('fr-FR')+' fragments')+'\\n'+JSON.stringify(d,null,2);await loadShardVaultStatus();return d}catch(e){qs('#shardVaultOut').textContent='Sauvegarde échouée : '+e.message;throw e}finally{btn.disabled=false;btn.textContent='Sauvegarder maintenant'}}
 async function loadMemory(){try{const d=await jfetch('/api/memory/status');qs('#memoryOut').textContent=JSON.stringify(d,null,2);const memoryCount=qs('#memoryCount');if(memoryCount)memoryCount.textContent=d.memory_count??d.count??d.total??'—'}catch(e){qs('#memoryOut').textContent='État mémoire indisponible : '+e.message}loadChatGPTImportStatus().catch(()=>{});loadShardVaultStatus().catch(()=>{})}
@@ -266,7 +291,85 @@ qs('#memoryRefresh').onclick=loadMemory;
 qs('#shardVaultSnapshot').onclick=()=>forceShardVaultSnapshot().catch(()=>{});
 qs('#shardVaultRefresh').onclick=loadShardVaultStatus;
 qs('#chatgptStatusRefresh').onclick=loadChatGPTImportStatus;
-qs('#chatgptImport').onclick=async()=>{const f=qs('#chatgptFile').files[0];if(!f){qs('#chatgptOut').textContent='Choisis un fichier JSON.';return}qs('#chatgptImport').disabled=true;try{const text=await f.text();const payload=JSON.parse(text);const d=await jfetch('/api/gen2/import/chatgpt-archive',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({archive:payload,preview:false})});qs('#chatgptOut').textContent=JSON.stringify(d,null,2);await loadChatGPTImportStatus()}catch(e){qs('#chatgptOut').textContent='Erreur : '+e.message}finally{qs('#chatgptImport').disabled=false}};
+function setChatGPTJourneyState(label,kind='warn'){const el=qs('#chatgptJourneyState');if(el){el.textContent=label;el.className='tag '+kind}}
+let chatgptPrepared=null;
+async function prepareChatGPTArchive(){
+  const f=qs('#chatgptFile').files[0];
+  if(!f)throw new Error('Choisis le fichier conversations.json.');
+  const text=await f.text();
+  const payload=JSON.parse(text);
+  const preview=await jfetch('/api/gen2/import/chatgpt-archive',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({archive:payload,preview:true})});
+  chatgptPrepared={fileName:f.name,payload,preview};
+  const fmt=v=>Number(v||0).toLocaleString('fr-FR');
+  qs('#chatgptPreOfficial').textContent=preview.official_export===true?'OUI':'NON / NON PROUVÉ';
+  qs('#chatgptPreConversations').textContent=fmt(preview.conversations);
+  qs('#chatgptPreMessages').textContent=fmt(preview.messages);
+  qs('#chatgptPreAttachments').textContent=fmt(preview.attachment_descriptors);
+  qs('#chatgptPreBinary').textContent=fmt(preview.attachment_binary_available);
+  qs('#chatgptPreCoverage').textContent=preview.coverage_can_be_confirmed===true?'OUI':'NON';
+  const safe=preview.coverage_can_be_confirmed===true;
+  qs('#chatgptImport').disabled=!safe;
+  setChatGPTJourneyState(safe?'PRÉ-AUDIT OK':'SOURCE INCOMPLÈTE',safe?'good':'bad');
+  qs('#chatgptJourneyVerdict').textContent=safe
+    ? 'Pré-audit validé : export officiel reconnu et non tronqué. Tu peux lancer l’import complet.'
+    : 'Pré-audit bloqué : MEL refuse de certifier une archive non officielle ou tronquée.';
+  qs('#chatgptOut').textContent=JSON.stringify(preview,null,2);
+  return chatgptPrepared;
+}
+async function finishChatGPTMemoryBackfill(){
+  let status=await jfetch('/api/gen2/migration/chatgpt-memory-status');
+  for(let batch=0;status?.complete!==true&&batch<520;batch++){
+    status=await jfetch('/api/gen2/migration/chatgpt-memory-backfill',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({conversation_limit:50})});
+  }
+  if(status?.complete!==true)throw new Error('BACKFILL_INCOMPLETE');
+  return status;
+}
+function melMem05Verdict(archiveStatus,memoryStatus){
+  const descriptors=Number(archiveStatus?.attachment_index?.descriptors||0);
+  const complete=archiveStatus?.full_archive_confirmed===true
+    && Number(archiveStatus?.partial_conversations||0)===0
+    && Number(archiveStatus?.underfilled_conversations||0)===0
+    && Number(memoryStatus?.remaining_eligible_messages||0)===0
+    && Number(memoryStatus?.remaining_conversations||0)===0
+    && descriptors>0;
+  return {
+    complete,
+    full_archive_confirmed:archiveStatus?.full_archive_confirmed===true,
+    attachment_descriptors:descriptors,
+    binary_content_available:Number(archiveStatus?.attachment_index?.binary_content_available||0),
+    indexed_descriptors:Number(archiveStatus?.attachment_index?.indexed_descriptors||0),
+    partial_conversations:Number(archiveStatus?.partial_conversations||0),
+    underfilled_conversations:Number(archiveStatus?.underfilled_conversations||0),
+    remaining_eligible_messages:Number(memoryStatus?.remaining_eligible_messages||0),
+    remaining_conversations:Number(memoryStatus?.remaining_conversations||0),
+  };
+}
+qs('#chatgptFile').onchange=()=>{chatgptPrepared=null;qs('#chatgptImport').disabled=true;setChatGPTJourneyState('À PRÉ-AUDITER','warn');qs('#chatgptJourneyVerdict').textContent='Nouveau fichier sélectionné : lance le pré-audit.'};
+qs('#chatgptPreaudit').onclick=async()=>{const btn=qs('#chatgptPreaudit');btn.disabled=true;setChatGPTJourneyState('PRÉ-AUDIT…','warn');try{await prepareChatGPTArchive()}catch(e){chatgptPrepared=null;qs('#chatgptImport').disabled=true;setChatGPTJourneyState('ERREUR','bad');qs('#chatgptJourneyVerdict').textContent='Pré-audit impossible : '+e.message;qs('#chatgptOut').textContent='Erreur : '+e.message}finally{btn.disabled=false}};
+qs('#chatgptImport').onclick=async()=>{
+  const btn=qs('#chatgptImport');btn.disabled=true;setChatGPTJourneyState('IMPORT…','warn');
+  try{
+    const prepared=chatgptPrepared||await prepareChatGPTArchive();
+    if(prepared.preview?.coverage_can_be_confirmed!==true)throw new Error('SOURCE_NON_CERTIFIABLE');
+    const imported=await jfetch('/api/gen2/import/chatgpt-archive',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({archive:prepared.payload,preview:false,confirm_full_export:true})});
+    if(imported?.ok!==true)throw new Error(imported?.code||'IMPORT_INCOMPLET');
+    setChatGPTJourneyState('BACKFILL…','warn');
+    const memoryStatus=await finishChatGPTMemoryBackfill();
+    const archiveStatus=await loadChatGPTImportStatus();
+    const verdict=melMem05Verdict(archiveStatus,memoryStatus);
+    setChatGPTJourneyState(verdict.complete?'MEL-MEM-05 COMPLET':'À COMPLÉTER',verdict.complete?'good':'warn');
+    qs('#chatgptJourneyVerdict').textContent=verdict.complete
+      ? 'MEL-MEM-05 peut être certifié : archive complète, mémoire à 0 restant et pièces jointes détectées.'
+      : 'Import terminé mais MEL-MEM-05 reste ouvert : vérifie les compteurs ci-dessous, notamment les pièces jointes.';
+    qs('#chatgptOut').textContent=JSON.stringify({import:imported,memory:memoryStatus,archive:archiveStatus,verdict},null,2);
+  }catch(e){
+    setChatGPTJourneyState('ERREUR','bad');
+    qs('#chatgptJourneyVerdict').textContent='Parcours interrompu : '+e.message;
+    qs('#chatgptOut').textContent='Erreur : '+e.message;
+  }finally{
+    btn.disabled=!(chatgptPrepared?.preview?.coverage_can_be_confirmed===true);
+  }
+};
 let autonomyControl={paused:true,max_autonomy:false,status:'UNKNOWN'};
 function renderAutonomy(state){
   const control=state?.control||state||{};
