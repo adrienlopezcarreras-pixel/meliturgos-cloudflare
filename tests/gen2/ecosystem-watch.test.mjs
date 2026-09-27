@@ -593,6 +593,6 @@ test('GEN2-42 maps vision discovery to the existing canonical image analysis cap
   });
   const vision = plan.items.find(item => item.capability_hint === 'vision');
   assert.ok(vision);
-  assert.equal(vision.action, 'REUSE_EXISTING');
+  assert.equal(vision.action, 'UNBLOCK_EXISTING');
   assert.equal(vision.best_match.id, 'media.image.analyze');
 });
