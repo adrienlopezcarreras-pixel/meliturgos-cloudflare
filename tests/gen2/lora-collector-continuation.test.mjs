@@ -10,6 +10,8 @@ test('canonical LoRA collector accepts base and continued uncensored checkpoints
   assert.match(workflow,/Checkout exact collector SHA/);
   assert.match(workflow,/ref: \$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(workflow,/ref: candidate\/mel-clean-autonomy/);
+  assert.match(workflow,/find artifacts\/kaggle-output -type f -name training-evidence\.json/);
+  assert.doesNotMatch(workflow,/find artifacts\/kaggle-output -type f -name adapter_model\.safetensors -print -quit/);
   assert.match(workflow,/Benchmark exact Kaggle adapter/);
   assert.match(workflow,/allow-not-activated true/);
 });
