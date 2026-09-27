@@ -290,7 +290,8 @@ test('planner deterministically completes missing governance sections after boun
   assert.equal(proposal.selected.provider, 'mel');
   assert.equal(proposal.selected.model, 'deterministic-quality-scaffold-v1');
   assert.match(proposal.selected.text, /REUTILISATION:/);
-  assert.match(proposal.selected.text, /aucune activation production automatique/i);
+  assert.match(proposal.selected.text, /ROLLBACK:\s*revert/i);
+  assert.match(proposal.selected.text, /CRITERES_DE_FIN:\s*CI verte/i);
 });
 
 test('planner refuses work without an exact correlated Teacher approval', async () => {
