@@ -17,8 +17,8 @@ test('ShardVault has two real Cloudflare fallback stores and rotating discovery 
 });
 
 
-test('bounded ShardVault activation rotates cached validated endpoints with probeOffset', async () => {
-  const source = await readFile(new URL('../src/continuity/shardvault-runtime.js', import.meta.url), 'utf8');
+test('bounded ShardVault activation rotates cached validated endpoints with probeOffset', () => {
+  const source = fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js', import.meta.url), 'utf8');
   assert.match(source, /const validatedOffset=Math\.max\(0,Math\.trunc\(Number\(probeOffset\)\|\|0\)\)/);
   assert.match(source, /\.slice\(validatedOffset,validatedOffset\+boundedMaxNew\)/);
   assert.doesNotMatch(source, /filter\(e=>!activeIds\.has\(e\.id\)\)\s*\.slice\(0,boundedMaxNew\)/);
