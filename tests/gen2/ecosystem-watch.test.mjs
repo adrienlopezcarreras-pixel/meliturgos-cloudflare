@@ -84,6 +84,40 @@ test('sourced creative watch observations reuse canonical media capabilities bef
   assert.equal(artHistory.proposal.activation_allowed, false);
 });
 
+test('generic image signal cannot auto-unblock a specific blocked media operation', () => {
+  const runtime = createGen2Runtime({ env: {} });
+  const plan = planEcosystemDiscoveries({
+    catalog: {
+      targets: [{
+        id: 'generic-image-watch',
+        metadata: { label: 'Generic image news', category: 'ai-platform', capabilities: ['image'] },
+      }],
+    },
+    capabilities: runtime.bus.list(),
+    watchResult: {
+      status: 'RAN',
+      results: [{
+        id: 'generic-image-watch',
+        evidence: {
+          status: 'OBSERVED',
+          summary: 'Official platform mentions image capabilities without an executable integration.',
+          citations_count: 2,
+          sources: [{ title: 'Official changelog', url: 'https://example.com/image' }],
+          detected_capabilities: ['image'],
+        },
+      }],
+    },
+  });
+
+  assert.equal(plan.items.length, 1);
+  const image = plan.items[0];
+  assert.equal(image.classification, 'MATCHED_BUT_BLOCKED');
+  assert.equal(image.best_match.id, 'media.image.analyze');
+  assert.equal(image.action, 'REVIEW_EXISTING');
+  assert.equal(image.blocking_review_reason, 'BLOCKED_MATCH_REQUIRES_EXPLICIT_CAPABILITY_SIGNAL');
+  assert.equal(selectEcosystemDiscoveryCandidate({ items: plan.items }), null);
+});
+
 test('ecosystem discovery planner proposes tooling as plugin and ledger deduplicates across runs', () => {
   const catalog = {
     targets: [{

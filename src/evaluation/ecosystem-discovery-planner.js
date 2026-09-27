@@ -91,9 +91,18 @@ function evidenceFor(result = {}) {
   };
 }
 
-function actionForGap(gap) {
+function explicitlyTargetsBlockedCapability(hint, gap) {
+  const requested = keyOf(hint);
+  const best = keyOf(gap?.best_match?.id);
+  if (!requested || !best) return false;
+  return requested === best || requested === best.replace(/^media\./, '');
+}
+
+function actionForGap(gap, hint) {
   if (gap.classification === 'MATCHED_AVAILABLE') return 'REUSE_EXISTING';
-  if (gap.classification === 'MATCHED_BUT_BLOCKED') return 'UNBLOCK_EXISTING';
+  if (gap.classification === 'MATCHED_BUT_BLOCKED') {
+    return explicitlyTargetsBlockedCapability(hint, gap) ? 'UNBLOCK_EXISTING' : 'REVIEW_EXISTING';
+  }
   if (gap.classification === 'AMBIGUOUS') return 'REVIEW_EXISTING';
   return 'PROPOSE_EXTENSION';
 }
@@ -131,7 +140,7 @@ export function planEcosystemDiscoveries({ watchResult = {}, catalog = {}, capab
       }
 
       const gap = detectCapabilityGap({ goal: hint, capabilities, threshold: 1 });
-      const action = actionForGap(gap);
+      const action = actionForGap(gap, hint);
       const kind = proposalKind(hint, target);
       let proposal = null;
       if (action === 'PROPOSE_EXTENSION') {
@@ -148,6 +157,9 @@ export function planEcosystemDiscoveries({ watchResult = {}, catalog = {}, capab
         classification: gap.classification,
         confidence: gap.confidence,
         action,
+        blocking_review_reason: gap.classification === 'MATCHED_BUT_BLOCKED' && action === 'REVIEW_EXISTING'
+          ? 'BLOCKED_MATCH_REQUIRES_EXPLICIT_CAPABILITY_SIGNAL'
+          : null,
         optimization_action: action === 'REUSE_EXISTING' ? 'COMPARE_EXISTING_WITH_ALTERNATIVE' : null,
         best_match: gap.best_match,
         roadmap_matches: roadmapMatches(hint, target, evidence),
