@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { D1DevJobRepository } from '../src/dev/d1-dev-job-repository.js';
-import { AutonomySupervisor } from '../src/evolution/autonomy-supervisor.js';
+import { AutonomySupervisor, selectActionableAutonomyJob } from '../src/evolution/autonomy-supervisor.js';
 
 function repo() {
   return new D1DevJobRepository(null, { memoryStore: new Map() });
@@ -60,4 +60,32 @@ test('owner priority remains intact when owner and internal jobs are both implem
 
   assert.equal(selected.job.id, owner.id);
   assert.equal(selected.job.requested_by, 'owner-chat');
+});
+
+
+test('shared actionable selector matches supervisor ordering for retry attribution', async () => {
+  const repository = repo();
+  const olderPreflight = await repository.create({
+    id: 'older-preflight',
+    requested_by: 'mel-autonomy',
+    goal: 'older council work',
+    optional_context: { roadmap_id: 'GEN2-17', source: 'autonomy-supervisor', priority: 'P0' },
+  });
+  await repository.update(olderPreflight.id, { status: 'COUNCIL_COMPLETE' });
+
+  const approved = await repository.create({
+    id: 'approved-implementation',
+    requested_by: 'mel-autonomy',
+    goal: 'approved implementation',
+    optional_context: { roadmap_id: 'GEN2-17', source: 'autonomy-supervisor', priority: 'P0' },
+  });
+  await repository.update(approved.id, { status: 'TEACHER_APPROVED' });
+
+  const jobs = await repository.list();
+  const selected = selectActionableAutonomyJob(jobs);
+  assert.equal(selected.id, approved.id);
+
+  const supervisor = new AutonomySupervisor({ repository, roadmap });
+  const ensured = await supervisor.ensureNextJob();
+  assert.equal(ensured.job.id, approved.id);
 });
