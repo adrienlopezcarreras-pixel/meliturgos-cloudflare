@@ -180,3 +180,32 @@ test('GEN2-42 production proof accepts only fully Teacher-proven open progress',
     assert.equal(proof.blocked_open_handoff_count,0);
   } finally { DB.close(); }
 });
+
+
+test('GEN2-42 release proof keeps retryable failures observable but non-blocking', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    const ledger={
+      schema:'mel.ecosystem-discovery-ledger.v1',
+      items:[
+        {fingerprint:'retryable',handoff:{job_id:'job-retry',status:'FAILED',teacher_request_id:'req-retry',closed:false,retryable:true,code:'AUTONOMY_RUNTIME_RETRY_EXHAUSTED:CODE_HEAD_PIN_MISMATCH'}},
+        {fingerprint:'approved',handoff:{job_id:'job-approved',status:'TEACHER_APPROVED',teacher_request_id:'req-approved',closed:false}},
+      ],
+    };
+    await DB.prepare(`INSERT INTO capability_watch_state(id,state_json,updated_at) VALUES(?,?,?)`)
+      .bind('ecosystem-discoveries-canonical',JSON.stringify(ledger),Date.now()).run();
+    const jobs={
+      'job-retry':{id:'job-retry',status:'FAILED',error:'AUTONOMY_RUNTIME_RETRY_EXHAUSTED:CODE_HEAD_PIN_MISMATCH',requested_by:'mel-autonomy',optional_context:{source:'ecosystem-watch'},result_json:{teacher_bridge:{request:{request_id:'req-retry'}}}},
+      'job-approved':{id:'job-approved',status:'TEACHER_APPROVED',requested_by:'mel-autonomy',optional_context:{source:'ecosystem-watch'},result_json:{teacher_bridge:{request:{request_id:'req-approved'}}}},
+    };
+    const proof=await proveEcosystemTeacherHandoff({DB},{developmentRepository:{async get(id){return jobs[id]||null;}}});
+    assert.equal(proof.ok,true);
+    assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED');
+    assert.equal(proof.open_handoff_count,1);
+    assert.equal(proof.teacher_proven_handoff_count,1);
+    assert.equal(proof.blocked_open_handoff_count,0);
+    assert.equal(proof.released_retryable_failure_count,1);
+    assert.equal(proof.released_retryable_failures[0].code,'AUTONOMY_RUNTIME_RETRY_EXHAUSTED:CODE_HEAD_PIN_MISMATCH');
+  } finally { DB.close(); }
+});
