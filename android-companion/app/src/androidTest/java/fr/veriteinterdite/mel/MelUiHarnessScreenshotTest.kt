@@ -30,8 +30,7 @@ class MelUiHarnessScreenshotTest {
         compose.onNodeWithTag("settings-keyboard").assertIsDisplayed()
         compose.onNodeWithTag("settings-camera").assertIsDisplayed()
         compose.onNodeWithTag("settings-companion").assertIsDisplayed()
-        compose.onNodeWithTag("settings-tools").performScrollTo().performClick()
-        compose.onNodeWithText("Complet").performScrollTo().performClick()
+        compose.onNodeWithTag("settings-mode").performScrollTo().performClick()
 
         compose.onNodeWithText("PROFESSOR / MODE COMPLET NATIF").assertIsDisplayed()
         compose.onNodeWithText("Synchroniser").assertIsDisplayed()
