@@ -124,9 +124,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ADAPTER="$(find artifacts/kaggle-output -type f -name adapter_model.safetensors -print -quit)"
-          test -n "$ADAPTER"
-          DIR="$(dirname "$ADAPTER")"
+          EVIDENCE="$(find artifacts/kaggle-output -type f -name training-evidence.json -print -quit)"
+          test -n "$EVIDENCE"
+          DIR="$(dirname "$EVIDENCE")"
           for f in adapter_model.safetensors adapter_config.json training-evidence.json artifact-evidence.json lora-plan.json kaggle-run.json; do
             test -s "$DIR/$f"
           done
