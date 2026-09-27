@@ -46,6 +46,7 @@ function capabilityContext(env, request = null) {
     owner: env.MELITURGOS_USER || "owner",
     permissions: runtimeCapabilityPermissions(env),
     approvedCapabilities: request ? approvedCapabilitiesFromRequest(request) : [],
+    release_smoke: request ? isReleaseSmokeRequest(request, env) : false,
     requestId: crypto.randomUUID()
   };
 }
