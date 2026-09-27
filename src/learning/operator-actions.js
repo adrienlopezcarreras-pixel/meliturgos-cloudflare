@@ -43,7 +43,7 @@ function benchmarkSourceSha(env = {}, options = {}) {
   ).trim() || 'unknown';
 }
 
-function benchmarkResponder(ai, modelId, extractText, { lora = null } = {}) {
+function benchmarkResponder(ai, modelId, extractText, { lora = null, timeout_ms = 45000 } = {}) {
   return async (prompt) => {
     const input = {
       messages: [
@@ -57,7 +57,21 @@ function benchmarkResponder(ai, modelId, extractText, { lora = null } = {}) {
       max_tokens: 512,
     };
     if (lora) input.lora = String(lora);
-    const result = await ai.run(modelId, input);
+    let timer = null;
+    const timeoutMs = Math.max(5000, Math.min(120000, Math.trunc(Number(timeout_ms) || 45000)));
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new Error('benchmark_inference_timeout');
+        error.code = 'BENCHMARK_INFERENCE_TIMEOUT';
+        reject(error);
+      }, timeoutMs);
+    });
+    let result;
+    try {
+      result = await Promise.race([ai.run(modelId, input), timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     const text = extractText(result);
     if (typeof text !== 'string' || !text.trim()) throw new Error('empty_benchmark_response');
     return text.trim();
@@ -228,6 +242,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
         suite_digest: suiteDigest,
       },
       respond: benchmarkResponder(ai, runtimeModel, extractText),
+      concurrency: 4,
     }),
     benchmarkRunner({
       metadata: {
@@ -244,6 +259,7 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
         approval_id: checkedApproval.approval_id,
       },
       respond: benchmarkResponder(ai, runtimeModel, extractText, { lora: checkedArtifact.finetune_id }),
+      concurrency: 4,
     }),
   ]);
   baseline.passed = Array.isArray(baseline.cases) && baseline.cases.length > 0 && baseline.cases.every((row) => !row?.error);
@@ -253,9 +269,11 @@ export async function runOperatorLoraBenchmark(env = {}, options = {}, deps = {}
   const [impactBaseline, impactCandidate] = await Promise.all([
     impactRunner({
       respond: benchmarkResponder(ai, runtimeModel, extractText),
+      concurrency: 4,
     }),
     impactRunner({
       respond: benchmarkResponder(ai, runtimeModel, extractText, { lora: checkedArtifact.finetune_id }),
+      concurrency: 4,
     }),
   ]);
   const impact = compareLoraImpact(impactBaseline, impactCandidate);
