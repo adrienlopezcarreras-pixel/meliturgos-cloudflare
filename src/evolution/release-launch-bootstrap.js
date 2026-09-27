@@ -146,15 +146,30 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
 
   if (phase === 'capability-watch-proof') {
     const proof = await proveCapabilityWatch(env);
-    const ok = proof?.ok === true
+    const active = proof?.ok === true
       && proof?.status === 'GEN2_42_TEACHER_HANDOFF_READY'
       && Number(proof?.active_teacher_handoff_count || 0) >= 1
       && Boolean(proof?.job_id)
       && Boolean(proof?.teacher_request_id);
+    const progressed = proof?.ok === true
+      && proof?.status === 'GEN2_42_TEACHER_HANDOFF_PROGRESS_VERIFIED'
+      && proof?.progress_verified === true
+      && Number(proof?.open_handoff_count || 0) > 0
+      && Number(proof?.teacher_proven_handoff_count || 0) === Number(proof?.open_handoff_count || 0)
+      && Number(proof?.blocked_open_handoff_count || 0) === 0
+      && Boolean(proof?.teacher_request_id);
+    const idle = proof?.ok === true
+      && proof?.status === 'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
+      && proof?.idle_verified === true
+      && Number(proof?.open_handoff_count || 0) === 0
+      && Number(proof?.active_teacher_handoff_count || 0) === 0
+      && !proof?.job_id
+      && !proof?.teacher_request_id;
+    const ok = active || progressed || idle;
     return Response.json({
       ...proof,
       ok,
-      status: ok ? 'GEN2_42_TEACHER_HANDOFF_READY' : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
+      status: ok ? proof.status : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
       autonomy_started: false,
       owner_launch_required: true,
       production_activation_allowed: false,
