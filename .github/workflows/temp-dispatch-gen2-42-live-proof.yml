@@ -1,0 +1,21 @@
+name: temp-dispatch-gen2-42-live-proof
+
+on:
+  push:
+    branches:
+      - candidate/mel-clean-autonomy
+    paths:
+      - '.github/workflows/temp-dispatch-gen2-42-live-proof.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch GEN2-42 live proof on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run gen2-42-live-proof.yml --repo "$GITHUB_REPOSITORY" --ref main
