@@ -18,6 +18,25 @@ function safeError(error, fallback = 'MAIL_OAUTH_FAILED') {
   }, Number(error?.status) || 500);
 }
 
+function browserRequest(request) {
+  return String(request?.headers?.get('accept') || '').toLowerCase().includes('text/html');
+}
+
+function professorOAuthRedirect(url, connectorId, outcome, code = '') {
+  const target = new URL('/professor', url.origin);
+  target.searchParams.set('view', 'microsoft');
+  target.searchParams.set('oauth', outcome);
+  target.searchParams.set('connector', connectorId);
+  if (code) target.searchParams.set('code', String(code).slice(0, 120));
+  return new Response(null, {
+    status: 303,
+    headers: {
+      location: target.pathname + target.search,
+      'cache-control': 'no-store',
+    },
+  });
+}
+
 async function bodyObject(request) {
   if (!(request.headers.get('content-type') || '').includes('application/json')) return {};
   const value = await request.json().catch(() => ({}));
@@ -62,13 +81,18 @@ export async function maybeHandleMailOAuthApi(request, env = {}, url = new URL(r
     if (action === 'callback') {
       if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
       if (String(url.searchParams.get('error') || '').trim()) {
-        return json({ ok: false, code: 'MAIL_OAUTH_PROVIDER_DENIED' }, 400);
+        return browserRequest(request)
+          ? professorOAuthRedirect(url, connectorId, 'denied', 'MAIL_OAUTH_PROVIDER_DENIED')
+          : json({ ok: false, code: 'MAIL_OAUTH_PROVIDER_DENIED' }, 400);
       }
-      return json({ ok: true, ...(await runtime.oauth.callback({
+      const result = await runtime.oauth.callback({
         connector_id: connectorId,
         state: url.searchParams.get('state') || '',
         code: url.searchParams.get('code') || '',
-      }, context)) });
+      }, context);
+      return browserRequest(request)
+        ? professorOAuthRedirect(url, connectorId, 'connected')
+        : json({ ok: true, ...result });
     }
 
     if (action === 'refresh') {
