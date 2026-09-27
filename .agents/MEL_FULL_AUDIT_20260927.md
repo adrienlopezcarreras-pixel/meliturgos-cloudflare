@@ -2,7 +2,7 @@
 
 Date de l’audit : 2026-09-27.
 Portée : état canonique de MEL, travail réalisé sur la semaine du 21 au 27 septembre 2026, cohérence dépôt/roadmap/release, frontières de preuve et expérience réutilisable.
-Source de vérité finale : `main` au SHA `f3d75ea94af8df09a4b797b65adba52537d9294e`.
+Base de réconciliation avant fusion du présent audit : `main` au SHA `a342834729c11f4f2c083f0ed36ff6ea62d1500a`. Dernière release production entièrement verte observée : `f3d75ea94af8df09a4b797b65adba52537d9294e`, run `36325378964`.
 Règle : toute affirmation d’état futur doit être revalidée contre `main`, la roadmap et les runs GitHub courants.
 
 ## 1. Verdict général
@@ -274,12 +274,11 @@ La garde canonique ne dépend plus de cette accumulation historique, ce qui évi
 ## 19. PR encore actives au moment de l’audit
 
 À l’instant de l’inventaire final :
-- #592 : qualité déterministe du plan GEN2-42, CI GEN2-17 verte et delta encore absent de main ;
+- #597 : présent lot d’audit/expérience ;
 - #540 : LoRA, autre chantier ;
 - #221 : MINI, autre chantier.
-- #596 est apparue après la release verte et doit être évaluée contre l'état déjà certifié avant toute fusion.
 
-#586 a été fermée comme doublon exact de #592. #595 a été fusionnée et a fermé le mismatch recovery de production.
+#586 a été fermée comme doublon exact de #592. #592 est désormais fusionnée. #595 a fermé le mismatch recovery de production. #596 est également fusionnée et remplace la recherche du snapshot release-bound dans une fenêtre de 100 lignes par une résolution exacte par identifiant.
 Les PR d’autres pages ne sont pas fermées au nom du nettoyage global.
 
 ## 20. Blockers humains restants
@@ -336,3 +335,12 @@ Le workflow canonique `deploy-cloudflare-release` run `36325378964` est **SUCCES
 La roadmap lue sur ce SHA contient exactement 125 items : 117 `DONE_VERIFIED`, 1 `DONE` (`MEL-EVOL-06`) et 7 `BLOCKED_HUMAN`, sans `PARTIAL`, `IN_PROGRESS` ni `PLANNED`.
 
 L'expérience hebdomadaire est chargée par le chemin canonique `DEVELOPMENT_EXPERIENCE_PACK -> BOOTSTRAP_CORRECTIONS -> LearningEngine.corrections()/trainingBundle()`. Le handoff hebdomadaire conserve la chronologie détaillée ; les XP distillent les règles réutilisables.
+
+
+### Complément recovery #596 et planner #592
+
+Après la première release totalement verte `f3d75ea9...`, deux consolidations fonctionnelles supplémentaires ont été intégrées sur `main` :
+- #596 : résolution exacte du snapshot release-bound par `snapshot_id`, validation du SHA historique de restauration et suppression du risque de faux mismatch lorsque plus de 100 sauvegardes récentes existent ;
+- #592 : scaffold déterministe des sections de gouvernance manquantes d’un plan GEN2-42 après tentatives IA bornées, tout en conservant les invariants fail-closed, la non-activation production et le diff minimal.
+
+Ces deux fusions portent le `main` de réconciliation à `a342834729c11f4f2c083f0ed36ff6ea62d1500a`. Elles n’autorisent aucune promotion artificielle des sept `BLOCKED_HUMAN` et ne modifient pas le chantier LoRA ni MINI.
