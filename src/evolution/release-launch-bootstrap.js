@@ -22,7 +22,7 @@ import { proveEcosystemTeacherHandoff } from '../evaluation/capability-watch-run
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'gen2-42-runtime-tick']);
+const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -66,6 +66,11 @@ function equalToken(expected, supplied) {
   const length = Math.max(a.length, b.length);
   for (let i = 0; i < length; i += 1) diff |= (a[i % Math.max(1, a.length)] || 0) ^ (b[i % Math.max(1, b.length)] || 0);
   return a.length >= 32 && a.length === b.length && diff === 0;
+}
+
+function preparednessDigest(value) {
+  const raw = String(value?.gate_digest || '').trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(raw) ? raw : null;
 }
 
 function safeReadiness(value) {
@@ -158,6 +163,57 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
         code: String(row?.code || '').slice(0, 180),
       })).slice(0, 20),
       control_unchanged_by_bootstrap: true,
+    }, { headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'gen2-42-owner-max') {
+    const prepared = await prepare(env);
+    const readiness = safeReadiness(prepared?.readiness);
+    const approvedSha = String(prepared?.readiness?.candidate_sha || readiness.candidate_sha || '').trim().toLowerCase();
+    if (prepared?.ok !== true || readiness.launch_ready !== true || !/^[0-9a-f]{40}$/.test(approvedSha)) {
+      return Response.json({
+        ok: false,
+        code: 'GEN2_42_OWNER_MAX_LAUNCH_GATE_BLOCKED',
+        phase,
+        readiness,
+      }, { status: 409, headers: { 'cache-control': 'no-store' } });
+    }
+
+    const control = await setControl(env?.DB, {
+      paused: false,
+      max_autonomy: true,
+      source: 'owner-authorized-bootstrap',
+      reason: 'owner-max-autonomy',
+      launch_approved_sha: approvedSha,
+      launch_approved_at: prepared?.readiness?.evaluated_at || new Date().toISOString(),
+      launch_gate_digest: preparednessDigest(prepared?.readiness) || readiness.gate_digest || null,
+    });
+
+    const tick = await runAutonomyTick(env);
+    const completions = tick?.completions || tick?.passive_completions || {};
+    const completed = Array.isArray(completions?.completed) ? completions.completed : [];
+    const rejected = Array.isArray(completions?.rejected) ? completions.rejected : [];
+    return Response.json({
+      ok: tick?.ok !== false,
+      status: 'GEN2_42_OWNER_MAX_EXECUTED',
+      phase,
+      candidate_sha: approvedSha,
+      paused: control?.paused === true,
+      max_autonomy: control?.max_autonomy === true,
+      launch_approved_sha: control?.launch_approved_sha || null,
+      tick_status: tick?.status || null,
+      advanced: tick?.advanced === true,
+      completed: completed.map((row) => ({
+        job_id: String(row?.job_id || '').slice(0, 160),
+        candidate_sha: String(row?.candidate_sha || '').slice(0, 40),
+        ci_run_id: Number(row?.ci_run_id || 0),
+      })),
+      rejected: rejected.map((row) => ({
+        job_id: String(row?.job_id || '').slice(0, 160),
+        request_id: String(row?.request_id || '').slice(0, 160),
+        code: String(row?.code || '').slice(0, 180),
+      })).slice(0, 20),
+      owner_authorized_bootstrap: true,
     }, { headers: { 'cache-control': 'no-store' } });
   }
 
