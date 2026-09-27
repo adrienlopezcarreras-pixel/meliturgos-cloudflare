@@ -738,4 +738,53 @@ export const DEVELOPMENT_EXPERIENCE_PACK = Object.freeze([
     created_at: 1790493600000,
   }),
 
+
+  Object.freeze({
+    id: 'bootstrap-release-proof-persisted-evidence-cpu-budget-20260927',
+    source: 'chatgpt-teacher',
+    domain: 'release-performance-governance',
+    task: 'Prouver une propriété lourde pendant une release Cloudflare sans refaire un calcul déjà vérifié qui dépasse le budget CPU du Worker.',
+    input: 'Une phase de release a déjà créé ou vérifié cryptographiquement une sauvegarde liée au SHA, puis une phase ultérieure a besoin de cette même propriété.',
+    before: 'Relire, déchiffrer et revérifier intégralement le même gros objet R2 dans plusieurs phases du même parcours, jusqu à provoquer Cloudflare 1102/HTTP 503 malgré une sauvegarde valide.',
+    after: 'Séparer vérification complète et preuve bornée: persister les attributs de vérification nécessaires avec provenance SHA et empreinte d intégrité; dans une phase ultérieure, réutiliser seulement cette preuve persistée si verified, restoreVerified, SHA et intégrité concordent exactement; garder la vérification complète sur les chemins dédiés et échouer fermé si un attribut manque.',
+    rationale: 'Une preuve répétée n est pas plus sûre si elle rend le gate inexécutable. La sûreté vient de la liaison cryptographique, du SHA exact et de l invariant de restauration, tandis que le budget Worker impose de ne pas refaire inutilement un travail lourd déjà certifié.',
+    tests: ['PR #572: gen2-17 targeted + full suite SUCCESS avant fusion', 'PR #577: gen2-47-r2-byte-backup-ci 36309710835 SUCCESS', 'PR #577: MEL-RES-05 encrypted backup CI 36309710771 SUCCESS'],
+    tags: ['release', 'backup', 'r2', 'cloudflare', 'cpu-budget', 'persisted-proof', 'exact-sha', 'fail-closed'],
+    validated: true,
+    quality: 1,
+    created_at: 1790502240000,
+  }),
+
+  Object.freeze({
+    id: 'bootstrap-retryable-handoff-release-semantics-20260927',
+    source: 'chatgpt-teacher',
+    domain: 'autonomy-handoff-governance',
+    task: 'Distinguer un handoff réellement actif d un échec ancien explicitement libéré pour retry dans une preuve de release.',
+    input: 'Le planner considère FAILED + retryable comme libéré pour une nouvelle tentative, mais le ledger conserve l ancien handoff pour observabilité et provenance.',
+    before: 'Compter toute entrée handoff non closed comme travail actif et bloquer indéfiniment la release sur des échecs retryables déjà relâchés par la logique de planification.',
+    after: 'Aligner tous les lecteurs sur la même sémantique: FAILED + retryable reste visible avec job, request, SHA et code erreur mais sort du jeu des blockers actifs; WAITING_TEACHER/TEACHER_APPROVED/CLAIMED/READY_FOR_REVIEW exigent une provenance Teacher durable; QUEUED, FAILED non retryable ou absence de provenance restent bloquants.',
+    rationale: 'Une source de vérité doit partager la même définition d actif entre planner et release. Conserver l historique sans le confondre avec une obligation en cours évite à la fois les faux blocages et les faux verts.',
+    tests: ['PR #578: gen2-42-live-proof CI 36310144229 SUCCESS', 'production run 36309614820 a exposé 2 TEACHER_APPROVED + 2 FAILED retryable CODE_HEAD_PIN_MISMATCH', 'tests/gen2/capability-watch-production-proof.test.mjs couvre retryable observable non bloquant'],
+    tags: ['gen2-42', 'teacher', 'handoff', 'retry', 'state-machine', 'release', 'observability', 'fail-closed'],
+    validated: true,
+    quality: 1,
+    created_at: 1790502300000,
+  }),
+
+  Object.freeze({
+    id: 'bootstrap-weekly-development-state-20260927',
+    source: 'chatgpt-teacher',
+    domain: 'dated-development-context',
+    task: 'Répondre avec le contexte technique consolidé de la semaine du 21 au 27 septembre 2026 sans confondre cette photographie avec l état courant futur.',
+    input: 'Quel travail MEL a été réalisé sur les différentes pages pendant la semaine du 21 au 27 septembre 2026, et quelles frontières de preuve faut-il retenir ?',
+    before: 'Reconstituer la semaine depuis une seule page, perdre les travaux parallèles, considérer les CI comme des preuves physiques, oublier les blockers humains ou présenter un ancien SHA comme état actuel.',
+    after: 'Utiliser le handoff canonique .agents/WEEKLY_HANDOFF_20260927.md : mémoire/retrieval, Council, Browser, Work, observabilité, self-code, modularisation core, OAuth multi-fournisseurs, Windows réel, Android/MINI multi-couches, Android 0.6.43 signé, promotion ciblée, branch-unicity, backup/Provider Escape CPU et GEN2-42 Teacher. Conserver les niveaux code/CI/preview/production/appareil séparés, les BLOCKED_HUMAN explicites, LoRA/MINI sous propriété de leurs chantiers, ShardVault PAUSED_FOR_ROADMAP jusqu à la dernière étape; pour l état présent, relire toujours main, roadmap et runs.',
+    rationale: 'Le travail a été distribué sur plusieurs pages et plusieurs SHA. Un digest daté chargé par LearningEngine empêche la perte de continuité tout en imposant une revalidation avant d utiliser ces faits comme état actuel.',
+    tests: ['.agents/WEEKLY_HANDOFF_20260927.md consolide la chronologie technique sans données privées', 'tests/weekly-development-experience-20260927.test.mjs vérifie présence dans BOOTSTRAP_CORRECTIONS et trainingBundle', 'les preuves détaillées restent référencées par les XP et la roadmap exact-SHA'],
+    tags: ['weekly-handoff', 'multi-page', 'continuity', 'dated-context', 'learning-engine', 'roadmap', 'evidence'],
+    validated: true,
+    quality: 1,
+    created_at: 1790502360000,
+  }),
+
 ]);
