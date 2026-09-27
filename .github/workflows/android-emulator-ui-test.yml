@@ -148,6 +148,11 @@ jobs:
 
           gradle --no-daemon :app:installDebug
 
+          adb shell am start -W -a android.settings.APPLICATION_DETAILS_SETTINGS -d package:fr.veriteinterdite.mel
+          sleep 1
+          adb exec-out screencap -p > dist/emulator/launcher-icon-proof.png
+          test -s dist/emulator/launcher-icon-proof.png
+
           adb shell am force-stop fr.veriteinterdite.mel
           adb shell am start -W -n fr.veriteinterdite.mel/.MainActivity
           sleep 1
