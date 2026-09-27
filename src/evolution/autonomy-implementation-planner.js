@@ -73,14 +73,16 @@ function assertTeacherApprovedBranch(config, bridge) {
   return approvedBranch;
 }
 
-function codeReader(env, fetchImpl) {
+function codeReader(env, fetchImpl, bridge) {
   const config = codeConfig(env);
+  const pinnedSha = approvedCandidateSha(bridge);
   return {
     config,
     reader: createGitHubCodeReader({
       repository: config.repository,
       branch: config.branch,
       token: String(env?.MEL_GITHUB_TOKEN || ''),
+      pinnedSha,
       fetchImpl,
     }),
   };
@@ -113,6 +115,21 @@ function assertTeacherApprovedHead(head, bridge) {
   return approvedSha;
 }
 
+async function readApprovedHead(reader, bridge, { movedCode = 'TEACHER_APPROVAL_CANDIDATE_SHA_STALE' } = {}) {
+  try {
+    const head = await reader.head();
+    assertTeacherApprovedHead(head, bridge);
+    return head;
+  } catch (error) {
+    if (error?.code !== 'CODE_HEAD_PIN_MISMATCH') throw error;
+    const wrapped = new Error(movedCode);
+    wrapped.code = movedCode;
+    wrapped.approved_candidate_sha = approvedCandidateSha(bridge);
+    wrapped.current_candidate_sha = String(error?.observed_sha || '').toLowerCase() || null;
+    throw wrapped;
+  }
+}
+
 function assertPlanQualityContract(value) {
   const text = String(value || '');
   const missing = QUALITY_SECTIONS.filter(([, pattern]) => !pattern.test(text)).map(([name]) => name);
@@ -126,10 +143,9 @@ function assertPlanQualityContract(value) {
 }
 
 async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) {
-  const { config, reader } = codeReader(env, fetchImpl);
+  const { config, reader } = codeReader(env, fetchImpl, bridge);
   assertTeacherApprovedBranch(config, bridge);
-  const headBefore = await reader.head();
-  assertTeacherApprovedHead(headBefore, bridge);
+  const headBefore = await readApprovedHead(reader, bridge);
   const roadmapId = String(job?.optional_context?.roadmap_id || '').trim();
   if (!roadmapId) {
     throw Object.assign(new Error('IMPLEMENTATION_ROADMAP_ID_REQUIRED'), { code: 'IMPLEMENTATION_ROADMAP_ID_REQUIRED' });
@@ -179,11 +195,10 @@ async function collectCodeContext(env, job, bridge, { fetchImpl = fetch } = {}) 
     } catch {}
   }
   if (!files.length) throw Object.assign(new Error('APPROVED_IMPLEMENTATION_CODE_CONTEXT_REQUIRED'), { code: 'APPROVED_IMPLEMENTATION_CODE_CONTEXT_REQUIRED' });
-  const headAfter = await reader.head();
+  const headAfter = await readApprovedHead(reader, bridge, { movedCode: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
   if (headBefore.sha !== headAfter.sha) {
     throw Object.assign(new Error('CANDIDATE_HEAD_CHANGED_DURING_INSPECTION'), { code: 'CANDIDATE_HEAD_CHANGED_DURING_INSPECTION' });
   }
-  assertTeacherApprovedHead(headAfter, bridge);
   return { ...config, candidate_sha: headAfter.sha, files, reuse_search: reuseSearch };
 }
 
@@ -193,14 +208,13 @@ async function reusableProposal(env, existing, bridge, { fetchImpl = fetch } = {
   if (!SHA40.test(String(existing?.candidate_sha || ''))) return null;
   if (existing?.consolidation?.policy !== 'SINGLE_CANONICAL_CANDIDATE') return null;
   const approvedSha = approvedCandidateSha(bridge);
-  const { config, reader } = codeReader(env, fetchImpl);
+  const { config, reader } = codeReader(env, fetchImpl, bridge);
   assertTeacherApprovedBranch(config, bridge);
   if (String(existing.candidate_branch || '') !== config.branch) return null;
   if (String(existing?.consolidation?.canonical_branch || '') !== config.branch) return null;
   if (!Array.isArray(existing.providers_attempted) || existing.providers_attempted.length < 2) return null;
 
-  const head = await reader.head();
-  assertTeacherApprovedHead(head, bridge);
+  const head = await readApprovedHead(reader, bridge);
   if (String(existing.candidate_sha).toLowerCase() !== approvedSha) return null;
   return { ...existing, reused: true };
 }
