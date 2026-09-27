@@ -19,14 +19,14 @@ function d1ExportMock() {
   return {
     prepare(sql) {
       if (sql.includes('sqlite_master')) return { async all(){ return {results:[{name:'alpha',sql:'CREATE TABLE alpha'},{name:'beta',sql:'CREATE TABLE beta'}]}; } };
-      const match = sql.match(/FROM "([^"]+)" LIMIT (\?|1)/);
+      const match = sql.match(/FROM "([^"]+)" ORDER BY rowid LIMIT (\\?|1)/);
       if (!match) throw new Error(`unexpected sql ${sql}`);
       const table = match[1];
       return {
         bind(...args) {
           return {
             async all() {
-              const source = tables[table] || [];
+              const source = [...(tables[table] || [])].sort((a,b)=>Number(a.id||0)-Number(b.id||0));
               if (sql.includes('LIMIT 1 OFFSET')) return { results: source.slice(args[0], args[0] + 1) };
               const [limit, offset] = args;
               return { results: source.slice(offset, offset + limit) };
@@ -48,11 +48,12 @@ test('GEN2-47 exports all discovered D1 tables deterministically', async () => {
 
 
 
-test('GEN2-47 deterministic D1 ordering precomputes canonical row keys instead of serializing inside sort comparisons', async () => {
+test('GEN2-47 deterministic D1 ordering is delegated to SQLite instead of Worker JSON sorting', async () => {
   const source = await readFile(new URL('../src/backup/system-backup-runtime.js', import.meta.url), 'utf8');
-  assert.match(source, /\.map\(\(row\) => \(\{ row, canonical: stableStringify\(row\) \}\)\)/);
-  assert.match(source, /\.sort\(\(a, b\) => a\.canonical\.localeCompare\(b\.canonical\)\)/);
-  assert.doesNotMatch(source, /sort\(\(a, b\) => stableStringify\(a\)\.localeCompare\(stableStringify\(b\)\)\)/);
+  assert.match(source, /SELECT \* FROM \$\{quoteIdentifier\(name\)\} ORDER BY rowid LIMIT \? OFFSET \?/);
+  assert.match(source, /SELECT \* FROM \$\{quoteIdentifier\(name\)\} ORDER BY rowid LIMIT 1 OFFSET \?/);
+  assert.doesNotMatch(source, /deterministicRows/);
+  assert.doesNotMatch(source, /stableStringify\(row\)/);
 });
 
 test('GEN2-47 skips Cloudflare internal D1 tables that are visible but unreadable', async () => {
@@ -65,7 +66,7 @@ test('GEN2-47 skips Cloudflare internal D1 tables that are visible but unreadabl
           {name:'mel_state',sql:'CREATE TABLE mel_state'},
         ]}; } };
       }
-      const match = sql.match(/FROM "([^"]+)" LIMIT (\?|1)/);
+      const match = sql.match(/FROM "([^"]+)" ORDER BY rowid LIMIT (\\?|1)/);
       if (!match) throw new Error('unexpected sql '+sql);
       const table = match[1];
       reads.push(table);
