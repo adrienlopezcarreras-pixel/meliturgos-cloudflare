@@ -145,8 +145,16 @@ jobs:
           const plan=JSON.parse(fs.readFileSync(dir+'/lora-plan.json','utf8'));
           const artifact=JSON.parse(fs.readFileSync(dir+'/artifact-evidence.json','utf8'));
           const training=JSON.parse(fs.readFileSync(dir+'/training-evidence.json','utf8'));
+          const run=JSON.parse(fs.readFileSync(dir+'/kaggle-run.json','utf8'));
           const checked=assertAdapterArtifact(artifact);
-          if (!['uncensored','uncensored-continue'].includes(String(training.stage||''))) throw new Error('KAGGLE_STAGE_NOT_UNCENSORED');
+          const stage=String(training.stage||'');
+          if (!['uncensored','uncensored-continue'].includes(stage)) throw new Error('KAGGLE_STAGE_NOT_UNCENSORED');
+          if (stage === 'uncensored-continue') {
+            const parent=String(training.parent_artifact_digest||'').toLowerCase();
+            if (!/^sha256:[0-9a-f]{64}$/.test(parent)) throw new Error('KAGGLE_CONTINUATION_PARENT_DIGEST_MISSING');
+            if (String(artifact.parent_artifact_digest||'').toLowerCase() !== parent) throw new Error('KAGGLE_CONTINUATION_ARTIFACT_PARENT_MISMATCH');
+            if (String(run.parent_artifact_digest||'').toLowerCase() !== parent) throw new Error('KAGGLE_CONTINUATION_RUN_PARENT_MISMATCH');
+          }
           if (checked.finetune_id) throw new Error('PREEXISTING_FINETUNE_ID_FORBIDDEN');
           if (String(training.dataset_digest||'') !== String(plan.dataset_digest||'')) throw new Error('KAGGLE_DATASET_MISMATCH');
           if (String(training.training_manifest_digest||'').toLowerCase() !== String(plan.training_manifest_digest||'').toLowerCase()) throw new Error('KAGGLE_MANIFEST_MISMATCH');
