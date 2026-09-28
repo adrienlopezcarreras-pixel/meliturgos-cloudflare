@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/lora-kaggle-free-collect.yml"
+      - "scripts/finalize-lora.mjs"
   workflow_dispatch:
     inputs:
       activate_preview:
