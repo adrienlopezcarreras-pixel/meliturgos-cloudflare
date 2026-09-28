@@ -28,7 +28,7 @@ test('ShardVault v2 includes control-plane state required for regeneration witho
     memories: [{ id: 1, content: 'memory' }],
     conversations: [{ id: 'c1' }],
     archive_messages: [{ id: 'a1' }],
-    automations: [{ id: 'auto1' }],
+    automations: [{ id: 'auto1', api_token: ['ghp', '_', 'example', 'token'].join('') }],
     automation_runs: [{ id: 'run1' }],
     dev_jobs: [{ id: 'job1', status: 'COMPLETED' }],
     dev_bridge_state: [{
@@ -36,7 +36,7 @@ test('ShardVault v2 includes control-plane state required for regeneration witho
       status: 'MAX_AUTONOMY',
       metadata_json: JSON.stringify({ max_autonomy: true }),
     }],
-    mentor_lessons: [{ id: 'lesson1' }],
+    mentor_lessons: [{ id: 'lesson1', note: ['Bearer', 'example-token-value'].join(' ') }],
     capability_watch_state: [{ id: 'watch1' }],
     timeline_events: [{ id: 'event1' }],
     mel_skill_registry_snapshots: [{ registry_key: 'system', snapshot_json: '{}' }],
@@ -50,12 +50,16 @@ test('ShardVault v2 includes control-plane state required for regeneration witho
   });
 
   assert.equal(payload.version, 2);
-  assert.equal(payload.policy.secrets_included, false);
+  assert.equal(payload.policy.credential_tables_included, false);
+  assert.equal(payload.policy.structured_secret_fields_redacted, true);
+  assert.equal(payload.policy.secret_shaped_values_redacted, true);
   assert.equal(payload.policy.oauth_tokens_included, false);
   assert.equal(payload.policy.api_credentials_included, false);
 
   assert.equal(payload.recovery_state.dev_bridge_state[0].status, 'MAX_AUTONOMY');
   assert.equal(payload.recovery_state.automations.length, 1);
+  assert.equal(payload.recovery_state.automations[0].api_token, '[REDACTED]');
+  assert.equal(payload.recovery_state.mentor_lessons[0].note, '[REDACTED]');
   assert.equal(payload.recovery_state.skill_registry_snapshots.length, 1);
   assert.equal(payload.recovery_state.plugin_versions.length, 1);
   assert.ok(payload.recovery_state.roadmap.length > 0);
