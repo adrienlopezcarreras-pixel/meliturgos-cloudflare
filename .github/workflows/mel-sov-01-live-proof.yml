@@ -37,7 +37,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          npx wrangler d1 execute DB --remote --json \
+          npx wrangler d1 execute meliturgos-memory --remote --json \
             --command "SELECT registry_json,updated_at FROM mel_alternative_registry WHERE id='technical-sovereignty-alternatives'" \
             > mel-sov-01-registry.raw.json
       - name: Evaluate 10-layer live sovereignty
