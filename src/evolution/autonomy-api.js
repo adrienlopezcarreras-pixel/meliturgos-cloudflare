@@ -13,6 +13,7 @@ import { planSovereigntyGapClosure } from '../portability/sovereignty-gap-planne
 import { SovereigntyCandidateStore } from '../portability/sovereignty-candidate-store.js';
 import { parseHttpChatProviderDescriptors } from '../augmentio/http-chat-adapter.js';
 import { evaluateCandidateReadiness, readinessRequirementsForDescriptor } from '../portability/sovereignty-candidate-readiness.js';
+import { localSovereigntyProfile } from '../portability/local-sovereignty-profile.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
@@ -217,6 +218,27 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
           last_seen_at: row.last_seen_at,
         })),
     };
+
+    let localDevice = null;
+    try {
+      const row = await env.DB.prepare(`SELECT id,name,platform,halted,last_seen_at
+        FROM computer_devices WHERE platform='windows'
+        ORDER BY last_seen_at DESC LIMIT 1`).first();
+      if (row) {
+        localDevice = {
+          id: row.id,
+          name: row.name,
+          platform: row.platform,
+          halted: Number(row.halted) === 1,
+          last_seen_at: Number(row.last_seen_at || 0),
+          online: Number(row.halted) !== 1 && Date.now() - Number(row.last_seen_at || 0) < 20000,
+        };
+      }
+    } catch {}
+    const localSovereignty = localSovereigntyProfile({
+      registry,
+      device: localDevice,
+    });
     return Response.json({
       ok: true,
       status: 'TECHNICAL_SOVEREIGNTY_STATUS',
@@ -232,6 +254,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       registry_count: registry.all.length,
       gap_plan: gapPlan,
       replacement_candidates: candidateSummary,
+      local_sovereignty: localSovereignty,
       generated_at: new Date().toISOString(),
     }, { headers: { 'cache-control': 'no-store' } });
   }
