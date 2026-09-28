@@ -232,6 +232,17 @@ jobs:
           echo "::add-mask::$PREVIEW_PASSWORD"
           echo "MEL_PREVIEW_PASSWORD=$PREVIEW_PASSWORD" >> "$GITHUB_ENV"
 
+      - name: Align isolated preview authentication
+        if: steps.status.outputs.complete == 'true'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${MEL_PREVIEW_PASSWORD:-}"
+          printf '%s' "$MEL_PREVIEW_PASSWORD" | npx wrangler secret put MELITURGOS_PASSWORD --env preview
+
       - name: Benchmark exact Kaggle adapter
         if: steps.status.outputs.complete == 'true'
         shell: bash
