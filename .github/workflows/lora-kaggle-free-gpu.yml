@@ -509,7 +509,7 @@ jobs:
           CANCEL_RETRY_USED=0
           mkdir -p artifacts
           : > artifacts/kaggle-live.log
-          for attempt in $(seq 1 120); do
+          for attempt in $(seq 1 300); do
             STATUS="$(kaggle kernels status "$KERNEL_REF" 2>&1 || true)"
             echo "[$attempt] $STATUS"
             LOGS="$(kaggle kernels logs "$KERNEL_REF" 2>&1 || true)"
