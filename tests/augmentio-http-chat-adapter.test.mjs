@@ -59,3 +59,50 @@ test('invalid optional alternate provider cannot break the core pool',()=>{
   },{registry});
   assert.equal(pool.list().length,0);
 });
+
+
+test('legacy NinjaChat config is bridged without inventing zero-cost proof',()=>{
+  const rows=parseHttpChatProviderDescriptors({
+    NINJACHAT_ENDPOINT:'https://ninja.example/v1/chat/completions',
+    NINJACHAT_API_KEY:'legacy-secret',
+  });
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].id,'ninjachat:default');
+  assert.equal(rows[0].providerId,'ninjachat');
+  assert.equal(rows[0].estimatedCost,null);
+  assert.equal(rows[0].costProvenance,null);
+  assert.equal(rows[0].lowRefusal,false);
+  assert.equal(rows[0].secretEnv,'NINJACHAT_API_KEY');
+});
+
+test('legacy NinjaChat zero-cost status requires explicit verified flag and authority',()=>{
+  const rows=parseHttpChatProviderDescriptors({
+    NINJACHAT_ENDPOINT:'https://ninja.example/v1/chat/completions',
+    NINJACHAT_TOKEN:'legacy-secret',
+    MEL_NINJACHAT_ZERO_COST_VERIFIED:'1',
+    MEL_NINJACHAT_ZERO_COST_AUTHORITY:'owner',
+    MEL_NINJACHAT_LOW_REFUSAL_CANDIDATE:'1',
+    MEL_NINJACHAT_POLICY_PROFILE:'LOW_REFUSAL',
+  });
+  assert.equal(rows[0].estimatedCost,0);
+  assert.equal(rows[0].costProvenance.verified,true);
+  assert.equal(rows[0].costProvenance.authorization.approved,true);
+  assert.equal(rows[0].lowRefusal,true);
+  assert.equal(rows[0].policyProfile,'LOW_REFUSAL');
+});
+
+test('explicit alternate provider config wins over legacy NinjaChat duplicate',()=>{
+  const rows=parseHttpChatProviderDescriptors({
+    MEL_ALT_AI_PROVIDERS_JSON:JSON.stringify([{
+      id:'ninjachat:custom',
+      provider:'ninjachat',
+      model:'custom',
+      endpoint:'https://custom.example/v1/chat/completions',
+      secret_env:'CUSTOM_NINJA_KEY',
+    }]),
+    NINJACHAT_ENDPOINT:'https://legacy.example/v1/chat/completions',
+    NINJACHAT_API_KEY:'legacy-secret',
+  });
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].id,'ninjachat:custom');
+});
