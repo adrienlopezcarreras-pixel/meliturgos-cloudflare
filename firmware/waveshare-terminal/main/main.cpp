@@ -1498,7 +1498,9 @@ extern "C" void app_main(void) {
         }
         ESP_LOGI(TAG, "Saved WiFi requested: %s", saved_ssid);
     } else {
-        request_view(MINI_VIEW_WIFI_LIST);
+        // Stable behavior: keep the validated MEL home screen at boot.
+        // Wi-Fi setup remains available only when the user opens it.
+        ESP_LOGI(TAG, "No saved WiFi; staying on MEL main view");
     }
 
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
