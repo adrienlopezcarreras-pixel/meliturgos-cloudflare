@@ -619,6 +619,155 @@ function Assert-SovereigntySqlIdentifier([string]$value) {
   return $v
 }
 
+
+function Sovereignty-CiRoot {
+  $root = Join-Path (Sovereignty-Root) "ci"
+  [IO.Directory]::CreateDirectory($root) | Out-Null
+  [IO.Directory]::CreateDirectory((Join-Path $root "runs")) | Out-Null
+  return $root
+}
+
+function Resolve-SovereigntyCiRunPath([string]$runId) {
+  $id = ([string]$runId).Trim()
+  if ($id -notmatch '^ci-[A-Fa-f0-9]{32}$') { throw "SOVEREIGNTY_CI_RUN_ID_INVALID" }
+  return Join-Path (Join-Path (Sovereignty-CiRoot) "runs") ($id + ".clixml")
+}
+
+function Save-SovereigntyCiRun($run) {
+  $path = Resolve-SovereigntyCiRunPath ([string]$run.run_id)
+  $run | Export-Clixml -LiteralPath $path -Depth 12
+}
+
+function Load-SovereigntyCiRun([string]$runId) {
+  $path = Resolve-SovereigntyCiRunPath $runId
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "SOVEREIGNTY_CI_RUN_NOT_FOUND" }
+  return ConvertTo-SovereigntyHashtable (Import-Clixml -LiteralPath $path)
+}
+
+function Read-SovereigntySourceProvenance([string]$repository) {
+  $repo = Require-SovereigntyGitRepo $repository
+  $path = Join-Path $repo ".mel-source-provenance.json"
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "SOVEREIGNTY_CI_PROVENANCE_REQUIRED" }
+  try { $p = Get-Content -Raw -Encoding UTF8 $path | ConvertFrom-Json } catch { throw "SOVEREIGNTY_CI_PROVENANCE_INVALID" }
+  $sha = ([string]$p.source_sha).Trim().ToLowerInvariant()
+  if ($sha -notmatch '^[0-9a-f]{40}$') { throw "SOVEREIGNTY_CI_PROVENANCE_INVALID" }
+  if ($p.external_reconstruction_verified -ne $true) { throw "SOVEREIGNTY_CI_EXTERNAL_RECONSTRUCTION_REQUIRED" }
+  return @{ repo=$repo; source_sha=$sha }
+}
+
+function Invoke-SovereigntyNodeCheck([string]$repo,[string]$relativePath,[int]$timeoutMs=120000) {
+  $node = Get-Command node.exe -ErrorAction SilentlyContinue
+  if ($null -eq $node) { $node = Get-Command node -ErrorAction SilentlyContinue }
+  if ($null -eq $node) { throw "SOVEREIGNTY_CI_NODE_NOT_INSTALLED" }
+
+  $safe = Resolve-SovereigntyRelativePath $repo $relativePath
+  if (-not (Test-Path -LiteralPath $safe.full -PathType Leaf)) { throw "SOVEREIGNTY_CI_TARGET_NOT_FOUND" }
+
+  $root = Sovereignty-CiRoot
+  $stdout = Join-Path $root ("stdout-" + [guid]::NewGuid().ToString("N") + ".txt")
+  $stderr = Join-Path $root ("stderr-" + [guid]::NewGuid().ToString("N") + ".txt")
+  try {
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName = $node.Source
+    $psi.Arguments = '--check "' + $safe.full.Replace('"','') + '"'
+    $psi.WorkingDirectory = $repo
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $proc = New-Object Diagnostics.Process
+    $proc.StartInfo = $psi
+    if (-not $proc.Start()) { throw "SOVEREIGNTY_CI_PROCESS_START_FAILED" }
+    if (-not $proc.WaitForExit($timeoutMs)) {
+      try { $proc.Kill() } catch {}
+      throw "SOVEREIGNTY_CI_TIMEOUT"
+    }
+    $out = $proc.StandardOutput.ReadToEnd()
+    $err = $proc.StandardError.ReadToEnd()
+    if ($out.Length -gt 4000) { $out=$out.Substring(0,4000) }
+    if ($err.Length -gt 4000) { $err=$err.Substring(0,4000) }
+    return @{ exit_code=$proc.ExitCode; stdout=$out; stderr=$err; node_version=(& $node.Source --version 2>$null) }
+  } finally {
+    try { if (Test-Path -LiteralPath $stdout) { Remove-Item -LiteralPath $stdout -Force } } catch {}
+    try { if (Test-Path -LiteralPath $stderr) { Remove-Item -LiteralPath $stderr -Force } } catch {}
+  }
+}
+
+function Perform-SovereigntyCi([string]$operation,$payload) {
+  $repository = [string]$payload.repository
+  switch ($operation) {
+    "health" {
+      $node = Get-Command node.exe -ErrorAction SilentlyContinue
+      if ($null -eq $node) { $node = Get-Command node -ErrorAction SilentlyContinue }
+      if ($null -eq $node) { throw "SOVEREIGNTY_CI_NODE_NOT_INSTALLED" }
+      [void](Read-SovereigntySourceProvenance $repository)
+      return @{ action="sovereignty.ci.health"; node_version=[string](& $node.Source --version 2>$null); backend="local-bounded-node-ci" }
+    }
+    "dispatch" {
+      $pipeline = ([string]$payload.pipeline).Trim()
+      if ($pipeline -ne "sovereignty-smoke") { throw "SOVEREIGNTY_CI_PIPELINE_NOT_ALLOWED" }
+      $sourceSha = ([string]$payload.source_sha).Trim().ToLowerInvariant()
+      if ($sourceSha -notmatch '^[0-9a-f]{40}$') { throw "SOVEREIGNTY_CI_SOURCE_SHA_INVALID" }
+
+      $prov = Read-SovereigntySourceProvenance $repository
+      if ($prov.source_sha -ne $sourceSha) { throw "SOVEREIGNTY_CI_SOURCE_SHA_MISMATCH" }
+
+      $runId = "ci-" + [guid]::NewGuid().ToString("N")
+      $startedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+      $check = $null
+      $status = "FAILED"
+      try {
+        $check = Invoke-SovereigntyNodeCheck $prov.repo "src/index.js"
+        if ([int]$check.exit_code -eq 0) { $status = "SUCCESS" }
+      } catch {
+        $check = @{ exit_code=-1; stdout=""; stderr=[string]$_.Exception.Message; node_version=$null }
+      }
+
+      $artifact = @{
+        id="proof"
+        name="proof.json"
+        pipeline=$pipeline
+        source_sha=$sourceSha
+        status=$status
+        exit_code=[int]$check.exit_code
+        node_version=[string]$check.node_version
+      }
+      $run = @{
+        run_id=$runId
+        repository=$repository
+        source_sha=$sourceSha
+        pipeline=$pipeline
+        mode=([string]$payload.mode).Trim()
+        status=$status
+        started_at=$startedAt
+        finished_at=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+        artifact=$artifact
+        stdout=[string]$check.stdout
+        stderr=[string]$check.stderr
+        cancelled=$false
+      }
+      Save-SovereigntyCiRun $run
+      return @{ action="sovereignty.ci.dispatch"; run_id=$runId; status=$status }
+    }
+    "get_run" {
+      $run = Load-SovereigntyCiRun ([string]$payload.run_id)
+      return @{ action="sovereignty.ci.get_run"; run_id=$run.run_id; source_sha=$run.source_sha; status=$run.status }
+    }
+    "get_artifacts" {
+      $run = Load-SovereigntyCiRun ([string]$payload.run_id)
+      return @{ action="sovereignty.ci.get_artifacts"; artifacts=@($run.artifact) }
+    }
+    "cancel_run" {
+      $run = Load-SovereigntyCiRun ([string]$payload.run_id)
+      $run.cancelled=$true
+      if ([string]$run.status -notin @("SUCCESS","FAILED","COMPLETED")) { $run.status="CANCELLED" }
+      Save-SovereigntyCiRun $run
+      return @{ action="sovereignty.ci.cancel_run"; run_id=$run.run_id; cancelled=$true }
+    }
+    default { throw "SOVEREIGNTY_CI_OPERATION_NOT_SUPPORTED" }
+  }
+}
+
 function Perform-SovereigntyDatabase([string]$operation,$payload) {
   $database = [string]$payload.database
   switch ($operation) {
@@ -1126,6 +1275,10 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
     if ($action.StartsWith("sovereignty.source_control.")) {
       $op = $action.Substring("sovereignty.source_control.".Length)
       return Perform-SovereigntySourceControl $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.ci.")) {
+      $op = $action.Substring("sovereignty.ci.".Length)
+      return Perform-SovereigntyCi $op $step.payload
     }
     if ($action.StartsWith("sovereignty.storage.")) {
       $op = $action.Substring("sovereignty.storage.".Length)
