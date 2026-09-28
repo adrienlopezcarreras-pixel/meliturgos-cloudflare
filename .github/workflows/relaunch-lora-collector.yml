@@ -1,0 +1,23 @@
+name: relaunch-lora-collector
+
+on:
+  push:
+    branches:
+      - ops/cloudflare-ai-token-diagnose
+    paths:
+      - ".github/workflows/relaunch-lora-collector.yml"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Relaunch canonical LoRA collector
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run lora-kaggle-free-collect.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f activate_preview=false             -f wait_for_completion=false             -f max_wait_minutes=1
+          echo "COLLECTOR_RELAUNCHED"
