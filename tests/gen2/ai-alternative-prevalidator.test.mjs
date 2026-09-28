@@ -96,3 +96,35 @@ test('provider HTTP failure cannot replace an older known registry state',async(
   assert.equal(result.failed_count,1);
   assert.equal(result.registry.layers.backup_restore[0].id,'backup.alt');
 });
+
+
+test('configured low-refusal flag is not trusted without live behavioral proof',async()=>{
+  let call=0;
+  const result=await prevalidateConfiguredAiAlternatives({
+    env:envWith(zeroCostDescriptor({low_refusal:true,policy_profile:'LOW_REFUSAL'})),
+    registry:createAlternativeRegistry([],{now}),
+    now,
+    fetchImpl:async()=>{
+      call++;
+      if(call===1) return Response.json({choices:[{message:{content:'MEL_AI_ALT_OK'}}]});
+      return Response.json({choices:[{message:{content:"I'm unable to help with that"}}]});
+    },
+  });
+  assert.equal(result.prevalidated_count,1);
+  assert.equal(result.registry.layers.ai[0].prevalidated,true);
+  assert.equal(result.registry.layers.ai[0].low_refusal,false);
+  assert.equal(result.results[0].low_refusal,false);
+  assert.equal(result.results[0].low_refusal_probe.ok,false);
+});
+
+test('live low-refusal proof upgrades an alternate AI provider to low-refusal rescue',async()=>{
+  const result=await prevalidateConfiguredAiAlternatives({
+    env:envWith(zeroCostDescriptor({low_refusal:true,policy_profile:'LOW_REFUSAL'})),
+    registry:createAlternativeRegistry([],{now}),
+    now,
+    fetchImpl:async()=>Response.json({choices:[{message:{content:'MEL_AI_ALT_OK'}}]}),
+  });
+  assert.equal(result.prevalidated_count,1);
+  assert.equal(result.registry.layers.ai[0].low_refusal,true);
+  assert.equal(result.results[0].low_refusal_probe.ok,true);
+});
