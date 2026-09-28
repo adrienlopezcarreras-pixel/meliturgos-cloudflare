@@ -62,16 +62,21 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.sha }}
           fetch-depth: 0
 
-      - name: Prove release pointer equals the current production source
+      - name: Prove release pointer belongs to the current main history
         shell: bash
         run: |
           set -euo pipefail
           RELEASE_SHA="$(git rev-parse HEAD)"
           test "$RELEASE_SHA" = "$EXPECTED_SHA"
-          git fetch origin main --depth=1
+          git fetch origin main
           SOURCE_SHA="$(git rev-parse FETCH_HEAD)"
-          test "$SOURCE_SHA" = "$EXPECTED_SHA"
-          echo "Exact release identity verified against main: $EXPECTED_SHA"
+          if [ "$SOURCE_SHA" != "$EXPECTED_SHA" ]; then
+            git merge-base --is-ancestor "$EXPECTED_SHA" "$SOURCE_SHA"
+            MAIN_ADVANCE_COUNT="$(git rev-list --count "$EXPECTED_SHA..$SOURCE_SHA")"
+            test "$MAIN_ADVANCE_COUNT" -le 25
+            echo "main advanced by ${MAIN_ADVANCE_COUNT} commit(s) after release trigger; exact release SHA remains in canonical main history."
+          fi
+          echo "Exact release identity verified against canonical main history: $EXPECTED_SHA"
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
