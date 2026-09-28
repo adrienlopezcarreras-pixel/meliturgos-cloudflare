@@ -1,0 +1,23 @@
+name: launch-lora-c003
+
+on:
+  push:
+    branches:
+      - ops/cloudflare-ai-token-diagnose
+    paths:
+      - ".github/workflows/launch-lora-c003.yml"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  launch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Launch exact c003 continuation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f source_sha="093f4e996eb77d484c99a246b085b3d24fa34f3b"             -f cycle="3"             -f parent_release_tag="mel-lora-kaggle-093f4e996eb7-c002"             -f shard_size="750"             -f max_cycles="100"             -f benchmark_preview="false"             -f smoke_only="false"
+          echo "LORA_C003_SUBMITTED"
