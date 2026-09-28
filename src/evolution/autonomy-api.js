@@ -11,6 +11,8 @@ import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alt
 import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
 import { planSovereigntyGapClosure } from '../portability/sovereignty-gap-planner.js';
 import { SovereigntyCandidateStore } from '../portability/sovereignty-candidate-store.js';
+import { parseHttpChatProviderDescriptors } from '../augmentio/http-chat-adapter.js';
+import { evaluateCandidateReadiness, readinessRequirementsForDescriptor } from '../portability/sovereignty-candidate-readiness.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
@@ -162,6 +164,38 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     });
     const candidateStore = new SovereigntyCandidateStore(env.DB);
     const candidateRows = await candidateStore.list({ limit: 100 });
+    const configuredAiReadiness = parseHttpChatProviderDescriptors(env).map((descriptor) => {
+      const portableDescriptor = {
+        id: descriptor.id,
+        provider: descriptor.providerId,
+        credential_ref: descriptor.secretEnv || null,
+        added_cost_eur: descriptor.estimatedCost,
+        cost_provenance: descriptor.costProvenance,
+      };
+      const requirements = readinessRequirementsForDescriptor('ai', portableDescriptor);
+      const readiness = evaluateCandidateReadiness(
+        { layer: 'ai', id: descriptor.id },
+        {
+          env,
+          descriptor: portableDescriptor,
+          requiredConfig: requirements.required_config,
+          requiredSecrets: requirements.required_secrets,
+        }
+      );
+      return {
+        id: descriptor.id,
+        provider: descriptor.providerId,
+        model: descriptor.modelId,
+        ready_for_live_test: readiness.ready_for_live_test,
+        blocking_reason: readiness.blocking_reason,
+        zero_cost_verified: readiness.zero_cost_verified,
+        credential_refs: readiness.secret_refs,
+        missing_credentials: readiness.missing_secrets,
+        low_refusal_candidate: descriptor.lowRefusal === true,
+        secret_values_exposed: false,
+      };
+    });
+
     const candidateSummary = {
       total: candidateRows.length,
       unverified: candidateRows.filter(row => row.status === 'UNVERIFIED').length,
@@ -169,6 +203,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       prevalidated: candidateRows.filter(row => row.status === 'PREVALIDATED').length,
       blocked: candidateRows.filter(row => row.status === 'BLOCKED').length,
       rejected: candidateRows.filter(row => row.status === 'REJECTED').length,
+      configured_ai_readiness: configuredAiReadiness,
       top: candidateRows
         .filter(row => row.status !== 'REJECTED')
         .sort((a,b) => Number(b.seen_count||0)-Number(a.seen_count||0) || Number(b.last_seen_at||0)-Number(a.last_seen_at||0))
