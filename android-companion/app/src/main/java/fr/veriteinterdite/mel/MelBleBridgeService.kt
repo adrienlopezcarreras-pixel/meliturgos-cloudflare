@@ -80,6 +80,9 @@ class MelBleBridgeService : Service() {
 
         const val ACTION_RESTART = "fr.veriteinterdite.mel.action.RESTART_MINI_BRIDGE"
         val bridgeState = MutableStateFlow("OFF")
+        val miniLinkReady = MutableStateFlow(false)
+        val internetReady = MutableStateFlow(false)
+        val miniPairingComplete = MutableStateFlow(false)
         val wakeProfileRevision = MutableStateFlow(0)
     }
 
@@ -117,6 +120,10 @@ class MelBleBridgeService : Service() {
         wakeLock = getSystemService(PowerManager::class.java)
             ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MEL:BleBridge")
             ?.apply { acquire() }
+        miniLinkReady.value = false
+        internetReady.value = false
+        miniPairingComplete.value = getSharedPreferences("mel_mobile_bridge", MODE_PRIVATE)
+            .getBoolean("mini_pairing_complete", false)
         bridgeState.value = "D├ëMARRAGE"
         startForeground(
             NOTIFICATION_ID,
@@ -133,6 +140,8 @@ class MelBleBridgeService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_RESTART) {
+            miniLinkReady.value = false
+            internetReady.value = false
             bridgeState.value = "RECONNEXION MINI…"
             stopAdvertising()
             runCatching { gattServer?.close() }
@@ -156,12 +165,24 @@ class MelBleBridgeService : Service() {
         stopAdvertising()
         runCatching { gattServer?.close() }
         gattServer = null
+        miniLinkReady.value = false
+        internetReady.value = false
         bridgeState.value = "OFF"
         if (wakeLock?.isHeld == true) wakeLock?.release()
         wakeLock = null
         executor.shutdownNow()
         diagExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun rememberMiniPairingComplete() {
+        if (miniPairingComplete.value) return
+        miniPairingComplete.value = true
+        getSharedPreferences("mel_mobile_bridge", MODE_PRIVATE)
+            .edit()
+            .putBoolean("mini_pairing_complete", true)
+            .apply()
+        Log.i(TAG, "MINI pairing persisted; future reconnects are automatic")
     }
 
     private fun hasBluetoothPermissions(): Boolean {
@@ -297,12 +318,16 @@ class MelBleBridgeService : Service() {
             if (newState == BluetoothGatt.STATE_CONNECTED) {
                 connectedAtMs[device.address] = System.currentTimeMillis()
                 subscribed[device.address] = false
+                miniLinkReady.value = false
+                internetReady.value = false
                 bridgeState.value = "MINI LI├ëE ┬À INITIALISATION CANAL"
                 publishBleDiagnostic(status, newState, null)
             } else {
                 val started = connectedAtMs.remove(device.address)
                 val duration = started?.let { System.currentTimeMillis() - it }
                 publishBleDiagnostic(status, newState, duration)
+                miniLinkReady.value = false
+                internetReady.value = false
                 bridgeState.value = if (adapter?.isEnabled == true) "PR├èT" else "BLUETOOTH OFF"
                 requests.remove(device.address)
                 mtus.remove(device.address)
@@ -341,9 +366,13 @@ class MelBleBridgeService : Service() {
                 descriptor.value = value.copyOf()
                 val enabled = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                 subscribed[device.address] = enabled
+                miniLinkReady.value = enabled
+                if (!enabled) internetReady.value = false
                 if (enabled) {
                     bridgeState.value = "MINI CONNECT├ëE ┬À RELAIS PR├èT"
                     Log.i(TAG, "MINI BLE response channel ready ${device.address}")
+                } else {
+                    bridgeState.value = "MINI LI├ëE ┬À CANAL INACTIF"
                 }
             }
         }
@@ -708,6 +737,7 @@ class MelBleBridgeService : Service() {
                 }
             }
         }.getOrElse {
+            internetReady.value = false
             bridgeState.value = "MINI CONNECT├ëE ┬À INTERNET ERREUR"
             Log.e(TAG, "MEL relay open failed ${request.method} ${request.path}", it)
             sendError(device, request.id, "NETWORK_OPEN")
@@ -716,7 +746,16 @@ class MelBleBridgeService : Service() {
 
         try {
             val status = connection.responseCode
-            bridgeState.value = if (status in 200..299) "MINI CONNECTÉE · INTERNET OK" else "MINI CONNECTÉE · MEL HTTP $status"
+            val success = status in 200..299
+            if (success && (
+                    request.path == "/api/device/v1/pair" ||
+                    (request.path.startsWith("/api/device/v1/") && request.token.isNotEmpty())
+                )
+            ) {
+                rememberMiniPairingComplete()
+            }
+            internetReady.value = miniLinkReady.value && success
+            bridgeState.value = if (internetReady.value) "MINI CONNECTÉE · INTERNET OK" else "MINI CONNECTÉE · MEL HTTP $status"
             Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
@@ -754,6 +793,7 @@ class MelBleBridgeService : Service() {
             }
             sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
         } catch (error: Throwable) {
+            internetReady.value = false
             bridgeState.value = "MINI CONNECT├ëE ┬À INTERNET ERREUR"
             Log.e(TAG, "Relay failed ${request.method} ${request.path}", error)
             sendError(device, request.id, "NETWORK_READ")
