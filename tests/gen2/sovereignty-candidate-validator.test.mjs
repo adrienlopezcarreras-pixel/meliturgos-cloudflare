@@ -82,3 +82,43 @@ test('resolver failure is isolated and recorded as BLOCKED',async()=>{
   assert.equal(result.blocked,1);
   assert.equal(s.registryStore.candidates[0].metadata.reason,'RESOLUTION_FAILED');
 });
+
+
+test('missing credential blocks before provider proof and exposes only reference name',async()=>{
+  const s=stores();
+  let touched=false;
+  const result=await validateSovereigntyCandidates({
+    candidateStore:s.candidateStore,
+    registryStore:s.registryStore,
+    env:{},
+    resolveCandidate:async()=>({
+      descriptor:{
+        id:'storage.alt',
+        provider:'alternate-storage',
+        adapter_id:'storage.alt.adapter',
+        credential_ref:'ALT_STORAGE_TOKEN',
+        added_cost_eur:0,
+        cost_provenance:{
+          verified:true,
+          addedCost:0,
+          authorization:{approved:true,policy:'ZERO_EURO',authority:'owner'},
+        },
+      },
+      adapter:new ObjectStorageAdapter({
+        id:'storage.alt.adapter',
+        provider:'alternate-storage',
+        health:async()=>{touched=true;return{ok:true};},
+        put:async()=>({ok:true}),
+        get:async()=>({ok:true,found:false,status:'NOT_FOUND'}),
+        list:async()=>({ok:true,keys:[]}),
+        deleteObject:async()=>({ok:true}),
+      }),
+    }),
+  });
+  assert.equal(result.blocked,1);
+  assert.equal(touched,false);
+  assert.equal(s.registryStore.candidates[0].status,'BLOCKED');
+  assert.equal(s.registryStore.candidates[0].metadata.reason,'CREDENTIAL_REQUIRED');
+  assert.deepEqual(s.registryStore.candidates[0].metadata.missing_secrets,['ALT_STORAGE_TOKEN']);
+  assert.equal(JSON.stringify(s.registryStore.candidates[0].metadata).includes('secret-value'),false);
+});
