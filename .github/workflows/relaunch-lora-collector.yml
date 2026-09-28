@@ -1,4 +1,5 @@
 name: relaunch-lora-collector
+# rerun after preview auth fix
 # rerun after finetune-assets route fix
 
 on:
