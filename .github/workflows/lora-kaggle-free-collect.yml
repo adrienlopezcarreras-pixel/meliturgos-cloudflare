@@ -249,6 +249,32 @@ jobs:
           test -n "${MEL_PREVIEW_PASSWORD:-}"
           printf '%s' "$MEL_PREVIEW_PASSWORD" | npx wrangler secret put MELITURGOS_PASSWORD --env preview
 
+      - name: Wait for preview auth propagation
+        if: steps.status.outputs.complete == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
+          READY=0
+          for attempt in $(seq 1 20); do
+            status="$(curl --silent --show-error --max-time 20 \
+              --header "Authorization: Bearer ${MEL_PREVIEW_PASSWORD}" \
+              --output /tmp/preview-auth-probe.json \
+              --write-out '%{http_code}' \
+              "$BASE_URL/api/learning/progress" || true)"
+            echo "preview-auth-probe[$attempt] http=$status"
+            if [[ "$status" =~ ^2 ]]; then
+              READY=1
+              break
+            fi
+            sleep 3
+          done
+          [[ "$READY" == "1" ]] || {
+            echo "PREVIEW_AUTH_PROPAGATION_TIMEOUT"
+            cat /tmp/preview-auth-probe.json || true
+            exit 1
+          }
+
       - name: Benchmark exact Kaggle adapter
         if: steps.status.outputs.complete == 'true'
         shell: bash
