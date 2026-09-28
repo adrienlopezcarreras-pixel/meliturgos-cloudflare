@@ -335,19 +335,31 @@ export default {
     return app.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
-    await app.scheduled(controller, env, ctx);
-    if (String(controller?.cron || '') !== '17 * * * *') return;
-
+    const cron = String(controller?.cron || '');
     const scheduledAt = Number(controller?.scheduledTime);
     const timestamp = Number.isFinite(scheduledAt) ? scheduledAt : Date.now();
     const now = () => new Date(timestamp).toISOString();
+
+    // Keep the full system backup on its own >=1h Cron Trigger so it does not
+    // compete for CPU with autonomy/watch/benchmark maintenance. The backup
+    // runtime remains idempotent and creates at most one fresh snapshot per
+    // configured interval.
+    if (cron === '43 2 * * *') {
+      const backup = runScheduledSystemBackup(env, { now }).catch((error) => {
+        console.error('[MEL backup] dedicated daily snapshot failed:', error?.code || error?.message || error);
+        return null;
+      });
+      if (ctx?.waitUntil) ctx.waitUntil(backup);
+      else await backup;
+      return;
+    }
+
+    await app.scheduled(controller, env, ctx);
+    if (cron !== '17 * * * *') return;
+
     const maintenance = Promise.allSettled([
       ensureZeroCostBenchmarkBaseline(env).catch((error) => {
         console.error('[MEL benchmark] hourly baseline bootstrap skipped:', error?.code || error?.message || error);
-        return null;
-      }),
-      runScheduledSystemBackup(env, { now }).catch((error) => {
-        console.error('[MEL backup] hourly maintenance snapshot skipped:', error?.code || error?.message || error);
         return null;
       }),
     ]);
