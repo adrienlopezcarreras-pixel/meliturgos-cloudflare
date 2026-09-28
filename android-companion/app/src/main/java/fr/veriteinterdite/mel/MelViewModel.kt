@@ -473,7 +473,7 @@ class MelViewModel(
                 status = "MEL connectée · mode ${mode.label}",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: OK · Android fr-FR")
+            appendDiagnosticLine("Audio MEL: meilleure voix Android fr-FR")
             return
         } catch (error: MelPlaybackInterruptedException) {
             _state.value = _state.value.copy(
@@ -489,13 +489,14 @@ class MelViewModel(
             MelVoicePlayer.stop()
         }
 
+        // Last-resort compatibility path only. Luna is not the preferred French voice.
         try {
             val audio = client.tts(answer, speaker = "luna", format = "mp3")
             if (audio.isEmpty()) throw MelApiException("TTS_AUDIO_EMPTY", 502)
             _state.value = _state.value.copy(
                 busy = true,
                 speaking = true,
-                status = "MEL parle…",
+                status = "MEL parle · secours…",
                 error = null
             )
             MelVoicePlayer.playMp3(appContext, audio)
@@ -505,7 +506,7 @@ class MelViewModel(
                 status = "MEL connectée · mode ${mode.label}",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: secours Luna MP3")
+            appendDiagnosticLine("Audio MEL: secours serveur")
         } catch (fallbackError: MelPlaybackInterruptedException) {
             _state.value = _state.value.copy(
                 busy = false,
@@ -513,7 +514,7 @@ class MelViewModel(
                 status = "Je t’écoute…",
                 error = null
             )
-            appendDiagnosticLine("Audio MEL: interruption volontaire pendant secours MP3")
+            appendDiagnosticLine("Audio MEL: interruption volontaire pendant secours")
             return
         } catch (fallbackError: Throwable) {
             MelVoicePlayer.stop()
