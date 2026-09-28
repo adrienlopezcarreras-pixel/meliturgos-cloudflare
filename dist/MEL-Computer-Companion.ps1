@@ -527,10 +527,13 @@ if ($trayResources) {
 function Assert-SovereigntyGitRef([string]$ref) {
   $value = ([string]$ref).Trim()
   if ([string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 240) { throw "SOVEREIGNTY_GIT_REF_INVALID" }
-  $hasInvalid = $false
-  foreach ($ch in @('~','^',':','?','*','\','[')) {
-    if ($value.Contains($ch)) { $hasInvalid = $true; break }
-  }
+  $hasInvalid = $value.Contains("~") -or
+    $value.Contains("^") -or
+    $value.Contains(":") -or
+    $value.Contains("?") -or
+    $value.Contains("*") -or
+    $value.Contains([char]92) -or
+    $value.Contains([char]91)
   if ($value -match '\s' -or $hasInvalid -or $value.Contains("..") -or $value.StartsWith("-")) { throw "SOVEREIGNTY_GIT_REF_INVALID" }
   return $value
 }
