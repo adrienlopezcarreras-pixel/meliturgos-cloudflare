@@ -504,14 +504,18 @@ async function pipedreamJson(fetcher, url, init, code) {
 
 export async function pipedreamAccessToken(config, options = {}) {
   const fetcher = options.fetcher || fetch;
+  const projectId = clean(config?.project_id, 300);
+  const environment = config?.environment === 'development' ? 'development' : 'production';
+  const form = new URLSearchParams();
+  form.set('grant_type', 'client_credentials');
+  form.set('client_id', clean(config?.client_id, 1000));
+  form.set('client_secret', clean(config?.client_secret, 2000));
+  form.set('project_id', projectId);
+  form.set('environment', environment);
   const body = await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/oauth/token', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'client_credentials',
-      client_id: clean(config?.client_id, 1000),
-      client_secret: clean(config?.client_secret, 2000),
-    }),
+    headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+    body: form.toString(),
     signal: options.signal,
   }, 'PIPEDREAM_AUTH_FAILED');
   const accessToken = clean(body?.access_token, 10000);
@@ -579,6 +583,7 @@ async function createPipedreamUserToken(stored, contextOwner, requestUrl, signal
     },
     body: JSON.stringify({
       external_user_id: contextOwner,
+      external_id: contextOwner,
       allowed_origins: [requestUrl.origin],
       success_redirect_uri: success.toString(),
       error_redirect_uri: failure.toString(),
@@ -637,24 +642,20 @@ async function createPipedreamConnectLink(env, contextOwner, body, requestUrl, s
   };
 }
 
-async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
-  const stored = await pipedreamStoredConfig(env, contextOwner);
-  if (!stored?.project_id || !stored?.client_id || !stored?.client_secret) {
-    const error = new Error('PIPEDREAM_NOT_CONFIGURED');
-    error.code = 'PIPEDREAM_NOT_CONFIGURED';
-    error.status = 409;
-    throw error;
-  }
-  const { connectToken, environment } = await createPipedreamUserToken(stored, contextOwner, requestUrl, signal);
+export async function pipedreamAccountStatus(config, contextOwner, options = {}) {
+  const fetcher = options.fetcher || fetch;
+  const environment = config?.environment === 'development' ? 'development' : 'production';
+  const projectId = clean(config?.project_id, 300);
+  const accessToken = await pipedreamAccessToken(config, { fetcher, signal: options.signal });
   const params = new URLSearchParams({ external_user_id: contextOwner, limit: '100' });
-  const body = await pipedreamJson(fetch, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(stored.project_id) + '/accounts?' + params.toString(), {
+  const body = await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId) + '/accounts?' + params.toString(), {
     method: 'GET',
     headers: {
-      authorization: 'Bearer ' + connectToken,
+      authorization: 'Bearer ' + accessToken,
       accept: 'application/json',
       'x-pd-environment': environment,
     },
-    signal,
+    signal: options.signal,
   }, 'PIPEDREAM_ACCOUNTS_FAILED');
   const rows = Array.isArray(body?.data) ? body.data : [];
   const accounts = rows.map(row => ({
@@ -666,10 +667,21 @@ async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
   return {
     ok: true,
     provider: 'pipedream',
-    project_id: stored.project_id,
+    project_id: projectId,
     accounts,
     connected_apps: [...new Set(accounts.filter(row => row.healthy).map(row => row.app))],
   };
+}
+
+async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
+  const stored = await pipedreamStoredConfig(env, contextOwner);
+  if (!stored?.project_id || !stored?.client_id || !stored?.client_secret) {
+    const error = new Error('PIPEDREAM_NOT_CONFIGURED');
+    error.code = 'PIPEDREAM_NOT_CONFIGURED';
+    error.status = 409;
+    throw error;
+  }
+  return pipedreamAccountStatus(stored, contextOwner, { signal });
 }
 
 async function vercelStatus(env, contextOwner) {
