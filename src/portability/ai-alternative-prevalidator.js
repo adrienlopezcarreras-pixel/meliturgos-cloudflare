@@ -76,6 +76,8 @@ export async function prevalidateConfiguredAiAlternatives({
       added_cost_eur:0,
       credential_ref:descriptor.secretEnv||null,
       notes:'Live provider-neutral AI alternative validated by exact-response smoke.',
+      policy_profile:descriptor.policyProfile||'STANDARD',
+      low_refusal:descriptor.lowRefusal===true,
       proof:{
         isolated_test:true,
         smoke:true,
@@ -89,7 +91,13 @@ export async function prevalidateConfiguredAiAlternatives({
         source_sha:clean(env?.MEL_DEPLOYED_GIT_SHA,80)||null,
       },
     });
-    results.push({id,status:'PREVALIDATED',provider:descriptor.providerId});
+    results.push({
+      id,
+      status:'PREVALIDATED',
+      provider:descriptor.providerId,
+      policy_profile:descriptor.policyProfile||'STANDARD',
+      low_refusal:descriptor.lowRefusal===true,
+    });
   }
 
   const next=createAlternativeRegistry([...byId.values()],{now});
