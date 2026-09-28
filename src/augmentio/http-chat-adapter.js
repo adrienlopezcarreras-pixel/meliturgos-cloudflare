@@ -94,13 +94,52 @@ export function createHttpChatAdapter({
   });
 }
 
+function legacyNinjaChatDescriptor(env={}) {
+  const endpoint=String(env?.NINJACHAT_ENDPOINT||env?.NINJACHAT_API_URL||'').trim();
+  const secretEnv=['NINJACHAT_API_KEY','NINJACHAT_TOKEN','NINJACHAT_SECRET']
+    .find(name=>String(env?.[name]||'').trim())||'';
+  if(!endpoint||!secretEnv)return null;
+
+  const zeroCostVerified=String(env?.MEL_NINJACHAT_ZERO_COST_VERIFIED||'')==='1';
+  const authority=String(env?.MEL_NINJACHAT_ZERO_COST_AUTHORITY||'').trim();
+  const costProvenance=zeroCostVerified&&authority?{
+    verified:true,
+    addedCost:0,
+    source:'legacy-ninjachat-explicit-owner-proof',
+    authorization:{
+      approved:true,
+      policy:'ZERO_EURO',
+      authority,
+      adapter_id:'ninjachat:default',
+      provider:'ninjachat',
+      model:String(env?.NINJACHAT_MODEL||'ninjachat-default'),
+    },
+  }:null;
+
+  return {
+    id:'ninjachat:default',
+    providerId:'ninjachat',
+    modelId:String(env?.NINJACHAT_MODEL||'ninjachat-default').trim(),
+    endpoint,
+    secretEnv,
+    capabilities:['GENERAL','REASONING','STEERABLE','FALLBACK'],
+    priority:-100,
+    estimatedCost:costProvenance?0:null,
+    costProvenance,
+    concurrency:1,
+    policyProfile:String(env?.MEL_NINJACHAT_POLICY_PROFILE||'STANDARD').trim().toUpperCase(),
+    lowRefusal:String(env?.MEL_NINJACHAT_LOW_REFUSAL_CANDIDATE||'')==='1',
+  };
+}
+
 export function parseHttpChatProviderDescriptors(env={}) {
   const raw=String(env?.MEL_ALT_AI_PROVIDERS_JSON||'').trim();
-  if(!raw) return [];
-  let parsed;
-  try{parsed=JSON.parse(raw);}catch{throw Object.assign(new Error('ALT_AI_PROVIDERS_JSON_INVALID'),{code:'ALT_AI_PROVIDERS_JSON_INVALID'});}
-  if(!Array.isArray(parsed)) throw Object.assign(new Error('ALT_AI_PROVIDERS_JSON_INVALID'),{code:'ALT_AI_PROVIDERS_JSON_INVALID'});
-  return parsed.slice(0,8).map((row,index)=>({
+  let parsed=[];
+  if(raw){
+    try{parsed=JSON.parse(raw);}catch{throw Object.assign(new Error('ALT_AI_PROVIDERS_JSON_INVALID'),{code:'ALT_AI_PROVIDERS_JSON_INVALID'});}
+    if(!Array.isArray(parsed)) throw Object.assign(new Error('ALT_AI_PROVIDERS_JSON_INVALID'),{code:'ALT_AI_PROVIDERS_JSON_INVALID'});
+  }
+  const descriptors=parsed.slice(0,8).map((row,index)=>({
     id:String(row?.id||`http-ai-${index+1}`).trim(),
     providerId:String(row?.provider||'http-ai').trim(),
     modelId:String(row?.model||'').trim(),
@@ -114,4 +153,10 @@ export function parseHttpChatProviderDescriptors(env={}) {
     policyProfile:String(row?.policy_profile||'STANDARD').trim().toUpperCase(),
     lowRefusal:row?.low_refusal===true,
   }));
+
+  const legacy=legacyNinjaChatDescriptor(env);
+  if(legacy&&!descriptors.some(row=>row.id===legacy.id||row.providerId==='ninjachat')){
+    descriptors.push(legacy);
+  }
+  return descriptors.slice(0,8);
 }
