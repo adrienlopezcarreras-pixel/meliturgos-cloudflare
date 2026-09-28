@@ -23,3 +23,5 @@ jobs:
         run: |
           gh workflow run lora-kaggle-free-collect.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f activate_preview=false             -f wait_for_completion=false             -f max_wait_minutes=1
           echo "COLLECTOR_RELAUNCHED"
+
+# rerun after preview auth secret sync success
