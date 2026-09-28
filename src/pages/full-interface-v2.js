@@ -38,7 +38,7 @@ html body{background-image:radial-gradient(circle at 82% 12%,rgba(34,211,238,.13
 <section class="view" data-panel="computer"><div class="section-title"><h2>Ordinateur MEL</h2><p>Compagnon Windows appairé : écran, souris, clavier et applications autorisées.</p></div><div class="grid"><article class="card"><div class="skill-head"><div><h2>Connexion</h2><p class="muted" style="margin:6px 0 0">Le compagnon démarre avec Windows et ne reçoit que les actions validées par MEL.</p></div><span class="tag warn" id="computerState">VÉRIFICATION…</span></div><label style="display:block;margin-top:12px">Ordinateur<select id="computerSelect" aria-label="Ordinateur appairé"><option value="">Chargement…</option></select></label><div class="status-row"><span>Dernier contact</span><strong id="computerLastSeen">—</strong></div><div class="status-row"><span>Fenêtre active</span><strong id="computerActiveWindow">—</strong></div><div class="actions"><a class="button primary" href="/api/computer/v1/installer">Télécharger l’installation Windows</a><button id="computerRefresh">Actualiser</button><button id="computerHalt">ARRÊTER LE CONTRÔLE</button><button id="computerResume">Réactiver</button></div></article><article class="card"><h2>Actions rapides</h2><p class="muted">Les actions de saisie et d’ouverture d’application sont envoyées avec ton approbation explicite depuis cet écran.</p><div class="actions"><button id="computerShot" class="primary">Capture écran</button><button data-pc-app="notepad">Bloc-notes</button><button data-pc-app="calculator">Calculatrice</button><button data-pc-app="explorer">Explorateur</button></div><label style="display:block;margin-top:12px">Texte à écrire<input id="computerText" aria-label="Texte à saisir sur l’ordinateur" maxlength="4096" placeholder="Texte à saisir dans la fenêtre active"></label><div class="actions"><button id="computerType">Écrire</button><button data-pc-key="ENTER">Entrée</button><button data-pc-key="TAB">Tab</button><button data-pc-key="CTRL+L">Ctrl+L</button><button data-pc-key="ALT+TAB">Alt+Tab</button></div></article><article class="card wide"><div class="skill-head"><div><h2>Écran</h2><p class="muted" style="margin:6px 0 0">Après une capture, clique sur l’image pour déplacer le pointeur et cliquer à cet endroit.</p></div><span class="tag" id="computerScreenState">AUCUNE CAPTURE</span></div><div style="margin-top:12px;min-height:220px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#020617;display:flex;align-items:center;justify-content:center"><img id="computerScreen" alt="Écran de l’ordinateur MEL" style="display:none;max-width:100%;width:100%;height:auto;cursor:crosshair"></div><div class="actions"><button id="computerScrollUp">Défiler ↑</button><button id="computerScrollDown">Défiler ↓</button></div></article><article class="card wide"><h2>Historique du contrôle</h2><pre class="output" id="computerOut">Chargement de l’état ordinateur…</pre></article></div></section>
 <section class="view" data-panel="connections"><div class="section-title"><h2>Connexions</h2><p>Connecte une fois Gmail, Yahoo/Ymail, Outlook, OneDrive, SharePoint, Roundcube et Vercel. Les jetons et identifiants sont conservés chiffrés côté serveur.</p></div><div id="connectionBanner" class="connection-banner" hidden role="status" aria-live="polite"></div><div class="grid">
 <article class="card connection-card"><div class="skill-head"><div><h2>Gmail</h2><p class="muted" style="margin:5px 0 0">Lecture, brouillons et envoi via OAuth Google.</p></div><span class="tag warn" id="connStateGmail">VÉRIFICATION…</span></div><div class="connection-provider-state" id="connAppGoogle">Application Google : vérification…</div><div class="actions"><button class="primary" id="gmailConnect">Se connecter</button><button id="gmailTest">Tester</button></div><div class="connection-note" id="connNoteGmail">Après consentement, MEL conserve le refresh token chiffré pour rester connecté.</div></article>
-<article class="card connection-card"><div class="skill-head"><div><h2>Yahoo / Ymail</h2><p class="muted" style="margin:5px 0 0">Connexion OAuth Yahoo avec accès mail demandé.</p></div><span class="tag warn" id="connStateYahoo">VÉRIFICATION…</span></div><div class="connection-provider-state" id="connAppYahoo">Application Yahoo : vérification…</div><div class="actions"><button class="primary" id="yahooConnect">Se connecter</button><button id="yahooTest">Tester</button></div><div class="connection-note" id="connNoteYahoo">La persistance dépend du refresh token renvoyé par Yahoo.</div></article>
+<article class="card connection-card"><div class="skill-head"><div><h2>Yahoo / Ymail</h2><p class="muted" style="margin:5px 0 0">Connexion directe au compte Yahoo Mail via IMAP + SMTP avec mot de passe d’application.</p></div><span class="tag warn" id="connStateYahoo">NON CONFIGURÉ</span></div><div class="connection-provider-state">Serveurs fixes : imap.mail.yahoo.com:993 TLS · smtp.mail.yahoo.com:465 TLS</div><div class="two" style="margin-top:10px"><input id="yahooUsername" aria-label="Adresse Yahoo ou Ymail" autocomplete="username" placeholder="adresse@yahoo.fr ou adresse@ymail.com"><input id="yahooAppPassword" aria-label="Mot de passe d’application Yahoo" type="password" autocomplete="current-password" placeholder="mot de passe d’application Yahoo"></div><div class="actions"><button class="primary" id="yahooSave">Enregistrer chiffré</button><button id="yahooTest">Tester IMAP + SMTP</button></div><div class="connection-note" id="connNoteYahoo">Utilise un mot de passe d’application Yahoo. Le secret reste chiffré dans le vault et n’est jamais réaffiché.</div></article>
 <article class="card connection-card"><div class="skill-head"><div><h2>Outlook</h2><p class="muted" style="margin:5px 0 0">Lecture, déplacement et envoi via Microsoft Graph.</p></div><span class="tag warn" id="connStateOutlook">VÉRIFICATION…</span></div><div class="connection-provider-state" id="connAppMicrosoft">Application Microsoft : vérification…</div><div class="actions"><button class="primary" id="outlookConnect">Se connecter</button><button id="outlookTest">Tester</button></div><div class="connection-note" id="connNoteOutlook">Connexion persistante grâce à offline_access et au refresh token chiffré.</div></article>
 <article class="card connection-card"><div class="skill-head"><div><h2>OneDrive</h2><p class="muted" style="margin:5px 0 0">Lecture et écriture des fichiers via Microsoft Graph.</p></div><span class="tag warn" id="connStateOneDrive">VÉRIFICATION…</span></div><div class="actions"><button class="primary" id="oneDriveConnect">Se connecter</button><button id="oneDriveTest">Tester</button></div><div class="connection-note" id="connNoteOneDrive">Utilise la même application Microsoft qu’Outlook.</div></article>
 <article class="card connection-card"><div class="skill-head"><div><h2>SharePoint</h2><p class="muted" style="margin:5px 0 0">Sites et fichiers via Microsoft Graph.</p></div><span class="tag warn" id="connStateSharePoint">VÉRIFICATION…</span></div><div class="actions"><button class="primary" id="sharePointConnect">Se connecter</button><button id="sharePointTest">Tester</button></div><div class="connection-note" id="connNoteSharePoint">Utilise la même application Microsoft qu’Outlook et OneDrive.</div></article>
@@ -47,8 +47,7 @@ html body{background-image:radial-gradient(circle at 82% 12%,rgba(34,211,238,.13
 <article class="card wide"><div class="skill-head"><div><h2>Configuration des applications OAuth</h2><p class="muted" style="margin:5px 0 0">À remplir une seule fois si le Worker n’a pas déjà les identifiants d’application. Les secrets sont stockés dans le vault AES-GCM, jamais affichés ensuite.</p></div><span class="tag protected">CHIFFRÉ</span></div>
 <details style="margin-top:12px"><summary>Google (Gmail)</summary><div class="connection-app-config"><input id="googleClientId" class="wide-field" aria-label="Google client ID" placeholder="Google OAuth Client ID"><input id="googleClientSecret" class="wide-field" type="password" aria-label="Google client secret" placeholder="Google OAuth Client Secret"><button id="googleAppSave">Enregistrer Google</button></div></details>
 <details style="margin-top:12px"><summary>Microsoft (Outlook / OneDrive / SharePoint)</summary><div class="connection-app-config"><input id="microsoftClientId" class="wide-field" aria-label="Microsoft client ID" placeholder="Microsoft Application (client) ID"><input id="microsoftClientSecret" class="wide-field" type="password" aria-label="Microsoft client secret" placeholder="Microsoft Client Secret"><button id="microsoftAppSave">Enregistrer Microsoft</button></div></details>
-<details style="margin-top:12px"><summary>Yahoo / Ymail</summary><div class="connection-app-config"><input id="yahooClientId" class="wide-field" aria-label="Yahoo client ID" placeholder="Yahoo Client ID"><input id="yahooClientSecret" class="wide-field" type="password" aria-label="Yahoo client secret" placeholder="Yahoo Client Secret"><button id="yahooAppSave">Enregistrer Yahoo</button></div></details>
-<div class="footer-note">Les connexions OAuth utilisent PKCE. Gmail demande explicitement un accès hors ligne ; Microsoft demande offline_access. Les refresh tokens restent chiffrés dans D1.</div></article>
+<div class="footer-note">OAuth reste utilisé pour Gmail et Microsoft. Yahoo/Ymail utilise désormais IMAP + SMTP avec un mot de passe d’application, stocké chiffré dans D1.</div></article>
 </div></section>
 <section class="view" data-panel="diagnostics"><div class="section-title"><h2>Diagnostic</h2><p>Tests réels des briques essentielles avant déploiement ou évolution.</p></div><div class="grid"><article class="card"><h2>Accès au code</h2><p class="muted">Lecture du fichier public de routeur sur la release configurée.</p><div class="diag-actions"><button class="primary" id="codeSelfCheck">Tester maintenant</button></div><div class="code-proof" id="codeProof">Non testé.</div></article><article class="card"><h2>CapabilityBus</h2><p class="muted">Santé et nombre de capacités enregistrées.</p><div class="diag-actions"><button id="diagCaps">Tester</button></div><div class="code-proof" id="diagCapsOut">Non testé.</div></article><article class="card"><h2>Roadmap API</h2><p class="muted">Vérifie que la source de vérité est disponible.</p><div class="diag-actions"><button id="diagRoadmap">Tester</button></div><div class="code-proof" id="diagRoadmapOut">Non testé.</div></article><article class="card"><h2>.augmentio</h2><p class="muted">État de l’orchestration multi-IA; aucune dépense inconnue ne doit être engagée.</p><div class="diag-actions"><button id="diagAug">Tester</button></div><div class="code-proof" id="diagAugOut">Non testé.</div></article><article class="card wide"><h2>Déploiement / rollback</h2><p class="footer-note">Une seule interface Professeur est active. La production ne doit jamais être remplacée par une candidate non validée ; tout rollback reste une opération de release contrôlée et D1 n’est jamais rollback automatiquement.</p></article></div></section>
 </main></div><script>
@@ -617,7 +616,6 @@ qs('#terminalRefresh').onclick=()=>loadTerminal();
 
 const connectionUiMap={
   gmail:{provider:'google',connector:'gmail',state:'#connStateGmail',note:'#connNoteGmail'},
-  'yahoo-mail':{provider:'yahoo',connector:'yahoo-mail',state:'#connStateYahoo',note:'#connNoteYahoo'},
   'microsoft-mail':{provider:'microsoft',connector:'microsoft-mail',state:'#connStateOutlook',note:'#connNoteOutlook'},
   'microsoft-onedrive':{provider:'microsoft',connector:'microsoft-onedrive',state:'#connStateOneDrive',note:'#connNoteOneDrive'},
   'microsoft-sharepoint':{provider:'microsoft',connector:'microsoft-sharepoint',state:'#connStateSharePoint',note:'#connNoteSharePoint'}
@@ -628,9 +626,9 @@ function setConnectionBadge(selector,text,kind='warn'){
 function connectionApi(provider,action){return '/api/gen2/connections/'+encodeURIComponent(provider)+'/'+encodeURIComponent(action)}
 function connectorStatus(data,id){return data?.connectors?.[id]||null}
 function renderOAuthConnection(provider,data){
-  const appLabel=provider==='google'?'#connAppGoogle':provider==='microsoft'?'#connAppMicrosoft':'#connAppYahoo';
-  const app=qs(appLabel);if(app)app.textContent='Application '+(provider==='google'?'Google':provider==='microsoft'?'Microsoft':'Yahoo')+' : '+(data?.app_configured?'configurée':'à configurer');
-  const providerButtons=provider==='google'?[qs('#gmailConnect')]:provider==='yahoo'?[qs('#yahooConnect')]:[qs('#outlookConnect'),qs('#oneDriveConnect'),qs('#sharePointConnect')];
+  const appLabel=provider==='google'?'#connAppGoogle':'#connAppMicrosoft';
+  const app=qs(appLabel);if(app)app.textContent='Application '+(provider==='google'?'Google':'Microsoft')+' : '+(data?.app_configured?'configurée':'à configurer');
+  const providerButtons=provider==='google'?[qs('#gmailConnect')]:[qs('#outlookConnect'),qs('#oneDriveConnect'),qs('#sharePointConnect')];
   providerButtons.filter(Boolean).forEach(btn=>{btn.disabled=!data?.app_configured;btn.title=data?.app_configured?'Ouvrir le consentement OAuth':'Configurer d’abord l’application OAuth ci-dessous'});
   for(const [id,ui] of Object.entries(connectionUiMap)){
     if(ui.provider!==provider)continue;
@@ -649,12 +647,18 @@ function renderOAuthConnection(provider,data){
   }
 }
 async function loadConnections(){
-  const providers=['google','microsoft','yahoo','roundcube','vercel'];
+  const providers=['google','microsoft','yahoo-imap','roundcube','vercel'];
   const results=await Promise.allSettled(providers.map(p=>jfetch(connectionApi(p,'status'))));
   const data={};providers.forEach((p,i)=>{if(results[i].status==='fulfilled')data[p]=results[i].value});
   if(data.google)renderOAuthConnection('google',data.google);
   if(data.microsoft)renderOAuthConnection('microsoft',data.microsoft);
-  if(data.yahoo)renderOAuthConnection('yahoo',data.yahoo);
+  const yahoo=data['yahoo-imap'];
+  if(yahoo?.configured){
+    setConnectionBadge('#connStateYahoo','ENREGISTRÉ DURABLEMENT','good');
+    if(qs('#yahooUsername'))qs('#yahooUsername').value=yahoo.username||'';
+    if(qs('#yahooAppPassword'))qs('#yahooAppPassword').value='';
+    const note=qs('#connNoteYahoo');if(note)note.textContent='Compte Yahoo/Ymail enregistré. Mot de passe d’application conservé uniquement dans le vault chiffré.';
+  }else setConnectionBadge('#connStateYahoo','NON CONFIGURÉ','neutral');
   const rc=data.roundcube;
   if(rc?.configured){
     setConnectionBadge('#connStateRoundcube','ENREGISTRÉ DURABLEMENT','good');
@@ -713,6 +717,34 @@ async function saveOAuthApp(provider,button){
     const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Configuration '+provider+' : '+e.message}
   }finally{button.disabled=false;button.textContent=original}
 }
+async function saveYahooDirect(){
+  const btn=qs('#yahooSave');if(!btn)return;
+  const username=qs('#yahooUsername')?.value?.trim()||'',password=qs('#yahooAppPassword')?.value||'';
+  if(!username||!password){
+    const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Yahoo/Ymail : adresse complète et mot de passe d’application requis.'}
+    return;
+  }
+  const original=btn.textContent;btn.disabled=true;btn.textContent='Chiffrement…';
+  try{
+    await jfetch(connectionApi('yahoo-imap','save'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username,password})});
+    if(qs('#yahooAppPassword'))qs('#yahooAppPassword').value='';
+    await loadConnections();
+  }catch(e){
+    const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Yahoo/Ymail : '+e.message}
+  }finally{btn.disabled=false;btn.textContent=original}
+}
+async function testYahooDirect(){
+  const btn=qs('#yahooTest');if(!btn)return;const original=btn.textContent;btn.disabled=true;btn.textContent='Test IMAP + SMTP…';
+  try{
+    await jfetch(connectionApi('yahoo-imap','test'),{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
+    setConnectionBadge('#connStateYahoo','IMAP + SMTP OK','good');
+    const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner good';banner.textContent='Yahoo/Ymail : authentification IMAP et SMTP vérifiée.'}
+  }catch(e){
+    setConnectionBadge('#connStateYahoo','TEST ÉCHOUÉ','bad');
+    const banner=qs('#connectionBanner');if(banner){banner.hidden=false;banner.className='connection-banner bad';banner.textContent='Yahoo/Ymail : '+e.message}
+  }finally{btn.disabled=false;btn.textContent=original}
+}
+
 async function saveRoundcube(){
   const btn=qs('#roundcubeSave');if(!btn)return;
   const body={imap_host:qs('#rcImapHost')?.value,imap_port:Number(qs('#rcImapPort')?.value||993),imap_security:qs('#rcImapSecurity')?.value,smtp_host:qs('#rcSmtpHost')?.value,smtp_port:Number(qs('#rcSmtpPort')?.value||465),smtp_security:qs('#rcSmtpSecurity')?.value,username:qs('#rcUsername')?.value,password:qs('#rcPassword')?.value};
@@ -780,8 +812,8 @@ async function redeployVercel(target,button){
 }
 qs('#gmailConnect').onclick=()=>beginConnection('google','gmail',qs('#gmailConnect'));
 qs('#gmailTest').onclick=()=>testConnection('google','gmail',qs('#gmailTest'));
-qs('#yahooConnect').onclick=()=>beginConnection('yahoo','yahoo-mail',qs('#yahooConnect'));
-qs('#yahooTest').onclick=()=>testConnection('yahoo','yahoo-mail',qs('#yahooTest'));
+qs('#yahooSave').onclick=saveYahooDirect;
+qs('#yahooTest').onclick=testYahooDirect;
 qs('#outlookConnect').onclick=()=>beginConnection('microsoft','microsoft-mail',qs('#outlookConnect'));
 qs('#outlookTest').onclick=()=>testConnection('microsoft','microsoft-mail',qs('#outlookTest'));
 qs('#oneDriveConnect').onclick=()=>beginConnection('microsoft','microsoft-onedrive',qs('#oneDriveConnect'));
@@ -790,7 +822,6 @@ qs('#sharePointConnect').onclick=()=>beginConnection('microsoft','microsoft-shar
 qs('#sharePointTest').onclick=()=>testConnection('microsoft','microsoft-sharepoint',qs('#sharePointTest'));
 qs('#googleAppSave').onclick=()=>saveOAuthApp('google',qs('#googleAppSave'));
 qs('#microsoftAppSave').onclick=()=>saveOAuthApp('microsoft',qs('#microsoftAppSave'));
-qs('#yahooAppSave').onclick=()=>saveOAuthApp('yahoo',qs('#yahooAppSave'));
 qs('#roundcubeSave').onclick=saveRoundcube;
 qs('#roundcubeTest').onclick=testRoundcube;
 qs('#vercelSave').onclick=saveVercel;

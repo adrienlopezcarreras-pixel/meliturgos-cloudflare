@@ -3,7 +3,7 @@ import { createGoogleOAuthRuntime } from '../connectors/google-oauth-runtime.js'
 import { createMailOAuthRuntime } from '../connectors/mail-oauth-runtime.js';
 import { createVercelConfigResolver, saveVercelConnectionConfig } from '../connectors/vercel-config.js';
 
-const PROVIDERS = new Set(['google','microsoft','yahoo','roundcube','vercel']);
+const PROVIDERS = new Set(['google','microsoft','yahoo','yahoo-imap','roundcube','vercel']);
 const OAUTH_APP_KEYS = Object.freeze({
   google: Object.freeze({ id: 'oauth-app-google', clientIdEnv: 'GOOGLE_OAUTH_CLIENT_ID', clientSecretEnv: 'GOOGLE_OAUTH_CLIENT_SECRET' }),
   microsoft: Object.freeze({ id: 'oauth-app-microsoft', clientIdEnv: 'MICROSOFT_OAUTH_CLIENT_ID', clientSecretEnv: 'MICROSOFT_OAUTH_CLIENT_SECRET' }),
@@ -297,6 +297,67 @@ async function saveRoundcube(env, contextOwner, body) {
   return roundcubeStatus(env, contextOwner);
 }
 
+async function yahooDirectStatus(env, contextOwner) {
+  const vaults = createD1OAuthVaults(env);
+  const stored = await vaults.tokenVault.get({ owner: contextOwner, connector_id: 'yahoo-imap-smtp' });
+  if (!stored) {
+    return {
+      provider: 'yahoo-imap',
+      configured: false,
+      stored_securely: true,
+      imap_host: 'imap.mail.yahoo.com',
+      imap_port: 993,
+      imap_security: 'tls',
+      smtp_host: 'smtp.mail.yahoo.com',
+      smtp_port: 465,
+      smtp_security: 'tls',
+    };
+  }
+  return {
+    provider: 'yahoo-imap',
+    configured: true,
+    stored_securely: true,
+    imap_host: 'imap.mail.yahoo.com',
+    imap_port: 993,
+    imap_security: 'tls',
+    smtp_host: 'smtp.mail.yahoo.com',
+    smtp_port: 465,
+    smtp_security: 'tls',
+    username: clean(stored.username, 320),
+    password_present: Boolean(clean(stored.password, 4000)),
+  };
+}
+
+async function saveYahooDirect(env, contextOwner, body) {
+  const username = clean(body.username, 320);
+  const password = clean(body.password, 4000);
+  if (!username || !password || !username.includes('@')) {
+    const error = new Error('YAHOO_IMAP_CONFIGURATION_INVALID');
+    error.code = 'YAHOO_IMAP_CONFIGURATION_INVALID';
+    error.status = 400;
+    throw error;
+  }
+  const vaults = createD1OAuthVaults(env);
+  await vaults.tokenVault.put({
+    owner: contextOwner,
+    connector_id: 'yahoo-imap-smtp',
+    token_set: {
+      kind: 'imap-smtp-credentials',
+      provider: 'yahoo',
+      imap_host: 'imap.mail.yahoo.com',
+      imap_port: 993,
+      imap_security: 'tls',
+      smtp_host: 'smtp.mail.yahoo.com',
+      smtp_port: 465,
+      smtp_security: 'tls',
+      username,
+      password,
+      updated_at: Date.now(),
+    },
+  });
+  return yahooDirectStatus(env, contextOwner);
+}
+
 async function vercelStatus(env, contextOwner) {
   const cfg = await createVercelConfigResolver(env)(contextOwner);
   return {
@@ -428,7 +489,7 @@ async function bodyObject(request) {
 }
 
 export async function maybeHandleConnectionSettingsApi(request, env = {}, url = new URL(request.url)) {
-  const match = url.pathname.match(/^\/api\/gen2\/connections\/(google|microsoft|yahoo|roundcube|vercel)\/(status|save|test)$/);
+  const match = url.pathname.match(/^\/api\/gen2\/connections\/(google|microsoft|yahoo|yahoo-imap|roundcube|vercel)\/(status|save|test)$/);
   if (!match) return null;
   const provider = match[1];
   const action = match[2];
@@ -440,9 +501,11 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
       if (request.method !== 'GET') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
       const result = provider === 'roundcube'
         ? await roundcubeStatus(env, contextOwner)
-        : provider === 'vercel'
-          ? await vercelStatus(env, contextOwner)
-          : await oauthStatus(env, provider, contextOwner);
+        : provider === 'yahoo-imap'
+          ? await yahooDirectStatus(env, contextOwner)
+          : provider === 'vercel'
+            ? await vercelStatus(env, contextOwner)
+            : await oauthStatus(env, provider, contextOwner);
       return json({ ok: true, ...result });
     }
 
@@ -451,9 +514,11 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
       const body = await bodyObject(request);
       const result = provider === 'roundcube'
         ? await saveRoundcube(env, contextOwner, body)
-        : provider === 'vercel'
-          ? await saveVercelConnectionConfig(env, body, contextOwner)
-          : await saveOAuthApp(env, provider, contextOwner, body);
+        : provider === 'yahoo-imap'
+          ? await saveYahooDirect(env, contextOwner, body)
+          : provider === 'vercel'
+            ? await saveVercelConnectionConfig(env, body, contextOwner)
+            : await saveOAuthApp(env, provider, contextOwner, body);
       return json({ ok: true, ...result });
     }
 
@@ -463,6 +528,13 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
         const vaults = createD1OAuthVaults(env);
         const stored = await vaults.tokenVault.get({ owner: contextOwner, connector_id: 'generic-imap-smtp' });
         if (!stored) return json({ ok: false, code: 'ROUNDCUBE_NOT_CONFIGURED' }, 409);
+        const [imap, smtp] = await Promise.all([imapAuthProbe(stored), smtpAuthProbe(stored)]);
+        return json({ ok: true, provider, imap, smtp, persistent: true });
+      }
+      if (provider === 'yahoo-imap') {
+        const vaults = createD1OAuthVaults(env);
+        const stored = await vaults.tokenVault.get({ owner: contextOwner, connector_id: 'yahoo-imap-smtp' });
+        if (!stored) return json({ ok: false, code: 'YAHOO_IMAP_NOT_CONFIGURED' }, 409);
         const [imap, smtp] = await Promise.all([imapAuthProbe(stored), smtpAuthProbe(stored)]);
         return json({ ok: true, provider, imap, smtp, persistent: true });
       }
