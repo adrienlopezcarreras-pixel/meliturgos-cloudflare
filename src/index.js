@@ -14,8 +14,7 @@ import { runDependencyLongevityWatchRuntime } from "./evaluation/dependency-long
 import { runSovereigntyReplacementWatchRuntime } from "./evaluation/sovereignty-watch-runtime.js";
 import { runConfiguredAiCandidateValidationRuntime } from "./portability/configured-ai-candidate-validation-runtime.js";
 import { runCompanionSourceControlPrevalidationRuntime } from "./portability/companion-source-control-prevalidation-runtime.js";
-import { runCompanionStoragePrevalidationRuntime } from "./portability/companion-storage-prevalidation-runtime.js";
-import { runCompanionLocalServicesPrevalidationRuntime } from "./portability/companion-local-services-prevalidation-runtime.js";
+import { runCompanionInfrastructurePrevalidationRuntime } from "./portability/companion-infrastructure-prevalidation-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
@@ -544,22 +543,13 @@ export default {
             console.error('[MEL sovereignty] local Git prevalidation failed:', error?.code || error?.message || error);
             return null;
           }),
-          runCompanionStoragePrevalidationRuntime(env).then((result) => {
+          runCompanionInfrastructurePrevalidationRuntime(env).then((result) => {
             if (result?.status === 'BLOCKED') {
-              console.error('[MEL sovereignty] local storage prevalidation blocked:', result?.code || result?.status);
+              console.error('[MEL sovereignty] local infrastructure prevalidation blocked.');
             }
             return result;
           }).catch((error) => {
-            console.error('[MEL sovereignty] local storage prevalidation failed:', error?.code || error?.message || error);
-            return null;
-          }),
-          runCompanionLocalServicesPrevalidationRuntime(env).then((result) => {
-            if (result?.status === 'DEGRADED') {
-              console.error('[MEL sovereignty] local scheduler/observability/secrets degraded.');
-            }
-            return result;
-          }).catch((error) => {
-            console.error('[MEL sovereignty] local service prevalidation failed:', error?.code || error?.message || error);
+            console.error('[MEL sovereignty] local infrastructure prevalidation failed:', error?.code || error?.message || error);
             return null;
           }),
           runShardVaultCycle(env).then((result) => {
