@@ -129,7 +129,17 @@ async function imapAuthProbe(config) {
 }
 
 async function smtpReadCode(reader, code) {
-  return timeoutRead(reader, text => new RegExp('(?:^|\\r\\n)' + String(code) + ' ').test(text));
+  const expected = String(code);
+  return timeoutRead(reader, text => {
+    if (new RegExp('(?:^|\\r\\n)' + expected + ' ').test(text)) return true;
+    const failure = text.match(/(?:^|\\r\\n)([45]\\d\\d) [^\\r\\n]*/);
+    if (!failure) return false;
+    const authStep = expected === '235' || expected === '334';
+    const error = new Error(authStep ? 'SMTP_AUTH_REJECTED' : 'SMTP_COMMAND_REJECTED');
+    error.code = authStep ? 'SMTP_AUTH_REJECTED' : 'SMTP_COMMAND_REJECTED';
+    error.status = authStep ? 409 : 502;
+    throw error;
+  });
 }
 
 async function smtpAuthProbe(config) {
