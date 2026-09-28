@@ -321,39 +321,6 @@ jobs:
 
           printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
-          CONNECTION_PROOF_READY=0
-          for CONNECTION_PROOF_ATTEMPT in $(seq 1 12); do
-            CONNECTION_PROOF_CODE="$(curl --silent --show-error --max-time 90 \
-              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-              --header "content-type: application/json" \
-              --data '{"phase":"connection-proof"}' \
-              --output production-connection-proof.json \
-              --write-out '%{http_code}' \
-              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
-            if [ "$CONNECTION_PROOF_CODE" = "200" ]; then
-              CONNECTION_PROOF_READY=1
-              break
-            fi
-            echo "Connection proof propagation attempt ${CONNECTION_PROOF_ATTEMPT}/12 returned HTTP ${CONNECTION_PROOF_CODE}."
-            sleep 2
-          done
-          test "$CONNECTION_PROOF_READY" = "1"
-          node - <<'NODE'
-          const d=require('./production-connection-proof.json');
-          if(d?.ok!==true || d?.status!=='MEL_CONNECTIONS_PRODUCTION_PROOF_COLLECTED') {
-            throw new Error('MEL_CONNECTIONS_PRODUCTION_PROOF_FAILED');
-          }
-          if(d?.private_content_returned!==false) throw new Error('MEL_CONNECTIONS_PRIVATE_CONTENT_EXPOSED');
-          const safe={
-            status:d.status,
-            deployed_sha:d.deployed_sha||null,
-            verified_roadmap_ids:d.verified_roadmap_ids||[],
-            pending_roadmap_ids:d.pending_roadmap_ids||[],
-            proof:d.proof||{},
-          };
-          console.log('MEL connections live proof: '+JSON.stringify(safe));
-          NODE
-
           if [ "$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" ]; then
             echo "ShardVault external replication is PAUSED_FOR_ROADMAP; skipping 7/7 Internet endpoint proof."
           else
@@ -425,6 +392,39 @@ jobs:
           test "$SHARD_FINAL_CODE" = "200"
           node -e 'const d=require("./production-shardvault-final.json"); const active=Array.isArray(d?.active_external_registry)?d.active_external_registry.length:0; if(active<7) throw new Error("PRODUCTION_SHARDVAULT_ACTIVE_EXTERNAL_LT_7:"+active); if(d?.health?.recoverable!==true) throw new Error("PRODUCTION_SHARDVAULT_NOT_RECOVERABLE"); console.log("ShardVault active external registry verified: "+active+"/7");'
           fi
+
+          CONNECTION_PROOF_READY=0
+          for CONNECTION_PROOF_ATTEMPT in $(seq 1 12); do
+            CONNECTION_PROOF_CODE="$(curl --silent --show-error --max-time 90 \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"connection-proof"}' \
+              --output production-connection-proof.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "$CONNECTION_PROOF_CODE" = "200" ]; then
+              CONNECTION_PROOF_READY=1
+              break
+            fi
+            echo "Connection proof propagation attempt ${CONNECTION_PROOF_ATTEMPT}/12 returned HTTP ${CONNECTION_PROOF_CODE}."
+            sleep 2
+          done
+          test "$CONNECTION_PROOF_READY" = "1"
+          node - <<'NODE'
+          const d=require('./production-connection-proof.json');
+          if(d?.ok!==true || d?.status!=='MEL_CONNECTIONS_PRODUCTION_PROOF_COLLECTED') {
+            throw new Error('MEL_CONNECTIONS_PRODUCTION_PROOF_FAILED');
+          }
+          if(d?.private_content_returned!==false) throw new Error('MEL_CONNECTIONS_PRIVATE_CONTENT_EXPOSED');
+          const safe={
+            status:d.status,
+            deployed_sha:d.deployed_sha||null,
+            verified_roadmap_ids:d.verified_roadmap_ids||[],
+            pending_roadmap_ids:d.pending_roadmap_ids||[],
+            proof:d.proof||{},
+          };
+          console.log('MEL connections live proof: '+JSON.stringify(safe));
+          NODE
 
           # Secret propagation is eventually consistent across Worker isolates.
           # The proof is idempotent, so retry only this bounded authenticated phase.
