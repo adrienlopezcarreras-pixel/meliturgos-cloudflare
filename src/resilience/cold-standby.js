@@ -53,6 +53,10 @@ export function normalizeColdStandby(input = {}) {
       requested: input.activation?.requested === true,
       mode: text(input.activation?.mode, 40).toUpperCase() || 'MANUAL',
       approval: normalizeApproval(input.activation?.approval),
+      max_autonomy: input.activation?.max_autonomy === true,
+      emergency: input.activation?.emergency === true,
+      target_prevalidated: input.activation?.target_prevalidated === true,
+      owner_reachable: input.activation?.owner_reachable !== false,
     },
   };
 }
@@ -84,12 +88,21 @@ function activationApprovalMatches(request) {
     && approval.manifest_sha256 === request.recovery.manifest_sha256;
 }
 
+function emergencyAutonomousActivationMatches(request) {
+  return request.activation.mode === 'EMERGENCY_MAX'
+    && request.activation.max_autonomy === true
+    && request.activation.emergency === true
+    && request.activation.target_prevalidated === true
+    && request.activation.owner_reachable === false;
+}
+
 /**
  * MEL-RES-04 gate for a cold standby.
  *
- * A standby can be READY without being activated. Activation is deliberately
- * manual-only and requires an approval scoped to the standby and exact recovery
- * manifest. Owner halt always wins. No provider-specific deployment happens here.
+ * A standby can be READY without being activated. Normal activation remains
+ * manual and requires an exact approval. Unattended activation is only allowed
+ * in MAX 100% emergency mode, with an already prevalidated target and absent
+ * owner. Owner halt always wins. No provider-specific deployment happens here.
  */
 export function evaluateColdStandby(input = {}) {
   const request = normalizeColdStandby(input);
@@ -107,15 +120,21 @@ export function evaluateColdStandby(input = {}) {
     return result(request, COLD_STANDBY_STATE.READY, []);
   }
 
-  if (request.activation.mode !== 'MANUAL') {
-    return result(request, COLD_STANDBY_STATE.DENIED, ['AUTOMATIC_ACTIVATION_FORBIDDEN']);
+  if (request.activation.mode === 'MANUAL') {
+    if (!activationApprovalMatches(request)) {
+      return result(request, COLD_STANDBY_STATE.DENIED, ['EXACT_ACTIVATION_APPROVAL_REQUIRED']);
+    }
+    return result(request, COLD_STANDBY_STATE.ACTIVATION_AUTHORIZED, []);
   }
 
-  if (!activationApprovalMatches(request)) {
-    return result(request, COLD_STANDBY_STATE.DENIED, ['EXACT_ACTIVATION_APPROVAL_REQUIRED']);
+  if (request.activation.mode === 'EMERGENCY_MAX') {
+    if (!emergencyAutonomousActivationMatches(request)) {
+      return result(request, COLD_STANDBY_STATE.DENIED, ['EMERGENCY_MAX_GATE_REQUIRED']);
+    }
+    return result(request, COLD_STANDBY_STATE.ACTIVATION_AUTHORIZED, []);
   }
 
-  return result(request, COLD_STANDBY_STATE.ACTIVATION_AUTHORIZED, []);
+  return result(request, COLD_STANDBY_STATE.DENIED, ['ACTIVATION_MODE_FORBIDDEN']);
 }
 
 export function createColdStandbyPlan(input = {}) {
@@ -132,9 +151,10 @@ export function createColdStandbyPlan(input = {}) {
     manifest_sha256: evaluation.request.recovery.manifest_sha256 || null,
     destination_id: evaluation.request.destination.id || null,
     destination_provider: evaluation.request.destination.provider || null,
-    activation_mode: 'MANUAL',
+    activation_mode: evaluation.request.activation.mode,
     policy: Object.freeze({
-      automatic_activation: false,
+      automatic_activation: evaluation.request.activation.mode === 'EMERGENCY_MAX',
+      emergency_autonomous_activation_only: true,
       owner_halt_always_wins: true,
       authorized_encrypted_destination_required: true,
       exact_manifest_approval_required: true,
