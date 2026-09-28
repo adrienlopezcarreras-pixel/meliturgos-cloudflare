@@ -13,6 +13,8 @@ idf_component_register(
     esp_timer
     json
     mbedtls
+    fatfs
+    wear_levelling
     esp_port
     esp32-camera
     bt
