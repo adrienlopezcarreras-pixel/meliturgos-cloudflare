@@ -9,6 +9,7 @@ import { getAutonomyLaunchReadiness, prepareAutonomyLaunch } from './launch-read
 import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
 import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
 import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
+import { planSovereigntyGapClosure } from '../portability/sovereignty-gap-planner.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
@@ -148,6 +149,16 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     const architecture = liveTechnicalSovereigntyReport(registry, {
       maxAutonomy: (await getAutonomyControl(env.DB, { memoryState: autonomyControlState })).max_autonomy === true,
     });
+    let sovereigntyWatchReport = null;
+    try {
+      const watchRow = await env.DB.prepare('SELECT state_json FROM capability_watch_state WHERE id=?')
+        .bind('sovereignty-replacement-watch').first();
+      sovereigntyWatchReport = watchRow?.state_json ? JSON.parse(watchRow.state_json)?.report || null : null;
+    } catch {}
+    const gapPlan = planSovereigntyGapClosure({
+      registry,
+      watchReport: sovereigntyWatchReport,
+    });
     return Response.json({
       ok: true,
       status: 'TECHNICAL_SOVEREIGNTY_STATUS',
@@ -161,6 +172,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
         blocked_layers: architecture.blocked_layers,
       },
       registry_count: registry.all.length,
+      gap_plan: gapPlan,
       generated_at: new Date().toISOString(),
     }, { headers: { 'cache-control': 'no-store' } });
   }
