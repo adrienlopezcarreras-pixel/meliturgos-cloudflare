@@ -1,0 +1,200 @@
+name: pr674-three-points-production-finalizer
+
+on:
+  push:
+    branches:
+      - 'ops/pr674-three-points-finalize-20260928'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meliturgos-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Pin exact main SHA and prove requested features
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_SHA="$(git rev-parse HEAD)"
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+          grep -F "DONE_VERIFIED · PIPEDREAM IMAP" src/pages/full-interface-v2.js
+          grep -F "data-pd-connect=\"imap\"" src/pages/full-interface-v2.js
+          grep -F "FREE_LORA_COLLECTOR_WORKFLOW = 'lora-kaggle-free-collect.yml'" src/professor-live-learning-entry.js
+          grep -F "runs?per_page=10" src/professor-live-learning-entry.js
+          grep -F "'connection-proof'" src/evolution/release-launch-bootstrap.js
+          grep -F "'imap'," src/api/connection-settings-api.js
+          echo "Requested Ymail/Pipedream, LoRA current-runs UI, and connection-proof features are present on $TARGET_SHA"
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs --require-release-eligible
+
+      - name: Syntax gate
+        run: npm run check
+
+      - name: Full test suite
+        run: npm test
+
+      - name: Build and upload critical code bundle
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          tar -czf mel-critical-code.tar.gz             --exclude='src/assets'             src shardvault worker.js wrangler.jsonc package.json package-lock.json
+          test -s mel-critical-code.tar.gz
+          BUNDLE_BYTES="$(wc -c < mel-critical-code.tar.gz)"
+          echo "MEL_CRITICAL_CODE_BUNDLE_BYTES=$BUNDLE_BYTES" >> "$GITHUB_ENV"
+          REPO_KEY="${GITHUB_REPOSITORY//\//__}"
+          OBJECT_PATH="meliturgos-private-media/shardvault/code-critical/${REPO_KEY}/${TARGET_SHA}.tar.gz"
+          npx wrangler r2 object put "$OBJECT_PATH"             --file mel-critical-code.tar.gz             --content-type application/gzip             --remote
+
+      - name: Capture rollback target
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          curl -fsS             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             -H "Content-Type: application/json"             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments"             > predeploy-deployments.json
+          PREVIOUS_VERSION_ID="$(node - <<'NODE'
+          const fs=require('fs');
+          const raw=JSON.parse(fs.readFileSync('predeploy-deployments.json','utf8'));
+          if(raw?.success===false) throw new Error('PREDEPLOY_DEPLOYMENTS_READ_FAILED');
+          const root=raw?.result ?? raw;
+          const deployments=Array.isArray(root)?root:(Array.isArray(root?.deployments)?root.deployments:[root]);
+          let found='';
+          for(const deployment of deployments){
+            const versions=Array.isArray(deployment?.versions)?deployment.versions:[];
+            if(versions.length===1 && Number(versions[0]?.percentage)===100 && versions[0]?.version_id){
+              found=String(versions[0].version_id);
+              break;
+            }
+          }
+          if(!found) throw new Error('PREVIOUS_STABLE_VERSION_NOT_FOUND');
+          process.stdout.write(found);
+          NODE
+          )"
+          test -n "$PREVIOUS_VERSION_ID"
+          echo "PREVIOUS_CLOUDFLARE_VERSION_ID=$PREVIOUS_VERSION_ID" >> "$GITHUB_ENV"
+
+      - name: Deploy latest validated main to production
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          touch production-deploy-started.marker
+          npx wrangler deploy             --define "MEL_DEPLOYED_GIT_SHA:'${TARGET_SHA}'"             --define "MEL_DEPLOYED_GIT_BRANCH:'main'"             --define "MEL_CRITICAL_CODE_BUNDLE_BYTES:${MEL_CRITICAL_CODE_BUNDLE_BYTES}"
+
+      - name: Verify production HTTP
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE="$(curl --silent --show-error --location             --retry 5 --retry-all-errors --retry-delay 3 --max-time 30             --output production-root.html             --write-out '%{http_code}'             https://meliturgos.adrien-lopezcarreras.workers.dev)"
+          case "$CODE" in
+            2??|3??|401) ;;
+            *) echo "Unexpected production HTTP status: $CODE"; exit 22 ;;
+          esac
+          echo "production_http_status=$CODE"
+
+      - name: Prove exact deployed SHA and real connection state
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${TOKEN}"
+          cleanup() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/dev/null
+
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 90               --header "x-mel-launch-bootstrap: ${TOKEN}"               --header "content-type: application/json"               --data '{"phase":"connection-proof"}'               --output connection-proof.json               --write-out '%{http_code}'               https://meliturgos.adrien-lopezcarreras.workers.dev/api/internal/release-launch-bootstrap || true)"
+            if [ "$CODE" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          test "$READY" = "1"
+
+          node - <<'NODE'
+          const d=require('./connection-proof.json');
+          const target=process.env.TARGET_SHA;
+          if(d?.ok!==true || d?.status!=='MEL_CONNECTIONS_PRODUCTION_PROOF_COLLECTED') throw new Error('CONNECTION_PROOF_NOT_COLLECTED');
+          if(d?.deployed_sha!==target) throw new Error('DEPLOYED_SHA_MISMATCH:'+String(d?.deployed_sha));
+          if(d?.private_content_returned!==false) throw new Error('CONNECTION_PROOF_PRIVACY_FAILED');
+          const summary={
+            deployed_sha:d.deployed_sha,
+            yahoo_ymail:d?.proof?.yahoo_ymail||null,
+            gmail_verified:d?.proof?.gmail?.verified===true,
+            outlook_verified:d?.proof?.outlook?.verified===true,
+            onedrive_verified:d?.proof?.onedrive?.verified===true,
+            sharepoint_verified:d?.proof?.sharepoint?.verified===true,
+            vercel_verified:d?.proof?.vercel?.verified===true,
+            roundcube_verified:d?.proof?.roundcube?.verified===true,
+            verified_roadmap_ids:d?.verified_roadmap_ids||[],
+            pending_roadmap_ids:d?.pending_roadmap_ids||[],
+            private_content_returned:d?.private_content_returned,
+          };
+          console.log(JSON.stringify(summary,null,2));
+          require('fs').writeFileSync('connection-proof-sanitized.json',JSON.stringify(summary,null,2));
+          NODE
+
+          cleanup
+          trap - EXIT
+
+      - name: Upload sanitized production connection proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr674-production-connection-proof
+          path: connection-proof-sanitized.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Automatic rollback on deployment verification failure
+        if: failure()
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ ! -f production-deploy-started.marker ]; then
+            echo "Deployment never started; rollback not required."
+            exit 0
+          fi
+          test -n "${PREVIOUS_CLOUDFLARE_VERSION_ID:-}"
+          cat > rollback-request.json <<JSON
+          {"strategy":"percentage","versions":[{"version_id":"${PREVIOUS_CLOUDFLARE_VERSION_ID}","percentage":100}],"annotations":{"workers/message":"Rollback after PR674 production finalizer verification failure"}}
+          JSON
+          CODE="$(curl --silent --show-error --max-time 60             --request POST             --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"             --header "Content-Type: application/json"             --data-binary @rollback-request.json             --output rollback-response.json             --write-out '%{http_code}'             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments" || true)"
+          test "$CODE" = "200"
+          node -e 'const d=require("./rollback-response.json");if(d?.success===false)throw new Error("ROLLBACK_FAILED")'
