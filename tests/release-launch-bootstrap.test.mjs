@@ -706,3 +706,53 @@ test('connection proof promotes only connectors that pass real live probes and k
   assert.equal(JSON.stringify(body).includes('private-id'),false);
   assert.equal(JSON.stringify(body).includes('private@example.test'),false);
 });
+
+
+test('release bootstrap sovereignty proof reads only sanitized 10-layer status and never starts autonomy', async () => {
+  const DB=sqliteD1();
+  const now=Date.now();
+  const proof={
+    isolated_test:true,smoke:true,rollback:true,export:true,import:true,activate:true,
+    verified_at:new Date(now-1000).toISOString(),
+    expires_at:new Date(now+86400000).toISOString(),
+    evidence_ref:'test://live',
+    source_sha:'a'.repeat(40),
+  };
+  const layers=['ai','runtime','storage','database','source_control','ci_cd','secrets_identity','scheduler','observability','backup_restore'];
+  const all=layers.map((layer,i)=>({
+    id:'alt-'+layer,
+    layer,
+    provider:'provider-'+i,
+    adapter_id:'adapter-'+i,
+    added_cost_eur:0,
+    low_refusal:layer==='ai',
+    proof,
+  }));
+  await DB.prepare(`CREATE TABLE IF NOT EXISTS mel_alternative_registry (
+    id TEXT PRIMARY KEY,
+    registry_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  )`).run();
+  await DB.prepare('INSERT INTO mel_alternative_registry(id,registry_json,updated_at) VALUES(?,?,?)')
+    .bind('technical-sovereignty-alternatives',JSON.stringify({all}),now).run();
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'sovereignty-proof'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB,MEL_DEPLOYED_GIT_SHA:'b'.repeat(40)},
+    {setControl:async()=>{throw new Error('sovereignty proof must not touch autonomy control');}},
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.status,'MEL_SOV_01_DONE_VERIFIED_ELIGIBLE');
+  assert.equal(body.done_verified_eligible,true);
+  assert.equal(body.ready_layer_count,10);
+  assert.equal(body.registry_count,10);
+  assert.equal(body.ai_low_refusal_ready,true);
+  assert.equal(body.secret_values_exposed,false);
+  assert.equal(body.autonomy_started,false);
+  DB.close();
+});

@@ -21,9 +21,12 @@ import { boundRecentMessages, compileHistoricalDecisionCapsule, buildContext } f
 import { proveEcosystemTeacherHandoff } from '../evaluation/capability-watch-runtime.js';
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 import { maybeHandleConnectionSettingsApi } from '../api/connection-settings-api.js';
+import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
+import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
+import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
+const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -196,6 +199,50 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   if (phase === 'connection-proof') {
     const result = await runConnectionProof(env, connectionHandler);
     return Response.json({ ...result, phase, deployed_sha: exactDeployedSha(env) || null, autonomy_started: false, owner_launch_required: true }, { status: 200, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'sovereignty-proof') {
+    if (!env?.DB || typeof env.DB.prepare !== 'function') {
+      return Response.json({ ok: false, code: 'D1_NOT_BOUND', phase }, { status: 503, headers: { 'cache-control': 'no-store' } });
+    }
+    const now = Date.now();
+    const store = new D1AlternativeRegistryStore(env.DB);
+    const registry = await store.load();
+    const coverage = sovereigntyCoverageFromRegistry(registry, { now });
+    const architecture = liveTechnicalSovereigntyReport(registry, { maxAutonomy: true, now });
+    const layers = {};
+    for (const [id, row] of Object.entries(coverage.coverage || {})) {
+      layers[id] = {
+        ready: row?.ready === true,
+        prevalidated_count: Number(row?.prevalidated_count || 0),
+        alternative_count: Array.isArray(row?.alternatives) ? row.alternatives.length : 0,
+      };
+    }
+    const doneVerifiedEligible = coverage.fully_covered === true
+      && architecture.fully_sovereign === true
+      && coverage.ai_low_refusal_ready === true
+      && Number(architecture.ready_layer_count || 0) === 10
+      && Number(architecture.layer_count || 0) === 10;
+    return Response.json({
+      ok: true,
+      status: doneVerifiedEligible ? 'MEL_SOV_01_DONE_VERIFIED_ELIGIBLE' : 'MEL_SOV_01_INCOMPLETE',
+      phase,
+      deployed_sha: exactDeployedSha(env) || null,
+      done_verified_eligible: doneVerifiedEligible,
+      fully_covered: coverage.fully_covered === true,
+      architecture_fully_sovereign: architecture.fully_sovereign === true,
+      ai_low_refusal_ready: coverage.ai_low_refusal_ready === true,
+      ready_layer_count: Number(architecture.ready_layer_count || 0),
+      layer_count: Number(architecture.layer_count || 0),
+      covered_layers: coverage.covered_layers || [],
+      uncovered_layers: coverage.uncovered_layers || [],
+      blocked_layers: architecture.blocked_layers || [],
+      layers,
+      registry_count: Array.isArray(registry?.all) ? registry.all.length : 0,
+      secret_values_exposed: false,
+      autonomy_started: false,
+      owner_launch_required: true,
+    }, { status: doneVerifiedEligible ? 200 : 409, headers: { 'cache-control': 'no-store' } });
   }
 
   if (phase === 'gen2-42-runtime-tick') {
