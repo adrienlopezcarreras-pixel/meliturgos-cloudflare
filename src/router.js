@@ -17,6 +17,7 @@ import { PWA_MANIFEST_JSON } from "./pages/pwa-manifest.js";
 import { handlePublicWordPressChat, publicWordPressChatCors } from "./api/public-wordpress-chat.js";
 import { renderPublicWordPressChatPage } from "./pages/public-wordpress-chat-page.js";
 import { renderPrivacyPolicyPage } from "./pages/privacy-policy.js";
+import { renderPublicMelHomePage } from "./pages/public-mel-home.js";
 import { NORMAL_RUNTIME_SOURCE } from "./pages/mvp-runtime.js";
 import { devRuntime } from "./dev/runtime-api.js";
 import { handleShardVaultStatus } from "./pages/shardvault-status.js";
@@ -328,6 +329,17 @@ async function routeResolvedRequest(request, env, ctx) {
       if (bridgeResponse) return await bridgeResponse;
     }
 
+    if (request.method === "GET" && (url.pathname === "/about" || url.pathname === "/mel")) {
+      return new Response(renderPublicMelHomePage(), {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "public, max-age=300",
+          "content-security-policy": "default-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'",
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "strict-origin-when-cross-origin"
+        }
+      });
+    }
     if (request.method === "GET" && (url.pathname === "/privacy" || url.pathname === "/privacy-policy")) {
       return new Response(renderPrivacyPolicyPage(), {
         headers: {
