@@ -1,4 +1,5 @@
 export const LOCAL_SOVEREIGNTY_ACTIONS=Object.freeze([
+  "sovereignty.source_control.seed",
   "sovereignty.source_control.health",
   "sovereignty.source_control.read_ref",
   "sovereignty.source_control.read_file",
