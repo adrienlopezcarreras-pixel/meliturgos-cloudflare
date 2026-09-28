@@ -34,6 +34,10 @@ export async function proveCiProviderAdapter(adapter,{sourceSha,pipeline='sovere
   if(clean(run?.source_sha,80).toLowerCase()!==sha.toLowerCase()){
     return{ok:false,status:'CI_PROVIDER_SHA_MISMATCH',run_id:runId};
   }
+  const runStatus=clean(run?.status,80).toUpperCase();
+  if(!['SUCCESS','SUCCEEDED','COMPLETED'].includes(runStatus)){
+    return{ok:false,status:'CI_PROVIDER_PROOF_RUN_NOT_SUCCESSFUL',run_id:runId,run_status:runStatus||'UNKNOWN'};
+  }
 
   const artifacts=await adapter.getArtifacts({run_id:runId});
   if(artifacts?.ok!==true||!Array.isArray(artifacts.artifacts)){
