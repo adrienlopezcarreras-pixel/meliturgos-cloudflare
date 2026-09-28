@@ -21,12 +21,13 @@ import { boundRecentMessages, compileHistoricalDecisionCapsule, buildContext } f
 import { proveEcosystemTeacherHandoff } from '../evaluation/capability-watch-runtime.js';
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
 import { maybeHandleConnectionSettingsApi } from '../api/connection-settings-api.js';
+import { createReleaseBackupBinding } from '../backup/system-backup-runtime.js';
 import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
 import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
 import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
+const PHASES = new Set(['all', 'pause', 'backup-bind', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -914,6 +915,37 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       autonomy_started: false,
       owner_launch_required: true,
     }, { status: 200, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'backup-bind') {
+    try {
+      const binding = await createReleaseBackupBinding(env);
+      return Response.json({
+        ok: binding?.ok === true,
+        status: binding?.status || 'RELEASE_BACKUP_BIND_FAILED',
+        phase,
+        binding: binding?.ok === true ? {
+          ok: true,
+          status: binding.status,
+          deployed_sha: binding.deployed_sha || null,
+          snapshot_id: binding.snapshot_id || null,
+          snapshot_deployed_sha: binding.snapshot_deployed_sha || null,
+          snapshot_created_at: binding.snapshot_created_at || null,
+          binding_sha256: binding.binding_sha256 || null,
+          max_age_ms: Number(binding.max_age_ms || 0),
+        } : null,
+        autonomy_started: false,
+        owner_launch_required: true,
+      }, { status: binding?.ok === true ? 200 : 409, headers: { 'cache-control': 'no-store' } });
+    } catch (error) {
+      return Response.json({
+        ok: false,
+        code: String(error?.code || error?.message || 'RELEASE_BACKUP_BIND_FAILED').slice(0,180),
+        phase,
+        autonomy_started: false,
+        owner_launch_required: true,
+      }, { status: Number(error?.status || 503), headers: { 'cache-control': 'no-store' } });
+    }
   }
 
   if (phase === 'backup') {
