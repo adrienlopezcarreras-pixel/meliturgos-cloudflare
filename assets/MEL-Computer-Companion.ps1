@@ -443,9 +443,18 @@ function Require-SovereigntyGitRepo([string]$repository) {
   return $repo
 }
 
+function Test-SovereigntyHex([string]$value,[int]$length) {
+  $text = ([string]$value).Trim()
+  if ($text.Length -ne $length) { return $false }
+  foreach ($ch in $text.ToCharArray()) {
+    if (-not [Uri]::IsHexDigit($ch)) { return $false }
+  }
+  return $true
+}
+
 function Seed-SovereigntyGitRepo([string]$repository,[string]$expectedSha) {
   $sha = ([string]$expectedSha).Trim().ToLowerInvariant()
-  if ($sha -notmatch '^[0-9a-f]{40}$') { throw "SOVEREIGNTY_SEED_SHA_INVALID" }
+  if (-not (Test-SovereigntyHex $sha 40)) { throw "SOVEREIGNTY_SEED_SHA_INVALID" }
   if (-not (Get-Command git.exe -ErrorAction SilentlyContinue)) { throw "SOVEREIGNTY_GIT_NOT_INSTALLED" }
   if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) { throw "SOVEREIGNTY_TAR_NOT_INSTALLED" }
 
@@ -464,7 +473,7 @@ function Seed-SovereigntyGitRepo([string]$repository,[string]$expectedSha) {
     $externalVerified = ([string]$response.Headers["X-MEL-External-Reconstruction-Verified"]).Trim()
 
     if ($sourceSha -ne $sha) { throw "SOVEREIGNTY_SEED_SOURCE_SHA_MISMATCH" }
-    if ($expectedArchiveHash -notmatch '^[0-9a-f]{64}$') { throw "SOVEREIGNTY_SEED_ARCHIVE_HASH_MISSING" }
+    if (-not (Test-SovereigntyHex $expectedArchiveHash 64)) { throw "SOVEREIGNTY_SEED_ARCHIVE_HASH_MISSING" }
     if ($externalVerified -ne "1") { throw "SOVEREIGNTY_SEED_EXTERNAL_RECONSTRUCTION_REQUIRED" }
 
     $actualArchiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -530,14 +539,14 @@ function Perform-SovereigntySourceControl([string]$operation,$payload) {
     "create_ref" {
       $ref = Assert-SovereigntyGitRef ([string]$payload.ref)
       $sha = ([string]$payload.sha).Trim()
-      if ($sha -notmatch '^[0-9a-fA-F]{40}$') { throw "SOVEREIGNTY_GIT_SHA_INVALID" }
+      if (-not (Test-SovereigntyHex $sha 40)) { throw "SOVEREIGNTY_GIT_SHA_INVALID" }
       [void](Invoke-SovereigntyGit $repo @("branch","-f",$ref,$sha))
       return @{ action="sovereignty.source_control.create_ref"; ref=$ref; sha=$sha }
     }
     "update_ref" {
       $ref = Assert-SovereigntyGitRef ([string]$payload.ref)
       $sha = ([string]$payload.sha).Trim()
-      if ($sha -notmatch '^[0-9a-fA-F]{40}$') { throw "SOVEREIGNTY_GIT_SHA_INVALID" }
+      if (-not (Test-SovereigntyHex $sha 40)) { throw "SOVEREIGNTY_GIT_SHA_INVALID" }
       [void](Invoke-SovereigntyGit $repo @("branch","-f",$ref,$sha))
       return @{ action="sovereignty.source_control.update_ref"; ref=$ref; sha=$sha; force=($payload.force -eq $true) }
     }
