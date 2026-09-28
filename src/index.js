@@ -14,6 +14,7 @@ import { runDependencyLongevityWatchRuntime } from "./evaluation/dependency-long
 import { runSovereigntyReplacementWatchRuntime } from "./evaluation/sovereignty-watch-runtime.js";
 import { runConfiguredAiCandidateValidationRuntime } from "./portability/configured-ai-candidate-validation-runtime.js";
 import { runCompanionSourceControlPrevalidationRuntime } from "./portability/companion-source-control-prevalidation-runtime.js";
+import { runCompanionInfrastructurePrevalidationRuntime } from "./portability/companion-infrastructure-prevalidation-runtime.js";
 import { runCompanionStoragePrevalidationRuntime } from "./portability/companion-storage-prevalidation-runtime.js";
 import { runCompanionLocalServicesPrevalidationRuntime } from "./portability/companion-local-services-prevalidation-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
@@ -542,6 +543,15 @@ export default {
             return result;
           }).catch((error) => {
             console.error('[MEL sovereignty] local Git prevalidation failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runCompanionInfrastructurePrevalidationRuntime(env).then((result) => {
+            if (result?.status === 'BLOCKED') {
+              console.error('[MEL sovereignty] local infrastructure prevalidation blocked.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL sovereignty] local infrastructure prevalidation failed:', error?.code || error?.message || error);
             return null;
           }),
           runCompanionStoragePrevalidationRuntime(env).then((result) => {
