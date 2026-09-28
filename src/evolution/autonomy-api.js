@@ -8,7 +8,7 @@ import { AUTONOMY_RUNTIME_CRON } from './autonomy-schedule.js';
 import { getAutonomyLaunchReadiness, prepareAutonomyLaunch } from './launch-readiness.js';
 import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
 import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
-import { currentTechnicalSovereigntyReport } from '../portability/technical-sovereignty-inventory.js';
+import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
@@ -145,7 +145,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
     const store = new D1AlternativeRegistryStore(env.DB);
     const registry = await store.load();
     const coverage = sovereigntyCoverageFromRegistry(registry);
-    const architecture = currentTechnicalSovereigntyReport({
+    const architecture = liveTechnicalSovereigntyReport(registry, {
       maxAutonomy: (await getAutonomyControl(env.DB, { memoryState: autonomyControlState })).max_autonomy === true,
     });
     return Response.json({
