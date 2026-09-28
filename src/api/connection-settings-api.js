@@ -129,7 +129,17 @@ async function imapAuthProbe(config) {
 }
 
 async function smtpReadCode(reader, code) {
-  return timeoutRead(reader, text => new RegExp('(?:^|\\r\\n)' + String(code) + ' ').test(text));
+  const expected = String(code);
+  return timeoutRead(reader, text => {
+    if (new RegExp('(?:^|\\r\\n)' + expected + ' ').test(text)) return true;
+    const failure = text.match(/(?:^|\\r\\n)([45]\\d\\d) [^\\r\\n]*/);
+    if (!failure) return false;
+    const authStep = expected === '235' || expected === '334';
+    const error = new Error(authStep ? 'SMTP_AUTH_REJECTED' : 'SMTP_COMMAND_REJECTED');
+    error.code = authStep ? 'SMTP_AUTH_REJECTED' : 'SMTP_COMMAND_REJECTED';
+    error.status = authStep ? 409 : 502;
+    throw error;
+  });
 }
 
 async function smtpAuthProbe(config) {
@@ -166,6 +176,47 @@ async function smtpAuthProbe(config) {
     try { await writer.close(); } catch {}
     try { socket.close(); } catch {}
   }
+}
+
+function mailProbeError(prefix, error) {
+  const raw = clean(error?.code || error?.message || 'MAIL_PROBE_FAILED', 120).replace(/[^A-Z0-9_]/gi, '_').toUpperCase();
+  const wrapped = new Error(prefix + '_' + raw);
+  wrapped.code = prefix + '_' + raw;
+  wrapped.status = Number(error?.status) || 502;
+  return wrapped;
+}
+
+export async function probeYahooDirect(config, probes = {}) {
+  const imapProbe = probes.imapProbe || imapAuthProbe;
+  const smtpProbe = probes.smtpProbe || smtpAuthProbe;
+  let imap;
+  try {
+    imap = await imapProbe(config);
+  } catch (error) {
+    throw mailProbeError('YAHOO_IMAP', error);
+  }
+
+  let smtpConfig = config;
+  let smtp;
+  try {
+    smtp = await smtpProbe(smtpConfig);
+  } catch (error) {
+    const code = clean(error?.code || error?.message, 120);
+    if (code === 'SMTP_AUTH_REJECTED') throw mailProbeError('YAHOO_SMTP', error);
+    smtpConfig = { ...config, smtp_port: 587, smtp_security: 'starttls' };
+    try {
+      smtp = await smtpProbe(smtpConfig);
+    } catch (fallbackError) {
+      throw mailProbeError('YAHOO_SMTP', fallbackError);
+    }
+  }
+
+  return {
+    imap,
+    smtp,
+    smtp_port: Number(smtpConfig.smtp_port) || 465,
+    smtp_security: smtpConfig.smtp_security === 'starttls' ? 'starttls' : 'tls',
+  };
 }
 
 async function loadStoredAppConfig(env, provider, contextOwner) {
@@ -229,7 +280,7 @@ async function testOAuthConnector(env, provider, connectorId, contextOwner, sign
   }
   const response = await fetch(url, {
     headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
-    redirect: 'error',
+    redirect: 'manual',
     signal: signal || AbortSignal.timeout(12_000),
   });
   if (!response.ok) {
@@ -321,8 +372,8 @@ async function yahooDirectStatus(env, contextOwner) {
     imap_port: 993,
     imap_security: 'tls',
     smtp_host: 'smtp.mail.yahoo.com',
-    smtp_port: 465,
-    smtp_security: 'tls',
+    smtp_port: Number(stored.smtp_port) || 465,
+    smtp_security: stored.smtp_security === 'starttls' ? 'starttls' : 'tls',
     username: clean(stored.username, 320),
     password_present: Boolean(clean(stored.password, 4000)),
   };
@@ -378,7 +429,7 @@ async function vercelJson(url, token, signal, code) {
   try {
     response = await fetch(url, {
       headers: { authorization: 'Bearer ' + token, accept: 'application/json' },
-      redirect: 'error',
+      redirect: 'manual',
       signal: signal || AbortSignal.timeout(12_000),
     });
   } catch {
@@ -535,8 +586,20 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
         const vaults = createD1OAuthVaults(env);
         const stored = await vaults.tokenVault.get({ owner: contextOwner, connector_id: 'yahoo-imap-smtp' });
         if (!stored) return json({ ok: false, code: 'YAHOO_IMAP_NOT_CONFIGURED' }, 409);
-        const [imap, smtp] = await Promise.all([imapAuthProbe(stored), smtpAuthProbe(stored)]);
-        return json({ ok: true, provider, imap, smtp, persistent: true });
+        const result = await probeYahooDirect(stored);
+        if (Number(stored.smtp_port) !== result.smtp_port || stored.smtp_security !== result.smtp_security) {
+          await vaults.tokenVault.put({
+            owner: contextOwner,
+            connector_id: 'yahoo-imap-smtp',
+            token_set: {
+              ...stored,
+              smtp_port: result.smtp_port,
+              smtp_security: result.smtp_security,
+              updated_at: Date.now(),
+            },
+          });
+        }
+        return json({ ok: true, provider, imap: result.imap, smtp: result.smtp, persistent: true, smtp_fallback: result.smtp_port === 587 });
       }
       if (provider === 'vercel') {
         return json(await testVercelConnection(env, contextOwner, request.signal));
