@@ -32,6 +32,23 @@ function readMemoryControl(memoryState) {
   return value && typeof value === 'object' ? { ...value } : defaultControl();
 }
 
+function missingControlTable(error) {
+  const text = String(error?.message || error?.cause?.message || error || '');
+  return /no such table[^\n]*dev_bridge_state/i.test(text)
+    || /dev_bridge_state[^\n]*(does not exist|not found)/i.test(text);
+}
+
+async function persistControlRow(db, next) {
+  return db.prepare(`
+    INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json)
+    VALUES(?,?,?,?)
+    ON CONFLICT(bridge_id) DO UPDATE SET
+      last_seen=excluded.last_seen,
+      status=excluded.status,
+      metadata_json=excluded.metadata_json
+  `).bind(CONTROL_ID, next.updated_at, next.status, JSON.stringify(next)).run();
+}
+
 export async function getAutonomyControl(db, { memoryState = null } = {}) {
   if (!db) return readMemoryControl(memoryState);
   await migrate(db);
@@ -76,7 +93,23 @@ export async function setAutonomyControl(db, {
     });
   }
 
-  const current = await getAutonomyControl(db, { memoryState });
+  // The release bootstrap always supplies a complete fail-closed PAUSED state.
+  // Avoid a redundant read + full schema migration on this hot path: on large
+  // production D1 databases that work can outlive the bounded pre-deploy HTTP
+  // request before the backup even starts. A genuinely missing control table
+  // still falls back to the canonical migration path below.
+  const exactReleasePause = Boolean(db)
+    && source === 'release-launch-bootstrap'
+    && paused === true
+    && max_autonomy === false
+    && reason !== undefined
+    && launch_approved_sha === null
+    && launch_approved_at === null
+    && launch_gate_digest === null;
+
+  const current = exactReleasePause
+    ? defaultControl({ paused: true, source, reason: reason || null })
+    : await getAutonomyControl(db, { memoryState });
   const nextPaused = typeof paused === 'boolean' ? paused : current.paused === true;
   const requestedMax = typeof max_autonomy === 'boolean'
     ? max_autonomy
@@ -103,14 +136,19 @@ export async function setAutonomyControl(db, {
     return { ...next };
   }
 
-  await db.prepare(`
-    INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json)
-    VALUES(?,?,?,?)
-    ON CONFLICT(bridge_id) DO UPDATE SET
-      last_seen=excluded.last_seen,
-      status=excluded.status,
-      metadata_json=excluded.metadata_json
-  `).bind(CONTROL_ID, next.updated_at, next.status, JSON.stringify(next)).run();
+  if (exactReleasePause) {
+    try {
+      await persistControlRow(db, next);
+      return next;
+    } catch (error) {
+      if (!missingControlTable(error)) throw error;
+      await migrate(db);
+      await persistControlRow(db, next);
+      return next;
+    }
+  }
+
+  await persistControlRow(db, next);
   return next;
 }
 
