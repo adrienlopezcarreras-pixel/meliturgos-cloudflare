@@ -40,9 +40,9 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.URL
+import java.util.TimeZone
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
@@ -679,33 +679,9 @@ class MelBleBridgeService : Service() {
             return
         }
 
-        if (request.method == "GET" && request.path == "/api/device/v1/manifest") {
-            val nowMs = System.currentTimeMillis()
-            val zone = TimeZone.getDefault()
-            val body = JSONObject()
-                .put("ok", true)
-                .put("device_id", request.deviceId)
-                .put("protocol_version", "1.0")
-                .put("bridge", "android")
-                .put("bridge_version", BuildConfig.VERSION_NAME)
-                .put("epoch_ms", nowMs)
-                .put("utc_offset_seconds", zone.getOffset(nowMs) / 1000)
-                .put("timezone", zone.id)
-                .put("firmware", JSONObject().put("available", false))
-                .toString()
-                .toByteArray(Charsets.UTF_8)
-            bridgeState.value = "MINI CONNECTÉE · INTERNET OK"
-            Log.i(TAG, "MEL relay local manifest -> 200")
-            val meta = JSONObject()
-                .put("status", 200)
-                .put("contentType", "application/json")
-                .put("length", body.size)
-            if (!sendJsonFrame(device, OP_RESPONSE_BEGIN, request.id, meta)) return
-            if (!sendBodyFrames(device, request.id, body)) return
-            sendFrame(device, packet(OP_RESPONSE_END, request.id, byteArrayOf()))
-            return
-        }
-
+        // Manifest requests must reach the real MEL backend. BLE connectivity alone
+        // is not proof of Internet access; returning a local 200 here made MINI
+        // believe it was online even when the phone could not reach MEL.
         val connection = runCatching {
             val url = URL(BuildConfig.MEL_BASE_URL.trimEnd('/') + request.path)
             (url.openConnection() as HttpURLConnection).apply {
@@ -740,7 +716,7 @@ class MelBleBridgeService : Service() {
 
         try {
             val status = connection.responseCode
-            bridgeState.value = "MINI CONNECT├ëE ┬À INTERNET OK"
+            bridgeState.value = if (status in 200..299) "MINI CONNECTÉE · INTERNET OK" else "MINI CONNECTÉE · MEL HTTP $status"
             Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
