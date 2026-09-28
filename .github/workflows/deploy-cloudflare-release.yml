@@ -250,12 +250,20 @@ jobs:
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
           PREDEPLOY_TOKEN="$(openssl rand -hex 32)"
           echo "::add-mask::${PREDEPLOY_TOKEN}"
-          cleanup_predeploy_secret() {
+          BINDER_NAME=""
+          cleanup_predeploy_resources() {
             set +e
+            if [ -n "${BINDER_NAME:-}" ]; then
+              curl --silent --show-error --max-time 30 \
+                --request DELETE \
+                --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" \
+                >/tmp/mel-predeploy-binder-delete.log 2>&1 || true
+            fi
             printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-predeploy-secret-delete.log 2>&1 || true
             set -e
           }
-          trap cleanup_predeploy_secret EXIT
+          trap cleanup_predeploy_resources EXIT
           printf '%s' "$PREDEPLOY_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
 
           READY=0
@@ -306,114 +314,67 @@ jobs:
           fi
 
           if [ -n "$PROD_SHA" ]; then
-            D1_DATABASE_ID="$(node - <<'NODE'
-          const fs=require('fs');
-          const config=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));
-          const row=(config.d1_databases||[]).find(item=>item?.binding==='DB');
-          const id=String(row?.database_id||'').trim();
-          if(!/^[0-9a-f-]{36}$/i.test(id)) process.exit(1);
-          process.stdout.write(id);
-          NODE
-            )"
+            BINDER_NAME="mel-predeploy-binder-${GITHUB_RUN_ID}"
+            BINDER_TOKEN="$(openssl rand -hex 32)"
+            echo "::add-mask::${BINDER_TOKEN}"
+            export BINDER_NAME BINDER_TOKEN PROD_SHA
 
             node - <<'NODE'
           const fs=require('fs');
-          fs.writeFileSync('predeploy-backup-candidates-request.json',JSON.stringify({
-            sql:"SELECT id,object_key,metadata_json,created_at FROM backup_objects WHERE object_key LIKE 'backups/system/%' ORDER BY created_at DESC LIMIT 100",
-            params:[],
-          }));
-          NODE
-
-            D1_READ_CODE="$(curl --silent --show-error --max-time 30 \
-              --request POST \
-              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              --header "Content-Type: application/json" \
-              --data-binary @predeploy-backup-candidates-request.json \
-              --output predeploy-backup-candidates.json \
-              --write-out '%{http_code}' \
-              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query" || true)"
-
-            if [ "$D1_READ_CODE" = "200" ] && PROD_SHA="$PROD_SHA" node - <<'NODE'
-          const fs=require('fs');
-          const crypto=require('crypto');
-          const raw=JSON.parse(fs.readFileSync('predeploy-backup-candidates.json','utf8'));
-          if(raw?.success===false) process.exit(10);
-          const groups=Array.isArray(raw?.result)?raw.result:(raw?.result?[raw.result]:[]);
-          if(groups.length===0 || groups.some(group=>group?.success===false)) process.exit(11);
-          const rows=groups.flatMap(group=>Array.isArray(group?.results)?group.results:[]);
-          const prodSha=String(process.env.PROD_SHA||'').toLowerCase();
-          if(!/^[0-9a-f]{40}$/.test(prodSha)) process.exit(12);
-          const now=Date.now();
-          const maxAge=26*60*60*1000;
-          let selected=null;
-          for(const row of rows){
-            let meta={};
-            try{meta=JSON.parse(String(row?.metadata_json||'{}'));}catch{continue;}
-            const integrity=String(meta?.integritySha256||'').toLowerCase();
-            const restoreIntegrity=String(meta?.restoreIntegritySha256||'').toLowerCase();
-            const restoreSha=String(meta?.restoreDeployedGitSha||'').toLowerCase();
-            const createdAt=String(meta?.createdAt||new Date(Number(row?.created_at)||0).toISOString());
-            const createdMs=Date.parse(createdAt);
-            const valid=Boolean(row?.id)
-              && meta?.verified===true
-              && meta?.restoreVerified===true
-              && /^[0-9a-f]{64}$/.test(integrity)
-              && integrity===restoreIntegrity
-              && /^[0-9a-f]{40}$/.test(restoreSha)
-              && Number.isFinite(createdMs)
-              && createdMs<=now
-              && now-createdMs<=maxAge;
-            if(valid){selected={row,integrity,restoreSha,createdAt};break;}
-          }
-          if(!selected) process.exit(13);
-
-          const binding={
-            schema:'MEL_RELEASE_BACKUP_BINDING_V1',
-            deployed_sha:prodSha,
-            snapshot_id:String(selected.row.id),
-            snapshot_integrity_sha256:selected.integrity,
-            snapshot_deployed_sha:selected.restoreSha,
-            snapshot_created_at:selected.createdAt,
-            bound_at:now,
+          const base=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));
+          const db=(base.d1_databases||[]).find(item=>item?.binding==='DB');
+          if(!db?.database_id || !db?.database_name) throw new Error('PREDEPLOY_BINDER_D1_CONFIG_REQUIRED');
+          const config={
+            $schema:'node_modules/wrangler/config-schema.json',
+            name:process.env.BINDER_NAME,
+            main:'scripts/predeploy-release-binder-worker.js',
+            compatibility_date:base.compatibility_date||'2026-09-04',
+            workers_dev:true,
+            d1_databases:[{
+              binding:'DB',
+              database_name:db.database_name,
+              database_id:db.database_id,
+            }],
+            vars:{
+              TARGET_DEPLOYED_SHA:process.env.PROD_SHA,
+            },
           };
-          const digest=crypto.createHash('sha256').update(JSON.stringify(binding)).digest('hex');
-          fs.writeFileSync('predeploy-release-backup-binding.json',JSON.stringify({...binding,binding_sha256:digest},null,2));
-          fs.writeFileSync('predeploy-release-backup-binding-request.json',JSON.stringify({
-            sql:'INSERT OR REPLACE INTO release_backup_bindings(deployed_sha,snapshot_id,snapshot_integrity_sha256,snapshot_deployed_sha,snapshot_created_at,bound_at,binding_sha256) VALUES(?,?,?,?,?,?,?)',
-            params:[
-              binding.deployed_sha,
-              binding.snapshot_id,
-              binding.snapshot_integrity_sha256,
-              binding.snapshot_deployed_sha,
-              binding.snapshot_created_at,
-              binding.bound_at,
-              digest,
-            ],
-          }));
+          fs.writeFileSync('predeploy-binder-wrangler.jsonc',JSON.stringify(config,null,2));
           NODE
-            then
-              D1_WRITE_CODE="$(curl --silent --show-error --max-time 30 \
-                --request POST \
-                --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-                --header "Content-Type: application/json" \
-                --data-binary @predeploy-release-backup-binding-request.json \
-                --output predeploy-release-backup-binding-write.json \
-                --write-out '%{http_code}' \
-                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query" || true)"
-              if [ "$D1_WRITE_CODE" = "200" ] && node - <<'NODE'
+
+            if npx wrangler deploy --config predeploy-binder-wrangler.jsonc > predeploy-binder-deploy.log 2>&1; then
+              printf '%s' "$BINDER_TOKEN" | npx wrangler secret put PREDEPLOY_BIND_TOKEN --config predeploy-binder-wrangler.jsonc >/tmp/mel-predeploy-binder-secret.log 2>&1
+              WORKERS_DEV_SUFFIX="${BASE_URL#https://meliturgos.}"
+              BINDER_URL="https://${BINDER_NAME}.${WORKERS_DEV_SUFFIX}"
+              BINDER_BOUND=0
+              for ATTEMPT in $(seq 1 12); do
+                BINDER_CODE="$(curl --silent --show-error --max-time 30 \
+                  --request POST \
+                  --header "x-mel-predeploy-binder: ${BINDER_TOKEN}" \
+                  --output predeploy-binder-response.json \
+                  --write-out '%{http_code}' \
+                  "$BINDER_URL/" || true)"
+                if [ "$BINDER_CODE" = "200" ] && node - <<'NODE'
           const fs=require('fs');
-          const raw=JSON.parse(fs.readFileSync('predeploy-release-backup-binding-write.json','utf8'));
-          if(raw?.success===false) process.exit(1);
-          const groups=Array.isArray(raw?.result)?raw.result:(raw?.result?[raw.result]:[]);
-          if(groups.length===0 || groups.some(group=>group?.success===false)) process.exit(1);
+          const d=JSON.parse(fs.readFileSync('predeploy-binder-response.json','utf8'));
+          if(d?.ok!==true || d?.status!=='RELEASE_BACKUP_BOUND') process.exit(1);
+          if(!/^[0-9a-f]{40}$/.test(String(d?.deployed_sha||'').toLowerCase())) process.exit(1);
+          if(!d?.snapshot_id || !/^[0-9a-f]{64}$/.test(String(d?.binding_sha256||'').toLowerCase())) process.exit(1);
           NODE
-              then
-                echo "Bound recent verified backup to deployed production SHA $PROD_SHA through Cloudflare D1 API."
-              else
-                echo "Cloudflare D1 binding write failed closed (HTTP ${D1_WRITE_CODE})."
+                then
+                  BINDER_BOUND=1
+                  echo "Temporary pre-deploy binder created canonical release backup binding."
+                  break
+                fi
+                sleep 2
+              done
+              if [ "$BINDER_BOUND" != "1" ]; then
+                echo "Temporary pre-deploy binder failed closed (last HTTP ${BINDER_CODE:-000})."
+                test ! -s predeploy-binder-response.json || cat predeploy-binder-response.json
               fi
             else
-              echo "Cloudflare D1 backup metadata read/validation failed closed (HTTP ${D1_READ_CODE})."
+              echo "Temporary pre-deploy binder deployment failed closed."
+              cat predeploy-binder-deploy.log || true
             fi
           else
             echo "Production SHA unavailable from authenticated release identity proof; canonical recovery drill remains fail-closed."
@@ -517,7 +478,7 @@ jobs:
           test "$BACKUP_READY" = "1"
           node -e 'const d=require("./predeploy-backup.json");if(d?.ok!==true||d?.backup?.ok!==true)throw new Error("PREDEPLOY_VERIFIED_BACKUP_REQUIRED");console.log("Verified pre-deploy backup ready:",d.backup.status,d.backup.id||"reused")'
           touch predeploy-backup-verified.marker
-          cleanup_predeploy_secret
+          cleanup_predeploy_resources
           trap - EXIT
 
       - name: Install pinned Browser Rendering adapter
