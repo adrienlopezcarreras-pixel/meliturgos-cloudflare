@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCompanionCiProviderAdapter } from '../../src/portability/companion-ci-provider-adapter.js';
-import { proveCiProviderAdapter } from '../../src/portability/ci-provider-adapter.js';
+import { CiProviderAdapter, proveCiProviderAdapter } from '../../src/portability/ci-provider-adapter.js';
 
 function executor(){
   return async({action,payload})=>{
