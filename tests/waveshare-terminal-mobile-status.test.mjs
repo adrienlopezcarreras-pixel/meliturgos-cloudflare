@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const root = new URL('../', import.meta.url);
+// Fresh-head guard: run this contract against the current PR merge ref.
 
 test('MINI 0.4.18 reports the real mobile link independently from Wi-Fi', async () => {
   const [runtime, main, header, workflow] = await Promise.all([
