@@ -672,3 +672,61 @@ test('GEN2-42 owner MAX bootstrap approves only the gated SHA then runs one cano
   assert.equal(controls[0].launch_approved_sha,sha);
   assert.equal(controls[0].launch_gate_digest,digest);
 });
+
+test('connection proof promotes only live-verified connector roadmap items and returns no private account data', async () => {
+  const connectionHandler=async(request,_env,url)=>{
+    if(url.pathname.endsWith('/google/test')) {
+      return Response.json({ok:true,provider:'google',connector_id:'gmail',live_probe:true});
+    }
+    if(url.pathname.endsWith('/pipedream/test')) {
+      return Response.json({ok:true,provider:'pipedream',authenticated:true});
+    }
+    if(url.pathname.endsWith('/pipedream/accounts')) {
+      return Response.json({
+        ok:true,
+        connected_apps:['microsoft_outlook','microsoft_onedrive','sharepoint'],
+        accounts:[{id:'private-id',name:'private@example.test',app:'microsoft_outlook',healthy:true}],
+      });
+    }
+    if(url.pathname.endsWith('/vercel/test')) {
+      return Response.json({ok:true,authenticated:true,target_ready:true,deployment_count:2});
+    }
+    if(url.pathname.endsWith('/yahoo-imap/test')) {
+      return Response.json({ok:false,code:'YAHOO_IMAP_IMAP_AUTH_REJECTED'},{status:409});
+    }
+    if(url.pathname.endsWith('/roundcube/test')) {
+      return Response.json({ok:false,code:'ROUNDCUBE_NOT_CONFIGURED'},{status:409});
+    }
+    return Response.json({ok:false,code:'UNEXPECTED'},{status:404});
+  };
+
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'connection-proof'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,MEL_DEPLOYED_GIT_SHA:'9'.repeat(40),DB:{}},
+    {
+      connectionHandler,
+      setControl:async()=>{throw new Error('CONNECTION_PROOF_MUST_NOT_TOUCH_AUTONOMY_CONTROL');},
+    },
+  );
+
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.status,'MEL_CONNECTIONS_PRODUCTION_PROOF_COLLECTED');
+  assert.deepEqual(body.verified_roadmap_ids,['GEN2-33','GEN2-34','GEN2-35','GEN2-36']);
+  assert.deepEqual(body.pending_roadmap_ids,['MEL-CONN-03']);
+  assert.equal(body.proof.gmail.verified,true);
+  assert.equal(body.proof.outlook.verified,true);
+  assert.equal(body.proof.onedrive.verified,true);
+  assert.equal(body.proof.sharepoint.verified,true);
+  assert.equal(body.proof.vercel.verified,true);
+  assert.equal(body.proof.yahoo_ymail.verified,false);
+  assert.equal(body.proof.roundcube.verified,false);
+  assert.equal(body.private_content_returned,false);
+  const raw=JSON.stringify(body);
+  assert.equal(raw.includes('private-id'),false);
+  assert.equal(raw.includes('private@example.test'),false);
+});
