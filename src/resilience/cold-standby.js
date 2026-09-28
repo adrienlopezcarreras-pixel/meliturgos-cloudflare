@@ -134,7 +134,7 @@ export function evaluateColdStandby(input = {}) {
     return result(request, COLD_STANDBY_STATE.ACTIVATION_AUTHORIZED, []);
   }
 
-  return result(request, COLD_STANDBY_STATE.DENIED, ['ACTIVATION_MODE_FORBIDDEN']);
+  return result(request, COLD_STANDBY_STATE.DENIED, [request.activation.mode === 'AUTO' ? 'AUTOMATIC_ACTIVATION_FORBIDDEN' : 'ACTIVATION_MODE_FORBIDDEN']);
 }
 
 export function createColdStandbyPlan(input = {}) {
