@@ -1,0 +1,42 @@
+name: cloudflare-ai-token-diagnose
+
+on:
+  push:
+    branches:
+      - ops/cloudflare-ai-token-diagnose
+    paths:
+      - ".github/workflows/cloudflare-ai-token-diagnose.yml"
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Verify token and Workers AI access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CF_TOKEN_MISSING"; exit 2; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CF_ACCOUNT_ID_MISSING"; exit 2; }
+
+          verify_code="$(curl -sS -o verify.json -w '%{http_code}'             https://api.cloudflare.com/client/v4/user/tokens/verify             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" || true)"
+          echo "TOKEN_VERIFY_HTTP=$verify_code"
+          node - <<'NODE'
+          const fs=require('fs');
+          const j=JSON.parse(fs.readFileSync('verify.json','utf8'));
+          console.log('TOKEN_VERIFY_SUCCESS='+(j.success===true));
+          console.log('TOKEN_VERIFY_STATUS='+(j.result?.status||''));
+          console.log('TOKEN_VERIFY_ERROR_CODES='+(Array.isArray(j.errors)?j.errors.map(x=>x.code).filter(Boolean).join(','):''));
+          NODE
+
+          list_code="$(curl -sS -o finetunes.json -w '%{http_code}'             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai/finetunes"             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" || true)"
+          echo "FINETUNES_LIST_HTTP=$list_code"
+          node - <<'NODE'
+          const fs=require('fs');
+          const j=JSON.parse(fs.readFileSync('finetunes.json','utf8'));
+          console.log('FINETUNES_LIST_SUCCESS='+(j.success===true));
+          console.log('FINETUNES_ERROR_CODES='+(Array.isArray(j.errors)?j.errors.map(x=>x.code).filter(Boolean).join(','):''));
+          console.log('FINETUNES_ERROR_MESSAGES='+(Array.isArray(j.errors)?j.errors.map(x=>String(x.message||'').slice(0,160)).filter(Boolean).join(' | '):''));
+          NODE
