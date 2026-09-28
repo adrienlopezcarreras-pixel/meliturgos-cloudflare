@@ -111,5 +111,7 @@ export function parseHttpChatProviderDescriptors(env={}) {
     estimatedCost:row?.estimated_cost==null?null:Number(row.estimated_cost),
     costProvenance:row?.cost_provenance&&typeof row.cost_provenance==='object'?row.cost_provenance:null,
     concurrency:Number(row?.concurrency||1),
+    policyProfile:String(row?.policy_profile||'STANDARD').trim().toUpperCase(),
+    lowRefusal:row?.low_refusal===true,
   }));
 }
