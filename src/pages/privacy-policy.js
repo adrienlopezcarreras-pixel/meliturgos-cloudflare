@@ -47,7 +47,7 @@ export function renderPrivacyPolicyPage() {
   <h2>8. Contact</h2>
   <p>Pour toute question relative à cette politique ou à l'utilisation des données, utilisez l'adresse de contact développeur indiquée sur l'écran de consentement Google de l'application MEL.</p>
 
-  <p><a href="/">Retour à MEL</a></p>
+  <p><a href="/about">Présentation publique de MEL</a></p>
 </article>
 </main>
 </body>
