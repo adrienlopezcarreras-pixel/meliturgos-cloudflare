@@ -27,6 +27,8 @@ const INSPECTION_FILES = [
   'src/teachers/github-completion-reconciler.js',
 ];
 
+export const MAX_OWNER_MAX_REPAIR_ATTEMPTS = 8;
+
 const STALE_TEACHER_APPROVAL_CODES = new Set([
   'TEACHER_APPROVAL_CANDIDATE_SHA_STALE',
   'TEACHER_APPROVAL_CANDIDATE_SHA_REQUIRED',
@@ -377,7 +379,7 @@ export async function prepareAutonomyTeacherRequest({ env, repository, job, fetc
  * cycle instead of planning against unreviewed code. Production is never
  * committed or deployed here.
  */
-export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '', roadmap = null } = {}) {
+export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repository = null, benchmarkEvaluator = null, benchmarkModelId = '', roadmap = null, maxAutonomy = false } = {}) {
   const jobRepository = repository || new D1DevJobRepository(env.DB);
   const reconciliation = await reconcileRuntimeTeacherReplies({ repository: jobRepository, env, fetchImpl }).catch((error) => ({
     ok: false,
@@ -423,13 +425,55 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     const teacherState = job.result_json?.teacher_bridge;
     if (teacherState?.status === 'ANSWERED' && teacherState?.review?.verdict === 'APPROVE_PLAN' && teacherState?.review?.development_allowed === true) {
       const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
-      result.repair_cycle = {
-        status: 'REQUESTED',
-        source: 'DEV_BRIDGE_TEST_FAILURE',
-        failed_result_received_at: job.result_json.dev_bridge.received_at || null,
-        requested_at: new Date().toISOString(),
-      };
-      job = await jobRepository.update(job.id, { status: 'TEACHER_APPROVED', result_json: result });
+      const previousAttempts = Number(result?.repair_cycle?.attempts || 0);
+      const nextAttempt = previousAttempts + 1;
+      const failedTests = (Array.isArray(result?.dev_bridge?.tests) ? result.dev_bridge.tests : [])
+        .filter((row) => row?.passed !== true)
+        .slice(0, 8)
+        .map((row) => ({
+          name: String(row?.name || row?.command || '').slice(0, 200),
+          command: String(row?.command || '').slice(0, 100),
+          exit_code: Number(row?.exit_code || 0),
+          error: String(row?.error || '').slice(0, 300),
+          stdout: String(row?.stdout || '').slice(0, 2000),
+          stderr: String(row?.stderr || '').slice(0, 2000),
+        }));
+
+      if (maxAutonomy === true && nextAttempt > MAX_OWNER_MAX_REPAIR_ATTEMPTS) {
+        result.repair_cycle = {
+          ...(result.repair_cycle || {}),
+          status: 'EXHAUSTED',
+          source: 'DEV_BRIDGE_TEST_FAILURE',
+          attempts: previousAttempts,
+          max_attempts: MAX_OWNER_MAX_REPAIR_ATTEMPTS,
+          failed_tests: failedTests,
+          exhausted_at: new Date().toISOString(),
+        };
+        result.autonomy_blocked = true;
+        result.autonomy_block_reason = 'MAX_REPAIR_ATTEMPTS_EXHAUSTED';
+        job = await jobRepository.update(job.id, {
+          status: 'FAILED',
+          result_json: result,
+          error: 'MAX_REPAIR_ATTEMPTS_EXHAUSTED',
+        });
+      } else {
+        result.repair_cycle = {
+          status: 'REQUESTED',
+          source: maxAutonomy === true ? 'OWNER_MAX_TEST_FAILURE' : 'DEV_BRIDGE_TEST_FAILURE',
+          attempts: nextAttempt,
+          max_attempts: maxAutonomy === true ? MAX_OWNER_MAX_REPAIR_ATTEMPTS : null,
+          failed_tests: failedTests,
+          failed_result_received_at: job.result_json.dev_bridge.received_at || null,
+          requested_at: new Date().toISOString(),
+        };
+        // A failed test invalidates the prior generated implementation/bridge package.
+        // Keep the exact Teacher-approved goal/SHA, but force a fresh diagnosis and
+        // Mentor repair proposal using the persisted failed-test evidence.
+        delete result.implementation_proposal;
+        delete result.bridge_package;
+        delete result.bridge_preparation;
+        job = await jobRepository.update(job.id, { status: 'TEACHER_APPROVED', result_json: result });
+      }
     }
   }
 
