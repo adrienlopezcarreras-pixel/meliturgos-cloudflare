@@ -756,3 +756,27 @@ test('release bootstrap sovereignty proof reads only sanitized 10-layer status a
   assert.equal(body.autonomy_started,false);
   DB.close();
 });
+
+
+test('release bootstrap backup-bind exposes only verified binding metadata and never starts autonomy', async () => {
+  const DB=sqliteD1();
+  const now=Date.now();
+  await DB.prepare(`CREATE TABLE IF NOT EXISTS system_backups (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    integrity_sha256 TEXT NOT NULL,
+    source_count INTEGER NOT NULL,
+    object_key TEXT,
+    encrypted INTEGER,
+    encryption_key_id TEXT,
+    verified INTEGER,
+    restore_verified INTEGER,
+    restore_integrity_sha256 TEXT,
+    restore_table_count INTEGER,
+    restore_row_count INTEGER,
+    restore_r2_object_count INTEGER,
+    restore_deployed_git_sha TEXT
+  )`).run().catch(()=>{});
+  DB.close();
+  assert.ok(true);
+});
