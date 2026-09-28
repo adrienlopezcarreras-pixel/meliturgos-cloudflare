@@ -672,3 +672,69 @@ test('GEN2-42 owner MAX bootstrap approves only the gated SHA then runs one cano
   assert.equal(controls[0].launch_approved_sha,sha);
   assert.equal(controls[0].launch_gate_digest,digest);
 });
+
+test('connection proof verifies live roadmap connectors while keeping Yahoo/Ymail non-blocking', async () => {
+  const calls=[];
+  const connectionHandler=async(request,_env,url)=>{
+    calls.push({method:request.method,path:url.pathname});
+    if(url.pathname.endsWith('/google/test')) {
+      return Response.json({ok:true,provider:'google',connector_id:'gmail',live_probe:true});
+    }
+    if(url.pathname.endsWith('/pipedream/test')) {
+      return Response.json({ok:true,provider:'pipedream',authenticated:true,project_id:'proj_test'});
+    }
+    if(url.pathname.endsWith('/pipedream/accounts')) {
+      return Response.json({
+        ok:true,
+        provider:'pipedream',
+        connected_apps:['microsoft_outlook','microsoft_onedrive','sharepoint'],
+        accounts:[
+          {id:'secret-account-id',app:'microsoft_outlook',name:'private@example.test',healthy:true},
+        ],
+      });
+    }
+    if(url.pathname.endsWith('/vercel/test')) {
+      return Response.json({ok:true,provider:'vercel',authenticated:true,target_ready:false,user_id_present:true});
+    }
+    if(url.pathname.endsWith('/yahoo-imap/test')) {
+      return Response.json({ok:false,code:'YAHOO_IMAP_IMAP_AUTH_REJECTED'},{status:409});
+    }
+    return Response.json({ok:false,code:'UNEXPECTED_CONNECTION_PROOF_ROUTE'},{status:404});
+  };
+
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'connection-proof'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,MEL_DEPLOYED_GIT_SHA:'9'.repeat(40),DB:{}},
+    {
+      connectionHandler,
+      setControl:async()=>{throw new Error('CONNECTION_PROOF_MUST_NOT_TOUCH_AUTONOMY_CONTROL');},
+    },
+  );
+
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.status,'MEL_CONNECTIONS_PRODUCTION_PROOF_COLLECTED');
+  assert.equal(body.proof.gmail.verified,true);
+  assert.equal(body.proof.outlook.verified,true);
+  assert.equal(body.proof.onedrive.verified,true);
+  assert.equal(body.proof.sharepoint.verified,true);
+  assert.equal(body.proof.vercel.authenticated,true);
+  assert.equal(body.proof.vercel.target_ready,false);
+  assert.equal(body.proof.vercel.verified,false);
+  assert.equal(body.proof.yahoo_ymail.verified,false);
+  assert.equal(body.proof.yahoo_ymail.excluded_from_gen2_33_36_verification,true);
+  assert.deepEqual(body.verified_roadmap_ids,['GEN2-33','GEN2-34','GEN2-35']);
+  assert.deepEqual(body.pending_roadmap_ids,['GEN2-36']);
+  assert.equal(body.private_content_returned,false);
+  assert.equal(JSON.stringify(body).includes('secret-account-id'),false);
+  assert.equal(JSON.stringify(body).includes('private@example.test'),false);
+  assert.ok(calls.some(row=>row.path.endsWith('/google/test')));
+  assert.ok(calls.some(row=>row.path.endsWith('/pipedream/accounts')));
+  assert.ok(calls.some(row=>row.path.endsWith('/vercel/test')));
+  assert.ok(calls.some(row=>row.path.endsWith('/yahoo-imap/test')));
+});
