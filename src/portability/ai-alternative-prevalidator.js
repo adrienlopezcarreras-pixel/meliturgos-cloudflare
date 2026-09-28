@@ -1,3 +1,4 @@
+import { probeLowRefusalAdapter } from './ai-low-refusal-probe.js';
 import {
   createHttpChatAdapter,
   parseHttpChatProviderDescriptors,
@@ -64,6 +65,13 @@ export async function prevalidateConfiguredAiAlternatives({
       continue;
     }
 
+    let lowRefusalVerified=false;
+    let lowRefusalEvidence=null;
+    if(descriptor.lowRefusal===true){
+      lowRefusalEvidence=await probeLowRefusalAdapter(adapter);
+      lowRefusalVerified=lowRefusalEvidence.ok===true;
+    }
+
     const previous=byId.get(id)||{};
     byId.set(id,{
       ...previous,
@@ -77,7 +85,7 @@ export async function prevalidateConfiguredAiAlternatives({
       credential_ref:descriptor.secretEnv||null,
       notes:'Live provider-neutral AI alternative validated by exact-response smoke.',
       policy_profile:descriptor.policyProfile||'STANDARD',
-      low_refusal:descriptor.lowRefusal===true,
+      low_refusal:lowRefusalVerified,
       proof:{
         isolated_test:true,
         smoke:true,
@@ -96,7 +104,13 @@ export async function prevalidateConfiguredAiAlternatives({
       status:'PREVALIDATED',
       provider:descriptor.providerId,
       policy_profile:descriptor.policyProfile||'STANDARD',
-      low_refusal:descriptor.lowRefusal===true,
+      low_refusal:lowRefusalVerified,
+      low_refusal_probe:lowRefusalEvidence?{
+        ok:lowRefusalEvidence.ok,
+        profile:lowRefusalEvidence.profile,
+        passed_count:lowRefusalEvidence.passed_count,
+        probe_count:lowRefusalEvidence.probe_count,
+      }:null,
     });
   }
 
