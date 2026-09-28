@@ -677,16 +677,16 @@ async function loadConnections(){
     if(qs('#pipedreamEnvironment'))qs('#pipedreamEnvironment').value=pd.environment||'production';
     const note=qs('#connNotePipedream');if(note)note.textContent='Projet '+(pd.project_id||'Pipedream')+' enregistré. Client ID et secret restent uniquement dans le vault chiffré.';
   }else setConnectionBadge('#connStatePipedream','NON CONFIGURÉ','neutral');
-  const params=new URLSearchParams(location.search),oauth=params.get('oauth'),connector=params.get('connector'),pd=params.get('pd'),pdApp=params.get('app'),banner=qs('#connectionBanner');
+  const params=new URLSearchParams(location.search),oauth=params.get('oauth'),connector=params.get('connector'),pdReturn=params.get('pd'),pdApp=params.get('app'),banner=qs('#connectionBanner');
   if(banner&&oauth){
     banner.hidden=false;
     banner.className='connection-banner '+(oauth==='connected'?'good':'bad');
     banner.textContent=oauth==='connected'?'Connexion réussie : '+(connector||'service')+'. Vérification du statut en cours.':'Connexion refusée ou interrompue : '+(connector||'service')+'.';
-  }else if(banner&&pd){
+  }else if(banner&&pdReturn){
     banner.hidden=false;
-    banner.className='connection-banner '+(pd==='connected'?'good':'bad');
+    banner.className='connection-banner '+(pdReturn==='connected'?'good':'bad');
     const labels={microsoft_outlook:'Outlook / MSN',microsoft_onedrive:'OneDrive',sharepoint:'SharePoint',lemlist:'Lemlist',google_drive:'Google Drive',google_calendar:'Google Calendar',dropbox:'Dropbox'};
-    banner.textContent=pd==='connected'?'Connexion Pipedream réussie : '+(labels[pdApp]||pdApp||'service')+'.':'Connexion Pipedream interrompue : '+(labels[pdApp]||pdApp||'service')+'.';
+    banner.textContent=pdReturn==='connected'?'Connexion Pipedream réussie : '+(labels[pdApp]||pdApp||'service')+'.':'Connexion Pipedream interrompue : '+(labels[pdApp]||pdApp||'service')+'.';
   }
   return data;
 }
