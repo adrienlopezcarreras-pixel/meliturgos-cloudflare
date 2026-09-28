@@ -24,10 +24,18 @@ test('live sovereignty report consumes validated registry alternatives instead o
 });
 
 test('live sovereignty report still refuses full sovereignty when capabilities themselves are incomplete',()=>{
+  const incompleteProof={...proof,activate:false};
   const rows=[
     ['ai','a'],['runtime','r'],['storage','s'],['database','d'],['source_control','g'],
     ['ci_cd','c'],['secrets_identity','i'],['scheduler','q'],['observability','o'],['backup_restore','b'],
-  ].map(([layer,id])=>({id:'alt.'+id,layer,provider:'p.'+id,adapter_id:'adapter.'+id,added_cost_eur:0,proof}));
+  ].map(([layer,id])=>({
+    id:'alt.'+id,
+    layer,
+    provider:'p.'+id,
+    adapter_id:'adapter.'+id,
+    added_cost_eur:0,
+    proof:layer==='runtime'||layer==='secrets_identity'?incompleteProof:proof,
+  }));
   const report=liveTechnicalSovereigntyReport(createAlternativeRegistry(rows),{maxAutonomy:true});
   assert.equal(report.fully_sovereign,false);
   assert.ok(report.blocked_layers.some(row=>row.id==='runtime'));
