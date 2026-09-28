@@ -706,7 +706,7 @@ async function loadConnections(){
       const state=qs('#pipedreamPrimaryState');
       if(state)state.textContent='Microsoft : '+count+'/3 connecté'+(count>1?'s':'')+'.';
       if(connected.has('imap')){
-        setConnectionBadge('#connStateYahoo','CONNECTÉ VIA PIPEDREAM','good');
+        setConnectionBadge('#connStateYahoo','DONE_VERIFIED · PIPEDREAM IMAP','good');
         const yn=qs('#connNoteYahoo');if(yn)yn.textContent='Yahoo/Ymail est connecté via le pont IMAP géré par Pipedream.';
       }
     }catch(e){
