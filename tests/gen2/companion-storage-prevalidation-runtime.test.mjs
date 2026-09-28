@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('MEL scheduled maintenance runs local storage prevalidation',async()=>{
+test('MEL scheduled maintenance delegates local storage prevalidation to the unified infrastructure authority',async()=>{
   const source=await readFile(new URL('../../src/index.js',import.meta.url),'utf8');
-  assert.match(source,/runCompanionStoragePrevalidationRuntime/);
   const scheduled=source.slice(source.indexOf('async scheduled'));
-  assert.match(scheduled,/runCompanionStoragePrevalidationRuntime\(env\)/);
+  assert.match(scheduled,/runCompanionInfrastructurePrevalidationRuntime\(env\)/);
+  assert.doesNotMatch(scheduled,/runCompanionStoragePrevalidationRuntime\(env\)/);
 });
 
 test('local storage prevalidation requires live companion proof before registry write',async()=>{
