@@ -1,13 +1,13 @@
 const SHA40=/^[a-f0-9]{40}$/i;
 const SHA64=/^[a-f0-9]{64}$/i;
 const SYSTEM_BACKUP_PREFIX='backups/system/';
-const MAX_AGE_MS=26*60*60*1000;
+const BOOTSTRAP_MAX_AGE_MS=48*60*60*1000;
 
 function parseMetadata(raw){
   try{return raw?JSON.parse(raw):{};}catch{return {};}
 }
 
-export function selectVerifiedCandidate(rows,{nowMs=Date.now(),maxAgeMs=MAX_AGE_MS}={}){
+export function selectVerifiedCandidate(rows,{nowMs=Date.now(),maxAgeMs=BOOTSTRAP_MAX_AGE_MS}={}){
   for(const row of Array.isArray(rows)?rows:[]){
     const meta=parseMetadata(row?.metadata_json);
     const id=String(row?.id||'');
