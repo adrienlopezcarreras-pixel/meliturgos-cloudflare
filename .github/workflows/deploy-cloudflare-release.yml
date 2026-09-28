@@ -281,11 +281,14 @@ jobs:
           # The binding alone never marks the backup ready: the recovery drill
           # below must still verify the canonical binding and R2 object presence.
           PROD_IDENTITY_CODE="$(curl --silent --show-error --max-time 30 \
+            --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"sovereignty-proof"}' \
             --output predeploy-production-identity.json \
             --write-out '%{http_code}' \
-            "$BASE_URL/api/gen2/dashboard-summary" || true)"
-          if [ "$PROD_IDENTITY_CODE" = "200" ]; then
-            PROD_SHA="$(node -e 'const d=require("./predeploy-production-identity.json");const s=String(d?.deployment?.commit||"").toLowerCase();if(!/^[0-9a-f]{40}$/.test(s))process.exit(1);process.stdout.write(s)' || true)"
+            "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
+          if [ "$PROD_IDENTITY_CODE" = "200" ] || [ "$PROD_IDENTITY_CODE" = "409" ]; then
+            PROD_SHA="$(node -e 'const d=require("./predeploy-production-identity.json");const s=String(d?.deployed_sha||"").toLowerCase();if(!/^[0-9a-f]{40}$/.test(s))process.exit(1);process.stdout.write(s)' || true)"
           else
             PROD_SHA=""
           fi
