@@ -41,7 +41,7 @@ function fresh(proof,now=Date.now()){
   return verified<=now;
 }
 
-export function normalizeAlternative(record={}){
+export function normalizeAlternative(record={},{now=Date.now()}={}){
   const layer=clean(record.layer,80);
   if(!LAYERS.includes(layer)) throw err('ALTERNATIVE_LAYER_INVALID');
   const id=clean(record.id,200);
@@ -59,13 +59,13 @@ export function normalizeAlternative(record={}){
     added_cost_eur:Number.isFinite(Number(record.added_cost_eur))?Number(record.added_cost_eur):null,
     credential_ref:clean(record.credential_ref,160)||null,
     proof:Object.freeze(proof),
-    prevalidated:proofComplete(proof)&&fresh(proof),
+    prevalidated:proofComplete(proof)&&fresh(proof,now),
     notes:clean(record.notes,1000)||null,
   });
 }
 
-export function createAlternativeRegistry(records=[]){
-  const normalized=(Array.isArray(records)?records:[]).map(normalizeAlternative);
+export function createAlternativeRegistry(records=[],{now=Date.now()}={}){
+  const normalized=(Array.isArray(records)?records:[]).map(row=>normalizeAlternative(row,{now}));
   const byLayer=Object.fromEntries(LAYERS.map(layer=>[layer,[]]));
   for(const row of normalized) byLayer[row.layer].push(row);
   for(const layer of LAYERS){
@@ -93,11 +93,11 @@ export function eligibleAlternatives(registry,layer,{maxAddedCostEur=0,now=Date.
   });
 }
 
-export function sovereigntyCoverageFromRegistry(registry){
+export function sovereigntyCoverageFromRegistry(registry,{now=Date.now()}={}){
   const coverage={};
   for(const layer of LAYERS){
     const rows=registry?.layers?.[layer]||[];
-    const ready=rows.filter(row=>row.prevalidated);
+    const ready=rows.filter(row=>row.prevalidated&&fresh(row.proof,now));
     coverage[layer]={
       ready:ready.length>0,
       prevalidated_count:ready.length,
