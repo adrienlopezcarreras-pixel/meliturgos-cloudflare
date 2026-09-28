@@ -280,17 +280,29 @@ jobs:
           # but avoids invoking the heavy Worker backup path before deployment.
           # The binding alone never marks the backup ready: the recovery drill
           # below must still verify the canonical binding and R2 object presence.
-          PROD_IDENTITY_CODE="$(curl --silent --show-error --max-time 30 \
+          PROD_IDENTITY_CODE="$(curl --silent --show-error --max-time 20 \
             --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
             --header "content-type: application/json" \
-            --data '{"phase":"sovereignty-proof"}' \
+            --data '{"phase":"identity"}' \
             --output predeploy-production-identity.json \
             --write-out '%{http_code}' \
             "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
-          if [ "$PROD_IDENTITY_CODE" = "200" ] || [ "$PROD_IDENTITY_CODE" = "409" ]; then
+          if [ "$PROD_IDENTITY_CODE" = "200" ]; then
             PROD_SHA="$(node -e 'const d=require("./predeploy-production-identity.json");const s=String(d?.deployed_sha||"").toLowerCase();if(!/^[0-9a-f]{40}$/.test(s))process.exit(1);process.stdout.write(s)' || true)"
           else
-            PROD_SHA=""
+            echo "Lightweight identity phase unavailable (HTTP ${PROD_IDENTITY_CODE}); using compatibility connection-proof."
+            PROD_IDENTITY_CODE="$(curl --silent --show-error --max-time 60 \
+              --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"connection-proof"}' \
+              --output predeploy-production-identity.json \
+              --write-out '%{http_code}' \
+              "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
+            if [ "$PROD_IDENTITY_CODE" = "200" ]; then
+              PROD_SHA="$(node -e 'const d=require("./predeploy-production-identity.json");const s=String(d?.deployed_sha||"").toLowerCase();if(!/^[0-9a-f]{40}$/.test(s))process.exit(1);process.stdout.write(s)' || true)"
+            else
+              PROD_SHA=""
+            fi
           fi
 
           if [ -n "$PROD_SHA" ]; then
@@ -382,7 +394,7 @@ jobs:
               echo "Could not read backup metadata from D1; canonical recovery drill remains fail-closed."
             fi
           else
-            echo "Production SHA unavailable from dashboard summary; canonical recovery drill remains fail-closed."
+            echo "Production SHA unavailable from authenticated release identity proof; canonical recovery drill remains fail-closed."
           fi
 
           # First reuse the canonical persisted recovery proof. The recovery
