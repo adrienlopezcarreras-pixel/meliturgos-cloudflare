@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-test('MEL scheduled maintenance runs local Git sovereignty validation',async()=>{
+test('MEL scheduled maintenance has one local Git sovereignty authority',async()=>{
   const source=await readFile(new URL('../../src/index.js',import.meta.url),'utf8');
-  assert.match(source,/runCompanionGitSovereigntyRuntime/);
   const scheduled=source.slice(source.indexOf('async scheduled'));
-  assert.match(scheduled,/runCompanionGitSovereigntyRuntime\(env\)/);
+  assert.match(scheduled,/runCompanionSourceControlPrevalidationRuntime\(env\)/);
+  assert.doesNotMatch(scheduled,/runCompanionGitSovereigntyRuntime\(env\)/);
 });
 
 test('local Git runtime requires ShardVault seed provenance before prevalidation',async()=>{
