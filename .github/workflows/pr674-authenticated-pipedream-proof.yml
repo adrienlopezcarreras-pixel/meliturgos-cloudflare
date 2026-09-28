@@ -1,0 +1,45 @@
+name: pr674-authenticated-pipedream-proof
+
+on:
+  push:
+    branches:
+      - 'proof/pr674-yahoo-pipedream-live-20260928'
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Probe authenticated production Pipedream accounts
+        shell: bash
+        env:
+          MELITURGOS_PASSWORD: ${{ secrets.MELITURGOS_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MELITURGOS_PASSWORD:-}" ]; then
+            echo "github_secret_present=false"
+            exit 3
+          fi
+          echo "github_secret_present=true"
+          CODE="$(curl --silent --show-error --max-time 30 \
+            --header "Authorization: Bearer ${MELITURGOS_PASSWORD}" \
+            --output accounts.json \
+            --write-out '%{http_code}' \
+            https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/connections/pipedream/accounts || true)"
+          echo "http_status=${CODE}"
+          node - <<'NODE'
+          const fs=require('fs');
+          let d={};
+          try{d=JSON.parse(fs.readFileSync('accounts.json','utf8'))}catch{}
+          const apps=Array.isArray(d?.connected_apps)?d.connected_apps:[];
+          console.log(JSON.stringify({
+            ok:d?.ok===true,
+            code:d?.code||d?.error||null,
+            connected_apps:apps,
+            imap_live_connected:apps.includes('imap')
+          },null,2));
+          NODE
+          test "${CODE}" = "200"
