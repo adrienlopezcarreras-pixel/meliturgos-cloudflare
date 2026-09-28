@@ -58,6 +58,48 @@ test('autonomy control writes fail closed without D1 or explicit memory state', 
   );
 });
 
+test('release predeploy pause writes exact PAUSED state without reading or migrating first', async () => {
+  const statements = [];
+  const db = {
+    prepare(sql) {
+      const statement = String(sql);
+      statements.push(statement);
+      return {
+        bind() { return this; },
+        async run() {
+          assert.match(statement, /INSERT INTO dev_bridge_state/);
+          return { success: true };
+        },
+        async first() {
+          throw new Error('PREDEPLOY_CONTROL_READ_FORBIDDEN');
+        },
+        async all() {
+          throw new Error('PREDEPLOY_MIGRATION_FORBIDDEN');
+        },
+      };
+    },
+  };
+
+  const paused = await setAutonomyControl(db, {
+    paused: true,
+    max_autonomy: false,
+    source: 'release-launch-bootstrap',
+    reason: 'NEW_RELEASE_AWAITING_OWNER_LAUNCH',
+    launch_approved_sha: null,
+    launch_approved_at: null,
+    launch_gate_digest: null,
+  });
+
+  assert.equal(paused.paused, true);
+  assert.equal(paused.max_autonomy, false);
+  assert.equal(paused.status, 'PAUSED');
+  assert.equal(paused.source, 'release-launch-bootstrap');
+  assert.equal(paused.reason, 'NEW_RELEASE_AWAITING_OWNER_LAUNCH');
+  assert.equal(statements.length, 1);
+  assert.match(statements[0], /INSERT INTO dev_bridge_state/);
+  assert.doesNotMatch(statements[0], /SELECT/i);
+});
+
 test('persistent D1 autonomy control is fail-closed PAUSED until the owner explicitly enables it', async () => {
   const db = sqliteD1();
   try {
