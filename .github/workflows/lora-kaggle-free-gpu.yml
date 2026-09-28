@@ -55,7 +55,10 @@ permissions:
 
 concurrency:
   group: mel-lora-kaggle-free-gpu
-  cancel-in-progress: true
+  # Chained workflow_dispatch cycles must queue instead of cancelling the
+  # cycle that just dispatched them. Push/cancel-only runs retain the
+  # ability to interrupt an active waiter.
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   cancel-only:
