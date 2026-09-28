@@ -62,6 +62,8 @@ test('full interface exposes persistent Gmail Yahoo and Roundcube controls while
   assert.match(html, /data-pd-connect="microsoft_outlook"/);
   assert.match(html, /data-pd-connect="microsoft_onedrive"/);
   assert.match(html, /data-pd-connect="sharepoint"/);
+  assert.match(html, /data-pd-connect="imap"/);
+  assert.match(html, /id="yahooPipedream"/);
   assert.match(html, /CONNECTÉ DURABLEMENT/);
   assert.match(html, /initialView=new URLSearchParams\(location\.search\)\.get\('view'\)/);
 });
@@ -113,6 +115,7 @@ test('full interface exposes encrypted Pipedream Connect bridge and roadmap app 
   assert.match(html, /data-pd-connect="microsoft_outlook"/);
   assert.match(html, /data-pd-connect="microsoft_onedrive"/);
   assert.match(html, /data-pd-connect="sharepoint"/);
+  assert.match(html, /data-pd-connect="imap"/);
   assert.match(html, /data-pd-connect="lemlist"/);
   assert.match(html, /data-pd-connect="google_drive"/);
   assert.match(html, /data-pd-connect="google_calendar"/);
@@ -120,4 +123,12 @@ test('full interface exposes encrypted Pipedream Connect bridge and roadmap app 
   assert.match(html, /connectionApi\('pipedream','link'\)/);
   assert.match(html, /window\.location\.href=d\.connect_link_url/);
   assert.match(html, /Microsoft : /);
+});
+
+test('LoRA interface exposes the current collector status instead of only a stale training run', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  assert.match(html, /id="freeCollectorState"/);
+  assert.match(html, /collector_workflow/);
+  assert.match(html, /Collector Kaggle à jour/);
 });
