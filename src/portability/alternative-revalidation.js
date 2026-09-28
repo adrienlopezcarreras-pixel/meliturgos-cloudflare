@@ -77,7 +77,7 @@ export async function revalidateAlternativeRegistry({
     }
   }
 
-  const next=createAlternativeRegistry([...byId.values()]);
+  const next=createAlternativeRegistry([...byId.values()],{now});
   return {
     ok:true,
     checked_at:new Date(now).toISOString(),
