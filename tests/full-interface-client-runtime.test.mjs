@@ -38,21 +38,15 @@ test('full interface keeps capabilities while avoiding eager heavy hidden-panel 
 });
 
 
-test('full interface exposes persistent connection controls for Gmail Yahoo IMAP Microsoft and Roundcube', async () => {
+test('full interface exposes persistent Gmail Yahoo and Roundcube controls while Microsoft is consolidated in Pipedream', async () => {
   const response = await onRequestGet();
   const html = await response.text();
   assert.match(html, /data-view="connections"/);
   assert.match(html, /data-panel="connections"/);
   assert.match(html, />Gmail</);
   assert.match(html, />Yahoo \/ Ymail</);
-  assert.match(html, />Outlook</);
-  assert.match(html, />OneDrive</);
-  assert.match(html, />SharePoint</);
   assert.match(html, />Roundcube</);
   assert.match(html, /id="gmailConnect"/);
-  assert.match(html, /id="outlookConnect"/);
-  assert.match(html, /id="oneDriveConnect"/);
-  assert.match(html, /id="sharePointConnect"/);
   assert.match(html, /id="yahooUsername"/);
   assert.match(html, /id="yahooAppPassword"/);
   assert.match(html, /id="yahooSave"/);
@@ -60,6 +54,14 @@ test('full interface exposes persistent connection controls for Gmail Yahoo IMAP
   assert.match(html, /smtp\.mail\.yahoo\.com/);
   assert.match(html, /roundcubeSave/);
   assert.match(html, /roundcubeTest/);
+  assert.doesNotMatch(html, /id="outlookConnect"/);
+  assert.doesNotMatch(html, /id="oneDriveConnect"/);
+  assert.doesNotMatch(html, /id="sharePointConnect"/);
+  assert.doesNotMatch(html, /id="microsoftAppSave"/);
+  assert.match(html, /Pipedream Connect/);
+  assert.match(html, /data-pd-connect="microsoft_outlook"/);
+  assert.match(html, /data-pd-connect="microsoft_onedrive"/);
+  assert.match(html, /data-pd-connect="sharepoint"/);
   assert.match(html, /CONNECTÉ DURABLEMENT/);
   assert.match(html, /initialView=new URLSearchParams\(location\.search\)\.get\('view'\)/);
 });
@@ -108,6 +110,7 @@ test('full interface exposes encrypted Pipedream Connect bridge and roadmap app 
   assert.match(html, /id="pipedreamTest"/);
   assert.match(html, /data-pd-connect="microsoft_outlook"/);
   assert.match(html, /data-pd-connect="microsoft_onedrive"/);
+  assert.match(html, /data-pd-connect="sharepoint"/);
   assert.match(html, /data-pd-connect="lemlist"/);
   assert.match(html, /data-pd-connect="google_drive"/);
   assert.match(html, /data-pd-connect="google_calendar"/);
