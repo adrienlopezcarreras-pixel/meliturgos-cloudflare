@@ -59,12 +59,12 @@ test('GEN2-36 registers only explicit-approval HIGH-risk platform mutation capab
 });
 
 test('GEN2-36 mutation handlers are never reached without exact owner approval', async () => {
-  let calls = 0;
+  const calls = [];
   const bus = new CapabilityBus();
   registerPlatformControlCapabilities(bus, {
     env: configuredEnv(),
-    fetchImpl: async () => {
-      calls += 1;
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), method: init?.method || 'GET' });
       return json({});
     },
   });
@@ -83,7 +83,8 @@ test('GEN2-36 mutation handlers are never reached without exact owner approval',
       error => error?.code === 'EXPLICIT_APPROVAL_REQUIRED',
     );
   }
-  assert.equal(calls, 0);
+  assert.equal(calls.length, 3);
+  assert.equal(calls.every(call => call.method === 'GET'), true);
 });
 
 test('GitHub workflow dispatch is repository-fixed, workflow-allowlisted and body-bounded', async () => {
@@ -109,15 +110,12 @@ test('GitHub workflow dispatch is repository-fixed, workflow-allowlisted and bod
 
   assert.equal(result.accepted, true);
   assert.equal(result.workflow_run_id, 42);
-  assert.equal(seen.length, 1);
-  assert.equal(
-    seen[0].url,
-    'https://api.github.com/repos/owner/repo/actions/workflows/gen2-36-provider-write-smoke.yml/dispatches',
-  );
-  assert.equal(seen[0].init.method, 'POST');
-  assert.equal(seen[0].init.redirect, 'error');
-  assert.equal(seen[0].init.headers.authorization, 'Bearer github-secret');
-  assert.deepEqual(JSON.parse(seen[0].init.body), {
+  const dispatchCall = seen.find(call => call.url.endsWith('/actions/workflows/gen2-36-provider-write-smoke.yml/dispatches'));
+  assert.ok(dispatchCall);
+  assert.equal(dispatchCall.init.method, 'POST');
+  assert.equal(dispatchCall.init.redirect, 'error');
+  assert.equal(dispatchCall.init.headers.authorization, 'Bearer github-secret');
+  assert.deepEqual(JSON.parse(dispatchCall.init.body), {
     ref: 'candidate/gen2-36-platform-write-control',
     inputs: { smoke: true, count: 1, mode: 'bounded' },
   });
@@ -184,21 +182,16 @@ test('Cloudflare deployment control is locked to configured Worker, existing UUI
 
   assert.equal(result.script, 'meliturgos');
   assert.equal(result.deployment.versions.length, 2);
-  assert.equal(
-    seen[0].url,
-    'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts/meliturgos/deployments',
-  );
-  const body = JSON.parse(seen[0].init.body);
+  const createCall = seen.find(call => call.init?.method === 'POST' && call.url.endsWith('/workers/scripts/meliturgos/deployments'));
+  assert.ok(createCall);
+  const body = JSON.parse(createCall.init.body);
   assert.equal(body.strategy, 'percentage');
   assert.equal(body.versions.reduce((sum, row) => sum + row.percentage, 0), 100);
   assert.equal(body.annotations['workers/message'], 'approved staged deployment');
   assert.equal('workers/triggered_by' in body.annotations, false);
   assert.equal('force' in body, false);
-  assert.equal(seen[1].init.method, 'GET');
-  assert.equal(
-    seen[1].url,
-    'https://api.cloudflare.com/client/v4/accounts/account123/workers/scripts/meliturgos/deployments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-  );
+  const verifyCall = seen.find(call => call.init?.method === 'GET' && call.url.endsWith('/deployments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'));
+  assert.ok(verifyCall);
   assert.equal(JSON.stringify(result).includes('cf-secret'), false);
 
   await assert.rejects(
@@ -242,9 +235,10 @@ test('Vercel redeploy is locked to configured project and cannot upload arbitrar
   assert.equal(result.project_id, 'prj_123');
   assert.equal(result.project_name, 'mel-project');
   assert.equal(result.requested_target, 'preview');
-  assert.match(seen[0].url, /^https:\/\/api\.vercel\.com\/v13\/deployments\?/);
-  assert.match(seen[0].url, /teamId=team_123/);
-  assert.deepEqual(JSON.parse(seen[0].init.body), {
+  const previewCall = seen.find(call => call.init?.method === 'POST' && /^https:\/\/api\.vercel\.com\/v13\/deployments\?/.test(call.url));
+  assert.ok(previewCall);
+  assert.match(previewCall.url, /teamId=team_123/);
+  assert.deepEqual(JSON.parse(previewCall.init.body), {
     name: 'mel-project',
     project: 'prj_123',
     deploymentId: 'dpl_existing',
@@ -255,7 +249,9 @@ test('Vercel redeploy is locked to configured project and cannot upload arbitrar
     deploymentId: 'dpl_existing',
     target: 'production',
   }, approved('vercel.deployments.redeploy'));
-  assert.equal(JSON.parse(seen[1].init.body).target, 'production');
+  const productionCall = seen.filter(call => call.init?.method === 'POST' && /^https:\/\/api\.vercel\.com\/v13\/deployments\?/.test(call.url))[1];
+  assert.ok(productionCall);
+  assert.equal(JSON.parse(productionCall.init.body).target, 'production');
 
   await assert.rejects(
     () => bus.execute('vercel.deployments.redeploy', {
@@ -290,9 +286,12 @@ test('upstream mutation errors never echo response bodies or credentials', async
   const bus = new CapabilityBus();
   registerPlatformControlCapabilities(bus, {
     env: configuredEnv(),
-    fetchImpl: async () => json({
-      error: 'sensitive upstream detail github-secret cf-secret vercel-secret',
-    }, 403),
+    fetchImpl: async (_url, init) => {
+      if (init?.method === 'GET') return json({});
+      return json({
+        error: 'sensitive upstream detail github-secret cf-secret vercel-secret',
+      }, 403);
+    },
   });
 
   for (const [id, input, expected] of [
@@ -338,7 +337,36 @@ test('Vercel redeploy accepts encrypted runtime resolver when env target is abse
   }, approved('vercel.deployments.redeploy'));
   assert.equal(result.project_id, 'prj_vault');
   assert.equal(result.project_name, 'mel-vault');
-  assert.match(seen[0].url, /teamId=team_vault/);
-  assert.equal(seen[0].init.headers.authorization, 'Bearer vault-vercel-token');
+  const redeployCall = seen.find(call => call.init?.method === 'POST');
+  assert.ok(redeployCall);
+  assert.match(redeployCall.url, /teamId=team_vault/);
+  assert.equal(redeployCall.init.headers.authorization, 'Bearer vault-vercel-token');
   assert.equal(JSON.stringify(result).includes('vault-vercel-token'), false);
+});
+
+
+test('platform control healthchecks prove real provider access and keep missing credentials unavailable', async () => {
+  const configured = new CapabilityBus();
+  registerPlatformControlCapabilities(configured, {
+    env: configuredEnv(),
+    fetchImpl: async () => json({ success: true, projects: [] }),
+  });
+
+  for (const id of [
+    'github.actions.workflow.dispatch',
+    'cloudflare.deployments.create',
+    'vercel.deployments.redeploy',
+  ]) {
+    const row = await configured.refreshHealth(id);
+    assert.equal(row.health, 'HEALTHY', id);
+  }
+
+  const missing = new CapabilityBus();
+  registerPlatformControlCapabilities(missing, {
+    env: { MEL_GITHUB_REPOSITORY: 'owner/repo' },
+    fetchImpl: async () => json({}),
+  });
+  assert.equal((await missing.refreshHealth('github.actions.workflow.dispatch')).health, 'UNAVAILABLE');
+  assert.equal((await missing.refreshHealth('cloudflare.deployments.create')).health, 'UNAVAILABLE');
+  assert.equal((await missing.refreshHealth('vercel.deployments.redeploy')).health, 'UNAVAILABLE');
 });
