@@ -515,6 +515,72 @@ function Seed-SovereigntyGitRepo([string]$repository,[string]$expectedSha) {
   }
 }
 
+
+function Sovereignty-StorageRoot([string]$namespace) {
+  $ns = ([string]$namespace).Trim()
+  if ($ns -notmatch '^[A-Za-z0-9_.-]{1,160}$') { throw "SOVEREIGNTY_STORAGE_NAMESPACE_INVALID" }
+  $root = Join-Path (Sovereignty-Root) "storage"
+  [IO.Directory]::CreateDirectory($root) | Out-Null
+  $path = [IO.Path]::GetFullPath((Join-Path $root $ns))
+  $base = [IO.Path]::GetFullPath($root).TrimEnd("\")
+  if (-not $path.StartsWith($base + "\",[StringComparison]::OrdinalIgnoreCase)) { throw "SOVEREIGNTY_STORAGE_NAMESPACE_OUTSIDE_SANDBOX" }
+  [IO.Directory]::CreateDirectory($path) | Out-Null
+  return $path
+}
+
+function Resolve-SovereigntyStorageKey([string]$namespace,[string]$key) {
+  $root = Sovereignty-StorageRoot $namespace
+  $rel = ([string]$key).Replace("/","\").TrimStart("\")
+  if ([string]::IsNullOrWhiteSpace($rel) -or [IO.Path]::IsPathRooted($rel) -or $rel -match '(^|\\)\.\.(\\|$)') { throw "SOVEREIGNTY_STORAGE_KEY_INVALID" }
+  $full = [IO.Path]::GetFullPath((Join-Path $root $rel))
+  $base = [IO.Path]::GetFullPath($root).TrimEnd("\")
+  if (-not $full.StartsWith($base + "\",[StringComparison]::OrdinalIgnoreCase)) { throw "SOVEREIGNTY_STORAGE_KEY_OUTSIDE_SANDBOX" }
+  return @{ root=$root; full=$full; relative=$rel.Replace("\","/") }
+}
+
+function Perform-SovereigntyStorage([string]$operation,$payload) {
+  $namespace = [string]$payload.namespace
+  switch ($operation) {
+    "health" {
+      $root = Sovereignty-StorageRoot $namespace
+      return @{ action="sovereignty.storage.health"; backend="local-files"; root_ready=(Test-Path -LiteralPath $root) }
+    }
+    "put" {
+      $safe = Resolve-SovereigntyStorageKey $namespace ([string]$payload.key)
+      $parent = Split-Path -Parent $safe.full
+      if (-not [string]::IsNullOrWhiteSpace($parent)) { [IO.Directory]::CreateDirectory($parent) | Out-Null }
+      try { $bytes = [Convert]::FromBase64String([string]$payload.bytes_base64) } catch { throw "SOVEREIGNTY_STORAGE_BASE64_INVALID" }
+      [IO.File]::WriteAllBytes($safe.full,$bytes)
+      $etag = (Get-FileHash -LiteralPath $safe.full -Algorithm SHA256).Hash.ToLowerInvariant()
+      return @{ action="sovereignty.storage.put"; key=$safe.relative; etag=$etag }
+    }
+    "get" {
+      $safe = Resolve-SovereigntyStorageKey $namespace ([string]$payload.key)
+      if (-not (Test-Path -LiteralPath $safe.full -PathType Leaf)) {
+        return @{ action="sovereignty.storage.get"; key=$safe.relative; found=$false }
+      }
+      $bytes = [IO.File]::ReadAllBytes($safe.full)
+      return @{ action="sovereignty.storage.get"; key=$safe.relative; found=$true; bytes_base64=[Convert]::ToBase64String($bytes) }
+    }
+    "list" {
+      $root = Sovereignty-StorageRoot $namespace
+      $prefix = ([string]$payload.prefix).Replace("\","/")
+      $keys = @()
+      Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $rel = $_.FullName.Substring($root.Length).TrimStart("\").Replace("\","/")
+        if ([string]::IsNullOrEmpty($prefix) -or $rel.StartsWith($prefix,[StringComparison]::Ordinal)) { $keys += $rel }
+      }
+      return @{ action="sovereignty.storage.list"; keys=@($keys | Select-Object -First 1000) }
+    }
+    "delete" {
+      $safe = Resolve-SovereigntyStorageKey $namespace ([string]$payload.key)
+      if (Test-Path -LiteralPath $safe.full -PathType Leaf) { Remove-Item -LiteralPath $safe.full -Force }
+      return @{ action="sovereignty.storage.delete"; key=$safe.relative; deleted=$true }
+    }
+    default { throw "SOVEREIGNTY_STORAGE_OPERATION_NOT_SUPPORTED" }
+  }
+}
+
 function Perform-SovereigntySourceControl([string]$operation,$payload) {
   $repository = [string]$payload.repository
   if ($operation -eq "seed") { return Seed-SovereigntyGitRepo $repository ([string]$payload.expected_sha) }
@@ -591,6 +657,10 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
     if ($action.StartsWith("sovereignty.source_control.")) {
       $op = $action.Substring("sovereignty.source_control.".Length)
       return Perform-SovereigntySourceControl $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.storage.")) {
+      $op = $action.Substring("sovereignty.storage.".Length)
+      return Perform-SovereigntyStorage $op $step.payload
     }
     throw "SOVEREIGNTY_ACTION_NOT_SUPPORTED"
   }
