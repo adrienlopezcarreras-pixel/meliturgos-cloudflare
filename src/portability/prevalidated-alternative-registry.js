@@ -61,6 +61,8 @@ export function normalizeAlternative(record={},{now=Date.now()}={}){
     proof:Object.freeze(proof),
     prevalidated:proofComplete(proof)&&fresh(proof,now),
     notes:clean(record.notes,1000)||null,
+    policy_profile:clean(record.policy_profile,80)||'STANDARD',
+    low_refusal:record.low_refusal===true,
   });
 }
 
@@ -105,11 +107,14 @@ export function sovereigntyCoverageFromRegistry(registry,{now=Date.now()}={}){
       providers:[...new Set(ready.map(row=>row.provider))],
     };
   }
+  const aiLowRefusalReady=(registry?.layers?.ai||[])
+    .some(row=>row.prevalidated===true&&fresh(row.proof,now)&&row.low_refusal===true);
   return Object.freeze({
     schema:'mel.prevalidated-alternatives-coverage/v1',
     fully_covered:LAYERS.every(layer=>coverage[layer].ready),
     covered_layers:LAYERS.filter(layer=>coverage[layer].ready),
     uncovered_layers:LAYERS.filter(layer=>!coverage[layer].ready),
+    ai_low_refusal_ready:aiLowRefusalReady,
     coverage:Object.freeze(coverage),
   });
 }
