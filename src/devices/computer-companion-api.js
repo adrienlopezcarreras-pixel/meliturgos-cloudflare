@@ -16,12 +16,65 @@ export const COMPUTER_ROUTES=Object.freeze({
  companions:"/api/computer/v1/companions",
  screenshot:"/api/computer/v1/screenshot",
  power:"/api/computer/v1/power",
- sovereigntyArchive:"/api/computer/v1/sovereignty-code-archive"
+ sovereigntyArchive:"/api/computer/v1/sovereignty-code-archive",
+ sovereigntyCommand:"/api/computer/v1/sovereignty-command"
 });
 const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome"];
 const PAIR_TTL_MS=10*60*1000;
 const MINI_ONLINE_MS=60*1000;
 const ANDROID_ONLINE_MS=35*60*1000;
+const SOVEREIGNTY_LOCAL_ACTIONS=new Set([
+  "sovereignty.source_control.health",
+  "sovereignty.source_control.read_ref",
+  "sovereignty.source_control.read_file",
+  "sovereignty.source_control.create_ref",
+  "sovereignty.source_control.update_ref",
+  "sovereignty.source_control.compare_refs",
+  "sovereignty.source_control.write_file",
+  "sovereignty.ci.health",
+  "sovereignty.ci.dispatch",
+  "sovereignty.ci.get_run",
+  "sovereignty.ci.get_artifacts",
+  "sovereignty.ci.cancel_run",
+  "sovereignty.scheduler.health",
+  "sovereignty.scheduler.create",
+  "sovereignty.scheduler.list",
+  "sovereignty.scheduler.pause",
+  "sovereignty.scheduler.resume",
+  "sovereignty.scheduler.trigger_now",
+  "sovereignty.scheduler.delete",
+  "sovereignty.observability.health",
+  "sovereignty.observability.emit_log",
+  "sovereignty.observability.emit_metric",
+  "sovereignty.observability.query_logs",
+  "sovereignty.observability.query_metrics",
+  "sovereignty.observability.delete_test_data",
+  "sovereignty.storage.health",
+  "sovereignty.storage.put",
+  "sovereignty.storage.get",
+  "sovereignty.storage.list",
+  "sovereignty.storage.delete",
+  "sovereignty.database.health",
+  "sovereignty.database.begin",
+  "sovereignty.database.commit",
+  "sovereignty.database.rollback",
+  "sovereignty.database.execute",
+  "sovereignty.database.query",
+  "sovereignty.database.export_logical",
+  "sovereignty.database.import_logical",
+  "sovereignty.runtime.health",
+  "sovereignty.runtime.prepare",
+  "sovereignty.runtime.deploy_candidate",
+  "sovereignty.runtime.smoke",
+  "sovereignty.runtime.promote",
+  "sovereignty.runtime.rollback",
+  "sovereignty.secrets.health",
+  "sovereignty.secrets.put_ref",
+  "sovereignty.secrets.get_ref",
+  "sovereignty.secrets.list_refs",
+  "sovereignty.secrets.rotate_ref",
+  "sovereignty.secrets.delete_ref"
+]);
 
 function json(v,s=200,h={}){return Response.json(v,{status:s,headers:{"cache-control":"no-store",...h}})}
 function safe(v,n=200){return typeof v==="string"?v.trim().slice(0,n):""}
@@ -106,6 +159,38 @@ async function ownerCommand(request,env){
 }
 
 async function ownerHalt(request,env,halted){const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);const b=await request.json().catch(()=>({}));const id=safe(b.computer_id);await env.DB.prepare("UPDATE computer_devices SET halted=? WHERE id=?").bind(halted?1:0,id).run();const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=?").bind(id).first();return row?json({ok:true,computer:normalizeDevice(row)}):json({ok:false,code:"COMPUTER_NOT_FOUND"},404)}
+
+async function ownerSovereigntyCommand(request,env){
+ const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
+ const b=await request.json().catch(()=>({}));
+ const id=safe(b.computer_id);
+ const action=safe(b.action,160);
+ const payload=b.payload&&typeof b.payload==="object"?b.payload:{};
+ if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
+ if(!SOVEREIGNTY_LOCAL_ACTIONS.has(action))return json({ok:false,code:"SOVEREIGNTY_ACTION_NOT_ALLOWED"},403);
+ const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
+ const device=normalizeDevice(row);
+ if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
+ if(device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
+ if(String(device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"SOVEREIGNTY_WINDOWS_REQUIRED"},409);
+ if(!device.online)return json({ok:false,code:"COMPUTER_OFFLINE"},409);
+ const session=safe(b.session_id)||crypto.randomUUID();
+ const cid=crypto.randomUUID();
+ const plan={
+   schema:"mel.sovereignty.local-command/v1",
+   owner_authorized:true,
+   max_autonomy:b.max_autonomy===true,
+   emergency:b.emergency===true,
+   steps:[{
+     id:"sovereignty-1",
+     action,
+     payload
+   }]
+ };
+ await env.DB.prepare("INSERT INTO computer_commands(id,device_id,session_id,plan_json,status,created_at) VALUES(?,?,?,?,?,?)")
+   .bind(cid,device.id,session,JSON.stringify(plan),"PENDING",Date.now()).run();
+ return json({ok:true,command_id:cid,status:"PENDING",action,device_id:device.id},202);
+}
 
 async function ownerPower(request,env){
  const a=requireAuth(request,env);if(!a.ok)return a.response;await tables(env);
@@ -263,6 +348,7 @@ export async function maybeHandleComputerApi(request,env){
  if(url.pathname===COMPUTER_ROUTES.halt&&request.method==="POST")return ownerHalt(request,env,true);
  if(url.pathname===COMPUTER_ROUTES.resume&&request.method==="POST")return ownerHalt(request,env,false);
  if(url.pathname===COMPUTER_ROUTES.power&&request.method==="POST")return ownerPower(request,env);
+ if(url.pathname===COMPUTER_ROUTES.sovereigntyCommand&&request.method==="POST")return ownerSovereigntyCommand(request,env);
  if(url.pathname===COMPUTER_ROUTES.installer&&request.method==="GET")return asset(request,env,"MEL-Computer-Setup.ps1");
  if(url.pathname===COMPUTER_ROUTES.companion&&request.method==="GET")return asset(request,env,"MEL-Computer-Companion.ps1",{allowDevice:true});
  if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="GET")return screenshotView(request,env,url);
