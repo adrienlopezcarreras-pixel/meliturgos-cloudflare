@@ -528,17 +528,34 @@ if ($trayResources) {
 function Assert-SovereigntyGitRef([string]$ref) {
   $value = ([string]$ref).Trim()
   if ([string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 240) { throw "SOVEREIGNTY_GIT_REF_INVALID" }
-  if ($value -match '[\s~^:?*\\\[]' -or $value.Contains("..") -or $value.StartsWith("-")) { throw "SOVEREIGNTY_GIT_REF_INVALID" }
+  $hasInvalid = $value.Contains("~") -or
+    $value.Contains("^") -or
+    $value.Contains(":") -or
+    $value.Contains("?") -or
+    $value.Contains("*") -or
+    $value.Contains([char]92) -or
+    $value.Contains([char]91)
+  $hasWhitespace = $false
+  foreach ($ch in $value.ToCharArray()) {
+    if ([char]::IsWhiteSpace($ch)) { $hasWhitespace = $true; break }
+  }
+  if ($hasWhitespace -or $hasInvalid -or $value.Contains("..") -or $value.StartsWith("-")) { throw "SOVEREIGNTY_GIT_REF_INVALID" }
   return $value
 }
 
 function Resolve-SovereigntyRelativePath([string]$repo,[string]$relative) {
-  $rel = ([string]$relative).Replace("/","\").TrimStart("\")
-  if ([string]::IsNullOrWhiteSpace($rel) -or [IO.Path]::IsPathRooted($rel) -or $rel -match '(^|\\)\.\.(\\|$)') { throw "SOVEREIGNTY_PATH_INVALID" }
+  $backslash = [char]92
+  $slash = [char]47
+  $rel = ([string]$relative).Replace($slash,$backslash).TrimStart($backslash)
+  if ([string]::IsNullOrWhiteSpace($rel) -or [IO.Path]::IsPathRooted($rel)) { throw "SOVEREIGNTY_PATH_INVALID" }
+  foreach ($part in $rel.Split($backslash)) {
+    if ($part -eq "." -or $part -eq "..") { throw "SOVEREIGNTY_PATH_INVALID" }
+  }
   $full = [IO.Path]::GetFullPath((Join-Path $repo $rel))
-  $root = [IO.Path]::GetFullPath($repo).TrimEnd("\")
-  if (-not $full.StartsWith($root + "\",[StringComparison]::OrdinalIgnoreCase)) { throw "SOVEREIGNTY_PATH_OUTSIDE_REPO" }
-  return @{ full=$full; relative=$rel.Replace("\","/") }
+  $root = [IO.Path]::GetFullPath($repo).TrimEnd($backslash)
+  $prefix = $root + [string]$backslash
+  if (-not $full.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) { throw "SOVEREIGNTY_PATH_OUTSIDE_REPO" }
+  return @{ full=$full; relative=$rel.Replace($backslash,$slash) }
 }
 
 function Invoke-SovereigntyGit([string]$repo,[string[]]$arguments) {
