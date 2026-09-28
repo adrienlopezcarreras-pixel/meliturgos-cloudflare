@@ -123,6 +123,7 @@ test('full interface exposes encrypted Pipedream Connect bridge and roadmap app 
   assert.match(html, /connectionApi\('pipedream','link'\)/);
   assert.match(html, /window\.location\.href=d\.connect_link_url/);
   assert.match(html, /Microsoft : /);
+  assert.match(html, /DONE_VERIFIED · PIPEDREAM IMAP/);
 });
 
 test('LoRA interface exposes the current collector status instead of only a stale training run', async () => {
