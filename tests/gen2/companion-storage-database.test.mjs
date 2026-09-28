@@ -25,7 +25,7 @@ function dbExec(){
   let seq=0;
   const ensure=tx=>{if(!txs.has(tx))txs.set(tx,new Map(committed));return txs.get(tx);};
   return async({action,payload})=>{
-    if(action==='health')return{ok:true,engine:'sqlite'};
+    if(action==='health')return{ok:true,engine:'local-transactional-store'};
     if(action==='begin'){const tx='tx'+(++seq);txs.set(tx,new Map(committed));return{ok:true,tx};}
     if(action==='commit'){const m=ensure(payload.tx);committed.clear();for(const [k,v] of m)committed.set(k,v);txs.delete(payload.tx);return{ok:true};}
     if(action==='rollback'){txs.delete(payload.tx);return{ok:true};}
@@ -58,7 +58,7 @@ test('companion storage satisfies provider-neutral object-store proof',async()=>
 test('companion database satisfies provider-neutral DB proof',async()=>{
   const proof=await proveDatabaseAdapter(createCompanionDatabaseAdapter({execute:dbExec()}));
   assert.equal(proof.ok,true);
-  assert.equal(proof.provider,'local-companion-sqlite');
+  assert.equal(proof.provider,'local-companion-db');
   assert.equal(proof.export,true);
   assert.equal(proof.import,true);
 });
