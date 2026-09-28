@@ -6,7 +6,7 @@ function clean(v,max=300){return String(v||'').trim().slice(0,max);}
 export function createCompanionDatabaseAdapter({
   execute,
   id='companion-local-db',
-  provider='local-companion-sqlite',
+  provider='local-companion-db',
   database='mel-sovereignty.sqlite',
 }={}){
   const rpc=req(execute,'COMPANION_DATABASE_EXECUTOR_REQUIRED');
