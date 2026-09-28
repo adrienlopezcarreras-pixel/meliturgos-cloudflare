@@ -25,5 +25,5 @@ test('privacy policy contains the disclosures needed for connected Gmail use', (
   assert.match(html, /envoyer des messages/);
   assert.match(html, /ne sont pas vendues/);
   assert.match(html, /stockés côté serveur sous forme chiffrée/);
-  assert.match(html, /retirer l’accès de MEL/);
+  assert.match(html, /retirer l['’]accès de MEL/);
 });
