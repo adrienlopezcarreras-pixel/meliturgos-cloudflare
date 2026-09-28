@@ -59,3 +59,17 @@ test('shared companion executor qualifies short adapter actions before whitelist
   assert.match(source,/isLocalSovereigntyAction\(qualifiedAction\)/);
   assert.match(source,/action:qualifiedAction/);
 });
+
+
+test('scheduled sovereignty maintenance has one authority per local infrastructure layer',async()=>{
+  const source=await readFile(new URL('../../src/index.js',import.meta.url),'utf8');
+  const scheduled=source.slice(source.indexOf('async scheduled'));
+  assert.match(scheduled,/runCompanionInfrastructurePrevalidationRuntime\(env\)/);
+  assert.doesNotMatch(scheduled,/runCompanionStoragePrevalidationRuntime\(env\)/);
+  assert.doesNotMatch(scheduled,/runCompanionLocalServicesPrevalidationRuntime\(env\)/);
+
+  const authority=await readFile(new URL('../../src/portability/companion-infrastructure-prevalidation-runtime.js',import.meta.url),'utf8');
+  for(const layer of ['storage','database','ci_cd','secrets_identity','scheduler','observability']){
+    assert.match(authority,new RegExp(`layer:['"]${layer}['"]`));
+  }
+});
