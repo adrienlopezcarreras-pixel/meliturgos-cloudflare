@@ -1,0 +1,204 @@
+name: activate-platform-capabilities
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["deploy-cloudflare-release"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  activate-and-prove:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       contains(github.event.workflow_run.head_commit.message, '[activate-platform-capabilities]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      MEL_GITHUB_TOKEN: ${{ secrets.MEL_GITHUB_TOKEN }}
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Provision real runtime platform credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+
+          printf '%s' "${CLOUDFLARE_API_TOKEN}" | npx wrangler secret put CLOUDFLARE_API_TOKEN --env=""
+          printf '%s' "${CLOUDFLARE_ACCOUNT_ID}" | npx wrangler secret put CLOUDFLARE_ACCOUNT_ID --env=""
+
+          if [ -n "${MEL_GITHUB_TOKEN:-}" ]; then
+            printf '%s' "${MEL_GITHUB_TOKEN}" | npx wrangler secret put MEL_GITHUB_TOKEN --env=""
+            echo "GITHUB_RUNTIME_CREDENTIAL=CONFIGURED" >> "${GITHUB_ENV}"
+          else
+            echo "GITHUB_RUNTIME_CREDENTIAL=MISSING" >> "${GITHUB_ENV}"
+          fi
+
+      - name: Prove real production platform capabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${TOKEN}"
+
+          cleanup() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/platform-proof-secret-delete.log 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+
+          api_get() {
+            local path="$1"
+            local out="$2"
+            curl --silent --show-error --fail-with-body --max-time 60               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               "${BASE_URL}${path}" > "${out}"
+          }
+
+          capability() {
+            local id="$1"
+            local input="$2"
+            local out="$3"
+            local approval="${4:-}"
+            local -a headers=(
+              --header "x-mel-release-smoke: 1"
+              --header "x-mel-launch-bootstrap: ${TOKEN}"
+              --header "content-type: application/json"
+            )
+            if [ -n "${approval}" ]; then
+              headers+=(--header "x-mel-approve-capability: ${approval}")
+            fi
+            curl --silent --show-error --fail-with-body --max-time 75               "${headers[@]}"               --data "$(node -e 'const id=process.argv[1],input=JSON.parse(process.argv[2]);process.stdout.write(JSON.stringify({id,input}))' "${id}" "${input}")"               "${BASE_URL}/api/gen2/capabilities/execute" > "${out}"
+            node -e 'const d=require("./"+process.argv[1]);if(d?.ok!==true)throw new Error("CAPABILITY_PROOF_NOT_OK:"+process.argv[2]);' "${out}" "${id}"
+          }
+
+          READY=0
+          for attempt in $(seq 1 15); do
+            if api_get "/api/gen2/capabilities?refresh=1" capabilities-before.json 2>/tmp/platform-capability-refresh.err; then
+              if node - <<'NODE'
+          const d=require('./capabilities-before.json');
+          const ids=['cloudflare.workers.read','cloudflare.deployments.read','cloudflare.deployments.create'];
+          const rows=new Map((d.capabilities||[]).map(x=>[x.id,x]));
+          process.exit(ids.every(id=>rows.get(id)?.health==='HEALTHY')?0:1);
+          NODE
+              then
+                READY=1
+                break
+              fi
+            fi
+            sleep 2
+          done
+          test "${READY}" = "1"
+
+          capability cloudflare.workers.read '{"limit":10}' cloudflare-workers.json
+          capability cloudflare.deployments.read '{"script":"meliturgos","limit":20}' cloudflare-deployments.json
+
+          ACTIVE_VERSION="$(node - <<'NODE'
+          const d=require('./cloudflare-deployments.json');
+          const deployments=d?.result?.deployments||[];
+          let id='';
+          for(const deployment of deployments){
+            const versions=Array.isArray(deployment?.versions)?deployment.versions:[];
+            if(versions.length===1 && Number(versions[0]?.percentage)===100 && versions[0]?.version_id){
+              id=String(versions[0].version_id);
+              break;
+            }
+          }
+          if(!id) throw new Error('ACTIVE_CLOUDFLARE_VERSION_NOT_FOUND');
+          process.stdout.write(id);
+          NODE
+          )"
+
+          capability             cloudflare.deployments.create             "{\"versions\":[{\"version_id\":\"${ACTIVE_VERSION}\",\"percentage\":100}],\"message\":\"MEL real capability proof — same active version\"}"             cloudflare-create.json             cloudflare.deployments.create
+
+          GITHUB_PROOF=false
+          GITHUB_BLOCKER=""
+          if [ "${GITHUB_RUNTIME_CREDENTIAL:-MISSING}" = "CONFIGURED" ]; then
+            capability               github.actions.workflow.dispatch               '{"workflow":"gen2-36-provider-write-smoke.yml","ref":"main"}'               github-dispatch.json               github.actions.workflow.dispatch
+            GITHUB_PROOF=true
+          else
+            GITHUB_BLOCKER="MEL_GITHUB_TOKEN_REPOSITORY_SECRET_MISSING"
+          fi
+
+          api_get "/api/gen2/capabilities?refresh=1" capabilities-after.json
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const caps=require('./capabilities-after.json').capabilities||[];
+          const rows=new Map(caps.map(x=>[x.id,x]));
+          const cloudflareIds=[
+            'cloudflare.workers.read',
+            'cloudflare.deployments.read',
+            'cloudflare.deployments.create',
+          ];
+          for(const id of cloudflareIds){
+            if(rows.get(id)?.health!=='HEALTHY'){
+              throw new Error('CLOUDFLARE_CAPABILITY_NOT_HEALTHY:'+id+':'+String(rows.get(id)?.health));
+            }
+          }
+          const healthy=new Set(['HEALTHY','PROTECTED']);
+          const remainingMel=caps
+            .filter(x=>x.provider==='mel' && !healthy.has(String(x.health||'').toUpperCase()))
+            .map(x=>({id:x.id,health:x.health,detail:x.health_detail||null}));
+          const ghConfigured=process.env.GITHUB_RUNTIME_CREDENTIAL==='CONFIGURED';
+          const gh=rows.get('github.actions.workflow.dispatch')||null;
+          const proof={
+            schema:'mel.real-platform-capabilities-proof/v1',
+            source_sha:process.env.EXPECTED_SHA||null,
+            generated_at:new Date().toISOString(),
+            cloudflare:{
+              real_runtime_credentials:true,
+              workers_read:true,
+              deployments_read:true,
+              same_version_deployment_write:true,
+              capabilities:cloudflareIds.map(id=>({id,health:rows.get(id)?.health||null})),
+            },
+            github:{
+              runtime_credential_configured:ghConfigured,
+              workflow_dispatch_executed:ghConfigured,
+              health:gh?.health||null,
+              blocker:ghConfigured?null:'MEL_GITHUB_TOKEN_REPOSITORY_SECRET_MISSING',
+            },
+            remaining_mel:remainingMel,
+            secret_values_exposed:false,
+          };
+          fs.writeFileSync('platform-capabilities-proof.json',JSON.stringify(proof,null,2));
+          console.log(JSON.stringify(proof,null,2));
+          NODE
+
+          cleanup
+          trap - EXIT
+
+          if [ "${GITHUB_RUNTIME_CREDENTIAL:-MISSING}" != "CONFIGURED" ]; then
+            echo "GitHub runtime control remains truthfully blocked: MEL_GITHUB_TOKEN repo secret is absent."
+            exit 17
+          fi
+
+      - name: Upload sanitized real capability proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: real-platform-capabilities-${{ github.event.workflow_run.head_sha || github.sha }}
+          path: platform-capabilities-proof.json
+          if-no-files-found: warn
+          retention-days: 14

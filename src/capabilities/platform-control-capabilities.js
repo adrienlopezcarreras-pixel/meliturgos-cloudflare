@@ -103,6 +103,25 @@ async function requestJson(fetchImpl, url, { token, method = 'POST', body, code,
   }
 }
 
+function healthFailure(error) {
+  const code = String(error?.code || error?.message || 'PLATFORM_CONTROL_HEALTHCHECK_FAILED').slice(0, 200);
+  const status = Number(error?.status || 0);
+  return {
+    status: status === 401 || status === 403 || /AUTH_REQUIRED|NOT_CONFIGURED/.test(code) ? 'UNAVAILABLE' : 'DEGRADED',
+    reason: code,
+  };
+}
+
+async function probeHealth(task, unavailableReason = '') {
+  if (unavailableReason) return { status: 'UNAVAILABLE', reason: unavailableReason };
+  try {
+    await task();
+    return { status: 'HEALTHY' };
+  } catch (error) {
+    return healthFailure(error);
+  }
+}
+
 function repositoryPath(repository) {
   const normalized = required(repository, 'PLATFORM_REPOSITORY_REQUIRED', 200);
   const parts = normalized.split('/');
@@ -192,6 +211,22 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     permissions: [],
     approval: { required: true, scope: 'github.actions.workflow.dispatch', reason: 'GITHUB_WORKFLOW_MUTATION' },
     health: githubRepository && githubToken && githubWorkflows.length ? 'DEGRADED' : 'UNAVAILABLE',
+    healthcheck: async () => probeHealth(
+      () => requestJson(
+        fetchImpl,
+        `${GITHUB_API}/repos/${repositoryPath(githubRepository)}/actions/workflows/${encodeURIComponent(safeWorkflow(githubWorkflows[0]))}`,
+        {
+          token: githubToken,
+          method: 'GET',
+          code: 'GITHUB_WORKFLOW_CONTROL_HEALTH_FAILED',
+          headers: {
+            accept: 'application/vnd.github+json',
+            'x-github-api-version': '2026-03-10',
+          },
+        },
+      ),
+      githubRepository && githubToken && githubWorkflows.length ? '' : 'GITHUB_CONTROL_NOT_CONFIGURED',
+    ),
     enabled: true,
   }, async input => {
     if (!githubToken || !githubRepository || !githubWorkflows.length) throw capabilityError('GITHUB_CONTROL_NOT_CONFIGURED', 503);
@@ -259,6 +294,18 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     permissions: [],
     approval: { required: true, scope: 'cloudflare.deployments.create', reason: 'CLOUDFLARE_DEPLOYMENT_MUTATION' },
     health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'MEL_CLOUDFLARE_SCRIPT') ? 'DEGRADED' : 'UNAVAILABLE',
+    healthcheck: async () => probeHealth(
+      () => requestJson(
+        fetchImpl,
+        `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts/${encodeURIComponent(safeResource(cloudflareScript, 'CLOUDFLARE_SCRIPT_INVALID', 128))}/deployments`,
+        {
+          token: cloudflareToken,
+          method: 'GET',
+          code: 'CLOUDFLARE_DEPLOYMENT_CONTROL_HEALTH_FAILED',
+        },
+      ),
+      cloudflareToken && cloudflareAccountId && cloudflareScript ? '' : 'CLOUDFLARE_CONTROL_NOT_CONFIGURED',
+    ),
     enabled: true,
   }, async input => {
     if (!cloudflareToken || !cloudflareAccountId || !cloudflareScript) throw capabilityError('CLOUDFLARE_CONTROL_NOT_CONFIGURED', 503);
@@ -332,6 +379,21 @@ export function registerPlatformControlCapabilities(bus, { env = {}, fetchImpl =
     permissions: [],
     approval: { required: true, scope: 'vercel.deployments.redeploy', reason: 'VERCEL_DEPLOYMENT_MUTATION' },
     health: (staticVercel.token && staticVercel.projectId && staticVercel.projectName) || typeof resolveVercelConfig === 'function' ? 'DEGRADED' : 'UNAVAILABLE',
+    healthcheck: async () => {
+      const cfg = await getVercelConfig();
+      return probeHealth(
+        () => {
+          const params = new URLSearchParams({ limit: '1' });
+          if (cfg.teamId) params.set('teamId', cfg.teamId);
+          return requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
+            token: cfg.token,
+            method: 'GET',
+            code: 'VERCEL_REDEPLOY_CONTROL_HEALTH_FAILED',
+          });
+        },
+        cfg.token && cfg.projectId && cfg.projectName ? '' : 'VERCEL_CONTROL_NOT_CONFIGURED',
+      );
+    },
     enabled: true,
   }, async input => {
     const cfg = await getVercelConfig();

@@ -42,6 +42,10 @@ const RELEASE_SMOKE_CAPABILITY_ALLOWLIST = Object.freeze([
   "work.plan.generate",
   "work.plan",
   "model.council",
+  "cloudflare.workers.read",
+  "cloudflare.deployments.read",
+  "cloudflare.deployments.create",
+  "github.actions.workflow.dispatch",
 ]);
 
 function capabilityContext(env, request = null) {
