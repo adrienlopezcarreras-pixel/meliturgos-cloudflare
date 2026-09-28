@@ -3,6 +3,18 @@ import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { getSovereigntyWatchCatalog, SOVEREIGNTY_WATCH_INTERVAL_MS } from './sovereignty-watch-catalog.js';
 
 const STATE_ID='sovereignty-replacement-watch';
+const CURRENT_PROVIDER_DOMAINS=Object.freeze({
+  ai:['cloudflare.com'],
+  runtime:['cloudflare.com'],
+  storage:['cloudflare.com'],
+  database:['cloudflare.com'],
+  source_control:['github.com'],
+  ci_cd:['github.com'],
+  secrets_identity:['cloudflare.com'],
+  scheduler:['cloudflare.com'],
+  observability:['cloudflare.com'],
+  backup_restore:['cloudflare.com','google.com'],
+});
 
 function clean(v,max=4000){return String(v||'').replace(/\s+/g,' ').trim().slice(0,max);}
 
@@ -29,12 +41,34 @@ function normalizeResearch(target,research={}){
       snippet:clean(row?.snippet||row?.content,1200),
     }))
     .filter(row=>/^https:\/\//i.test(row.url));
+  const currentDomains=new Set(CURRENT_PROVIDER_DOMAINS[target.layer]||[]);
+  const candidateHints=[];
+  const seen=new Set();
+  for(const source of sources){
+    let hostname='';
+    try{hostname=new URL(source.url).hostname.toLowerCase().replace(/^www\./,'');}catch{}
+    if(!hostname||seen.has(hostname))continue;
+    if([...currentDomains].some(domain=>hostname===domain||hostname.endsWith('.'+domain)))continue;
+    seen.add(hostname);
+    candidateHints.push({
+      id:hostname,
+      provider_hint:hostname.split('.').slice(-2).join('.'),
+      layer:target.layer,
+      source_url:source.url,
+      source_title:source.title,
+      status:'UNVERIFIED',
+      prevalidated:false,
+      activation_allowed:false,
+    });
+  }
+
   return{
     id:target.id,
     layer:target.layer,
     status:sources.length?'OBSERVED':'UNKNOWN',
     summary:clean(research?.summary,3500),
     sources,
+    candidate_hints:candidateHints.slice(0,12),
     candidate_status:'DISCOVERY_ONLY',
     activation_allowed:false,
     prevalidated:false,
@@ -91,6 +125,7 @@ export async function runSovereigntyReplacementWatchRuntime(env,{
     target_count:results.length,
     observed_count:results.filter(row=>row.status==='OBSERVED').length,
     unknown_count:results.filter(row=>row.status==='UNKNOWN').length,
+    candidate_hint_count:results.reduce((sum,row)=>sum+(row.candidate_hints?.length||0),0),
     activation_allowed:false,
     results,
   };
@@ -104,3 +139,8 @@ export async function runSovereigntyReplacementWatchRuntime(env,{
 }
 
 export const SOVEREIGNTY_REPLACEMENT_WATCH_STATE_ID=STATE_ID;
+
+
+export const __sovereigntyWatchTest=Object.freeze({
+  normalizeResearch,
+});
