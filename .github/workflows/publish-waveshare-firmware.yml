@@ -120,6 +120,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          FW_VERSION="$(sed -n 's/^#define MEL_FW_VERSION "\([^"]*\)".*/\1/p' firmware/waveshare-terminal/main/mel_terminal.h)"
+          test -n "$FW_VERSION"
           cd build/waveshare-mel/build
           OTA_SHA256="$(sha256sum mel-terminal.bin | awk '{print $1}')"
           OTA_SIZE="$(stat -c '%s' mel-terminal.bin)"
@@ -130,7 +132,7 @@ jobs:
             "model": "waveshare-esp32-s3-touch-lcd-3.5-c",
             "channel": "stable",
             "firmware": {
-              "version": "0.4.8-mobile-internet",
+              "version": "${FW_VERSION}",
               "available": true,
               "key": "devices/waveshare-esp32-s3-touch-lcd-3.5-c/mel-terminal.bin",
               "sha256": "${OTA_SHA256}",
