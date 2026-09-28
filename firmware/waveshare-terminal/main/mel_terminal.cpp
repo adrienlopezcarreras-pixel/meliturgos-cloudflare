@@ -68,6 +68,7 @@ static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
 static TaskHandle_t g_voice_task_handle = nullptr;
 static TaskHandle_t g_online_task_handle = nullptr;
 static TaskHandle_t g_heartbeat_task_handle = nullptr;
+static void update_task(void *);
 static EventGroupHandle_t g_wifi_bits = nullptr;
 static int g_wifi_retry = 0;
 static lv_obj_t *g_status = nullptr;
@@ -761,6 +762,15 @@ static void voice_task(void *) {
 void mel_terminal_request_voice(void) {
     if (!g_online || !g_audio_ok || g_voice_task_handle) return;
     xTaskCreatePinnedToCore(voice_task, "mel_voice", 10240, nullptr, 5, &g_voice_task_handle, 0);
+}
+
+void mel_terminal_request_update(void) {
+    if (!g_online) {
+        ui_status("MAJ INDISPONIBLE");
+        ui_answer("MEL doit etre en ligne pour verifier les mises a jour.");
+        return;
+    }
+    xTaskCreatePinnedToCore(update_task, "mel_update", 12288, nullptr, 4, nullptr, 0);
 }
 
 int mel_terminal_state(void) {
