@@ -4,6 +4,10 @@ on:
   pull_request:
     paths:
       - 'src/continuity/shardvault-runtime.js'
+      - 'tests/gen2/sovereign-regeneration-bundle.test.mjs'
+      - 'src/portability/system-bundle.js'
+      - 'src/continuity/sovereign-regeneration-bundle.js'
+      - 'src/continuity/shardvault-memory-export.js'
       - 'src/continuity/autonomous-repositories.js'
       - 'shardvault/**'
       - 'tests/shardvault-*.test.mjs'
@@ -11,9 +15,14 @@ on:
       - '.github/workflows/shardvault-ci.yml'
   push:
     branches:
+      - main
       - 'fix/shardvault-*'
     paths:
       - 'src/continuity/shardvault-runtime.js'
+      - 'src/continuity/shardvault-memory-export.js'
+      - 'src/continuity/sovereign-regeneration-bundle.js'
+      - 'src/portability/system-bundle.js'
+      - 'tests/gen2/sovereign-regeneration-bundle.test.mjs'
       - 'src/continuity/autonomous-repositories.js'
       - 'shardvault/**'
       - 'tests/shardvault-*.test.mjs'
@@ -38,9 +47,12 @@ jobs:
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
       - name: ShardVault syntax
-        run: node --check src/continuity/shardvault-runtime.js
+        run: |
+          node --check src/continuity/shardvault-runtime.js
+          node --check src/continuity/shardvault-memory-export.js
+          node --check src/continuity/sovereign-regeneration-bundle.js
       - name: ShardVault targeted tests
-        run: node --test tests/shardvault-*.test.mjs tests/release-shardvault-prep.test.mjs
+        run: node --test tests/shardvault-*.test.mjs tests/release-shardvault-prep.test.mjs tests/gen2/sovereign-regeneration-bundle.test.mjs
 
   shardvault-full-suite:
     runs-on: ubuntu-latest

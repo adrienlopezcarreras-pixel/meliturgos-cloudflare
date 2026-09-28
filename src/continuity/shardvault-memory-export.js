@@ -1,5 +1,24 @@
+import { flattenRoadmap } from '../roadmap/master-roadmap.js';
+
 const DEFAULT_EXPORT_LIMIT = 10000;
 const MAX_EXPORT_LIMIT = 25000;
+const SECRET_KEY = /(?:secret|token|password|authorization|cookie|credential|private[_-]?key|api[_-]?key|recovery[_-]?code)/i;
+const SECRET_VALUE = /(?:bearer\s+[A-Za-z0-9._~+\/-]{8,}|\bsk-[A-Za-z0-9_-]{8,}|\bgh[pousr]_[A-Za-z0-9]{12,})/i;
+
+function sanitizeRecoveryValue(value, depth = 0) {
+  if (depth > 8) return '[TRUNCATED]';
+  if (value == null || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string') return SECRET_VALUE.test(value) ? '[REDACTED]' : value;
+  if (Array.isArray(value)) return value.map(item => sanitizeRecoveryValue(item, depth + 1));
+  if (typeof value === 'object') {
+    const out = {};
+    for (const [key, item] of Object.entries(value)) {
+      out[key] = SECRET_KEY.test(key) ? '[REDACTED]' : sanitizeRecoveryValue(item, depth + 1);
+    }
+    return out;
+  }
+  return String(value);
+}
 
 async function safeRows(db, table, limit = DEFAULT_EXPORT_LIMIT) {
   if (!db?.prepare) return [];
@@ -16,24 +35,95 @@ export async function buildShardVaultMemoryPayload(env, { now = new Date(), limi
   const date = now instanceof Date ? now : new Date(now ?? Date.now());
   if (Number.isNaN(date.getTime())) throw new TypeError('INVALID_SHARDVAULT_EXPORT_DATE');
 
-  const [memories, conversations, archiveMessages] = await Promise.all([
+  const [
+    memories,
+    conversations,
+    archiveMessages,
+    automations,
+    automationRuns,
+    devJobs,
+    devBridgeState,
+    mentorLessons,
+    capabilityWatchState,
+    timelineEvents,
+    skillRegistrySnapshots,
+    pluginVersions,
+    pluginActiveVersions,
+    pluginActivationHistory,
+  ] = await Promise.all([
     safeRows(env?.DB, 'memories', limit),
     safeRows(env?.DB, 'conversations', limit),
     safeRows(env?.DB, 'archive_messages', limit),
+    safeRows(env?.DB, 'automations', limit),
+    safeRows(env?.DB, 'automation_runs', limit),
+    safeRows(env?.DB, 'dev_jobs', limit),
+    safeRows(env?.DB, 'dev_bridge_state', limit),
+    safeRows(env?.DB, 'mentor_lessons', limit),
+    safeRows(env?.DB, 'capability_watch_state', limit),
+    safeRows(env?.DB, 'timeline_events', limit),
+    safeRows(env?.DB, 'mel_skill_registry_snapshots', limit),
+    safeRows(env?.DB, 'plugin_versions', limit),
+    safeRows(env?.DB, 'plugin_active_versions', limit),
+    safeRows(env?.DB, 'plugin_activation_history', limit),
   ]);
+
+  const roadmap = flattenRoadmap().map(row => ({
+    id: row.id,
+    title: row.title,
+    status: row.status,
+    priority: row.priority,
+    phase: row.phase,
+    next: row.next,
+  }));
+
+  const recoveryState = sanitizeRecoveryValue({
+    automations,
+    automation_runs: automationRuns,
+    dev_jobs: devJobs,
+    dev_bridge_state: devBridgeState,
+    mentor_lessons: mentorLessons,
+    capability_watch_state: capabilityWatchState,
+    timeline_events: timelineEvents,
+    skill_registry_snapshots: skillRegistrySnapshots,
+    plugin_versions: pluginVersions,
+    plugin_active_versions: pluginActiveVersions,
+    plugin_activation_history: pluginActivationHistory,
+    roadmap,
+  });
 
   return {
     format: 'meliturgos-shardvault-memory-export',
-    version: 1,
+    version: 2,
     exported_at: date.toISOString(),
     owner: String(env?.MELITURGOS_USER || ''),
-    memories,
-    conversations,
-    archive_messages: archiveMessages,
+    memories: sanitizeRecoveryValue(memories),
+    conversations: sanitizeRecoveryValue(conversations),
+    archive_messages: sanitizeRecoveryValue(archiveMessages),
+    recovery_state: recoveryState,
+    policy: {
+      credential_tables_included: false,
+      structured_secret_fields_redacted: true,
+      secret_shaped_values_redacted: true,
+      oauth_tokens_included: false,
+      api_credentials_included: false,
+      regeneration_role: 'STATE_AND_CONTROL_PLANE_RECOVERY',
+    },
     counts: {
       memories: memories.length,
       conversations: conversations.length,
       archive_messages: archiveMessages.length,
+      automations: automations.length,
+      automation_runs: automationRuns.length,
+      dev_jobs: devJobs.length,
+      dev_bridge_state: devBridgeState.length,
+      mentor_lessons: mentorLessons.length,
+      capability_watch_state: capabilityWatchState.length,
+      timeline_events: timelineEvents.length,
+      skill_registry_snapshots: skillRegistrySnapshots.length,
+      plugin_versions: pluginVersions.length,
+      plugin_active_versions: pluginActiveVersions.length,
+      plugin_activation_history: pluginActivationHistory.length,
+      roadmap: roadmap.length,
     },
   };
 }

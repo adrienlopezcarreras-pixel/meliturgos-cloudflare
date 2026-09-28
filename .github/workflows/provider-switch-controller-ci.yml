@@ -12,12 +12,17 @@ on:
       - src/augmentio/default-pool.js
       - src/portability/source-control-adapter.js
       - src/portability/runtime-provider-adapter.js
+      - src/evaluation/dependency-longevity-watch.js
+      - src/evaluation/dependency-longevity-watch-runtime.js
+      - src/index.js
       - tests/gen2/provider-switch-controller.test.mjs
       - tests/gen2/technical-sovereignty.test.mjs
       - tests/gen2/technical-sovereignty-inventory.test.mjs
       - tests/augmentio-http-chat-adapter.test.mjs
       - tests/gen2/source-control-adapter.test.mjs tests/gen2/runtime-provider-adapter.test.mjs
       - tests/gen2/runtime-provider-adapter.test.mjs
+      - tests/gen2/dependency-longevity-watch.test.mjs
+      - tests/gen2/dependency-longevity-runtime-wiring.test.mjs
       - .github/workflows/provider-switch-controller-ci.yml
   workflow_dispatch:
 
@@ -40,5 +45,7 @@ jobs:
       - run: node --check src/augmentio/http-chat-adapter.js
       - run: node --check src/portability/source-control-adapter.js
       - run: node --check src/portability/runtime-provider-adapter.js
-      - run: node --test tests/gen2/provider-switch-controller.test.mjs tests/gen2/technical-sovereignty.test.mjs tests/gen2/technical-sovereignty-inventory.test.mjs tests/augmentio-http-chat-adapter.test.mjs tests/gen2/source-control-adapter.test.mjs
+      - run: node --check src/evaluation/dependency-longevity-watch.js
+      - run: node --check src/evaluation/dependency-longevity-watch-runtime.js
+      - run: node --test tests/gen2/provider-switch-controller.test.mjs tests/gen2/technical-sovereignty.test.mjs tests/gen2/technical-sovereignty-inventory.test.mjs tests/augmentio-http-chat-adapter.test.mjs tests/gen2/source-control-adapter.test.mjs tests/gen2/dependency-longevity-watch.test.mjs tests/gen2/dependency-longevity-runtime-wiring.test.mjs
       - run: node scripts/runtime-security-gate.mjs

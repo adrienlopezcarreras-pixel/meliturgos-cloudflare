@@ -10,6 +10,7 @@ import { handleNativeChat } from "./api/native-chat.js";
 import { maybeHandlePublicTeacherBridge } from "./teachers/public-teacher-api.js";
 import { runAutonomyMaintenance, runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
 import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runtime.js";
+import { runDependencyLongevityWatchRuntime } from "./evaluation/dependency-longevity-watch-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
@@ -498,6 +499,17 @@ export default {
           }),
           runEcosystemCapabilityWatch(env, { sourceSha: deployedWatchSourceSha() }).catch((error) => {
             console.error('[MEL watch] hourly ecosystem watch failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runDependencyLongevityWatchRuntime(env).then((result) => {
+            if (result?.status === 'EMERGENCY') {
+              console.error('[MEL longevity] critical dependency emergency detected.');
+            } else if (result?.status === 'MIGRATION_REQUIRED') {
+              console.error('[MEL longevity] dependency migration required.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL longevity] dependency watch failed:', error?.code || error?.message || error);
             return null;
           }),
           runShardVaultCycle(env).then((result) => {

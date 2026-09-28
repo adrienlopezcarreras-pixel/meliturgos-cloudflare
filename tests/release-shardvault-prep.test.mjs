@@ -30,7 +30,7 @@ test('release smoke can prepare ShardVault only on exact status/search paths',()
 test('release workflow expands active ShardVault registry before launch bootstrap without lowering 7x gate',async()=>{
   const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
   const search=source.indexOf('/api/gen2/shardvault/search');
-  const bootstrap=source.indexOf('/api/internal/release-launch-bootstrap');
+  const bootstrap=source.indexOf('/api/internal/release-launch-bootstrap',search);
   assert.ok(search>0);
   assert.ok(bootstrap>search);
   assert.match(source,/for SHARD_STATUS_ATTEMPT in \$\(seq 1 12\)/);

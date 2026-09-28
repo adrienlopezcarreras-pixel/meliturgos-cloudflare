@@ -129,6 +129,28 @@ test('MINI prefers Wi-Fi for large STT uploads and uses MEL Mobile only as fallb
   assert.doesNotMatch(source,/if \(mel_mobile_bridge_ready\(\)\) \{\s*return mobile_request\(\);\s*\}/);
 });
 
+test('MINI BLE transport keeps reconnect protections enabled', async () => {
+  const bridge = await readFile(
+    new URL('../firmware/waveshare-terminal/main/mel_mobile_bridge.cpp', import.meta.url),
+    'utf8'
+  );
+  const header = await readFile(
+    new URL('../firmware/waveshare-terminal/main/mel_mobile_bridge.h', import.meta.url),
+    'utf8'
+  );
+  const main = await readFile(
+    new URL('../firmware/waveshare-terminal/main/main.cpp', import.meta.url),
+    'utf8'
+  );
+  assert.match(bridge,/xQueueCreate\(32, sizeof\(NotifyFrame\)\)/);
+  assert.match(bridge,/mel_mobile_bridge_keepalive\(void\)/);
+  assert.match(bridge,/BLE_GAP_INITIAL_CONN_LATENCY/);
+  assert.match(bridge,/BLE_GAP_INITIAL_SUPERVISION_TIMEOUT/);
+  assert.match(header,/bool mel_mobile_bridge_keepalive\(void\);/);
+  assert.match(main,/if \(keepalive_seconds >= 8\)/);
+  assert.match(main,/mel_mobile_bridge_keepalive\(\);/);
+});
+
 test('MINI firmware validates the WAV contract before writing to ES8311', async () => {
   const source = await readFile(
     new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url),
