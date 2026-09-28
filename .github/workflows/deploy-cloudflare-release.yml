@@ -306,22 +306,43 @@ jobs:
           fi
 
           if [ -n "$PROD_SHA" ]; then
-            if npx wrangler d1 execute meliturgos-memory --remote --json \
-              --command "SELECT id,object_key,metadata_json,created_at FROM backup_objects WHERE object_key LIKE 'backups/system/%' ORDER BY created_at DESC LIMIT 100" \
-              > predeploy-backup-candidates.json
-            then
-              PROD_SHA="$PROD_SHA" node - <<'NODE'
+            D1_DATABASE_ID="$(node - <<'NODE'
+          const fs=require('fs');
+          const config=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));
+          const row=(config.d1_databases||[]).find(item=>item?.binding==='DB');
+          const id=String(row?.database_id||'').trim();
+          if(!/^[0-9a-f-]{36}$/i.test(id)) process.exit(1);
+          process.stdout.write(id);
+          NODE
+            )"
+
+            node - <<'NODE'
+          const fs=require('fs');
+          fs.writeFileSync('predeploy-backup-candidates-request.json',JSON.stringify({
+            sql:"SELECT id,object_key,metadata_json,created_at FROM backup_objects WHERE object_key LIKE 'backups/system/%' ORDER BY created_at DESC LIMIT 100",
+            params:[],
+          }));
+          NODE
+
+            D1_READ_CODE="$(curl --silent --show-error --max-time 30 \
+              --request POST \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              --header "Content-Type: application/json" \
+              --data-binary @predeploy-backup-candidates-request.json \
+              --output predeploy-backup-candidates.json \
+              --write-out '%{http_code}' \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query" || true)"
+
+            if [ "$D1_READ_CODE" = "200" ] && PROD_SHA="$PROD_SHA" node - <<'NODE'
           const fs=require('fs');
           const crypto=require('crypto');
           const raw=JSON.parse(fs.readFileSync('predeploy-backup-candidates.json','utf8'));
-          const groups=Array.isArray(raw)?raw:[raw];
-          const rows=groups.flatMap(group =>
-            Array.isArray(group?.results) ? group.results
-              : Array.isArray(group?.result?.results) ? group.result.results
-                : []
-          );
+          if(raw?.success===false) process.exit(10);
+          const groups=Array.isArray(raw?.result)?raw.result:(raw?.result?[raw.result]:[]);
+          if(groups.length===0 || groups.some(group=>group?.success===false)) process.exit(11);
+          const rows=groups.flatMap(group=>Array.isArray(group?.results)?group.results:[]);
           const prodSha=String(process.env.PROD_SHA||'').toLowerCase();
-          if(!/^[0-9a-f]{40}$/.test(prodSha)) process.exit(2);
+          if(!/^[0-9a-f]{40}$/.test(prodSha)) process.exit(12);
           const now=Date.now();
           const maxAge=26*60*60*1000;
           let selected=null;
@@ -342,9 +363,9 @@ jobs:
               && Number.isFinite(createdMs)
               && createdMs<=now
               && now-createdMs<=maxAge;
-            if(valid){ selected={row,meta,integrity,restoreSha,createdAt}; break; }
+            if(valid){selected={row,integrity,restoreSha,createdAt};break;}
           }
-          if(!selected) process.exit(3);
+          if(!selected) process.exit(13);
 
           const binding={
             schema:'MEL_RELEASE_BACKUP_BINDING_V1',
@@ -355,43 +376,44 @@ jobs:
             snapshot_created_at:selected.createdAt,
             bound_at:now,
           };
-          const canonical=JSON.stringify(binding);
-          const digest=crypto.createHash('sha256').update(canonical).digest('hex');
-          const sqlString=value => "'" + String(value).replaceAll("'","''") + "'";
-          const sql=[
-            'INSERT OR REPLACE INTO release_backup_bindings(',
-            'deployed_sha,snapshot_id,snapshot_integrity_sha256,snapshot_deployed_sha,snapshot_created_at,bound_at,binding_sha256',
-            ') VALUES(',
-            [
-              sqlString(binding.deployed_sha),
-              sqlString(binding.snapshot_id),
-              sqlString(binding.snapshot_integrity_sha256),
-              sqlString(binding.snapshot_deployed_sha),
-              sqlString(binding.snapshot_created_at),
-              String(binding.bound_at),
-              sqlString(digest),
-            ].join(','),
-            ');'
-          ].join('');
-          fs.writeFileSync('predeploy-release-backup-binding.sql',sql);
+          const digest=crypto.createHash('sha256').update(JSON.stringify(binding)).digest('hex');
           fs.writeFileSync('predeploy-release-backup-binding.json',JSON.stringify({...binding,binding_sha256:digest},null,2));
+          fs.writeFileSync('predeploy-release-backup-binding-request.json',JSON.stringify({
+            sql:'INSERT OR REPLACE INTO release_backup_bindings(deployed_sha,snapshot_id,snapshot_integrity_sha256,snapshot_deployed_sha,snapshot_created_at,bound_at,binding_sha256) VALUES(?,?,?,?,?,?,?)',
+            params:[
+              binding.deployed_sha,
+              binding.snapshot_id,
+              binding.snapshot_integrity_sha256,
+              binding.snapshot_deployed_sha,
+              binding.snapshot_created_at,
+              binding.bound_at,
+              digest,
+            ],
+          }));
           NODE
-
-              if [ -s predeploy-release-backup-binding.sql ]; then
-                if npx wrangler d1 execute meliturgos-memory --remote \
-                  --file predeploy-release-backup-binding.sql \
-                  > predeploy-release-backup-binding-write.log 2>&1
-                then
-                  echo "Bound recent verified backup to deployed production SHA $PROD_SHA for recovery proof."
-                else
-                  echo "Direct CI release-backup binding write failed; canonical recovery drill remains fail-closed."
-                  cat predeploy-release-backup-binding-write.log || true
-                fi
+            then
+              D1_WRITE_CODE="$(curl --silent --show-error --max-time 30 \
+                --request POST \
+                --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                --header "Content-Type: application/json" \
+                --data-binary @predeploy-release-backup-binding-request.json \
+                --output predeploy-release-backup-binding-write.json \
+                --write-out '%{http_code}' \
+                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query" || true)"
+              if [ "$D1_WRITE_CODE" = "200" ] && node - <<'NODE'
+          const fs=require('fs');
+          const raw=JSON.parse(fs.readFileSync('predeploy-release-backup-binding-write.json','utf8'));
+          if(raw?.success===false) process.exit(1);
+          const groups=Array.isArray(raw?.result)?raw.result:(raw?.result?[raw.result]:[]);
+          if(groups.length===0 || groups.some(group=>group?.success===false)) process.exit(1);
+          NODE
+              then
+                echo "Bound recent verified backup to deployed production SHA $PROD_SHA through Cloudflare D1 API."
               else
-                echo "No recent verified backup candidate eligible for direct release binding."
+                echo "Cloudflare D1 binding write failed closed (HTTP ${D1_WRITE_CODE})."
               fi
             else
-              echo "Could not read backup metadata from D1; canonical recovery drill remains fail-closed."
+              echo "Cloudflare D1 backup metadata read/validation failed closed (HTTP ${D1_READ_CODE})."
             fi
           else
             echo "Production SHA unavailable from authenticated release identity proof; canonical recovery drill remains fail-closed."
