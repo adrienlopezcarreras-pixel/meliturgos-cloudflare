@@ -82,6 +82,7 @@ class MelBleBridgeService : Service() {
         val bridgeState = MutableStateFlow("OFF")
         val miniLinkReady = MutableStateFlow(false)
         val internetReady = MutableStateFlow(false)
+        val miniPairingComplete = MutableStateFlow(false)
         val wakeProfileRevision = MutableStateFlow(0)
     }
 
@@ -121,6 +122,8 @@ class MelBleBridgeService : Service() {
             ?.apply { acquire() }
         miniLinkReady.value = false
         internetReady.value = false
+        miniPairingComplete.value = getSharedPreferences("mel_mobile_bridge", MODE_PRIVATE)
+            .getBoolean("mini_pairing_complete", false)
         bridgeState.value = "D├ëMARRAGE"
         startForeground(
             NOTIFICATION_ID,
@@ -170,6 +173,16 @@ class MelBleBridgeService : Service() {
         executor.shutdownNow()
         diagExecutor.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun rememberMiniPairingComplete() {
+        if (miniPairingComplete.value) return
+        miniPairingComplete.value = true
+        getSharedPreferences("mel_mobile_bridge", MODE_PRIVATE)
+            .edit()
+            .putBoolean("mini_pairing_complete", true)
+            .apply()
+        Log.i(TAG, "MINI pairing persisted; future reconnects are automatic")
     }
 
     private fun hasBluetoothPermissions(): Boolean {
@@ -733,7 +746,15 @@ class MelBleBridgeService : Service() {
 
         try {
             val status = connection.responseCode
-            internetReady.value = miniLinkReady.value && status in 200..299
+            val success = status in 200..299
+            if (success && (
+                    request.path == "/api/device/v1/pair" ||
+                    (request.path.startsWith("/api/device/v1/") && request.token.isNotEmpty())
+                )
+            ) {
+                rememberMiniPairingComplete()
+            }
+            internetReady.value = miniLinkReady.value && success
             bridgeState.value = if (internetReady.value) "MINI CONNECTÉE · INTERNET OK" else "MINI CONNECTÉE · MEL HTTP $status"
             Log.i(TAG, "MEL relay HTTP ${request.method} ${request.path} -> $status")
             val contentType = connection.contentType ?: "application/octet-stream"
