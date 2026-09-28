@@ -589,6 +589,91 @@ static esp_err_t http_request(
 
 static std::string json_string(cJSON *obj);
 
+static uint16_t read_le16(const uint8_t *p) {
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+
+static uint32_t read_le32(const uint8_t *p) {
+    return (uint32_t)p[0] |
+           ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+static bool http_read_exact(esp_http_client_handle_t client, uint8_t *dst, size_t count) {
+    size_t offset = 0;
+    while (offset < count) {
+        int n = esp_http_client_read(
+            client,
+            reinterpret_cast<char *>(dst + offset),
+            (int)(count - offset)
+        );
+        if (n <= 0) return false;
+        offset += (size_t)n;
+    }
+    return true;
+}
+
+static bool http_discard_exact(esp_http_client_handle_t client, uint32_t count) {
+    uint8_t scratch[64];
+    while (count > 0) {
+        const size_t take = std::min<size_t>(sizeof(scratch), (size_t)count);
+        if (!http_read_exact(client, scratch, take)) return false;
+        count -= (uint32_t)take;
+    }
+    return true;
+}
+
+static bool read_tts_wav_header(esp_http_client_handle_t client, uint32_t &pcm_bytes) {
+    static const uint32_t TTS_MAX_PCM_BYTES = 48000U * 2U * 180U;
+    uint8_t riff[12] = {};
+    if (!http_read_exact(client, riff, sizeof(riff))) return false;
+    if (memcmp(riff, "RIFF", 4) != 0 || memcmp(riff + 8, "WAVE", 4) != 0) return false;
+
+    bool have_fmt = false;
+    for (int chunk_index = 0; chunk_index < 12; ++chunk_index) {
+        uint8_t chunk_header[8] = {};
+        if (!http_read_exact(client, chunk_header, sizeof(chunk_header))) return false;
+        const uint32_t chunk_size = read_le32(chunk_header + 4);
+        const bool padded = (chunk_size & 1U) != 0;
+
+        if (memcmp(chunk_header, "fmt ", 4) == 0) {
+            if (chunk_size < 16 || chunk_size > 64) return false;
+            uint8_t fmt[64] = {};
+            if (!http_read_exact(client, fmt, chunk_size)) return false;
+            if (padded && !http_discard_exact(client, 1)) return false;
+
+            const uint16_t audio_format = read_le16(fmt);
+            const uint16_t channels = read_le16(fmt + 2);
+            const uint32_t sample_rate = read_le32(fmt + 4);
+            const uint16_t bits_per_sample = read_le16(fmt + 14);
+            if (audio_format != 1 || channels != 1 || sample_rate != 48000 || bits_per_sample != 16) {
+                ESP_LOGE(
+                    TAG,
+                    "TTS WAV format mismatch format=%u channels=%u rate=%lu bits=%u",
+                    (unsigned)audio_format,
+                    (unsigned)channels,
+                    (unsigned long)sample_rate,
+                    (unsigned)bits_per_sample
+                );
+                return false;
+            }
+            have_fmt = true;
+            continue;
+        }
+
+        if (memcmp(chunk_header, "data", 4) == 0) {
+            if (!have_fmt || chunk_size == 0 || padded || chunk_size > TTS_MAX_PCM_BYTES) return false;
+            pcm_bytes = chunk_size;
+            return true;
+        }
+
+        if (chunk_size > 4096U) return false;
+        if (!http_discard_exact(client, chunk_size + (padded ? 1U : 0U))) return false;
+    }
+    return false;
+}
+
 struct MobileTtsContext {
     bool ok = true;
     bool have_carry = false;
@@ -698,50 +783,56 @@ static bool speak_text(const std::string &text) {
             esp_http_client_fetch_headers(client);
             int status = esp_http_client_get_status_code(client);
             if (status == 200) {
-                uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4097, MALLOC_CAP_8BIT));
-                if (buffer) {
-                    esp_codec_dev_set_out_vol(output_dev, 100.0);
-                    ok = true;
-                    bool have_carry = false;
-                    uint8_t carry = 0;
-                    bool first_audio = true;
-                    while (true) {
-                        const size_t offset = have_carry ? 1 : 0;
-                        if (have_carry) buffer[0] = carry;
-                        int n = esp_http_client_read(
-                            client,
-                            reinterpret_cast<char *>(buffer + offset),
-                            4096
-                        );
-                        if (n < 0) { ok = false; break; }
-                        if (n == 0) {
-                            if (have_carry) {
-                                ESP_LOGE(TAG, "TTS returned truncated 16-bit PCM");
-                                ok = false;
-                            }
-                            break;
-                        }
-
-                        size_t total = offset + (size_t)n;
-                        have_carry = (total & 1U) != 0;
-                        if (have_carry) {
-                            carry = buffer[total - 1];
-                            total -= 1;
-                        }
-                        if (total > 0) {
-                            if (first_audio) {
-                                first_audio = false;
-                                ESP_LOGI(TAG, "VOICE PERF: TTS first-audio=%lld ms",
-                                         (long long)((esp_timer_get_time() - tts_request_us) / 1000));
-                            }
-                            if (esp_codec_dev_write(output_dev, buffer, total) != ESP_CODEC_DEV_OK) {
+                uint32_t remaining = 0;
+                if (!read_tts_wav_header(client, remaining)) {
+                    ESP_LOGE(TAG, "TTS WAV header invalid; refusing audio playback");
+                } else {
+                    uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4097, MALLOC_CAP_8BIT));
+                    if (buffer) {
+                        esp_codec_dev_set_out_vol(output_dev, 100.0);
+                        ok = true;
+                        bool have_carry = false;
+                        uint8_t carry = 0;
+                        bool first_audio = true;
+                        while (remaining > 0 && ok) {
+                            const size_t offset = have_carry ? 1 : 0;
+                            if (have_carry) buffer[0] = carry;
+                            const int want = (int)std::min<uint32_t>(4096U, remaining);
+                            int n = esp_http_client_read(
+                                client,
+                                reinterpret_cast<char *>(buffer + offset),
+                                want
+                            );
+                            if (n <= 0) {
+                                ESP_LOGE(TAG, "TTS WAV truncated with %lu bytes remaining", (unsigned long)remaining);
                                 ok = false;
                                 break;
                             }
+                            remaining -= (uint32_t)n;
+
+                            size_t total = offset + (size_t)n;
+                            have_carry = (total & 1U) != 0;
+                            if (have_carry) {
+                                carry = buffer[total - 1];
+                                total -= 1;
+                            }
+                            if (total > 0) {
+                                if (first_audio) {
+                                    first_audio = false;
+                                    ESP_LOGI(TAG, "VOICE PERF: TTS first-audio=%lld ms",
+                                             (long long)((esp_timer_get_time() - tts_request_us) / 1000));
+                                }
+                                if (esp_codec_dev_write(output_dev, buffer, total) != ESP_CODEC_DEV_OK) {
+                                    ESP_LOGE(TAG, "TTS codec write failed");
+                                    ok = false;
+                                    break;
+                                }
+                            }
                         }
+                        if (have_carry || remaining != 0) ok = false;
+                        esp_codec_dev_set_out_vol(output_dev, 0.0);
+                        heap_caps_free(buffer);
                     }
-                    esp_codec_dev_set_out_vol(output_dev, 0.0);
-                    heap_caps_free(buffer);
                 }
             } else {
                 ESP_LOGW(TAG, "TTS failed status=%d", status);
