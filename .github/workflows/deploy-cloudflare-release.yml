@@ -1633,6 +1633,56 @@ jobs:
           echo "Production HTTP verification passed with status ${PROD_STATUS}."
 
 
+      - name: Prove real production browser.execute
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          BROWSER_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${BROWSER_TOKEN}"
+          cleanup_browser_secret() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-browser-secret-delete.log 2>&1 || true
+            set -e
+          }
+          trap cleanup_browser_secret EXIT
+          printf '%s' "${BROWSER_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 90 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-launch-bootstrap: ${BROWSER_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"id":"browser.execute","input":{"session_id":"release-browser-proof","device":{"id":"cloudflare-browser","capabilities":["browser.control"]},"sandbox":{"allowed_origins":["https://example.com"],"max_steps":2},"approvals":[],"steps":[{"id":"navigate-example","action":"browser.navigate","url":"https://example.com/"},{"id":"read-example","action":"browser.read-text","selector":"body"}]}}' \
+              --output production-browser-proof.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "${CODE}" = "200" ]; then READY=1; break; fi
+            echo "browser.execute proof attempt ${ATTEMPT}/12 returned HTTP ${CODE}."
+            test ! -s production-browser-proof.json || cat production-browser-proof.json
+            sleep 3
+          done
+          test "${READY}" = "1"
+
+          node - <<'NODE'
+          const d=require('./production-browser-proof.json');
+          const r=d?.result||{};
+          if(d?.ok!==true || d?.capability!=='browser.execute') throw new Error('BROWSER_PRODUCTION_CAPABILITY_NOT_OK');
+          if(r?.ok!==true || Number(r?.steps_completed||0)!==2) throw new Error('BROWSER_PRODUCTION_EXECUTION_INCOMPLETE');
+          const nav=(r.outputs||[]).find(x=>x?.step_id==='navigate-example')?.output;
+          const read=(r.outputs||[]).find(x=>x?.step_id==='read-example')?.output;
+          if(nav?.kind!=='navigation' || !String(nav?.url||'').startsWith('https://example.com')) throw new Error('BROWSER_PRODUCTION_NAVIGATION_MISSING');
+          if(read?.kind!=='text' || !String(read?.text||'').includes('Example Domain')) throw new Error('BROWSER_PRODUCTION_TEXT_MISSING');
+          console.log('Real production browser.execute proof passed.');
+          NODE
+
+          cleanup_browser_secret
+          trap - EXIT
+
       - name: Re-enable MAX 100% after verified autonomous release
         if: success() && env.OWNER_MAX_AUTORELEASE == 'true'
         shell: bash
