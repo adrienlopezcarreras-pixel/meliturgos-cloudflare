@@ -95,3 +95,22 @@ test('capability health UI uses real refreshes instead of presenting startup def
   assert.match(runtime, /\/api\/gen2\/capabilities\?refresh=1/);
   assert.match(runtime, /loadDashboardSummary\(true\)/);
 });
+
+test('full interface exposes encrypted Pipedream Connect bridge and roadmap app buttons', async () => {
+  const response = await onRequestGet();
+  const html = await response.text();
+  assert.match(html, />Pipedream Connect</);
+  assert.match(html, /id="pipedreamProjectId"/);
+  assert.match(html, /id="pipedreamClientId"/);
+  assert.match(html, /id="pipedreamClientSecret"/);
+  assert.match(html, /id="pipedreamEnvironment"/);
+  assert.match(html, /id="pipedreamSave"/);
+  assert.match(html, /id="pipedreamTest"/);
+  assert.match(html, /data-pd-connect="microsoft_outlook"/);
+  assert.match(html, /data-pd-connect="microsoft_onedrive"/);
+  assert.match(html, /data-pd-connect="lemlist"/);
+  assert.match(html, /data-pd-connect="google_drive"/);
+  assert.match(html, /data-pd-connect="google_calendar"/);
+  assert.match(html, /data-pd-connect="dropbox"/);
+  assert.match(html, /connectionApi\('pipedream','link'\)/);
+});

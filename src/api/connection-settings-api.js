@@ -3,7 +3,7 @@ import { createGoogleOAuthRuntime } from '../connectors/google-oauth-runtime.js'
 import { createMailOAuthRuntime } from '../connectors/mail-oauth-runtime.js';
 import { createVercelConfigResolver, saveVercelConnectionConfig } from '../connectors/vercel-config.js';
 
-const PROVIDERS = new Set(['google','microsoft','yahoo','yahoo-imap','roundcube','vercel']);
+const PROVIDERS = new Set(['google','microsoft','yahoo','yahoo-imap','roundcube','vercel','pipedream']);
 const OAUTH_APP_KEYS = Object.freeze({
   google: Object.freeze({ id: 'oauth-app-google', clientIdEnv: 'GOOGLE_OAUTH_CLIENT_ID', clientSecretEnv: 'GOOGLE_OAUTH_CLIENT_SECRET' }),
   microsoft: Object.freeze({ id: 'oauth-app-microsoft', clientIdEnv: 'MICROSOFT_OAUTH_CLIENT_ID', clientSecretEnv: 'MICROSOFT_OAUTH_CLIENT_SECRET' }),
@@ -409,6 +409,214 @@ async function saveYahooDirect(env, contextOwner, body) {
   return yahooDirectStatus(env, contextOwner);
 }
 
+
+const PIPEDREAM_CONFIG_ID = 'pipedream-connect-config';
+const PIPEDREAM_ALLOWED_APPS = Object.freeze(new Set([
+  'microsoft_outlook',
+  'microsoft_onedrive',
+  'lemlist',
+  'google_drive',
+  'google_calendar',
+  'dropbox',
+]));
+
+async function pipedreamStoredConfig(env, contextOwner) {
+  const vaults = createD1OAuthVaults(env);
+  return vaults.tokenVault.get({ owner: contextOwner, connector_id: PIPEDREAM_CONFIG_ID });
+}
+
+async function pipedreamStatus(env, contextOwner) {
+  const stored = await pipedreamStoredConfig(env, contextOwner).catch(() => null);
+  return {
+    provider: 'pipedream',
+    configured: Boolean(stored?.project_id && stored?.client_id && stored?.client_secret),
+    stored_securely: true,
+    project_id: clean(stored?.project_id, 300) || null,
+    client_id_present: Boolean(clean(stored?.client_id, 1000)),
+    client_secret_present: Boolean(clean(stored?.client_secret, 2000)),
+    environment: stored?.environment === 'development' ? 'development' : 'production',
+    external_user_id: contextOwner,
+    supported_apps: [...PIPEDREAM_ALLOWED_APPS],
+  };
+}
+
+async function savePipedreamConfig(env, contextOwner, body) {
+  const projectId = clean(body.project_id, 300);
+  const clientId = clean(body.client_id, 1000);
+  const clientSecret = clean(body.client_secret, 2000);
+  const environment = body.environment === 'development' ? 'development' : 'production';
+  if (!/^proj_[A-Za-z0-9_-]+$/.test(projectId) || !clientId || !clientSecret) {
+    const error = new Error('PIPEDREAM_CONFIGURATION_INVALID');
+    error.code = 'PIPEDREAM_CONFIGURATION_INVALID';
+    error.status = 400;
+    throw error;
+  }
+  const vaults = createD1OAuthVaults(env);
+  await vaults.tokenVault.put({
+    owner: contextOwner,
+    connector_id: PIPEDREAM_CONFIG_ID,
+    token_set: {
+      kind: 'pipedream-connect-credentials',
+      project_id: projectId,
+      client_id: clientId,
+      client_secret: clientSecret,
+      environment,
+      updated_at: Date.now(),
+    },
+  });
+  return pipedreamStatus(env, contextOwner);
+}
+
+async function pipedreamJson(fetcher, url, init, code) {
+  let response;
+  try {
+    response = await fetcher(url, {
+      ...init,
+      redirect: 'manual',
+      signal: init?.signal || AbortSignal.timeout(12_000),
+    });
+  } catch {
+    const error = new Error(code);
+    error.code = code;
+    error.status = 503;
+    throw error;
+  }
+  const text = await response.text().catch(() => '');
+  let body = {};
+  if (text) {
+    try { body = JSON.parse(text); }
+    catch {
+      const error = new Error(code + '_INVALID_RESPONSE');
+      error.code = code + '_INVALID_RESPONSE';
+      error.status = 502;
+      throw error;
+    }
+  }
+  if (!response.ok) {
+    const error = new Error(code);
+    error.code = code;
+    error.status = response.status === 401 || response.status === 403 ? 409 : 502;
+    throw error;
+  }
+  return body;
+}
+
+export async function pipedreamAccessToken(config, options = {}) {
+  const fetcher = options.fetcher || fetch;
+  const body = await pipedreamJson(fetcher, 'https://api.pipedream.com/v1/oauth/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'client_credentials',
+      client_id: clean(config?.client_id, 1000),
+      client_secret: clean(config?.client_secret, 2000),
+    }),
+    signal: options.signal,
+  }, 'PIPEDREAM_AUTH_FAILED');
+  const accessToken = clean(body?.access_token, 10000);
+  if (!accessToken) {
+    const error = new Error('PIPEDREAM_ACCESS_TOKEN_MISSING');
+    error.code = 'PIPEDREAM_ACCESS_TOKEN_MISSING';
+    error.status = 502;
+    throw error;
+  }
+  return accessToken;
+}
+
+export async function testPipedreamCredentials(config, options = {}) {
+  const fetcher = options.fetcher || fetch;
+  const token = await pipedreamAccessToken(config, { fetcher, signal: options.signal });
+  const projectId = clean(config?.project_id, 300);
+  const environment = config?.environment === 'development' ? 'development' : 'production';
+  const checks = {};
+  for (const app of ['microsoft_outlook', 'microsoft_onedrive']) {
+    const url = 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(projectId)
+      + '/components?app=' + encodeURIComponent(app) + '&component_type=action';
+    const body = await pipedreamJson(fetcher, url, {
+      method: 'GET',
+      headers: {
+        authorization: 'Bearer ' + token,
+        accept: 'application/json',
+        'x-pd-environment': environment,
+      },
+      signal: options.signal,
+    }, 'PIPEDREAM_PROJECT_TEST_FAILED');
+    const components = Array.isArray(body?.data) ? body.data
+      : Array.isArray(body?.components) ? body.components
+        : Array.isArray(body) ? body : [];
+    checks[app] = { reachable: true, component_count: components.length };
+  }
+  return {
+    ok: true,
+    provider: 'pipedream',
+    authenticated: true,
+    project_id: projectId,
+    environment,
+    apps: checks,
+  };
+}
+
+async function createPipedreamConnectLink(env, contextOwner, body, requestUrl, signal) {
+  const stored = await pipedreamStoredConfig(env, contextOwner);
+  if (!stored?.project_id || !stored?.client_id || !stored?.client_secret) {
+    const error = new Error('PIPEDREAM_NOT_CONFIGURED');
+    error.code = 'PIPEDREAM_NOT_CONFIGURED';
+    error.status = 409;
+    throw error;
+  }
+  const app = clean(body?.app, 120);
+  if (!PIPEDREAM_ALLOWED_APPS.has(app)) {
+    const error = new Error('PIPEDREAM_APP_UNSUPPORTED');
+    error.code = 'PIPEDREAM_APP_UNSUPPORTED';
+    error.status = 400;
+    throw error;
+  }
+  const environment = stored.environment === 'development' ? 'development' : 'production';
+  const accessToken = await pipedreamAccessToken(stored, { signal });
+  const success = new URL('/professor', requestUrl.origin);
+  success.searchParams.set('view', 'connections');
+  success.searchParams.set('pd', 'connected');
+  success.searchParams.set('app', app);
+  const tokenBody = await pipedreamJson(fetch, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(stored.project_id) + '/tokens', {
+    method: 'POST',
+    headers: {
+      authorization: 'Bearer ' + accessToken,
+      'content-type': 'application/json',
+      accept: 'application/json',
+      'x-pd-environment': environment,
+    },
+    body: JSON.stringify({
+      external_user_id: contextOwner,
+      success_redirect_uri: success.toString(),
+    }),
+    signal,
+  }, 'PIPEDREAM_CONNECT_TOKEN_FAILED');
+  const rawLink = clean(tokenBody?.connect_link_url || tokenBody?.connectLinkUrl, 4000);
+  if (!rawLink) {
+    const error = new Error('PIPEDREAM_CONNECT_LINK_MISSING');
+    error.code = 'PIPEDREAM_CONNECT_LINK_MISSING';
+    error.status = 502;
+    throw error;
+  }
+  let link;
+  try {
+    link = new URL(rawLink);
+  } catch {
+    const error = new Error('PIPEDREAM_CONNECT_LINK_INVALID');
+    error.code = 'PIPEDREAM_CONNECT_LINK_INVALID';
+    error.status = 502;
+    throw error;
+  }
+  link.searchParams.set('app', app);
+  return {
+    ok: true,
+    provider: 'pipedream',
+    app,
+    connect_link_url: link.toString(),
+    expires_at: Number(tokenBody?.expires_at || tokenBody?.expiresAt || 0) || null,
+  };
+}
+
 async function vercelStatus(env, contextOwner) {
   const cfg = await createVercelConfigResolver(env)(contextOwner);
   return {
@@ -540,7 +748,7 @@ async function bodyObject(request) {
 }
 
 export async function maybeHandleConnectionSettingsApi(request, env = {}, url = new URL(request.url)) {
-  const match = url.pathname.match(/^\/api\/gen2\/connections\/(google|microsoft|yahoo|yahoo-imap|roundcube|vercel)\/(status|save|test)$/);
+  const match = url.pathname.match(/^\/api\/gen2\/connections\/(google|microsoft|yahoo|yahoo-imap|roundcube|vercel|pipedream)\/(status|save|test|link)$/);
   if (!match) return null;
   const provider = match[1];
   const action = match[2];
@@ -556,7 +764,9 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
           ? await yahooDirectStatus(env, contextOwner)
           : provider === 'vercel'
             ? await vercelStatus(env, contextOwner)
-            : await oauthStatus(env, provider, contextOwner);
+            : provider === 'pipedream'
+              ? await pipedreamStatus(env, contextOwner)
+              : await oauthStatus(env, provider, contextOwner);
       return json({ ok: true, ...result });
     }
 
@@ -569,8 +779,17 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
           ? await saveYahooDirect(env, contextOwner, body)
           : provider === 'vercel'
             ? await saveVercelConnectionConfig(env, body, contextOwner)
-            : await saveOAuthApp(env, provider, contextOwner, body);
+            : provider === 'pipedream'
+              ? await savePipedreamConfig(env, contextOwner, body)
+              : await saveOAuthApp(env, provider, contextOwner, body);
       return json({ ok: true, ...result });
+    }
+
+    if (action === 'link') {
+      if (request.method !== 'POST') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+      if (provider !== 'pipedream') return json({ ok: false, code: 'CONNECTION_ACTION_UNSUPPORTED' }, 404);
+      const body = await bodyObject(request);
+      return json(await createPipedreamConnectLink(env, contextOwner, body, url, request.signal));
     }
 
     if (action === 'test') {
@@ -603,6 +822,11 @@ export async function maybeHandleConnectionSettingsApi(request, env = {}, url = 
       }
       if (provider === 'vercel') {
         return json(await testVercelConnection(env, contextOwner, request.signal));
+      }
+      if (provider === 'pipedream') {
+        const stored = await pipedreamStoredConfig(env, contextOwner);
+        if (!stored) return json({ ok: false, code: 'PIPEDREAM_NOT_CONFIGURED' }, 409);
+        return json(await testPipedreamCredentials(stored, { signal: request.signal }));
       }
       const body = await bodyObject(request);
       const connectorId = clean(body.connector_id, 160);

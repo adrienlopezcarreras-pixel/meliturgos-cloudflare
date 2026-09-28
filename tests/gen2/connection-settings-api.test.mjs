@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { maybeHandleConnectionSettingsApi, probeYahooDirect } from '../../src/api/connection-settings-api.js';
+import { maybeHandleConnectionSettingsApi, probeYahooDirect, pipedreamAccessToken, testPipedreamCredentials } from '../../src/api/connection-settings-api.js';
 
 function compact(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();
@@ -265,4 +265,89 @@ test('Yahoo probe surfaces SMTP authentication rejection and does not retry anot
     },
   );
   assert.equal(smtpCalls, 1);
+});
+
+test('Pipedream Connect credentials are encrypted at rest and status never returns secrets', async () => {
+  const runtimeEnv = env();
+  const response = await call('/api/gen2/connections/pipedream/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      project_id: 'proj_demo123',
+      client_id: 'pd-client-id-secretish',
+      client_secret: 'pd-client-secret-value',
+      environment: 'production',
+    }),
+  }, runtimeEnv);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.configured, true);
+  assert.equal(body.project_id, 'proj_demo123');
+  assert.equal(body.client_id_present, true);
+  assert.equal(body.client_secret_present, true);
+  assert.equal(body.client_id, undefined);
+  assert.equal(body.client_secret, undefined);
+  assert.equal(JSON.stringify(body).includes('pd-client-secret-value'), false);
+
+  const raw = JSON.stringify([...runtimeEnv.DB.tokens.values()]);
+  assert.equal(raw.includes('pd-client-id-secretish'), false);
+  assert.equal(raw.includes('pd-client-secret-value'), false);
+  assert.match(raw, /MEL_OAUTH_VAULT_V1/);
+
+  const status = await call('/api/gen2/connections/pipedream/status', { method: 'GET' }, runtimeEnv);
+  const state = await status.json();
+  assert.equal(state.configured, true);
+  assert.equal(state.project_id, 'proj_demo123');
+  assert.deepEqual(state.supported_apps.sort(), [
+    'dropbox',
+    'google_calendar',
+    'google_drive',
+    'lemlist',
+    'microsoft_onedrive',
+    'microsoft_outlook',
+  ]);
+});
+
+test('Pipedream access token exchange uses client credentials with Cloudflare-compatible redirect mode', async () => {
+  const calls = [];
+  const token = await pipedreamAccessToken({
+    client_id: 'client-id',
+    client_secret: 'client-secret',
+  }, {
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), init });
+      return Response.json({ access_token: 'short-lived-token', expires_in: 3600 });
+    },
+  });
+  assert.equal(token, 'short-lived-token');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://api.pipedream.com/v1/oauth/token');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.redirect, 'manual');
+  const body = JSON.parse(String(calls[0].init.body));
+  assert.equal(body.grant_type, 'client_credentials');
+  assert.equal(body.client_id, 'client-id');
+  assert.equal(body.client_secret, 'client-secret');
+});
+
+test('Pipedream real project probe checks Outlook and OneDrive component catalogs', async () => {
+  const calls = [];
+  const result = await testPipedreamCredentials({
+    project_id: 'proj_demo123',
+    client_id: 'client-id',
+    client_secret: 'client-secret',
+    environment: 'production',
+  }, {
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/v1/oauth/token')) return Response.json({ access_token: 'access' });
+      return Response.json({ data: [{ key: 'one' }, { key: 'two' }] });
+    },
+  });
+  assert.equal(result.authenticated, true);
+  assert.equal(result.project_id, 'proj_demo123');
+  assert.equal(result.apps.microsoft_outlook.component_count, 2);
+  assert.equal(result.apps.microsoft_onedrive.component_count, 2);
+  assert.equal(calls.filter(call => call.url.includes('/components?app=')).length, 2);
+  assert.equal(calls.every(call => call.init.redirect === 'manual'), true);
 });
