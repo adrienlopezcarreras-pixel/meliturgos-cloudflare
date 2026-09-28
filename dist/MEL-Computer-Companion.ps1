@@ -650,6 +650,88 @@ function Perform-SovereigntySourceControl([string]$operation,$payload) {
   }
 }
 
+function Sovereignty-ObservabilityRoot {
+  $root = Join-Path (Sovereignty-Root) "observability"
+  [IO.Directory]::CreateDirectory($root) | Out-Null
+  return [IO.Path]::GetFullPath($root)
+}
+
+function Read-SovereigntyJsonLines([string]$path) {
+  $rows = @()
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $rows }
+  foreach ($line in @(Get-Content -LiteralPath $path -Encoding UTF8 -ErrorAction SilentlyContinue)) {
+    if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
+    try { $rows += ,($line | ConvertFrom-Json) } catch {}
+  }
+  return $rows
+}
+
+function Write-SovereigntyJsonLines([string]$path,$rows) {
+  $lines = @()
+  foreach ($row in @($rows)) { $lines += ,($row | ConvertTo-Json -Compress -Depth 8) }
+  [IO.File]::WriteAllLines($path,[string[]]$lines,[Text.UTF8Encoding]::new($false))
+}
+
+function Append-SovereigntyJsonLine([string]$path,$row) {
+  $line = $row | ConvertTo-Json -Compress -Depth 8
+  [IO.File]::AppendAllText($path,$line + [Environment]::NewLine,[Text.UTF8Encoding]::new($false))
+}
+
+function Perform-SovereigntyObservability([string]$operation,$payload) {
+  $root = Sovereignty-ObservabilityRoot
+  $logsPath = Join-Path $root "logs.jsonl"
+  $metricsPath = Join-Path $root "metrics.jsonl"
+  switch ($operation) {
+    "health" {
+      return @{ action="sovereignty.observability.health"; backend="local-jsonl"; root_ready=(Test-Path -LiteralPath $root) }
+    }
+    "emit_log" {
+      $row = @{
+        trace_id=[string]$payload.trace_id
+        level=[string]$payload.level
+        message=([string]$payload.message).Substring(0,[Math]::Min(4000,([string]$payload.message).Length))
+        recorded_at=(Get-Date).ToUniversalTime().ToString("o")
+      }
+      Append-SovereigntyJsonLine $logsPath $row
+      return @{ action="sovereignty.observability.emit_log"; stored=$true; trace_id=$row.trace_id }
+    }
+    "emit_metric" {
+      $row = @{
+        trace_id=[string]$payload.trace_id
+        name=[string]$payload.name
+        value=[double]$payload.value
+        tags=$payload.tags
+        recorded_at=(Get-Date).ToUniversalTime().ToString("o")
+      }
+      Append-SovereigntyJsonLine $metricsPath $row
+      return @{ action="sovereignty.observability.emit_metric"; stored=$true; trace_id=$row.trace_id; name=$row.name }
+    }
+    "query_logs" {
+      $trace = [string]$payload.trace_id
+      $limit = [Math]::Max(1,[Math]::Min(100,[int]$payload.limit))
+      $rows = @(Read-SovereigntyJsonLines $logsPath | Where-Object { [string]$_.trace_id -eq $trace } | Select-Object -Last $limit)
+      return @{ action="sovereignty.observability.query_logs"; rows=$rows }
+    }
+    "query_metrics" {
+      $trace = [string]$payload.trace_id
+      $name = [string]$payload.name
+      $rows = @(Read-SovereigntyJsonLines $metricsPath | Where-Object {
+        ([string]$_.trace_id -eq $trace) -and ([string]::IsNullOrWhiteSpace($name) -or [string]$_.name -eq $name)
+      })
+      return @{ action="sovereignty.observability.query_metrics"; rows=$rows }
+    }
+    "delete_test_data" {
+      $trace = [string]$payload.trace_id
+      $logs = @(Read-SovereigntyJsonLines $logsPath | Where-Object { [string]$_.trace_id -ne $trace })
+      $metrics = @(Read-SovereigntyJsonLines $metricsPath | Where-Object { [string]$_.trace_id -ne $trace })
+      Write-SovereigntyJsonLines $logsPath $logs
+      Write-SovereigntyJsonLines $metricsPath $metrics
+      return @{ action="sovereignty.observability.delete_test_data"; deleted=$true; trace_id=$trace }
+    }
+    default { throw "SOVEREIGNTY_OBSERVABILITY_OPERATION_NOT_SUPPORTED" }
+  }
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($action.StartsWith("sovereignty.")) {
@@ -661,6 +743,10 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
     if ($action.StartsWith("sovereignty.storage.")) {
       $op = $action.Substring("sovereignty.storage.".Length)
       return Perform-SovereigntyStorage $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.observability.")) {
+      $op = $action.Substring("sovereignty.observability.".Length)
+      return Perform-SovereigntyObservability $op $step.payload
     }
     throw "SOVEREIGNTY_ACTION_NOT_SUPPORTED"
   }
