@@ -38,17 +38,28 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          set -euo pipefail
-          npx wrangler d1 execute DB --remote --json \
+          set +e
+          npx wrangler d1 execute meliturgos-memory --remote --json \
             --command "SELECT name FROM sqlite_master WHERE type='table' AND name='mel_oauth_tokens'" \
-            > oauth-table.raw.json
-          if grep -q 'mel_oauth_tokens' oauth-table.raw.json; then
-            npx wrangler d1 execute DB --remote --json \
-              --command "SELECT connector_id,COUNT(*) AS token_rows,MAX(updated_at) AS updated_at FROM mel_oauth_tokens WHERE connector_id IN ('pipedream-connect-config','yahoo-imap-smtp','generic-imap-smtp') GROUP BY connector_id ORDER BY connector_id" \
-              > connector-metadata.raw.json
+            > oauth-table.raw.json 2> d1-table.err
+          TABLE_RC=$?
+          printf '%s' "$TABLE_RC" > d1-table.rc
+
+          npx wrangler d1 execute meliturgos-memory --remote --json \
+            --command "PRAGMA table_info(mel_oauth_tokens)" \
+            > oauth-schema.raw.json 2> d1-schema.err
+          printf '%s' "$?" > d1-schema.rc
+
+          if [ "$TABLE_RC" -eq 0 ] && grep -q 'mel_oauth_tokens' oauth-table.raw.json; then
+            npx wrangler d1 execute meliturgos-memory --remote --json \
+              --command "SELECT connector_id,COUNT(*) AS token_rows FROM mel_oauth_tokens WHERE connector_id IN ('pipedream-connect-config','yahoo-imap-smtp','generic-imap-smtp') GROUP BY connector_id ORDER BY connector_id" \
+              > connector-metadata.raw.json 2> d1-meta.err
+            printf '%s' "$?" > d1-meta.rc
           else
             printf '[]\n' > connector-metadata.raw.json
+            printf '1' > d1-meta.rc
           fi
+          exit 0
 
       - name: Probe live production Pipedream accounts endpoint
         shell: bash
@@ -75,6 +86,12 @@ jobs:
               except Exception:
                   return default
 
+          def text(path, default=''):
+              try:
+                  return Path(path).read_text(encoding='utf-8').strip()
+              except Exception:
+                  return default
+
           def rows(payload):
               out=[]
               if isinstance(payload, dict):
@@ -95,22 +112,23 @@ jobs:
                   if name:
                       secret_names.add(str(name))
 
+          table_rc=text('d1-table.rc','1')
+          schema_rc=text('d1-schema.rc','1')
+          meta_rc=text('d1-meta.rc','1')
           table_present=any(str(r.get('name') or '')=='mel_oauth_tokens' for r in rows(load('oauth-table.raw.json', [])))
+
           meta={}
           for r in rows(load('connector-metadata.raw.json', [])):
               cid=str(r.get('connector_id') or '')
               if cid:
-                  meta[cid]={
-                      'present': int(r.get('token_rows') or 0) > 0,
-                      'updated_at': int(r.get('updated_at') or 0) or None,
-                  }
+                  meta[cid]={'present': int(r.get('token_rows') or 0) > 0}
 
           crypto_ready=('MEL_OAUTH_ENCRYPTION_KEY_ID' in secret_names and 'MEL_OAUTH_ENCRYPTION_KEY_B64' in secret_names)
           pipedream_config=meta.get('pipedream-connect-config',{}).get('present',False)
           yahoo_direct=meta.get('yahoo-imap-smtp',{}).get('present',False)
           roundcube=meta.get('generic-imap-smtp',{}).get('present',False)
 
-          http_status=Path('pipedream-accounts.http-status.txt').read_text(encoding='utf-8').strip()
+          http_status=text('pipedream-accounts.http-status.txt','')
           accounts=load('pipedream-accounts.raw.json', {})
           connected_apps=[]
           endpoint_ok=False
@@ -124,9 +142,11 @@ jobs:
 
           imap_live=('imap' in connected_apps)
           proof={
-              'schema':'mel.pr674.yahoo-pipedream-live-proof/v1',
+              'schema':'mel.pr674.yahoo-pipedream-live-proof/v2',
               'generated_at':datetime.now(timezone.utc).isoformat(),
-              'source_sha':None,
+              'd1_table_query_ok':table_rc=='0',
+              'd1_schema_query_ok':schema_rc=='0',
+              'd1_metadata_query_ok':meta_rc=='0',
               'vault_table_present':table_present,
               'vault_crypto_ready':crypto_ready,
               'pipedream_config_present':pipedream_config,
