@@ -657,7 +657,7 @@ function Process-Command($command) {
   $outputs = @()
   try {
     foreach ($step in @($command.plan.steps)) {
-      $outputs += ,(Perform-Step $step ([string]$command.id))
+      $outputs += ,(Perform-Step $step ([string]$command.id) ([string]$command.plan.schema))
     }
     $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
     [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
