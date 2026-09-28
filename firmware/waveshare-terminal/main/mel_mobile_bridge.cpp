@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/queue.h"
 #include "host/ble_att.h"
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
@@ -51,6 +52,12 @@ static uint8_t g_read_frame[520] = {};
 static size_t g_read_len = 0;
 static bool g_read_failed = false;
 static std::atomic<uint32_t> g_request_id{1};
+
+struct NotifyFrame {
+    uint16_t len = 0;
+    uint8_t data[520] = {};
+};
+static QueueHandle_t g_notify_queue = nullptr;
 
 struct ActiveResponse {
     uint32_t id = 0;
@@ -336,7 +343,16 @@ static void connect_to(const struct ble_gap_disc_desc *disc) {
         start_scan();
         return;
     }
-    int rc = ble_gap_connect(own_addr_type, &disc->addr, 15000, nullptr, gap_event, nullptr);
+    struct ble_gap_conn_params params = {};
+    params.scan_itvl = 0x0010;
+    params.scan_window = 0x0010;
+    params.itvl_min = BLE_GAP_INITIAL_CONN_ITVL_MIN;   // 30 ms
+    params.itvl_max = BLE_GAP_INITIAL_CONN_ITVL_MAX;   // 50 ms
+    params.latency = BLE_GAP_INITIAL_CONN_LATENCY;
+    params.supervision_timeout = BLE_GAP_INITIAL_SUPERVISION_TIMEOUT;
+    params.min_ce_len = BLE_GAP_INITIAL_CONN_MIN_CE_LEN;
+    params.max_ce_len = BLE_GAP_INITIAL_CONN_MAX_CE_LEN;
+    int rc = ble_gap_connect(own_addr_type, &disc->addr, 15000, &params, gap_event, nullptr);
     if (rc != 0) {
         ESP_LOGW(TAG, "MEL Mobile connect start failed rc=%d", rc);
         start_scan();
@@ -371,10 +387,37 @@ static int gap_event(struct ble_gap_event *event, void *arg) {
         case BLE_GAP_EVENT_NOTIFY_RX: {
             if (event->notify_rx.attr_handle != g_tx_handle || !event->notify_rx.om) return 0;
             const int len = OS_MBUF_PKTLEN(event->notify_rx.om);
-            if (len <= 0 || len > 520) return 0;
-            uint8_t buf[520];
-            if (os_mbuf_copydata(event->notify_rx.om, 0, len, buf) == 0) {
-                handle_rx_frame(buf, (size_t)len);
+            if (len <= 0 || len > 520 || !g_notify_queue) return 0;
+            NotifyFrame frame;
+            frame.len = (uint16_t)len;
+            if (os_mbuf_copydata(event->notify_rx.om, 0, len, frame.data) == 0) {
+                if (xQueueSend(g_notify_queue, &frame, 0) != pdTRUE) {
+                    ESP_LOGW(TAG, "BLE notify queue full; dropping frame");
+                }
+            }
+            return 0;
+        }
+        case BLE_GAP_EVENT_CONN_UPDATE_REQ:
+        case BLE_GAP_EVENT_L2CAP_UPDATE_REQ:
+            ESP_LOGI(TAG,
+                     "MEL Mobile conn update req itvl=%u-%u latency=%u timeout=%u",
+                     event->conn_update_req.peer_params->itvl_min,
+                     event->conn_update_req.peer_params->itvl_max,
+                     event->conn_update_req.peer_params->latency,
+                     event->conn_update_req.peer_params->supervision_timeout);
+            // NimBLE pre-fills self_params with the peer request. Return 0 to accept it.
+            return 0;
+        case BLE_GAP_EVENT_CONN_UPDATE: {
+            struct ble_gap_conn_desc desc = {};
+            if (ble_gap_conn_find(event->conn_update.conn_handle, &desc) == 0) {
+                ESP_LOGI(TAG,
+                         "MEL Mobile conn updated status=%d itvl=%u latency=%u timeout=%u",
+                         event->conn_update.status,
+                         desc.conn_itvl,
+                         desc.conn_latency,
+                         desc.supervision_timeout);
+            } else {
+                ESP_LOGI(TAG, "MEL Mobile conn update status=%d", event->conn_update.status);
             }
             return 0;
         }
@@ -442,8 +485,9 @@ void mel_mobile_bridge_start(void) {
     g_write_done = xSemaphoreCreateBinary();
     g_read_done = xSemaphoreCreateBinary();
     g_response_done = xSemaphoreCreateBinary();
-    if (!g_request_mutex || !g_write_done || !g_read_done || !g_response_done) {
-        ESP_LOGE(TAG, "MEL Mobile semaphore allocation failed");
+    g_notify_queue = xQueueCreate(32, sizeof(NotifyFrame));
+    if (!g_request_mutex || !g_write_done || !g_read_done || !g_response_done || !g_notify_queue) {
+        ESP_LOGE(TAG, "MEL Mobile synchronization allocation failed");
         g_started.store(false);
         return;
     }
@@ -478,6 +522,15 @@ void mel_mobile_bridge_rescan(void) {
     start_scan();
 }
 
+bool mel_mobile_bridge_keepalive(void) {
+    if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE || !g_request_mutex) return false;
+    if (xSemaphoreTake(g_request_mutex, 0) != pdTRUE) return false;
+    const bool ok = pull_response_frame();
+    xSemaphoreGive(g_request_mutex);
+    if (ok) ESP_LOGD(TAG, "MEL Mobile keepalive OK");
+    return ok;
+}
+
 bool mel_mobile_bridge_ready(void) {
     return g_ready.load();
 }
@@ -509,6 +562,7 @@ static esp_err_t request_common(
     g_active.cb = cb;
     g_active.cb_ctx = cb_ctx;
     while (xSemaphoreTake(g_response_done, 0) == pdTRUE) {}
+    if (g_notify_queue) xQueueReset(g_notify_queue);
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "m", method == HTTP_METHOD_GET ? "GET" : "POST");
@@ -539,18 +593,35 @@ static esp_err_t request_common(
     const TickType_t wait = pdMS_TO_TICKS(120000);
     const TickType_t started = xTaskGetTickCount();
     bool completed = false;
+    bool push_mode = false;
+    NotifyFrame notify_frame;
     while ((xTaskGetTickCount() - started) < wait) {
         if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
             completed = true;
             break;
         }
         if (!g_ready.load() || g_conn_handle == BLE_HS_CONN_HANDLE_NONE) break;
-        pull_response_frame();
-        if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
-            completed = true;
-            break;
+
+        while (g_notify_queue && xQueueReceive(g_notify_queue, &notify_frame, 0) == pdTRUE) {
+            push_mode = true;
+            handle_rx_frame(notify_frame.data, notify_frame.len);
+            if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
+                completed = true;
+                break;
+            }
         }
-        vTaskDelay(pdMS_TO_TICKS(60));
+        if (completed) break;
+
+        if (!push_mode) {
+            pull_response_frame();
+            if (xSemaphoreTake(g_response_done, 0) == pdTRUE) {
+                completed = true;
+                break;
+            }
+            vTaskDelay(pdMS_TO_TICKS(20));
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(2));
+        }
     }
     if (!completed) {
         g_active.failed = true;
