@@ -23,15 +23,21 @@ test('live sovereignty report consumes validated registry alternatives instead o
   assert.equal(report.layers.backup_restore.ready,true);
 });
 
-test('live sovereignty report still refuses full sovereignty when capabilities themselves are incomplete',()=>{
+test('live sovereignty report still refuses full sovereignty when a live alternative proof is incomplete',()=>{
   const rows=[
     ['ai','a'],['runtime','r'],['storage','s'],['database','d'],['source_control','g'],
     ['ci_cd','c'],['secrets_identity','i'],['scheduler','q'],['observability','o'],['backup_restore','b'],
-  ].map(([layer,id])=>({id:'alt.'+id,layer,provider:'p.'+id,adapter_id:'adapter.'+id,added_cost_eur:0,proof}));
-  const report=liveTechnicalSovereigntyReport(createAlternativeRegistry(rows),{maxAutonomy:true});
+  ].map(([layer,id])=>({
+    id:'alt.'+id,
+    layer,
+    provider:'p.'+id,
+    adapter_id:'adapter.'+id,
+    added_cost_eur:0,
+    proof:layer==='runtime'?{...proof,activate:false}:proof,
+  }));
+  const report=liveTechnicalSovereigntyReport(createAlternativeRegistry(rows),{maxAutonomy:true,now});
   assert.equal(report.fully_sovereign,false);
   assert.ok(report.blocked_layers.some(row=>row.id==='runtime'));
-  assert.ok(report.blocked_layers.some(row=>row.id==='secrets_identity'));
 });
 
 
