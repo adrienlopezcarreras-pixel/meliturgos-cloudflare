@@ -20,7 +20,7 @@ class MelApiClient(
 ) {
     companion object {
         const val PROTOCOL_VERSION = "1.0"
-        const val APP_VERSION = "0.6.44-audio-contract"
+        const val APP_VERSION = "0.6.46-wake-mobile"
     }
 
     init {
