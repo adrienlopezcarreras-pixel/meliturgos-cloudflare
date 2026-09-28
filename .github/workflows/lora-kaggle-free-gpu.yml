@@ -98,6 +98,10 @@ jobs:
           SHARD_SIZE="${INPUT_SHARD_SIZE:-750}"
           MAX_CYCLES="${INPUT_MAX_CYCLES:-100}"
           BENCHMARK_PREVIEW="${INPUT_BENCHMARK_PREVIEW:-false}"
+          # One-shot live validation requested after c005: force c006 through
+          # Cloudflare LoRA upload + isolated preview benchmark, then allow
+          # later cycles to return to the normal non-preview chain.
+          if [[ "$CYCLE" == "6" ]]; then BENCHMARK_PREVIEW="true"; fi
           SMOKE_ONLY="${INPUT_SMOKE_ONLY:-false}"
           MAX_STEPS="32"
           if [[ "$SMOKE_ONLY" == "true" ]]; then MAX_STEPS="1"; fi
@@ -727,5 +731,7 @@ jobs:
             exit 0
           fi
 
-          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$BENCHMARK_PREVIEW"
-          echo "Submitted next cycle: $NEXT_CYCLE"
+          NEXT_BENCHMARK_PREVIEW="$BENCHMARK_PREVIEW"
+          if [[ "$CYCLE" == "6" ]]; then NEXT_BENCHMARK_PREVIEW="false"; fi
+          gh workflow run lora-kaggle-free-gpu.yml             --repo "$GITHUB_REPOSITORY"             --ref main             -f source_sha="$SOURCE_SHA"             -f cycle="$NEXT_CYCLE"             -f parent_release_tag="$CHECKPOINT_TAG"             -f shard_size="$SHARD_SIZE"             -f max_cycles="$MAX_CYCLES"             -f benchmark_preview="$NEXT_BENCHMARK_PREVIEW"
+          echo "Submitted next cycle: $NEXT_CYCLE (benchmark_preview=$NEXT_BENCHMARK_PREVIEW)"
