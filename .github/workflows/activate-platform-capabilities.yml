@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mel-launch-bootstrap-token
+  cancel-in-progress: false
+
 jobs:
   activate-and-prove:
     if: >
