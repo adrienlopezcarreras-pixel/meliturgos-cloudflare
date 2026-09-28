@@ -6,6 +6,9 @@ import { getAutonomyReadiness } from './autonomy-readiness.js';
 import { getAutonomyControl, setAutonomyControl, setOwnerMaxAutonomy } from './autonomy-control.js';
 import { AUTONOMY_RUNTIME_CRON } from './autonomy-schedule.js';
 import { getAutonomyLaunchReadiness, prepareAutonomyLaunch } from './launch-readiness.js';
+import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
+import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
+import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
@@ -113,7 +116,8 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   const isMax = url.pathname === '/api/gen2/autonomy/max' || url.pathname === '/api/gen2/autonomy/owner-max';
   const isLaunchReadiness = url.pathname === '/api/gen2/autonomy/launch-readiness';
   const isLaunchPrepare = url.pathname === '/api/gen2/autonomy/launch-prepare';
-  if (!isPublicControl && !isState && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare) return null;
+  const isSovereignty = url.pathname === '/api/gen2/autonomy/sovereignty';
+  if (!isPublicControl && !isState && !isTick && !isPause && !isResume && !isMax && !isLaunchReadiness && !isLaunchPrepare && !isSovereignty) return null;
 
   if (isPublicControl) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
@@ -134,6 +138,31 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
   if (isState) {
     if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
     return Response.json(await getAutonomyState(env, { repository, autonomyControlState, roadmap }), { headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (isSovereignty) {
+    if (request.method !== 'GET') return Response.json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, { status: 405, headers: { allow: 'GET' } });
+    const store = new D1AlternativeRegistryStore(env.DB);
+    const registry = await store.load();
+    const coverage = sovereigntyCoverageFromRegistry(registry);
+    const architecture = liveTechnicalSovereigntyReport(registry, {
+      maxAutonomy: (await getAutonomyControl(env.DB, { memoryState: autonomyControlState })).max_autonomy === true,
+    });
+    return Response.json({
+      ok: true,
+      status: 'TECHNICAL_SOVEREIGNTY_STATUS',
+      fully_sovereign: coverage.fully_covered === true && architecture.fully_sovereign === true,
+      alternative_coverage: coverage,
+      architecture_contract: {
+        fully_sovereign: architecture.fully_sovereign,
+        ready_layer_count: architecture.ready_layer_count,
+        layer_count: architecture.layer_count,
+        ready_layers: architecture.ready_layers,
+        blocked_layers: architecture.blocked_layers,
+      },
+      registry_count: registry.all.length,
+      generated_at: new Date().toISOString(),
+    }, { headers: { 'cache-control': 'no-store' } });
   }
 
   if (isLaunchReadiness) {

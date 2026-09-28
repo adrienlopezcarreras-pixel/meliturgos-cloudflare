@@ -1,0 +1,53 @@
+name: sovereignty-stress-ci
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - src/portability/**
+      - tests/gen2/autonomy-sovereignty-status.test.mjs
+      - tests/gen2/alternative-revalidation.test.mjs
+      - tests/gen2/d1-alternative-registry-store.test.mjs
+      - src/evolution/autonomy-api.js
+      - src/continuity/**
+      - src/evaluation/dependency-longevity-watch*.js
+      - tests/gen2/dependency-longevity-watch.test.mjs
+      - tests/gen2/prevalidated-alternative-registry.test.mjs
+      - src/portability/prevalidated-alternative-registry.js
+      - tests/gen2/sovereignty-stress.test.mjs
+      - tests/gen2/sovereign-regeneration-stress.test.mjs
+      - .github/workflows/sovereignty-stress-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Syntax gate
+        run: |
+          node --check src/portability/provider-switch-controller.js
+          node --check src/portability/emergency-sovereignty-failover.js
+          node --check src/continuity/sovereign-regeneration-bundle.js
+          node --check src/evaluation/dependency-longevity-watch.js
+          node --check src/portability/prevalidated-alternative-registry.js
+          node --check src/portability/alternative-revalidation.js
+          node --check src/portability/d1-alternative-registry-store.js
+          node --check src/evolution/autonomy-api.js
+      - name: Runtime dependency security gate
+        run: node scripts/runtime-security-gate.mjs
+      - name: Sovereignty stress
+        run: node --test tests/gen2/sovereignty-stress.test.mjs tests/gen2/sovereign-regeneration-stress.test.mjs tests/gen2/prevalidated-alternative-registry.test.mjs tests/gen2/dependency-longevity-watch.test.mjs tests/gen2/d1-alternative-registry-store.test.mjs tests/gen2/alternative-revalidation.test.mjs tests/gen2/autonomy-sovereignty-status.test.mjs
+      - name: Existing ShardVault reconstruction stress
+        run: node --test tests/shardvault-reconstruction-stress.test.mjs

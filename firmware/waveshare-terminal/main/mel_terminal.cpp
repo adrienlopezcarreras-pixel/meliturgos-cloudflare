@@ -27,6 +27,8 @@
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
 #include "esp_ota_ops.h"
+#include "esp_vfs_fat.h"
+#include "wear_levelling.h"
 #include "esp_camera.h"
 #include "esp_camera_port.h"
 #include "esp_codec_dev.h"
@@ -96,6 +98,10 @@ static char g_ip[20] = {};
 static bool g_camera_ok = false;
 static bool g_audio_ok = false;
 static bool g_sd_ok = false;
+static bool g_storage_ok = false;
+static uint64_t g_storage_total = 0;
+static uint64_t g_storage_free = 0;
+static wl_handle_t g_storage_wl = WL_INVALID_HANDLE;
 static bool g_online = false;
 static bool g_wifi_connected = false;
 static bool g_mobile_connected = false;
@@ -1634,6 +1640,67 @@ static bool show_mimg_file(const std::string &path) {
     return shown;
 }
 
+bool mel_terminal_init_storage(void) {
+    if (g_storage_ok) return true;
+
+    const esp_vfs_fat_mount_config_t mount_config = {
+        .format_if_mount_failed = true,
+        .max_files = 8,
+        .allocation_unit_size = 4096,
+    };
+
+    ESP_LOGI(TAG, "INTERNAL STORAGE: mounting FAT partition 'storage'");
+    const esp_err_t err = esp_vfs_fat_spiflash_mount_rw_wl(
+        "/melstore", "storage", &mount_config, &g_storage_wl
+    );
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "INTERNAL STORAGE mount failed: %s", esp_err_to_name(err));
+        g_storage_ok = false;
+        return false;
+    }
+
+    mkdir("/melstore/mel", 0775);
+    const char *probe_path = "/melstore/.mini-storage-test";
+    FILE *probe = fopen(probe_path, "wb");
+    if (!probe) {
+        ESP_LOGE(TAG, "INTERNAL STORAGE self-test open failed");
+        g_storage_ok = false;
+        return false;
+    }
+
+    static const char kProbe[] = "MEL-MINI-STORAGE-OK";
+    const bool wrote = fwrite(kProbe, 1, sizeof(kProbe) - 1, probe) == sizeof(kProbe) - 1;
+    fclose(probe);
+
+    char verify[sizeof(kProbe)] = {};
+    probe = fopen(probe_path, "rb");
+    const bool read_ok = probe &&
+        fread(verify, 1, sizeof(kProbe) - 1, probe) == sizeof(kProbe) - 1;
+    if (probe) fclose(probe);
+    remove(probe_path);
+
+    if (!wrote || !read_ok || memcmp(verify, kProbe, sizeof(kProbe) - 1) != 0) {
+        ESP_LOGE(TAG, "INTERNAL STORAGE self-test failed");
+        g_storage_ok = false;
+        return false;
+    }
+
+    if (esp_vfs_fat_info("/melstore", &g_storage_total, &g_storage_free) != ESP_OK) {
+        g_storage_total = 0;
+        g_storage_free = 0;
+    }
+
+    g_storage_ok = true;
+    ESP_LOGI(TAG, "INTERNAL STORAGE PASS: total=%llu free=%llu",
+             (unsigned long long)g_storage_total,
+             (unsigned long long)g_storage_free);
+    return true;
+}
+
+bool mel_terminal_storage_ok(void) {
+    return g_storage_ok;
+}
+
 static std::string safe_asset_name(const char *name) {
     std::string out;
     for (const char *p = name; p && *p && out.size() < 80; ++p) {
@@ -1663,7 +1730,7 @@ static bool mobile_asset_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
 }
 
 static bool render_display_item_card(size_t index) {
-    if (!g_sd_ok || !mel_mobile_bridge_ready() || g_display_items.empty()) return false;
+    if (!g_storage_ok || !mel_mobile_bridge_ready() || g_display_items.empty()) return false;
     if (index >= g_display_items.size()) index = 0;
     const MelDisplayItem &item = g_display_items[index];
 
@@ -1675,8 +1742,8 @@ static bool render_display_item_card(size_t index) {
     const std::string body = json_string(root);
     cJSON_Delete(root);
 
-    mkdir("/sdcard/mel", 0775);
-    const std::string path = "/sdcard/mel/web-card.mimg";
+    mkdir("/melstore/mel", 0775);
+    const std::string path = "/melstore/mel/web-card.mimg";
     FILE *fp = fopen(path.c_str(), "wb");
     if (!fp) return false;
     MobileAssetContext ctx;
@@ -1708,9 +1775,9 @@ static bool render_display_item_card(size_t index) {
 }
 
 static bool download_asset(const std::string &key, const std::string &name) {
-    if (!g_sd_ok || key.empty() || name.empty()) return false;
-    mkdir("/sdcard/mel", 0775);
-    const std::string path = std::string("/sdcard/mel/") + safe_asset_name(name.c_str());
+    if (!g_storage_ok || key.empty() || name.empty()) return false;
+    mkdir("/melstore/mel", 0775);
+    const std::string path = std::string("/melstore/mel/") + safe_asset_name(name.c_str());
 
     if (mel_mobile_bridge_ready()) {
         FILE *fp = fopen(path.c_str(), "wb");
@@ -1779,7 +1846,7 @@ static bool download_asset(const std::string &key, const std::string &name) {
 }
 
 static int sync_assets(cJSON *root) {
-    if (!root || !g_sd_ok) return 0;
+    if (!root || !g_storage_ok) return 0;
     cJSON *assets = cJSON_GetObjectItemCaseSensitive(root, "assets");
     cJSON *items = assets ? cJSON_GetObjectItemCaseSensitive(assets, "items") : nullptr;
     if (!cJSON_IsArray(items)) return 0;
@@ -2006,7 +2073,7 @@ static void update_task(void *) {
         if (root) cJSON_Delete(root);
         ui_status("A JOUR");
         char msg[180];
-        snprintf(msg, sizeof(msg), "Aucune mise a jour plus recente publiee.%s", assets_synced > 0 ? " Ressources telechargees sur la microSD." : "");
+        snprintf(msg, sizeof(msg), "Aucune mise a jour plus recente publiee.%s", assets_synced > 0 ? " Ressources telechargees dans la memoire interne." : "");
         ui_answer(msg);
         vTaskDelete(nullptr);
         return;
@@ -2047,6 +2114,9 @@ static void heartbeat_task(void *) {
             cJSON_AddBoolToObject(root, "microphone", g_audio_ok);
             cJSON_AddBoolToObject(root, "speaker", g_audio_ok);
             cJSON_AddBoolToObject(root, "sdcard", g_sd_ok);
+            cJSON_AddBoolToObject(root, "internal_storage", g_storage_ok);
+            cJSON_AddNumberToObject(root, "storage_total_bytes", (double)g_storage_total);
+            cJSON_AddNumberToObject(root, "storage_free_bytes", (double)g_storage_free);
             cJSON_AddStringToObject(root, "phase", "ONLINE");
             std::string body = json_string(root);
             cJSON_Delete(root);

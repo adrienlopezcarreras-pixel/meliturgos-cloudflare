@@ -43,6 +43,7 @@ test('Waveshare terminal capability contract does not overclaim unimplemented ha
     'camera.ov5640',
     'audio.microphone',
     'audio.speaker',
+    'storage.internal',
     'wifi',
     'chat',
     'voice.stt',
