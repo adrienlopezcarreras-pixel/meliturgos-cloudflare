@@ -1,3 +1,4 @@
+import { evaluateCandidateReadiness, readinessRequirementsForDescriptor } from './sovereignty-candidate-readiness.js';
 import { prevalidateConfiguredAiAlternatives } from './ai-alternative-prevalidator.js';
 import { prevalidateInfrastructureAlternative } from './infrastructure-alternative-prevalidator.js';
 
@@ -55,6 +56,34 @@ export async function validateSovereigntyCandidates({
         metadata:{reason:'ADAPTER_NOT_AVAILABLE'},
       });
       results.push({layer:candidate.layer,id:candidate.id,status:'BLOCKED',reason:'ADAPTER_NOT_AVAILABLE'});
+      continue;
+    }
+
+    const requirements=readinessRequirementsForDescriptor(candidate.layer,resolved.descriptor);
+    const readiness=evaluateCandidateReadiness(candidate,{
+      env:resolved.env||env,
+      descriptor:resolved.descriptor,
+      requiredConfig:requirements.required_config,
+      requiredSecrets:requirements.required_secrets,
+      requireZeroCost:true,
+    });
+    if(!readiness.ready_for_live_test){
+      await candidateStore.setStatus({
+        layer:candidate.layer,id:candidate.id,status:'BLOCKED',
+        metadata:{
+          reason:readiness.blocking_reason,
+          missing_config:readiness.missing_config,
+          missing_secrets:readiness.missing_secrets,
+          zero_cost_verified:readiness.zero_cost_verified,
+          secret_values_exposed:false,
+        },
+      });
+      results.push({
+        layer:candidate.layer,
+        id:candidate.id,
+        status:'BLOCKED',
+        reason:readiness.blocking_reason,
+      });
       continue;
     }
 
