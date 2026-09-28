@@ -275,6 +275,113 @@ jobs:
 
           BACKUP_READY=0
 
+          # Bind an already verified recent backup to the currently deployed
+          # production SHA directly from CI. This mirrors createReleaseBackupBinding()
+          # but avoids invoking the heavy Worker backup path before deployment.
+          # The binding alone never marks the backup ready: the recovery drill
+          # below must still verify the canonical binding and R2 object presence.
+          PROD_IDENTITY_CODE="$(curl --silent --show-error --max-time 30 \
+            --output predeploy-production-identity.json \
+            --write-out '%{http_code}' \
+            "$BASE_URL/api/gen2/dashboard-summary" || true)"
+          if [ "$PROD_IDENTITY_CODE" = "200" ]; then
+            PROD_SHA="$(node -e 'const d=require("./predeploy-production-identity.json");const s=String(d?.deployment?.commit||"").toLowerCase();if(!/^[0-9a-f]{40}$/.test(s))process.exit(1);process.stdout.write(s)' || true)"
+          else
+            PROD_SHA=""
+          fi
+
+          if [ -n "$PROD_SHA" ]; then
+            if npx wrangler d1 execute meliturgos-memory --remote --json \
+              --command "SELECT id,object_key,metadata_json,created_at FROM backup_objects WHERE object_key LIKE 'backups/system/%' ORDER BY created_at DESC LIMIT 100" \
+              > predeploy-backup-candidates.json
+            then
+              PROD_SHA="$PROD_SHA" node - <<'NODE'
+          const fs=require('fs');
+          const crypto=require('crypto');
+          const raw=JSON.parse(fs.readFileSync('predeploy-backup-candidates.json','utf8'));
+          const groups=Array.isArray(raw)?raw:[raw];
+          const rows=groups.flatMap(group =>
+            Array.isArray(group?.results) ? group.results
+              : Array.isArray(group?.result?.results) ? group.result.results
+                : []
+          );
+          const prodSha=String(process.env.PROD_SHA||'').toLowerCase();
+          if(!/^[0-9a-f]{40}$/.test(prodSha)) process.exit(2);
+          const now=Date.now();
+          const maxAge=26*60*60*1000;
+          let selected=null;
+          for(const row of rows){
+            let meta={};
+            try{meta=JSON.parse(String(row?.metadata_json||'{}'));}catch{continue;}
+            const integrity=String(meta?.integritySha256||'').toLowerCase();
+            const restoreIntegrity=String(meta?.restoreIntegritySha256||'').toLowerCase();
+            const restoreSha=String(meta?.restoreDeployedGitSha||'').toLowerCase();
+            const createdAt=String(meta?.createdAt||new Date(Number(row?.created_at)||0).toISOString());
+            const createdMs=Date.parse(createdAt);
+            const valid=Boolean(row?.id)
+              && meta?.verified===true
+              && meta?.restoreVerified===true
+              && /^[0-9a-f]{64}$/.test(integrity)
+              && integrity===restoreIntegrity
+              && /^[0-9a-f]{40}$/.test(restoreSha)
+              && Number.isFinite(createdMs)
+              && createdMs<=now
+              && now-createdMs<=maxAge;
+            if(valid){ selected={row,meta,integrity,restoreSha,createdAt}; break; }
+          }
+          if(!selected) process.exit(3);
+
+          const binding={
+            schema:'MEL_RELEASE_BACKUP_BINDING_V1',
+            deployed_sha:prodSha,
+            snapshot_id:String(selected.row.id),
+            snapshot_integrity_sha256:selected.integrity,
+            snapshot_deployed_sha:selected.restoreSha,
+            snapshot_created_at:selected.createdAt,
+            bound_at:now,
+          };
+          const canonical=JSON.stringify(binding);
+          const digest=crypto.createHash('sha256').update(canonical).digest('hex');
+          const sqlString=value => "'" + String(value).replaceAll("'","''") + "'";
+          const sql=[
+            'INSERT OR REPLACE INTO release_backup_bindings(',
+            'deployed_sha,snapshot_id,snapshot_integrity_sha256,snapshot_deployed_sha,snapshot_created_at,bound_at,binding_sha256',
+            ') VALUES(',
+            [
+              sqlString(binding.deployed_sha),
+              sqlString(binding.snapshot_id),
+              sqlString(binding.snapshot_integrity_sha256),
+              sqlString(binding.snapshot_deployed_sha),
+              sqlString(binding.snapshot_created_at),
+              String(binding.bound_at),
+              sqlString(digest),
+            ].join(','),
+            ');'
+          ].join('');
+          fs.writeFileSync('predeploy-release-backup-binding.sql',sql);
+          fs.writeFileSync('predeploy-release-backup-binding.json',JSON.stringify({...binding,binding_sha256:digest},null,2));
+          NODE
+
+              if [ -s predeploy-release-backup-binding.sql ]; then
+                if npx wrangler d1 execute meliturgos-memory --remote \
+                  --file predeploy-release-backup-binding.sql \
+                  > predeploy-release-backup-binding-write.log 2>&1
+                then
+                  echo "Bound recent verified backup to deployed production SHA $PROD_SHA for recovery proof."
+                else
+                  echo "Direct CI release-backup binding write failed; canonical recovery drill remains fail-closed."
+                  cat predeploy-release-backup-binding-write.log || true
+                fi
+              else
+                echo "No recent verified backup candidate eligible for direct release binding."
+              fi
+            else
+              echo "Could not read backup metadata from D1; canonical recovery drill remains fail-closed."
+            fi
+          else
+            echo "Production SHA unavailable from dashboard summary; canonical recovery drill remains fail-closed."
+          fi
+
           # First reuse the canonical persisted recovery proof. The recovery
           # capability verifies persisted restore metadata and the backup object
           # itself without downloading/rebuilding the full production snapshot.
