@@ -11,6 +11,8 @@ on:
       - tests/gen2/companion-powershell-database.test.mjs
       - tests/gen2/companion-powershell-storage.test.mjs
       - tests/gen2/companion-sovereignty-runtime-wiring.test.mjs
+      - tests/gen2/companion-storage-prevalidation-runtime.test.mjs
+      - tests/gen2/companion-local-services-prevalidation-runtime.test.mjs
       - tests/gen2/local-sovereignty-command-wiring.test.mjs
       - src/portability/companion-source-control-prevalidation-runtime.js
       - src/portability/companion-sovereignty-executor.js
