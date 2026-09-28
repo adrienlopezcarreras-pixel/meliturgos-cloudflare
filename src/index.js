@@ -14,7 +14,6 @@ import { runDependencyLongevityWatchRuntime } from "./evaluation/dependency-long
 import { runSovereigntyReplacementWatchRuntime } from "./evaluation/sovereignty-watch-runtime.js";
 import { runConfiguredAiCandidateValidationRuntime } from "./portability/configured-ai-candidate-validation-runtime.js";
 import { runCompanionSourceControlPrevalidationRuntime } from "./portability/companion-source-control-prevalidation-runtime.js";
-import { runCompanionGitSovereigntyRuntime } from "./portability/companion-git-sovereignty-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
@@ -541,15 +540,6 @@ export default {
             return result;
           }).catch((error) => {
             console.error('[MEL sovereignty] local Git prevalidation failed:', error?.code || error?.message || error);
-            return null;
-          }),
-          runCompanionGitSovereigntyRuntime(env).then((result) => {
-            if (result?.status === 'SEED_FAILED' || result?.status === 'PROOF_FAILED') {
-              console.error('[MEL sovereignty] local Git mirror validation failed:', result?.code || result?.status);
-            }
-            return result;
-          }).catch((error) => {
-            console.error('[MEL sovereignty] local Git mirror runtime failed:', error?.code || error?.message || error);
             return null;
           }),
           runShardVaultCycle(env).then((result) => {
