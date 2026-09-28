@@ -67,3 +67,21 @@ test('proof expiration automatically removes an alternative from eligible set',(
   assert.equal(eligibleAlternatives(registry,'source_control',{now}).length,1);
   assert.equal(eligibleAlternatives(registry,'source_control',{now:now+31*24*3600000}).length,0);
 });
+
+
+test('AI sovereignty reports whether a fresh low-refusal rescue model exists',()=>{
+  const registry=createAlternativeRegistry([
+    {id:'ai.standard',layer:'ai',provider:'p1',added_cost_eur:0,low_refusal:false,policy_profile:'STANDARD',proof:proof()},
+    {id:'ai.uncensored',layer:'ai',provider:'p2',added_cost_eur:0,low_refusal:true,policy_profile:'LOW_REFUSAL',proof:proof()},
+  ],{now});
+  const coverage=sovereigntyCoverageFromRegistry(registry,{now});
+  assert.equal(coverage.coverage.ai.ready,true);
+  assert.equal(coverage.ai_low_refusal_ready,true);
+
+  const without=createAlternativeRegistry([
+    {id:'ai.standard',layer:'ai',provider:'p1',added_cost_eur:0,low_refusal:false,policy_profile:'STANDARD',proof:proof()},
+  ],{now});
+  const missing=sovereigntyCoverageFromRegistry(without,{now});
+  assert.equal(missing.coverage.ai.ready,true);
+  assert.equal(missing.ai_low_refusal_ready,false);
+});
