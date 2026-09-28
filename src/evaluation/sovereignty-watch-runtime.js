@@ -139,3 +139,8 @@ export async function runSovereigntyReplacementWatchRuntime(env,{
 }
 
 export const SOVEREIGNTY_REPLACEMENT_WATCH_STATE_ID=STATE_ID;
+
+
+export const __sovereigntyWatchTest=Object.freeze({
+  normalizeResearch,
+});
