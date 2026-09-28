@@ -732,6 +732,188 @@ function Perform-SovereigntyObservability([string]$operation,$payload) {
   }
 }
 
+function Sovereignty-SchedulerRoot {
+  $root = Join-Path (Sovereignty-Root) "scheduler"
+  [IO.Directory]::CreateDirectory($root) | Out-Null
+  return [IO.Path]::GetFullPath($root)
+}
+
+function Sovereignty-SchedulerStatePath {
+  return Join-Path (Sovereignty-SchedulerRoot) "schedules.json"
+}
+
+function Read-SovereigntySchedulerState {
+  $path = Sovereignty-SchedulerStatePath
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return @() }
+  try {
+    $value = Get-Content -Raw -Encoding UTF8 -LiteralPath $path | ConvertFrom-Json
+    return @($value)
+  } catch { return @() }
+}
+
+function Write-SovereigntySchedulerState($rows) {
+  $path = Sovereignty-SchedulerStatePath
+  $json = @($rows) | ConvertTo-Json -Depth 8
+  [IO.File]::WriteAllText($path,$json,[Text.UTF8Encoding]::new($false))
+}
+
+function Require-SovereigntyScheduler {
+  foreach ($name in @("Register-ScheduledTask","Get-ScheduledTask","Disable-ScheduledTask","Enable-ScheduledTask","Start-ScheduledTask","Unregister-ScheduledTask")) {
+    if (-not (Get-Command $name -ErrorAction SilentlyContinue)) { throw "SOVEREIGNTY_SCHEDULER_UNAVAILABLE" }
+  }
+}
+
+function Perform-SovereigntyScheduler([string]$operation,$payload) {
+  Require-SovereigntyScheduler
+  switch ($operation) {
+    "health" {
+      return @{ action="sovereignty.scheduler.health"; backend="windows-task-scheduler"; available=$true }
+    }
+    "create" {
+      $id = "sched-" + [guid]::NewGuid().ToString("N")
+      $taskName = "MEL-Sovereignty-" + $id.Substring(6,16)
+      $externalId = [string]$payload.external_id
+      $exe = Join-Path $env:SystemRoot "System32\cmd.exe"
+      $taskAction = New-ScheduledTaskAction -Execute $exe -Argument "/c exit 0"
+      $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddDays(30)
+      [void](Register-ScheduledTask -TaskName $taskName -Action $taskAction -Trigger $trigger -Description ("MEL sovereignty " + $externalId) -Force)
+      $rows = @(Read-SovereigntySchedulerState)
+      $rows += ,@{ id=$id; external_id=$externalId; task_name=$taskName; schedule=[string]$payload.schedule; enabled=$true }
+      Write-SovereigntySchedulerState $rows
+      return @{ action="sovereignty.scheduler.create"; id=$id }
+    }
+    "list" {
+      $externalId = [string]$payload.external_id
+      $rows = @(Read-SovereigntySchedulerState | Where-Object {
+        [string]::IsNullOrWhiteSpace($externalId) -or [string]$_.external_id -eq $externalId
+      })
+      return @{ action="sovereignty.scheduler.list"; schedules=$rows }
+    }
+    "pause" {
+      $id = [string]$payload.id
+      $rows = @(Read-SovereigntySchedulerState)
+      $row = $rows | Where-Object { [string]$_.id -eq $id } | Select-Object -First 1
+      if ($null -eq $row) { throw "SOVEREIGNTY_SCHEDULER_NOT_FOUND" }
+      [void](Disable-ScheduledTask -TaskName ([string]$row.task_name))
+      $row.enabled=$false
+      Write-SovereigntySchedulerState $rows
+      return @{ action="sovereignty.scheduler.pause"; id=$id; paused=$true }
+    }
+    "resume" {
+      $id = [string]$payload.id
+      $rows = @(Read-SovereigntySchedulerState)
+      $row = $rows | Where-Object { [string]$_.id -eq $id } | Select-Object -First 1
+      if ($null -eq $row) { throw "SOVEREIGNTY_SCHEDULER_NOT_FOUND" }
+      [void](Enable-ScheduledTask -TaskName ([string]$row.task_name))
+      $row.enabled=$true
+      Write-SovereigntySchedulerState $rows
+      return @{ action="sovereignty.scheduler.resume"; id=$id; resumed=$true }
+    }
+    "trigger_now" {
+      $id = [string]$payload.id
+      $rows = @(Read-SovereigntySchedulerState)
+      $row = $rows | Where-Object { [string]$_.id -eq $id } | Select-Object -First 1
+      if ($null -eq $row) { throw "SOVEREIGNTY_SCHEDULER_NOT_FOUND" }
+      [void](Start-ScheduledTask -TaskName ([string]$row.task_name))
+      return @{ action="sovereignty.scheduler.trigger_now"; id=$id; run_id=("local-" + [guid]::NewGuid().ToString("N")) }
+    }
+    "delete" {
+      $id = [string]$payload.id
+      $rows = @(Read-SovereigntySchedulerState)
+      $row = $rows | Where-Object { [string]$_.id -eq $id } | Select-Object -First 1
+      if ($null -eq $row) { throw "SOVEREIGNTY_SCHEDULER_NOT_FOUND" }
+      [void](Unregister-ScheduledTask -TaskName ([string]$row.task_name) -Confirm:$false)
+      $remaining = @($rows | Where-Object { [string]$_.id -ne $id })
+      Write-SovereigntySchedulerState $remaining
+      return @{ action="sovereignty.scheduler.delete"; id=$id; deleted=$true }
+    }
+    default { throw "SOVEREIGNTY_SCHEDULER_OPERATION_NOT_SUPPORTED" }
+  }
+}
+
+function Sovereignty-SecretsRoot {
+  $root = Join-Path (Sovereignty-Root) "secrets"
+  [IO.Directory]::CreateDirectory($root) | Out-Null
+  return [IO.Path]::GetFullPath($root)
+}
+
+function Assert-SovereigntySecretRef([string]$ref) {
+  $value = ([string]$ref).Trim()
+  if ([string]::IsNullOrWhiteSpace($value) -or $value.Length -gt 180) { throw "SOVEREIGNTY_SECRET_REF_INVALID" }
+  foreach ($ch in $value.ToCharArray()) {
+    if (-not ([char]::IsLetterOrDigit($ch) -or $ch -eq "_" -or $ch -eq "-")) { throw "SOVEREIGNTY_SECRET_REF_INVALID" }
+  }
+  return $value
+}
+
+function Sovereignty-SecretPath([string]$ref) {
+  $safe = Assert-SovereigntySecretRef $ref
+  return Join-Path (Sovereignty-SecretsRoot) ($safe + ".bin")
+}
+
+function Write-SovereigntySecretRecord($record) {
+  $json = $record | ConvertTo-Json -Compress -Depth 8
+  $plain = [Text.Encoding]::UTF8.GetBytes($json)
+  $cipher = [Security.Cryptography.ProtectedData]::Protect($plain,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+  [IO.File]::WriteAllBytes((Sovereignty-SecretPath ([string]$record.ref)),$cipher)
+}
+
+function Read-SovereigntySecretRecord([string]$ref) {
+  $path = Sovereignty-SecretPath $ref
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "SOVEREIGNTY_SECRET_REF_NOT_FOUND" }
+  $cipher = [IO.File]::ReadAllBytes($path)
+  $plain = [Security.Cryptography.ProtectedData]::Unprotect($cipher,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+  return ([Text.Encoding]::UTF8.GetString($plain) | ConvertFrom-Json)
+}
+
+function Perform-SovereigntySecrets([string]$operation,$payload) {
+  switch ($operation) {
+    "health" {
+      $probe = [Text.Encoding]::UTF8.GetBytes("MEL")
+      $cipher = [Security.Cryptography.ProtectedData]::Protect($probe,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+      $round = [Security.Cryptography.ProtectedData]::Unprotect($cipher,$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+      return @{ action="sovereignty.secrets.health"; backend="windows-dpapi-metadata-vault"; dpapi_ready=($round.Length -eq $probe.Length) }
+    }
+    "put_ref" {
+      $ref = Assert-SovereigntySecretRef ([string]$payload.ref)
+      $record = @{ ref=$ref; version=1; metadata=$payload.metadata; updated_at=(Get-Date).ToUniversalTime().ToString("o") }
+      Write-SovereigntySecretRecord $record
+      return @{ action="sovereignty.secrets.put_ref"; ref=$ref; version=1 }
+    }
+    "get_ref" {
+      $record = Read-SovereigntySecretRecord ([string]$payload.ref)
+      return @{ action="sovereignty.secrets.get_ref"; ref=[string]$record.ref; version=[int]$record.version; metadata=$record.metadata }
+    }
+    "list_refs" {
+      $prefix = [string]$payload.prefix
+      $rows = @()
+      foreach ($file in @(Get-ChildItem -LiteralPath (Sovereignty-SecretsRoot) -Filter "*.bin" -File -ErrorAction SilentlyContinue)) {
+        $ref = [IO.Path]::GetFileNameWithoutExtension($file.Name)
+        if (-not [string]::IsNullOrWhiteSpace($prefix) -and -not $ref.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) { continue }
+        try {
+          $record = Read-SovereigntySecretRecord $ref
+          $rows += ,@{ ref=[string]$record.ref; version=[int]$record.version; metadata=$record.metadata }
+        } catch {}
+      }
+      return @{ action="sovereignty.secrets.list_refs"; refs=$rows }
+    }
+    "rotate_ref" {
+      $record = Read-SovereigntySecretRecord ([string]$payload.ref)
+      $record.version = [int]$record.version + 1
+      $record.updated_at = (Get-Date).ToUniversalTime().ToString("o")
+      Write-SovereigntySecretRecord $record
+      return @{ action="sovereignty.secrets.rotate_ref"; ref=[string]$record.ref; version=[int]$record.version }
+    }
+    "delete_ref" {
+      $ref = Assert-SovereigntySecretRef ([string]$payload.ref)
+      $path = Sovereignty-SecretPath $ref
+      if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+      return @{ action="sovereignty.secrets.delete_ref"; ref=$ref; deleted=$true }
+    }
+    default { throw "SOVEREIGNTY_SECRETS_OPERATION_NOT_SUPPORTED" }
+  }
+}
+
 function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
   $action = [string]$step.action
   if ($action.StartsWith("sovereignty.")) {
@@ -747,6 +929,14 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
     if ($action.StartsWith("sovereignty.observability.")) {
       $op = $action.Substring("sovereignty.observability.".Length)
       return Perform-SovereigntyObservability $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.scheduler.")) {
+      $op = $action.Substring("sovereignty.scheduler.".Length)
+      return Perform-SovereigntyScheduler $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.secrets.")) {
+      $op = $action.Substring("sovereignty.secrets.".Length)
+      return Perform-SovereigntySecrets $op $step.payload
     }
     throw "SOVEREIGNTY_ACTION_NOT_SUPPORTED"
   }
