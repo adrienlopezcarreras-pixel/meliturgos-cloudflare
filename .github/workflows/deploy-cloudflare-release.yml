@@ -18,6 +18,11 @@ on:
         description: Type DEPLOY_APPROVED to authorize the production mutation
         required: true
         type: string
+      owner_max_autorelease:
+        description: Re-enable MAX 100% automatically after a fully verified autonomous release
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -34,6 +39,7 @@ jobs:
       RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.ref_name }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
       APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'DEPLOY_APPROVED' }}
+      OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_max_autorelease && 'true' || 'false' }}
       MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'
     steps:
       - name: Require explicit production approval
