@@ -18,6 +18,11 @@ on:
         description: Type DEPLOY_APPROVED to authorize the production mutation
         required: true
         type: string
+      owner_max_autorelease:
+        description: Re-enable MAX 100% automatically after a fully verified autonomous release
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -34,6 +39,7 @@ jobs:
       RELEASE_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.release_branch || github.ref_name }}
       EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.expected_sha || github.sha }}
       APPROVAL: ${{ github.event_name == 'workflow_dispatch' && inputs.approval || 'DEPLOY_APPROVED' }}
+      OWNER_MAX_AUTORELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.owner_max_autorelease && 'true' || 'false' }}
       MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'
     steps:
       - name: Require explicit production approval
@@ -196,10 +202,96 @@ jobs:
           printf '%s' "${PROOF_JSON}" | npx wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON --env=""
           echo "Workers AI zero-cost proof refreshed fail-closed from Cloudflare account entitlements."
 
+      - name: Capture current production rollback target
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          curl -fsS \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments" \
+            > predeploy-deployments.json
+          PREVIOUS_VERSION_ID="$(node - <<'NODE'
+          const fs=require('fs');
+          const raw=JSON.parse(fs.readFileSync('predeploy-deployments.json','utf8'));
+          if(raw?.success===false) throw new Error('PREDEPLOY_DEPLOYMENTS_READ_FAILED');
+          const root=raw?.result ?? raw;
+          const deployments=Array.isArray(root)?root:(Array.isArray(root?.deployments)?root.deployments:[root]);
+          let found='';
+          for(const deployment of deployments){
+            const versions=Array.isArray(deployment?.versions)?deployment.versions:[];
+            if(versions.length===1 && Number(versions[0]?.percentage)===100 && versions[0]?.version_id){
+              found=String(versions[0].version_id);
+              break;
+            }
+          }
+          if(!found) throw new Error('PREVIOUS_STABLE_VERSION_NOT_FOUND');
+          process.stdout.write(found);
+          NODE
+          )"
+          test -n "$PREVIOUS_VERSION_ID"
+          echo "PREVIOUS_CLOUDFLARE_VERSION_ID=$PREVIOUS_VERSION_ID" >> "$GITHUB_ENV"
+
+      - name: Create verified pre-deploy production backup
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          PREDEPLOY_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${PREDEPLOY_TOKEN}"
+          cleanup_predeploy_secret() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-predeploy-secret-delete.log 2>&1 || true
+            set -e
+          }
+          trap cleanup_predeploy_secret EXIT
+          printf '%s' "$PREDEPLOY_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 30 \
+              --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"pause"}' \
+              --output predeploy-pause.json \
+              --write-out '%{http_code}' \
+              "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
+            if [ "$CODE" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          test "$READY" = "1"
+          node -e 'const d=require("./predeploy-pause.json");if(d?.ok!==true||d?.status!=="RELEASE_PAUSED")throw new Error("PREDEPLOY_PAUSE_FAILED")'
+
+          BACKUP_READY=0
+          for ATTEMPT in $(seq 1 3); do
+            CODE="$(curl --silent --show-error --max-time 180 \
+              --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"backup"}' \
+              --output predeploy-backup.json \
+              --write-out '%{http_code}' \
+              "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
+            if [ "$CODE" = "200" ]; then BACKUP_READY=1; break; fi
+            sleep 5
+          done
+          test "$BACKUP_READY" = "1"
+          node -e 'const d=require("./predeploy-backup.json");if(d?.ok!==true||d?.backup?.ok!==true)throw new Error("PREDEPLOY_VERIFIED_BACKUP_REQUIRED");console.log("Verified pre-deploy backup ready:",d.backup.status,d.backup.id||"reused")'
+          touch predeploy-backup-verified.marker
+          cleanup_predeploy_secret
+          trap - EXIT
+
       - name: Deploy exact approved SHA to production
         shell: bash
         run: |
           set -euo pipefail
+          test -f predeploy-backup-verified.marker
+          touch production-deploy-started.marker
           npx wrangler deploy \
             --define "MEL_DEPLOYED_GIT_SHA:'${EXPECTED_SHA}'" \
             --define "MEL_DEPLOYED_GIT_BRANCH:'${RELEASE_BRANCH}'" \
@@ -1329,3 +1421,66 @@ jobs:
             *) echo "Unexpected production HTTP status: $PROD_STATUS"; exit 22 ;;
           esac
           echo "Production HTTP verification passed with status ${PROD_STATUS}."
+
+
+      - name: Re-enable MAX 100% after verified autonomous release
+        if: success() && env.OWNER_MAX_AUTORELEASE == 'true'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          MAX_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${MAX_TOKEN}"
+          cleanup_max_secret() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/dev/null 2>&1 || true
+            set -e
+          }
+          trap cleanup_max_secret EXIT
+          printf '%s' "$MAX_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+          READY=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 120 \
+              --header "x-mel-launch-bootstrap: ${MAX_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"gen2-42-owner-max"}' \
+              --output owner-max-autorelease.json \
+              --write-out '%{http_code}' \
+              "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
+            if [ "$CODE" = "200" ]; then READY=1; break; fi
+            sleep 3
+          done
+          test "$READY" = "1"
+          node -e 'const d=require("./owner-max-autorelease.json");if(d?.ok!==true||d?.max_autonomy!==true||d?.paused===true)throw new Error("OWNER_MAX_AUTORELEASE_RESTART_FAILED");console.log("MAX 100% restored after verified release.")'
+          cleanup_max_secret
+          trap - EXIT
+
+      - name: Automatic rollback on failed production verification
+        if: failure()
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ ! -f production-deploy-started.marker ]; then
+            echo "Production deployment never started; no rollback required."
+            exit 0
+          fi
+          test -n "${PREVIOUS_CLOUDFLARE_VERSION_ID:-}"
+          cat > rollback-request.json <<JSON
+          {"strategy":"percentage","versions":[{"version_id":"${PREVIOUS_CLOUDFLARE_VERSION_ID}","percentage":100}],"annotations":{"workers/message":"MEL automatic rollback after failed release verification"}}
+          JSON
+          ROLLBACK_CODE="$(curl --silent --show-error --max-time 60 \
+            --request POST \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data-binary @rollback-request.json \
+            --output rollback-response.json \
+            --write-out '%{http_code}' \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments" || true)"
+          test "$ROLLBACK_CODE" = "200"
+          node -e 'const d=require("./rollback-response.json");if(d?.success===false)throw new Error("AUTOMATIC_ROLLBACK_FAILED");console.log("Automatic rollback accepted to previous stable Cloudflare version.")'
