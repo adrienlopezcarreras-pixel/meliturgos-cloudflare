@@ -1,6 +1,7 @@
 import { migrate } from '../persistence/migrations.js';
 import { createGen2Runtime } from '../core/orchestrator/gen2-runtime.js';
 import { getSovereigntyWatchCatalog, SOVEREIGNTY_WATCH_INTERVAL_MS } from './sovereignty-watch-catalog.js';
+import { SovereigntyCandidateStore } from '../portability/sovereignty-candidate-store.js';
 
 const STATE_ID='sovereignty-replacement-watch';
 const CURRENT_PROVIDER_DOMAINS=Object.freeze({
@@ -130,11 +131,14 @@ export async function runSovereigntyReplacementWatchRuntime(env,{
     results,
   };
   await saveState(env.DB,{last_run_at:now,report});
+  const candidateStore=new SovereigntyCandidateStore(env.DB);
+  const candidatePersistence=await candidateStore.upsertFromWatch(report,{now});
   return{
     ok:true,
     skipped:false,
     status:report.unknown_count===0?'WATCHED':'DEGRADED',
     report,
+    candidate_persistence:candidatePersistence,
   };
 }
 
