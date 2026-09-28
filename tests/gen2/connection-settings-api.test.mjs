@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { maybeHandleConnectionSettingsApi, probeYahooDirect, pipedreamAccessToken, testPipedreamCredentials } from '../../src/api/connection-settings-api.js';
+import { maybeHandleConnectionSettingsApi, probeYahooDirect, pipedreamAccessToken, pipedreamAccountStatus, testPipedreamCredentials } from '../../src/api/connection-settings-api.js';
 
 function compact(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();
@@ -356,4 +356,34 @@ test('Pipedream real project probe checks Outlook and OneDrive component catalog
   assert.equal(result.apps.microsoft_onedrive.component_count, 2);
   assert.equal(calls.filter(call => call.url.includes('/components?app=')).length, 2);
   assert.equal(calls.every(call => call.init.redirect === 'manual'), true);
+});
+
+test('Pipedream account status uses the server access token and filters by MEL external user', async () => {
+  const calls = [];
+  const result = await pipedreamAccountStatus({
+    project_id: 'proj_demo123',
+    client_id: 'client-id',
+    client_secret: 'client-secret',
+    environment: 'production',
+  }, 'adrien', {
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/v1/oauth/token')) {
+        return Response.json({ access_token: 'server-token', token_type: 'Bearer', expires_in: 3600 });
+      }
+      return Response.json({
+        data: [
+          { id: 'apn_outlook', name: 'Outlook', healthy: true, dead: false, app: { name_slug: 'microsoft_outlook' } },
+          { id: 'apn_onedrive', name: 'OneDrive', healthy: true, dead: false, app: { name_slug: 'microsoft_onedrive' } },
+          { id: 'apn_dead', name: 'SharePoint', healthy: false, dead: true, app: { name_slug: 'sharepoint' } },
+        ],
+      });
+    },
+  });
+  assert.deepEqual(result.connected_apps.sort(), ['microsoft_onedrive', 'microsoft_outlook']);
+  const accountsCall = calls.find(call => call.url.includes('/accounts?'));
+  assert.ok(accountsCall);
+  assert.match(accountsCall.url, /external_user_id=adrien/);
+  assert.equal(accountsCall.init.headers.authorization, 'Bearer server-token');
+  assert.equal(accountsCall.init.headers['x-pd-environment'], 'production');
 });
