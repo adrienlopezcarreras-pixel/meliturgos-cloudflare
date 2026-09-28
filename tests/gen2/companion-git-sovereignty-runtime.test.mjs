@@ -32,6 +32,6 @@ test('Windows companion only accepts sovereignty Git operations under sovereignt
   assert.match(source,/SOVEREIGNTY_COMMAND_SCHEMA_REQUIRED/);
   assert.match(source,/mel\.sovereignty\.local-command\/v1/);
   assert.match(source,/SOVEREIGNTY_GIT_REPO_NOT_SEEDED/);
-  assert.match(source,/SOVEREIGNTY_SEED_EXTERNAL_PROOF_REQUIRED/);
+  assert.match(source,/SOVEREIGNTY_SEED_EXTERNAL_RECONSTRUCTION_REQUIRED/);
   assert.match(source,/\.mel-source-provenance\.json/);
 });
