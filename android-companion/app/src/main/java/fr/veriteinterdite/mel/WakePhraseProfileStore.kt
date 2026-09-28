@@ -32,9 +32,13 @@ class WakePhraseProfileStore(context: Context) {
 
     fun sampleCount(): Int {
         val profile = load()
-        val savedCount = profile.optInt("sample_count", 0)
-        if (profile.optBoolean("enrolled", false)) return savedCount.coerceAtLeast(WakePhraseTrainer.REQUIRED_SAMPLES)
-        return maxOf(savedCount, sampleCountFromSamples())
+        if (isValidEnrolledProfile(profile)) {
+            return profile.optInt("sample_count", WakePhraseTrainer.REQUIRED_SAMPLES)
+                .coerceAtLeast(WakePhraseTrainer.REQUIRED_SAMPLES)
+        }
+        // Old enrolled profiles use a less selective 48-feature signature.
+        // Never present them as partially valid enrollment for the new detector.
+        return sampleCountFromSamples()
     }
 
     fun isEnrolled(): Boolean = isValidEnrolledProfile(load())
@@ -46,7 +50,7 @@ class WakePhraseProfileStore(context: Context) {
         return FloatArray(array.length()) { i -> array.optDouble(i, 0.0).toFloat() }
     }
 
-    fun threshold(): Float = load().optDouble("threshold", 0.78).toFloat().coerceIn(0.66f, 0.86f)
+    fun threshold(): Float = load().optDouble("threshold", 0.88).toFloat().coerceIn(0.84f, 0.955f)
 
     @Synchronized
     fun addSample(vector: FloatArray): EnrollmentState {
@@ -108,7 +112,7 @@ class WakePhraseProfileStore(context: Context) {
         val vector = FloatArray(features.length()) { i -> features.optDouble(i, 0.0).toFloat() }
         val count = profile.optInt("sample_count", WakePhraseTrainer.REQUIRED_SAMPLES)
             .coerceAtLeast(WakePhraseTrainer.REQUIRED_SAMPLES)
-        val threshold = profile.optDouble("threshold", 0.78).toFloat().coerceIn(0.66f, 0.86f)
+        val threshold = profile.optDouble("threshold", 0.88).toFloat().coerceIn(0.84f, 0.955f)
         persistFinalProfile(buildProfile(vector, count, threshold))
         return true
     }
@@ -131,11 +135,11 @@ class WakePhraseProfileStore(context: Context) {
         val values = JSONArray()
         vector.forEach { values.put(it.toDouble()) }
         return JSONObject()
-            .put("version", 2)
+            .put("version", 3)
             .put("enrolled", true)
             .put("phrase", "ok mel")
             .put("sample_count", sampleCount.coerceAtLeast(WakePhraseTrainer.REQUIRED_SAMPLES))
-            .put("threshold", threshold.coerceIn(0.66f, 0.86f).toDouble())
+            .put("threshold", threshold.coerceIn(0.84f, 0.955f).toDouble())
             .put("features", values)
     }
 
@@ -193,6 +197,6 @@ class WakePhraseProfileStore(context: Context) {
         private const val KEY_PROFILE = "profile_json"
         private const val KEY_SAMPLES = "sample_vectors_json"
         private const val KEY_RESET_REQUESTED = "reset_requested"
-        private const val FEATURE_COUNT = 48
+        private const val FEATURE_COUNT = 60
     }
 }

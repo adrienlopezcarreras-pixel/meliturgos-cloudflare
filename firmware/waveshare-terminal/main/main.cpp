@@ -25,6 +25,7 @@
 #include "esp_codec_dev.h"
 #include "esp_heap_caps.h"
 #include "mel_terminal.h"
+#include "mel_mobile_bridge.h"
 #include "mel_avatar_mode_complet.h"
 
 extern esp_codec_dev_handle_t input_dev;
@@ -505,9 +506,10 @@ static void settings_refresh_status(void) {
     char ip[32] = {};
     esp_wifi_port_get_ip(ip);
     lv_label_set_text_fmt(settings_status,
-                          "Wi-Fi: %s\nMEL: %s\nAudio: %s  Camera: %s\nFW: %s",
+                          "Wi-Fi: %s\nMEL: %s\nMobile: %s\nAudio: %s  Camera: %s\nFW: %s",
                           wifi_got_ip ? (ip[0] ? ip : "OK") : "OFF",
                           mel_terminal_online() ? "EN LIGNE" : "HORS LIGNE",
+                          mel_mobile_bridge_ready() ? "BLUETOOTH CONNECTE" : "RECHERCHE",
                           audio_ok ? "OK" : "NON",
                           camera_ok ? "OK" : "NON",
                           MEL_FW_VERSION);
@@ -695,6 +697,13 @@ static void settings_stt_clicked(lv_event_t *e) {
     mel_terminal_request_voice();
 }
 
+static void settings_bluetooth_clicked(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ESP_LOGI(TAG, "UI BUTTON: BLUETOOTH / MEL MOBILE");
+    if (settings_status) lv_label_set_text(settings_status, "Bluetooth : recherche du telephone...");
+    mel_mobile_bridge_rescan();
+}
+
 static void settings_update_clicked(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     ESP_LOGI(TAG, "UI BUTTON: MISE A JOUR");
@@ -704,7 +713,7 @@ static void settings_update_clicked(lv_event_t *e) {
 
 static lv_obj_t *settings_add_button(lv_obj_t *parent, const char *text, int y, lv_event_cb_t cb) {
     lv_obj_t *btn = lv_btn_create(parent);
-    lv_obj_set_size(btn, 258, 46);
+    lv_obj_set_size(btn, 258, 42);
     lv_obj_align(btn, LV_ALIGN_TOP_MID, 0, y);
     lv_obj_set_style_radius(btn, 12, 0);
     lv_obj_set_style_bg_color(btn, lv_color_hex(0x0B2238), 0);
@@ -745,16 +754,17 @@ static void settings_ui_create(lv_obj_t *screen) {
     settings_status = lv_label_create(settings_panel);
     lv_label_set_long_mode(settings_status, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(settings_status, 260);
-    lv_obj_set_height(settings_status, 72);
+    lv_obj_set_height(settings_status, 78);
     lv_obj_set_style_text_color(settings_status, lv_color_hex(0x94A3B8), 0);
-    lv_obj_align(settings_status, LV_ALIGN_TOP_MID, 0, 44);
+    lv_obj_align(settings_status, LV_ALIGN_TOP_MID, 0, 40);
 
-    settings_add_button(settings_panel, "CONNEXION WI-FI", 116, settings_wifi_clicked);
-    settings_add_button(settings_panel, "APPAIRAGE MEL", 166, settings_pair_clicked);
-    settings_add_button(settings_panel, "TEST MICRO + HP", 216, settings_audio_clicked);
-    settings_add_button(settings_panel, "TEST CAMERA", 266, settings_camera_clicked);
-    settings_add_button(settings_panel, "TEST VOIX COMPLET", 316, settings_stt_clicked);
-    settings_add_button(settings_panel, "MISE A JOUR", 366, settings_update_clicked);
+    settings_add_button(settings_panel, "CONNEXION WI-FI", 118, settings_wifi_clicked);
+    settings_add_button(settings_panel, "APPAIRAGE MEL", 164, settings_pair_clicked);
+    settings_add_button(settings_panel, "BLUETOOTH / MEL MOBILE", 210, settings_bluetooth_clicked);
+    settings_add_button(settings_panel, "TEST MICRO + HP", 256, settings_audio_clicked);
+    settings_add_button(settings_panel, "TEST CAMERA", 302, settings_camera_clicked);
+    settings_add_button(settings_panel, "TEST VOIX COMPLET", 348, settings_stt_clicked);
+    settings_add_button(settings_panel, "MISE A JOUR", 394, settings_update_clicked);
 
     lv_obj_add_flag(settings_panel, LV_OBJ_FLAG_HIDDEN);
     settings_refresh_status();
@@ -1309,6 +1319,25 @@ static void mini_smoke_ui() {
 
 
 
+static void mobile_bridge_watch_task(void *) {
+    while (!camera_probe_done) vTaskDelay(pdMS_TO_TICKS(50));
+    vTaskDelay(pdMS_TO_TICKS(500));
+    ESP_LOGI(TAG, "MEL MOBILE BLE AUTO START");
+    mel_mobile_bridge_start();
+
+    bool previous = false;
+    while (true) {
+        const bool ready = mel_mobile_bridge_ready();
+        if (ready != previous) {
+            previous = ready;
+            mel_terminal_set_mobile_connected(ready);
+            ESP_LOGI(TAG, "MEL MOBILE %s", ready ? "READY" : "SEARCHING");
+            if (ready && mel_terminal_has_token()) mel_terminal_start_online();
+        }
+        vTaskDelay(pdMS_TO_TICKS(750));
+    }
+}
+
 extern "C" void app_main(void) {
     ESP_LOGI(TAG, "MINI ULTRA SAFE BOOT");
 
@@ -1386,6 +1415,7 @@ extern "C" void app_main(void) {
 
     ESP_LOGI(TAG, "MINI INTEGRATED RUNTIME READY");
     xTaskCreatePinnedToCore(camera_boot_probe_task, "mini_camera_probe", 8192, nullptr, 2, nullptr, 0);
+    xTaskCreatePinnedToCore(mobile_bridge_watch_task, "mel_mobile_watch", 6144, nullptr, 2, nullptr, 0);
     xTaskCreatePinnedToCore(microphone_boot_probe_task, "mini_micro_probe", 4096, nullptr, 2, nullptr, 0);
 #if MINI_UI_STRESS_TEST
     xTaskCreatePinnedToCore(ui_stress_task, "mini_ui_stress", 4096, nullptr, 2, nullptr, 0);

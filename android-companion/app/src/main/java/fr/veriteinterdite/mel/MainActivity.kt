@@ -148,6 +148,7 @@ class MainActivity : ComponentActivity() {
     private var wakeRecognizer: SpeechRecognizer? = null
     private var wakeListening = false
     @Volatile private var wakeDetectorStop = false
+    @Volatile private var lastWakeActivationMs = 0L
     private var wakeDetectorThread: Thread? = null
     private var bargeInThread: Thread? = null
     private var pushToTalkHeld = false
@@ -642,6 +643,7 @@ class MainActivity : ComponentActivity() {
 
     private fun ensureWakeWordListening() {
         if (voiceConversationActive.value) return
+        if (System.currentTimeMillis() - lastWakeActivationMs < 4_000L) return
         if (!appResumed || wakeListening || recording.value || pushToTalkHeld || wakeEnrollmentActive.value) return
         if (!wakePhraseStore.isEnrolled()) return
         if (!wakeEnrolled.value || wakeEnrollmentCount.value < WakePhraseTrainer.REQUIRED_SAMPLES) refreshWakeEnrollmentState()
@@ -671,6 +673,7 @@ class MainActivity : ComponentActivity() {
                 if (matchedScore != null && !wakeDetectorStop && appResumed &&
                     !recording.value && model.state.value.session == SessionStage.CONNECTED && !model.state.value.busy
                 ) {
+                    lastWakeActivationMs = System.currentTimeMillis()
                     voiceMessage.value = "OK MEL reconnu · conversation active"
                     voiceConversationActive.value = true
                 } else if (result.isFailure && !wakeDetectorStop) {
@@ -697,7 +700,7 @@ class MainActivity : ComponentActivity() {
     private fun scheduleWakeWordRestart() {
         mainHandler.postDelayed({
             if (!recording.value && !pushToTalkHeld && wakeEnrolled.value) ensureWakeWordListening()
-        }, 900L)
+        }, 1_500L)
     }
 
     private fun startNativeSpeech() {

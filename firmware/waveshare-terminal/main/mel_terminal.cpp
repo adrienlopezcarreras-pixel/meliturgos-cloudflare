@@ -1,4 +1,5 @@
 #include "mel_terminal.h"
+#include "mel_mobile_bridge.h"
 
 #include <algorithm>
 #include <cstring>
@@ -64,6 +65,8 @@ static bool g_camera_ok = false;
 static bool g_audio_ok = false;
 static bool g_sd_ok = false;
 static bool g_online = false;
+static bool g_wifi_connected = false;
+static bool g_mobile_connected = false;
 static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
 static TaskHandle_t g_voice_task_handle = nullptr;
 static TaskHandle_t g_online_task_handle = nullptr;
@@ -208,6 +211,21 @@ static esp_err_t http_request(
     std::string &response,
     int &status
 ) {
+    auto mobile_request = [&]() -> esp_err_t {
+        const std::string prefix = SERVER;
+        if (!mel_mobile_bridge_ready() || url.rfind(prefix, 0) != 0) return ESP_ERR_INVALID_STATE;
+        const std::string path = url.substr(prefix.size());
+        ESP_LOGI(TAG, "HTTP via MEL MOBILE: %s", path.c_str());
+        return mel_mobile_bridge_request(
+            method, path.c_str(), content_type, g_cfg.token, g_device_id,
+            reinterpret_cast<const uint8_t *>(body),
+            body_len > 0 ? (size_t)body_len : 0,
+            response, status
+        );
+    };
+
+    if (!g_wifi_connected && mel_mobile_bridge_ready()) return mobile_request();
+
     HttpBuffer buffer;
     esp_http_client_config_t cfg = {};
     cfg.url = url.c_str();
@@ -216,7 +234,7 @@ static esp_err_t http_request(
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms = 45000;
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) return ESP_FAIL;
+    if (!client) return mel_mobile_bridge_ready() ? mobile_request() : ESP_FAIL;
 
     esp_http_client_set_method(client, method);
     if (content_type) esp_http_client_set_header(client, "Content-Type", content_type);
@@ -231,6 +249,13 @@ static esp_err_t http_request(
     status = esp_http_client_get_status_code(client);
     response = buffer.body;
     esp_http_client_cleanup(client);
+
+    if (err != ESP_OK && mel_mobile_bridge_ready()) {
+        ESP_LOGW(TAG, "Wi-Fi HTTP failed (%s), fallback MEL MOBILE", esp_err_to_name(err));
+        response.clear();
+        status = 0;
+        return mobile_request();
+    }
     return err;
 }
 
@@ -324,6 +349,71 @@ static bool read_tts_wav_header(esp_http_client_handle_t client, uint32_t &pcm_b
     return false;
 }
 
+struct MobileTts16kContext {
+    bool ok = true;
+    bool have_low = false;
+    uint8_t low = 0;
+};
+
+static bool mobile_tts_16k_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
+    auto *ctx = static_cast<MobileTts16kContext *>(ctx_ptr);
+    if (!ctx || !data || !ctx->ok) return false;
+    uint8_t out[1536];
+    size_t out_len = 0;
+    size_t i = 0;
+
+    auto emit_sample = [&](uint8_t lo, uint8_t hi) -> bool {
+        if (out_len + 6 > sizeof(out)) {
+            if (esp_codec_dev_write(output_dev, out, out_len) != ESP_CODEC_DEV_OK) return false;
+            out_len = 0;
+        }
+        for (int n = 0; n < 3; ++n) {
+            out[out_len++] = lo;
+            out[out_len++] = hi;
+        }
+        return true;
+    };
+
+    if (ctx->have_low && len > 0) {
+        if (!emit_sample(ctx->low, data[0])) ctx->ok = false;
+        ctx->have_low = false;
+        i = 1;
+    }
+    while (ctx->ok && i + 1 < len) {
+        if (!emit_sample(data[i], data[i + 1])) ctx->ok = false;
+        i += 2;
+    }
+    if (ctx->ok && i < len) {
+        ctx->low = data[i];
+        ctx->have_low = true;
+    }
+    if (ctx->ok && out_len > 0 && esp_codec_dev_write(output_dev, out, out_len) != ESP_CODEC_DEV_OK) ctx->ok = false;
+    return ctx->ok;
+}
+
+static bool speak_text_mobile(const std::string &body) {
+    if (!mel_mobile_bridge_ready()) return false;
+    MobileTts16kContext ctx;
+    int status = 0;
+    esp_codec_dev_set_out_vol(output_dev, 72.0);
+    const esp_err_t err = mel_mobile_bridge_request_stream(
+        HTTP_METHOD_POST,
+        "/api/device/v1/voice/tts",
+        "application/json",
+        g_cfg.token,
+        g_device_id,
+        reinterpret_cast<const uint8_t *>(body.data()),
+        body.size(),
+        status,
+        mobile_tts_16k_chunk,
+        &ctx
+    );
+    esp_codec_dev_set_out_vol(output_dev, 0.0);
+    const bool ok = err == ESP_OK && status == 200 && ctx.ok && !ctx.have_low;
+    if (!ok) ESP_LOGW(TAG, "MOBILE TTS failed err=%s status=%d", esp_err_to_name(err), status);
+    return ok;
+}
+
 static bool speak_text(const std::string &text) {
     if (!g_audio_ok || !output_dev || !g_cfg.token[0] || text.empty()) return false;
 
@@ -332,6 +422,10 @@ static bool speak_text(const std::string &text) {
     cJSON_AddStringToObject(root, "speaker", "luna");
     std::string body = json_string(root);
     cJSON_Delete(root);
+
+    if (!g_wifi_connected && mel_mobile_bridge_ready()) {
+        return speak_text_mobile(body);
+    }
 
     std::string url = std::string(SERVER) + "/api/device/v1/voice/tts";
     esp_http_client_config_t cfg = {};
@@ -405,6 +499,10 @@ static bool speak_text(const std::string &text) {
         esp_http_client_close(client);
     }
     esp_http_client_cleanup(client);
+    if (!ok && mel_mobile_bridge_ready()) {
+        ESP_LOGW(TAG, "Wi-Fi TTS failed; fallback MEL MOBILE");
+        return speak_text_mobile(body);
+    }
     return ok;
 }
 
@@ -1273,7 +1371,12 @@ void mel_terminal_set_network_info(const char *ip) {
 }
 
 void mel_terminal_set_wifi_connected(bool connected) {
+    g_wifi_connected = connected;
     if (!connected) {
+        if (g_mobile_connected && mel_mobile_bridge_ready()) {
+            ui_status(g_online ? "MEL MOBILE" : "MOBILE CONNECTE");
+            return;
+        }
         g_online = false;
         ui_status("WI-FI PERDU");
         return;
@@ -1281,8 +1384,20 @@ void mel_terminal_set_wifi_connected(bool connected) {
     ui_status(g_online ? "" : "WI-FI CONNECTE");
 }
 
-static bool device_session_valid() {
-    if (!g_cfg.token[0]) return false;
+void mel_terminal_set_mobile_connected(bool connected) {
+    g_mobile_connected = connected;
+    if (connected) {
+        if (!g_wifi_connected) ui_status(g_online ? "MEL MOBILE" : "MOBILE CONNECTE");
+        return;
+    }
+    if (!g_wifi_connected) {
+        g_online = false;
+        ui_status("HORS LIGNE");
+    }
+}
+
+static int device_session_status() {
+    if (!g_cfg.token[0]) return 401;
     std::string response;
     int status = 0;
     esp_err_t err = http_request(
@@ -1290,7 +1405,11 @@ static bool device_session_valid() {
         std::string(SERVER) + "/api/device/v1/manifest",
         nullptr, nullptr, 0, response, status
     );
-    return err == ESP_OK && status == 200;
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "MEL session validation unavailable: %s; keeping stored token", esp_err_to_name(err));
+        return -1;
+    }
+    return status;
 }
 
 static void online_runtime_task(void *) {
@@ -1307,13 +1426,23 @@ static void online_runtime_task(void *) {
         return;
     }
 
-    if (!device_session_valid()) {
-        ESP_LOGW(TAG, "Stored or newly paired MEL token did not validate");
+    const int session_status = device_session_status();
+    if (session_status == 401 || session_status == 403) {
+        ESP_LOGW(TAG, "Stored MEL token rejected HTTP %d; clearing token", session_status);
         g_online = false;
         g_cfg.token[0] = '\0';
         save_string("token", "");
         ui_status("REAPPARIAGE REQUIS");
-        ui_answer("La liaison MEL n'est plus valide. Entre un nouveau code d'appairage.");
+        ui_answer("La liaison MEL a ete revoquee. Entre un nouveau code d'appairage.");
+        g_online_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+    if (session_status != 200) {
+        ESP_LOGW(TAG, "MEL session temporarily unavailable status=%d; pairing preserved", session_status);
+        g_online = false;
+        ui_status("MEL TEMPORAIREMENT INDISPONIBLE");
+        ui_answer("Appairage conserve. MEL se reconnectera automatiquement.");
         g_online_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;

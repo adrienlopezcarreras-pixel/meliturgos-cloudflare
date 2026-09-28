@@ -15,6 +15,7 @@ object WakePhraseTrainer {
     private const val SAMPLE_RATE = 16_000
     private const val CAPTURE_MS = 1_900
     private const val SEGMENTS = 6
+    private const val FEATURES_PER_SEGMENT = 10
     private val frequencies = doubleArrayOf(300.0, 500.0, 750.0, 1000.0, 1400.0, 2000.0, 2800.0, 3800.0)
 
     fun captureAsync(onResult: (Result<FloatArray>) -> Unit) {
@@ -62,14 +63,20 @@ object WakePhraseTrainer {
         val overallRms = rms(trimmed, 0, trimmed.size)
         require(overallRms >= 180.0) { "WAKE_PHRASE_TOO_QUIET" }
 
-        val out = FloatArray(SEGMENTS * frequencies.size)
+        val out = FloatArray(SEGMENTS * FEATURES_PER_SEGMENT)
         for (segment in 0 until SEGMENTS) {
             val start = segment * trimmed.size / SEGMENTS
             val end = ((segment + 1) * trimmed.size / SEGMENTS).coerceAtMost(trimmed.size)
+            val base = segment * FEATURES_PER_SEGMENT
             for (f in frequencies.indices) {
                 val energy = goertzel(trimmed, start, end, frequencies[f])
-                out[segment * frequencies.size + f] = ln(1.0 + energy).toFloat()
+                out[base + f] = ln(1.0 + energy).toFloat()
             }
+            // Preserve temporal/phonetic shape as well as spectral colour.
+            // This sharply reduces false positives from unrelated speech that
+            // happens to have a similar overall spectrum.
+            out[base + frequencies.size] = ln(1.0 + rms(trimmed, start, end)).toFloat()
+            out[base + frequencies.size + 1] = zeroCrossingRate(trimmed, start, end).toFloat()
         }
         normalize(out)
         return out
@@ -89,7 +96,7 @@ object WakePhraseTrainer {
             AudioFormat.ENCODING_PCM_16BIT
         )
         require(minBuffer > 0) { "MIC_BUFFER_UNAVAILABLE" }
-        val hopSamples = SAMPLE_RATE / 2
+        val hopSamples = SAMPLE_RATE * 2 / 5 // 400 ms
         val windowSamples = SAMPLE_RATE * CAPTURE_MS / 1000
         val recorder = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -103,6 +110,7 @@ object WakePhraseTrainer {
         val hop = ShortArray(hopSamples)
         var filled = 0
         var consecutive = 0
+        var strongConsecutive = 0
         try {
             recorder.startRecording()
             while (shouldContinue()) {
@@ -131,19 +139,23 @@ object WakePhraseTrainer {
                 }
                 val score = cosine(features, template)
                 onScore(score)
-                val strongMatch = score >= (threshold + 0.05f).coerceAtMost(0.93f)
-                if (strongMatch) {
+                val strongThreshold = (threshold + 0.025f).coerceAtMost(0.975f)
+                if (score >= strongThreshold) {
+                    strongConsecutive++
+                    consecutive++
+                } else if (score >= threshold) {
+                    strongConsecutive = 0
+                    consecutive++
+                } else {
+                    strongConsecutive = 0
+                    consecutive = 0
+                }
+
+                // Never trigger from one window. "OK MEL" must resemble the
+                // enrolled phrase across multiple overlapping windows.
+                if (strongConsecutive >= 2 || consecutive >= 3) {
                     onMatch(score)
                     break
-                }
-                if (score >= threshold) {
-                    consecutive++
-                    if (consecutive >= 2) {
-                        onMatch(score)
-                        break
-                    }
-                } else {
-                    consecutive = 0
                 }
             }
         } finally {
@@ -164,7 +176,7 @@ object WakePhraseTrainer {
         normalize(mean)
         val similarities = samples.map { cosine(it, mean) }
         val minSimilarity = similarities.minOrNull() ?: 0.75f
-        val threshold = (minSimilarity - 0.10f).coerceIn(0.66f, 0.86f)
+        val threshold = (minSimilarity - 0.035f).coerceIn(0.84f, 0.955f)
         return mean to threshold
     }
 
@@ -199,6 +211,18 @@ object WakePhraseTrainer {
         first = (first - pad).coerceAtLeast(0)
         last = (last + pad).coerceAtMost(samples.size)
         return if (last > first) samples.copyOfRange(first, last) else ShortArray(0)
+    }
+
+    private fun zeroCrossingRate(samples: ShortArray, start: Int, end: Int): Double {
+        if (end - start < 2) return 0.0
+        var crossings = 0
+        var previous = samples[start]
+        for (i in start + 1 until end) {
+            val current = samples[i]
+            if ((previous < 0 && current >= 0) || (previous >= 0 && current < 0)) crossings++
+            previous = current
+        }
+        return crossings.toDouble() / (end - start - 1).toDouble()
     }
 
     private fun rms(samples: ShortArray, start: Int, end: Int): Double {
