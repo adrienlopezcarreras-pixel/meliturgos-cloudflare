@@ -9,6 +9,9 @@ on:
       - src/portability/**
       - src/continuity/**
       - src/evaluation/dependency-longevity-watch*.js
+      - tests/gen2/dependency-longevity-watch.test.mjs
+      - tests/gen2/prevalidated-alternative-registry.test.mjs
+      - src/portability/prevalidated-alternative-registry.js
       - tests/gen2/sovereignty-stress.test.mjs
       - tests/gen2/sovereign-regeneration-stress.test.mjs
       - .github/workflows/sovereignty-stress-ci.yml
@@ -34,9 +37,10 @@ jobs:
           node --check src/portability/emergency-sovereignty-failover.js
           node --check src/continuity/sovereign-regeneration-bundle.js
           node --check src/evaluation/dependency-longevity-watch.js
+          node --check src/portability/prevalidated-alternative-registry.js
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
       - name: Sovereignty stress
-        run: node --test tests/gen2/sovereignty-stress.test.mjs tests/gen2/sovereign-regeneration-stress.test.mjs
+        run: node --test tests/gen2/sovereignty-stress.test.mjs tests/gen2/sovereign-regeneration-stress.test.mjs tests/gen2/prevalidated-alternative-registry.test.mjs tests/gen2/dependency-longevity-watch.test.mjs
       - name: Existing ShardVault reconstruction stress
         run: node --test tests/shardvault-reconstruction-stress.test.mjs
