@@ -559,8 +559,910 @@ function Require-SovereigntyGitRepo([string]$repository) {
   return $repo
 }
 
+function Seed-SovereigntyGitRepo([string]$repository,[string]$expectedSha) {
+  $sha = ([string]$expectedSha).Trim().ToLowerInvariant()
+  if ($sha -notmatch '^[0-9a-f]{40}
+  $repository = [string]$payload.repository
+  $repo = Require-SovereigntyGitRepo $repository
+  switch ($operation) {
+    "health" {
+      $version = (& git.exe --version 2>$null)
+      return @{ action="sovereignty.source_control.health"; repository=$repository; git_version=[string]$version; repository_ready=$true }
+    }
+    "read_ref" {
+      $ref = Assert-SovereigntyGitRef ([string]$payload.ref)
+      $sha = Invoke-SovereigntyGit $repo @("rev-parse",($ref + "^{commit}"))
+      return @{ action="sovereignty.source_control.read_ref"; sha=$sha }
+    }
+    "read_file" {
+      $ref = Assert-SovereigntyGitRef ([string]$payload.ref)
+      $safe = Resolve-SovereigntyRelativePath $repo ([string]$payload.path)
+      $content = Invoke-SovereigntyGit $repo @("show",($ref + ":" + $safe.relative))
+      return @{ action="sovereignty.source_control.read_file"; content=$content; encoding="utf-8" }
+    }
+    "create_ref" {
+      $ref = Assert-SovereigntyGitRef ([string]$payload.ref)
+      $sha = ([string]$payload.sha).Trim()
+      if ($sha -notmatch '^[0-9a-fA-F]{40}
+  $action = [string]$step.action
+  switch ($action) {
+    "screen.capture" {
+      $shot = Upload-Screenshot $commandId
+      return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url }
+    }
+    "cursor.move" {
+      if (-not [MelNative]::SetCursorPos([int]$step.x, [int]$step.y)) { throw "CURSOR_MOVE_FAILED" }
+      return @{ action=$action; x=[int]$step.x; y=[int]$step.y }
+    }
+    "pointer.click" {
+      [MelNative]::mouse_event($MOUSE_LEFTDOWN,0,0,0,[UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 35
+      [MelNative]::mouse_event($MOUSE_LEFTUP,0,0,0,[UIntPtr]::Zero)
+      return @{ action=$action }
+    }
+    "pointer.scroll" {
+      $delta = [int]$step.delta_y
+      if ($delta -eq 0) { $delta = -120 }
+      [MelNative]::mouse_event($MOUSE_WHEEL,0,0,$delta,[UIntPtr]::Zero)
+      return @{ action=$action; delta_y=$delta }
+    }
+    "keyboard.press" {
+      [System.Windows.Forms.SendKeys]::SendWait((Key-Token ([string]$step.key)))
+      return @{ action=$action; key=[string]$step.key }
+    }
+    "keyboard.type" {
+      Type-Text ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "app.open" {
+      $exe = Resolve-App ([string]$step.app)
+      Start-Process $exe
+      return @{ action=$action; app=[string]$step.app }
+    }
+    "app.close" {
+      $count = Close-AppGracefully ([string]$step.app)
+      return @{ action=$action; app=[string]$step.app; windows_requested_close=$count }
+    }
+    "file.open" {
+      $path = Resolve-AllowedPath ([string]$step.path)
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "FILE_NOT_FOUND" }
+      Start-Process -FilePath $path
+      return @{ action=$action; path=$path }
+    }
+    "file.close" {
+      $closed = Close-ForegroundFile ([string]$step.path)
+      return @{ action=$action; path=$closed.path; active_window=$closed.active_window }
+    }
+    "clipboard.read" {
+      $v = ""
+      try { $v = [string](Get-Clipboard -Raw -ErrorAction Stop) } catch {}
+      if ($v.Length -gt 4096) { $v = $v.Substring(0,4096) }
+      return @{ action=$action; text=$v }
+    }
+    "clipboard.write" {
+      Set-Clipboard -Value ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "power.off" {
+      return Invoke-ShutdownCommand $action
+    }
+    "power.restart" {
+      return Invoke-ShutdownCommand $action
+    }
+    default { throw "ACTION_NOT_SUPPORTED" }
+  }
+}
+
+function Process-Command($command) {
+  $outputs = @()
+  try {
+    foreach ($step in @($command.plan.steps)) {
+      $outputs += ,(Perform-Step $step ([string]$command.id))
+    }
+    $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
+    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+  } catch {
+    $code = [string]$_.Exception.Message
+    $body = @{ command_id=$command.id; ok=$false; error_code=$code; result=@{ outputs=$outputs } }
+    try { [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body) } catch {}
+  }
+}
+
+$trayResources = $null
+if (-not $Headless) { $trayResources = New-MelTrayIcon }
+$lastHeartbeat = Get-Date "2000-01-01"
+while (-not $script:MelExitRequested) {
+  if ($Headless -and $ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
+  if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
+  try {
+    if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
+      Send-Heartbeat
+      $lastHeartbeat = Get-Date
+    }
+    $reply = Invoke-MelJson -Path "/api/computer/v1/commands" -Method "GET"
+    if ($reply.halted -eq $true) {
+      Start-Sleep -Seconds 2
+      continue
+    }
+    if ($null -ne $reply.command) {
+      Process-Command $reply.command
+      continue
+    }
+  } catch {
+    Start-Sleep -Seconds 3
+  }
+  Start-Sleep -Milliseconds 1200
+}
+if ($trayResources) {
+  try { $trayResources.notify.Visible = $false } catch {}
+  try { $trayResources.notify.Dispose() } catch {}
+  try { $trayResources.menu.Dispose() } catch {}
+  try { $trayResources.icon.Dispose() } catch {}
+  try { $trayResources.bitmap.Dispose() } catch {}
+}
+) { throw "SOVEREIGNTY_GIT_SHA_INVALID" }
+      [void](Invoke-SovereigntyGit $repo @("branch","-f",$ref,$sha))
+      return @{ action="sovereignty.source_control.create_ref"; ref=$ref; sha=$sha }
+    }
+    "update_ref" {
+      $ref = Assert-SovereigntyGitRef ([string]$payload.ref)
+      $sha = ([string]$payload.sha).Trim()
+      if ($sha -notmatch '^[0-9a-fA-F]{40}
+  $action = [string]$step.action
+  switch ($action) {
+    "screen.capture" {
+      $shot = Upload-Screenshot $commandId
+      return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url }
+    }
+    "cursor.move" {
+      if (-not [MelNative]::SetCursorPos([int]$step.x, [int]$step.y)) { throw "CURSOR_MOVE_FAILED" }
+      return @{ action=$action; x=[int]$step.x; y=[int]$step.y }
+    }
+    "pointer.click" {
+      [MelNative]::mouse_event($MOUSE_LEFTDOWN,0,0,0,[UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 35
+      [MelNative]::mouse_event($MOUSE_LEFTUP,0,0,0,[UIntPtr]::Zero)
+      return @{ action=$action }
+    }
+    "pointer.scroll" {
+      $delta = [int]$step.delta_y
+      if ($delta -eq 0) { $delta = -120 }
+      [MelNative]::mouse_event($MOUSE_WHEEL,0,0,$delta,[UIntPtr]::Zero)
+      return @{ action=$action; delta_y=$delta }
+    }
+    "keyboard.press" {
+      [System.Windows.Forms.SendKeys]::SendWait((Key-Token ([string]$step.key)))
+      return @{ action=$action; key=[string]$step.key }
+    }
+    "keyboard.type" {
+      Type-Text ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "app.open" {
+      $exe = Resolve-App ([string]$step.app)
+      Start-Process $exe
+      return @{ action=$action; app=[string]$step.app }
+    }
+    "app.close" {
+      $count = Close-AppGracefully ([string]$step.app)
+      return @{ action=$action; app=[string]$step.app; windows_requested_close=$count }
+    }
+    "file.open" {
+      $path = Resolve-AllowedPath ([string]$step.path)
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "FILE_NOT_FOUND" }
+      Start-Process -FilePath $path
+      return @{ action=$action; path=$path }
+    }
+    "file.close" {
+      $closed = Close-ForegroundFile ([string]$step.path)
+      return @{ action=$action; path=$closed.path; active_window=$closed.active_window }
+    }
+    "clipboard.read" {
+      $v = ""
+      try { $v = [string](Get-Clipboard -Raw -ErrorAction Stop) } catch {}
+      if ($v.Length -gt 4096) { $v = $v.Substring(0,4096) }
+      return @{ action=$action; text=$v }
+    }
+    "clipboard.write" {
+      Set-Clipboard -Value ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "power.off" {
+      return Invoke-ShutdownCommand $action
+    }
+    "power.restart" {
+      return Invoke-ShutdownCommand $action
+    }
+    default { throw "ACTION_NOT_SUPPORTED" }
+  }
+}
+
+function Process-Command($command) {
+  $outputs = @()
+  try {
+    foreach ($step in @($command.plan.steps)) {
+      $outputs += ,(Perform-Step $step ([string]$command.id))
+    }
+    $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
+    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+  } catch {
+    $code = [string]$_.Exception.Message
+    $body = @{ command_id=$command.id; ok=$false; error_code=$code; result=@{ outputs=$outputs } }
+    try { [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body) } catch {}
+  }
+}
+
+$trayResources = $null
+if (-not $Headless) { $trayResources = New-MelTrayIcon }
+$lastHeartbeat = Get-Date "2000-01-01"
+while (-not $script:MelExitRequested) {
+  if ($Headless -and $ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
+  if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
+  try {
+    if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
+      Send-Heartbeat
+      $lastHeartbeat = Get-Date
+    }
+    $reply = Invoke-MelJson -Path "/api/computer/v1/commands" -Method "GET"
+    if ($reply.halted -eq $true) {
+      Start-Sleep -Seconds 2
+      continue
+    }
+    if ($null -ne $reply.command) {
+      Process-Command $reply.command
+      continue
+    }
+  } catch {
+    Start-Sleep -Seconds 3
+  }
+  Start-Sleep -Milliseconds 1200
+}
+if ($trayResources) {
+  try { $trayResources.notify.Visible = $false } catch {}
+  try { $trayResources.notify.Dispose() } catch {}
+  try { $trayResources.menu.Dispose() } catch {}
+  try { $trayResources.icon.Dispose() } catch {}
+  try { $trayResources.bitmap.Dispose() } catch {}
+}
+) { throw "SOVEREIGNTY_GIT_SHA_INVALID" }
+      [void](Invoke-SovereigntyGit $repo @("update-ref",("refs/heads/" + $ref),$sha))
+      return @{ action="sovereignty.source_control.update_ref"; ref=$ref; sha=$sha }
+    }
+    "compare_refs" {
+      $base = Assert-SovereigntyGitRef ([string]$payload.base)
+      $head = Assert-SovereigntyGitRef ([string]$payload.head)
+      $ahead = [int](Invoke-SovereigntyGit $repo @("rev-list","--count",($base + ".." + $head)))
+      $behind = [int](Invoke-SovereigntyGit $repo @("rev-list","--count",($head + ".." + $base)))
+      return @{ action="sovereignty.source_control.compare_refs"; ahead_by=$ahead; behind_by=$behind }
+    }
+    "write_file" {
+      $ref = Assert-SovereigntyGitRef ([string]$payload.ref)
+      $safe = Resolve-SovereigntyRelativePath $repo ([string]$payload.path)
+      $worktree = Join-Path (Join-Path (Sovereignty-Root) "worktrees") ([guid]::NewGuid().ToString("N"))
+      try {
+        [void](Invoke-SovereigntyGit $repo @("worktree","add","--detach",$worktree,$ref))
+        $target = Resolve-SovereigntyRelativePath $worktree $safe.relative
+        $parent = Split-Path -Parent $target.full
+        if ($parent) { [IO.Directory]::CreateDirectory($parent) | Out-Null }
+        [IO.File]::WriteAllText($target.full,[string]$payload.content,[Text.UTF8Encoding]::new($false))
+        [void](Invoke-SovereigntyGit $worktree @("add","--",$safe.relative))
+        $message = ([string]$payload.message).Trim()
+        if ([string]::IsNullOrWhiteSpace($message)) { $message = "MEL sovereignty proof" }
+        [void](Invoke-SovereigntyGit $worktree @("-c","user.name=MEL Sovereignty","-c","user.email=mel-sovereignty@localhost","commit","-m",$message))
+        $candidate = Invoke-SovereigntyGit $worktree @("rev-parse","HEAD")
+        [void](Invoke-SovereigntyGit $repo @("update-ref",("refs/heads/" + $ref),$candidate))
+        return @{ action="sovereignty.source_control.write_file"; sha=$candidate; ref=$ref; path=$safe.relative }
+      } finally {
+        try { [void](Invoke-SovereigntyGit $repo @("worktree","remove","--force",$worktree)) } catch {}
+        try { if (Test-Path -LiteralPath $worktree) { Remove-Item -LiteralPath $worktree -Recurse -Force } } catch {}
+      }
+    }
+    default { throw "SOVEREIGNTY_SOURCE_CONTROL_OPERATION_NOT_SUPPORTED" }
+  }
+}
+function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
+  $action = [string]$step.action
+  if ($action.StartsWith("sovereignty.")) {
+    if ($planSchema -ne "mel.sovereignty.local-command/v1") { throw "SOVEREIGNTY_COMMAND_SCHEMA_REQUIRED" }
+    if ($action.StartsWith("sovereignty.source_control.")) {
+      $op = $action.Substring("sovereignty.source_control.".Length)
+      return Perform-SovereigntySourceControl $op $step.payload
+    }
+    throw "SOVEREIGNTY_ACTION_NOT_SUPPORTED"
+  }
+  switch ($action) {
+    "screen.capture" {
+      $shot = Upload-Screenshot $commandId
+      return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url }
+    }
+    "cursor.move" {
+      if (-not [MelNative]::SetCursorPos([int]$step.x, [int]$step.y)) { throw "CURSOR_MOVE_FAILED" }
+      return @{ action=$action; x=[int]$step.x; y=[int]$step.y }
+    }
+    "pointer.click" {
+      [MelNative]::mouse_event($MOUSE_LEFTDOWN,0,0,0,[UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 35
+      [MelNative]::mouse_event($MOUSE_LEFTUP,0,0,0,[UIntPtr]::Zero)
+      return @{ action=$action }
+    }
+    "pointer.scroll" {
+      $delta = [int]$step.delta_y
+      if ($delta -eq 0) { $delta = -120 }
+      [MelNative]::mouse_event($MOUSE_WHEEL,0,0,$delta,[UIntPtr]::Zero)
+      return @{ action=$action; delta_y=$delta }
+    }
+    "keyboard.press" {
+      [System.Windows.Forms.SendKeys]::SendWait((Key-Token ([string]$step.key)))
+      return @{ action=$action; key=[string]$step.key }
+    }
+    "keyboard.type" {
+      Type-Text ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "app.open" {
+      $exe = Resolve-App ([string]$step.app)
+      Start-Process $exe
+      return @{ action=$action; app=[string]$step.app }
+    }
+    "app.close" {
+      $count = Close-AppGracefully ([string]$step.app)
+      return @{ action=$action; app=[string]$step.app; windows_requested_close=$count }
+    }
+    "file.open" {
+      $path = Resolve-AllowedPath ([string]$step.path)
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "FILE_NOT_FOUND" }
+      Start-Process -FilePath $path
+      return @{ action=$action; path=$path }
+    }
+    "file.close" {
+      $closed = Close-ForegroundFile ([string]$step.path)
+      return @{ action=$action; path=$closed.path; active_window=$closed.active_window }
+    }
+    "clipboard.read" {
+      $v = ""
+      try { $v = [string](Get-Clipboard -Raw -ErrorAction Stop) } catch {}
+      if ($v.Length -gt 4096) { $v = $v.Substring(0,4096) }
+      return @{ action=$action; text=$v }
+    }
+    "clipboard.write" {
+      Set-Clipboard -Value ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "power.off" {
+      return Invoke-ShutdownCommand $action
+    }
+    "power.restart" {
+      return Invoke-ShutdownCommand $action
+    }
+    default { throw "ACTION_NOT_SUPPORTED" }
+  }
+}
+
+function Process-Command($command) {
+  $outputs = @()
+  try {
+    foreach ($step in @($command.plan.steps)) {
+      $outputs += ,(Perform-Step $step ([string]$command.id))
+    }
+    $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
+    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+  } catch {
+    $code = [string]$_.Exception.Message
+    $body = @{ command_id=$command.id; ok=$false; error_code=$code; result=@{ outputs=$outputs } }
+    try { [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body) } catch {}
+  }
+}
+
+$trayResources = $null
+if (-not $Headless) { $trayResources = New-MelTrayIcon }
+$lastHeartbeat = Get-Date "2000-01-01"
+while (-not $script:MelExitRequested) {
+  if ($Headless -and $ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
+  if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
+  try {
+    if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
+      Send-Heartbeat
+      $lastHeartbeat = Get-Date
+    }
+    $reply = Invoke-MelJson -Path "/api/computer/v1/commands" -Method "GET"
+    if ($reply.halted -eq $true) {
+      Start-Sleep -Seconds 2
+      continue
+    }
+    if ($null -ne $reply.command) {
+      Process-Command $reply.command
+      continue
+    }
+  } catch {
+    Start-Sleep -Seconds 3
+  }
+  Start-Sleep -Milliseconds 1200
+}
+if ($trayResources) {
+  try { $trayResources.notify.Visible = $false } catch {}
+  try { $trayResources.notify.Dispose() } catch {}
+  try { $trayResources.menu.Dispose() } catch {}
+  try { $trayResources.icon.Dispose() } catch {}
+  try { $trayResources.bitmap.Dispose() } catch {}
+}
+) { throw "SOVEREIGNTY_SEED_SHA_INVALID" }
+  $root = Sovereignty-Root
+  $repo = Resolve-SovereigntyRepo $repository
+  $temp = Join-Path $root ("seed-" + [guid]::NewGuid().ToString("N"))
+  $archive = Join-Path $temp "source.tgz"
+  $extract = Join-Path $temp "extract"
+  [IO.Directory]::CreateDirectory($extract) | Out-Null
+  try {
+    $uri = $Server + "/api/computer/v1/sovereignty-code-archive?sha=" + [uri]::EscapeDataString($sha)
+    $response = Invoke-WebRequest -Uri $uri -Method Get -Headers (Headers) -OutFile $archive -UseBasicParsing -TimeoutSec 120
+    $sourceSha = ([string]$response.Headers["X-MEL-Source-Sha"]).Trim().ToLowerInvariant()
+    $expectedArchiveHash = ([string]$response.Headers["X-MEL-Archive-Sha256"]).Trim().ToLowerInvariant()
+    $externalVerified = ([string]$response.Headers["X-MEL-External-Reconstruction-Verified"]).Trim()
+    if ($sourceSha -ne $sha) { throw "SOVEREIGNTY_SEED_SOURCE_SHA_MISMATCH" }
+    if ($expectedArchiveHash -notmatch '^[0-9a-f]{64}
+  $repository = [string]$payload.repository
+  $repo = Require-SovereigntyGitRepo $repository
+  switch ($operation) {
+    "health" {
+      $version = (& git.exe --version 2>$null)
+      return @{ action="sovereignty.source_control.health"; repository=$repository; git_version=[string]$version; repository_ready=$true }
+    }
+    "read_ref" {
+      $ref = Assert-SovereigntyGitRef ([string]$payload.ref)
+      $sha = Invoke-SovereigntyGit $repo @("rev-parse",($ref + "^{commit}"))
+      return @{ action="sovereignty.source_control.read_ref"; sha=$sha }
+    }
+    "read_file" {
+      $ref = Assert-SovereigntyGitRef ([string]$payload.ref)
+      $safe = Resolve-SovereigntyRelativePath $repo ([string]$payload.path)
+      $content = Invoke-SovereigntyGit $repo @("show",($ref + ":" + $safe.relative))
+      return @{ action="sovereignty.source_control.read_file"; content=$content; encoding="utf-8" }
+    }
+    "create_ref" {
+      $ref = Assert-SovereigntyGitRef ([string]$payload.ref)
+      $sha = ([string]$payload.sha).Trim()
+      if ($sha -notmatch '^[0-9a-fA-F]{40}
+  $action = [string]$step.action
+  switch ($action) {
+    "screen.capture" {
+      $shot = Upload-Screenshot $commandId
+      return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url }
+    }
+    "cursor.move" {
+      if (-not [MelNative]::SetCursorPos([int]$step.x, [int]$step.y)) { throw "CURSOR_MOVE_FAILED" }
+      return @{ action=$action; x=[int]$step.x; y=[int]$step.y }
+    }
+    "pointer.click" {
+      [MelNative]::mouse_event($MOUSE_LEFTDOWN,0,0,0,[UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 35
+      [MelNative]::mouse_event($MOUSE_LEFTUP,0,0,0,[UIntPtr]::Zero)
+      return @{ action=$action }
+    }
+    "pointer.scroll" {
+      $delta = [int]$step.delta_y
+      if ($delta -eq 0) { $delta = -120 }
+      [MelNative]::mouse_event($MOUSE_WHEEL,0,0,$delta,[UIntPtr]::Zero)
+      return @{ action=$action; delta_y=$delta }
+    }
+    "keyboard.press" {
+      [System.Windows.Forms.SendKeys]::SendWait((Key-Token ([string]$step.key)))
+      return @{ action=$action; key=[string]$step.key }
+    }
+    "keyboard.type" {
+      Type-Text ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "app.open" {
+      $exe = Resolve-App ([string]$step.app)
+      Start-Process $exe
+      return @{ action=$action; app=[string]$step.app }
+    }
+    "app.close" {
+      $count = Close-AppGracefully ([string]$step.app)
+      return @{ action=$action; app=[string]$step.app; windows_requested_close=$count }
+    }
+    "file.open" {
+      $path = Resolve-AllowedPath ([string]$step.path)
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "FILE_NOT_FOUND" }
+      Start-Process -FilePath $path
+      return @{ action=$action; path=$path }
+    }
+    "file.close" {
+      $closed = Close-ForegroundFile ([string]$step.path)
+      return @{ action=$action; path=$closed.path; active_window=$closed.active_window }
+    }
+    "clipboard.read" {
+      $v = ""
+      try { $v = [string](Get-Clipboard -Raw -ErrorAction Stop) } catch {}
+      if ($v.Length -gt 4096) { $v = $v.Substring(0,4096) }
+      return @{ action=$action; text=$v }
+    }
+    "clipboard.write" {
+      Set-Clipboard -Value ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "power.off" {
+      return Invoke-ShutdownCommand $action
+    }
+    "power.restart" {
+      return Invoke-ShutdownCommand $action
+    }
+    default { throw "ACTION_NOT_SUPPORTED" }
+  }
+}
+
+function Process-Command($command) {
+  $outputs = @()
+  try {
+    foreach ($step in @($command.plan.steps)) {
+      $outputs += ,(Perform-Step $step ([string]$command.id))
+    }
+    $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
+    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+  } catch {
+    $code = [string]$_.Exception.Message
+    $body = @{ command_id=$command.id; ok=$false; error_code=$code; result=@{ outputs=$outputs } }
+    try { [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body) } catch {}
+  }
+}
+
+$trayResources = $null
+if (-not $Headless) { $trayResources = New-MelTrayIcon }
+$lastHeartbeat = Get-Date "2000-01-01"
+while (-not $script:MelExitRequested) {
+  if ($Headless -and $ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
+  if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
+  try {
+    if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
+      Send-Heartbeat
+      $lastHeartbeat = Get-Date
+    }
+    $reply = Invoke-MelJson -Path "/api/computer/v1/commands" -Method "GET"
+    if ($reply.halted -eq $true) {
+      Start-Sleep -Seconds 2
+      continue
+    }
+    if ($null -ne $reply.command) {
+      Process-Command $reply.command
+      continue
+    }
+  } catch {
+    Start-Sleep -Seconds 3
+  }
+  Start-Sleep -Milliseconds 1200
+}
+if ($trayResources) {
+  try { $trayResources.notify.Visible = $false } catch {}
+  try { $trayResources.notify.Dispose() } catch {}
+  try { $trayResources.menu.Dispose() } catch {}
+  try { $trayResources.icon.Dispose() } catch {}
+  try { $trayResources.bitmap.Dispose() } catch {}
+}
+) { throw "SOVEREIGNTY_GIT_SHA_INVALID" }
+      [void](Invoke-SovereigntyGit $repo @("branch","-f",$ref,$sha))
+      return @{ action="sovereignty.source_control.create_ref"; ref=$ref; sha=$sha }
+    }
+    "update_ref" {
+      $ref = Assert-SovereigntyGitRef ([string]$payload.ref)
+      $sha = ([string]$payload.sha).Trim()
+      if ($sha -notmatch '^[0-9a-fA-F]{40}
+  $action = [string]$step.action
+  switch ($action) {
+    "screen.capture" {
+      $shot = Upload-Screenshot $commandId
+      return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url }
+    }
+    "cursor.move" {
+      if (-not [MelNative]::SetCursorPos([int]$step.x, [int]$step.y)) { throw "CURSOR_MOVE_FAILED" }
+      return @{ action=$action; x=[int]$step.x; y=[int]$step.y }
+    }
+    "pointer.click" {
+      [MelNative]::mouse_event($MOUSE_LEFTDOWN,0,0,0,[UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 35
+      [MelNative]::mouse_event($MOUSE_LEFTUP,0,0,0,[UIntPtr]::Zero)
+      return @{ action=$action }
+    }
+    "pointer.scroll" {
+      $delta = [int]$step.delta_y
+      if ($delta -eq 0) { $delta = -120 }
+      [MelNative]::mouse_event($MOUSE_WHEEL,0,0,$delta,[UIntPtr]::Zero)
+      return @{ action=$action; delta_y=$delta }
+    }
+    "keyboard.press" {
+      [System.Windows.Forms.SendKeys]::SendWait((Key-Token ([string]$step.key)))
+      return @{ action=$action; key=[string]$step.key }
+    }
+    "keyboard.type" {
+      Type-Text ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "app.open" {
+      $exe = Resolve-App ([string]$step.app)
+      Start-Process $exe
+      return @{ action=$action; app=[string]$step.app }
+    }
+    "app.close" {
+      $count = Close-AppGracefully ([string]$step.app)
+      return @{ action=$action; app=[string]$step.app; windows_requested_close=$count }
+    }
+    "file.open" {
+      $path = Resolve-AllowedPath ([string]$step.path)
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "FILE_NOT_FOUND" }
+      Start-Process -FilePath $path
+      return @{ action=$action; path=$path }
+    }
+    "file.close" {
+      $closed = Close-ForegroundFile ([string]$step.path)
+      return @{ action=$action; path=$closed.path; active_window=$closed.active_window }
+    }
+    "clipboard.read" {
+      $v = ""
+      try { $v = [string](Get-Clipboard -Raw -ErrorAction Stop) } catch {}
+      if ($v.Length -gt 4096) { $v = $v.Substring(0,4096) }
+      return @{ action=$action; text=$v }
+    }
+    "clipboard.write" {
+      Set-Clipboard -Value ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "power.off" {
+      return Invoke-ShutdownCommand $action
+    }
+    "power.restart" {
+      return Invoke-ShutdownCommand $action
+    }
+    default { throw "ACTION_NOT_SUPPORTED" }
+  }
+}
+
+function Process-Command($command) {
+  $outputs = @()
+  try {
+    foreach ($step in @($command.plan.steps)) {
+      $outputs += ,(Perform-Step $step ([string]$command.id))
+    }
+    $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
+    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+  } catch {
+    $code = [string]$_.Exception.Message
+    $body = @{ command_id=$command.id; ok=$false; error_code=$code; result=@{ outputs=$outputs } }
+    try { [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body) } catch {}
+  }
+}
+
+$trayResources = $null
+if (-not $Headless) { $trayResources = New-MelTrayIcon }
+$lastHeartbeat = Get-Date "2000-01-01"
+while (-not $script:MelExitRequested) {
+  if ($Headless -and $ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
+  if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
+  try {
+    if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
+      Send-Heartbeat
+      $lastHeartbeat = Get-Date
+    }
+    $reply = Invoke-MelJson -Path "/api/computer/v1/commands" -Method "GET"
+    if ($reply.halted -eq $true) {
+      Start-Sleep -Seconds 2
+      continue
+    }
+    if ($null -ne $reply.command) {
+      Process-Command $reply.command
+      continue
+    }
+  } catch {
+    Start-Sleep -Seconds 3
+  }
+  Start-Sleep -Milliseconds 1200
+}
+if ($trayResources) {
+  try { $trayResources.notify.Visible = $false } catch {}
+  try { $trayResources.notify.Dispose() } catch {}
+  try { $trayResources.menu.Dispose() } catch {}
+  try { $trayResources.icon.Dispose() } catch {}
+  try { $trayResources.bitmap.Dispose() } catch {}
+}
+) { throw "SOVEREIGNTY_GIT_SHA_INVALID" }
+      [void](Invoke-SovereigntyGit $repo @("update-ref",("refs/heads/" + $ref),$sha))
+      return @{ action="sovereignty.source_control.update_ref"; ref=$ref; sha=$sha }
+    }
+    "compare_refs" {
+      $base = Assert-SovereigntyGitRef ([string]$payload.base)
+      $head = Assert-SovereigntyGitRef ([string]$payload.head)
+      $ahead = [int](Invoke-SovereigntyGit $repo @("rev-list","--count",($base + ".." + $head)))
+      $behind = [int](Invoke-SovereigntyGit $repo @("rev-list","--count",($head + ".." + $base)))
+      return @{ action="sovereignty.source_control.compare_refs"; ahead_by=$ahead; behind_by=$behind }
+    }
+    "write_file" {
+      $ref = Assert-SovereigntyGitRef ([string]$payload.ref)
+      $safe = Resolve-SovereigntyRelativePath $repo ([string]$payload.path)
+      $worktree = Join-Path (Join-Path (Sovereignty-Root) "worktrees") ([guid]::NewGuid().ToString("N"))
+      try {
+        [void](Invoke-SovereigntyGit $repo @("worktree","add","--detach",$worktree,$ref))
+        $target = Resolve-SovereigntyRelativePath $worktree $safe.relative
+        $parent = Split-Path -Parent $target.full
+        if ($parent) { [IO.Directory]::CreateDirectory($parent) | Out-Null }
+        [IO.File]::WriteAllText($target.full,[string]$payload.content,[Text.UTF8Encoding]::new($false))
+        [void](Invoke-SovereigntyGit $worktree @("add","--",$safe.relative))
+        $message = ([string]$payload.message).Trim()
+        if ([string]::IsNullOrWhiteSpace($message)) { $message = "MEL sovereignty proof" }
+        [void](Invoke-SovereigntyGit $worktree @("-c","user.name=MEL Sovereignty","-c","user.email=mel-sovereignty@localhost","commit","-m",$message))
+        $candidate = Invoke-SovereigntyGit $worktree @("rev-parse","HEAD")
+        [void](Invoke-SovereigntyGit $repo @("update-ref",("refs/heads/" + $ref),$candidate))
+        return @{ action="sovereignty.source_control.write_file"; sha=$candidate; ref=$ref; path=$safe.relative }
+      } finally {
+        try { [void](Invoke-SovereigntyGit $repo @("worktree","remove","--force",$worktree)) } catch {}
+        try { if (Test-Path -LiteralPath $worktree) { Remove-Item -LiteralPath $worktree -Recurse -Force } } catch {}
+      }
+    }
+    default { throw "SOVEREIGNTY_SOURCE_CONTROL_OPERATION_NOT_SUPPORTED" }
+  }
+}
+function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
+  $action = [string]$step.action
+  if ($action.StartsWith("sovereignty.")) {
+    if ($planSchema -ne "mel.sovereignty.local-command/v1") { throw "SOVEREIGNTY_COMMAND_SCHEMA_REQUIRED" }
+    if ($action.StartsWith("sovereignty.source_control.")) {
+      $op = $action.Substring("sovereignty.source_control.".Length)
+      return Perform-SovereigntySourceControl $op $step.payload
+    }
+    throw "SOVEREIGNTY_ACTION_NOT_SUPPORTED"
+  }
+  switch ($action) {
+    "screen.capture" {
+      $shot = Upload-Screenshot $commandId
+      return @{ action=$action; screenshot_key=$shot.key; view_url=$shot.view_url }
+    }
+    "cursor.move" {
+      if (-not [MelNative]::SetCursorPos([int]$step.x, [int]$step.y)) { throw "CURSOR_MOVE_FAILED" }
+      return @{ action=$action; x=[int]$step.x; y=[int]$step.y }
+    }
+    "pointer.click" {
+      [MelNative]::mouse_event($MOUSE_LEFTDOWN,0,0,0,[UIntPtr]::Zero)
+      Start-Sleep -Milliseconds 35
+      [MelNative]::mouse_event($MOUSE_LEFTUP,0,0,0,[UIntPtr]::Zero)
+      return @{ action=$action }
+    }
+    "pointer.scroll" {
+      $delta = [int]$step.delta_y
+      if ($delta -eq 0) { $delta = -120 }
+      [MelNative]::mouse_event($MOUSE_WHEEL,0,0,$delta,[UIntPtr]::Zero)
+      return @{ action=$action; delta_y=$delta }
+    }
+    "keyboard.press" {
+      [System.Windows.Forms.SendKeys]::SendWait((Key-Token ([string]$step.key)))
+      return @{ action=$action; key=[string]$step.key }
+    }
+    "keyboard.type" {
+      Type-Text ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "app.open" {
+      $exe = Resolve-App ([string]$step.app)
+      Start-Process $exe
+      return @{ action=$action; app=[string]$step.app }
+    }
+    "app.close" {
+      $count = Close-AppGracefully ([string]$step.app)
+      return @{ action=$action; app=[string]$step.app; windows_requested_close=$count }
+    }
+    "file.open" {
+      $path = Resolve-AllowedPath ([string]$step.path)
+      if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "FILE_NOT_FOUND" }
+      Start-Process -FilePath $path
+      return @{ action=$action; path=$path }
+    }
+    "file.close" {
+      $closed = Close-ForegroundFile ([string]$step.path)
+      return @{ action=$action; path=$closed.path; active_window=$closed.active_window }
+    }
+    "clipboard.read" {
+      $v = ""
+      try { $v = [string](Get-Clipboard -Raw -ErrorAction Stop) } catch {}
+      if ($v.Length -gt 4096) { $v = $v.Substring(0,4096) }
+      return @{ action=$action; text=$v }
+    }
+    "clipboard.write" {
+      Set-Clipboard -Value ([string]$step.text)
+      return @{ action=$action; chars=([string]$step.text).Length }
+    }
+    "power.off" {
+      return Invoke-ShutdownCommand $action
+    }
+    "power.restart" {
+      return Invoke-ShutdownCommand $action
+    }
+    default { throw "ACTION_NOT_SUPPORTED" }
+  }
+}
+
+function Process-Command($command) {
+  $outputs = @()
+  try {
+    foreach ($step in @($command.plan.steps)) {
+      $outputs += ,(Perform-Step $step ([string]$command.id))
+    }
+    $body = @{ command_id=$command.id; ok=$true; result=@{ outputs=$outputs; active_window=(Active-Window) } }
+    [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body)
+  } catch {
+    $code = [string]$_.Exception.Message
+    $body = @{ command_id=$command.id; ok=$false; error_code=$code; result=@{ outputs=$outputs } }
+    try { [void](Invoke-MelJson -Path "/api/computer/v1/result" -Method "POST" -Body $body) } catch {}
+  }
+}
+
+$trayResources = $null
+if (-not $Headless) { $trayResources = New-MelTrayIcon }
+$lastHeartbeat = Get-Date "2000-01-01"
+while (-not $script:MelExitRequested) {
+  if ($Headless -and $ParentPid -gt 0 -and -not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { break }
+  if (-not $Headless) { [System.Windows.Forms.Application]::DoEvents() }
+  try {
+    if (((Get-Date) - $lastHeartbeat).TotalSeconds -ge 10) {
+      Send-Heartbeat
+      $lastHeartbeat = Get-Date
+    }
+    $reply = Invoke-MelJson -Path "/api/computer/v1/commands" -Method "GET"
+    if ($reply.halted -eq $true) {
+      Start-Sleep -Seconds 2
+      continue
+    }
+    if ($null -ne $reply.command) {
+      Process-Command $reply.command
+      continue
+    }
+  } catch {
+    Start-Sleep -Seconds 3
+  }
+  Start-Sleep -Milliseconds 1200
+}
+if ($trayResources) {
+  try { $trayResources.notify.Visible = $false } catch {}
+  try { $trayResources.notify.Dispose() } catch {}
+  try { $trayResources.menu.Dispose() } catch {}
+  try { $trayResources.icon.Dispose() } catch {}
+  try { $trayResources.bitmap.Dispose() } catch {}
+}
+) { throw "SOVEREIGNTY_SEED_ARCHIVE_HASH_MISSING" }
+    if ($externalVerified -ne "1") { throw "SOVEREIGNTY_SEED_EXTERNAL_PROOF_REQUIRED" }
+    $actualArchiveHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualArchiveHash -ne $expectedArchiveHash) { throw "SOVEREIGNTY_SEED_ARCHIVE_HASH_MISMATCH" }
+    if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) { throw "SOVEREIGNTY_TAR_NOT_AVAILABLE" }
+    & tar.exe -xzf $archive -C $extract
+    if ($LASTEXITCODE -ne 0) { throw "SOVEREIGNTY_ARCHIVE_EXTRACT_FAILED" }
+    $sourceRoot = $extract
+    $topDirs = @(Get-ChildItem -LiteralPath $extract -Directory -Force)
+    if (-not (Test-Path -LiteralPath (Join-Path $extract "package.json") -PathType Leaf) -and $topDirs.Count -eq 1) { $sourceRoot = $topDirs[0].FullName }
+    if (-not (Test-Path -LiteralPath (Join-Path $sourceRoot "package.json") -PathType Leaf)) { throw "SOVEREIGNTY_SEED_PACKAGE_JSON_MISSING" }
+    if (Test-Path -LiteralPath $repo) { Remove-Item -LiteralPath $repo -Recurse -Force }
+    [IO.Directory]::CreateDirectory($repo) | Out-Null
+    foreach ($item in @(Get-ChildItem -LiteralPath $sourceRoot -Force)) {
+      Copy-Item -LiteralPath $item.FullName -Destination $repo -Recurse -Force
+    }
+    $gitDir = Join-Path $repo ".git"
+    if (Test-Path -LiteralPath $gitDir) { Remove-Item -LiteralPath $gitDir -Recurse -Force }
+    $provenance = @{
+      schema="mel.local-source-provenance/v1";
+      source_sha=$sha;
+      archive_sha256=$actualArchiveHash;
+      external_reconstruction_verified=$true;
+      seeded_at=(Get-Date).ToUniversalTime().ToString("o")
+    } | ConvertTo-Json -Depth 4
+    [IO.File]::WriteAllText((Join-Path $repo ".mel-source-provenance.json"),$provenance,[Text.UTF8Encoding]::new($false))
+    [void](Invoke-SovereigntyGit $repo @("init","-b","main"))
+    [void](Invoke-SovereigntyGit $repo @("add","-A"))
+    [void](Invoke-SovereigntyGit $repo @("-c","user.name=MEL Sovereignty","-c","user.email=mel-sovereignty@localhost","commit","-m",("Recovered source " + $sha)))
+    $localSha = Invoke-SovereigntyGit $repo @("rev-parse","HEAD")
+    return @{ action="sovereignty.source_control.seed"; repository=$repository; source_sha=$sha; archive_sha256=$actualArchiveHash; local_commit_sha=$localSha; external_reconstruction_verified=$true }
+  } finally {
+    try { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Recurse -Force } } catch {}
+  }
+}
 function Perform-SovereigntySourceControl([string]$operation,$payload) {
   $repository = [string]$payload.repository
+  if ($operation -eq "seed") {
+    return Seed-SovereigntyGitRepo $repository ([string]$payload.expected_sha)
+  }
   $repo = Require-SovereigntyGitRepo $repository
   switch ($operation) {
     "health" {
