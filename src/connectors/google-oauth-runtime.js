@@ -138,7 +138,7 @@ function googleTokenClient({ env = {}, fetcher = fetch } = {}) {
             accept: 'application/json',
           },
           body: new URLSearchParams({ token }).toString(),
-          redirect: 'error',
+          redirect: 'manual',
           signal: context?.signal || AbortSignal.timeout(8000),
         });
       } catch {
