@@ -86,7 +86,7 @@ export function createOAuthHttpTokenClient({
         accept: 'application/json',
       },
       body: new URLSearchParams(params).toString(),
-      redirect: 'error',
+      redirect: 'manual',
       signal: context?.signal || AbortSignal.timeout(requestTimeout),
     });
     return readJson(response, failureCode);
@@ -144,7 +144,7 @@ export function createOAuthHttpTokenClient({
           client_id: clientId,
           ...(secret ? { client_secret: secret } : {}),
         }).toString(),
-        redirect: 'error',
+        redirect: 'manual',
         signal: context?.signal || AbortSignal.timeout(requestTimeout),
       });
       if (!response.ok) {

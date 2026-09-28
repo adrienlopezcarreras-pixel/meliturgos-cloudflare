@@ -51,7 +51,7 @@ test('OAuth HTTP exchange posts only to trusted fixed endpoint with PKCE and ser
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'https://github.example/oauth/token');
   assert.equal(calls[0].options.method, 'POST');
-  assert.equal(calls[0].options.redirect, 'error');
+  assert.equal(calls[0].options.redirect, 'manual');
 
   const form = new URLSearchParams(calls[0].options.body);
   assert.equal(form.get('grant_type'), 'authorization_code');
@@ -60,6 +60,30 @@ test('OAuth HTTP exchange posts only to trusted fixed endpoint with PKCE and ser
   assert.equal(form.get('code'), 'authorization-code');
   assert.equal(form.get('code_verifier'), 'pkce-verifier');
   assert.equal(form.get('redirect_uri'), 'https://mel.example/oauth/github/callback');
+});
+
+test('OAuth HTTP exchange uses Cloudflare-compatible manual redirect mode without following provider redirects', async () => {
+  const calls = [];
+  const client = createOAuthHttpTokenClient({
+    fetcher: async (url, options) => {
+      calls.push({ url, options });
+      return responseJson({ access_token: 'ok' });
+    },
+  });
+
+  await client.exchange({
+    connector_id: 'gmail',
+    code: 'code',
+    code_verifier: 'verifier',
+    redirect_uri: 'https://mel.example/callback',
+    provider: {
+      client_id: 'client',
+      token_endpoint: 'https://oauth2.googleapis.com/token',
+    },
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.redirect, 'manual');
 });
 
 test('OAuth HTTP client rejects untrusted non-HTTPS remote endpoint before fetch', async () => {
