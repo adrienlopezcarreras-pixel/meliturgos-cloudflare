@@ -27,6 +27,7 @@ import { maybeHandleComputerApi } from "./devices/computer-companion-api.js";
 import { maybeHandleAndroidCompanionApi } from "./devices/android-companion-api.js";
 import { enforceHttpAuthPolicy } from "./security/http-auth-policy.js";
 import { runShardVaultCycle, searchAutonomousShardVaultRepositories } from "./continuity/shardvault-runtime.js";
+import { runScheduledSystemBackup } from "./backup/system-backup-runtime.js";
 import { resolveApiVersionRequest, decorateApiVersionResponse, unsupportedApiVersionResponse, apiMethodNotAllowedResponse } from "./api/api-versioning.js";
 
 function deployedWatchSourceSha() {
@@ -499,6 +500,15 @@ export default {
       ? [
           runAutonomyMaintenance(env).catch((error) => {
             console.error('[MEL autonomy] hourly maintenance failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runScheduledSystemBackup(env).then((result) => {
+            if (result?.ok === false) {
+              console.error('[MEL backup] scheduled system backup reported:', result?.status || result?.code || 'NOT_OK');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL backup] scheduled system backup failed:', error?.code || error?.message || error);
             return null;
           }),
           runEcosystemCapabilityWatch(env, { sourceSha: deployedWatchSourceSha() }).catch((error) => {
