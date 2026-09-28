@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { maybeHandleConnectionSettingsApi } from '../../src/api/connection-settings-api.js';
+import { maybeHandleConnectionSettingsApi, probeYahooDirect } from '../../src/api/connection-settings-api.js';
 
 function compact(sql) {
   return String(sql).replace(/\s+/g, ' ').trim();
@@ -198,4 +198,71 @@ test('Yahoo/Ymail app password is encrypted and uses fixed IMAP/SMTP endpoints',
   assert.equal(state.username, 'owner@ymail.com');
   assert.equal(state.password_present, true);
   assert.equal(state.password, undefined);
+});
+
+test('Yahoo probe keeps IMAP 993 and falls back from SMTP 465 TLS to 587 STARTTLS', async () => {
+  const seen = [];
+  const config = {
+    imap_host: 'imap.mail.yahoo.com',
+    imap_port: 993,
+    imap_security: 'tls',
+    smtp_host: 'smtp.mail.yahoo.com',
+    smtp_port: 465,
+    smtp_security: 'tls',
+    username: 'owner@ymail.com',
+    password: 'app-password',
+  };
+  const result = await probeYahooDirect(config, {
+    imapProbe: async cfg => {
+      assert.equal(cfg.imap_port, 993);
+      return { ok: true, protocol: 'IMAP', port: 993 };
+    },
+    smtpProbe: async cfg => {
+      seen.push({ port: cfg.smtp_port, security: cfg.smtp_security });
+      if (cfg.smtp_port === 465) {
+        const error = new Error('MAIL_SOCKET_RESPONSE_INCOMPLETE');
+        error.code = 'MAIL_SOCKET_RESPONSE_INCOMPLETE';
+        throw error;
+      }
+      return { ok: true, protocol: 'SMTP', port: cfg.smtp_port };
+    },
+  });
+  assert.deepEqual(seen, [
+    { port: 465, security: 'tls' },
+    { port: 587, security: 'starttls' },
+  ]);
+  assert.equal(result.smtp_port, 587);
+  assert.equal(result.smtp_security, 'starttls');
+});
+
+test('Yahoo probe surfaces SMTP authentication rejection and does not retry another port', async () => {
+  let smtpCalls = 0;
+  const config = {
+    imap_host: 'imap.mail.yahoo.com',
+    imap_port: 993,
+    imap_security: 'tls',
+    smtp_host: 'smtp.mail.yahoo.com',
+    smtp_port: 465,
+    smtp_security: 'tls',
+    username: 'owner@ymail.com',
+    password: 'bad-password',
+  };
+  await assert.rejects(
+    () => probeYahooDirect(config, {
+      imapProbe: async () => ({ ok: true, protocol: 'IMAP' }),
+      smtpProbe: async () => {
+        smtpCalls += 1;
+        const error = new Error('SMTP_AUTH_REJECTED');
+        error.code = 'SMTP_AUTH_REJECTED';
+        error.status = 409;
+        throw error;
+      },
+    }),
+    error => {
+      assert.equal(error.code, 'YAHOO_SMTP_SMTP_AUTH_REJECTED');
+      assert.equal(error.status, 409);
+      return true;
+    },
+  );
+  assert.equal(smtpCalls, 1);
 });
