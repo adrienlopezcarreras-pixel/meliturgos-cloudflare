@@ -80,7 +80,7 @@ test('stress: any tampered control-plane state invalidates regeneration integrit
 test('stress: regeneration refuses provider-dependent or non-reconstructable code every time',async()=>{
   for(let i=0;i<80;i++){
     await assert.rejects(
-      ()=>createSovereignRegenerationBundle({
+      async()=>createSovereignRegenerationBundle({
         sourceSha:'a'.repeat(40),
         codeReconstruction:{
           data_shards:4,
