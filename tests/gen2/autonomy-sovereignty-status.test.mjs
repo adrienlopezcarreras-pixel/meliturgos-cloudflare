@@ -13,6 +13,9 @@ test('autonomy API exposes authenticated live technical sovereignty status', asy
   assert.match(source,/gap_plan:/);
   assert.match(source,/SovereigntyCandidateStore/);
   assert.match(source,/replacement_candidates:/);
+  assert.match(source,/configured_ai_readiness:/);
+  assert.match(source,/secret_values_exposed:\s*false/);
+  assert.match(source,/missing_credentials:/);
   assert.match(source,/fully_sovereign:/);
 });
 
