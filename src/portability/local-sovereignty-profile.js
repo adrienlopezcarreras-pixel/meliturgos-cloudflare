@@ -1,14 +1,14 @@
 export const LOCAL_SOVEREIGNTY_PROFILE_SCHEMA='mel.local-sovereignty-profile/v1';
 
 export const LOCAL_SOVEREIGNTY_LAYERS=Object.freeze([
-  Object.freeze({layer:'runtime',candidate_id:'local.companion.runtime',provider:'local-companion-runtime',requires:['windows-companion','source-mirror']}),
-  Object.freeze({layer:'storage',candidate_id:'local.companion.storage',provider:'local-companion-storage',requires:['windows-companion','local-filesystem']}),
-  Object.freeze({layer:'database',candidate_id:'local.companion.database',provider:'local-companion-sqlite',requires:['windows-companion','sqlite']}),
-  Object.freeze({layer:'source_control',candidate_id:'local.companion.git',provider:'local-companion-git',requires:['windows-companion','git','shardvault-source-seed']}),
-  Object.freeze({layer:'ci_cd',candidate_id:'local.companion.ci',provider:'local-companion-ci',requires:['windows-companion','node','source-mirror']}),
-  Object.freeze({layer:'secrets_identity',candidate_id:'local.companion.secrets',provider:'local-companion-secret-vault',requires:['windows-companion','encrypted-local-vault']}),
-  Object.freeze({layer:'scheduler',candidate_id:'local.companion.scheduler',provider:'local-companion-scheduler',requires:['windows-companion','local-scheduler']}),
-  Object.freeze({layer:'observability',candidate_id:'local.companion.observability',provider:'local-companion-observability',requires:['windows-companion','local-telemetry-store']}),
+  Object.freeze({layer:'runtime',candidate_id:'companion-local-runtime',provider:'local-companion-runtime',requires:['windows-companion','source-mirror']}),
+  Object.freeze({layer:'storage',candidate_id:'companion-local-storage',provider:'local-companion-storage',requires:['windows-companion','local-filesystem']}),
+  Object.freeze({layer:'database',candidate_id:'companion-local-db',provider:'local-companion-sqlite',requires:['windows-companion','sqlite']}),
+  Object.freeze({layer:'source_control',candidate_id:'companion-local-git',provider:'local-companion-git',requires:['windows-companion','git','shardvault-source-seed']}),
+  Object.freeze({layer:'ci_cd',candidate_id:'companion-local-ci',provider:'local-companion-ci',requires:['windows-companion','node','source-mirror']}),
+  Object.freeze({layer:'secrets_identity',candidate_id:'companion-local-secrets',provider:'local-companion-secret-vault',requires:['windows-companion','encrypted-local-vault']}),
+  Object.freeze({layer:'scheduler',candidate_id:'companion-local-scheduler',provider:'local-companion-scheduler',requires:['windows-companion','local-scheduler']}),
+  Object.freeze({layer:'observability',candidate_id:'companion-local-observability',provider:'local-companion-observability',requires:['windows-companion','local-telemetry-store']}),
 ]);
 
 function proofFresh(row,now){
