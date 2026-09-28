@@ -309,11 +309,13 @@ test('Pipedream Connect credentials are encrypted at rest and status never retur
   ]);
 });
 
-test('Pipedream access token exchange uses client credentials with Cloudflare-compatible redirect mode', async () => {
+test('Pipedream access token exchange matches the official SDK client-credentials contract', async () => {
   const calls = [];
   const token = await pipedreamAccessToken({
+    project_id: 'proj_demo123',
     client_id: 'client-id',
     client_secret: 'client-secret',
+    environment: 'production',
   }, {
     fetcher: async (url, init) => {
       calls.push({ url: String(url), init });
@@ -325,10 +327,13 @@ test('Pipedream access token exchange uses client credentials with Cloudflare-co
   assert.equal(calls[0].url, 'https://api.pipedream.com/v1/oauth/token');
   assert.equal(calls[0].init.method, 'POST');
   assert.equal(calls[0].init.redirect, 'manual');
-  const body = JSON.parse(String(calls[0].init.body));
-  assert.equal(body.grant_type, 'client_credentials');
-  assert.equal(body.client_id, 'client-id');
-  assert.equal(body.client_secret, 'client-secret');
+  assert.equal(calls[0].init.headers['content-type'], 'application/x-www-form-urlencoded');
+  const body = new URLSearchParams(String(calls[0].init.body));
+  assert.equal(body.get('grant_type'), 'client_credentials');
+  assert.equal(body.get('client_id'), 'client-id');
+  assert.equal(body.get('client_secret'), 'client-secret');
+  assert.equal(body.get('project_id'), 'proj_demo123');
+  assert.equal(body.get('environment'), 'production');
 });
 
 test('Pipedream real project probe checks Outlook and OneDrive component catalogs', async () => {
