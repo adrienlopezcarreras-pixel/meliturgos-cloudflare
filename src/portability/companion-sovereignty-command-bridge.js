@@ -53,7 +53,7 @@ export async function selectOnlineSovereigntyCompanion(env,{deviceId=null,now=Da
 }
 
 function sanitizeSourceControlPayload(action,payload={}){
-  const out={};
+  const out={repository:clean(payload.repository,200)||'meliturgos-cloudflare'};
   if(['read_ref','create_ref','update_ref'].includes(action))out.ref=clean(payload.ref,240);
   if(['create_ref','update_ref'].includes(action))out.sha=clean(payload.sha,80);
   if(action==='update_ref')out.force=payload.force===true;
