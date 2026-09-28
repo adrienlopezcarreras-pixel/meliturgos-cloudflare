@@ -20,4 +20,6 @@ test('real platform capability proof runs automatically after a successful canon
   assert.match(source, /cloudflare\.deployments\.read/);
   assert.match(source, /cloudflare\.deployments\.create/);
   assert.match(source, /github\.actions\.workflow\.dispatch/);
+  assert.match(source, /secrets\.MEL_GITHUB_TOKEN \|\| secrets\.GITHUB_PAT \|\| secrets\.GH_PAT \|\| secrets\.GH_TOKEN/);
+  assert.doesNotMatch(source, /secrets\.GITHUB_TOKEN/);
 });
