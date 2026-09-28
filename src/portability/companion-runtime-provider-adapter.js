@@ -34,28 +34,45 @@ export function createCompanionRuntimeProviderAdapter({
         return{ok:false,status:'UNAVAILABLE',code:error.code||error.message};
       }
     },
-    prepare:async({artifact,sourceSha})=>{
-      const result=await call('prepare',{artifact,source_sha:clean(sourceSha,80)});
-      return{ok:true,plan_id:clean(result?.plan_id,200)||'local-plan'};
-    },
-    deployCandidate:async({plan,artifact,sourceSha})=>{
-      const result=await call('deploy_candidate',{
-        plan,
+    prepare:async({artifact,source_sha})=>{
+      const result=await call('prepare',{
         artifact,
-        source_sha:clean(sourceSha,80),
+        source_sha:clean(source_sha,80),
+      });
+      return{
+        ok:true,
+        plan_id:clean(result?.plan_id,200)||'local-plan',
+        source_sha:clean(result?.source_sha,80)||clean(source_sha,80),
+      };
+    },
+    deployCandidate:async({prepared,artifact,source_sha})=>{
+      const result=await call('deploy_candidate',{
+        prepared,
+        artifact,
+        source_sha:clean(source_sha,80),
       });
       return{ok:true,candidate_id:clean(result?.candidate_id,200)};
     },
-    smoke:async({candidate})=>{
-      const result=await call('smoke',{candidate});
+    smoke:async({candidate_id,source_sha})=>{
+      const result=await call('smoke',{
+        candidate_id:clean(candidate_id,200),
+        source_sha:clean(source_sha,80),
+      });
       return{ok:result?.passed!==false,details:result?.details||null};
     },
-    promote:async({candidate})=>{
-      const result=await call('promote',{candidate});
+    promote:async({candidate_id,source_sha})=>{
+      const result=await call('promote',{
+        candidate_id:clean(candidate_id,200),
+        source_sha:clean(source_sha,80),
+      });
       return{ok:result?.promoted!==false,release_id:clean(result?.release_id,200)||null};
     },
-    rollback:async({candidate,previous})=>{
-      const result=await call('rollback',{candidate,previous});
+    rollback:async({candidate_id,source_sha,reason})=>{
+      const result=await call('rollback',{
+        candidate_id:clean(candidate_id,200),
+        source_sha:clean(source_sha,80),
+        reason:clean(reason,240),
+      });
       return{ok:result?.rolled_back!==false};
     },
   });
