@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 test('computer API exposes dedicated sovereignty command route with strict whitelist',async()=>{
   const source=await readFile(new URL('../../src/devices/computer-companion-api.js',import.meta.url),'utf8');
   assert.match(source,/sovereigntyCommand:"\/api\/computer\/v1\/sovereignty-command"/);
-  assert.match(source,/SOVEREIGNTY_LOCAL_ACTIONS=new Set/);
+  assert.match(source,/isLocalSovereigntyAction/);
   assert.match(source,/SOVEREIGNTY_ACTION_NOT_ALLOWED/);
   assert.match(source,/OWNER_HALT_ACTIVE/);
   assert.match(source,/COMPUTER_OFFLINE/);
