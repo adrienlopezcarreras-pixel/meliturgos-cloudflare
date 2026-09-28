@@ -28,7 +28,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: meliturgos-cloudflare-production
+  group: mel-launch-bootstrap-token
   cancel-in-progress: false
 
 jobs:
