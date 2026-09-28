@@ -26,7 +26,7 @@ import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alt
 import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
+const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -194,6 +194,21 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   const phase = await requestPhase(request);
   if (!phase) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_PHASE_INVALID' }, { status: 400, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'identity') {
+    const deployedSha = exactDeployedSha(env);
+    const deployedBranch = exactDeployedBranch(env);
+    const ok = /^[0-9a-f]{40}$/.test(deployedSha);
+    return Response.json({
+      ok,
+      status: ok ? 'RELEASE_IDENTITY_VERIFIED' : 'DEPLOYED_SHA_INVALID',
+      phase,
+      deployed_sha: deployedSha || null,
+      deployed_branch: deployedBranch || null,
+      autonomy_started: false,
+      owner_launch_required: true,
+    }, { status: ok ? 200 : 503, headers: { 'cache-control': 'no-store' } });
   }
 
   if (phase === 'connection-proof') {
