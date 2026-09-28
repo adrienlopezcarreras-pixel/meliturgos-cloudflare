@@ -40,6 +40,9 @@ on:
       - tests/gen2/cold-standby.test.mjs
       - src/resilience/cold-standby.js
       - src/evaluation/dependency-longevity-watch*.js
+      - tests/gen2/sovereignty-watch-runtime-wiring.test.mjs
+      - src/evaluation/sovereignty-watch-runtime.js
+      - src/evaluation/sovereignty-watch-catalog.js
       - tests/gen2/dependency-longevity-watch.test.mjs
       - tests/gen2/prevalidated-alternative-registry.test.mjs
       - src/portability/prevalidated-alternative-registry.js
@@ -68,6 +71,8 @@ jobs:
           node --check src/portability/emergency-sovereignty-failover.js
           node --check src/continuity/sovereign-regeneration-bundle.js
           node --check src/evaluation/dependency-longevity-watch.js
+          node --check src/evaluation/sovereignty-watch-catalog.js
+          node --check src/evaluation/sovereignty-watch-runtime.js
           node --check src/portability/prevalidated-alternative-registry.js
           node --check src/portability/alternative-revalidation.js
           node --check src/portability/d1-alternative-registry-store.js
@@ -80,6 +85,6 @@ jobs:
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
       - name: Sovereignty stress
-        run: node --test tests/gen2/sovereignty-stress.test.mjs tests/gen2/sovereign-regeneration-stress.test.mjs tests/gen2/prevalidated-alternative-registry.test.mjs tests/gen2/dependency-longevity-watch.test.mjs tests/gen2/d1-alternative-registry-store.test.mjs tests/gen2/alternative-revalidation.test.mjs tests/gen2/autonomy-sovereignty-status.test.mjs tests/gen2/technical-sovereignty-live.test.mjs tests/gen2/ai-alternative-prevalidator.test.mjs tests/gen2/ai-alternative-prevalidation-runtime.test.mjs tests/gen2/cold-standby.test.mjs tests/gen2/source-control-reseed.test.mjs tests/gen2/ai-low-refusal-probe.test.mjs tests/gen2/runtime-alternative-prevalidator.test.mjs tests/gen2/object-storage-adapter.test.mjs tests/gen2/database-adapter.test.mjs tests/gen2/ci-provider-adapter.test.mjs tests/gen2/secret-store-adapter.test.mjs tests/gen2/scheduler-adapter.test.mjs tests/gen2/observability-adapter.test.mjs tests/gen2/infrastructure-alternative-prevalidator.test.mjs
+        run: node --test tests/gen2/sovereignty-stress.test.mjs tests/gen2/sovereign-regeneration-stress.test.mjs tests/gen2/prevalidated-alternative-registry.test.mjs tests/gen2/dependency-longevity-watch.test.mjs tests/gen2/d1-alternative-registry-store.test.mjs tests/gen2/alternative-revalidation.test.mjs tests/gen2/autonomy-sovereignty-status.test.mjs tests/gen2/technical-sovereignty-live.test.mjs tests/gen2/ai-alternative-prevalidator.test.mjs tests/gen2/ai-alternative-prevalidation-runtime.test.mjs tests/gen2/cold-standby.test.mjs tests/gen2/source-control-reseed.test.mjs tests/gen2/ai-low-refusal-probe.test.mjs tests/gen2/runtime-alternative-prevalidator.test.mjs tests/gen2/object-storage-adapter.test.mjs tests/gen2/database-adapter.test.mjs tests/gen2/ci-provider-adapter.test.mjs tests/gen2/secret-store-adapter.test.mjs tests/gen2/scheduler-adapter.test.mjs tests/gen2/observability-adapter.test.mjs tests/gen2/infrastructure-alternative-prevalidator.test.mjs tests/gen2/sovereignty-watch-runtime-wiring.test.mjs
       - name: Existing ShardVault reconstruction stress
         run: node --test tests/shardvault-reconstruction-stress.test.mjs
