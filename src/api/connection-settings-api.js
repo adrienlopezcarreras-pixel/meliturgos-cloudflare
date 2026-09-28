@@ -415,6 +415,7 @@ const PIPEDREAM_ALLOWED_APPS = Object.freeze(new Set([
   'microsoft_outlook',
   'microsoft_onedrive',
   'sharepoint',
+  'imap',
   'lemlist',
   'google_drive',
   'google_calendar',
