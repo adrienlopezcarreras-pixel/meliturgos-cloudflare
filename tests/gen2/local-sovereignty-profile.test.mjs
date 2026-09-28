@@ -44,7 +44,7 @@ test('online companion exposes unproven layers as READY_FOR_LIVE_PROOF only',()=
 
 test('fresh local Git proof upgrades only source_control',()=>{
   const registry=createAlternativeRegistry([{
-    id:'local.companion.git',
+    id:'companion-local-git',
     layer:'source_control',
     provider:'local-companion-git',
     added_cost_eur:0,
