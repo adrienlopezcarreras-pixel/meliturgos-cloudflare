@@ -6,6 +6,7 @@ idf_component_register(
     esp_wifi
     esp_event
     esp_netif
+    lwip
     esp_http_server
     esp_http_client
     app_update
