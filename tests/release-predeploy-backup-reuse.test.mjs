@@ -12,6 +12,18 @@ test('canonical release reuses an exact verified restore proof before heavy back
   assert.match(source, /predeploy-backup-verified\.marker/);
 });
 
+test('predeploy backup binding uses a temporary D1-bound Worker and always cleans it up', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  assert.match(source, /mel-predeploy-binder-\$\{GITHUB_RUN_ID\}/);
+  assert.match(source, /scripts\/predeploy-release-binder-worker\.js/);
+  assert.match(source, /wrangler deploy --config predeploy-binder-wrangler\.jsonc/);
+  assert.match(source, /wrangler secret put PREDEPLOY_BIND_TOKEN --config predeploy-binder-wrangler\.jsonc/);
+  assert.match(source, /workers\/scripts\/\$\{BINDER_NAME\}/);
+  assert.match(source, /trap cleanup_predeploy_resources EXIT/);
+  assert.match(source, /RELEASE_BACKUP_BOUND/);
+  assert.doesNotMatch(source, /\/d1\/database\/\$\{D1_DATABASE_ID\}\/query/);
+});
+
 test('real platform capability proof runs automatically after a successful canonical release', async () => {
   const source = await readFile(new URL('../.github/workflows/activate-platform-capabilities.yml', import.meta.url), 'utf8');
   assert.match(source, /workflows: \["deploy-cloudflare-release"\]/);
