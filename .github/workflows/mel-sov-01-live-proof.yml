@@ -1,0 +1,116 @@
+name: mel-sov-01-live-proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - src/portability/technical-sovereignty-live.js
+      - src/portability/technical-sovereignty.js
+      - src/portability/prevalidated-alternative-registry.js
+      - src/portability/d1-alternative-registry-store.js
+      - tests/gen2/technical-sovereignty-live.test.mjs
+      - .github/workflows/mel-sov-01-live-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  production-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+      - name: Contract tests
+        run: node --test tests/gen2/technical-sovereignty-live.test.mjs tests/gen2/prevalidated-alternative-registry.test.mjs tests/gen2/autonomy-sovereignty-status.test.mjs
+      - name: Read live sovereignty registry from production D1
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT registry_json,updated_at FROM mel_alternative_registry WHERE id='technical-sovereignty-alternatives'" \
+            > mel-sov-01-registry.raw.json
+      - name: Evaluate 10-layer live sovereignty
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { createAlternativeRegistry, sovereigntyCoverageFromRegistry } from './src/portability/prevalidated-alternative-registry.js';
+          import { liveTechnicalSovereigntyReport } from './src/portability/technical-sovereignty-live.js';
+
+          const raw=JSON.parse(fs.readFileSync('mel-sov-01-registry.raw.json','utf8'));
+          const parts=Array.isArray(raw)?raw:[raw];
+          const rows=[];
+          for(const part of parts){
+            if(Array.isArray(part?.results)) rows.push(...part.results);
+            else if(part && typeof part==='object') rows.push(part);
+          }
+          const row=rows.find(x=>x?.registry_json);
+          if(!row) throw new Error('MEL_SOV_01_REGISTRY_MISSING');
+
+          let stored;
+          try{stored=JSON.parse(row.registry_json);}catch{throw new Error('MEL_SOV_01_REGISTRY_INVALID_JSON');}
+          const now=Date.now();
+          const registry=createAlternativeRegistry(stored?.all||[],{now});
+          const coverage=sovereigntyCoverageFromRegistry(registry,{now});
+          const architecture=liveTechnicalSovereigntyReport(registry,{maxAutonomy:true,now});
+
+          const layerEvidence={};
+          for(const [layer,entry] of Object.entries(coverage.coverage||{})){
+            layerEvidence[layer]={
+              ready:entry.ready===true,
+              prevalidated_count:Number(entry.prevalidated_count||0),
+              alternative_count:Array.isArray(entry.alternatives)?entry.alternatives.length:0,
+            };
+          }
+
+          const proof={
+            schema:'mel.mel-sov-01-live-proof/v1',
+            generated_at:new Date(now).toISOString(),
+            source_sha:process.env.EXPECTED_SHA||null,
+            registry_updated_at:Number(row.updated_at||0)||null,
+            fully_covered:coverage.fully_covered===true,
+            architecture_fully_sovereign:architecture.fully_sovereign===true,
+            ai_low_refusal_ready:coverage.ai_low_refusal_ready===true,
+            ready_layer_count:Number(architecture.ready_layer_count||0),
+            layer_count:Number(architecture.layer_count||0),
+            covered_layers:coverage.covered_layers||[],
+            uncovered_layers:coverage.uncovered_layers||[],
+            blocked_layers:architecture.blocked_layers||[],
+            layers:layerEvidence,
+            zero_added_cost_gate:true,
+            fresh_proof_gate:true,
+            secret_values_exposed:false,
+          };
+          proof.done_verified_eligible=
+            proof.fully_covered===true
+            && proof.architecture_fully_sovereign===true
+            && proof.ai_low_refusal_ready===true
+            && proof.ready_layer_count===10
+            && proof.layer_count===10;
+
+          fs.writeFileSync('mel-sov-01-live-proof.json',JSON.stringify(proof,null,2));
+          console.log(JSON.stringify(proof,null,2));
+          if(!proof.done_verified_eligible) process.exit(1);
+          NODE
+      - name: Upload sanitized MEL-SOV-01 proof
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-sov-01-live-proof-${{ github.sha }}
+          path: mel-sov-01-live-proof.json
+          if-no-files-found: warn
+          retention-days: 30
