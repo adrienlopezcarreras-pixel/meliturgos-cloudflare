@@ -11,6 +11,7 @@ import { maybeHandlePublicTeacherBridge } from "./teachers/public-teacher-api.js
 import { runAutonomyMaintenance, runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
 import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runtime.js";
 import { runDependencyLongevityWatchRuntime } from "./evaluation/dependency-longevity-watch-runtime.js";
+import { runAiAlternativePrevalidationRuntime } from "./portability/ai-alternative-prevalidation-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
@@ -510,6 +511,15 @@ export default {
             return result;
           }).catch((error) => {
             console.error('[MEL longevity] dependency watch failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runAiAlternativePrevalidationRuntime(env).then((result) => {
+            if (result?.status === 'DEGRADED') {
+              console.error('[MEL sovereignty] alternate AI prevalidation degraded.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL sovereignty] alternate AI prevalidation failed:', error?.code || error?.message || error);
             return null;
           }),
           runShardVaultCycle(env).then((result) => {
