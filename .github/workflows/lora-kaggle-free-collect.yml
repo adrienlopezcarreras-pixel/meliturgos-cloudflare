@@ -236,11 +236,11 @@ jobs:
         if: steps.status.outputs.complete == 'true'
         shell: bash
         env:
-          MELITURGOS_PASSWORD: ${{ env.MEL_PREVIEW_PASSWORD }}
           MEL_BASE_URL: "https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
           ACTIVATE_PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.activate_preview || false }}
           BUNDLE_DIR: ${{ steps.locate.outputs.dir }}
         run: |
+          export MELITURGOS_PASSWORD="$MEL_PREVIEW_PASSWORD"
           node scripts/finalize-lora.mjs             --dir "$BUNDLE_DIR"             --url "$MEL_BASE_URL"             --activate "$ACTIVATE_PREVIEW"             --allow-not-activated true | tee artifacts/finalize-result.json
 
       - name: Upload Kaggle training evidence
