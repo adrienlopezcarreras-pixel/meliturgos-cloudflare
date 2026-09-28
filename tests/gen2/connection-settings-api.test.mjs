@@ -302,6 +302,7 @@ test('Pipedream Connect credentials are encrypted at rest and status never retur
     'dropbox',
     'google_calendar',
     'google_drive',
+    'imap',
     'lemlist',
     'microsoft_onedrive',
     'microsoft_outlook',
