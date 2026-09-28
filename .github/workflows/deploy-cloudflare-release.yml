@@ -275,6 +275,23 @@ jobs:
 
           BACKUP_READY=0
 
+          # Bind a recent verified snapshot to the currently deployed SHA.
+          # This is metadata-only and lets the recovery drill accept a safe
+          # older snapshot without rebuilding the full backup.
+          BIND_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"backup-bind"}' \
+            --output predeploy-backup-bind.json \
+            --write-out '%{http_code}' \
+            "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
+          if [ "$BIND_CODE" = "200" ]; then
+            node -e 'const d=require("./predeploy-backup-bind.json");if(d?.ok!==true||d?.binding?.ok!==true||!d?.binding?.snapshot_id||!d?.binding?.binding_sha256)throw new Error("PREDEPLOY_BACKUP_BIND_INVALID");console.log("Release backup binding verified:",d.binding.snapshot_id)'
+          else
+            echo "Pre-deploy backup binding returned HTTP ${BIND_CODE}; recovery drill may still use an existing exact-SHA snapshot."
+            test ! -s predeploy-backup-bind.json || cat predeploy-backup-bind.json
+          fi
+
           # First reuse the canonical persisted recovery proof. The recovery
           # capability verifies persisted restore metadata and the backup object
           # itself without downloading/rebuilding the full production snapshot.
