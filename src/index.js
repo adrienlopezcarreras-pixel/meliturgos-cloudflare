@@ -12,7 +12,7 @@ import { runAutonomyMaintenance, runAutonomyRuntimeTick } from "./evolution/auto
 import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runtime.js";
 import { runDependencyLongevityWatchRuntime } from "./evaluation/dependency-longevity-watch-runtime.js";
 import { runSovereigntyReplacementWatchRuntime } from "./evaluation/sovereignty-watch-runtime.js";
-import { runAiAlternativePrevalidationRuntime } from "./portability/ai-alternative-prevalidation-runtime.js";
+import { runConfiguredAiCandidateValidationRuntime } from "./portability/configured-ai-candidate-validation-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
 import { runLoraTrainingHeartbeat } from "./learning/lora-training-heartbeat.js";
@@ -523,13 +523,13 @@ export default {
             console.error('[MEL sovereignty watch] replacement discovery failed:', error?.code || error?.message || error);
             return null;
           }),
-          runAiAlternativePrevalidationRuntime(env).then((result) => {
+          runConfiguredAiCandidateValidationRuntime(env).then((result) => {
             if (result?.status === 'DEGRADED') {
-              console.error('[MEL sovereignty] alternate AI prevalidation degraded.');
+              console.error('[MEL sovereignty] configured AI candidate validation blocked.');
             }
             return result;
           }).catch((error) => {
-            console.error('[MEL sovereignty] alternate AI prevalidation failed:', error?.code || error?.message || error);
+            console.error('[MEL sovereignty] configured AI candidate validation failed:', error?.code || error?.message || error);
             return null;
           }),
           runShardVaultCycle(env).then((result) => {
