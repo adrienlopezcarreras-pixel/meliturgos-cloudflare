@@ -37,7 +37,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          npx wrangler d1 execute DB --remote --json \
+          npx wrangler d1 execute meliturgos-memory --remote \
+            --command "CREATE TABLE IF NOT EXISTS mel_alternative_registry (id TEXT PRIMARY KEY, registry_json TEXT NOT NULL, updated_at INTEGER NOT NULL)"
+          npx wrangler d1 execute meliturgos-memory --remote --json \
             --command "SELECT registry_json,updated_at FROM mel_alternative_registry WHERE id='technical-sovereignty-alternatives'" \
             > mel-sov-01-registry.raw.json
       - name: Evaluate 10-layer live sovereignty
@@ -59,10 +61,10 @@ jobs:
             else if(part && typeof part==='object') rows.push(part);
           }
           const row=rows.find(x=>x?.registry_json);
-          if(!row) throw new Error('MEL_SOV_01_REGISTRY_MISSING');
-
-          let stored;
-          try{stored=JSON.parse(row.registry_json);}catch{throw new Error('MEL_SOV_01_REGISTRY_INVALID_JSON');}
+          let stored={all:[]};
+          if(row?.registry_json){
+            try{stored=JSON.parse(row.registry_json);}catch{throw new Error('MEL_SOV_01_REGISTRY_INVALID_JSON');}
+          }
           const now=Date.now();
           const registry=createAlternativeRegistry(stored?.all||[],{now});
           const coverage=sovereigntyCoverageFromRegistry(registry,{now});
@@ -81,7 +83,8 @@ jobs:
             schema:'mel.mel-sov-01-live-proof/v1',
             generated_at:new Date(now).toISOString(),
             source_sha:process.env.EXPECTED_SHA||null,
-            registry_updated_at:Number(row.updated_at||0)||null,
+            registry_present:Boolean(row?.registry_json),
+            registry_updated_at:Number(row?.updated_at||0)||null,
             fully_covered:coverage.fully_covered===true,
             architecture_fully_sovereign:architecture.fully_sovereign===true,
             ai_low_refusal_ready:coverage.ai_low_refusal_ready===true,
