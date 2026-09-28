@@ -4,6 +4,7 @@ import {
   classifyDependencyLongevity,
   runDependencyLongevityWatch,
   emergencyFailoverRequestFromLongevity,
+  emergencyFailoverRequestFromRegistry,
 } from '../../src/evaluation/dependency-longevity-watch.js';
 
 const dep={id:'runtime.primary',layer:'runtime',provider:'cloudflare-workers',criticality:'CRITICAL'};
@@ -85,4 +86,58 @@ test('breaking API change forces migration preparation',()=>{
   assert.equal(result.severity,'MIGRATION_REQUIRED');
   assert.equal(result.action,'PREPARE_AND_TEST_REPLACEMENT');
   assert.equal(result.trigger_code,'MIGRATION_DEADLINE_IMMINENT');
+});
+
+
+test('emergency registry request excludes expired and paid alternatives under zero-cost policy',()=>{
+  const registry={
+    layers:{
+      runtime:[
+        {
+          id:'runtime.free',
+          provider:'free-alt',
+          adapter_id:'runtime.free',
+          prevalidated:true,
+          added_cost_eur:0,
+          proof:{
+            verified_at:new Date(now-3600000).toISOString(),
+            expires_at:new Date(now+3600000).toISOString(),
+          },
+        },
+        {
+          id:'runtime.paid',
+          provider:'paid-alt',
+          adapter_id:'runtime.paid',
+          prevalidated:true,
+          added_cost_eur:9,
+          proof:{
+            verified_at:new Date(now-3600000).toISOString(),
+            expires_at:new Date(now+3600000).toISOString(),
+          },
+        },
+        {
+          id:'runtime.expired',
+          provider:'expired-alt',
+          adapter_id:'runtime.expired',
+          prevalidated:true,
+          added_cost_eur:0,
+          proof:{
+            verified_at:new Date(now-7200000).toISOString(),
+            expires_at:new Date(now-1).toISOString(),
+          },
+        },
+      ],
+    },
+  };
+  const result=classifyDependencyLongevity(dep,{
+    reachable:false,
+  },{now});
+  const request=emergencyFailoverRequestFromRegistry(result,{
+    registry,
+    ownerReachable:false,
+    maxAddedCostEur:0,
+    now,
+  });
+  assert.deepEqual(request.approvedAlternatives.map(x=>x.id),['runtime.free']);
+  assert.equal(request.trigger.ownerReachable,false);
 });
