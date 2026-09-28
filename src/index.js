@@ -11,6 +11,7 @@ import { maybeHandlePublicTeacherBridge } from "./teachers/public-teacher-api.js
 import { runAutonomyMaintenance, runAutonomyRuntimeTick } from "./evolution/autonomy-runtime.js";
 import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runtime.js";
 import { runDependencyLongevityWatchRuntime } from "./evaluation/dependency-longevity-watch-runtime.js";
+import { runSovereigntyReplacementWatchRuntime } from "./evaluation/sovereignty-watch-runtime.js";
 import { runAiAlternativePrevalidationRuntime } from "./portability/ai-alternative-prevalidation-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
@@ -511,6 +512,15 @@ export default {
             return result;
           }).catch((error) => {
             console.error('[MEL longevity] dependency watch failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runSovereigntyReplacementWatchRuntime(env).then((result) => {
+            if (result?.status === 'DEGRADED') {
+              console.error('[MEL sovereignty watch] replacement discovery degraded.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL sovereignty watch] replacement discovery failed:', error?.code || error?.message || error);
             return null;
           }),
           runAiAlternativePrevalidationRuntime(env).then((result) => {
