@@ -50,3 +50,12 @@ test('PowerShell engine contains verified ShardVault seed path and passes comman
   assert.match(source,/external_reconstruction_verified=\$true/);
   assert.match(source,/Perform-Step \$step \(\[string\]\$command\.id\) \(\[string\]\$command\.plan\.schema\)/);
 });
+
+
+test('shared companion executor qualifies short adapter actions before whitelist',async()=>{
+  const source=await readFile(new URL('../../src/portability/companion-sovereignty-executor.js',import.meta.url),'utf8');
+  assert.match(source,/rawAction\.startsWith\('sovereignty\.'\)/);
+  assert.match(source,/capabilityId\+'\.'\+rawAction/);
+  assert.match(source,/isLocalSovereigntyAction\(qualifiedAction\)/);
+  assert.match(source,/action:qualifiedAction/);
+});
