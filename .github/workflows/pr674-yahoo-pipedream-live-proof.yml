@@ -1,0 +1,156 @@
+name: pr674-yahoo-pipedream-live-proof
+
+on:
+  push:
+    branches:
+      - 'proof/pr674-yahoo-pipedream-live-20260928'
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Read production secret names only
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler secret list --format json > worker-secrets.raw.json
+
+      - name: Read sanitized production vault metadata
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT name FROM sqlite_master WHERE type='table' AND name='mel_oauth_tokens'" \
+            > oauth-table.raw.json
+          if grep -q 'mel_oauth_tokens' oauth-table.raw.json; then
+            npx wrangler d1 execute DB --remote --json \
+              --command "SELECT connector_id,COUNT(*) AS token_rows,MAX(updated_at) AS updated_at FROM mel_oauth_tokens WHERE connector_id IN ('pipedream-connect-config','yahoo-imap-smtp','generic-imap-smtp') GROUP BY connector_id ORDER BY connector_id" \
+              > connector-metadata.raw.json
+          else
+            printf '[]\n' > connector-metadata.raw.json
+          fi
+
+      - name: Probe live production Pipedream accounts endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE="$(curl --silent --show-error --max-time 30 \
+            --output pipedream-accounts.raw.json \
+            --write-out '%{http_code}' \
+            https://meliturgos.adrien-lopezcarreras.workers.dev/api/gen2/connections/pipedream/accounts || true)"
+          printf '%s' "$CODE" > pipedream-accounts.http-status.txt
+
+      - name: Build sanitized proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from datetime import datetime, timezone
+
+          def load(path, default):
+              try:
+                  return json.loads(Path(path).read_text(encoding='utf-8'))
+              except Exception:
+                  return default
+
+          def rows(payload):
+              out=[]
+              if isinstance(payload, dict):
+                  payload=[payload]
+              for part in payload if isinstance(payload, list) else []:
+                  if isinstance(part, dict) and isinstance(part.get('results'), list):
+                      out += [r for r in part['results'] if isinstance(r, dict)]
+              return out
+
+          raw_secrets=load('worker-secrets.raw.json', [])
+          candidates=(raw_secrets.get('secrets') or raw_secrets.get('result') or []) if isinstance(raw_secrets, dict) else raw_secrets
+          secret_names=set()
+          for item in candidates if isinstance(candidates, list) else []:
+              if isinstance(item, str):
+                  secret_names.add(item)
+              elif isinstance(item, dict):
+                  name=item.get('name') or item.get('key')
+                  if name:
+                      secret_names.add(str(name))
+
+          table_present=any(str(r.get('name') or '')=='mel_oauth_tokens' for r in rows(load('oauth-table.raw.json', [])))
+          meta={}
+          for r in rows(load('connector-metadata.raw.json', [])):
+              cid=str(r.get('connector_id') or '')
+              if cid:
+                  meta[cid]={
+                      'present': int(r.get('token_rows') or 0) > 0,
+                      'updated_at': int(r.get('updated_at') or 0) or None,
+                  }
+
+          crypto_ready=('MEL_OAUTH_ENCRYPTION_KEY_ID' in secret_names and 'MEL_OAUTH_ENCRYPTION_KEY_B64' in secret_names)
+          pipedream_config=meta.get('pipedream-connect-config',{}).get('present',False)
+          yahoo_direct=meta.get('yahoo-imap-smtp',{}).get('present',False)
+          roundcube=meta.get('generic-imap-smtp',{}).get('present',False)
+
+          http_status=Path('pipedream-accounts.http-status.txt').read_text(encoding='utf-8').strip()
+          accounts=load('pipedream-accounts.raw.json', {})
+          connected_apps=[]
+          endpoint_ok=False
+          endpoint_code=None
+          if http_status=='200' and isinstance(accounts, dict):
+              endpoint_ok=accounts.get('ok') is not False
+              connected_apps=[str(x) for x in accounts.get('connected_apps',[]) if isinstance(x,str)]
+              endpoint_code=accounts.get('code') or accounts.get('error')
+          elif isinstance(accounts, dict):
+              endpoint_code=accounts.get('code') or accounts.get('error')
+
+          imap_live=('imap' in connected_apps)
+          proof={
+              'schema':'mel.pr674.yahoo-pipedream-live-proof/v1',
+              'generated_at':datetime.now(timezone.utc).isoformat(),
+              'source_sha':None,
+              'vault_table_present':table_present,
+              'vault_crypto_ready':crypto_ready,
+              'pipedream_config_present':pipedream_config,
+              'yahoo_direct_config_present':yahoo_direct,
+              'roundcube_config_present':roundcube,
+              'pipedream_accounts_http_status':http_status,
+              'pipedream_accounts_endpoint_ok':endpoint_ok,
+              'pipedream_accounts_code':endpoint_code,
+              'connected_apps':sorted(set(connected_apps)),
+              'imap_live_connected':imap_live,
+              'fallback_config_ready':bool(table_present and crypto_ready and pipedream_config),
+              'fallback_done_verified':bool(table_present and crypto_ready and pipedream_config and endpoint_ok and imap_live),
+              'secret_values_exposed':False,
+              'token_values_exposed':False,
+              'password_values_exposed':False,
+          }
+          print(json.dumps(proof,indent=2,ensure_ascii=False))
+          Path('pr674-yahoo-pipedream-live-proof.json').write_text(json.dumps(proof,indent=2,ensure_ascii=False),encoding='utf-8')
+          PY
+
+      - name: Upload sanitized proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr674-yahoo-pipedream-live-proof
+          path: pr674-yahoo-pipedream-live-proof.json
+          if-no-files-found: error
+          retention-days: 7
