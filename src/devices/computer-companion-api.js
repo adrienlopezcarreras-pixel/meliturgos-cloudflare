@@ -1,5 +1,6 @@
 import { requireAuth } from "../core/security.js";
 import { evaluateComputerUsePlan } from "./computer-use.js";
+import { getVerifiedShardVaultCodeArchive } from "../continuity/shardvault-runtime.js";
 
 export const COMPUTER_API_BASE="/api/computer/v1";
 export const COMPUTER_ROUTES=Object.freeze({
@@ -14,7 +15,8 @@ export const COMPUTER_ROUTES=Object.freeze({
  companion:"/api/computer/v1/companion",
  companions:"/api/computer/v1/companions",
  screenshot:"/api/computer/v1/screenshot",
- power:"/api/computer/v1/power"
+ power:"/api/computer/v1/power",
+ sovereigntyArchive:"/api/computer/v1/sovereignty-code-archive"
 });
 const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome"];
 const PAIR_TTL_MS=10*60*1000;
@@ -128,6 +130,27 @@ async function ownerRevoke(request,env){const a=requireAuth(request,env);if(!a.o
 async function asset(request,env,name,{allowDevice=false}={}){const owner=requireAuth(request,env);if(!owner.ok){if(!allowDevice)return owner.response;const device=await authDevice(request,env);if(!device.ok)return device.response}if(!env?.ASSETS?.fetch)return json({ok:false,code:"ASSETS_BINDING_UNAVAILABLE"},503);const u=new URL("/"+name,request.url);const r=await env.ASSETS.fetch(new Request(u.toString(),{method:"GET"}));if(!r.ok)return json({ok:false,code:"ASSET_NOT_FOUND"},404);const h=new Headers(r.headers);h.set("content-type","text/plain; charset=utf-8");h.set("content-disposition",`attachment; filename="${name}"`);h.set("cache-control","no-store");return new Response(r.body,{status:200,headers:h})}
 
 async function screenshotView(request,env,url){const a=requireAuth(request,env);if(!a.ok)return a.response;if(!env?.MEDIA_BUCKET)return json({ok:false,code:"MEDIA_BUCKET_UNAVAILABLE"},503);const key=String(url.searchParams.get("key")||"");if(!key.startsWith("computer/screenshots/")||key.includes(".."))return json({ok:false,code:"SCREENSHOT_KEY_INVALID"},400);const o=await env.MEDIA_BUCKET.get(key);if(!o)return json({ok:false,code:"SCREENSHOT_NOT_FOUND"},404);const h=new Headers({"content-type":"image/png","cache-control":"private, max-age=30"});return new Response(o.body,{headers:h})}
+
+async function sovereigntyCodeArchive(request,env,url){
+ const a=await authDevice(request,env);if(!a.ok)return a.response;
+ if(a.device.halted)return json({ok:false,code:"OWNER_HALT_ACTIVE"},409);
+ if(String(a.device.platform||"").toLowerCase()!=="windows")return json({ok:false,code:"SOVEREIGNTY_ARCHIVE_WINDOWS_REQUIRED"},409);
+ const expected=safe(url.searchParams.get("sha"),80).toLowerCase();
+ const archive=await getVerifiedShardVaultCodeArchive(env);
+ if(!archive?.ok)return json({ok:false,code:archive?.status||"SOVEREIGNTY_ARCHIVE_UNAVAILABLE",details:{status:archive?.status||null}},503);
+ const sourceSha=String(archive.source_sha||"").toLowerCase();
+ if(expected&&expected!==sourceSha)return json({ok:false,code:"SOVEREIGNTY_ARCHIVE_SHA_MISMATCH",expected_sha:expected,source_sha:sourceSha},409);
+ const headers=new Headers({
+   "content-type":"application/gzip",
+   "content-length":String(archive.byte_length||archive.bytes?.length||0),
+   "cache-control":"no-store",
+   "x-content-type-options":"nosniff",
+   "x-mel-source-sha":sourceSha,
+   "x-mel-archive-sha256":String(archive.sha256||""),
+   "x-mel-external-reconstruction-verified":archive.external_reconstruction_verified===true?"1":"0"
+ });
+ return new Response(archive.bytes,{status:200,headers});
+}
 
 async function computerCompanions(env){
  const now=Date.now();
@@ -243,6 +266,7 @@ export async function maybeHandleComputerApi(request,env){
  if(url.pathname===COMPUTER_ROUTES.installer&&request.method==="GET")return asset(request,env,"MEL-Computer-Setup.ps1");
  if(url.pathname===COMPUTER_ROUTES.companion&&request.method==="GET")return asset(request,env,"MEL-Computer-Companion.ps1",{allowDevice:true});
  if(url.pathname===COMPUTER_ROUTES.screenshot&&request.method==="GET")return screenshotView(request,env,url);
+ if(url.pathname===COMPUTER_ROUTES.sovereigntyArchive&&request.method==="GET")return sovereigntyCodeArchive(request,env,url);
  const a=await authDevice(request,env);if(!a.ok)return a.response;
  if(url.pathname===COMPUTER_API_BASE+"/heartbeat"&&request.method==="POST")return heartbeat(request,env,a);
  if(url.pathname===COMPUTER_ROUTES.companions&&request.method==="GET")return computerCompanions(env);
