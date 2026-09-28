@@ -1,0 +1,52 @@
+name: pr674-preview-live-check
+
+on:
+  push:
+    branches:
+      - 'preview/pr674-live-check'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr674-preview-live-check
+  cancel-in-progress: true
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact preview SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Deploy isolated Cloudflare preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --env preview \
+            --define "MEL_DEPLOYED_GIT_SHA:'${GITHUB_SHA}'" \
+            --define "MEL_DEPLOYED_GIT_BRANCH:'${GITHUB_REF_NAME}'"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify preview endpoint responds
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --location --max-time 30 --output /tmp/preview-body --write-out '%{http_code}' https://meliturgos-preview.adrien-lopezcarreras.workers.dev || true)"
+          echo "preview_http_status=${code}"
+          case "${code}" in
+            2??|3??|401) exit 0 ;;
+            *) exit 1 ;;
+          esac
