@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   bindingCanonical,
+  diagnoseCandidates,
   selectVerifiedCandidate,
 } from '../release-tools/predeploy-backup-binder/worker.js';
 
@@ -65,4 +66,23 @@ test('release backup binding canonical form stays byte-for-byte compatible',()=>
     snapshot_created_at:value.snapshot_created_at,
     bound_at:value.bound_at,
   }));
+});
+
+
+test('predeploy binder diagnostics expose aggregate rejection reasons without backup contents',()=>{
+  const summary=diagnoseCandidates([
+    row({id:'stale',meta:{createdAt:'2026-09-26T10:00:00.000Z'}}),
+    row({id:'plain',meta:{encrypted:false}}),
+    row({id:'bad-restore',meta:{restoreVerified:false}}),
+  ],{nowMs:now});
+  assert.equal(summary.total_rows,3);
+  assert.equal(summary.encrypted,2);
+  assert.equal(summary.verified,3);
+  assert.equal(summary.restore_verified,2);
+  assert.equal(summary.recent,2);
+  assert.equal(summary.fully_eligible,0);
+  assert.equal(summary.max_age_ms,26*60*60*1000);
+  assert.equal(summary.newest_created_at,'2026-09-28T19:00:00.000Z');
+  assert.equal(summary.newest_age_ms,60*60*1000);
+  assert.equal('metadata_json' in summary,false);
 });
