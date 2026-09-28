@@ -672,3 +672,37 @@ test('GEN2-42 owner MAX bootstrap approves only the gated SHA then runs one cano
   assert.equal(controls[0].launch_approved_sha,sha);
   assert.equal(controls[0].launch_gate_digest,digest);
 });
+
+test('connection proof promotes only connectors that pass real live probes and keeps account details private', async () => {
+  const connectionHandler=async(request,_env,url)=>{
+    if(url.pathname.endsWith('/google/test')) return Response.json({ok:true,live_probe:true});
+    if(url.pathname.endsWith('/pipedream/test')) return Response.json({ok:true,authenticated:true});
+    if(url.pathname.endsWith('/pipedream/accounts')) return Response.json({
+      ok:true,
+      connected_apps:['microsoft_outlook','microsoft_onedrive','sharepoint','imap'],
+      accounts:[{id:'private-id',name:'private@example.test',app:'imap',healthy:true}],
+    });
+    if(url.pathname.endsWith('/vercel/test')) return Response.json({ok:true,authenticated:true,target_ready:true,deployment_count:1});
+    if(url.pathname.endsWith('/yahoo-imap/test')) return Response.json({ok:false,code:'YAHOO_IMAP_IMAP_AUTH_REJECTED'},{status:409});
+    if(url.pathname.endsWith('/roundcube/test')) return Response.json({ok:true,persistent:true});
+    return Response.json({ok:false,code:'UNEXPECTED'},{status:404});
+  };
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'connection-proof'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,MEL_DEPLOYED_GIT_SHA:'9'.repeat(40),DB:{}},
+    {connectionHandler,setControl:async()=>{throw new Error('must not touch autonomy control');}},
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.deepEqual(body.verified_roadmap_ids,['GEN2-33','GEN2-34','GEN2-35','GEN2-36','MEL-CONN-03']);
+  assert.deepEqual(body.pending_roadmap_ids,[]);
+  assert.equal(body.proof.yahoo_ymail.verified,true);
+  assert.equal(body.proof.yahoo_ymail.via,'pipedream-imap');
+  assert.equal(body.private_content_returned,false);
+  assert.equal(JSON.stringify(body).includes('private-id'),false);
+  assert.equal(JSON.stringify(body).includes('private@example.test'),false);
+});
