@@ -1002,6 +1002,51 @@ export async function verifyShardVaultCodeReconstruction(env,{dropIndexes=[]}={}
   return {...result,repository:read.id.repository,sha:read.id.sha,manifest_key:read.id.manifestKey};
 }
 
+export async function getVerifiedShardVaultCodeArchive(env){
+  const verified=await verifyShardVaultCodeReconstruction(env);
+  if(verified?.ok!==true||verified?.status!=='CODE_RECONSTRUCTION_VERIFIED'){
+    return {ok:false,status:'CODE_ARCHIVE_EXTERNAL_RECONSTRUCTION_REQUIRED',verification:verified};
+  }
+  const key=String(verified.archive_key||'').trim();
+  if(!key||!env?.MEDIA_BUCKET?.get){
+    return {ok:false,status:'CODE_ARCHIVE_LOCAL_SOURCE_UNAVAILABLE',verification:verified};
+  }
+  const object=await env.MEDIA_BUCKET.get(key);
+  if(!object)return {ok:false,status:'CODE_ARCHIVE_LOCAL_SOURCE_MISSING',archive_key:key,verification:verified};
+  const archiveBytes=new Uint8Array(await object.arrayBuffer());
+  const digest=await sha256Hex(archiveBytes);
+  if(digest!==String(verified.sha256||'').toLowerCase()){
+    return {
+      ok:false,
+      status:'CODE_ARCHIVE_LOCAL_EXTERNAL_HASH_MISMATCH',
+      archive_key:key,
+      local_sha256:digest,
+      external_sha256:verified.sha256||null,
+    };
+  }
+  if(archiveBytes.length!==Number(verified.reconstructed_bytes||archiveBytes.length)){
+    return {
+      ok:false,
+      status:'CODE_ARCHIVE_LOCAL_EXTERNAL_SIZE_MISMATCH',
+      archive_key:key,
+      local_bytes:archiveBytes.length,
+      external_bytes:Number(verified.reconstructed_bytes)||null,
+    };
+  }
+  return {
+    ok:true,
+    status:'CODE_ARCHIVE_READY_FOR_COMPANION',
+    repository:verified.repository,
+    source_sha:verified.git_sha||verified.sha,
+    sha256:digest,
+    bytes:archiveBytes,
+    byte_length:archiveBytes.length,
+    archive_key:key,
+    external_reconstruction_verified:true,
+    independent_of_local_archive:verified.independent_of_local_archive===true,
+  };
+}
+
 async function readCodeSyncState(env,id){
   if(!env?.MEDIA_BUCKET?.get)return null;
   try{
