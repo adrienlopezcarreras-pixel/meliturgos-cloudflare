@@ -10,6 +10,7 @@ import { D1AlternativeRegistryStore } from '../portability/d1-alternative-regist
 import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
 import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
 import { planSovereigntyGapClosure } from '../portability/sovereignty-gap-planner.js';
+import { SovereigntyCandidateStore } from '../portability/sovereignty-candidate-store.js';
 
 const TERMINAL = new Set(['COMPLETED', 'COMMITTED', 'CANCELLED', 'FAILED']);
 const CANONICAL_CANDIDATE_BRANCH = 'candidate/mel-clean-autonomy';
@@ -159,6 +160,28 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       registry,
       watchReport: sovereigntyWatchReport,
     });
+    const candidateStore = new SovereigntyCandidateStore(env.DB);
+    const candidateRows = await candidateStore.list({ limit: 100 });
+    const candidateSummary = {
+      total: candidateRows.length,
+      unverified: candidateRows.filter(row => row.status === 'UNVERIFIED').length,
+      testing: candidateRows.filter(row => row.status === 'TESTING').length,
+      prevalidated: candidateRows.filter(row => row.status === 'PREVALIDATED').length,
+      blocked: candidateRows.filter(row => row.status === 'BLOCKED').length,
+      rejected: candidateRows.filter(row => row.status === 'REJECTED').length,
+      top: candidateRows
+        .filter(row => row.status !== 'REJECTED')
+        .sort((a,b) => Number(b.seen_count||0)-Number(a.seen_count||0) || Number(b.last_seen_at||0)-Number(a.last_seen_at||0))
+        .slice(0,20)
+        .map(row => ({
+          layer: row.layer,
+          id: row.id,
+          provider_hint: row.provider_hint,
+          status: row.status,
+          seen_count: row.seen_count,
+          last_seen_at: row.last_seen_at,
+        })),
+    };
     return Response.json({
       ok: true,
       status: 'TECHNICAL_SOVEREIGNTY_STATUS',
@@ -173,6 +196,7 @@ export async function maybeHandleAutonomyApi(request, env, { repository = null, 
       },
       registry_count: registry.all.length,
       gap_plan: gapPlan,
+      replacement_candidates: candidateSummary,
       generated_at: new Date().toISOString(),
     }, { headers: { 'cache-control': 'no-store' } });
   }
