@@ -888,7 +888,7 @@ async function verifyFeed(master,vaultId,payload){
   return b64u(await hmac(key,utf8(stable(unsigned))))===feedMac;
 }
 
-async function loadCandidates(env,master,vaultId){
+async function loadCandidates(env,master,vaultId,{internetDiscovery=true}={}){
   const accepted=[],rejected=[];
   for(const raw of DOCUMENTED_CANDIDATES){
     try{accepted.push(normalize(raw,'builtin-documented'));}catch(error){rejected.push({source:'builtin-documented',id:raw?.id||null,reason:String(error?.message||error)});}
@@ -905,7 +905,7 @@ async function loadCandidates(env,master,vaultId){
       for(const raw of payload.candidates){try{accepted.push(normalize(raw,clean));}catch(error){rejected.push({source:clean,id:raw?.id||null,reason:String(error?.message||error)});}}
     }catch(error){rejected.push({source:String(url||'unknown'),reason:String(error?.message||error)});}
   }
-  const internet=String(env?.MEL_SHARDVAULT_INTERNET_DISCOVERY||'true')==='true'
+  const internet=internetDiscovery!==false&&String(env?.MEL_SHARDVAULT_INTERNET_DISCOVERY||'true')==='true'
     ? await discoverInternetSources(env,accepted,rejected)
     : {sources:[],leads:[]};
   const byId=new Map();for(const c of accepted)byId.set(c.id,c);
@@ -1364,9 +1364,9 @@ function choose(candidates,count,maxPerOperator,maxPerProvider){
   return selected;
 }
 
-export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requiredBytes=0,selectionCount=7,probeLimit:requestedProbeLimit=null,probeOffset=0}={}){
+export async function discoverAutonomousRepositories(env,{masterKey,vaultId,requiredBytes=0,selectionCount=7,probeLimit:requestedProbeLimit=null,probeOffset=0,internetDiscovery=true}={}){
   const master=bytes(masterKey);if(master.length<32)throw new Error('AUTONOMOUS_MASTER_KEY_INVALID');
-  const loaded=await loadCandidates(env,master,String(vaultId));
+  const loaded=await loadCandidates(env,master,String(vaultId),{internetDiscovery});
   const selectionTarget=Math.max(1,Math.min(7,Math.trunc(Number(selectionCount)||7)));
   const policyMaxAgeDays=Math.max(1,Number(env?.MEL_AUTONOMOUS_POLICY_MAX_AGE_DAYS)||180);
   const configuredProbeLimit=Math.max(selectionTarget,Math.min(50,Number(env?.MEL_AUTONOMOUS_PROBE_LIMIT)||14));

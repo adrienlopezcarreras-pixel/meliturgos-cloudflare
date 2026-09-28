@@ -268,7 +268,7 @@ jobs:
                 --header "x-mel-release-smoke: 1" \
                 --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
                 --header "content-type: application/json" \
-                --data "{\"max_new_endpoints\":1,\"probe_limit\":1,\"probe_offset\":${SHARD_OFFSET}}" \
+                --data "{\"max_new_endpoints\":1,\"probe_limit\":1,\"probe_offset\":${SHARD_OFFSET},\"known_candidates_only\":true}" \
                 --output production-shardvault-search.json \
                 --write-out '%{http_code}' \
                 "${BASE_URL}/api/gen2/shardvault/search" || true)"

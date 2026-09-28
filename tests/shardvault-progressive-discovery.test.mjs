@@ -23,3 +23,15 @@ test('bounded ShardVault activation rotates cached validated endpoints with prob
   assert.match(source, /\.slice\(validatedOffset,validatedOffset\+boundedMaxNew\)/);
   assert.doesNotMatch(source, /filter\(e=>!activeIds\.has\(e\.id\)\)\s*\.slice\(0,boundedMaxNew\)/);
 });
+
+
+test('bounded release scan can skip broad Internet discovery while normal discovery stays enabled', () => {
+  const runtime=fs.readFileSync(new URL('../src/continuity/shardvault-runtime.js',import.meta.url),'utf8');
+  const discovery=fs.readFileSync(new URL('../src/continuity/autonomous-repositories.js',import.meta.url),'utf8');
+  const page=fs.readFileSync(new URL('../src/pages/shardvault-status.js',import.meta.url),'utf8');
+  assert.match(runtime,/knownCandidatesOnly=false/);
+  assert.match(runtime,/internetDiscovery:knownCandidatesOnly!==true/);
+  assert.match(discovery,/internetDiscovery=true/);
+  assert.match(discovery,/internetDiscovery!==false/);
+  assert.match(page,/knownCandidatesOnly:body\?\.known_candidates_only===true/);
+});
