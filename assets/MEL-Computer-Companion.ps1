@@ -538,6 +538,211 @@ function Resolve-SovereigntyStorageKey([string]$namespace,[string]$key) {
   return @{ root=$root; full=$full; relative=$rel.Replace("\","/") }
 }
 
+
+$script:SovereigntyDbTransactions = @{}
+
+function Sovereignty-DatabasePath([string]$database) {
+  $name = ([string]$database).Trim()
+  if ([string]::IsNullOrWhiteSpace($name)) { $name = "mel-sovereignty" }
+  if ($name -notmatch '^[A-Za-z0-9_.-]{1,200}$') { throw "SOVEREIGNTY_DATABASE_NAME_INVALID" }
+  $root = Join-Path (Sovereignty-Root) "database"
+  [IO.Directory]::CreateDirectory($root) | Out-Null
+  $path = [IO.Path]::GetFullPath((Join-Path $root ($name + ".clixml")))
+  $base = [IO.Path]::GetFullPath($root).TrimEnd("\")
+  if (-not $path.StartsWith($base + "\",[StringComparison]::OrdinalIgnoreCase)) { throw "SOVEREIGNTY_DATABASE_OUTSIDE_SANDBOX" }
+  return $path
+}
+
+function ConvertTo-SovereigntyHashtable($value) {
+  if ($null -eq $value) { return $null }
+  if ($value -is [Collections.IDictionary]) {
+    $h = @{}
+    foreach ($k in $value.Keys) { $h[[string]$k] = ConvertTo-SovereigntyHashtable $value[$k] }
+    return $h
+  }
+  if ($value -is [Management.Automation.PSCustomObject]) {
+    $h = @{}
+    foreach ($p in $value.PSObject.Properties) { $h[$p.Name] = ConvertTo-SovereigntyHashtable $p.Value }
+    return $h
+  }
+  if (($value -is [Collections.IEnumerable]) -and -not ($value -is [string])) {
+    $arr = @()
+    foreach ($item in $value) { $arr += ,(ConvertTo-SovereigntyHashtable $item) }
+    return $arr
+  }
+  return $value
+}
+
+function New-SovereigntyDbState {
+  return @{ tables=@{} }
+}
+
+function Load-SovereigntyDbState([string]$database) {
+  $path = Sovereignty-DatabasePath $database
+  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return New-SovereigntyDbState }
+  try {
+    $state = Import-Clixml -LiteralPath $path
+    $state = ConvertTo-SovereigntyHashtable $state
+    if ($null -eq $state.tables) { $state.tables=@{} }
+    return $state
+  } catch {
+    throw "SOVEREIGNTY_DATABASE_STATE_CORRUPT"
+  }
+}
+
+function Save-SovereigntyDbState([string]$database,$state) {
+  $path = Sovereignty-DatabasePath $database
+  $tmp = $path + "." + [guid]::NewGuid().ToString("N") + ".tmp"
+  try {
+    $state | Export-Clixml -LiteralPath $tmp -Depth 20
+    Move-Item -LiteralPath $tmp -Destination $path -Force
+  } finally {
+    try { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Force } } catch {}
+  }
+}
+
+function Clone-SovereigntyDbState($state) {
+  $serialized = [Management.Automation.PSSerializer]::Serialize($state,20)
+  return ConvertTo-SovereigntyHashtable ([Management.Automation.PSSerializer]::Deserialize($serialized))
+}
+
+function Require-SovereigntyDbTx([string]$tx) {
+  $id = ([string]$tx).Trim()
+  if ($id -notmatch '^tx-[A-Fa-f0-9]{32}$') { throw "SOVEREIGNTY_DATABASE_TX_INVALID" }
+  if (-not $script:SovereigntyDbTransactions.ContainsKey($id)) { throw "SOVEREIGNTY_DATABASE_TX_NOT_FOUND" }
+  return $script:SovereigntyDbTransactions[$id]
+}
+
+function Assert-SovereigntySqlIdentifier([string]$value) {
+  $v = ([string]$value).Trim()
+  if ($v -notmatch '^[A-Za-z_][A-Za-z0-9_]{0,127}$') { throw "SOVEREIGNTY_DATABASE_IDENTIFIER_INVALID" }
+  return $v
+}
+
+function Perform-SovereigntyDatabase([string]$operation,$payload) {
+  $database = [string]$payload.database
+  switch ($operation) {
+    "health" {
+      $path = Sovereignty-DatabasePath $database
+      [void](Load-SovereigntyDbState $database)
+      return @{ action="sovereignty.database.health"; engine="local-transactional-store"; database_ready=$true; path=[IO.Path]::GetFileName($path) }
+    }
+    "begin" {
+      $state = Load-SovereigntyDbState $database
+      $tx = "tx-" + [guid]::NewGuid().ToString("N")
+      $script:SovereigntyDbTransactions[$tx] = @{ database=$database; state=(Clone-SovereigntyDbState $state) }
+      return @{ action="sovereignty.database.begin"; tx=$tx }
+    }
+    "commit" {
+      $entry = Require-SovereigntyDbTx ([string]$payload.tx)
+      Save-SovereigntyDbState ([string]$entry.database) $entry.state
+      [void]$script:SovereigntyDbTransactions.Remove([string]$payload.tx)
+      return @{ action="sovereignty.database.commit"; committed=$true }
+    }
+    "rollback" {
+      [void](Require-SovereigntyDbTx ([string]$payload.tx))
+      [void]$script:SovereigntyDbTransactions.Remove([string]$payload.tx)
+      return @{ action="sovereignty.database.rollback"; rolled_back=$true }
+    }
+    "execute" {
+      $entry = Require-SovereigntyDbTx ([string]$payload.tx)
+      $sql = ([string]$payload.sql).Trim()
+      $params = @($payload.params)
+
+      if ($sql -match '^CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)\s*\((.+)\)\s*$') {
+        $table = Assert-SovereigntySqlIdentifier $matches[1]
+        if (-not $entry.state.tables.ContainsKey($table)) {
+          $defs = @($matches[2] -split ',')
+          $columns = @()
+          foreach ($def in $defs) {
+            $name = ([string]$def).Trim().Split(' ')[0]
+            $columns += (Assert-SovereigntySqlIdentifier $name)
+          }
+          $entry.state.tables[$table] = @{ columns=$columns; rows=@() }
+        }
+        return @{ action="sovereignty.database.execute"; changes=0 }
+      }
+
+      if ($sql -match '^INSERT\s+INTO\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]+)\)\s+VALUES\s*\(([^)]+)\)\s*$') {
+        $table = Assert-SovereigntySqlIdentifier $matches[1]
+        if (-not $entry.state.tables.ContainsKey($table)) { throw "SOVEREIGNTY_DATABASE_TABLE_NOT_FOUND" }
+        $columns = @($matches[2] -split ',' | ForEach-Object { Assert-SovereigntySqlIdentifier $_.Trim() })
+        if ($columns.Count -ne $params.Count) { throw "SOVEREIGNTY_DATABASE_PARAM_COUNT_MISMATCH" }
+        $row = @{}
+        for ($i=0; $i -lt $columns.Count; $i++) { $row[$columns[$i]] = $params[$i] }
+
+        if ($row.ContainsKey("id")) {
+          foreach ($existing in @($entry.state.tables[$table].rows)) {
+            if ([string]$existing.id -eq [string]$row.id) { throw "SOVEREIGNTY_DATABASE_PRIMARY_KEY_CONFLICT" }
+          }
+        }
+        $entry.state.tables[$table].rows += ,$row
+        return @{ action="sovereignty.database.execute"; changes=1 }
+      }
+
+      throw "SOVEREIGNTY_DATABASE_SQL_NOT_SUPPORTED"
+    }
+    "query" {
+      $entry = Require-SovereigntyDbTx ([string]$payload.tx)
+      $sql = ([string]$payload.sql).Trim()
+      $params = @($payload.params)
+
+      if ($sql -notmatch '^SELECT\s+([A-Za-z0-9_,\s*]+)\s+FROM\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+WHERE\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*\?)?\s*$') {
+        throw "SOVEREIGNTY_DATABASE_QUERY_NOT_SUPPORTED"
+      }
+
+      $selected = @($matches[1] -split ',' | ForEach-Object { $_.Trim() })
+      $table = Assert-SovereigntySqlIdentifier $matches[2]
+      $whereColumn = ([string]$matches[3]).Trim()
+      if (-not $entry.state.tables.ContainsKey($table)) { return @{ action="sovereignty.database.query"; rows=@() } }
+
+      $rows = @()
+      foreach ($raw in @($entry.state.tables[$table].rows)) {
+        $row = ConvertTo-SovereigntyHashtable $raw
+        if (-not [string]::IsNullOrWhiteSpace($whereColumn)) {
+          if ($params.Count -lt 1) { throw "SOVEREIGNTY_DATABASE_PARAM_COUNT_MISMATCH" }
+          if ([string]$row[$whereColumn] -ne [string]$params[0]) { continue }
+        }
+        if ($selected.Count -eq 1 -and $selected[0] -eq "*") {
+          $rows += ,$row
+        } else {
+          $projected = @{}
+          foreach ($colRaw in $selected) {
+            $col = Assert-SovereigntySqlIdentifier $colRaw
+            $projected[$col] = $row[$col]
+          }
+          $rows += ,$projected
+        }
+      }
+      return @{ action="sovereignty.database.query"; rows=$rows }
+    }
+    "export_logical" {
+      $entry = Require-SovereigntyDbTx ([string]$payload.tx)
+      $tables = @($payload.tables)
+      $snapshot = @{ schema="mel.local-database-snapshot/v1"; tables=@{} }
+      foreach ($tableRaw in $tables) {
+        $table = Assert-SovereigntySqlIdentifier ([string]$tableRaw)
+        if ($entry.state.tables.ContainsKey($table)) {
+          $snapshot.tables[$table] = Clone-SovereigntyDbState $entry.state.tables[$table]
+        }
+      }
+      return @{ action="sovereignty.database.export_logical"; snapshot=$snapshot }
+    }
+    "import_logical" {
+      $entry = Require-SovereigntyDbTx ([string]$payload.tx)
+      $snapshot = ConvertTo-SovereigntyHashtable $payload.snapshot
+      if ([string]$snapshot.schema -ne "mel.local-database-snapshot/v1") { throw "SOVEREIGNTY_DATABASE_SNAPSHOT_INVALID" }
+      if ($null -eq $snapshot.tables) { throw "SOVEREIGNTY_DATABASE_SNAPSHOT_INVALID" }
+      foreach ($tableRaw in $snapshot.tables.Keys) {
+        $table = Assert-SovereigntySqlIdentifier ([string]$tableRaw)
+        $entry.state.tables[$table] = Clone-SovereigntyDbState $snapshot.tables[$table]
+      }
+      return @{ action="sovereignty.database.import_logical"; imported=$true }
+    }
+    default { throw "SOVEREIGNTY_DATABASE_OPERATION_NOT_SUPPORTED" }
+  }
+}
+
 function Perform-SovereigntyStorage([string]$operation,$payload) {
   $namespace = [string]$payload.namespace
   switch ($operation) {
@@ -925,6 +1130,10 @@ function Perform-Step($step, [string]$commandId, [string]$planSchema="") {
     if ($action.StartsWith("sovereignty.storage.")) {
       $op = $action.Substring("sovereignty.storage.".Length)
       return Perform-SovereigntyStorage $op $step.payload
+    }
+    if ($action.StartsWith("sovereignty.database.")) {
+      $op = $action.Substring("sovereignty.database.".Length)
+      return Perform-SovereigntyDatabase $op $step.payload
     }
     if ($action.StartsWith("sovereignty.observability.")) {
       $op = $action.Substring("sovereignty.observability.".Length)
