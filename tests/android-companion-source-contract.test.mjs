@@ -516,6 +516,12 @@ test('Android MINI mobile shell keeps settings-driven native navigation and comp
 
   assert.match(activity,/MelBleBridgeService\.miniLinkReady\.collectAsStateWithLifecycle\(\)/);
   assert.match(activity,/MelBleBridgeService\.internetReady\.collectAsStateWithLifecycle\(\)/);
+  assert.match(activity,/MelBleBridgeService\.miniPairingComplete\.collectAsStateWithLifecycle\(\)/);
+  assert.match(activity,/APPAIRAGE ENREGISTRÉ/);
+  assert.match(activity,/reconnecte automatiquement/);
+  assert.match(activity,/mini-pair-recovery-toggle/);
+  assert.match(activity,/CODE MANUEL DE SECOURS/);
+  assert.doesNotMatch(activity,/GÉNÉRER LE CODE D’APPAIRAGE/);
   assert.doesNotMatch(activity,/val bleReady = bridgeState\.contains\("MINI CONNECTÉE"\)/);
   assert.match(activity,/enum class MobileSection/);
   assert.match(activity,/MEL\("MEL"\)/);
@@ -550,6 +556,11 @@ test('Android MINI mobile shell keeps settings-driven native navigation and comp
   assert.match(bridge,/rgb565/);
   assert.match(bridge,/val miniLinkReady = MutableStateFlow\(false\)/);
   assert.match(bridge,/val internetReady = MutableStateFlow\(false\)/);
+  assert.match(bridge,/val miniPairingComplete = MutableStateFlow\(false\)/);
+  assert.match(bridge,/mini_pairing_complete/);
+  assert.match(bridge,/rememberMiniPairingComplete\(\)/);
+  assert.match(bridge,/request\.path == "\/api\/device\/v1\/pair"/);
+  assert.match(bridge,/request\.token\.isNotEmpty\(\)/);
   assert.match(bridge,/miniLinkReady\.value = enabled/);
   assert.match(bridge,/internetReady\.value = miniLinkReady\.value && status in 200\.\.299/);
   assert.match(bridge,/status in 200\.\.299/);
