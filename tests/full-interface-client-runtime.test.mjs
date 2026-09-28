@@ -108,6 +108,8 @@ test('full interface exposes encrypted Pipedream Connect bridge and roadmap app 
   assert.match(html, /id="pipedreamEnvironment"/);
   assert.match(html, /id="pipedreamSave"/);
   assert.match(html, /id="pipedreamTest"/);
+  assert.match(html, /id="pipedreamPrimaryState"/);
+  assert.match(html, /connectionApi\('pipedream','accounts'\)/);
   assert.match(html, /data-pd-connect="microsoft_outlook"/);
   assert.match(html, /data-pd-connect="microsoft_onedrive"/);
   assert.match(html, /data-pd-connect="sharepoint"/);
@@ -116,4 +118,6 @@ test('full interface exposes encrypted Pipedream Connect bridge and roadmap app 
   assert.match(html, /data-pd-connect="google_calendar"/);
   assert.match(html, /data-pd-connect="dropbox"/);
   assert.match(html, /connectionApi\('pipedream','link'\)/);
+  assert.match(html, /window\.location\.href=d\.connect_link_url/);
+  assert.match(html, /Microsoft : /);
 });
