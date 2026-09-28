@@ -1,0 +1,29 @@
+name: provider-switch-controller-ci
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - src/portability/provider-switch-controller.js
+      - tests/gen2/provider-switch-controller.test.mjs
+      - .github/workflows/provider-switch-controller-ci.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node --check src/portability/provider-switch-controller.js
+      - run: node --test tests/gen2/provider-switch-controller.test.mjs
+      - run: node scripts/runtime-security-gate.mjs
