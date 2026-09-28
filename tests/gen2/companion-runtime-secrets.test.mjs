@@ -55,7 +55,7 @@ test('companion secret vault rejects any provider response leaking a secret valu
   const adapter=createCompanionSecretStoreAdapter({execute:secretExec({leak:true})});
   const proof=await proveSecretStoreAdapter(adapter);
   assert.equal(proof.ok,false);
-  assert.equal(proof.status,'SECRET_STORE_REF_WRITE_FAILED');
+  assert.equal(proof.status,'SECRET_STORE_SECRET_LEAK_BLOCKED');
 });
 
 test('offline companion fails closed for runtime and secrets',async()=>{
