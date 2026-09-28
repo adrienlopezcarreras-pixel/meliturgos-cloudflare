@@ -33,3 +33,14 @@ test('live sovereignty report still refuses full sovereignty when capabilities t
   assert.ok(report.blocked_layers.some(row=>row.id==='runtime'));
   assert.ok(report.blocked_layers.some(row=>row.id==='secrets_identity'));
 });
+
+
+test('fresh zero-cost proof can satisfy live capability gaps without mutating static inventory',()=>{
+  const rows=[
+    ['ai','a'],['runtime','r'],['storage','s'],['database','d'],['source_control','g'],
+    ['ci_cd','c'],['secrets_identity','i'],['scheduler','q'],['observability','o'],['backup_restore','b'],
+  ].map(([layer,id])=>({id:'alt.'+id,layer,provider:'p.'+id,adapter_id:'adapter.'+id,added_cost_eur:0,proof}));
+  const report=liveTechnicalSovereigntyReport(createAlternativeRegistry(rows),{maxAutonomy:true,now});
+  assert.equal(report.fully_sovereign,true);
+  assert.equal(report.ready_layer_count,10);
+});
