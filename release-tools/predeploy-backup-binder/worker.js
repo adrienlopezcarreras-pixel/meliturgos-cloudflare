@@ -1,7 +1,7 @@
 const SHA40=/^[a-f0-9]{40}$/i;
 const SHA64=/^[a-f0-9]{64}$/i;
 const SYSTEM_BACKUP_PREFIX='backups/system/';
-const MAX_AGE_MS=26*60*60*1000;
+const MAX_AGE_MS=48*60*60*1000;
 
 function parseMetadata(raw){
   try{return raw?JSON.parse(raw):{};}catch{return {};}
