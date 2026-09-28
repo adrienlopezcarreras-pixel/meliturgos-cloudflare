@@ -22,6 +22,12 @@
   "ai": {
     "binding": "AI"
   },
+  "services": [
+    {
+      "binding": "MEL_BROWSER_COMPANION",
+      "service": "mel-browser-companion"
+    }
+  ],
   "r2_buckets": [
     {
       "binding": "MEDIA_BUCKET",
