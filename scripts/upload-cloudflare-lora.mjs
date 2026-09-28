@@ -31,7 +31,7 @@ async function uploadAsset({ accountId, token, finetuneId, dir, filename }) {
   form.append('file_name', filename);
   form.append('file', new Blob([bytes]), filename);
   await cfJson(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/finetunes/${encodeURIComponent(finetuneId)}/finetune-assets/`,
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/finetunes/${encodeURIComponent(finetuneId)}/finetune-assets`,
     {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
