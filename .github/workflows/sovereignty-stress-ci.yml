@@ -7,6 +7,8 @@ on:
       - main
     paths:
       - src/portability/**
+      - tests/gen2/runtime-alternative-prevalidator.test.mjs
+      - src/portability/runtime-alternative-prevalidator.js
       - tests/gen2/ai-low-refusal-probe.test.mjs
       - src/portability/ai-low-refusal-probe.js
       - tests/gen2/source-control-reseed.test.mjs
@@ -64,6 +66,6 @@ jobs:
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
       - name: Sovereignty stress
-        run: node --test tests/gen2/sovereignty-stress.test.mjs tests/gen2/sovereign-regeneration-stress.test.mjs tests/gen2/prevalidated-alternative-registry.test.mjs tests/gen2/dependency-longevity-watch.test.mjs tests/gen2/d1-alternative-registry-store.test.mjs tests/gen2/alternative-revalidation.test.mjs tests/gen2/autonomy-sovereignty-status.test.mjs tests/gen2/technical-sovereignty-live.test.mjs tests/gen2/ai-alternative-prevalidator.test.mjs tests/gen2/ai-alternative-prevalidation-runtime.test.mjs tests/gen2/cold-standby.test.mjs tests/gen2/source-control-reseed.test.mjs tests/gen2/ai-low-refusal-probe.test.mjs
+        run: node --test tests/gen2/sovereignty-stress.test.mjs tests/gen2/sovereign-regeneration-stress.test.mjs tests/gen2/prevalidated-alternative-registry.test.mjs tests/gen2/dependency-longevity-watch.test.mjs tests/gen2/d1-alternative-registry-store.test.mjs tests/gen2/alternative-revalidation.test.mjs tests/gen2/autonomy-sovereignty-status.test.mjs tests/gen2/technical-sovereignty-live.test.mjs tests/gen2/ai-alternative-prevalidator.test.mjs tests/gen2/ai-alternative-prevalidation-runtime.test.mjs tests/gen2/cold-standby.test.mjs tests/gen2/source-control-reseed.test.mjs tests/gen2/ai-low-refusal-probe.test.mjs tests/gen2/runtime-alternative-prevalidator.test.mjs
       - name: Existing ShardVault reconstruction stress
         run: node --test tests/shardvault-reconstruction-stress.test.mjs
