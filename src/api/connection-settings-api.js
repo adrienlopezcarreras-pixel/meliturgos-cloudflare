@@ -414,6 +414,7 @@ const PIPEDREAM_CONFIG_ID = 'pipedream-connect-config';
 const PIPEDREAM_ALLOWED_APPS = Object.freeze(new Set([
   'microsoft_outlook',
   'microsoft_onedrive',
+  'sharepoint',
   'lemlist',
   'google_drive',
   'google_calendar',
