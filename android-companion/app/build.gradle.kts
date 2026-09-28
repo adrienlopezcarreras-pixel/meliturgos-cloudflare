@@ -1,3 +1,4 @@
+// CI contract sync: Android 0.6.48 truthful MINI link
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
