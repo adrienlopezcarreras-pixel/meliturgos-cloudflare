@@ -521,8 +521,9 @@ static void mini_apply_requested_view(void) {
         if (settings_status) {
             char ip[32] = {};
             esp_wifi_port_get_ip(ip);
-            lv_label_set_text_fmt(settings_status, "Wi-Fi: %s  |  MEL: %s",
+            lv_label_set_text_fmt(settings_status, "Wi-Fi: %s\nMobile: %s\nMEL: %s",
                                   wifi_got_ip ? (ip[0] ? ip : "OK") : "OFF",
+                                  mel_terminal_mobile_connected() ? "CONNECTE" : "OFF",
                                   mel_terminal_online() ? "EN LIGNE" : "HORS LIGNE");
         }
         return;
@@ -599,8 +600,9 @@ static void settings_refresh_status(void) {
     char ip[32] = {};
     esp_wifi_port_get_ip(ip);
     lv_label_set_text_fmt(settings_status,
-                          "Wi-Fi: %s\nMEL: %s\nAudio: %s  Camera: %s",
+                          "Wi-Fi: %s\nMobile: %s\nMEL: %s\nAudio: %s  Camera: %s",
                           wifi_got_ip ? (ip[0] ? ip : "OK") : "OFF",
+                          mel_terminal_mobile_connected() ? "CONNECTE" : "OFF",
                           mel_terminal_online() ? "EN LIGNE" : "HORS LIGNE",
                           audio_ok ? "OK" : "NON",
                           camera_ok ? "OK" : "NON");
