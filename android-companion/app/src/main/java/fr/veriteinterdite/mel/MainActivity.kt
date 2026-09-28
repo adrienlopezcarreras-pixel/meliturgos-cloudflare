@@ -2622,7 +2622,8 @@ private fun CompanionPanel(
     onMiniPairCode: (String, String) -> Unit
 ) {
     val bridgeState by MelBleBridgeService.bridgeState.collectAsStateWithLifecycle()
-    val bleReady = bridgeState.contains("MINI CONNECTÉE") || bridgeState.contains("INTERNET OK")
+    val bleReady by MelBleBridgeService.miniLinkReady.collectAsStateWithLifecycle()
+    val internetReady by MelBleBridgeService.internetReady.collectAsStateWithLifecycle()
     var miniPairUser by rememberSaveable { mutableStateOf("adrien") }
     var miniPairSecret by rememberSaveable { mutableStateOf("") }
 
@@ -2667,13 +2668,13 @@ private fun CompanionPanel(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Internet de la MINI", color = MelInk, fontWeight = FontWeight.Bold)
                 Text(
-                    if (bridgeState.contains("INTERNET OK", ignoreCase = true))
+                    if (internetReady)
                         "Relais Internet actif"
                     else if (bleReady)
                         "MINI connectée · activation Internet automatique"
                     else
                         "Le relais Internet s’active automatiquement dès que la MINI se connecte.",
-                    color = if (bridgeState.contains("INTERNET OK", ignoreCase = true)) MelSuccess else MelMuted,
+                    color = if (internetReady) MelSuccess else MelMuted,
                     fontSize = 12.sp
                 )
                 OutlinedTextField(
