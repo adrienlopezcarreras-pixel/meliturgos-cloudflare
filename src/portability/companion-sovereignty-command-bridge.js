@@ -4,7 +4,7 @@ const DEFAULT_WAIT_MS=10*1000;
 const POLL_MS=350;
 
 const ALLOWED=Object.freeze({
-  'source_control':new Set(['health','read_ref','read_file','write_file','create_ref','update_ref','compare_refs']),
+  'source_control':new Set(['seed','health','read_ref','read_file','write_file','create_ref','update_ref','compare_refs']),
 });
 
 function clean(v,max=500){return String(v||'').trim().slice(0,max);}
@@ -54,6 +54,9 @@ export async function selectOnlineSovereigntyCompanion(env,{deviceId=null,now=Da
 
 function sanitizeSourceControlPayload(action,payload={}){
   const out={repository:clean(payload.repository,200)||'meliturgos-cloudflare'};
+  if(action==='seed'){
+    out.expected_sha=clean(payload.expected_sha,80).toLowerCase();
+  }
   if(['read_ref','create_ref','update_ref'].includes(action))out.ref=clean(payload.ref,240);
   if(['create_ref','update_ref'].includes(action))out.sha=clean(payload.sha,80);
   if(action==='update_ref')out.force=payload.force===true;
