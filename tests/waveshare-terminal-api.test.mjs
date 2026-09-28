@@ -119,6 +119,16 @@ test('device TTS uses self-describing 48 kHz mono linear16 WAV for MINI playback
 });
 
 
+test('MINI prefers Wi-Fi for large STT uploads and uses MEL Mobile only as fallback', async () => {
+  const source = await readFile(
+    new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url),
+    'utf8'
+  );
+  assert.match(source,/if \(!g_wifi_connected && mel_mobile_bridge_ready\(\)\) \{/);
+  assert.match(source,/Wi-Fi HTTP failed .*falling back to MEL MOBILE/);
+  assert.doesNotMatch(source,/if \(mel_mobile_bridge_ready\(\)\) \{\s*return mobile_request\(\);\s*\}/);
+});
+
 test('MINI firmware validates the WAV contract before writing to ES8311', async () => {
   const source = await readFile(
     new URL('../firmware/waveshare-terminal/main/mel_terminal.cpp', import.meta.url),
