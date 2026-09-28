@@ -673,6 +673,33 @@ test('GEN2-42 owner MAX bootstrap approves only the gated SHA then runs one cano
   assert.equal(controls[0].launch_gate_digest,digest);
 });
 
+test('release identity phase returns exact deployed SHA without touching autonomy or providers', async () => {
+  const sha='4'.repeat(40);
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'identity'}),
+    }),
+    {
+      MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,
+      MEL_DEPLOYED_GIT_SHA:sha,
+      MEL_DEPLOYED_GIT_BRANCH:'release/mel-hardware-v0.1.0',
+    },
+    {
+      setControl:async()=>{throw new Error('identity must not touch autonomy control');},
+      connectionHandler:async()=>{throw new Error('identity must not touch providers');},
+    },
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.status,'RELEASE_IDENTITY_VERIFIED');
+  assert.equal(body.deployed_sha,sha);
+  assert.equal(body.deployed_branch,'release/mel-hardware-v0.1.0');
+  assert.equal(body.autonomy_started,false);
+});
+
 test('connection proof promotes only connectors that pass real live probes and keeps account details private', async () => {
   const connectionHandler=async(request,_env,url)=>{
     if(url.pathname.endsWith('/google/test')) return Response.json({ok:true,live_probe:true});
