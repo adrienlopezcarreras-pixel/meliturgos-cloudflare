@@ -4,12 +4,13 @@ import fs from 'node:fs/promises';
 
 const ONE_MINUTE_CRON = '* * * * *';
 const HOURLY_MAINTENANCE_CRON = '17 * * * *';
+const DAILY_BACKUP_CRON = '43 2 * * *';
 
 test('production autonomy heartbeat is scheduled every minute while preview cron stays disabled', async () => {
   const raw = await fs.readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
   const config = JSON.parse(raw);
 
-  assert.deepEqual(config?.triggers?.crons, [ONE_MINUTE_CRON, HOURLY_MAINTENANCE_CRON]);
+  assert.deepEqual(config?.triggers?.crons, [ONE_MINUTE_CRON, HOURLY_MAINTENANCE_CRON, DAILY_BACKUP_CRON]);
   assert.deepEqual(config?.env?.preview?.triggers?.crons, []);
 });
 

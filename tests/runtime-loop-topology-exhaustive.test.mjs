@@ -21,7 +21,8 @@ test('runtime has one canonical scheduler topology with maintenance separated fr
   ]);
 
   const cfg = JSON.parse(wrangler);
-  assert.deepEqual(cfg.triggers.crons, ['* * * * *', '17 * * * *']);
+  assert.deepEqual(cfg.triggers.crons, ['* * * * *', '17 * * * *', '43 2 * * *']);
+  assert.deepEqual(cfg?.env?.preview?.triggers?.crons, []);
 
   assert.equal((index.match(/runAutonomyRuntimeTick\(env\)/g) || []).length, 1);
   assert.equal((index.match(/runAutonomyMaintenance\(env\)/g) || []).length, 1);
@@ -37,7 +38,10 @@ test('runtime has one canonical scheduler topology with maintenance separated fr
   }
 
   assert.equal((professor.match(/app\.scheduled\(/g) || []).length, 1);
-  assert.match(professor, /if \(String\(controller\?\.cron \|\| ''\) !== '17 \* \* \* \*'\) return/);
+  assert.match(professor, /if \(cron === '43 2 \* \* \*'\)/);
+  assert.match(professor, /runScheduledSystemBackup\(env, \{ now \}\)/);
+  assert.match(professor, /if \(cron !== '17 \* \* \* \*'\) return/);
+  assert.doesNotMatch(professor, /hourly maintenance snapshot skipped/);
   assert.doesNotMatch(professor, /runAutonomyRuntimeTick\(/);
   assert.doesNotMatch(professor, /runEcosystemCapabilityWatch\(/);
 

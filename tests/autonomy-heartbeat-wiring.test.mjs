@@ -14,13 +14,12 @@ test('deployed worker exposes the canonical persistent autonomy heartbeat', asyn
   const wrangler = JSON.parse(await text('wrangler.jsonc'));
 
   assert.equal(wrangler.main, 'src/visual-final-entry.js');
-  assert.deepEqual(wrangler.triggers?.crons, [AUTONOMY_RUNTIME_CRON, '17 * * * *']);
+  assert.deepEqual(wrangler.triggers?.crons, [AUTONOMY_RUNTIME_CRON, '17 * * * *', '43 2 * * *']);
   assert.deepEqual(wrangler.env?.preview?.triggers?.crons, [], 'preview must not run a second heartbeat');
 
   const delegationChain = [
     'src/visual-final-entry.js',
     'src/preview-auth-entry.js',
-    'src/professor-live-learning-entry.js',
     'src/ui-entry.js',
     'src/learning-entry.js',
   ];
@@ -29,6 +28,12 @@ test('deployed worker exposes the canonical persistent autonomy heartbeat', asyn
     const source = await text(path);
     assert.match(source, /scheduled\s*\([^)]*\)\s*\{[^}]*app\.scheduled\s*\(/s, `${path} must delegate scheduled events`);
   }
+
+  const professor = await text('src/professor-live-learning-entry.js');
+  assert.equal((professor.match(/app\.scheduled\(/g) || []).length, 1, 'Professor wrapper must delegate non-backup scheduled events exactly once');
+  assert.match(professor, /if \(cron === '43 2 \* \* \*'\)/, 'daily backup cron must stay isolated from autonomy maintenance');
+  assert.match(professor, /runScheduledSystemBackup\(env, \{ now \}\)/, 'daily backup cron must execute the canonical backup runtime');
+  assert.match(professor, /if \(cron !== '17 \* \* \* \*'\) return/, 'hourly Professor maintenance must remain distinct from backup cron');
 
   const finalVisual = await text('src/visual-final-entry.js');
   assert.match(finalVisual, /import\s+app\s+from\s+["']\.\/preview-auth-entry\.js["']/, 'final visual entrypoint must delegate to preview-auth-entry.js');

@@ -213,6 +213,20 @@ test('GEN2-47 is wired to the canonical scheduled entry and roadmap source', asy
 });
 
 
+test('GEN2-47 production backup runs on an isolated daily cron with bounded release grace', async () => {
+  const [entry, wrangler, binder] = await Promise.all([
+    readFile(new URL('../src/professor-live-learning-entry.js', import.meta.url), 'utf8'),
+    readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8'),
+    readFile(new URL('../release-tools/predeploy-backup-binder/worker.js', import.meta.url), 'utf8'),
+  ]);
+  assert.match(entry, /cron === '43 2 \* \* \*'/);
+  assert.match(entry, /dedicated daily snapshot/);
+  assert.doesNotMatch(entry, /hourly maintenance snapshot skipped/);
+  assert.match(wrangler, /"43 2 \* \* \*"/);
+  assert.match(wrangler, /"MEL_RELEASE_BACKUP_MAX_AGE_MS": "172800000"/);
+  assert.match(binder, /const MAX_AGE_MS=48\*60\*60\*1000;/);
+});
+
 test('GEN2-47 forced scheduled backup ignores a current snapshot for a new release SHA', async () => {
   let creates=0;
   const service={

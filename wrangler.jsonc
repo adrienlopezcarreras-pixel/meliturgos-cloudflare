@@ -16,7 +16,8 @@
   "triggers": {
     "crons": [
       "* * * * *",
-      "17 * * * *"
+      "17 * * * *",
+      "43 2 * * *"
     ]
   },
   "ai": {
@@ -67,6 +68,7 @@
     "MEL_SHARDVAULT_ROADMAP_PAUSED": "false",
     "MEL_SHARDVAULT_INTERVAL_HOURS": "24",
     "MEL_SHARDVAULT_EXPORT_LIMIT": "10000",
+    "MEL_RELEASE_BACKUP_MAX_AGE_MS": "172800000",
     "MEL_WATCH_MAX_PER_OPERATOR": "2",
     "MEL_WATCH_MAX_PER_PROVIDER": "2",
     "MEL_SHARDVAULT_AUTONOMOUS": "false",
