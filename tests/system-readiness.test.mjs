@@ -141,8 +141,10 @@ test('production deploy requires explicit approval and exact canonical release i
   assert.match(workflow, /DEPLOY_APPROVED/);
   assert.match(workflow, /EXPECTED_SHA/);
   assert.match(workflow, /RELEASE_BRANCH/);
-  assert.match(workflow, /git fetch origin main --depth=1/);
-  assert.ok(workflow.includes('test "$SOURCE_SHA" = "$EXPECTED_SHA"'));
+  assert.match(workflow, /git fetch origin main/);
+  assert.match(workflow, /git merge-base --is-ancestor "\$EXPECTED_SHA" "\$SOURCE_SHA"/);
+  assert.match(workflow, /git rev-list --count "\$EXPECTED_SHA\.\.\$SOURCE_SHA"/);
+  assert.match(workflow, /test "\$MAIN_ADVANCE_COUNT" -le 25/);
   assert.match(workflow, /MEL_DEPLOYED_GIT_SHA/);
   assert.match(workflow, /MEL_DEPLOYED_GIT_BRANCH/);
   assert.match(workflow, /--define/);
