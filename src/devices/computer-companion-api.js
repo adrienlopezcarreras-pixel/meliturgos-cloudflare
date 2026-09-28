@@ -1,6 +1,7 @@
 import { requireAuth } from "../core/security.js";
 import { evaluateComputerUsePlan } from "./computer-use.js";
 import { getVerifiedShardVaultCodeArchive } from "../continuity/shardvault-runtime.js";
+import { isLocalSovereigntyAction } from "../portability/local-sovereignty-actions.js";
 
 export const COMPUTER_API_BASE="/api/computer/v1";
 export const COMPUTER_ROUTES=Object.freeze({
@@ -23,58 +24,7 @@ const DEFAULT_APPS=["notepad","calculator","explorer","msedge","firefox","chrome
 const PAIR_TTL_MS=10*60*1000;
 const MINI_ONLINE_MS=60*1000;
 const ANDROID_ONLINE_MS=35*60*1000;
-const SOVEREIGNTY_LOCAL_ACTIONS=new Set([
-  "sovereignty.source_control.health",
-  "sovereignty.source_control.read_ref",
-  "sovereignty.source_control.read_file",
-  "sovereignty.source_control.create_ref",
-  "sovereignty.source_control.update_ref",
-  "sovereignty.source_control.compare_refs",
-  "sovereignty.source_control.write_file",
-  "sovereignty.ci.health",
-  "sovereignty.ci.dispatch",
-  "sovereignty.ci.get_run",
-  "sovereignty.ci.get_artifacts",
-  "sovereignty.ci.cancel_run",
-  "sovereignty.scheduler.health",
-  "sovereignty.scheduler.create",
-  "sovereignty.scheduler.list",
-  "sovereignty.scheduler.pause",
-  "sovereignty.scheduler.resume",
-  "sovereignty.scheduler.trigger_now",
-  "sovereignty.scheduler.delete",
-  "sovereignty.observability.health",
-  "sovereignty.observability.emit_log",
-  "sovereignty.observability.emit_metric",
-  "sovereignty.observability.query_logs",
-  "sovereignty.observability.query_metrics",
-  "sovereignty.observability.delete_test_data",
-  "sovereignty.storage.health",
-  "sovereignty.storage.put",
-  "sovereignty.storage.get",
-  "sovereignty.storage.list",
-  "sovereignty.storage.delete",
-  "sovereignty.database.health",
-  "sovereignty.database.begin",
-  "sovereignty.database.commit",
-  "sovereignty.database.rollback",
-  "sovereignty.database.execute",
-  "sovereignty.database.query",
-  "sovereignty.database.export_logical",
-  "sovereignty.database.import_logical",
-  "sovereignty.runtime.health",
-  "sovereignty.runtime.prepare",
-  "sovereignty.runtime.deploy_candidate",
-  "sovereignty.runtime.smoke",
-  "sovereignty.runtime.promote",
-  "sovereignty.runtime.rollback",
-  "sovereignty.secrets.health",
-  "sovereignty.secrets.put_ref",
-  "sovereignty.secrets.get_ref",
-  "sovereignty.secrets.list_refs",
-  "sovereignty.secrets.rotate_ref",
-  "sovereignty.secrets.delete_ref"
-]);
+
 
 function json(v,s=200,h={}){return Response.json(v,{status:s,headers:{"cache-control":"no-store",...h}})}
 function safe(v,n=200){return typeof v==="string"?v.trim().slice(0,n):""}
@@ -167,7 +117,7 @@ async function ownerSovereigntyCommand(request,env){
  const action=safe(b.action,160);
  const payload=b.payload&&typeof b.payload==="object"?b.payload:{};
  if(!id)return json({ok:false,code:"COMPUTER_ID_REQUIRED"},400);
- if(!SOVEREIGNTY_LOCAL_ACTIONS.has(action))return json({ok:false,code:"SOVEREIGNTY_ACTION_NOT_ALLOWED"},403);
+ if(!isLocalSovereigntyAction(action))return json({ok:false,code:"SOVEREIGNTY_ACTION_NOT_ALLOWED"},403);
  const row=await env.DB.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(id).first();
  const device=normalizeDevice(row);
  if(!device)return json({ok:false,code:"COMPUTER_NOT_FOUND"},404);
