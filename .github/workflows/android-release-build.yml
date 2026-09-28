@@ -9,8 +9,6 @@ on:
         type: boolean
         default: false
   push:
-    branches:
-      - "release/mel-hardware-v0.1.0"
     tags:
       - "android-v*"
 
