@@ -29,33 +29,53 @@ function metadataOnly(value){
 
 export async function proveSecretStoreAdapter(adapter){
   if(!(adapter instanceof SecretStoreAdapter))throw Object.assign(new TypeError('SECRET_STORE_ADAPTER_REQUIRED'),{code:'SECRET_STORE_ADAPTER_REQUIRED'});
-  const health=await adapter.health();
+  let health;
+  try{
+    health=await adapter.health();
+  }catch(error){
+    return{ok:false,status:'SECRET_STORE_HEALTH_FAILED',code:error?.code||error?.message||'SECRET_STORE_HEALTH_FAILED'};
+  }
   if(health?.ok===false)return{ok:false,status:'SECRET_STORE_HEALTH_FAILED',health};
 
   const ref='MEL_TEST_SECRET_'+crypto.randomUUID().replaceAll('-','').slice(0,12).toUpperCase();
   const meta={purpose:'sovereignty-proof',scope:'test',rotation:'ephemeral'};
+  let created=false;
 
-  const written=await adapter.putRef({ref,metadata:meta});
-  if(written?.ok!==true||!metadataOnly(written))return{ok:false,status:'SECRET_STORE_REF_WRITE_FAILED'};
+  try{
+    const written=await adapter.putRef({ref,metadata:meta});
+    if(written?.ok!==true||!metadataOnly(written))return{ok:false,status:'SECRET_STORE_REF_WRITE_FAILED'};
+    created=true;
 
-  const read=await adapter.getRef({ref});
-  if(read?.ok!==true||!metadataOnly(read))return{ok:false,status:'SECRET_STORE_REF_READ_FAILED'};
+    const read=await adapter.getRef({ref});
+    if(read?.ok!==true||!metadataOnly(read))return{ok:false,status:'SECRET_STORE_REF_READ_FAILED'};
 
-  const listed=await adapter.listRefs({prefix:'MEL_TEST_SECRET_'});
-  if(listed?.ok!==true||!Array.isArray(listed.refs)||!listed.refs.some(row=>row?.ref===ref)||!metadataOnly(listed)){
-    return{ok:false,status:'SECRET_STORE_LIST_FAILED'};
+    const listed=await adapter.listRefs({prefix:'MEL_TEST_SECRET_'});
+    if(listed?.ok!==true||!Array.isArray(listed.refs)||!listed.refs.some(row=>row?.ref===ref)||!metadataOnly(listed)){
+      return{ok:false,status:'SECRET_STORE_LIST_FAILED'};
+    }
+
+    const rotated=await adapter.rotateRef({ref,reason:'sovereignty-proof'});
+    if(rotated?.ok!==true||!metadataOnly(rotated))return{ok:false,status:'SECRET_STORE_ROTATE_FAILED'};
+
+    const deleted=await adapter.deleteRef({ref});
+    if(deleted?.ok!==true)return{ok:false,status:'SECRET_STORE_DELETE_FAILED'};
+    created=false;
+
+    return{
+      ok:true,status:'SECRET_STORE_ADAPTER_VERIFIED',
+      provider:adapter.provider,adapter_id:adapter.id,
+      metadata_only:true,plaintext_secret_export:false,
+      write_ref:true,read_ref:true,list_refs:true,rotate:true,delete:true,
+    };
+  }catch(error){
+    return{
+      ok:false,
+      status:error?.code==='COMPANION_SECRET_VALUE_LEAK'?'SECRET_STORE_SECRET_LEAK_BLOCKED':'SECRET_STORE_PROOF_EXCEPTION',
+      code:error?.code||error?.message||'SECRET_STORE_PROOF_EXCEPTION',
+    };
+  }finally{
+    if(created){
+      try{await adapter.deleteRef({ref});}catch{}
+    }
   }
-
-  const rotated=await adapter.rotateRef({ref,reason:'sovereignty-proof'});
-  if(rotated?.ok!==true||!metadataOnly(rotated))return{ok:false,status:'SECRET_STORE_ROTATE_FAILED'};
-
-  const deleted=await adapter.deleteRef({ref});
-  if(deleted?.ok!==true)return{ok:false,status:'SECRET_STORE_DELETE_FAILED'};
-
-  return{
-    ok:true,status:'SECRET_STORE_ADAPTER_VERIFIED',
-    provider:adapter.provider,adapter_id:adapter.id,
-    metadata_only:true,plaintext_secret_export:false,
-    write_ref:true,read_ref:true,list_refs:true,rotate:true,delete:true,
-  };
 }
