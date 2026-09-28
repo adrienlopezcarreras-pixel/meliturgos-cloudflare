@@ -13,6 +13,7 @@ import { runEcosystemCapabilityWatch } from "./evaluation/capability-watch-runti
 import { runDependencyLongevityWatchRuntime } from "./evaluation/dependency-longevity-watch-runtime.js";
 import { runSovereigntyReplacementWatchRuntime } from "./evaluation/sovereignty-watch-runtime.js";
 import { runConfiguredAiCandidateValidationRuntime } from "./portability/configured-ai-candidate-validation-runtime.js";
+import { runCompanionSourceControlPrevalidationRuntime } from "./portability/companion-source-control-prevalidation-runtime.js";
 import { runCompanionGitSovereigntyRuntime } from "./portability/companion-git-sovereignty-runtime.js";
 import { maybeHandleAutonomyApi } from "./evolution/autonomy-api.js";
 import { maybeHandleReleaseLaunchBootstrap } from "./evolution/release-launch-bootstrap.js";
@@ -531,6 +532,15 @@ export default {
             return result;
           }).catch((error) => {
             console.error('[MEL sovereignty] configured AI candidate validation failed:', error?.code || error?.message || error);
+            return null;
+          }),
+          runCompanionSourceControlPrevalidationRuntime(env).then((result) => {
+            if (result?.status === 'BLOCKED') {
+              console.error('[MEL sovereignty] local Git prevalidation blocked.');
+            }
+            return result;
+          }).catch((error) => {
+            console.error('[MEL sovereignty] local Git prevalidation failed:', error?.code || error?.message || error);
             return null;
           }),
           runCompanionGitSovereigntyRuntime(env).then((result) => {
