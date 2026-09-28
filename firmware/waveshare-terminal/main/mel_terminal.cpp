@@ -2376,16 +2376,26 @@ void mel_terminal_set_wifi_connected(bool connected) {
 void mel_terminal_set_mobile_connected(bool connected) {
     g_mobile_connected = connected;
     if (connected) {
-        if (!g_wifi_connected) ui_status(g_online ? "MEL MOBILE" : "MOBILE CONNECTE");
+        // Mobile BLE is an independent transport signal. Show it even when the
+        // ESP32 still has a Wi-Fi association, because Wi-Fi association alone
+        // does not prove that MEL has usable Internet.
+        ui_status(g_online ? "MEL MOBILE CONNECTE" : "MOBILE CONNECTE");
         if (g_online && g_runtime_state == MEL_TERMINAL_IDLE && !g_wake_sync_task_handle) {
             xTaskCreatePinnedToCore(mobile_companion_sync_task, "mel_mobile_sync", 6144, nullptr, 3, &g_wake_sync_task_handle, 0);
         }
         return;
     }
+
     if (!g_wifi_connected) {
         g_online = false;
         ui_status("HORS LIGNE");
+    } else {
+        ui_status(g_online ? "" : "WI-FI CONNECTE");
     }
+}
+
+bool mel_terminal_mobile_connected(void) {
+    return g_mobile_connected && mel_mobile_bridge_ready();
 }
 
 static bool apply_wake_profile_json(const std::string &raw, const char *source, bool persist) {
@@ -2566,7 +2576,7 @@ static void online_runtime_task(void *) {
     }
 
     g_online = true;
-    ui_status("");
+    ui_status(mel_terminal_mobile_connected() ? "MEL MOBILE CONNECTE" : "");
     ui_answer("");
     sync_wake_phrase_profile();
     if (!g_heartbeat_task_handle) {
