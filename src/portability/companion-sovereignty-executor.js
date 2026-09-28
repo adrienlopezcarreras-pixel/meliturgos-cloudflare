@@ -41,10 +41,15 @@ export function createCompanionSovereigntyExecutor(env,{
   if(!env?.DB)throw Object.assign(new Error('COMPANION_SOVEREIGNTY_DB_REQUIRED'),{code:'COMPANION_SOVEREIGNTY_DB_REQUIRED'});
 
   return async function execute({capability,action,repository=null,namespace=null,database=null,service=null,payload={}}={}){
-    if(!String(capability||'').startsWith('sovereignty.')){
+    const capabilityId=String(capability||'').trim();
+    if(!capabilityId.startsWith('sovereignty.')){
       return{ok:false,code:'SOVEREIGNTY_CAPABILITY_REQUIRED'};
     }
-    if(!isLocalSovereigntyAction(action)){
+    const rawAction=String(action||'').trim();
+    const qualifiedAction=rawAction.startsWith('sovereignty.')
+      ? rawAction
+      : capabilityId+'.'+rawAction;
+    if(!isLocalSovereigntyAction(qualifiedAction)){
       return{ok:false,code:'SOVEREIGNTY_ACTION_NOT_ALLOWED'};
     }
 
@@ -69,7 +74,7 @@ export function createCompanionSovereigntyExecutor(env,{
       schema:'mel.sovereignty.local-command/v1',
       owner_authorized:true,
       internal_executor:true,
-      steps:[{id:'sovereignty-1',action:String(action),payload:stepPayload}],
+      steps:[{id:'sovereignty-1',action:qualifiedAction,payload:stepPayload}],
     };
 
     await env.DB.prepare(`INSERT INTO computer_commands(
