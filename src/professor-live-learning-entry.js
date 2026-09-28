@@ -10,6 +10,7 @@ const FREE_LORA_HF_REPO = 'Meliturgos/mel-lora-uncensored';
 const FREE_LORA_GITHUB_REPO = 'adrienlopezcarreras-pixel/meliturgos-cloudflare';
 const FREE_LORA_WORKFLOW = 'lora-promote-from-huggingface.yml';
 const FREE_LORA_TRAINING_WORKFLOW = 'lora-kaggle-free-gpu.yml';
+const FREE_LORA_COLLECTOR_WORKFLOW = 'lora-kaggle-free-collect.yml';
 const FREE_LORA_REQUIRED_FILES = Object.freeze([
   'adapter_model.safetensors',
   'adapter_config.json',
@@ -102,7 +103,7 @@ async function freeLoraStatusResponse(request, env) {
   async function latestWorkflowRun(workflowName) {
     try {
       const response = await fetch(
-        `https://api.github.com/repos/${FREE_LORA_GITHUB_REPO}/actions/workflows/${workflowName}/runs?branch=candidate%2Fmel-clean-autonomy&per_page=1`,
+        `https://api.github.com/repos/${FREE_LORA_GITHUB_REPO}/actions/workflows/${workflowName}/runs?per_page=10`,
         { headers: githubHeaders },
       );
       if (!response.ok) return null;
@@ -124,9 +125,10 @@ async function freeLoraStatusResponse(request, env) {
     }
   }
 
-  const [workflow, trainingWorkflow] = await Promise.all([
+  const [workflow, trainingWorkflow, collectorWorkflow] = await Promise.all([
     latestWorkflowRun(FREE_LORA_WORKFLOW),
     latestWorkflowRun(FREE_LORA_TRAINING_WORKFLOW),
+    latestWorkflowRun(FREE_LORA_COLLECTOR_WORKFLOW),
   ]);
 
   let checkpoint = null;
@@ -216,6 +218,8 @@ async function freeLoraStatusResponse(request, env) {
     workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_WORKFLOW}`,
     training_workflow: trainingWorkflow || { status: 'NEVER_RUN', conclusion: null },
     training_workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_TRAINING_WORKFLOW}`,
+    collector_workflow: collectorWorkflow || { status: 'NEVER_RUN', conclusion: null },
+    collector_workflow_url: `https://github.com/${FREE_LORA_GITHUB_REPO}/actions/workflows/${FREE_LORA_COLLECTOR_WORKFLOW}`,
     kaggle_url: 'https://www.kaggle.com/code/adrienlopezcarreras/mel-lora-uncensored-notebook-t4',
     checkpoint,
     learning,
