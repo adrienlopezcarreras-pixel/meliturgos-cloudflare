@@ -177,8 +177,25 @@ object MelVoicePlayer {
         return durationMs
     }
 
+    private fun isLikelyMp3(bytes: ByteArray): Boolean {
+        if (bytes.size < 4) return false
+        if (bytes[0] == 'I'.code.toByte() &&
+            bytes[1] == 'D'.code.toByte() &&
+            bytes[2] == '3'.code.toByte()
+        ) return true
+
+        val last = minOf(bytes.size - 1, 4096)
+        for (i in 0 until last) {
+            val b0 = bytes[i].toInt() and 0xff
+            val b1 = bytes[i + 1].toInt() and 0xff
+            if (b0 == 0xff && (b1 and 0xe0) == 0xe0 && (b1 and 0x06) != 0) return true
+        }
+        return false
+    }
+
     fun playMp3(context: Context, bytes: ByteArray): Long {
         require(bytes.isNotEmpty()) { "TTS_AUDIO_EMPTY" }
+        require(isLikelyMp3(bytes)) { "TTS_AUDIO_FORMAT_INVALID" }
         val startedAt = System.currentTimeMillis()
         val file = File.createTempFile("mel-voice-", ".mp3", context.cacheDir)
         file.writeBytes(bytes)

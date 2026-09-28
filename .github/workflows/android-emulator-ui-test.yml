@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - candidate/mel-clean-autonomy
+      - main
     paths:
       - "android-companion/**"
       - ".github/workflows/android-emulator-ui-test.yml"
