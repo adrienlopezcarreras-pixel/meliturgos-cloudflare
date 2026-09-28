@@ -38,7 +38,7 @@ test('full interface keeps capabilities while avoiding eager heavy hidden-panel 
 });
 
 
-test('full interface exposes persistent connection controls for Gmail Yahoo Microsoft and Roundcube', async () => {
+test('full interface exposes persistent connection controls for Gmail Yahoo IMAP Microsoft and Roundcube', async () => {
   const response = await onRequestGet();
   const html = await response.text();
   assert.match(html, /data-view="connections"/);
@@ -53,7 +53,11 @@ test('full interface exposes persistent connection controls for Gmail Yahoo Micr
   assert.match(html, /id="outlookConnect"/);
   assert.match(html, /id="oneDriveConnect"/);
   assert.match(html, /id="sharePointConnect"/);
-  assert.match(html, /id="yahooConnect"/);
+  assert.match(html, /id="yahooUsername"/);
+  assert.match(html, /id="yahooAppPassword"/);
+  assert.match(html, /id="yahooSave"/);
+  assert.match(html, /imap\.mail\.yahoo\.com/);
+  assert.match(html, /smtp\.mail\.yahoo\.com/);
   assert.match(html, /roundcubeSave/);
   assert.match(html, /roundcubeTest/);
   assert.match(html, /CONNECTÉ DURABLEMENT/);
