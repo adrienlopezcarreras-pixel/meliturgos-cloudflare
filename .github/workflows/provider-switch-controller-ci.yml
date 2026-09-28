@@ -10,10 +10,12 @@ on:
       - src/portability/technical-sovereignty-inventory.js
       - src/augmentio/http-chat-adapter.js
       - src/augmentio/default-pool.js
+      - src/portability/source-control-adapter.js
       - tests/gen2/provider-switch-controller.test.mjs
       - tests/gen2/technical-sovereignty.test.mjs
       - tests/gen2/technical-sovereignty-inventory.test.mjs
       - tests/augmentio-http-chat-adapter.test.mjs
+      - tests/gen2/source-control-adapter.test.mjs
       - .github/workflows/provider-switch-controller-ci.yml
   workflow_dispatch:
 
@@ -34,5 +36,6 @@ jobs:
       - run: node --check src/portability/provider-switch-controller.js
       - run: node --check src/portability/technical-sovereignty.js
       - run: node --check src/augmentio/http-chat-adapter.js
-      - run: node --test tests/gen2/provider-switch-controller.test.mjs tests/gen2/technical-sovereignty.test.mjs tests/gen2/technical-sovereignty-inventory.test.mjs tests/augmentio-http-chat-adapter.test.mjs
+      - run: node --check src/portability/source-control-adapter.js
+      - run: node --test tests/gen2/provider-switch-controller.test.mjs tests/gen2/technical-sovereignty.test.mjs tests/gen2/technical-sovereignty-inventory.test.mjs tests/augmentio-http-chat-adapter.test.mjs tests/gen2/source-control-adapter.test.mjs
       - run: node scripts/runtime-security-gate.mjs
