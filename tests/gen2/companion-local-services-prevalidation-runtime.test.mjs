@@ -10,11 +10,11 @@ test('local service sovereignty runtime covers scheduler observability and secre
   );
 });
 
-test('MEL scheduled maintenance runs local service sovereignty proofs',async()=>{
+test('MEL scheduled maintenance delegates local service sovereignty proofs to the unified infrastructure authority',async()=>{
   const source=await readFile(new URL('../../src/index.js',import.meta.url),'utf8');
-  assert.match(source,/runCompanionLocalServicesPrevalidationRuntime/);
   const scheduled=source.slice(source.indexOf('async scheduled'));
-  assert.match(scheduled,/runCompanionLocalServicesPrevalidationRuntime\(env\)/);
+  assert.match(scheduled,/runCompanionInfrastructurePrevalidationRuntime\(env\)/);
+  assert.doesNotMatch(scheduled,/runCompanionLocalServicesPrevalidationRuntime\(env\)/);
 });
 
 test('Windows companion implements sandboxed scheduler observability and DPAPI refs',async()=>{
