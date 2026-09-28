@@ -88,7 +88,7 @@ test('tampering any regeneration state invalidates the bundle',async()=>{
 
 test('provider-dependent code reconstruction cannot be certified sovereign',async()=>{
   await assert.rejects(
-    ()=>createSovereignRegenerationBundle({
+    async()=>createSovereignRegenerationBundle({
       sourceSha:'a'.repeat(40),
       codeReconstruction:{
         data_shards:4,total_shards:7,reconstructable:true,independent_of_primary_provider:false,
