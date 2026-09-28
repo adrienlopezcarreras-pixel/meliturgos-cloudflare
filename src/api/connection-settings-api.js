@@ -579,6 +579,7 @@ async function createPipedreamUserToken(stored, contextOwner, requestUrl, signal
     },
     body: JSON.stringify({
       external_user_id: contextOwner,
+      external_id: contextOwner,
       allowed_origins: [requestUrl.origin],
       success_redirect_uri: success.toString(),
       error_redirect_uri: failure.toString(),
@@ -645,12 +646,13 @@ async function pipedreamAccounts(env, contextOwner, requestUrl, signal) {
     error.status = 409;
     throw error;
   }
-  const { connectToken, environment } = await createPipedreamUserToken(stored, contextOwner, requestUrl, signal);
+  const environment = stored.environment === 'development' ? 'development' : 'production';
+  const accessToken = await pipedreamAccessToken(stored, { signal });
   const params = new URLSearchParams({ external_user_id: contextOwner, limit: '100' });
   const body = await pipedreamJson(fetch, 'https://api.pipedream.com/v1/connect/' + encodeURIComponent(stored.project_id) + '/accounts?' + params.toString(), {
     method: 'GET',
     headers: {
-      authorization: 'Bearer ' + connectToken,
+      authorization: 'Bearer ' + accessToken,
       accept: 'application/json',
       'x-pd-environment': environment,
     },
