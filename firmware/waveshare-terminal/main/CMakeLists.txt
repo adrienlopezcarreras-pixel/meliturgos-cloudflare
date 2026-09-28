@@ -1,5 +1,5 @@
 idf_component_register(
-  SRCS "main.cpp" "mel_terminal.cpp"
+  SRCS "main.cpp" "mel_terminal.cpp" "mel_avatar_mode_complet.c"
   INCLUDE_DIRS "."
   REQUIRES
     nvs_flash
