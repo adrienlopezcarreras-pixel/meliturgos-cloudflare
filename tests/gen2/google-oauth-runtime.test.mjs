@@ -269,3 +269,27 @@ test('Google browser callback returns to the persistent connections interface', 
   assert.equal(response.status, 303);
   assert.equal(response.headers.get('location'), '/professor?view=connections&oauth=connected&connector=gmail');
 });
+
+test('Google OAuth API derives public origin from the live HTTPS request when Worker origin env is absent', async () => {
+  const request = new Request('https://meliturgos.example/api/gen2/oauth/google/gmail/begin', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ full_access: true }),
+  });
+  const response = await maybeHandleGoogleOAuthApi(request, {
+    MELITURGOS_USER: 'adrien',
+    GOOGLE_OAUTH_CLIENT_ID: 'google-client-id',
+    GOOGLE_OAUTH_CLIENT_SECRET: 'google-client-secret',
+  }, new URL(request.url), {
+    vaults: memoryVaults(),
+    fetcher: async () => { throw new Error('not called'); },
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  const authorization = new URL(body.authorization_url);
+  assert.equal(
+    authorization.searchParams.get('redirect_uri'),
+    'https://meliturgos.example/api/gen2/oauth/google/gmail/callback',
+  );
+});

@@ -44,6 +44,15 @@ async function bodyObject(request) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function withRequestPublicOrigin(env = {}, url) {
+  const base = { ...env };
+  if (!String(base.MEL_PUBLIC_ORIGIN || '').trim() && !String(base.MAIL_OAUTH_REDIRECT_ORIGIN || '').trim()) {
+    const origin = String(url?.origin || '').trim();
+    if (origin.startsWith('https://')) base.MEL_PUBLIC_ORIGIN = origin;
+  }
+  return base;
+}
+
 export async function maybeHandleMailOAuthApi(request, env = {}, url = new URL(request.url), options = {}) {
   const match = url.pathname.match(/^\/api\/gen2\/oauth\/(microsoft|yahoo)\/([^/]+)\/(status|begin|callback|refresh)$/);
   if (!match) return null;
@@ -57,7 +66,8 @@ export async function maybeHandleMailOAuthApi(request, env = {}, url = new URL(r
 
   try {
     const contextOwner = owner(env);
-    const runtimeEnv = options.runtime ? env : await resolveConnectionOAuthEnv(env, providerId, contextOwner);
+    const resolvedEnv = options.runtime ? env : await resolveConnectionOAuthEnv(env, providerId, contextOwner);
+    const runtimeEnv = options.runtime ? resolvedEnv : withRequestPublicOrigin(resolvedEnv, url);
     const runtime = options.runtime || createMailOAuthRuntime({
       providerId,
       env: runtimeEnv,
