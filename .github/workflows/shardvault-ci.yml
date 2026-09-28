@@ -19,6 +19,10 @@ on:
       - 'fix/shardvault-*'
     paths:
       - 'src/continuity/shardvault-runtime.js'
+      - 'src/continuity/shardvault-memory-export.js'
+      - 'src/continuity/sovereign-regeneration-bundle.js'
+      - 'src/portability/system-bundle.js'
+      - 'tests/gen2/sovereign-regeneration-bundle.test.mjs'
       - 'src/continuity/autonomous-repositories.js'
       - 'shardvault/**'
       - 'tests/shardvault-*.test.mjs'
