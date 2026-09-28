@@ -274,17 +274,55 @@ jobs:
           node -e 'const d=require("./predeploy-pause.json");if(d?.ok!==true||d?.status!=="RELEASE_PAUSED")throw new Error("PREDEPLOY_PAUSE_FAILED")'
 
           BACKUP_READY=0
-          for ATTEMPT in $(seq 1 3); do
-            CODE="$(curl --silent --show-error --max-time 180 \
-              --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
-              --header "content-type: application/json" \
-              --data '{"phase":"backup"}' \
-              --output predeploy-backup.json \
-              --write-out '%{http_code}' \
-              "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
-            if [ "$CODE" = "200" ]; then BACKUP_READY=1; break; fi
-            sleep 5
-          done
+
+          # Prefer the already persisted restore proof from the currently
+          # deployed production SHA. This is read-only and avoids rebuilding a
+          # full system backup when a verified rollback snapshot already exists.
+          READINESS_CODE="$(curl --silent --show-error --max-time 60 \
+            --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
+            --header "content-type: application/json" \
+            --data '{"phase":"readiness"}' \
+            --output predeploy-readiness.json \
+            --write-out '%{http_code}' \
+            "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
+          if [ "$READINESS_CODE" = "200" ] || [ "$READINESS_CODE" = "409" ]; then
+            if node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('predeploy-readiness.json','utf8'));
+          const r=d?.readiness?.restore||{};
+          const candidate=String(d?.readiness?.candidate_sha||'').toLowerCase();
+          const deployed=String(r?.deployed_sha||'').toLowerCase();
+          const backup=String(r?.backup_deployed_sha||'').toLowerCase();
+          if(!/^[0-9a-f]{40}$/.test(candidate)) process.exit(1);
+          if(r?.ok!==true || r?.sha_matches!==true || !r?.snapshot_id) process.exit(1);
+          if(deployed!==candidate || backup!==candidate) process.exit(1);
+          fs.writeFileSync('predeploy-backup.json',JSON.stringify({
+            ok:true,
+            status:'REUSED_EXISTING_VERIFIED_RESTORE_PROOF',
+            backup:{ok:true,status:r.status||'VERIFIED_RESTORE_PROOF',id:r.snapshot_id,deployed_sha:candidate,sha_matches:true}
+          },null,2));
+          NODE
+            then
+              BACKUP_READY=1
+              echo "Reusing existing verified rollback snapshot from production readiness."
+            fi
+          fi
+
+          if [ "$BACKUP_READY" != "1" ]; then
+            for ATTEMPT in $(seq 1 2); do
+              CODE="$(curl --silent --show-error --max-time 180 \
+                --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
+                --header "content-type: application/json" \
+                --data '{"phase":"backup"}' \
+                --output predeploy-backup.json \
+                --write-out '%{http_code}' \
+                "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
+              echo "Pre-deploy backup attempt ${ATTEMPT}/2 returned HTTP ${CODE}."
+              if [ "$CODE" = "200" ]; then BACKUP_READY=1; break; fi
+              test ! -s predeploy-backup.json || cat predeploy-backup.json
+              sleep 5
+            done
+          fi
           test "$BACKUP_READY" = "1"
           node -e 'const d=require("./predeploy-backup.json");if(d?.ok!==true||d?.backup?.ok!==true)throw new Error("PREDEPLOY_VERIFIED_BACKUP_REQUIRED");console.log("Verified pre-deploy backup ready:",d.backup.status,d.backup.id||"reused")'
           touch predeploy-backup-verified.marker
