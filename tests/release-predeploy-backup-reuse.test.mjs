@@ -14,8 +14,9 @@ test('canonical release reuses an exact verified restore proof before heavy back
 
 test('real platform capability proof runs automatically after a successful canonical release', async () => {
   const source = await readFile(new URL('../.github/workflows/activate-platform-capabilities.yml', import.meta.url), 'utf8');
+  assert.match(source, /workflows: \["deploy-cloudflare-release"\]/);
   assert.match(source, /github\.event\.workflow_run\.conclusion == 'success'/);
-  assert.match(source, /github\.event\.workflow_run\.head_branch == 'release\/mel-hardware-v0\.1\.0'/);
+  assert.doesNotMatch(source, /github\.event\.workflow_run\.head_branch == 'release\/mel-hardware-v0\.1\.0'/);
   assert.match(source, /cloudflare\.workers\.read/);
   assert.match(source, /cloudflare\.deployments\.read/);
   assert.match(source, /cloudflare\.deployments\.create/);
