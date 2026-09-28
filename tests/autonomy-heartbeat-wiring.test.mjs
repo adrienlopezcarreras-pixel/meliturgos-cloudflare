@@ -31,9 +31,9 @@ test('deployed worker exposes the canonical persistent autonomy heartbeat', asyn
 
   const professor = await text('src/professor-live-learning-entry.js');
   assert.equal((professor.match(/app\.scheduled\(/g) || []).length, 1, 'Professor wrapper must delegate non-backup scheduled events exactly once');
-  assert.match(professor, /if \(cron === '43 2 \\* \\* \\*'\)/, 'daily backup cron must stay isolated from autonomy maintenance');
+  assert.match(professor, /if \(cron === '43 2 \* \* \*'\)/, 'daily backup cron must stay isolated from autonomy maintenance');
   assert.match(professor, /runScheduledSystemBackup\(env, \{ now \}\)/, 'daily backup cron must execute the canonical backup runtime');
-  assert.match(professor, /if \(cron !== '17 \\* \\* \\* \\*'\) return/, 'hourly Professor maintenance must remain distinct from backup cron');
+  assert.match(professor, /if \(cron !== '17 \* \* \* \*'\) return/, 'hourly Professor maintenance must remain distinct from backup cron');
 
   const finalVisual = await text('src/visual-final-entry.js');
   assert.match(finalVisual, /import\s+app\s+from\s+["']\.\/preview-auth-entry\.js["']/, 'final visual entrypoint must delegate to preview-auth-entry.js');
