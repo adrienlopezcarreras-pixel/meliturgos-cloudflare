@@ -98,6 +98,8 @@ test('OAuth app credentials are encrypted at rest and never returned by status',
   const state = await status.json();
   assert.equal(state.app_configured, true);
   assert.equal(state.connectors.gmail.authorized, false);
+  assert.equal(state.connectors['google-calendar'].authorized, false);
+  assert.equal(state.connectors['google-tasks'].authorized, false);
 });
 
 test('Roundcube IMAP/SMTP password is encrypted and status returns only non-secret metadata', async () => {

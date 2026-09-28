@@ -1,0 +1,112 @@
+name: live-connections-production-proof
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["deploy-cloudflare-release"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  production-proof:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact lockfile
+        run: npm ci
+
+      - name: Prove live production connections
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          EXPECTED_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+          TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${TOKEN}"
+
+          cleanup() {
+            set +e
+            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/live-connections-secret-delete.log 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          printf '%s' "${TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+
+          probe() {
+            local name="$1"
+            local path="$2"
+            local body="$3"
+            local out="/tmp/${name}.json"
+            local code
+            code="$(curl --silent --show-error --max-time 45               --header "x-mel-release-smoke: 1"               --header "x-mel-launch-bootstrap: ${TOKEN}"               --header "content-type: application/json"               --data "${body}"               --output "${out}"               --write-out '%{http_code}'               "${BASE_URL}${path}" || true)"
+            if [ "${code}" != "200" ]; then
+              node -e 'const fs=require("fs");let d={};try{d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))}catch{};console.log(process.argv[2]+": "+JSON.stringify({ok:false,http:Number(process.argv[3]),code:d?.code||d?.error||"UNKNOWN"}))' "${out}" "${name}" "${code}"
+              return 1
+            fi
+            node -e 'const fs=require("fs");const d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));if(d?.ok!==true)process.exit(2);console.log(process.argv[2]+": "+JSON.stringify({ok:true,provider:d?.provider||null,connector_id:d?.connector_id||null,live_probe:d?.live_probe===true,persistent:d?.persistent===true,authenticated:d?.authenticated===true,project_found:d?.project_found===true,project_count:Number(d?.project_count||0),deployment_count:Number(d?.deployment_count||0)}))' "${out}" "${name}"
+          }
+
+          # Bound retry only for temporary bootstrap-secret propagation.
+          READY=0
+          for attempt in $(seq 1 12); do
+            if probe google_gmail /api/gen2/connections/google/test '{"connector_id":"gmail"}'; then
+              READY=1
+              break
+            fi
+            sleep 2
+          done
+          test "${READY}" = "1"
+
+          probe google_calendar /api/gen2/connections/google/test '{"connector_id":"google-calendar"}'
+          probe google_tasks /api/gen2/connections/google/test '{"connector_id":"google-tasks"}'
+
+          probe microsoft_mail /api/gen2/connections/microsoft/test '{"connector_id":"microsoft-mail"}'
+          probe microsoft_onedrive /api/gen2/connections/microsoft/test '{"connector_id":"microsoft-onedrive"}'
+          probe microsoft_sharepoint /api/gen2/connections/microsoft/test '{"connector_id":"microsoft-sharepoint"}'
+
+          YAHOO_OK=0
+          if probe yahoo_oauth /api/gen2/connections/yahoo/test '{"connector_id":"yahoo-mail"}'; then
+            YAHOO_OK=1
+          elif probe yahoo_imap /api/gen2/connections/yahoo-imap/test '{}'; then
+            YAHOO_OK=1
+          fi
+          test "${YAHOO_OK}" = "1"
+
+          probe roundcube /api/gen2/connections/roundcube/test '{}'
+          probe vercel /api/gen2/connections/vercel/test '{}'
+
+          node - <<'NODE'
+          const fs=require('fs');
+          const proof={
+            schema:'mel.live-connections-production-proof/v1',
+            source_sha:process.env.EXPECTED_SHA || null,
+            google:{gmail:true,calendar:true,tasks:true},
+            microsoft:{outlook:true,onedrive:true,sharepoint:true},
+            mail:{yahoo_or_ymail:true,roundcube_imap_smtp:true},
+            vercel:{authenticated_target_probe:true},
+            secret_values_exposed:false,
+            mutation_scope:'temporary_release_smoke_secret_only'
+          };
+          fs.writeFileSync('live-connections-proof.json',JSON.stringify(proof,null,2));
+          console.log(JSON.stringify(proof,null,2));
+          NODE
+      - name: Upload sanitized live proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: live-connections-production-proof-${{ github.event.workflow_run.head_sha || github.sha }}
+          path: live-connections-proof.json
+          if-no-files-found: error
+          retention-days: 14
