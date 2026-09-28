@@ -20,9 +20,10 @@ import { createProviderEscapeCapsule, providerEscapeSummary, validateProviderEsc
 import { boundRecentMessages, compileHistoricalDecisionCapsule, buildContext } from '../core/orchestrator/context-builder.js';
 import { proveEcosystemTeacherHandoff } from '../evaluation/capability-watch-runtime.js';
 import { runAutonomyRuntimeTick } from './autonomy-runtime.js';
+import { maybeHandleConnectionSettingsApi } from '../api/connection-settings-api.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
-const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
+const PHASES = new Set(['all', 'pause', 'backup', 'code-sync', 'readiness', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
 
 function exactDeployedSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim().toLowerCase();
@@ -66,6 +67,101 @@ function equalToken(expected, supplied) {
   const length = Math.max(a.length, b.length);
   for (let i = 0; i < length; i += 1) diff |= (a[i % Math.max(1, a.length)] || 0) ^ (b[i % Math.max(1, b.length)] || 0);
   return a.length >= 32 && a.length === b.length && diff === 0;
+}
+
+async function runInternalConnectionCall(connectionHandler, env, provider, action, { method = 'GET', body = null } = {}) {
+  const url = new URL('https://mel.internal/api/gen2/connections/' + provider + '/' + action);
+  const headers = body == null ? {} : { 'content-type': 'application/json' };
+  const request = new Request(url.toString(), {
+    method,
+    headers,
+    body: body == null ? undefined : JSON.stringify(body),
+  });
+  try {
+    const response = await connectionHandler(request, env, url);
+    if (!response) return { ok: false, http_status: 404, code: 'CONNECTION_PROOF_ROUTE_MISSING', body: {} };
+    const payload = await response.clone().json().catch(() => ({}));
+    return {
+      ok: response.ok && payload?.ok !== false,
+      http_status: response.status,
+      code: payload?.code || payload?.error || null,
+      body: payload && typeof payload === 'object' ? payload : {},
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      http_status: Number(error?.status || 500),
+      code: String(error?.code || error?.message || 'CONNECTION_PROOF_CALL_FAILED').slice(0, 180),
+      body: {},
+    };
+  }
+}
+
+async function runConnectionProof(env, connectionHandler = maybeHandleConnectionSettingsApi) {
+  const [gmail, pipedream, accounts, vercel, yahoo] = await Promise.all([
+    runInternalConnectionCall(connectionHandler, env, 'google', 'test', {
+      method: 'POST',
+      body: { connector_id: 'gmail' },
+    }),
+    runInternalConnectionCall(connectionHandler, env, 'pipedream', 'test', { method: 'POST', body: {} }),
+    runInternalConnectionCall(connectionHandler, env, 'pipedream', 'accounts'),
+    runInternalConnectionCall(connectionHandler, env, 'vercel', 'test', { method: 'POST', body: {} }),
+    runInternalConnectionCall(connectionHandler, env, 'yahoo-imap', 'test', { method: 'POST', body: {} }),
+  ]);
+
+  const connectedApps = new Set(Array.isArray(accounts?.body?.connected_apps) ? accounts.body.connected_apps : []);
+  const proof = {
+    gmail: {
+      verified: gmail.ok && gmail.body?.live_probe === true,
+      http_status: gmail.http_status,
+      code: gmail.code,
+    },
+    outlook: {
+      verified: pipedream.ok && accounts.ok && connectedApps.has('microsoft_outlook'),
+      via: 'pipedream',
+      code: pipedream.code || accounts.code || null,
+    },
+    onedrive: {
+      verified: pipedream.ok && accounts.ok && connectedApps.has('microsoft_onedrive'),
+      via: 'pipedream',
+      code: pipedream.code || accounts.code || null,
+    },
+    sharepoint: {
+      verified: pipedream.ok && accounts.ok && connectedApps.has('sharepoint'),
+      via: 'pipedream',
+      code: pipedream.code || accounts.code || null,
+    },
+    vercel: {
+      verified: vercel.ok && vercel.body?.authenticated === true && vercel.body?.target_ready === true,
+      authenticated: vercel.body?.authenticated === true,
+      target_ready: vercel.body?.target_ready === true,
+      http_status: vercel.http_status,
+      code: vercel.code,
+    },
+    yahoo_ymail: {
+      verified: yahoo.ok,
+      http_status: yahoo.http_status,
+      code: yahoo.code,
+      excluded_from_gen2_33_36_verification: true,
+    },
+  };
+
+  const verifiedRoadmapIds = [];
+  const pendingRoadmapIds = [];
+  if (proof.gmail.verified) verifiedRoadmapIds.push('GEN2-33'); else pendingRoadmapIds.push('GEN2-33');
+  if (proof.outlook.verified) verifiedRoadmapIds.push('GEN2-34'); else pendingRoadmapIds.push('GEN2-34');
+  if (proof.onedrive.verified && proof.sharepoint.verified) verifiedRoadmapIds.push('GEN2-35'); else pendingRoadmapIds.push('GEN2-35');
+  if (proof.vercel.verified) verifiedRoadmapIds.push('GEN2-36'); else pendingRoadmapIds.push('GEN2-36');
+
+  return {
+    ok: true,
+    status: 'MEL_CONNECTIONS_PRODUCTION_PROOF_COLLECTED',
+    proof,
+    verified_roadmap_ids: verifiedRoadmapIds,
+    pending_roadmap_ids: pendingRoadmapIds,
+    ymail_blocks_roadmap_verification: false,
+    private_content_returned: false,
+  };
 }
 
 function preparednessDigest(value) {
@@ -121,6 +217,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   setControl = setAutonomyControl,
   proveCapabilityWatch = proveEcosystemTeacherHandoff,
   runAutonomyTick = runAutonomyRuntimeTick,
+  connectionHandler = maybeHandleConnectionSettingsApi,
 } = {}) {
   const url = new URL(request.url);
   if (url.pathname !== PATH) return null;
@@ -137,6 +234,17 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   const phase = await requestPhase(request);
   if (!phase) {
     return Response.json({ ok: false, code: 'BOOTSTRAP_PHASE_INVALID' }, { status: 400, headers: { 'cache-control': 'no-store' } });
+  }
+
+  if (phase === 'connection-proof') {
+    const result = await runConnectionProof(env, connectionHandler);
+    return Response.json({
+      ...result,
+      phase,
+      deployed_sha: exactDeployedSha(env) || null,
+      autonomy_started: false,
+      owner_launch_required: true,
+    }, { status: 200, headers: { 'cache-control': 'no-store' } });
   }
 
   if (phase === 'gen2-42-runtime-tick') {
@@ -919,4 +1027,5 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   });
 }
 
-export const __launchBootstrapTest = Object.freeze({ equalToken, safeReadiness, requestPhase });
+export const __launchBootstrapTest = Object.freeze({
+  runConnectionProof, equalToken, safeReadiness, requestPhase });
