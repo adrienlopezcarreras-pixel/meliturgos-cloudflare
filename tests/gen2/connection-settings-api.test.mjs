@@ -305,6 +305,7 @@ test('Pipedream Connect credentials are encrypted at rest and status never retur
     'lemlist',
     'microsoft_onedrive',
     'microsoft_outlook',
+    'sharepoint',
   ]);
 });
 
