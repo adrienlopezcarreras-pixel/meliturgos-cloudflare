@@ -1640,6 +1640,26 @@ static bool show_mimg_file(const std::string &path) {
     return shown;
 }
 
+static void storage_refresh_info() {
+    if (!g_storage_ok || esp_vfs_fat_info("/melstore", &g_storage_total, &g_storage_free) != ESP_OK) {
+        g_storage_total = 0;
+        g_storage_free = 0;
+    }
+}
+
+static void storage_reset_after_failure() {
+    if (g_storage_wl != WL_INVALID_HANDLE) {
+        const esp_err_t unmount_err = esp_vfs_fat_spiflash_unmount_rw_wl("/melstore", g_storage_wl);
+        if (unmount_err != ESP_OK) {
+            ESP_LOGW(TAG, "INTERNAL STORAGE unmount after failure: %s", esp_err_to_name(unmount_err));
+        }
+    }
+    g_storage_wl = WL_INVALID_HANDLE;
+    g_storage_ok = false;
+    g_storage_total = 0;
+    g_storage_free = 0;
+}
+
 bool mel_terminal_init_storage(void) {
     if (g_storage_ok) return true;
 
@@ -1655,7 +1675,10 @@ bool mel_terminal_init_storage(void) {
     );
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "INTERNAL STORAGE mount failed: %s", esp_err_to_name(err));
+        g_storage_wl = WL_INVALID_HANDLE;
         g_storage_ok = false;
+        g_storage_total = 0;
+        g_storage_free = 0;
         return false;
     }
 
@@ -1664,7 +1687,7 @@ bool mel_terminal_init_storage(void) {
     FILE *probe = fopen(probe_path, "wb");
     if (!probe) {
         ESP_LOGE(TAG, "INTERNAL STORAGE self-test open failed");
-        g_storage_ok = false;
+        storage_reset_after_failure();
         return false;
     }
 
@@ -1681,16 +1704,12 @@ bool mel_terminal_init_storage(void) {
 
     if (!wrote || !read_ok || memcmp(verify, kProbe, sizeof(kProbe) - 1) != 0) {
         ESP_LOGE(TAG, "INTERNAL STORAGE self-test failed");
-        g_storage_ok = false;
+        storage_reset_after_failure();
         return false;
     }
 
-    if (esp_vfs_fat_info("/melstore", &g_storage_total, &g_storage_free) != ESP_OK) {
-        g_storage_total = 0;
-        g_storage_free = 0;
-    }
-
     g_storage_ok = true;
+    storage_refresh_info();
     ESP_LOGI(TAG, "INTERNAL STORAGE PASS: total=%llu free=%llu",
              (unsigned long long)g_storage_total,
              (unsigned long long)g_storage_free);
@@ -2101,6 +2120,7 @@ static void heartbeat_task(void *) {
         // Do not compete with voice capture / STT / chat / TTS for the BLE bridge.
         // Heartbeat is best-effort and resumes automatically once the companion is idle.
         if (g_online && g_cfg.token[0] && g_runtime_state == MEL_TERMINAL_IDLE) {
+            if (g_storage_ok) storage_refresh_info();
             wifi_ap_record_t ap = {};
             int rssi = esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0;
             cJSON *root = cJSON_CreateObject();
