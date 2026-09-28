@@ -306,115 +306,84 @@ jobs:
           fi
 
           if [ -n "$PROD_SHA" ]; then
-            D1_DATABASE_ID="$(node - <<'NODE'
-          const fs=require('fs');
-          const config=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));
-          const row=(config.d1_databases||[]).find(item=>item?.binding==='DB');
-          const id=String(row?.database_id||'').trim();
-          if(!/^[0-9a-f-]{36}$/i.test(id)) process.exit(1);
-          process.stdout.write(id);
-          NODE
-            )"
+            BINDER_NAME="mel-predeploy-backup-binder"
+            BINDER_CONFIG="release-tools/predeploy-backup-binder/wrangler.jsonc"
+            BINDER_URL="https://mel-predeploy-backup-binder.adrien-lopezcarreras.workers.dev"
+            BINDER_TOKEN="$(openssl rand -hex 32)"
+            echo "::add-mask::${BINDER_TOKEN}"
+            BINDER_CREATED=0
 
-            node - <<'NODE'
-          const fs=require('fs');
-          fs.writeFileSync('predeploy-backup-candidates-request.json',JSON.stringify({
-            sql:"SELECT id,object_key,metadata_json,created_at FROM backup_objects WHERE object_key LIKE 'backups/system/%' ORDER BY created_at DESC LIMIT 100",
-            params:[],
-          }));
-          NODE
+            cleanup_binder() {
+              set +e
+              if [ "${BINDER_CREATED:-0}" = "1" ]; then
+                curl --silent --show-error --max-time 30 \
+                  --request DELETE \
+                  --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                  --output /tmp/predeploy-binder-delete.json \
+                  "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" \
+                  >/dev/null 2>&1 || true
+              fi
+              set -e
+            }
+            cleanup_predeploy_all() {
+              cleanup_binder
+              cleanup_predeploy_secret
+            }
+            trap cleanup_predeploy_all EXIT
 
-            D1_READ_CODE="$(curl --silent --show-error --max-time 30 \
-              --request POST \
-              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              --header "Content-Type: application/json" \
-              --data-binary @predeploy-backup-candidates-request.json \
-              --output predeploy-backup-candidates.json \
-              --write-out '%{http_code}' \
-              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query" || true)"
+            npx wrangler deploy --config "${BINDER_CONFIG}" >/tmp/predeploy-binder-deploy.log
+            BINDER_CREATED=1
+            printf '%s' "${BINDER_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BINDER_TOKEN --config "${BINDER_CONFIG}" >/tmp/predeploy-binder-secret.log
 
-            if [ "$D1_READ_CODE" = "200" ] && PROD_SHA="$PROD_SHA" node - <<'NODE'
-          const fs=require('fs');
-          const crypto=require('crypto');
-          const raw=JSON.parse(fs.readFileSync('predeploy-backup-candidates.json','utf8'));
-          if(raw?.success===false) process.exit(10);
-          const groups=Array.isArray(raw?.result)?raw.result:(raw?.result?[raw.result]:[]);
-          if(groups.length===0 || groups.some(group=>group?.success===false)) process.exit(11);
-          const rows=groups.flatMap(group=>Array.isArray(group?.results)?group.results:[]);
-          const prodSha=String(process.env.PROD_SHA||'').toLowerCase();
-          if(!/^[0-9a-f]{40}$/.test(prodSha)) process.exit(12);
-          const now=Date.now();
-          const maxAge=26*60*60*1000;
-          let selected=null;
-          for(const row of rows){
-            let meta={};
-            try{meta=JSON.parse(String(row?.metadata_json||'{}'));}catch{continue;}
-            const integrity=String(meta?.integritySha256||'').toLowerCase();
-            const restoreIntegrity=String(meta?.restoreIntegritySha256||'').toLowerCase();
-            const restoreSha=String(meta?.restoreDeployedGitSha||'').toLowerCase();
-            const createdAt=String(meta?.createdAt||new Date(Number(row?.created_at)||0).toISOString());
-            const createdMs=Date.parse(createdAt);
-            const valid=Boolean(row?.id)
-              && meta?.verified===true
-              && meta?.restoreVerified===true
-              && /^[0-9a-f]{64}$/.test(integrity)
-              && integrity===restoreIntegrity
-              && /^[0-9a-f]{40}$/.test(restoreSha)
-              && Number.isFinite(createdMs)
-              && createdMs<=now
-              && now-createdMs<=maxAge;
-            if(valid){selected={row,integrity,restoreSha,createdAt};break;}
-          }
-          if(!selected) process.exit(13);
-
-          const binding={
-            schema:'MEL_RELEASE_BACKUP_BINDING_V1',
-            deployed_sha:prodSha,
-            snapshot_id:String(selected.row.id),
-            snapshot_integrity_sha256:selected.integrity,
-            snapshot_deployed_sha:selected.restoreSha,
-            snapshot_created_at:selected.createdAt,
-            bound_at:now,
-          };
-          const digest=crypto.createHash('sha256').update(JSON.stringify(binding)).digest('hex');
-          fs.writeFileSync('predeploy-release-backup-binding.json',JSON.stringify({...binding,binding_sha256:digest},null,2));
-          fs.writeFileSync('predeploy-release-backup-binding-request.json',JSON.stringify({
-            sql:'INSERT OR REPLACE INTO release_backup_bindings(deployed_sha,snapshot_id,snapshot_integrity_sha256,snapshot_deployed_sha,snapshot_created_at,bound_at,binding_sha256) VALUES(?,?,?,?,?,?,?)',
-            params:[
-              binding.deployed_sha,
-              binding.snapshot_id,
-              binding.snapshot_integrity_sha256,
-              binding.snapshot_deployed_sha,
-              binding.snapshot_created_at,
-              binding.bound_at,
-              digest,
-            ],
-          }));
-          NODE
-            then
-              D1_WRITE_CODE="$(curl --silent --show-error --max-time 30 \
+            BINDER_READY=0
+            for BINDER_ATTEMPT in $(seq 1 12); do
+              BINDER_CODE="$(curl --silent --show-error --max-time 30 \
                 --request POST \
-                --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-                --header "Content-Type: application/json" \
-                --data-binary @predeploy-release-backup-binding-request.json \
-                --output predeploy-release-backup-binding-write.json \
+                --header "x-mel-predeploy-binder: ${BINDER_TOKEN}" \
+                --header "content-type: application/json" \
+                --data "{\"target_sha\":\"${PROD_SHA}\"}" \
+                --output predeploy-binder-proof.json \
                 --write-out '%{http_code}' \
-                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query" || true)"
-              if [ "$D1_WRITE_CODE" = "200" ] && node - <<'NODE'
+                "${BINDER_URL}/bind" || true)"
+              if [ "${BINDER_CODE}" = "200" ] && PROD_SHA="${PROD_SHA}" node - <<'NODE'
           const fs=require('fs');
-          const raw=JSON.parse(fs.readFileSync('predeploy-release-backup-binding-write.json','utf8'));
-          if(raw?.success===false) process.exit(1);
-          const groups=Array.isArray(raw?.result)?raw.result:(raw?.result?[raw.result]:[]);
-          if(groups.length===0 || groups.some(group=>group?.success===false)) process.exit(1);
+          const d=JSON.parse(fs.readFileSync('predeploy-binder-proof.json','utf8'));
+          const expected=String(process.env.PROD_SHA||'').toLowerCase();
+          if(d?.ok!==true || d?.status!=='PREDEPLOY_RELEASE_BACKUP_BOUND') process.exit(1);
+          if(String(d?.deployed_sha||'').toLowerCase()!==expected) process.exit(1);
+          if(!d?.snapshot_id) process.exit(1);
+          if(!/^[0-9a-f]{40}$/.test(String(d?.snapshot_deployed_sha||'').toLowerCase())) process.exit(1);
+          if(!/^[0-9a-f]{64}$/.test(String(d?.binding_sha256||'').toLowerCase())) process.exit(1);
+          if(d?.backup_object_present!==true || Number(d?.backup_object_bytes||0)<=0) process.exit(1);
           NODE
               then
-                echo "Bound recent verified backup to deployed production SHA $PROD_SHA through Cloudflare D1 API."
-              else
-                echo "Cloudflare D1 binding write failed closed (HTTP ${D1_WRITE_CODE})."
+                BINDER_READY=1
+                echo "Ephemeral pre-deploy binder verified release backup binding and R2 object."
+                break
               fi
-            else
-              echo "Cloudflare D1 backup metadata read/validation failed closed (HTTP ${D1_READ_CODE})."
-            fi
+              echo "Pre-deploy binder propagation attempt ${BINDER_ATTEMPT}/12 returned HTTP ${BINDER_CODE}."
+              test ! -s predeploy-binder-proof.json || cat predeploy-binder-proof.json
+              sleep 2
+            done
+            test "${BINDER_READY}" = "1"
+
+            BINDER_DELETE_OK=0
+            for DELETE_ATTEMPT in $(seq 1 5); do
+              DELETE_CODE="$(curl --silent --show-error --max-time 30 \
+                --request DELETE \
+                --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+                --output predeploy-binder-delete.json \
+                --write-out '%{http_code}' \
+                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" || true)"
+              if [ "${DELETE_CODE}" = "200" ] || [ "${DELETE_CODE}" = "404" ]; then
+                BINDER_DELETE_OK=1
+                break
+              fi
+              sleep 2
+            done
+            test "${BINDER_DELETE_OK}" = "1"
+            BINDER_CREATED=0
+            echo "Ephemeral pre-deploy binder removed before production deployment."
           else
             echo "Production SHA unavailable from authenticated release identity proof; canonical recovery drill remains fail-closed."
           fi
