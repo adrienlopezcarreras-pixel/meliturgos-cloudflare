@@ -7,6 +7,57 @@ function parseMetadata(raw){
   try{return raw?JSON.parse(raw):{};}catch{return {};}
 }
 
+export function diagnoseCandidates(rows,{nowMs=Date.now(),maxAgeMs=MAX_AGE_MS}={}){
+  const list=Array.isArray(rows)?rows:[];
+  const summary={
+    total_rows:list.length,
+    encrypted:0,
+    verified:0,
+    restore_verified:0,
+    integrity_match:0,
+    restore_sha_valid:0,
+    object_key_match:0,
+    recent:0,
+    fully_eligible:0,
+    newest_created_at:null,
+    newest_age_ms:null,
+    max_age_ms:maxAgeMs,
+  };
+  let newestMs=-Infinity;
+  for(const row of list){
+    const meta=parseMetadata(row?.metadata_json);
+    const id=String(row?.id||'');
+    const objectKey=String(row?.object_key||'');
+    const integrity=String(meta?.integritySha256||'').toLowerCase();
+    const restoreIntegrity=String(meta?.restoreIntegritySha256||'').toLowerCase();
+    const restoreSha=String(meta?.restoreDeployedGitSha||'').toLowerCase();
+    const createdAt=String(meta?.createdAt||new Date(Number(row?.created_at)||0).toISOString());
+    const createdMs=Date.parse(createdAt);
+    const expectedKey=id?`${SYSTEM_BACKUP_PREFIX}${id}.enc.json`:'';
+    const encrypted=meta?.encrypted===true;
+    const verified=meta?.verified===true;
+    const restoreVerified=meta?.restoreVerified===true;
+    const integrityMatch=SHA64.test(integrity)&&integrity===restoreIntegrity;
+    const restoreShaValid=SHA40.test(restoreSha);
+    const objectKeyMatch=Boolean(id)&&objectKey===expectedKey;
+    const recent=Number.isFinite(createdMs)&&createdMs<=nowMs&&nowMs-createdMs<=maxAgeMs;
+    if(encrypted) summary.encrypted++;
+    if(verified) summary.verified++;
+    if(restoreVerified) summary.restore_verified++;
+    if(integrityMatch) summary.integrity_match++;
+    if(restoreShaValid) summary.restore_sha_valid++;
+    if(objectKeyMatch) summary.object_key_match++;
+    if(recent) summary.recent++;
+    if(encrypted&&verified&&restoreVerified&&integrityMatch&&restoreShaValid&&objectKeyMatch&&recent) summary.fully_eligible++;
+    if(Number.isFinite(createdMs)&&createdMs>newestMs){
+      newestMs=createdMs;
+      summary.newest_created_at=new Date(createdMs).toISOString();
+      summary.newest_age_ms=Math.max(0,nowMs-createdMs);
+    }
+  }
+  return summary;
+}
+
 export function selectVerifiedCandidate(rows,{nowMs=Date.now(),maxAgeMs=MAX_AGE_MS}={}){
   for(const row of Array.isArray(rows)?rows:[]){
     const meta=parseMetadata(row?.metadata_json);
@@ -87,8 +138,13 @@ async function bindBackup(env,targetSha){
   const result=await env.DB.prepare(
     "SELECT id,object_key,metadata_json,created_at FROM backup_objects WHERE object_key LIKE 'backups/system/%' ORDER BY created_at DESC LIMIT 100"
   ).all();
-  const candidate=selectVerifiedCandidate(result?.results||[]);
-  if(!candidate) return {ok:false,status:'NO_RECENT_VERIFIED_ENCRYPTED_BACKUP'};
+  const rows=result?.results||[];
+  const candidate=selectVerifiedCandidate(rows);
+  if(!candidate) return {
+    ok:false,
+    status:'NO_RECENT_VERIFIED_ENCRYPTED_BACKUP',
+    diagnostics:diagnoseCandidates(rows),
+  };
 
   const object=await env.MEDIA_BUCKET.head(candidate.objectKey);
   if(!object||Number(object?.size||0)<=0){
