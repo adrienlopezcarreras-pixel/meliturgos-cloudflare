@@ -562,7 +562,8 @@ test('Android MINI mobile shell keeps settings-driven native navigation and comp
   assert.match(bridge,/request\.path == "\/api\/device\/v1\/pair"/);
   assert.match(bridge,/request\.token\.isNotEmpty\(\)/);
   assert.match(bridge,/miniLinkReady\.value = enabled/);
-  assert.match(bridge,/internetReady\.value = miniLinkReady\.value && status in 200\.\.299/);
+  assert.match(bridge,/val success = status in 200\.\.299/);
+  assert.match(bridge,/internetReady\.value = miniLinkReady\.value && success/);
   assert.match(bridge,/status in 200\.\.299/);
   assert.match(bridge,/MINI CONNECTÉE · INTERNET OK/);
   assert.match(bridge,/MINI CONNECTÉE · MEL HTTP \$status/);
