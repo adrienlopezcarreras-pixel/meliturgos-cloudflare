@@ -66,3 +66,11 @@ test('release backup binding canonical form stays byte-for-byte compatible',()=>
     bound_at:value.bound_at,
   }));
 });
+
+
+test('predeploy binder bootstrap ceiling accepts 47h but rejects backups older than 48h',()=>{
+  const recent47=row({id:'within-48h',meta:{createdAt:new Date(now-47*60*60*1000).toISOString()}});
+  const stale49=row({id:'older-than-48h',meta:{createdAt:new Date(now-49*60*60*1000).toISOString()}});
+  assert.equal(selectVerifiedCandidate([recent47],{nowMs:now})?.id,'within-48h');
+  assert.equal(selectVerifiedCandidate([stale49],{nowMs:now}),null);
+});
