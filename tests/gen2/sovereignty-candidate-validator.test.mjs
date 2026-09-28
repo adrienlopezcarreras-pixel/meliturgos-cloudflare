@@ -56,7 +56,7 @@ test('candidate lifecycle moves UNVERIFIED -> TESTING -> PREVALIDATED after real
     }),
   });
   assert.equal(result.prevalidated,1);
-  assert.equal(s.candidates[0].status,'PREVALIDATED');
+  assert.equal(s.registryStore.candidates[0].status,'PREVALIDATED');
   assert.equal(s.registryStore.registry.layers.storage[0].prevalidated,true);
 });
 
@@ -68,7 +68,7 @@ test('candidate without an available adapter becomes BLOCKED, never PREVALIDATED
     resolveCandidate:async()=>({descriptor:null,adapter:null}),
   });
   assert.equal(result.blocked,1);
-  assert.equal(s.candidates[0].status,'BLOCKED');
+  assert.equal(s.registryStore.candidates[0].status,'BLOCKED');
   assert.equal(s.registryStore.registry.layers.storage.length,0);
 });
 
@@ -80,5 +80,5 @@ test('resolver failure is isolated and recorded as BLOCKED',async()=>{
     resolveCandidate:async()=>{throw Object.assign(new Error('missing credential'),{code:'CREDENTIAL_REQUIRED'});},
   });
   assert.equal(result.blocked,1);
-  assert.equal(s.candidates[0].metadata.reason,'RESOLUTION_FAILED');
+  assert.equal(s.registryStore.candidates[0].metadata.reason,'RESOLUTION_FAILED');
 });
