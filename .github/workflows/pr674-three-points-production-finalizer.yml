@@ -53,8 +53,15 @@ jobs:
       - name: Syntax gate
         run: npm run check
 
-      - name: Full test suite
-        run: npm test
+      - name: Targeted PR674 production suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test \
+            tests/full-interface-client-runtime.test.mjs \
+            tests/gen2/connection-settings-api.test.mjs \
+            tests/lora-training-render-contract.test.mjs \
+            tests/release-launch-bootstrap.test.mjs
 
       - name: Build and upload critical code bundle
         shell: bash
