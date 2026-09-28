@@ -81,8 +81,29 @@ test('predeploy binder diagnostics expose aggregate rejection reasons without ba
   assert.equal(summary.restore_verified,2);
   assert.equal(summary.recent,2);
   assert.equal(summary.fully_eligible,0);
-  assert.equal(summary.max_age_ms,26*60*60*1000);
+  assert.equal(summary.max_age_ms,48*60*60*1000);
   assert.equal(summary.newest_created_at,'2026-09-28T19:00:00.000Z');
   assert.equal(summary.newest_age_ms,60*60*1000);
   assert.equal('metadata_json' in summary,false);
+});
+
+
+test('predeploy binder accepts a fully verified 36h backup inside the production 48h grace',()=>{
+  const thirtySixHoursAgo=now-(36*60*60*1000);
+  const candidate=row({
+    id:'system-36h',
+    meta:{createdAt:new Date(thirtySixHoursAgo).toISOString()},
+    row:{created_at:thirtySixHoursAgo},
+  });
+  assert.equal(selectVerifiedCandidate([candidate],{nowMs:now})?.id,'system-36h');
+});
+
+test('predeploy binder still rejects a fully verified backup older than 48h',()=>{
+  const fortyNineHoursAgo=now-(49*60*60*1000);
+  const candidate=row({
+    id:'system-49h',
+    meta:{createdAt:new Date(fortyNineHoursAgo).toISOString()},
+    row:{created_at:fortyNineHoursAgo},
+  });
+  assert.equal(selectVerifiedCandidate([candidate],{nowMs:now}),null);
 });
