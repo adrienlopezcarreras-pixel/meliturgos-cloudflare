@@ -1,3 +1,5 @@
+import { eligibleAlternatives } from '../portability/prevalidated-alternative-registry.js';
+
 export const DEPENDENCY_LONGEVITY_SCHEMA = 'mel.dependency-longevity-watch/v1';
 
 export const CRITICAL_DEPENDENCIES = Object.freeze([
@@ -150,6 +152,40 @@ export function emergencyFailoverRequestFromLongevity(result,{ownerReachable=tru
       id:row.id,
       prevalidated:true,
       score:row.score,
+    })),
+  };
+}
+
+
+export function emergencyFailoverRequestFromRegistry(result,{
+  registry,
+  ownerReachable=true,
+  maxAddedCostEur=0,
+  now=Date.now(),
+}={}){
+  if(result?.severity!=='EMERGENCY'||!result?.trigger_code)return null;
+  const alternatives=eligibleAlternatives(
+    registry,
+    result.dependency.layer,
+    {maxAddedCostEur,now},
+  );
+  return {
+    layer:result.dependency.layer,
+    trigger:{
+      code:result.trigger_code,
+      deadlineAt:result.evidence?.eol_at?new Date(result.evidence.eol_at).toISOString():null,
+      serviceReachable:result.evidence?.reachable!==false,
+      ownerReachable:ownerReachable===true,
+    },
+    approvedAlternatives:alternatives.map(row=>({
+      id:row.id,
+      provider:row.provider,
+      adapter_id:row.adapter_id,
+      prevalidated:true,
+      score:null,
+      proof_verified_at:row.proof.verified_at,
+      proof_expires_at:row.proof.expires_at,
+      added_cost_eur:row.added_cost_eur,
     })),
   };
 }
