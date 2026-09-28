@@ -1,6 +1,11 @@
 name: lora-kaggle-free-collect
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/lora-kaggle-free-collect.yml"
   workflow_dispatch:
     inputs:
       activate_preview:
@@ -37,6 +42,7 @@ jobs:
     timeout-minutes: 240
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      RECOVERY_FINETUNE_ID: ${{ github.event_name == 'push' && 'faf28a8f-2d3a-473b-b793-54afed874422' || inputs.existing_finetune_id }}
     steps:
       - name: Checkout exact collector SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -81,8 +87,8 @@ jobs:
         id: status
         shell: bash
         env:
-          WAIT_FOR_COMPLETION: ${{ inputs.wait_for_completion }}
-          MAX_WAIT_MINUTES: ${{ inputs.max_wait_minutes }}
+          WAIT_FOR_COMPLETION: ${{ github.event_name == 'push' && 'false' || inputs.wait_for_completion }}
+          MAX_WAIT_MINUTES: ${{ github.event_name == 'push' && '1' || inputs.max_wait_minutes }}
         run: |
           set -euo pipefail
           KERNEL="${KAGGLE_USERNAME}/mel-lora-uncensored-notebook-t4"
@@ -179,11 +185,11 @@ jobs:
           NODE
 
       - name: Attach pre-uploaded Cloudflare finetune
-        if: steps.status.outputs.complete == 'true' && inputs.existing_finetune_id != ''
+        if: steps.status.outputs.complete == 'true' && env.RECOVERY_FINETUNE_ID != ''
         shell: bash
         env:
           BUNDLE_DIR: ${{ steps.locate.outputs.dir }}
-          EXISTING_FINETUNE_ID: ${{ inputs.existing_finetune_id }}
+          EXISTING_FINETUNE_ID: ${{ env.RECOVERY_FINETUNE_ID }}
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -200,7 +206,7 @@ jobs:
           NODE
 
       - name: Upload exact adapter to Cloudflare fine-tunes
-        if: steps.status.outputs.complete == 'true' && inputs.existing_finetune_id == ''
+        if: steps.status.outputs.complete == 'true' && env.RECOVERY_FINETUNE_ID == ''
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -248,7 +254,7 @@ jobs:
         shell: bash
         env:
           MEL_BASE_URL: "https://meliturgos-preview.adrien-lopezcarreras.workers.dev"
-          ACTIVATE_PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.activate_preview || false }}
+          ACTIVATE_PREVIEW: ${{ github.event_name == 'push' && 'true' || (github.event_name == 'workflow_dispatch' && inputs.activate_preview || false) }}
           BUNDLE_DIR: ${{ steps.locate.outputs.dir }}
         run: |
           export MELITURGOS_PASSWORD="$MEL_PREVIEW_PASSWORD"
