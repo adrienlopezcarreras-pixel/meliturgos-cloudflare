@@ -166,3 +166,36 @@ test('Vercel token is encrypted at rest and status never returns it', async () =
   assert.equal(state.project_name, 'meliturgos');
   assert.equal(state.token, undefined);
 });
+
+test('Yahoo/Ymail app password is encrypted and uses fixed IMAP/SMTP endpoints', async () => {
+  const runtimeEnv = env();
+  const response = await call('/api/gen2/connections/yahoo-imap/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      username: 'owner@ymail.com',
+      password: 'yahoo-app-password-secret',
+    }),
+  }, runtimeEnv);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.configured, true);
+  assert.equal(body.username, 'owner@ymail.com');
+  assert.equal(body.imap_host, 'imap.mail.yahoo.com');
+  assert.equal(body.imap_port, 993);
+  assert.equal(body.smtp_host, 'smtp.mail.yahoo.com');
+  assert.equal(body.smtp_port, 465);
+  assert.equal(body.password, undefined);
+  assert.equal(JSON.stringify(body).includes('yahoo-app-password-secret'), false);
+
+  const raw = JSON.stringify([...runtimeEnv.DB.tokens.values()]);
+  assert.equal(raw.includes('yahoo-app-password-secret'), false);
+  assert.equal(raw.includes('owner@ymail.com'), false);
+
+  const status = await call('/api/gen2/connections/yahoo-imap/status', { method: 'GET' }, runtimeEnv);
+  const state = await status.json();
+  assert.equal(state.configured, true);
+  assert.equal(state.username, 'owner@ymail.com');
+  assert.equal(state.password_present, true);
+  assert.equal(state.password, undefined);
+});
