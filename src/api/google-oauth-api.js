@@ -57,6 +57,15 @@ async function bodyObject(request) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function withRequestPublicOrigin(env = {}, url) {
+  const base = { ...env };
+  if (!String(base.MEL_PUBLIC_ORIGIN || '').trim() && !String(base.GOOGLE_OAUTH_REDIRECT_ORIGIN || '').trim()) {
+    const origin = String(url?.origin || '').trim();
+    if (origin.startsWith('https://')) base.MEL_PUBLIC_ORIGIN = origin;
+  }
+  return base;
+}
+
 export async function maybeHandleGoogleOAuthApi(request, env = {}, url = new URL(request.url), options = {}) {
   const match = url.pathname.match(/^\/api\/gen2\/oauth\/google\/([^/]+)\/(status|begin|callback|refresh|revoke)$/);
   if (!match) return null;
@@ -69,7 +78,8 @@ export async function maybeHandleGoogleOAuthApi(request, env = {}, url = new URL
 
   try {
     const contextOwner = owner(env);
-    const runtimeEnv = options.runtime ? env : await resolveConnectionOAuthEnv(env, 'google', contextOwner);
+    const resolvedEnv = options.runtime ? env : await resolveConnectionOAuthEnv(env, 'google', contextOwner);
+    const runtimeEnv = options.runtime ? resolvedEnv : withRequestPublicOrigin(resolvedEnv, url);
     const runtime = options.runtime || createGoogleOAuthRuntime({
       env: runtimeEnv,
       fetcher: options.fetcher || fetch,
