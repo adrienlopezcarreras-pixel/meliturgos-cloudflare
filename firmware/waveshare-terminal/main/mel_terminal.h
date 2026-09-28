@@ -4,7 +4,7 @@
 
 #define MEL_LCD_H_RES 320
 #define MEL_LCD_V_RES 480
-#define MEL_FW_VERSION "0.4.8-mobile-internet"
+#define MEL_FW_VERSION "0.4.13-stable-media"
 #define MEL_PROTOCOL_VERSION "1.0"
 
 void mel_terminal_ui_init(lv_disp_t *display);
@@ -21,14 +21,22 @@ void mel_terminal_start_online(void);
 enum MelTerminalState {
   MEL_TERMINAL_IDLE = 0,
   MEL_TERMINAL_LISTENING = 1,
-  MEL_TERMINAL_THINKING = 2,
-  MEL_TERMINAL_SPEAKING = 3,
-  MEL_TERMINAL_ERROR = 4
+  MEL_TERMINAL_TRANSCRIBING = 2,
+  MEL_TERMINAL_THINKING = 3,
+  MEL_TERMINAL_SPEAKING = 4,
+  MEL_TERMINAL_ERROR = 5
 };
 
 void mel_terminal_request_voice(void);
-void mel_terminal_request_update(void);
 int mel_terminal_state(void);
 bool mel_terminal_online(void);
+int mel_terminal_voice_level(void);
+bool mel_terminal_has_display(void);
+void mel_terminal_display_next(void);
+void mel_terminal_display_previous(void);
+void mel_terminal_test_audio(void);
+void mel_terminal_test_camera(void);
+typedef void (*mel_terminal_test_status_cb_t)(const char *text);
+void mel_terminal_test_stt(mel_terminal_test_status_cb_t cb);
 
 void mel_terminal_bind_external_ui(lv_obj_t *status_label, lv_obj_t *answer_label);

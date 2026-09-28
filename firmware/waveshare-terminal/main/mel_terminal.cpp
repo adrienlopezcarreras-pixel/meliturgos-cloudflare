@@ -1,12 +1,18 @@
 #include "mel_terminal.h"
 #include "mel_mobile_bridge.h"
+#include "mini_visual.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <string>
+#include <vector>
 #include <cstdio>
 #include <cctype>
 #include <sys/stat.h>
+#include <sys/time.h>
+#include <ctime>
+#include <cstdlib>
 
 #include "nvs.h"
 #include "esp_log.h"
@@ -31,6 +37,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
+#include "freertos/semphr.h"
 
 #include "esp_es8311_port.h"
 
@@ -40,9 +47,21 @@ static const char *MODEL = "waveshare-esp32-s3-touch-lcd-3.5-c";
 static const int WIFI_CONNECTED_BIT = BIT0;
 static const int WIFI_FAIL_BIT = BIT1;
 static const size_t MAX_HTTP_RESPONSE = 64 * 1024;
-static const int VOICE_SECONDS = 4;
-static const int VOICE_RATE = 48000;
-static const int VOICE_BYTES = VOICE_SECONDS * VOICE_RATE * 2;
+static const int VOICE_SECONDS = 10;
+static const int VOICE_CAPTURE_RATE = 48000;
+static const int VOICE_STT_RATE = 16000;
+static const int VOICE_CAPTURE_SAMPLES = VOICE_SECONDS * VOICE_CAPTURE_RATE;
+static const int VOICE_CAPTURE_BYTES = VOICE_CAPTURE_SAMPLES * 2;
+static const int VOICE_STT_SAMPLES = VOICE_SECONDS * VOICE_STT_RATE;
+static const int VOICE_STT_BYTES = VOICE_STT_SAMPLES * 2;
+static const int WAKE_RATE = 16000;
+static const int WAKE_WINDOW_MS = 1900;
+static const int WAKE_WINDOW_SAMPLES = WAKE_RATE * WAKE_WINDOW_MS / 1000;
+static const int WAKE_HOP_MS = 500;
+static const int WAKE_HOP_SAMPLES = WAKE_RATE * WAKE_HOP_MS / 1000;
+static const int WAKE_FEATURE_SEGMENTS = 6;
+static const int WAKE_FEATURE_BANDS = 8;
+static const int WAKE_FEATURE_COUNT = WAKE_FEATURE_SEGMENTS * WAKE_FEATURE_BANDS;
 
 extern esp_codec_dev_handle_t input_dev;
 extern esp_codec_dev_handle_t output_dev;
@@ -58,6 +77,19 @@ struct HttpBuffer {
     std::string body;
 };
 
+struct MelDisplayItem {
+    std::string title;
+    std::string url;
+    std::string snippet;
+    std::string image_url;
+};
+
+struct MelChatReply {
+    std::string text;
+    std::vector<MelDisplayItem> display_items;
+    std::string display_title;
+};
+
 static MelConfig g_cfg = {};
 static char g_device_id[40] = {};
 static char g_ip[20] = {};
@@ -68,10 +100,31 @@ static bool g_online = false;
 static bool g_wifi_connected = false;
 static bool g_mobile_connected = false;
 static volatile int g_runtime_state = MEL_TERMINAL_IDLE;
+static std::vector<MelDisplayItem> g_display_items;
+static size_t g_display_index = 0;
+static std::string g_display_title;
 static TaskHandle_t g_voice_task_handle = nullptr;
+static volatile bool g_voice_stop_requested = false;
+static volatile int g_voice_level = 0;
+static const char *g_last_voice_error = nullptr;
+static SemaphoreHandle_t g_mic_mutex = nullptr;
+static TaskHandle_t g_wake_task_handle = nullptr;
+static TaskHandle_t g_wake_sync_task_handle = nullptr;
+static bool g_wake_profile_ready = false;
+static float g_wake_template[WAKE_FEATURE_COUNT] = {};
+static float g_wake_threshold = 0.84f;
+static int64_t g_last_wake_trigger_us = 0;
+
+static void sync_wake_phrase_profile();
+static void mobile_companion_sync_task(void *);
+static bool render_display_item_card(size_t index);
+
+static void voice_error(const char *reason) {
+    g_last_voice_error = reason;
+    if (reason) ESP_LOGW(TAG, "VOICE ERROR: %s", reason);
+}
 static TaskHandle_t g_online_task_handle = nullptr;
 static TaskHandle_t g_heartbeat_task_handle = nullptr;
-static void update_task(void *);
 static EventGroupHandle_t g_wifi_bits = nullptr;
 static int g_wifi_retry = 0;
 static lv_obj_t *g_status = nullptr;
@@ -148,6 +201,44 @@ static void ui_answer(const char *value) {
     }
 }
 
+static void set_display_results(const MelChatReply &reply) {
+    g_display_items = reply.display_items;
+    g_display_title = reply.display_title;
+    g_display_index = 0;
+    if (g_answer && lvgl_port_lock(1000)) {
+        if (g_display_items.empty()) {
+            lv_obj_set_height(g_answer, 74);
+            lv_obj_align(g_answer, LV_ALIGN_BOTTOM_MID, 0, -84);
+        } else {
+            lv_obj_set_height(g_answer, 132);
+            lv_obj_align(g_answer, LV_ALIGN_BOTTOM_MID, 0, -84);
+        }
+        lvgl_port_unlock();
+    }
+}
+
+static void ui_show_display_source(size_t index) {
+    if (g_display_items.empty()) return;
+    if (index >= g_display_items.size()) index = 0;
+    g_display_index = index;
+    const MelDisplayItem &item = g_display_items[index];
+    char status[48] = {};
+    snprintf(status, sizeof(status), "WEB %u/%u",
+             (unsigned)(index + 1), (unsigned)g_display_items.size());
+    std::string card;
+    if (!item.title.empty()) card += item.title;
+    if (!item.snippet.empty()) {
+        if (!card.empty()) card += "\n";
+        card += item.snippet;
+    }
+    if (card.empty()) card = item.url;
+    if (card.size() > 500) card.resize(500);
+    ui_status(status);
+    ui_answer(card.c_str());
+    ESP_LOGI(TAG, "DISPLAY source %u/%u url=%s",
+             (unsigned)(index + 1), (unsigned)g_display_items.size(), item.url.c_str());
+}
+
 static void make_device_id() {
     uint8_t mac[6] = {};
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
@@ -182,6 +273,217 @@ static void save_string(const char *key, const char *value) {
     nvs_close(nvs);
 }
 
+static std::string load_string_dynamic(const char *key) {
+    if (!key) return "";
+    nvs_handle_t nvs;
+    if (nvs_open("mel", NVS_READONLY, &nvs) != ESP_OK) return "";
+    size_t required = 0;
+    if (nvs_get_str(nvs, key, nullptr, &required) != ESP_OK || required <= 1) {
+        nvs_close(nvs);
+        return "";
+    }
+    std::string value(required, '\0');
+    if (nvs_get_str(nvs, key, value.data(), &required) != ESP_OK) {
+        nvs_close(nvs);
+        return "";
+    }
+    nvs_close(nvs);
+    if (!value.empty() && value.back() == '\0') value.pop_back();
+    return value;
+}
+
+static double wake_rms(const int16_t *samples, int start, int end) {
+    if (!samples || end <= start) return 0.0;
+    double sum = 0.0;
+    for (int i = start; i < end; ++i) {
+        const double v = (double)samples[i];
+        sum += v * v;
+    }
+    return sqrt(sum / (double)(end - start));
+}
+
+static double wake_goertzel(const int16_t *samples, int start, int end, double frequency) {
+    if (!samples || end <= start) return 0.0;
+    constexpr double PI = 3.14159265358979323846;
+    const double omega = 2.0 * PI * frequency / (double)WAKE_RATE;
+    const double coeff = 2.0 * cos(omega);
+    double s1 = 0.0;
+    double s2 = 0.0;
+    for (int i = start; i < end; ++i) {
+        const double x = (double)samples[i] / 32768.0;
+        const double s0 = x + coeff * s1 - s2;
+        s2 = s1;
+        s1 = s0;
+    }
+    const double power = s1 * s1 + s2 * s2 - coeff * s1 * s2;
+    return std::max(0.0, power / (double)(end - start));
+}
+
+static bool wake_extract_features(const int16_t *samples, int count, float out[WAKE_FEATURE_COUNT]) {
+    if (!samples || !out || count < WAKE_RATE / 2) return false;
+    constexpr int FRAME = WAKE_RATE / 50; // 20 ms
+    double peak = 0.0;
+    for (int i = 0; i + FRAME <= count; i += FRAME) {
+        peak = std::max(peak, wake_rms(samples, i, i + FRAME));
+    }
+    const double silence_threshold = std::max(160.0, peak * 0.16);
+    int first = 0;
+    while (first + FRAME <= count && wake_rms(samples, first, first + FRAME) < silence_threshold) first += FRAME;
+    int last = count;
+    while (last - FRAME >= first && wake_rms(samples, last - FRAME, last) < silence_threshold) last -= FRAME;
+    const int pad = WAKE_RATE / 20; // 50 ms
+    first = std::max(0, first - pad);
+    last = std::min(count, last + pad);
+    if (last - first < WAKE_RATE / 3) return false;
+    if (wake_rms(samples, first, last) < 180.0) return false;
+
+    static const double FREQS[WAKE_FEATURE_BANDS] = {300.0, 500.0, 750.0, 1000.0, 1400.0, 2000.0, 2800.0, 3800.0};
+    double norm = 0.0;
+    for (int segment = 0; segment < WAKE_FEATURE_SEGMENTS; ++segment) {
+        const int start = first + segment * (last - first) / WAKE_FEATURE_SEGMENTS;
+        const int end = first + (segment + 1) * (last - first) / WAKE_FEATURE_SEGMENTS;
+        for (int band = 0; band < WAKE_FEATURE_BANDS; ++band) {
+            const float value = (float)log(1.0 + wake_goertzel(samples, start, end, FREQS[band]));
+            const int index = segment * WAKE_FEATURE_BANDS + band;
+            out[index] = value;
+            norm += (double)value * value;
+        }
+    }
+    norm = sqrt(norm);
+    if (norm <= 1e-9) return false;
+    for (int i = 0; i < WAKE_FEATURE_COUNT; ++i) out[i] = (float)(out[i] / norm);
+    return true;
+}
+
+static float wake_cosine(const float *a, const float *b) {
+    double dot = 0.0, aa = 0.0, bb = 0.0;
+    for (int i = 0; i < WAKE_FEATURE_COUNT; ++i) {
+        dot += (double)a[i] * b[i];
+        aa += (double)a[i] * a[i];
+        bb += (double)b[i] * b[i];
+    }
+    if (aa <= 1e-12 || bb <= 1e-12) return 0.0f;
+    return (float)(dot / sqrt(aa * bb));
+}
+
+static void ensure_mic_mutex() {
+    if (!g_mic_mutex) g_mic_mutex = xSemaphoreCreateMutex();
+}
+
+static void wake_detector_task(void *) {
+    auto *ring = static_cast<int16_t *>(heap_caps_calloc(WAKE_WINDOW_SAMPLES, sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    auto *raw = static_cast<int16_t *>(heap_caps_malloc(WAKE_HOP_SAMPLES * 3 * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    auto *hop = static_cast<int16_t *>(heap_caps_malloc(WAKE_HOP_SAMPLES * sizeof(int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!ring || !raw || !hop) {
+        if (ring) heap_caps_free(ring);
+        if (raw) heap_caps_free(raw);
+        if (hop) heap_caps_free(hop);
+        ESP_LOGE(TAG, "WAKE detector allocation failed");
+        g_wake_task_handle = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    ensure_mic_mutex();
+    int filled = 0;
+    while (true) {
+        if (!g_wake_profile_ready || !g_online || !g_audio_ok || !input_dev || g_runtime_state != MEL_TERMINAL_IDLE) {
+            filled = 0;
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
+        }
+        if (!g_mic_mutex || xSemaphoreTake(g_mic_mutex, pdMS_TO_TICKS(800)) != pdTRUE) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
+        esp_codec_dev_set_in_gain(input_dev, 35.0);
+        const int rc = esp_codec_dev_read(input_dev, raw, WAKE_HOP_SAMPLES * 3 * (int)sizeof(int16_t));
+        esp_codec_dev_set_in_gain(input_dev, 0.0);
+        xSemaphoreGive(g_mic_mutex);
+        if (rc != ESP_CODEC_DEV_OK) {
+            ESP_LOGW(TAG, "WAKE mic read failed rc=%d", rc);
+            filled = 0;
+            vTaskDelay(pdMS_TO_TICKS(250));
+            continue;
+        }
+        if (g_runtime_state != MEL_TERMINAL_IDLE) {
+            filled = 0;
+            continue;
+        }
+
+        for (int i = 0; i < WAKE_HOP_SAMPLES; ++i) {
+            const int j = i * 3;
+            int32_t v = ((int32_t)raw[j] + raw[j + 1] + raw[j + 2]) / 3;
+            v = std::max<int32_t>(-32768, std::min<int32_t>(32767, v));
+            hop[i] = (int16_t)v;
+        }
+        if (filled < WAKE_WINDOW_SAMPLES) {
+            const int copy = std::min(WAKE_HOP_SAMPLES, WAKE_WINDOW_SAMPLES - filled);
+            memcpy(ring + filled, hop, copy * sizeof(int16_t));
+            filled += copy;
+            if (filled < WAKE_WINDOW_SAMPLES) continue;
+        } else {
+            memmove(ring, ring + WAKE_HOP_SAMPLES, (WAKE_WINDOW_SAMPLES - WAKE_HOP_SAMPLES) * sizeof(int16_t));
+            memcpy(ring + WAKE_WINDOW_SAMPLES - WAKE_HOP_SAMPLES, hop, WAKE_HOP_SAMPLES * sizeof(int16_t));
+        }
+
+        float features[WAKE_FEATURE_COUNT] = {};
+        if (!wake_extract_features(ring, WAKE_WINDOW_SAMPLES, features)) continue;
+        const float score = wake_cosine(features, g_wake_template);
+        if (score > 0.65f) ESP_LOGI(TAG, "WAKE score=%.3f threshold=%.3f", score, g_wake_threshold);
+        const int64_t now = esp_timer_get_time();
+        if (score >= g_wake_threshold && now - g_last_wake_trigger_us > 5000000LL) {
+            g_last_wake_trigger_us = now;
+            filled = 0;
+            ESP_LOGI(TAG, "WAKE OK MEL detected score=%.3f", score);
+            ui_status("OUI ?");
+            mel_terminal_request_voice();
+            vTaskDelay(pdMS_TO_TICKS(900));
+        }
+    }
+}
+
+static void ensure_wake_detector() {
+    if (!g_wake_profile_ready || g_wake_task_handle) return;
+    xTaskCreatePinnedToCore(wake_detector_task, "mel_wake", 8192, nullptr, 3, &g_wake_task_handle, 0);
+}
+
+static bool sync_phone_clock_from_json(cJSON *root) {
+    if (!root) return false;
+    cJSON *epoch_ms_item = cJSON_GetObjectItemCaseSensitive(root, "epoch_ms");
+    cJSON *offset_item = cJSON_GetObjectItemCaseSensitive(root, "utc_offset_seconds");
+    if (!cJSON_IsNumber(epoch_ms_item) || !cJSON_IsNumber(offset_item)) return false;
+
+    const int64_t epoch_ms = (int64_t)epoch_ms_item->valuedouble;
+    if (epoch_ms < 1700000000000LL) return false;
+    const int utc_offset_seconds = offset_item->valueint;
+
+    struct timeval tv = {};
+    tv.tv_sec = (time_t)(epoch_ms / 1000LL);
+    tv.tv_usec = (suseconds_t)((epoch_ms % 1000LL) * 1000LL);
+    if (settimeofday(&tv, nullptr) != 0) {
+        ESP_LOGW(TAG, "PHONE CLOCK settimeofday failed");
+        return false;
+    }
+
+    // POSIX TZ offsets use the inverse sign: UTC+2 local time => "MEL-2".
+    const int abs_offset = utc_offset_seconds < 0 ? -utc_offset_seconds : utc_offset_seconds;
+    const int hours = abs_offset / 3600;
+    const int minutes = (abs_offset % 3600) / 60;
+    const char sign = utc_offset_seconds >= 0 ? '-' : '+';
+    char tz[32] = {};
+    if (minutes) snprintf(tz, sizeof(tz), "MEL%c%d:%02d", sign, hours, minutes);
+    else snprintf(tz, sizeof(tz), "MEL%c%d", sign, hours);
+    setenv("TZ", tz, 1);
+    tzset();
+
+    cJSON *zone = cJSON_GetObjectItemCaseSensitive(root, "timezone");
+    ESP_LOGI(TAG, "PHONE CLOCK synced epoch=%lld offset=%d tz=%s source=%s",
+             (long long)(epoch_ms / 1000LL), utc_offset_seconds, tz,
+             cJSON_IsString(zone) && zone->valuestring ? zone->valuestring : "phone");
+    return true;
+}
+
 static void clear_config() {
     nvs_handle_t nvs;
     if (nvs_open("mel", NVS_READWRITE, &nvs) == ESP_OK) {
@@ -202,6 +504,15 @@ static esp_err_t http_event(esp_http_client_event_t *evt) {
     return ESP_OK;
 }
 
+static bool wait_for_mobile_bridge_ready(uint32_t timeout_ms) {
+    const int64_t deadline = esp_timer_get_time() + (int64_t)timeout_ms * 1000;
+    while (esp_timer_get_time() < deadline) {
+        if (mel_mobile_bridge_ready()) return true;
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    return mel_mobile_bridge_ready();
+}
+
 static esp_err_t http_request(
     esp_http_client_method_t method,
     const std::string &url,
@@ -217,14 +528,30 @@ static esp_err_t http_request(
         const std::string path = url.substr(prefix.size());
         ESP_LOGI(TAG, "HTTP via MEL MOBILE: %s", path.c_str());
         return mel_mobile_bridge_request(
-            method, path.c_str(), content_type, g_cfg.token, g_device_id,
+            method,
+            path.c_str(),
+            content_type,
+            g_cfg.token,
+            g_device_id,
             reinterpret_cast<const uint8_t *>(body),
             body_len > 0 ? (size_t)body_len : 0,
-            response, status
+            response,
+            status
         );
     };
 
-    if (!g_wifi_connected && mel_mobile_bridge_ready()) return mobile_request();
+    if (mel_mobile_bridge_ready()) {
+        return mobile_request();
+    }
+
+    // A short Android GATT reconnect must be transparent to the companion.
+    // While MEL Mobile is the active transport, wait for it instead of
+    // immediately falling into a dead Wi-Fi path.
+    if (g_mobile_connected && !g_wifi_connected) {
+        ESP_LOGI(TAG, "MEL MOBILE reconnect grace before HTTP");
+        if (wait_for_mobile_bridge_ready(8000)) return mobile_request();
+        return ESP_ERR_TIMEOUT;
+    }
 
     HttpBuffer buffer;
     esp_http_client_config_t cfg = {};
@@ -251,7 +578,7 @@ static esp_err_t http_request(
     esp_http_client_cleanup(client);
 
     if (err != ESP_OK && mel_mobile_bridge_ready()) {
-        ESP_LOGW(TAG, "Wi-Fi HTTP failed (%s), fallback MEL MOBILE", esp_err_to_name(err));
+        ESP_LOGW(TAG, "Wi-Fi HTTP failed (%s), falling back to MEL MOBILE", esp_err_to_name(err));
         response.clear();
         status = 0;
         return mobile_request();
@@ -262,156 +589,47 @@ static esp_err_t http_request(
 
 static std::string json_string(cJSON *obj);
 
-static uint16_t read_le16(const uint8_t *p) {
-    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
-}
-
-static uint32_t read_le32(const uint8_t *p) {
-    return (uint32_t)p[0] |
-           ((uint32_t)p[1] << 8) |
-           ((uint32_t)p[2] << 16) |
-           ((uint32_t)p[3] << 24);
-}
-
-static bool http_read_exact(esp_http_client_handle_t client, uint8_t *dst, size_t count) {
-    size_t offset = 0;
-    while (offset < count) {
-        int n = esp_http_client_read(
-            client,
-            reinterpret_cast<char *>(dst + offset),
-            (int)(count - offset)
-        );
-        if (n <= 0) return false;
-        offset += (size_t)n;
-    }
-    return true;
-}
-
-static bool http_discard_exact(esp_http_client_handle_t client, uint32_t count) {
-    uint8_t scratch[64];
-    while (count > 0) {
-        const size_t take = std::min<size_t>(sizeof(scratch), (size_t)count);
-        if (!http_read_exact(client, scratch, take)) return false;
-        count -= (uint32_t)take;
-    }
-    return true;
-}
-
-static bool read_tts_wav_header(esp_http_client_handle_t client, uint32_t &pcm_bytes) {
-    static const uint32_t TTS_MAX_PCM_BYTES = 48000U * 2U * 180U;
-    uint8_t riff[12] = {};
-    if (!http_read_exact(client, riff, sizeof(riff))) return false;
-    if (memcmp(riff, "RIFF", 4) != 0 || memcmp(riff + 8, "WAVE", 4) != 0) return false;
-
-    bool have_fmt = false;
-    for (int chunk_index = 0; chunk_index < 12; ++chunk_index) {
-        uint8_t chunk_header[8] = {};
-        if (!http_read_exact(client, chunk_header, sizeof(chunk_header))) return false;
-        const uint32_t chunk_size = read_le32(chunk_header + 4);
-        const bool padded = (chunk_size & 1U) != 0;
-
-        if (memcmp(chunk_header, "fmt ", 4) == 0) {
-            if (chunk_size < 16 || chunk_size > 64) return false;
-            uint8_t fmt[64] = {};
-            if (!http_read_exact(client, fmt, chunk_size)) return false;
-            if (padded && !http_discard_exact(client, 1)) return false;
-
-            const uint16_t audio_format = read_le16(fmt);
-            const uint16_t channels = read_le16(fmt + 2);
-            const uint32_t sample_rate = read_le32(fmt + 4);
-            const uint16_t bits_per_sample = read_le16(fmt + 14);
-            if (audio_format != 1 || channels != 1 || sample_rate != 48000 || bits_per_sample != 16) {
-                ESP_LOGE(
-                    TAG,
-                    "TTS WAV format mismatch format=%u channels=%u rate=%lu bits=%u",
-                    (unsigned)audio_format,
-                    (unsigned)channels,
-                    (unsigned long)sample_rate,
-                    (unsigned)bits_per_sample
-                );
-                return false;
-            }
-            have_fmt = true;
-            continue;
-        }
-
-        if (memcmp(chunk_header, "data", 4) == 0) {
-            if (!have_fmt || chunk_size == 0 || padded || chunk_size > TTS_MAX_PCM_BYTES) return false;
-            pcm_bytes = chunk_size;
-            return true;
-        }
-
-        // Metadata chunks are allowed but tightly bounded so malformed input
-        // cannot make MINI discard an unbounded response before audio starts.
-        if (chunk_size > 4096U) return false;
-        if (!http_discard_exact(client, chunk_size + (padded ? 1U : 0U))) return false;
-    }
-    return false;
-}
-
-struct MobileTts16kContext {
+struct MobileTtsContext {
     bool ok = true;
-    bool have_low = false;
-    uint8_t low = 0;
+    bool have_carry = false;
+    uint8_t carry = 0;
+    bool first_audio = true;
+    int64_t started_us = 0;
 };
 
-static bool mobile_tts_16k_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
-    auto *ctx = static_cast<MobileTts16kContext *>(ctx_ptr);
-    if (!ctx || !data || !ctx->ok) return false;
-    uint8_t out[1536];
-    size_t out_len = 0;
-    size_t i = 0;
-
-    auto emit_sample = [&](uint8_t lo, uint8_t hi) -> bool {
-        if (out_len + 6 > sizeof(out)) {
-            if (esp_codec_dev_write(output_dev, out, out_len) != ESP_CODEC_DEV_OK) return false;
-            out_len = 0;
+static bool mobile_tts_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
+    auto *ctx = static_cast<MobileTtsContext *>(ctx_ptr);
+    if (!ctx || !data || len == 0 || !ctx->ok) return ctx && ctx->ok;
+    uint8_t buffer[520];
+    size_t offset = 0;
+    if (ctx->have_carry) {
+        buffer[0] = ctx->carry;
+        offset = 1;
+        ctx->have_carry = false;
+    }
+    if (offset + len > sizeof(buffer)) {
+        ctx->ok = false;
+        return false;
+    }
+    memcpy(buffer + offset, data, len);
+    size_t total = offset + len;
+    if (total & 1U) {
+        ctx->carry = buffer[total - 1];
+        ctx->have_carry = true;
+        total--;
+    }
+    if (total > 0) {
+        if (ctx->first_audio) {
+            ctx->first_audio = false;
+            ESP_LOGI(TAG, "VOICE PERF: TTS first-audio=%lld ms (MOBILE)",
+                     (long long)((esp_timer_get_time() - ctx->started_us) / 1000));
         }
-        for (int n = 0; n < 3; ++n) {
-            out[out_len++] = lo;
-            out[out_len++] = hi;
+        if (esp_codec_dev_write(output_dev, buffer, total) != ESP_CODEC_DEV_OK) {
+            ctx->ok = false;
+            return false;
         }
-        return true;
-    };
-
-    if (ctx->have_low && len > 0) {
-        if (!emit_sample(ctx->low, data[0])) ctx->ok = false;
-        ctx->have_low = false;
-        i = 1;
     }
-    while (ctx->ok && i + 1 < len) {
-        if (!emit_sample(data[i], data[i + 1])) ctx->ok = false;
-        i += 2;
-    }
-    if (ctx->ok && i < len) {
-        ctx->low = data[i];
-        ctx->have_low = true;
-    }
-    if (ctx->ok && out_len > 0 && esp_codec_dev_write(output_dev, out, out_len) != ESP_CODEC_DEV_OK) ctx->ok = false;
-    return ctx->ok;
-}
-
-static bool speak_text_mobile(const std::string &body) {
-    if (!mel_mobile_bridge_ready()) return false;
-    MobileTts16kContext ctx;
-    int status = 0;
-    esp_codec_dev_set_out_vol(output_dev, 72.0);
-    const esp_err_t err = mel_mobile_bridge_request_stream(
-        HTTP_METHOD_POST,
-        "/api/device/v1/voice/tts",
-        "application/json",
-        g_cfg.token,
-        g_device_id,
-        reinterpret_cast<const uint8_t *>(body.data()),
-        body.size(),
-        status,
-        mobile_tts_16k_chunk,
-        &ctx
-    );
-    esp_codec_dev_set_out_vol(output_dev, 0.0);
-    const bool ok = err == ESP_OK && status == 200 && ctx.ok && !ctx.have_low;
-    if (!ok) ESP_LOGW(TAG, "MOBILE TTS failed err=%s status=%d", esp_err_to_name(err), status);
-    return ok;
+    return true;
 }
 
 static bool speak_text(const std::string &text) {
@@ -423,8 +641,38 @@ static bool speak_text(const std::string &text) {
     std::string body = json_string(root);
     cJSON_Delete(root);
 
-    if (!g_wifi_connected && mel_mobile_bridge_ready()) {
-        return speak_text_mobile(body);
+    if (!mel_mobile_bridge_ready() && g_mobile_connected && !g_wifi_connected) {
+        ESP_LOGI(TAG, "MEL MOBILE reconnect grace before TTS");
+        ui_status("RECONNEXION...");
+        wait_for_mobile_bridge_ready(8000);
+    }
+
+    if (mel_mobile_bridge_ready()) {
+        MobileTtsContext ctx;
+        ctx.started_us = esp_timer_get_time();
+        int status = 0;
+        esp_codec_dev_set_out_vol(output_dev, 100.0);
+        esp_err_t err = mel_mobile_bridge_request_stream(
+            HTTP_METHOD_POST,
+            "/api/device/v1/voice/tts",
+            "application/json",
+            g_cfg.token,
+            g_device_id,
+            reinterpret_cast<const uint8_t *>(body.data()),
+            body.size(),
+            status,
+            mobile_tts_chunk,
+            &ctx
+        );
+        esp_codec_dev_set_out_vol(output_dev, 0.0);
+        const bool ok = err == ESP_OK && status == 200 && ctx.ok && !ctx.have_carry;
+        if (!ok) ESP_LOGW(TAG, "MOBILE TTS failed err=%s status=%d", esp_err_to_name(err), status);
+        return ok;
+    }
+
+    if (!g_wifi_connected) {
+        ESP_LOGW(TAG, "TTS unavailable: MEL MOBILE offline and Wi-Fi unavailable");
+        return false;
     }
 
     std::string url = std::string(SERVER) + "/api/device/v1/voice/tts";
@@ -443,54 +691,57 @@ static bool speak_text(const std::string &text) {
     esp_http_client_set_header(client, "X-MEL-Device-ID", g_device_id);
 
     bool ok = false;
+    const int64_t tts_request_us = esp_timer_get_time();
     if (esp_http_client_open(client, (int)body.size()) == ESP_OK) {
         int written = esp_http_client_write(client, body.data(), (int)body.size());
         if (written == (int)body.size()) {
             esp_http_client_fetch_headers(client);
             int status = esp_http_client_get_status_code(client);
             if (status == 200) {
-                uint32_t remaining = 0;
-                if (!read_tts_wav_header(client, remaining)) {
-                    ESP_LOGE(TAG, "TTS WAV header invalid; refusing audio playback");
-                } else {
-                    uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4097, MALLOC_CAP_8BIT));
-                    if (buffer) {
-                        esp_codec_dev_set_out_vol(output_dev, 72.0);
-                        ok = true;
-                        bool have_carry = false;
-                        uint8_t carry = 0;
-                        while (remaining > 0 && ok) {
-                            const size_t offset = have_carry ? 1 : 0;
-                            if (have_carry) buffer[0] = carry;
-                            const int want = (int)std::min<uint32_t>(4096U, remaining);
-                            int n = esp_http_client_read(
-                                client,
-                                reinterpret_cast<char *>(buffer + offset),
-                                want
-                            );
-                            if (n <= 0) {
-                                ESP_LOGE(TAG, "TTS WAV truncated with %lu bytes remaining", (unsigned long)remaining);
-                                ok = false;
-                                break;
-                            }
-                            remaining -= (uint32_t)n;
-
-                            size_t total = offset + (size_t)n;
-                            have_carry = (total & 1U) != 0;
+                uint8_t *buffer = static_cast<uint8_t *>(heap_caps_malloc(4097, MALLOC_CAP_8BIT));
+                if (buffer) {
+                    esp_codec_dev_set_out_vol(output_dev, 100.0);
+                    ok = true;
+                    bool have_carry = false;
+                    uint8_t carry = 0;
+                    bool first_audio = true;
+                    while (true) {
+                        const size_t offset = have_carry ? 1 : 0;
+                        if (have_carry) buffer[0] = carry;
+                        int n = esp_http_client_read(
+                            client,
+                            reinterpret_cast<char *>(buffer + offset),
+                            4096
+                        );
+                        if (n < 0) { ok = false; break; }
+                        if (n == 0) {
                             if (have_carry) {
-                                carry = buffer[total - 1];
-                                total -= 1;
+                                ESP_LOGE(TAG, "TTS returned truncated 16-bit PCM");
+                                ok = false;
                             }
-                            if (total > 0 && esp_codec_dev_write(output_dev, buffer, total) != ESP_CODEC_DEV_OK) {
-                                ESP_LOGE(TAG, "TTS codec write failed");
+                            break;
+                        }
+
+                        size_t total = offset + (size_t)n;
+                        have_carry = (total & 1U) != 0;
+                        if (have_carry) {
+                            carry = buffer[total - 1];
+                            total -= 1;
+                        }
+                        if (total > 0) {
+                            if (first_audio) {
+                                first_audio = false;
+                                ESP_LOGI(TAG, "VOICE PERF: TTS first-audio=%lld ms",
+                                         (long long)((esp_timer_get_time() - tts_request_us) / 1000));
+                            }
+                            if (esp_codec_dev_write(output_dev, buffer, total) != ESP_CODEC_DEV_OK) {
                                 ok = false;
                                 break;
                             }
                         }
-                        if (have_carry || remaining != 0) ok = false;
-                        esp_codec_dev_set_out_vol(output_dev, 0.0);
-                        heap_caps_free(buffer);
                     }
+                    esp_codec_dev_set_out_vol(output_dev, 0.0);
+                    heap_caps_free(buffer);
                 }
             } else {
                 ESP_LOGW(TAG, "TTS failed status=%d", status);
@@ -499,10 +750,6 @@ static bool speak_text(const std::string &text) {
         esp_http_client_close(client);
     }
     esp_http_client_cleanup(client);
-    if (!ok && mel_mobile_bridge_ready()) {
-        ESP_LOGW(TAG, "Wi-Fi TTS failed; fallback MEL MOBILE");
-        return speak_text_mobile(body);
-    }
     return ok;
 }
 
@@ -515,7 +762,8 @@ static std::string json_string(cJSON *obj) {
 
 static bool pair_terminal() {
     if (g_cfg.token[0]) return true;
-    if (!g_cfg.pair_code[0]) return false;
+    const bool android_sponsored_pair = mel_mobile_bridge_ready();
+    if (!g_cfg.pair_code[0] && !android_sponsored_pair) return false;
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "device_id", g_device_id);
@@ -629,8 +877,8 @@ static esp_err_t setup_get(httpd_req_t *req) {
         "<!doctype html><html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
         "<title>MINI Setup</title><style>body{font-family:system-ui;background:#07111f;color:#fff;padding:22px;max-width:520px;margin:auto}"
         "input,button{width:100%;padding:14px;margin:8px 0;border-radius:10px;border:1px solid #334155;box-sizing:border-box}"
-        "button{background:#2563eb;color:white;font-weight:700}</style><h1>MINI · premier démarrage</h1>"
-        "<p>Saisis ton Wi-Fi et le code créé dans MEL &gt; MINI.</p>"
+        "button{background:#2563eb;color:white;font-weight:700}</style><h1>MINI  premier demarrage</h1>"
+        "<p>Saisis ton Wi-Fi et le code cree dans MEL &gt; MINI.</p>"
         "<form method=post action=/save><input name=ssid maxlength=32 placeholder='Nom Wi-Fi' required>"
         "<input name=password type=password maxlength=64 placeholder='Mot de passe Wi-Fi'>"
         "<input name=pair_code maxlength=16 placeholder='Code MEL' required autocomplete=off>"
@@ -660,7 +908,7 @@ static esp_err_t setup_save(httpd_req_t *req) {
     std::string code = form_value(body, "pair_code");
     if (ssid.empty() || code.empty() || ssid.size() > 32 || password.size() > 64 || code.size() > 16) {
         httpd_resp_set_status(req, "400 Bad Request");
-        return httpd_resp_sendstr(req, "Paramètres invalides.");
+        return httpd_resp_sendstr(req, "Parametres invalides.");
     }
 
     save_string("ssid", ssid.c_str());
@@ -669,7 +917,7 @@ static esp_err_t setup_save(httpd_req_t *req) {
     save_string("token", "");
 
     httpd_resp_set_type(req, "text/html; charset=utf-8");
-    httpd_resp_sendstr(req, "<html><meta charset=utf-8><body><h2>Configuration enregistrée.</h2><p>MEL redémarre et se connecte…</p></body></html>");
+    httpd_resp_sendstr(req, "<html><meta charset=utf-8><body><h2>Configuration enregistree.</h2><p>MEL redemarre et se connecte...</p></body></html>");
     xTaskCreate(restart_task, "mel_restart", 2048, nullptr, 3, nullptr);
     return ESP_OK;
 }
@@ -678,7 +926,7 @@ static void show_setup_ui(const char *ssid, const char *pass) {
     char message[420];
     snprintf(
         message, sizeof(message),
-        "Premier démarrage\n\n1. Wi-Fi : %s\n2. Mot de passe : %s\n3. Ouvre http://192.168.4.1\n4. Dans MEL > MINI, crée un code puis saisis-le.\n\nBOOT au démarrage = réinitialiser.",
+        "Premier demarrage\n\n1. Wi-Fi : %s\n2. Mot de passe : %s\n3. Ouvre http://192.168.4.1\n4. Dans MEL > MINI, cree un code puis saisis-le.\n\nBOOT au demarrage = reinitialiser.",
         ssid, pass
     );
     ui_status("CONFIGURATION");
@@ -736,16 +984,20 @@ static std::string parse_json_text(const std::string &body, const char *field) {
     return value;
 }
 
-static std::string chat_with_mel(const std::string &text) {
+static MelChatReply chat_with_mel(const std::string &text) {
+    MelChatReply reply;
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "text", text.c_str());
     cJSON_AddStringToObject(root, "conversation_id", g_device_id);
+    cJSON_AddStringToObject(root, "input_source", "voice-server-transcription");
+    cJSON_AddBoolToObject(root, "voice_mode", true);
+    cJSON_AddBoolToObject(root, "parallel", false);
     std::string body = json_string(root);
     cJSON_Delete(root);
 
     std::string response;
     int status = 0;
-    esp_err_t err = http_request(
+    const esp_err_t err = http_request(
         HTTP_METHOD_POST,
         std::string(SERVER) + "/api/device/v1/chat",
         "application/json",
@@ -754,121 +1006,354 @@ static std::string chat_with_mel(const std::string &text) {
         response,
         status
     );
-    if (err != ESP_OK || status != 200) return "Connexion chat impossible.";
-    std::string answer = parse_json_text(response, "text");
-    return answer.empty() ? "MEL n'a pas renvoyé de texte." : answer;
+    if (err != ESP_OK || status != 200) {
+        reply.text = "Connexion chat impossible.";
+        return reply;
+    }
+
+    cJSON *json = cJSON_Parse(response.c_str());
+    cJSON *text_node = json ? cJSON_GetObjectItemCaseSensitive(json, "text") : nullptr;
+    if (cJSON_IsString(text_node) && text_node->valuestring) reply.text = text_node->valuestring;
+    if (reply.text.empty()) reply.text = "MEL n'a pas renvoye de texte.";
+
+    cJSON *display = json ? cJSON_GetObjectItemCaseSensitive(json, "display") : nullptr;
+    if (cJSON_IsObject(display)) {
+        cJSON *title = cJSON_GetObjectItemCaseSensitive(display, "title");
+        if (cJSON_IsString(title) && title->valuestring) reply.display_title = title->valuestring;
+        cJSON *items = cJSON_GetObjectItemCaseSensitive(display, "items");
+        if (cJSON_IsArray(items)) {
+            cJSON *item = nullptr;
+            cJSON_ArrayForEach(item, items) {
+                if (reply.display_items.size() >= 5) break;
+                cJSON *url = cJSON_GetObjectItemCaseSensitive(item, "url");
+                if (!cJSON_IsString(url) || !url->valuestring || strncmp(url->valuestring, "http", 4) != 0) continue;
+                MelDisplayItem row;
+                cJSON *item_title = cJSON_GetObjectItemCaseSensitive(item, "title");
+                cJSON *snippet = cJSON_GetObjectItemCaseSensitive(item, "snippet");
+                cJSON *image_url = cJSON_GetObjectItemCaseSensitive(item, "image_url");
+                row.url = url->valuestring;
+                if (cJSON_IsString(item_title) && item_title->valuestring) row.title = item_title->valuestring;
+                if (cJSON_IsString(snippet) && snippet->valuestring) row.snippet = snippet->valuestring;
+                if (cJSON_IsString(image_url) && image_url->valuestring && strncmp(image_url->valuestring, "https://", 8) == 0) {
+                    row.image_url = image_url->valuestring;
+                }
+                reply.display_items.push_back(std::move(row));
+            }
+        }
+    }
+    if (json) cJSON_Delete(json);
+    return reply;
 }
 
-static void wav_header(uint8_t *h, uint32_t data_size) {
-    const uint32_t byte_rate = VOICE_RATE * 2;
+static void wav_header(uint8_t *h, uint32_t data_size, uint32_t sample_rate) {
+    const uint32_t byte_rate = sample_rate * 2;
     const uint32_t riff_size = 36 + data_size;
     memcpy(h, "RIFF", 4); memcpy(h + 8, "WAVEfmt ", 8);
     h[4]=(uint8_t)riff_size; h[5]=(uint8_t)(riff_size>>8); h[6]=(uint8_t)(riff_size>>16); h[7]=(uint8_t)(riff_size>>24);
     h[16]=16; h[17]=h[18]=h[19]=0;
     h[20]=1; h[21]=0; h[22]=1; h[23]=0;
-    h[24]=(uint8_t)VOICE_RATE; h[25]=(uint8_t)(VOICE_RATE>>8); h[26]=(uint8_t)(VOICE_RATE>>16); h[27]=(uint8_t)(VOICE_RATE>>24);
+    h[24]=(uint8_t)sample_rate; h[25]=(uint8_t)(sample_rate>>8); h[26]=(uint8_t)(sample_rate>>16); h[27]=(uint8_t)(sample_rate>>24);
     h[28]=(uint8_t)byte_rate; h[29]=(uint8_t)(byte_rate>>8); h[30]=(uint8_t)(byte_rate>>16); h[31]=(uint8_t)(byte_rate>>24);
     h[32]=2; h[33]=0; h[34]=16; h[35]=0; memcpy(h+36,"data",4);
     h[40]=(uint8_t)data_size; h[41]=(uint8_t)(data_size>>8); h[42]=(uint8_t)(data_size>>16); h[43]=(uint8_t)(data_size>>24);
 }
 
 static std::string record_and_transcribe() {
-    if (!g_audio_ok || !input_dev) return "Micro indisponible.";
-    auto *pcm = static_cast<uint8_t *>(heap_caps_malloc(VOICE_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!pcm) pcm = static_cast<uint8_t *>(heap_caps_malloc(VOICE_BYTES, MALLOC_CAP_8BIT));
-    if (!pcm) return "Mémoire insuffisante pour enregistrer.";
-
-    esp_codec_dev_set_in_gain(input_dev, 38.0);
-    int rc = esp_codec_dev_read(input_dev, pcm, VOICE_BYTES);
-    esp_codec_dev_set_in_gain(input_dev, 0.0);
-    if (rc != ESP_CODEC_DEV_OK) {
-        heap_caps_free(pcm);
-        return "Échec de l'enregistrement micro.";
+    g_last_voice_error = nullptr;
+    if (!g_audio_ok || !input_dev) {
+        ESP_LOGE(TAG, "VOICE: input codec unavailable");
+        voice_error("MICRO INDISPONIBLE");
+        return "";
     }
+
+    auto *capture = static_cast<int16_t *>(heap_caps_malloc(VOICE_CAPTURE_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!capture) capture = static_cast<int16_t *>(heap_caps_malloc(VOICE_CAPTURE_BYTES, MALLOC_CAP_8BIT));
+    if (!capture) {
+        ESP_LOGE(TAG, "VOICE: capture allocation failed");
+        voice_error("MEMOIRE AUDIO");
+        return "";
+    }
+
+    // Read in short chunks so a second press on PARLER can stop recording
+    // immediately instead of waiting for the maximum recording duration.
+    constexpr int CAPTURE_CHUNK_MS = 100;
+    constexpr int CAPTURE_CHUNK_SAMPLES = (VOICE_CAPTURE_RATE * CAPTURE_CHUNK_MS) / 1000;
+    int captured_samples = 0;
+    int rc = ESP_CODEC_DEV_OK;
+
+    ensure_mic_mutex();
+    if (!g_mic_mutex || xSemaphoreTake(g_mic_mutex, pdMS_TO_TICKS(1500)) != pdTRUE) {
+        heap_caps_free(capture);
+        voice_error("MICRO OCCUPE");
+        return "";
+    }
+    esp_codec_dev_set_in_gain(input_dev, 40.0);
+    while (captured_samples < VOICE_CAPTURE_SAMPLES) {
+        const int remaining = VOICE_CAPTURE_SAMPLES - captured_samples;
+        const int chunk_samples = remaining < CAPTURE_CHUNK_SAMPLES ? remaining : CAPTURE_CHUNK_SAMPLES;
+        rc = esp_codec_dev_read(
+            input_dev,
+            capture + captured_samples,
+            (int)(chunk_samples * sizeof(int16_t))
+        );
+        if (rc != ESP_CODEC_DEV_OK) break;
+        captured_samples += chunk_samples;
+
+        uint64_t chunk_abs_sum = 0;
+        for (int i = 0; i < chunk_samples; i += 4) {
+            const int32_t v = capture[captured_samples - chunk_samples + i];
+            chunk_abs_sum += (uint32_t)(v < 0 ? -v : v);
+        }
+        const int sampled = (chunk_samples + 3) / 4;
+        const uint32_t chunk_mean_abs = sampled > 0 ? (uint32_t)(chunk_abs_sum / sampled) : 0;
+        int visual_level = (int)(chunk_mean_abs / 24U);
+        if (visual_level > 100) visual_level = 100;
+        g_voice_level = visual_level;
+
+        if (g_voice_stop_requested) {
+            ESP_LOGI(TAG, "VOICE STOP: manual stop after %d ms (%d samples)",
+                     (captured_samples * 1000) / VOICE_CAPTURE_RATE, captured_samples);
+            break;
+        }
+    }
+    esp_codec_dev_set_in_gain(input_dev, 0.0);
+    xSemaphoreGive(g_mic_mutex);
+    g_voice_level = 0;
+
+    if (rc != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(TAG, "VOICE: esp_codec_dev_read failed rc=%d after %d samples", rc, captured_samples);
+        heap_caps_free(capture);
+        voice_error("LECTURE MICRO");
+        return "";
+    }
+    if (captured_samples < (VOICE_CAPTURE_RATE / 4)) {
+        ESP_LOGW(TAG, "VOICE: recording too short (%d samples)", captured_samples);
+        heap_caps_free(capture);
+        voice_error("ENREG. TROP COURT");
+        return "";
+    }
+
+    // Recording is now finished. The second press means STOP + transcribe,
+    // never "cancel and discard".
+    g_runtime_state = MEL_TERMINAL_TRANSCRIBING;
+    ui_status("TRANSCRIPTION...");
+
+    int64_t dc_sum = 0;
+    int16_t raw_min = 32767;
+    int16_t raw_max = -32768;
+    uint64_t raw_abs_sum = 0;
+    for (int i = 0; i < captured_samples; ++i) {
+        const int16_t sample = capture[i];
+        dc_sum += sample;
+        if (sample < raw_min) raw_min = sample;
+        if (sample > raw_max) raw_max = sample;
+        raw_abs_sum += (uint32_t)(sample < 0 ? -(int32_t)sample : (int32_t)sample);
+    }
+    const int32_t dc = (int32_t)(dc_sum / captured_samples);
+    const uint32_t raw_mean_abs = (uint32_t)(raw_abs_sum / captured_samples);
+    ESP_LOGI(TAG,
+             "MIC RAW: samples=%d duration_ms=%d min=%d max=%d span=%ld mean_abs=%u dc=%ld",
+             captured_samples, (captured_samples * 1000) / VOICE_CAPTURE_RATE,
+             (int)raw_min, (int)raw_max,
+             (long)((int32_t)raw_max - (int32_t)raw_min),
+             (unsigned)raw_mean_abs, (long)dc);
+
+    const int speech_samples = captured_samples / 3;
+    const int speech_bytes = speech_samples * (int)sizeof(int16_t);
+    auto *speech = static_cast<int16_t *>(heap_caps_malloc(speech_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!speech) speech = static_cast<int16_t *>(heap_caps_malloc(speech_bytes, MALLOC_CAP_8BIT));
+    if (!speech) {
+        heap_caps_free(capture);
+        ESP_LOGE(TAG, "VOICE: STT buffer allocation failed");
+        voice_error("MEMOIRE STT");
+        return "";
+    }
+
+    // 48 kHz -> 16 kHz mono: average each group of three samples while
+    // removing the measured DC offset.
+    int32_t peak = 0;
+    uint64_t speech_abs_sum = 0;
+    for (int i = 0; i < speech_samples; ++i) {
+        const int j = i * 3;
+        int32_t v = ((int32_t)capture[j] + capture[j + 1] + capture[j + 2]) / 3 - dc;
+        if (v > 32767) v = 32767;
+        if (v < -32768) v = -32768;
+        speech[i] = (int16_t)v;
+        const int32_t a = v < 0 ? -v : v;
+        if (a > peak) peak = a;
+        speech_abs_sum += (uint32_t)a;
+    }
+    heap_caps_free(capture);
+
+    uint32_t speech_mean_abs = (uint32_t)(speech_abs_sum / speech_samples);
+    if (peak < 90 || speech_mean_abs < 18) {
+        ESP_LOGW(TAG, "MIC SILENCE: peak=%ld mean_abs=%u samples=%d",
+                 (long)peak, (unsigned)speech_mean_abs, speech_samples);
+        heap_caps_free(speech);
+        voice_error("AUCUNE VOIX");
+        return "";
+    }
+
+    // Normalize conversational speech without excessive amplification of noise.
+    int32_t scale_q15 = (int32_t)(((int64_t)16000 * 32768) / peak);
+    const int32_t max_scale_q15 = 8 * 32768;
+    if (scale_q15 > max_scale_q15) scale_q15 = max_scale_q15;
+    if (scale_q15 < 8192) scale_q15 = 8192;
+    peak = 0;
+    speech_abs_sum = 0;
+    for (int i = 0; i < speech_samples; ++i) {
+        int32_t v = (int32_t)(((int64_t)speech[i] * scale_q15) >> 15);
+        if (v > 30000) v = 30000;
+        if (v < -30000) v = -30000;
+        speech[i] = (int16_t)v;
+        const int32_t a = v < 0 ? -v : v;
+        if (a > peak) peak = a;
+        speech_abs_sum += (uint32_t)a;
+    }
+    speech_mean_abs = (uint32_t)(speech_abs_sum / speech_samples);
+    ESP_LOGI(TAG, "MIC STT READY: rate=%d samples=%d bytes=%d peak=%ld mean_abs=%u scale_q15=%ld",
+             VOICE_STT_RATE, speech_samples, speech_bytes, (long)peak,
+             (unsigned)speech_mean_abs, (long)scale_q15);
 
     const char *boundary = "----MEL-ESP32-VOICE";
     std::string prefix = std::string("--") + boundary +
         "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"mel.wav\"\r\n"
         "Content-Type: audio/wav\r\n\r\n";
     std::string suffix = std::string("\r\n--") + boundary + "--\r\n";
-    const size_t total = prefix.size() + 44 + VOICE_BYTES + suffix.size();
+    const size_t total = prefix.size() + 44 + (size_t)speech_bytes + suffix.size();
     auto *multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!multipart) multipart = static_cast<uint8_t *>(heap_caps_malloc(total, MALLOC_CAP_8BIT));
     if (!multipart) {
-        heap_caps_free(pcm);
-        return "Mémoire insuffisante pour envoyer la voix.";
+        heap_caps_free(speech);
+        ESP_LOGE(TAG, "VOICE: multipart allocation failed");
+        voice_error("MEMOIRE REQUETE");
+        return "";
     }
 
     size_t off = 0;
     memcpy(multipart + off, prefix.data(), prefix.size()); off += prefix.size();
-    wav_header(multipart + off, VOICE_BYTES); off += 44;
-    memcpy(multipart + off, pcm, VOICE_BYTES); off += VOICE_BYTES;
+    wav_header(multipart + off, (uint32_t)speech_bytes, VOICE_STT_RATE); off += 44;
+    memcpy(multipart + off, speech, speech_bytes); off += (size_t)speech_bytes;
     memcpy(multipart + off, suffix.data(), suffix.size());
-    heap_caps_free(pcm);
+    heap_caps_free(speech);
 
     std::string response;
     int status = 0;
     std::string content_type = std::string("multipart/form-data; boundary=") + boundary;
-    esp_err_t err = http_request(
-        HTTP_METHOD_POST,
-        std::string(SERVER) + "/api/device/v1/voice/transcribe",
-        content_type.c_str(),
-        reinterpret_cast<const char *>(multipart),
-        (int)total,
-        response,
-        status
-    );
+    ESP_LOGI(TAG, "STT UPLOAD: bytes=%u wav_bytes=%d rate=%d duration_ms=%d",
+             (unsigned)total, speech_bytes + 44, VOICE_STT_RATE,
+             (speech_samples * 1000) / VOICE_STT_RATE);
+
+    esp_err_t err = ESP_FAIL;
+    for (int attempt = 1; attempt <= 2; ++attempt) {
+        response.clear();
+        status = 0;
+        err = http_request(
+            HTTP_METHOD_POST,
+            std::string(SERVER) + "/api/device/v1/voice/transcribe",
+            content_type.c_str(),
+            reinterpret_cast<const char *>(multipart),
+            (int)total,
+            response,
+            status
+        );
+        ESP_LOGI(TAG, "STT RESULT attempt=%d err=%s status=%d body=%.*s",
+                 attempt, esp_err_to_name(err), status,
+                 (int)std::min<size_t>(response.size(), 240), response.c_str());
+        if (err == ESP_OK && status == 200) break;
+        if (status > 0 && status < 500) break;
+        if (attempt == 1) {
+            ui_status("STT RETRY...");
+            vTaskDelay(pdMS_TO_TICKS(300));
+        }
+    }
     heap_caps_free(multipart);
-    if (err != ESP_OK || status != 200) return "";
-    return parse_json_text(response, "text");
+
+    if (err != ESP_OK) {
+        voice_error("RESEAU STT");
+        return "";
+    }
+    if (status != 200) {
+        voice_error(status == 401 ? "SESSION MEL" : "SERVEUR STT");
+        return "";
+    }
+
+    std::string text = parse_json_text(response, "text");
+    ESP_LOGI(TAG, "STT TEXT: %s", text.empty() ? "<empty>" : text.c_str());
+    if (text.empty()) voice_error("TRANSCRIPTION VIDE");
+    return text;
 }
 
 static void voice_task(void *) {
     g_runtime_state = MEL_TERMINAL_LISTENING;
-    ui_status("ÉCOUTE…");
-    ui_answer("Parle maintenant.");
+    ui_status("ECOUTE...");
+    ui_answer("");
+    vTaskDelay(pdMS_TO_TICKS(100));
+    const int64_t stt_started_us = esp_timer_get_time();
     std::string text = record_and_transcribe();
+    ESP_LOGI(TAG, "VOICE PERF: STT total=%lld ms", (long long)((esp_timer_get_time() - stt_started_us) / 1000));
     if (text.empty()) {
         g_runtime_state = MEL_TERMINAL_ERROR;
-        ui_status("MICRO");
-        ui_answer("Je n'ai pas réussi à transcrire. Réessaie.");
+        ui_status(g_last_voice_error ? g_last_voice_error : "ERREUR STT");
+        ui_answer("");
         vTaskDelay(pdMS_TO_TICKS(1800));
         g_runtime_state = MEL_TERMINAL_IDLE;
+        g_voice_stop_requested = false;
         g_voice_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
     }
     g_runtime_state = MEL_TERMINAL_THINKING;
-    ui_status("RÉFLEXION…");
+    ui_status("REFLEXION...");
     ui_answer("");
-    std::string answer = chat_with_mel(text);
+    const int64_t chat_started_us = esp_timer_get_time();
+    MelChatReply reply = chat_with_mel(text);
+    set_display_results(reply);
+    const std::string &answer = reply.text;
+    ESP_LOGI(TAG, "VOICE PERF: CHAT=%lld ms chars=%u display_items=%u",
+             (long long)((esp_timer_get_time() - chat_started_us) / 1000),
+             (unsigned)answer.size(), (unsigned)reply.display_items.size());
     g_runtime_state = MEL_TERMINAL_SPEAKING;
-    ui_status("MINI");
-    ui_answer(answer.c_str());
+    ui_status("MEL PARLE");
+    std::string visible_answer = answer;
+    if (visible_answer.size() > 500) visible_answer.resize(500);
+    ui_answer(visible_answer.c_str());
+    const int64_t tts_started_us = esp_timer_get_time();
     const bool spoken = speak_text(answer);
+    ESP_LOGI(TAG, "VOICE PERF: TTS+PLAY=%lld ms", (long long)((esp_timer_get_time() - tts_started_us) / 1000));
     if (!spoken) {
-        ESP_LOGW(TAG, "Voice reply unavailable; keeping text response on screen");
-        vTaskDelay(pdMS_TO_TICKS(900));
+        ESP_LOGW(TAG, "Voice reply unavailable");
+        ui_status("TTS ERREUR");
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
-    ui_status("");
+    if (!g_display_items.empty()) {
+        ui_show_display_source(0);
+        if (mel_mobile_bridge_ready()) render_display_item_card(0);
+    } else ui_status("");
     g_runtime_state = MEL_TERMINAL_IDLE;
+    if (g_mobile_connected && g_online && mel_mobile_bridge_ready() && !g_wake_sync_task_handle) {
+        xTaskCreatePinnedToCore(mobile_companion_sync_task, "mel_mobile_sync", 6144, nullptr, 3, &g_wake_sync_task_handle, 0);
+    }
+    g_voice_stop_requested = false;
     g_voice_task_handle = nullptr;
     vTaskDelete(nullptr);
 }
 
 
 void mel_terminal_request_voice(void) {
-    if (!g_online || !g_audio_ok || g_voice_task_handle) return;
-    xTaskCreatePinnedToCore(voice_task, "mel_voice", 10240, nullptr, 5, &g_voice_task_handle, 0);
-}
+    if (!g_online || !g_audio_ok) return;
 
-void mel_terminal_request_update(void) {
-    if (!g_online) {
-        ui_status("MAJ INDISPONIBLE");
-        ui_answer("MEL doit etre en ligne pour verifier les mises a jour.");
+    if (g_voice_task_handle) {
+        if (g_runtime_state == MEL_TERMINAL_LISTENING) {
+            g_voice_stop_requested = true;
+            ui_status("STOP...");
+            ESP_LOGI(TAG, "VOICE STOP requested by second press");
+        }
         return;
     }
-    xTaskCreatePinnedToCore(update_task, "mel_update", 12288, nullptr, 4, nullptr, 0);
+
+    g_voice_stop_requested = false;
+    xTaskCreatePinnedToCore(voice_task, "mel_voice", 10240, nullptr, 5, &g_voice_task_handle, 0);
 }
 
 int mel_terminal_state(void) {
@@ -879,17 +1364,94 @@ bool mel_terminal_online(void) {
     return g_online;
 }
 
+int mel_terminal_voice_level(void) {
+    return g_voice_level;
+}
+
+bool mel_terminal_has_display(void) {
+    return !g_display_items.empty();
+}
+
+void mel_terminal_display_next(void) {
+    if (g_display_items.empty()) return;
+    const size_t next = (g_display_index + 1) % g_display_items.size();
+    ui_show_display_source(next);
+    if (mel_mobile_bridge_ready()) render_display_item_card(next);
+}
+
+void mel_terminal_display_previous(void) {
+    if (g_display_items.empty()) return;
+    const size_t previous = g_display_index == 0 ? g_display_items.size() - 1 : g_display_index - 1;
+    ui_show_display_source(previous);
+    if (mel_mobile_bridge_ready()) render_display_item_card(previous);
+}
+
 static void audio_test_task(void *) {
     ui_status("TEST AUDIO");
     ui_answer("Parle pendant 2 secondes : MEL va te le rejouer.");
     esp_es8311_test();
     ui_status("EN LIGNE");
-    ui_answer("Test micro + haut-parleur terminé.");
+    ui_answer("Test micro + haut-parleur termine.");
     vTaskDelete(nullptr);
 }
 
+void mel_terminal_test_audio(void) {
+    if (!g_audio_ok || !input_dev || !output_dev) {
+        ui_status("AUDIO ERREUR");
+        ui_answer("Micro ou haut-parleur indisponible.");
+        return;
+    }
+    xTaskCreatePinnedToCore(audio_test_task, "mel_audio_test", 6144, nullptr, 4, nullptr, 0);
+}
+
+
+static TaskHandle_t g_stt_test_task_handle = nullptr;
+static mel_terminal_test_status_cb_t g_stt_test_cb = nullptr;
+
+static void stt_test_task(void *) {
+    if (g_stt_test_cb) g_stt_test_cb("VOIX/STT : parle maintenant, jusqu'a 10 secondes...");
+    g_runtime_state = MEL_TERMINAL_LISTENING;
+    vTaskDelay(pdMS_TO_TICKS(250));
+    std::string text = record_and_transcribe();
+    if (text.empty()) {
+        std::string msg = std::string("VOIX/STT FAIL : ") +
+                          (g_last_voice_error ? g_last_voice_error : "aucune transcription");
+        if (g_stt_test_cb) g_stt_test_cb(msg.c_str());
+    } else {
+        std::string msg = std::string("VOIX/STT PASS : \"") + text + "\"";
+        if (g_stt_test_cb) g_stt_test_cb(msg.c_str());
+    }
+    g_runtime_state = MEL_TERMINAL_IDLE;
+    g_voice_stop_requested = false;
+    g_stt_test_task_handle = nullptr;
+    vTaskDelete(nullptr);
+}
+
+void mel_terminal_test_stt(mel_terminal_test_status_cb_t cb) {
+    g_stt_test_cb = cb;
+    if (!g_online) {
+        if (g_stt_test_cb) g_stt_test_cb("VOIX/STT FAIL : MEL hors ligne.");
+        return;
+    }
+    if (!g_audio_ok || !input_dev) {
+        if (g_stt_test_cb) g_stt_test_cb("VOIX/STT FAIL : micro indisponible.");
+        return;
+    }
+    if (g_stt_test_task_handle) {
+        if (g_runtime_state == MEL_TERMINAL_LISTENING) {
+            g_voice_stop_requested = true;
+            if (g_stt_test_cb) g_stt_test_cb("VOIX/STT : STOP -> transcription...");
+        } else if (g_stt_test_cb) {
+            g_stt_test_cb("VOIX/STT : transcription deja en cours...");
+        }
+        return;
+    }
+    g_voice_stop_requested = false;
+    xTaskCreatePinnedToCore(stt_test_task, "mel_stt_test", 12288, nullptr, 5, &g_stt_test_task_handle, 0);
+}
+
 static void camera_task(void *) {
-    ui_status("CAMÉRA…");
+    ui_status("CAMERA...");
 
     if (!g_camera_ok) {
         ESP_LOGI(TAG, "Lazy OV5640 init on core %d", xPortGetCoreID());
@@ -899,7 +1461,7 @@ static void camera_task(void *) {
     }
 
     if (!g_camera_ok) {
-        ui_status("CAMÉRA ERREUR");
+        ui_status("CAMERA ERREUR");
         ui_answer("OV5640 indisponible.");
         vTaskDelete(nullptr);
         return;
@@ -907,16 +1469,74 @@ static void camera_task(void *) {
 
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
-        ui_status("CAMÉRA ERREUR");
-        ui_answer("Aucune image reçue de l'OV5640.");
+        ui_status("CAMERA ERREUR");
+        ui_answer("Aucune image recue de l'OV5640.");
     } else {
         char msg[180];
-        snprintf(msg, sizeof(msg), "Caméra OK : %ux%u · %u octets.\nLe flux complet sera utilisé par les fonctions visuelles MEL.", fb->width, fb->height, fb->len);
-        ui_status("CAMÉRA OK");
+        snprintf(msg, sizeof(msg), "Camera OK : %ux%u  %u octets.\nLe flux complet sera utilise par les fonctions visuelles MEL.", fb->width, fb->height, fb->len);
+        ui_status("CAMERA OK");
         ui_answer(msg);
         esp_camera_fb_return(fb);
     }
     vTaskDelete(nullptr);
+}
+
+void mel_terminal_test_camera(void) {
+    xTaskCreatePinnedToCore(camera_task, "mel_camera_test", 6144, nullptr, 4, nullptr, 0);
+}
+
+static bool ends_with_ci(const std::string &value, const char *suffix) {
+    if (!suffix) return false;
+    const size_t n = strlen(suffix);
+    if (value.size() < n) return false;
+    for (size_t i = 0; i < n; ++i) {
+        const unsigned char a = (unsigned char)value[value.size() - n + i];
+        const unsigned char b = (unsigned char)suffix[i];
+        if (std::tolower(a) != std::tolower(b)) return false;
+    }
+    return true;
+}
+
+static bool show_mimg_file(const std::string &path) {
+    FILE *fp = fopen(path.c_str(), "rb");
+    if (!fp) return false;
+    uint8_t header[12] = {};
+    if (fread(header, 1, sizeof(header), fp) != sizeof(header)) {
+        fclose(fp);
+        return false;
+    }
+    if (memcmp(header, "MIMG", 4) != 0) {
+        fclose(fp);
+        return false;
+    }
+    const uint16_t width = (uint16_t)header[4] | ((uint16_t)header[5] << 8);
+    const uint16_t height = (uint16_t)header[6] | ((uint16_t)header[7] << 8);
+    const uint32_t declared = (uint32_t)header[8] |
+                              ((uint32_t)header[9] << 8) |
+                              ((uint32_t)header[10] << 16) |
+                              ((uint32_t)header[11] << 24);
+    const size_t expected = (size_t)width * (size_t)height * 2u;
+    if (!width || !height || width > 320 || height > 320 || declared != expected || expected > 320u * 320u * 2u) {
+        fclose(fp);
+        return false;
+    }
+
+    auto *pixels = static_cast<uint8_t *>(heap_caps_malloc(expected, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!pixels) pixels = static_cast<uint8_t *>(heap_caps_malloc(expected, MALLOC_CAP_8BIT));
+    if (!pixels) {
+        fclose(fp);
+        return false;
+    }
+    const bool read_ok = fread(pixels, 1, expected, fp) == expected;
+    fclose(fp);
+    const bool shown = read_ok && mini_ui_show_rgb565(pixels, expected, width, height);
+    heap_caps_free(pixels);
+    if (shown) {
+        ESP_LOGI(TAG, "MIMG displayed %ux%u from %s", (unsigned)width, (unsigned)height, path.c_str());
+        ui_status("IMAGE");
+        ui_answer("Touchez l'image pour revenir a MEL.");
+    }
+    return shown;
 }
 
 static std::string safe_asset_name(const char *name) {
@@ -929,16 +1549,115 @@ static std::string safe_asset_name(const char *name) {
     return out;
 }
 
+struct MobileAssetContext {
+    FILE *fp = nullptr;
+    bool ok = true;
+    size_t bytes = 0;
+};
+
+static bool mobile_asset_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
+    auto *ctx = static_cast<MobileAssetContext *>(ctx_ptr);
+    if (!ctx || !ctx->ok || !ctx->fp || (!data && len > 0)) return false;
+    if (len == 0) return true;
+    if (fwrite(data, 1, len, ctx->fp) != len) {
+        ctx->ok = false;
+        return false;
+    }
+    ctx->bytes += len;
+    return true;
+}
+
+static bool render_display_item_card(size_t index) {
+    if (!g_sd_ok || !mel_mobile_bridge_ready() || g_display_items.empty()) return false;
+    if (index >= g_display_items.size()) index = 0;
+    const MelDisplayItem &item = g_display_items[index];
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "title", item.title.c_str());
+    cJSON_AddStringToObject(root, "snippet", item.snippet.c_str());
+    cJSON_AddStringToObject(root, "url", item.url.c_str());
+    if (!item.image_url.empty()) cJSON_AddStringToObject(root, "image_url", item.image_url.c_str());
+    const std::string body = json_string(root);
+    cJSON_Delete(root);
+
+    mkdir("/sdcard/mel", 0775);
+    const std::string path = "/sdcard/mel/web-card.mimg";
+    FILE *fp = fopen(path.c_str(), "wb");
+    if (!fp) return false;
+    MobileAssetContext ctx;
+    ctx.fp = fp;
+    int status = 0;
+    ESP_LOGI(TAG, "DISPLAY card render via MEL MOBILE index=%u", (unsigned)index);
+    const esp_err_t err = mel_mobile_bridge_request_stream(
+        HTTP_METHOD_POST,
+        "/api/device/v1/render/card",
+        "application/json",
+        g_cfg.token,
+        g_device_id,
+        reinterpret_cast<const uint8_t *>(body.data()),
+        body.size(),
+        status,
+        mobile_asset_chunk,
+        &ctx
+    );
+    fclose(fp);
+    const bool ok = err == ESP_OK && status == 200 && ctx.ok && ctx.bytes > 12;
+    if (!ok) {
+        ESP_LOGW(TAG, "DISPLAY card render failed err=%s status=%d bytes=%u",
+                 esp_err_to_name(err), status, (unsigned)ctx.bytes);
+        remove(path.c_str());
+        return false;
+    }
+    ESP_LOGI(TAG, "DISPLAY card received %u bytes", (unsigned)ctx.bytes);
+    return show_mimg_file(path);
+}
+
 static bool download_asset(const std::string &key, const std::string &name) {
     if (!g_sd_ok || key.empty() || name.empty()) return false;
-    std::string url = std::string(SERVER) + "/api/device/v1/download?key=" + key;
+    mkdir("/sdcard/mel", 0775);
+    const std::string path = std::string("/sdcard/mel/") + safe_asset_name(name.c_str());
+
+    if (mel_mobile_bridge_ready()) {
+        FILE *fp = fopen(path.c_str(), "wb");
+        if (!fp) return false;
+        MobileAssetContext ctx;
+        ctx.fp = fp;
+        int status = 0;
+        const std::string request_path = "/api/device/v1/download?key=" + key;
+        ESP_LOGI(TAG, "ASSET via MEL MOBILE: %s", name.c_str());
+        const esp_err_t err = mel_mobile_bridge_request_stream(
+            HTTP_METHOD_GET,
+            request_path.c_str(),
+            nullptr,
+            g_cfg.token,
+            g_device_id,
+            nullptr,
+            0,
+            status,
+            mobile_asset_chunk,
+            &ctx
+        );
+        fclose(fp);
+        const bool ok = err == ESP_OK && status == 200 && ctx.ok && ctx.bytes > 0;
+        if (!ok) {
+            ESP_LOGW(TAG, "ASSET MOBILE failed err=%s status=%d bytes=%u",
+                     esp_err_to_name(err), status, (unsigned)ctx.bytes);
+            remove(path.c_str());
+            return false;
+        }
+        ESP_LOGI(TAG, "ASSET MOBILE saved: %s (%u bytes)", path.c_str(), (unsigned)ctx.bytes);
+        if (ends_with_ci(name, ".mimg")) show_mimg_file(path);
+        return true;
+    }
+
+    const std::string url = std::string(SERVER) + "/api/device/v1/download?key=" + key;
     esp_http_client_config_t cfg = {};
     cfg.url = url.c_str();
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
     cfg.timeout_ms = 60000;
     esp_http_client_handle_t client = esp_http_client_init(&cfg);
     if (!client) return false;
-    std::string auth = std::string("Bearer ") + g_cfg.token;
+    const std::string auth = std::string("Bearer ") + g_cfg.token;
     esp_http_client_set_header(client, "Authorization", auth.c_str());
     esp_http_client_set_header(client, "X-MEL-Device-ID", g_device_id);
     if (esp_http_client_open(client, 0) != ESP_OK) { esp_http_client_cleanup(client); return false; }
@@ -946,14 +1665,12 @@ static bool download_asset(const std::string &key, const std::string &name) {
     if (esp_http_client_get_status_code(client) != 200) {
         esp_http_client_close(client); esp_http_client_cleanup(client); return false;
     }
-    mkdir("/sdcard/mel", 0775);
-    std::string path = std::string("/sdcard/mel/") + safe_asset_name(name.c_str());
     FILE *fp = fopen(path.c_str(), "wb");
     if (!fp) { esp_http_client_close(client); esp_http_client_cleanup(client); return false; }
     uint8_t buffer[4096];
     bool ok = true;
     while (true) {
-        int n = esp_http_client_read(client, reinterpret_cast<char *>(buffer), sizeof(buffer));
+        const int n = esp_http_client_read(client, reinterpret_cast<char *>(buffer), sizeof(buffer));
         if (n < 0) { ok = false; break; }
         if (n == 0) break;
         if (fwrite(buffer, 1, n, fp) != (size_t)n) { ok = false; break; }
@@ -962,6 +1679,7 @@ static bool download_asset(const std::string &key, const std::string &name) {
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
     if (!ok) remove(path.c_str());
+    else if (ends_with_ci(name, ".mimg")) show_mimg_file(path);
     return ok;
 }
 
@@ -993,10 +1711,94 @@ static bool valid_sha256_hex(const std::string &value) {
     return true;
 }
 
+struct MobileOtaContext {
+    esp_ota_handle_t handle = 0;
+    mbedtls_sha256_context *sha = nullptr;
+    bool ok = true;
+    size_t bytes = 0;
+};
+
+static bool mobile_ota_chunk(const uint8_t *data, size_t len, void *ctx_ptr) {
+    auto *ctx = static_cast<MobileOtaContext *>(ctx_ptr);
+    if (!ctx || !ctx->ok || !data || len == 0) return ctx && ctx->ok;
+    if (mbedtls_sha256_update(ctx->sha, data, len) != 0) {
+        ctx->ok = false;
+        return false;
+    }
+    if (esp_ota_write(ctx->handle, data, len) != ESP_OK) {
+        ctx->ok = false;
+        return false;
+    }
+    ctx->bytes += len;
+    return true;
+}
+
+static bool ota_download_mobile(const std::string &key, const std::string &expected_sha256) {
+    const esp_partition_t *partition = esp_ota_get_next_update_partition(nullptr);
+    esp_ota_handle_t handle = 0;
+    if (!partition || esp_ota_begin(partition, OTA_SIZE_UNKNOWN, &handle) != ESP_OK) return false;
+
+    mbedtls_sha256_context sha;
+    mbedtls_sha256_init(&sha);
+    if (mbedtls_sha256_starts(&sha, 0) != 0) {
+        mbedtls_sha256_free(&sha);
+        esp_ota_abort(handle);
+        return false;
+    }
+
+    MobileOtaContext ctx;
+    ctx.handle = handle;
+    ctx.sha = &sha;
+    int status = 0;
+    const std::string path = "/api/device/v1/download?key=" + key;
+    esp_err_t err = mel_mobile_bridge_request_stream(
+        HTTP_METHOD_GET,
+        path.c_str(),
+        nullptr,
+        g_cfg.token,
+        g_device_id,
+        nullptr,
+        0,
+        status,
+        mobile_ota_chunk,
+        &ctx
+    );
+
+    uint8_t digest[32] = {};
+    bool ok = err == ESP_OK && status == 200 && ctx.ok && ctx.bytes > 0;
+    if (ok && mbedtls_sha256_finish(&sha, digest) != 0) ok = false;
+    mbedtls_sha256_free(&sha);
+    if (!ok) {
+        ESP_LOGE(TAG, "MOBILE OTA failed err=%s status=%d bytes=%u",
+                 esp_err_to_name(err), status, (unsigned)ctx.bytes);
+        esp_ota_abort(handle);
+        return false;
+    }
+
+    char actual_hex[65] = {};
+    for (int i = 0; i < 32; ++i) snprintf(actual_hex + (i * 2), 3, "%02x", digest[i]);
+    std::string expected = expected_sha256;
+    std::transform(expected.begin(), expected.end(), expected.begin(),
+                   [](unsigned char c) { return (char)std::tolower(c); });
+    if (expected != actual_hex) {
+        ESP_LOGE(TAG, "MOBILE OTA SHA-256 mismatch; refusing boot partition switch");
+        esp_ota_abort(handle);
+        return false;
+    }
+    if (esp_ota_end(handle) != ESP_OK) return false;
+    if (esp_ota_set_boot_partition(partition) != ESP_OK) return false;
+    ESP_LOGI(TAG, "MOBILE OTA verified: %u bytes", (unsigned)ctx.bytes);
+    return true;
+}
+
 static bool ota_download(const std::string &key, const std::string &expected_sha256) {
     if (!valid_sha256_hex(expected_sha256)) {
         ESP_LOGE(TAG, "OTA refused: missing/invalid manifest SHA-256");
         return false;
+    }
+    if (mel_mobile_bridge_ready()) {
+        ESP_LOGI(TAG, "OTA via MEL MOBILE");
+        return ota_download_mobile(key, expected_sha256);
     }
 
     std::string url = std::string(SERVER) + "/api/device/v1/download?key=" + key;
@@ -1078,7 +1880,7 @@ static bool ota_download(const std::string &key, const std::string &expected_sha
 }
 
 static void update_task(void *) {
-    ui_status("RECHERCHE MAJ…");
+    ui_status("RECHERCHE MAJ...");
     std::string response;
     int status = 0;
     esp_err_t err = http_request(
@@ -1088,7 +1890,7 @@ static void update_task(void *) {
     );
     if (err != ESP_OK || status != 200) {
         ui_status("MAJ INDISPONIBLE");
-        ui_answer("Impossible de lire le manifeste de mise à jour.");
+        ui_answer("Impossible de lire le manifeste de mise a jour.");
         vTaskDelete(nullptr);
         return;
     }
@@ -1107,9 +1909,9 @@ static void update_task(void *) {
     const char *ver = cJSON_IsString(version) && version->valuestring ? version->valuestring : "";
     if (!has || !strcmp(ver, MEL_FW_VERSION)) {
         if (root) cJSON_Delete(root);
-        ui_status("À JOUR");
+        ui_status("A JOUR");
         char msg[180];
-        snprintf(msg, sizeof(msg), "Aucune mise à jour plus récente publiée.%s", assets_synced > 0 ? " Ressources téléchargées sur la microSD." : "");
+        snprintf(msg, sizeof(msg), "Aucune mise a jour plus recente publiee.%s", assets_synced > 0 ? " Ressources telechargees sur la microSD." : "");
         ui_answer(msg);
         vTaskDelete(nullptr);
         return;
@@ -1118,23 +1920,25 @@ static void update_task(void *) {
     std::string update_sha256 = sha256->valuestring;
     if (root) cJSON_Delete(root);
 
-    ui_status("TÉLÉCHARGEMENT…");
-    ui_answer((std::string("Installation vérifiée de MEL ") + ver + "…").c_str());
+    ui_status("TELECHARGEMENT...");
+    ui_answer((std::string("Installation verifiee de MEL ") + ver + "...").c_str());
     if (ota_download(update_key, update_sha256)) {
-        ui_status("REDÉMARRAGE…");
-        ui_answer("Mise à jour installée.");
+        ui_status("REDEMARRAGE...");
+        ui_answer("Mise a jour installee.");
         vTaskDelay(pdMS_TO_TICKS(1200));
         esp_restart();
     } else {
-        ui_status("ÉCHEC MAJ");
-        ui_answer("Le firmware actuel est conservé.");
+        ui_status("ECHEC MAJ");
+        ui_answer("Le firmware actuel est conserve.");
     }
     vTaskDelete(nullptr);
 }
 
 static void heartbeat_task(void *) {
     while (true) {
-        if (g_online && g_cfg.token[0]) {
+        // Do not compete with voice capture / STT / chat / TTS for the BLE bridge.
+        // Heartbeat is best-effort and resumes automatically once the companion is idle.
+        if (g_online && g_cfg.token[0] && g_runtime_state == MEL_TERMINAL_IDLE) {
             wifi_ap_record_t ap = {};
             int rssi = esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0;
             cJSON *root = cJSON_CreateObject();
@@ -1314,19 +2118,19 @@ static void network_task(void *arg) {
         return;
     }
 
-    ui_status("CONNEXION WI-FI…");
+    ui_status("CONNEXION WI-FI...");
     ui_answer(g_cfg.ssid);
     if (!connect_wifi()) {
-        ui_status("WI-FI ÉCHEC");
-        ui_answer("Connexion impossible. Redémarre en maintenant BOOT pour reconfigurer.");
+        ui_status("WI-FI ECHEC");
+        ui_answer("Connexion impossible. Redemarre en maintenant BOOT pour reconfigurer.");
         vTaskDelete(nullptr);
         return;
     }
 
-    ui_status("APPAIRAGE…");
+    ui_status("APPAIRAGE...");
     if (!pair_terminal()) {
-        ui_status("CODE À RENOUVELER");
-        ui_answer("Le Wi-Fi fonctionne mais le code MEL est invalide ou expiré. Maintiens BOOT au prochain démarrage puis recrée un code.");
+        ui_status("CODE A RENOUVELER");
+        ui_answer("Le Wi-Fi fonctionne mais le code MEL est invalide ou expire. Maintiens BOOT au prochain demarrage puis recree un code.");
         vTaskDelete(nullptr);
         return;
     }
@@ -1336,9 +2140,9 @@ static void network_task(void *arg) {
     char ready[420];
     snprintf(
         ready, sizeof(ready),
-        "MINI prête · %s · %s",
+        "MINI prete  %s  %s",
         g_audio_ok ? "micro OK" : "micro indisponible",
-        g_camera_ok ? "caméra OK" : "caméra indisponible"
+        g_camera_ok ? "camera OK" : "camera indisponible"
     );
     ui_answer("");
     xTaskCreate(heartbeat_task, "mel_heartbeat", 6144, nullptr, 3, nullptr);
@@ -1388,12 +2192,121 @@ void mel_terminal_set_mobile_connected(bool connected) {
     g_mobile_connected = connected;
     if (connected) {
         if (!g_wifi_connected) ui_status(g_online ? "MEL MOBILE" : "MOBILE CONNECTE");
+        if (g_online && g_runtime_state == MEL_TERMINAL_IDLE && !g_wake_sync_task_handle) {
+            xTaskCreatePinnedToCore(mobile_companion_sync_task, "mel_mobile_sync", 6144, nullptr, 3, &g_wake_sync_task_handle, 0);
+        }
         return;
     }
     if (!g_wifi_connected) {
         g_online = false;
         ui_status("HORS LIGNE");
     }
+}
+
+static bool apply_wake_profile_json(const std::string &raw, const char *source, bool persist) {
+    if (raw.empty()) return false;
+    cJSON *root = cJSON_Parse(raw.c_str());
+    if (!root) return false;
+    cJSON *enrolled = cJSON_GetObjectItemCaseSensitive(root, "enrolled");
+    cJSON *features = cJSON_GetObjectItemCaseSensitive(root, "features");
+    cJSON *threshold = cJSON_GetObjectItemCaseSensitive(root, "threshold");
+    const int count = cJSON_IsArray(features) ? cJSON_GetArraySize(features) : 0;
+    bool valid = cJSON_IsTrue(enrolled) && count == WAKE_FEATURE_COUNT;
+    if (valid) {
+        for (int i = 0; i < WAKE_FEATURE_COUNT; ++i) {
+            cJSON *item = cJSON_GetArrayItem(features, i);
+            if (!cJSON_IsNumber(item)) { valid = false; break; }
+            g_wake_template[i] = (float)item->valuedouble;
+        }
+    }
+    if (valid) {
+        g_wake_threshold = cJSON_IsNumber(threshold) ? (float)threshold->valuedouble : 0.78f;
+        g_wake_threshold = std::max(0.66f, std::min(0.86f, g_wake_threshold));
+        g_wake_profile_ready = true;
+        if (persist) save_string("wake_prof", raw.c_str());
+        cJSON *samples = cJSON_GetObjectItemCaseSensitive(root, "sample_count");
+        ESP_LOGI(TAG, "WAKE PROFILE loaded source=%s samples=%d threshold=%.3f",
+                 source ? source : "unknown",
+                 cJSON_IsNumber(samples) ? samples->valueint : 0,
+                 g_wake_threshold);
+        ensure_wake_detector();
+    }
+    cJSON_Delete(root);
+    return valid;
+}
+
+static bool restore_phone_wake_profile_from_mini(const std::string &saved) {
+    if (!mel_mobile_bridge_ready() || saved.empty()) return false;
+    std::string response;
+    int status = 0;
+    const esp_err_t err = http_request(
+        HTTP_METHOD_POST,
+        std::string(SERVER) + "/api/device/v1/wake-profile/import",
+        "application/json",
+        saved.data(),
+        (int)saved.size(),
+        response,
+        status
+    );
+    const bool ok = err == ESP_OK && status == 200;
+    ESP_LOGI(TAG, "WAKE PROFILE restore MINI->Android %s status=%d", ok ? "OK" : "FAILED", status);
+    return ok;
+}
+
+static void sync_wake_phrase_profile() {
+    if (!mel_mobile_bridge_ready()) return;
+    std::string response;
+    int status = 0;
+    const esp_err_t err = http_request(
+        HTTP_METHOD_GET,
+        std::string(SERVER) + "/api/device/v1/wake-profile",
+        nullptr, nullptr, 0, response, status
+    );
+    if (err != ESP_OK || status != 200 || response.empty()) {
+        ESP_LOGW(TAG, "WAKE PROFILE sync unavailable err=%s status=%d", esp_err_to_name(err), status);
+        const std::string saved = load_string_dynamic("wake_prof");
+        if (apply_wake_profile_json(saved, "mini-nvs-offline", false)) return;
+        return;
+    }
+
+    cJSON *root = cJSON_Parse(response.c_str());
+    if (!root) {
+        ESP_LOGW(TAG, "WAKE PROFILE invalid JSON");
+        const std::string saved = load_string_dynamic("wake_prof");
+        apply_wake_profile_json(saved, "mini-nvs-invalid-phone", false);
+        return;
+    }
+    sync_phone_clock_from_json(root);
+    cJSON *enrolled = cJSON_GetObjectItemCaseSensitive(root, "enrolled");
+    cJSON *reset_requested = cJSON_GetObjectItemCaseSensitive(root, "reset_requested");
+    const bool phone_has_profile = cJSON_IsTrue(enrolled);
+    const bool explicit_reset = cJSON_IsTrue(reset_requested);
+    cJSON_Delete(root);
+
+    if (phone_has_profile && apply_wake_profile_json(response, "android", true)) return;
+
+    if (explicit_reset) {
+        g_wake_profile_ready = false;
+        save_string("wake_prof", "");
+        ESP_LOGI(TAG, "WAKE PROFILE cleared by explicit Android reset");
+        return;
+    }
+
+    const std::string saved = load_string_dynamic("wake_prof");
+    if (apply_wake_profile_json(saved, "mini-nvs-restore", false)) {
+        restore_phone_wake_profile_from_mini(saved);
+        return;
+    }
+
+    g_wake_profile_ready = false;
+    ESP_LOGI(TAG, "WAKE PROFILE not enrolled on Android and no MINI backup exists");
+}
+
+static void mobile_companion_sync_task(void *) {
+    vTaskDelay(pdMS_TO_TICKS(250));
+    if (mel_mobile_bridge_ready()) sync_wake_phrase_profile();
+    g_wake_sync_task_handle = nullptr;
+    vTaskDelete(nullptr);
 }
 
 static int device_session_status() {
@@ -1409,40 +2322,59 @@ static int device_session_status() {
         ESP_LOGW(TAG, "MEL session validation unavailable: %s; keeping stored token", esp_err_to_name(err));
         return -1;
     }
+    if (status == 200 && !response.empty()) {
+        cJSON *root = cJSON_Parse(response.c_str());
+        if (root) {
+            sync_phone_clock_from_json(root);
+            cJSON_Delete(root);
+        }
+    }
     return status;
 }
 
 static void online_runtime_task(void *) {
     make_device_id();
     load_config();
+    const std::string saved_wake = load_string_dynamic("wake_prof");
+    if (!saved_wake.empty()) apply_wake_profile_json(saved_wake, "mini-nvs-boot", false);
 
-    ui_status("APPAIRAGE…");
+    ui_status("APPAIRAGE...");
     if (!pair_terminal()) {
         g_online = false;
         ui_status("CODE MEL REQUIS");
-        ui_answer("Entre un code d'appairage MEL depuis l'icône de liaison.");
+        ui_answer("Entre un code d'appairage MEL depuis l'icone de liaison.");
         g_online_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
     }
 
-    const int session_status = device_session_status();
+    int session_status = device_session_status();
     if (session_status == 401 || session_status == 403) {
-        ESP_LOGW(TAG, "Stored MEL token rejected HTTP %d; clearing token", session_status);
+        ESP_LOGW(TAG, "Stored MEL token explicitly rejected with HTTP %d; clearing token", session_status);
         g_online = false;
         g_cfg.token[0] = '\0';
         save_string("token", "");
-        ui_status("REAPPARIAGE REQUIS");
-        ui_answer("La liaison MEL a ete revoquee. Entre un nouveau code d'appairage.");
-        g_online_task_handle = nullptr;
-        vTaskDelete(nullptr);
-        return;
+
+        if (mel_mobile_bridge_ready()) {
+            ESP_LOGI(TAG, "Retrying MEL pairing through authenticated Android bridge");
+            if (pair_terminal()) {
+                session_status = device_session_status();
+            }
+        }
+
+        if (session_status == 401 || session_status == 403 || !g_cfg.token[0]) {
+            ui_status("REAPPARIAGE REQUIS");
+            ui_answer("La liaison MEL a ete revoquee. Entre un nouveau code d'appairage.");
+            g_online_task_handle = nullptr;
+            vTaskDelete(nullptr);
+            return;
+        }
     }
     if (session_status != 200) {
-        ESP_LOGW(TAG, "MEL session temporarily unavailable status=%d; pairing preserved", session_status);
+        ESP_LOGW(TAG, "MEL session check returned %d; preserving persistent pairing", session_status);
         g_online = false;
         ui_status("MEL TEMPORAIREMENT INDISPONIBLE");
-        ui_answer("Appairage conserve. MEL se reconnectera automatiquement.");
+        ui_answer("");
         g_online_task_handle = nullptr;
         vTaskDelete(nullptr);
         return;
@@ -1451,6 +2383,7 @@ static void online_runtime_task(void *) {
     g_online = true;
     ui_status("");
     ui_answer("");
+    sync_wake_phrase_profile();
     if (!g_heartbeat_task_handle) {
         xTaskCreatePinnedToCore(heartbeat_task, "mel_heartbeat", 6144, nullptr, 2, &g_heartbeat_task_handle, 0);
     }
