@@ -778,6 +778,10 @@ test('release bootstrap sovereignty proof reads only sanitized 10-layer status a
   assert.equal(body.done_verified_eligible,true);
   assert.equal(body.ready_layer_count,10);
   assert.equal(body.registry_count,10);
+  assert.equal(typeof body.prevalidation_refresh,'object');
+  assert.ok(body.prevalidation_refresh.ai);
+  assert.ok(body.prevalidation_refresh.source_control);
+  assert.ok(body.prevalidation_refresh.infrastructure);
   assert.equal(body.ai_low_refusal_ready,true);
   assert.equal(body.secret_values_exposed,false);
   assert.equal(body.autonomy_started,false);
