@@ -27,8 +27,15 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          set -euo pipefail
-          npx wrangler d1 execute DB --remote --json --command "SELECT id,status,requested_by,updated_at,error,json_extract(optional_context,'$.source') AS source,json_extract(optional_context,'$.request_key') AS request_key,json_type(plan_json,'$.preflight') AS preflight_type,json_type(plan_json,'$.preflight.council') AS council_type,json_extract(plan_json,'$.preflight.council.status') AS council_status,json_extract(plan_json,'$.revision.reason') AS revision_reason,json_extract(plan_json,'$.revision.previous_request_id') AS revision_previous_request_id,json_extract(result_json,'$.teacher_bridge.status') AS teacher_status,json_extract(result_json,'$.teacher_bridge.request.request_id') AS active_teacher_request_id,json_extract(result_json,'$.last_teacher_review.request_id') AS last_teacher_request_id,json_extract(result_json,'$.last_teacher_review.verdict') AS last_teacher_verdict,json_extract(result_json,'$.implementation_planning_diagnostic.code') AS implementation_code,json_extract(result_json,'$.bridge_preparation_diagnostic.code') AS bridge_code,json_extract(result_json,'$.runtime_retry.attempts') AS runtime_retry_attempts,json_extract(result_json,'$.runtime_retry.last_error') AS runtime_retry_last_error FROM dev_jobs WHERE id='ecosystem-watch-09fabecdca74c530da98767a20870ece'" > job-state.json
+          set -uo pipefail
+          set +e
+          npx wrangler d1 execute DB --remote --json \
+            --command "SELECT id,status,requested_by,updated_at,error,json_extract(optional_context,'$.source') AS source,json_extract(optional_context,'$.request_key') AS request_key,json_extract(plan_json,'$.preflight.council.status') AS council_status,json_extract(plan_json,'$.revision.reason') AS revision_reason,json_extract(plan_json,'$.revision.previous_request_id') AS revision_previous_request_id,json_extract(result_json,'$.teacher_bridge.status') AS teacher_status,json_extract(result_json,'$.teacher_bridge.request.request_id') AS active_teacher_request_id,json_extract(result_json,'$.last_teacher_review.request_id') AS last_teacher_request_id,json_extract(result_json,'$.last_teacher_review.verdict') AS last_teacher_verdict,json_extract(result_json,'$.implementation_planning_diagnostic.code') AS implementation_code,json_extract(result_json,'$.runtime_retry.attempts') AS runtime_retry_attempts,json_extract(result_json,'$.runtime_retry.last_error') AS runtime_retry_last_error FROM dev_jobs WHERE id='ecosystem-watch-09fabecdca74c530da98767a20870ece'" \
+            > job-state.json 2> job-state.err
+          rc=$?
+          set -e
+          if [ -s job-state.err ]; then cat job-state.err; fi
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
           node - <<'NODE'
           const fs=require('fs');
           const payload=JSON.parse(fs.readFileSync('job-state.json','utf8'));
