@@ -68,3 +68,14 @@ test('predeploy backup never mutates the main Worker bootstrap secret before dep
   assert.doesNotMatch(block, /release-launch-bootstrap/);
   assert.doesNotMatch(block, /wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN/);
 });
+
+
+test('canonical release push restores MAX autonomy after live proofs', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  assert.match(source, /OWNER_MAX_AUTORELEASE: \$\{\{ github\.event_name == 'push' && 'true'/);
+  const browser = source.indexOf('      - name: Prove real production browser.execute');
+  const max = source.indexOf('      - name: Re-enable MAX 100% after verified autonomous release');
+  assert.ok(browser >= 0 && max > browser, 'MAX autonomy must only resume after browser.execute live proof');
+  assert.match(source, /if: success\(\) && env\.OWNER_MAX_AUTORELEASE == 'true'/);
+  assert.match(source, /MAX 100% restored after verified release/);
+});
