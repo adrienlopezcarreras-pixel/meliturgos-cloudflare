@@ -9,6 +9,7 @@ import {
   getAutonomyLaunchReadiness,
   prepareAutonomyLaunchCodeSync,
   prepareAutonomyLaunchBackup,
+  summarizeAutonomyLaunchCodeSync,
   prepareAutonomyLaunch,
 } from '../src/evolution/launch-readiness.js';
 import { maybeHandlePublicTeacherBridge } from '../src/teachers/public-teacher-api.js';
@@ -47,6 +48,35 @@ function bucket() {
     },
   };
 }
+
+test('ShardVault launch summary preserves bounded progress and retry timing', () => {
+  const next='2026-09-29T07:30:00.000Z';
+  const summary=summarizeAutonomyLaunchCodeSync({
+    ok:true,
+    complete:false,
+    status:'RETRY_TARGETS',
+    external:{
+      status:'RETRY_TARGETS',
+      target_count:7,
+      successful_endpoints:['a','b','c'],
+      attempted_endpoints:['a','b','c','d'],
+      completed_shards:3,
+      pending_shards:4,
+      progress:{completed:3,target:7},
+      next_retry_at:next,
+      verified_roundtrip:true,
+    },
+  });
+  assert.equal(summary.ok,true);
+  assert.equal(summary.complete,false);
+  assert.equal(summary.status,'RETRY_TARGETS');
+  assert.equal(summary.completed_shards,3);
+  assert.equal(summary.pending_shards,4);
+  assert.deepEqual(summary.progress,{completed:3,target:7});
+  assert.equal(summary.next_retry_at,next);
+  assert.equal(summary.successful_endpoints.length,3);
+  assert.equal(summary.attempted_endpoints.length,4);
+});
 
 test('historical owner failures never block launch and MEL roadmap retry storms are bounded', () => {
   const jobs = [];
