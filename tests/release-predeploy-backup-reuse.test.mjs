@@ -42,3 +42,15 @@ test('canonical release waits on bounded ShardVault progress instead of a fixed 
   assert.match(source, /exit 48/);
   assert.doesNotMatch(source, /for CODE_SYNC_ATTEMPT in \$\(seq 1 12\)/);
 });
+
+
+test('Workers AI zero-cost proof refresh runs after exact production deploy and before autonomy proof', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const deploy = source.indexOf('      - name: Deploy exact approved SHA to production');
+  const proof = source.indexOf('      - name: Refresh production Workers AI zero-cost proof');
+  const autonomy = source.indexOf('      - name: Prepare and prove production autonomy launch evidence');
+  assert.ok(deploy >= 0 && proof >= 0 && autonomy >= 0, 'release markers must exist');
+  assert.ok(deploy < proof, 'Workers AI proof refresh must happen only after the exact production SHA is deployed');
+  assert.ok(proof < autonomy, 'Workers AI zero-cost proof must be refreshed before autonomy live proofs begin');
+  assert.match(source, /wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON/);
+});
