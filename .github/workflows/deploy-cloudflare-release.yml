@@ -889,7 +889,22 @@ jobs:
             fi
             sleep "$CODE_SYNC_WAIT"
           done
-          test "$CODE_SYNC_READY" = "1"
+          if [ "$CODE_SYNC_READY" != "1" ]; then
+            echo "ShardVault code-sync did not reach a verified complete state within the bounded progress window."
+            test ! -s production-launch-code-sync.json || cat production-launch-code-sync.json
+            exit 48
+          fi
+
+          node - <<'NODE'
+          const d=require('./production-launch-code-sync.json');
+          const s=d?.code_sync||{};
+          if(d?.ok!==true || d?.complete!==true) throw new Error('PRODUCTION_CODE_SYNC_FINAL_NOT_COMPLETE');
+          if(String(s?.status||d?.status||'')!=='COPIED') throw new Error('PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED');
+          if(Number(s?.target_count||s?.progress?.target||0)<7) throw new Error('PRODUCTION_CODE_SYNC_TARGET_LT_7');
+          if(Number((s?.successful_endpoints||[]).length)<7) throw new Error('PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7');
+          if(s?.verified_roundtrip!==true) throw new Error('PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED');
+          console.log('ShardVault code-sync reached COPIED with at least 7 verified external endpoints and roundtrip proof.');
+          NODE
 
           ready=0
           for attempt in $(seq 1 8); do
