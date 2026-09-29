@@ -413,3 +413,75 @@ test('GEN2-42 production proof still refuses an unprepared QUEUED handoff', asyn
     DB.close();
   }
 });
+
+
+test('GEN2-42 release proof keeps a durably stale Teacher requeue observable but non-blocking', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    const ledger={
+      schema:'mel.ecosystem-discovery-ledger.v1',
+      items:[{
+        fingerprint:'capability:video.generate',
+        handoff:{
+          job_id:'job-stale-requeue',
+          status:'QUEUED',
+          teacher_request_id:'req-stale',
+          candidate_sha:'a'.repeat(40),
+          closed:false,
+          attempts:2,
+        },
+      }],
+    };
+    await DB.prepare(
+      `INSERT INTO capability_watch_state(id,state_json,updated_at) VALUES(?,?,?)`
+    ).bind('ecosystem-discoveries-canonical',JSON.stringify(ledger),Date.now()).run();
+
+    let resumeCalls=0;
+    const proof=await proveEcosystemTeacherHandoff({DB},{
+      developmentRepository:{
+        async get(id){
+          if(id!=='job-stale-requeue') return null;
+          return {
+            id,
+            status:'QUEUED',
+            requested_by:'mel-autonomy',
+            optional_context:{source:'ecosystem-watch',request_key:'capability:video.generate',roadmap_id:'GEN2-42'},
+            created_at:1,
+            updated_at:2,
+            plan_json:{
+              revision:{
+                reason:'TEACHER_REQUEST_STALE_SHA',
+                previous_request_id:'req-stale',
+              },
+            },
+            result_json:{
+              teacher_bridge_history:[{
+                status:'STALE',
+                request:{request_id:'req-stale'},
+              }],
+            },
+          };
+        },
+      },
+      resumeTeacherRequest:async()=>{resumeCalls+=1;throw new Error('MUST_NOT_RUN');},
+    });
+
+    assert.equal(resumeCalls,0);
+    assert.equal(proof.ok,true);
+    assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED');
+    assert.equal(proof.idle_verified,true);
+    assert.equal(proof.open_handoff_count,0);
+    assert.equal(proof.blocked_open_handoff_count,0);
+    assert.equal(proof.released_stale_teacher_requeue_count,1);
+    assert.equal(proof.released_stale_teacher_requeues[0].job_id,'job-stale-requeue');
+    assert.equal(proof.released_stale_teacher_requeues[0].teacher_request_id,null);
+    assert.equal(proof.released_stale_teacher_requeues[0].candidate_sha,null);
+    assert.equal(proof.released_stale_teacher_requeues[0].retryable,true);
+    assert.equal(proof.released_stale_teacher_requeues[0].code,'TEACHER_REQUEST_STALE_SHA');
+    assert.equal(proof.production_activation_allowed,false);
+    assert.equal(proof.auto_approval_allowed,false);
+  } finally {
+    DB.close();
+  }
+});
