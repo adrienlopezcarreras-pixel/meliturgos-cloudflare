@@ -118,6 +118,21 @@ export function inferNativeCodeCapability(text, recent = []) {
 }
 
 
+export function inferNativeExecutionCapability(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  const globalStress = /\b(?:stress\s*test|stresstest|stress-test|audit(?:e|er)?\s+(?:global|complet|toutes?\s+(?:tes|les)\s+capacites)|test(?:e|er)?\s+toutes?\s+(?:tes|les)\s+capacites|verifi(?:e|er)\s+que\s+tout\s+fonctionne|verifi(?:e|er)\s+toutes?\s+(?:tes|les)\s+capacites)\b/.test(normalized);
+  if (!globalStress) return null;
+
+  return {
+    id: 'capability.audit',
+    input: { deep: true },
+    execution_intent: 'GLOBAL_CAPABILITY_STRESS_TEST',
+  };
+}
+
 export function inferNativeComputerCapability(text) {
   const value=String(text||'').trim();
   if(!value)return null;
@@ -645,9 +660,11 @@ export async function handleNativeChat(request, env, options = {}) {
 
   const currentFactVerification = releaseSmoke ? null : inferCurrentFactVerificationPolicy(text);
   const personalProfileIntent = isPersonalProfileRecall(text);
+  const inferredExecutionCapability = releaseSmoke ? null : inferNativeExecutionCapability(text);
   const inferredCapability = releaseSmoke
     ? inferNativeCodeCapability(text, [])
-    : inferNativeComputerCapability(text)
+    : inferredExecutionCapability
+      || inferNativeComputerCapability(text)
       || (!personalProfileIntent ? inferChatGPTHistoryCapability(text) : null)
       || inferDirectCurrentWebCapability(text, body.intent_context || {})
       || inferKnowledgeCapability(text)
@@ -738,6 +755,34 @@ export async function handleNativeChat(request, env, options = {}) {
   }
 
   if (!releaseSmoke) capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
+
+  if (!releaseSmoke && inferredExecutionCapability?.execution_intent === 'GLOBAL_CAPABILITY_STRESS_TEST') {
+    const execution = toolResults.find(row => row.capability === 'capability.audit') || null;
+    if (!execution || execution.status !== 'SUCCEEDED') {
+      const code = String(execution?.error || 'GLOBAL_CAPABILITY_STRESS_TEST_NOT_EXECUTED');
+      const responseText = `Le stress test n'a pas pu être exécuté : ${code}.`;
+      let archiveSaved = false;
+      if (service) {
+        try {
+          await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
+          await service.archiveMessage({ conversationId, deviceId, role:'assistant', content:responseText, timestamp:Date.now()+1, provenance:'native-chat:execution-guard', metadata:{ execution_intent:'GLOBAL_CAPABILITY_STRESS_TEST', execution_error:code } });
+          archiveSaved = true;
+        } catch {}
+      }
+      return Response.json({
+        ok:false,
+        text:responseText,
+        code,
+        model:'deterministic-execution-guard',
+        provider:'mel',
+        response_mode:'execution',
+        execution_intent:'GLOBAL_CAPABILITY_STRESS_TEST',
+        capability_used:capabilitiesUsed,
+        tool_results:toolResults,
+        archive_saved:archiveSaved,
+      }, { status:502, headers:{'cache-control':'no-store'} });
+    }
+  }
 
   if (releaseSmoke) {
     const evidence = toolResults.find(row => row.capability === capability?.id) || null;
