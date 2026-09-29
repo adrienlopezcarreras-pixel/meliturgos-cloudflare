@@ -1,5 +1,5 @@
-GEN2-42 runtime live fallback verification
+GEN2-42 runtime live repair verification
 mode=owner-max
-release_sha=26c67e890b48873bdaa00527b02a98462164a6fb
-purpose=verify-runner-temp-bridge-and-d1-result
-trigger_seq=9
+release_sha=b0afd2c279b3029d4c28684d3d069ea9f831bc56
+purpose=retry-repair-required-mel-ui-06-through-cloud-bridge
+trigger_seq=10
