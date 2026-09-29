@@ -44,6 +44,8 @@ jobs:
           CLOUD_TOKEN="$(openssl rand -hex 32)"
           echo "::add-mask::${CLOUD_TOKEN}"
           echo "MEL_CLOUD_BRIDGE_TOKEN=${CLOUD_TOKEN}" >> "$GITHUB_ENV"
+          BRIDGE_JOB_FILE="${RUNNER_TEMP}/mel-cloud-bridge-job-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+          echo "BRIDGE_JOB_FILE=${BRIDGE_JOB_FILE}" >> "$GITHUB_ENV"
           printf '%s' "${CLOUD_TOKEN}" | npx wrangler secret put MEL_CLOUD_BRIDGE_TOKEN --env=""
           echo "Ephemeral cloud bridge token installed."
 
@@ -60,7 +62,7 @@ jobs:
           JOB_ID="$JOB_ID" node -e "process.stdout.write(JSON.stringify({job_id:process.env.JOB_ID}))" > claim-request.json
           CLAIM_READY=0
           for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "Authorization: Bearer $MEL_CLOUD_BRIDGE_TOKEN"               --header "Content-Type: application/json"               --data-binary @claim-request.json               --output bridge-job.json               --write-out '%{http_code}'               "$BASE_URL/api/dev-bridge/claim" || true)"
+            CODE="$(curl --silent --show-error --max-time 45               --request POST               --header "Authorization: Bearer $MEL_CLOUD_BRIDGE_TOKEN"               --header "Content-Type: application/json"               --data-binary @claim-request.json               --output "$BRIDGE_JOB_FILE"               --write-out '%{http_code}'               "$BASE_URL/api/dev-bridge/claim" || true)"
             if [ "$CODE" = "200" ]; then
               CLAIM_READY=1
               break
@@ -76,7 +78,7 @@ jobs:
           test "$CLAIM_READY" = "1"
           node - <<'NODE'
           const fs=require('fs');
-          const job=JSON.parse(fs.readFileSync('bridge-job.json','utf8'));
+          const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
           const prep=job?.result_json?.bridge_preparation;
           const teacher=job?.result_json?.teacher_bridge;
           const impl=job?.result_json?.implementation_proposal;
@@ -105,7 +107,7 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import path from 'node:path';
-          const job=JSON.parse(fs.readFileSync('bridge-job.json','utf8'));
+          const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
           let exact=true;
           for(const item of job.files_json||[]){
             const rel=String(item?.path||'').replace(/\\/g,'/');
@@ -123,7 +125,7 @@ jobs:
           import fs from 'node:fs';
           import { spawnSync } from 'node:child_process';
           const allowed=new Set(['test','test:mel','test:integration','test:acceptance','test:smoke','test:mvp','test:routes']);
-          const job=JSON.parse(fs.readFileSync('bridge-job.json','utf8'));
+          const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
           const results=[];
           let failed=false;
           for(const spec of job.tests_json||[]){
@@ -160,7 +162,7 @@ jobs:
           set -euo pipefail
           node - <<'NODE'
           const fs=require('fs');
-          const job=JSON.parse(fs.readFileSync('bridge-job.json','utf8'));
+          const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
           const result=JSON.parse(fs.readFileSync('bridge-apply-result.json','utf8'));
           fs.writeFileSync('bridge-result-request.json',JSON.stringify({
             job_id:job.id,
@@ -180,6 +182,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin "$CANDIDATE_BRANCH" --depth=100
+          git clean -fd
           git checkout -B "$CANDIDATE_BRANCH" "$CANDIDATE_SHA"
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           test "$(git branch --show-current)" = "$CANDIDATE_BRANCH"
@@ -193,7 +196,7 @@ jobs:
           import fs from 'node:fs/promises';
           import path from 'node:path';
           import { isSensitivePath } from './src/dev/dev-bridge.js';
-          const job=JSON.parse(await fs.readFile('bridge-job.json','utf8'));
+          const job=JSON.parse(await fs.readFile(process.env.BRIDGE_JOB_FILE,'utf8'));
           for(const item of job.files_json){
             const rel=String(item?.path||'').replace(/\\/g,'/');
             const body=String(item?.content??'');
@@ -217,7 +220,7 @@ jobs:
           import fs from 'node:fs/promises';
           import { spawnSync } from 'node:child_process';
           const allowed=new Set(['test','test:mel','test:integration','test:acceptance','test:smoke','test:mvp','test:routes']);
-          const job=JSON.parse(await fs.readFile('bridge-job.json','utf8'));
+          const job=JSON.parse(await fs.readFile(process.env.BRIDGE_JOB_FILE,'utf8'));
           const results=[];
           let failed=false;
           for(const spec of job.tests_json){
@@ -280,7 +283,7 @@ jobs:
           set -euo pipefail
           node - <<'NODE'
           const fs=require('fs');
-          const job=JSON.parse(fs.readFileSync('bridge-job.json','utf8'));
+          const job=JSON.parse(fs.readFileSync(process.env.BRIDGE_JOB_FILE,'utf8'));
           const base=fs.existsSync('bridge-apply-result.json')?JSON.parse(fs.readFileSync('bridge-apply-result.json','utf8')):{tests:[]};
           const testsPassed=process.env.TESTS_PASSED==='true';
           const commitOk=process.env.COMMIT_OUTCOME==='success';
