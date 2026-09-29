@@ -24,6 +24,9 @@ import { maybeHandleConnectionSettingsApi } from '../api/connection-settings-api
 import { D1AlternativeRegistryStore } from '../portability/d1-alternative-registry-store.js';
 import { sovereigntyCoverageFromRegistry } from '../portability/prevalidated-alternative-registry.js';
 import { liveTechnicalSovereigntyReport } from '../portability/technical-sovereignty-live.js';
+import { runConfiguredAiCandidateValidationRuntime } from '../portability/configured-ai-candidate-validation-runtime.js';
+import { runCompanionSourceControlPrevalidationRuntime } from '../portability/companion-source-control-prevalidation-runtime.js';
+import { runCompanionInfrastructurePrevalidationRuntime } from '../portability/companion-infrastructure-prevalidation-runtime.js';
 
 const PATH = '/api/internal/release-launch-bootstrap';
 const PHASES = new Set(['all', 'identity', 'pause', 'backup', 'code-sync', 'readiness', 'sovereignty-proof', 'skill-registry-proof', 'plugin-sdk-proof', 'evolution-ledger-proof', 'agent-automation-proof', 'provider-escape-proof', 'long-context-proof', 'capability-watch-proof', 'connection-proof', 'gen2-42-runtime-tick', 'gen2-42-owner-max']);
@@ -221,6 +224,34 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       return Response.json({ ok: false, code: 'D1_NOT_BOUND', phase }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
     const now = Date.now();
+    const refresh = {};
+    const runRefresh = async (id, fn) => {
+      try {
+        const result = await fn(env, { now, force: true });
+        refresh[id] = {
+          ok: result?.ok !== false,
+          skipped: result?.skipped === true,
+          status: result?.status || null,
+          reason: result?.reason || null,
+          processed: Number(result?.processed || 0),
+          prevalidated: Number(result?.prevalidated || 0),
+          blocked: Number(result?.blocked || 0),
+        };
+      } catch (error) {
+        refresh[id] = {
+          ok: false,
+          skipped: false,
+          status: 'REFRESH_FAILED',
+          reason: String(error?.code || error?.message || 'REFRESH_FAILED').slice(0,180),
+          processed: 0,
+          prevalidated: 0,
+          blocked: 0,
+        };
+      }
+    };
+    await runRefresh('ai', runConfiguredAiCandidateValidationRuntime);
+    await runRefresh('source_control', runCompanionSourceControlPrevalidationRuntime);
+    await runRefresh('infrastructure', runCompanionInfrastructurePrevalidationRuntime);
     const store = new D1AlternativeRegistryStore(env.DB);
     const registry = await store.load();
     const coverage = sovereigntyCoverageFromRegistry(registry, { now });
@@ -254,6 +285,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       blocked_layers: architecture.blocked_layers || [],
       layers,
       registry_count: Array.isArray(registry?.all) ? registry.all.length : 0,
+      prevalidation_refresh: refresh,
       secret_values_exposed: false,
       autonomy_started: false,
       owner_launch_required: true,
