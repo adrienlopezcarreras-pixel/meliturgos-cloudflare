@@ -86,3 +86,16 @@ test('canonical release push restores MAX autonomy after live proofs', async () 
   assert.match(source, /if: success\(\) && env\.OWNER_MAX_AUTORELEASE == 'true'/);
   assert.match(source, /MAX 100% restored after verified release/);
 });
+
+
+test('automatic rollback forces and verifies previous stable Worker version', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const start = source.indexOf('      - name: Automatic rollback on failed production verification');
+  assert.ok(start >= 0);
+  const block = source.slice(start);
+  assert.match(block, /deployments\?force=true/);
+  assert.match(block, /ROLLBACK_VERIFIED=0/);
+  assert.match(block, /PREVIOUS_CLOUDFLARE_VERSION_ID/);
+  assert.match(block, /Number\(versions\[0\]\?\.percentage\)===100/);
+  assert.match(block, /Automatic rollback verified on previous stable Cloudflare version/);
+});
