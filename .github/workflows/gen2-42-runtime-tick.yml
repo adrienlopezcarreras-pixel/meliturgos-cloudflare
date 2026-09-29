@@ -89,6 +89,12 @@ jobs:
               -H 'Content-Type: application/json' \
               --data-binary @tick-request.json || true)"
             if [ "$CODE" = "200" ]; then
+              TICK_STATUS="$(node -e "const fs=require('fs');const x=JSON.parse(fs.readFileSync('tick-response.raw.json','utf8'));process.stdout.write(String(x.tick_status||''))" 2>/dev/null || true)"
+              if [ "$TICK_STATUS" = "SKIPPED_LEASE_BUSY" ]; then
+                echo "GEN2-42 lease busy on attempt $ATTEMPT/12; retrying after a bounded wait."
+                sleep 8
+                continue
+              fi
               READY=1
               break
             fi
