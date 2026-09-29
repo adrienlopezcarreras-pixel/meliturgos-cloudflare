@@ -63,25 +63,39 @@ test('Workers AI zero-cost proof refresh runs after exact production deploy and 
 });
 
 
-test('predeploy refresh creates a fresh production backup before rollback capture and removes its temporary secret', async () => {
-  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
-  const refresh = source.indexOf('      - name: Refresh current production backup before release gate');
+test('predeploy refresh uses an isolated worker before rollback capture and removes it fail-closed', async () => {
+  const [source, refresher] = await Promise.all([
+    readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8'),
+    readFile(new URL('../release-tools/predeploy-backup-refresh/worker.js', import.meta.url), 'utf8'),
+  ]);
+  const refresh = source.indexOf('      - name: Refresh current production backup through ephemeral worker');
   const rollback = source.indexOf('      - name: Capture current production rollback target');
   const binder = source.indexOf('      - name: Create verified pre-deploy production backup');
-  assert.ok(refresh >= 0 && rollback > refresh && binder > rollback, 'backup refresh must complete before rollback capture and binder proof');
+  assert.ok(refresh >= 0 && rollback > refresh && binder > rollback, 'ephemeral backup refresh must complete before rollback capture and binder proof');
 
   const refreshBlock = source.slice(refresh, rollback);
-  assert.match(refreshBlock, /release-launch-bootstrap/);
-  assert.match(refreshBlock, /'\{"phase":"backup"\}'/);
-  assert.match(refreshBlock, /wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN/);
-  assert.match(refreshBlock, /wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  assert.match(refreshBlock, /mel-predeploy-backup-refresh/);
+  assert.match(refreshBlock, /MEL_BACKUP_ENCRYPTION_KEY_B64: \$\{\{ secrets\.MEL_BACKUP_ENCRYPTION_KEY_B64 \}\}/);
+  assert.match(refreshBlock, /MEL_BACKUP_ENCRYPTION_KEY_ID: \$\{\{ secrets\.MEL_BACKUP_ENCRYPTION_KEY_ID \}\}/);
+  assert.match(refreshBlock, /CURRENT_PRODUCTION_RELEASE_SHA_NOT_FOUND/);
+  assert.match(refreshBlock, /wrangler deploy --config/);
+  assert.match(refreshBlock, /wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN/);
+  assert.match(refreshBlock, /wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_B64/);
+  assert.match(refreshBlock, /wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_ID/);
+  assert.match(refreshBlock, /\/workers\/scripts\/\$\{REFRESH_NAME\}/);
   assert.match(refreshBlock, /seq 1 12/);
   assert.match(refreshBlock, /seq 1 5/);
-  assert.match(refreshBlock, /REFRESH_SECRET_INSTALLED=0/);
   assert.match(refreshBlock, /cleanup failed; release remains blocked/);
   assert.match(refreshBlock, /exit 51/);
-  assert.match(refreshBlock, /d\?\.ok!==true/);
-  assert.match(refreshBlock, /b\?\.ok!==true\|\|!b\?\.id/);
+  assert.doesNotMatch(refreshBlock, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  assert.doesNotMatch(refreshBlock, /release-launch-bootstrap/);
+
+  assert.match(refresher, /runScheduledSystemBackup/);
+  assert.match(refresher, /force:\s*true/);
+  assert.match(refresher, /compactPostPersistVerify:\s*true/);
+  assert.match(refresher, /MEL_DEPLOYED_GIT_SHA/);
+  assert.match(refresher, /MEL_DEPLOYED_GIT_BRANCH/);
+  assert.match(refresher, /PREDEPLOY_BACKUP_REFRESH_CREATED/);
 
   const binderEnd = source.indexOf('      - name: Install pinned Browser Rendering adapter', binder);
   const binderBlock = source.slice(binder, binderEnd);
@@ -91,7 +105,6 @@ test('predeploy refresh creates a fresh production backup before rollback captur
   assert.doesNotMatch(binderBlock, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
   assert.doesNotMatch(binderBlock, /release-launch-bootstrap/);
 });
-
 
 test('canonical release push restores MAX autonomy after live proofs', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
