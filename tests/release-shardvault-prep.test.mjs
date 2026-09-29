@@ -75,7 +75,7 @@ test('release gives healthy ShardVault code sync a bounded backoff-aware complet
   const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
   assert.match(source,/CODE_SYNC_DEADLINE="$(( $(date +%s) + 720 ))"/);
   assert.match(source,/next_retry_at/);
-  assert.match(source,/Math.max(2,Math.min(30/);
+  assert.match(source,/Math\.max\(2,Math\.min\(30/);
   assert.match(source,/PRODUCTION_CODE_SYNC_FINAL_NOT_COMPLETE/);
   assert.match(source,/PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED/);
   assert.match(source,/PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7/);
