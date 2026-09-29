@@ -66,7 +66,7 @@ jobs:
               const text=await r.text();
               if(r.ok) return JSON.parse(text);
               last='HTTP_'+r.status+':'+text.slice(0,300);
-              if(r.status!==401&&r.status!==503) break;
+              if(r.status!==401&&r.status!==500&&r.status!==503) break;
               await new Promise(resolve=>setTimeout(resolve,1500));
             }
             throw new Error(last||'D1_DIAG_FETCH_FAILED');
@@ -81,7 +81,9 @@ jobs:
             return rows;
           }
           const parse=v=>{try{const x=typeof v==='string'&&v?JSON.parse(v):v;return x&&typeof x==='object'?x:{};}catch{return {};}};
-          const [jobs,stateRows,ledger]=await Promise.all([table('dev_jobs'),table('dev_bridge_state'),table('evolution_ledger')]);
+          const jobs=await table('dev_jobs');
+          const stateRows=await table('dev_bridge_state');
+          const ledger=await table('evolution_ledger');
           const autonomy=jobs.filter(j=>String(j.requested_by||'')==='mel-autonomy'||String(j.requested_by||'').startsWith('owner-chat'));
           const safeJob=j=>{
             const ctx=parse(j.optional_context), plan=parse(j.plan_json), result=parse(j.result_json);
