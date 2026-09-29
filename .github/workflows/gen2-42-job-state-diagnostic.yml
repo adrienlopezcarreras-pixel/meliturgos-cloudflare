@@ -119,12 +119,23 @@ jobs:
 
           FOUND=0
           for offset in $(seq 0 100 10000); do
-            code="$(curl --silent --show-error --max-time 30 \
-              --header "x-mel-predeploy-backup-refresh: ${DIAG_TOKEN}" \
-              --output /tmp/page.json \
-              --write-out '%{http_code}' \
-              "${DIAG_URL}/d1/rows?table=dev_jobs&limit=100&offset=${offset}" || true)"
-            test "${code}" = "200"
+            PAGE_READY=0
+            for page_attempt in $(seq 1 6); do
+              code="$(curl --silent --show-error --max-time 30 \
+                --header "x-mel-predeploy-backup-refresh: ${DIAG_TOKEN}" \
+                --output /tmp/page.json \
+                --write-out '%{http_code}' \
+                "${DIAG_URL}/d1/rows?table=dev_jobs&limit=100&offset=${offset}" || true)"
+              if [ "${code}" = "200" ]; then PAGE_READY=1; break; fi
+              sleep 2
+            done
+            if [ "${PAGE_READY}" != "1" ]; then
+              echo "D1 rows page failed with HTTP ${code}."
+              if [ -s /tmp/page.json ]; then
+                node -e "const d=require('/tmp/page.json');console.log(JSON.stringify({ok:d?.ok,status:d?.status,code:d?.code||null},null,2))"
+              fi
+              exit 1
+            fi
 
             set +e
             TARGET_ID="${TARGET_ID}" node /tmp/filter-job.mjs
