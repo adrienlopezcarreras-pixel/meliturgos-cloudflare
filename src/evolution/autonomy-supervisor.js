@@ -76,8 +76,8 @@ function executionReadyRank(job) {
   // queue of CLAIMED/QUEUED owner requests cannot starve an approved internal
   // roadmap implementation forever. Owner priority is still preserved when
   // both jobs are equally implementation-ready.
+  if (status === 'REPAIR_REQUIRED') return -1;
   if (status === 'TEACHER_APPROVED') return 0;
-  if (status === 'REPAIR_REQUIRED') return 0;
   if (status === 'READY_FOR_REVIEW' && job?.result_json?.dev_bridge?.needs_repair === true) return 0;
   return 1;
 }
