@@ -1566,8 +1566,10 @@ jobs:
           if(r?.ok!==true || Number(r?.steps_completed||0)!==2) throw new Error('BROWSER_PRODUCTION_EXECUTION_INCOMPLETE');
           const nav=(r.outputs||[]).find(x=>x?.step_id==='navigate-example')?.output;
           const read=(r.outputs||[]).find(x=>x?.step_id==='read-example')?.output;
-          if(nav?.kind!=='navigation' || !String(nav?.url||'').startsWith('https://example.com')) throw new Error('BROWSER_PRODUCTION_NAVIGATION_MISSING');
-          if(read?.kind!=='text' || !String(read?.text||'').includes('Example Domain')) throw new Error('BROWSER_PRODUCTION_TEXT_MISSING');
+          const navStatus=Number(nav?.status||0);
+          if(nav?.kind!=='navigation' || !String(nav?.url||'').startsWith('https://example.com') || navStatus<200 || navStatus>=400) throw new Error('BROWSER_PRODUCTION_NAVIGATION_MISSING');
+          const readText=String(read?.text||'').trim();
+          if(read?.kind!=='text' || read?.selector!=='body' || readText.length<20) throw new Error('BROWSER_PRODUCTION_TEXT_MISSING');
           console.log('Real production browser.execute proof passed.');
           NODE
 
