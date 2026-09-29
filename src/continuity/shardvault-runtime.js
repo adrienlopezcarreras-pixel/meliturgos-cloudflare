@@ -784,13 +784,15 @@ function uniqueExternalCandidates(env,...groups){
   }
   return [...by.values()];
 }
-function rankExternalCodeCandidates(env,endpoints,requiredBytes){
+function rankExternalCodeCandidates(env,endpoints,requiredBytes,{allowUnprovenIds=[]}={}){
+  const allowed=new Set((allowUnprovenIds||[]).map(value=>String(value||'')).filter(Boolean));
+  const proven=e=>endpointRepresentativeProofValid(env,e,requiredBytes);
   const candidates=uniqueExternalCandidates(env,endpoints)
-    .filter(e=>endpointRepresentativeProofValid(env,e,requiredBytes));
+    .filter(e=>proven(e)||allowed.has(String(e?.id||'')));
   const parts=e=>Math.max(1,Math.ceil(Math.max(1,Number(requiredBytes)||1)/fragmentChunkLimit(e)));
   const latency=e=>Number(e?.probeLatencyMs)>0?Number(e.probeLatencyMs):Number.MAX_SAFE_INTEGER;
   return candidates.sort((a,b)=>
-    Number(endpointRepresentativeProofValid(env,b,requiredBytes))-Number(endpointRepresentativeProofValid(env,a,requiredBytes))||
+    Number(proven(b))-Number(proven(a))||
     parts(a)-parts(b)||
     latency(a)-latency(b)||
     (Number(b?.score)||0)-(Number(a?.score)||0)||
@@ -1165,13 +1167,20 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       await clearCodeSyncState(env,id,state);
       return {...codeBackup,external:{status:'CODE_SYNC_SHARD_INVALID',target_count:goal,restart_required:true,shard_index:i}};
     }
-    let validated=[],codeCandidates=[];
+    let validated=[],codeCandidates=[],activeCodeTargets=[];
     try{validated=await readValidatedExternalEndpoints(env,shard.length);}catch{}
     try{codeCandidates=await readCodeCandidateEndpoints(env);}catch{}
+    try{activeCodeTargets=await readActiveExternalEndpoints(env);}catch{}
+    const activeCodeTargetIds=new Set(activeCodeTargets.map(e=>String(e?.id||'')).filter(Boolean));
     const used=new Set(descriptors.map(x=>x.endpointId));
     const buildCandidates=(extra=[])=>{
       const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
-      const ranked=rankExternalCodeCandidates(env,[...validated,...extra,...codeCandidates],shard.length)
+      const ranked=rankExternalCodeCandidates(
+        env,
+        [...validated,...extra,...codeCandidates,...activeCodeTargets],
+        shard.length,
+        {allowUnprovenIds:[...activeCodeTargetIds]}
+      )
         .filter(e=>!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e));
       return prioritizeExternalCodeCandidates(ranked,state);
     };
