@@ -56,6 +56,27 @@ function exactDeployedBranch(env = {}) {
   }
 }
 
+async function devBridgeExecutorState(env = {}, { now = Date.now(), onlineWithinMs = 60000 } = {}) {
+  if (!env?.DB || typeof env.DB.prepare !== 'function') {
+    return { online: false, status: 'DB_UNAVAILABLE', last_seen_age_ms: null };
+  }
+  try {
+    const row = await env.DB.prepare(
+      "SELECT last_seen,status FROM dev_bridge_state WHERE bridge_id='primary' LIMIT 1"
+    ).first();
+    if (!row) return { online: false, status: 'OFFLINE', last_seen_age_ms: null };
+    const lastSeen = Number(row.last_seen || 0);
+    const age = lastSeen > 0 ? Math.max(0, now - lastSeen) : null;
+    return {
+      online: age != null && age < onlineWithinMs && String(row.status || '').toUpperCase() === 'ONLINE',
+      status: String(row.status || 'OFFLINE').slice(0, 80),
+      last_seen_age_ms: age,
+    };
+  } catch {
+    return { online: false, status: 'UNKNOWN', last_seen_age_ms: null };
+  }
+}
+
 async function requestPhase(request) {
   try {
     const body = await request.json();
@@ -300,6 +321,12 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     const completions = tick?.completions || tick?.passive_completions || {};
     const completed = Array.isArray(completions?.completed) ? completions.completed : [];
     const rejected = Array.isArray(completions?.rejected) ? completions.rejected : [];
+    const bridgePreparation = tick?.bridge_preparation || null;
+    const bridgeJob = tick?.job || null;
+    const bridgeExecutor = await devBridgeExecutorState(env);
+    const bridgeReady = bridgePreparation?.status === 'READY'
+      && Boolean(bridgeJob?.id)
+      && String(bridgeJob?.status || '').toUpperCase() === 'TEACHER_APPROVED';
     return Response.json({
       ok: tick?.ok !== false,
       status: 'GEN2_42_RUNTIME_TICK_EXECUTED',
@@ -308,6 +335,13 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       advanced: tick?.advanced === true,
       paused: tick?.paused === true || tick?.control?.paused === true,
       max_autonomy: tick?.control?.max_autonomy === true,
+      bridge_preparation_ready: bridgeReady,
+      bridge_job: bridgeReady ? {
+        job_id: String(bridgeJob.id).slice(0, 180),
+        status: String(bridgeJob.status || '').slice(0, 80),
+        roadmap_id: String(bridgeJob.roadmap_id || '').slice(0, 120) || null,
+      } : null,
+      bridge_executor: bridgeExecutor,
       completed: completed.map((row) => ({
         job_id: String(row?.job_id || '').slice(0, 160),
         candidate_sha: String(row?.candidate_sha || '').slice(0, 40),
@@ -349,6 +383,12 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
     const completions = tick?.completions || tick?.passive_completions || {};
     const completed = Array.isArray(completions?.completed) ? completions.completed : [];
     const rejected = Array.isArray(completions?.rejected) ? completions.rejected : [];
+    const bridgePreparation = tick?.bridge_preparation || null;
+    const bridgeJob = tick?.job || null;
+    const bridgeExecutor = await devBridgeExecutorState(env);
+    const bridgeReady = bridgePreparation?.status === 'READY'
+      && Boolean(bridgeJob?.id)
+      && String(bridgeJob?.status || '').toUpperCase() === 'TEACHER_APPROVED';
     return Response.json({
       ok: tick?.ok !== false,
       status: 'GEN2_42_OWNER_MAX_EXECUTED',
@@ -359,6 +399,13 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       launch_approved_sha: control?.launch_approved_sha || null,
       tick_status: tick?.status || null,
       advanced: tick?.advanced === true,
+      bridge_preparation_ready: bridgeReady,
+      bridge_job: bridgeReady ? {
+        job_id: String(bridgeJob.id).slice(0, 180),
+        status: String(bridgeJob.status || '').slice(0, 80),
+        roadmap_id: String(bridgeJob.roadmap_id || '').slice(0, 120) || null,
+      } : null,
+      bridge_executor: bridgeExecutor,
       completed: completed.map((row) => ({
         job_id: String(row?.job_id || '').slice(0, 160),
         candidate_sha: String(row?.candidate_sha || '').slice(0, 40),
