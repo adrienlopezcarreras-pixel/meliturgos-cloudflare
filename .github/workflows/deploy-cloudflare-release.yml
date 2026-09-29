@@ -1548,7 +1548,7 @@ jobs:
               --header "x-mel-release-smoke: 1" \
               --header "x-mel-launch-bootstrap: ${BROWSER_TOKEN}" \
               --header "content-type: application/json" \
-              --data '{"id":"browser.execute","input":{"session_id":"release-browser-proof","device":{"id":"cloudflare-browser","capabilities":["browser.control"]},"sandbox":{"allowed_origins":["https://example.com"],"max_steps":2},"approvals":[],"steps":[{"id":"navigate-example","action":"browser.navigate","url":"https://example.com/"},{"id":"read-example","action":"browser.read-text","selector":"body"}]}}' \
+              --data '{"id":"browser.execute","input":{"session_id":"release-browser-proof","device":{"id":"cloudflare-browser","capabilities":["browser.control"]},"sandbox":{"allowed_origins":["https://meliturgos.adrien-lopezcarreras.workers.dev"],"max_steps":2},"approvals":[],"steps":[{"id":"navigate-mel-about","action":"browser.navigate","url":"https://meliturgos.adrien-lopezcarreras.workers.dev/about"},{"id":"read-mel-about","action":"browser.read-text","selector":"body"}]}}' \
               --output production-browser-proof.json \
               --write-out '%{http_code}' \
               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
@@ -1564,10 +1564,10 @@ jobs:
           const r=d?.result||{};
           if(d?.ok!==true || d?.capability!=='browser.execute') throw new Error('BROWSER_PRODUCTION_CAPABILITY_NOT_OK');
           if(r?.ok!==true || Number(r?.steps_completed||0)!==2) throw new Error('BROWSER_PRODUCTION_EXECUTION_INCOMPLETE');
-          const nav=(r.outputs||[]).find(x=>x?.step_id==='navigate-example')?.output;
-          const read=(r.outputs||[]).find(x=>x?.step_id==='read-example')?.output;
-          if(nav?.kind!=='navigation' || !String(nav?.url||'').startsWith('https://example.com')) throw new Error('BROWSER_PRODUCTION_NAVIGATION_MISSING');
-          if(read?.kind!=='text' || !String(read?.text||'').includes('Example Domain')) throw new Error('BROWSER_PRODUCTION_TEXT_MISSING');
+          const nav=(r.outputs||[]).find(x=>x?.step_id==='navigate-mel-about')?.output;
+          const read=(r.outputs||[]).find(x=>x?.step_id==='read-mel-about')?.output;
+          if(nav?.kind!=='navigation' || !String(nav?.url||'').startsWith('https://meliturgos.adrien-lopezcarreras.workers.dev/about')) throw new Error('BROWSER_PRODUCTION_NAVIGATION_MISSING');
+          if(read?.kind!=='text' || !String(read?.text||'').includes('Assistant personnel connecté')) throw new Error('BROWSER_PRODUCTION_TEXT_MISSING');
           console.log('Real production browser.execute proof passed.');
           NODE
 
