@@ -218,6 +218,28 @@ export class D1DevJobRepository {
   }
 
   /**
+   * Atomically claim one exact prepared Teacher-approved package.
+   * This is used by the cloud fallback so it can never race the local bridge:
+   * whichever executor changes TEACHER_APPROVED -> CLAIMED first owns the job.
+   */
+  async claimPrepared(id) {
+    await this.init();
+    const job = await this.get(id);
+    if (!isPreparedDevBridgeJob(job)) return null;
+
+    if (!this.db) {
+      const current = this.memory.get(id);
+      if (!isPreparedDevBridgeJob(current)) return null;
+      return this.update(id, { status: 'CLAIMED' });
+    }
+
+    const r = await this.db.prepare(
+      "UPDATE dev_jobs SET status=?,updated_at=? WHERE id=? AND status='TEACHER_APPROVED'"
+    ).bind('CLAIMED', Date.now(), id).run();
+    return r.meta?.changes === 1 ? this.get(id) : null;
+  }
+
+  /**
    * The local bridge may claim a legacy/manual QUEUED job or, with priority,
    * a TEACHER_APPROVED job carrying a correlated structured Bridge package.
    * Supervised autonomy/owner-chat jobs are never legacy claimable while

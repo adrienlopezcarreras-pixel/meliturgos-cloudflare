@@ -290,8 +290,16 @@ export function devRuntime(request, env, { repository = null, bridgeRepository =
     }
 
     if (path === '/api/dev-bridge/claim' && request.method === 'POST') {
-      const job = await repo.claim();
-      if (!job) return Response.json({ job: null });
+      const requestedJobId = String(body?.job_id || '').trim();
+      const job = requestedJobId && typeof repo.claimPrepared === 'function'
+        ? await repo.claimPrepared(requestedJobId)
+        : await repo.claim();
+      if (!job) {
+        return Response.json(
+          { job: null, code: requestedJobId ? 'BRIDGE_EXACT_JOB_NOT_CLAIMABLE' : 'BRIDGE_NO_CLAIMABLE_JOB' },
+          { status: requestedJobId ? 409 : 200 },
+        );
+      }
       if (job?.result_json?.bridge_preparation?.status === 'READY') {
         return Response.json(job);
       }

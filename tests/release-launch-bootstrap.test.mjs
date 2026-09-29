@@ -871,3 +871,43 @@ test('release bootstrap sovereignty proof reads only sanitized 10-layer status a
   assert.equal(body.autonomy_started,false);
   DB.close();
 });
+
+
+test('GEN2-42 runtime tick exposes a READY package for cloud fallback when local bridge is stale', async () => {
+  const DB=sqliteD1();
+  try {
+    await DB.prepare('CREATE TABLE dev_bridge_state(bridge_id TEXT PRIMARY KEY,last_seen INTEGER NOT NULL,status TEXT NOT NULL,metadata_json TEXT)').run();
+    await DB.prepare('INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json) VALUES(?,?,?,?)')
+      .bind('primary',Date.now()-120000,'ONLINE','{}').run();
+
+    const response=await maybeHandleReleaseLaunchBootstrap(
+      new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+        method:'POST',
+        headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+        body:JSON.stringify({phase:'gen2-42-runtime-tick'}),
+      }),
+      {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,DB},
+      {
+        runAutonomyTick:async()=>({
+          ok:true,
+          status:'ACTIVE',
+          advanced:true,
+          control:{paused:false,max_autonomy:true},
+          job:{id:'mel-ui-06-ready',status:'TEACHER_APPROVED',roadmap_id:'MEL-UI-06'},
+          bridge_preparation:{status:'READY'},
+          completions:{completed:[],rejected:[]},
+        }),
+      },
+    );
+    assert.equal(response.status,200);
+    const body=await response.json();
+    assert.equal(body.bridge_preparation_ready,true);
+    assert.equal(body.bridge_job.job_id,'mel-ui-06-ready');
+    assert.equal(body.bridge_job.status,'TEACHER_APPROVED');
+    assert.equal(body.bridge_executor.online,false);
+    assert.equal(body.bridge_executor.status,'ONLINE');
+    assert.ok(body.bridge_executor.last_seen_age_ms>=60000);
+  } finally {
+    DB.close();
+  }
+});
