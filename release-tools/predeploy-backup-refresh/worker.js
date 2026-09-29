@@ -24,15 +24,17 @@ function equalToken(expected, supplied) {
 }
 
 function runtimeEnv(env, { sourceSha, sourceBranch }) {
-  return new Proxy(env, {
-    get(target, property, receiver) {
-      if (property === 'MEL_DEPLOYED_GIT_SHA') return sourceSha;
-      if (property === 'MEL_DEPLOYED_GIT_BRANCH') return sourceBranch;
-      if (property === 'MEL_RUNTIME_ENV') return 'production';
-      if (property === 'MEL_PREVIEW_ISOLATED') return 'false';
-      return Reflect.get(target, property, receiver);
-    },
-  });
+  return {
+    DB: env.DB,
+    MEDIA_BUCKET: env.MEDIA_BUCKET,
+    MEL_BACKUP_ENCRYPTION_KEY_B64: env.MEL_BACKUP_ENCRYPTION_KEY_B64,
+    MEL_BACKUP_ENCRYPTION_KEY_ID: env.MEL_BACKUP_ENCRYPTION_KEY_ID,
+    MEL_DEPLOYED_GIT_SHA: sourceSha,
+    MEL_DEPLOYED_GIT_BRANCH: sourceBranch,
+    MEL_GITHUB_BRANCH: sourceBranch,
+    MEL_RUNTIME_ENV: 'production',
+    MEL_PREVIEW_ISOLATED: 'false',
+  };
 }
 
 export default {
