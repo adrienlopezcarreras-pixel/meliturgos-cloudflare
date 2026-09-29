@@ -13,7 +13,7 @@ permissions:
 jobs:
   read-only:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -21,28 +21,121 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Read sanitized GEN2-42 job state
+      - name: Read sanitized GEN2-42 job state through ephemeral D1 binding
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          set -uo pipefail
-          set +e
-          npx wrangler d1 execute DB --remote --json \
-            --command "SELECT id,status,requested_by,updated_at,error,json_extract(optional_context,'$.source') AS source,json_extract(optional_context,'$.request_key') AS request_key,json_extract(plan_json,'$.preflight.council.status') AS council_status,json_extract(plan_json,'$.revision.reason') AS revision_reason,json_extract(plan_json,'$.revision.previous_request_id') AS revision_previous_request_id,json_extract(result_json,'$.teacher_bridge.status') AS teacher_status,json_extract(result_json,'$.teacher_bridge.request.request_id') AS active_teacher_request_id,json_extract(result_json,'$.last_teacher_review.request_id') AS last_teacher_request_id,json_extract(result_json,'$.last_teacher_review.verdict') AS last_teacher_verdict,json_extract(result_json,'$.implementation_planning_diagnostic.code') AS implementation_code,json_extract(result_json,'$.runtime_retry.attempts') AS runtime_retry_attempts,json_extract(result_json,'$.runtime_retry.last_error') AS runtime_retry_last_error FROM dev_jobs WHERE id='ecosystem-watch-09fabecdca74c530da98767a20870ece'" \
-            > job-state.json 2> job-state.err
-          rc=$?
-          set -e
-          if [ -s job-state.err ]; then cat job-state.err; fi
-          if [ "$rc" -ne 0 ]; then
-            test ! -s job-state.json || cat job-state.json
-            exit "$rc"
-          fi
+          set -euo pipefail
+          DIAG_NAME="mel-gen2-42-diag"
+          DIAG_CONFIG="release-tools/predeploy-backup-refresh/wrangler.diag.jsonc"
+          DIAG_URL="https://${DIAG_NAME}.adrien-lopezcarreras.workers.dev"
+          DIAG_TOKEN="$(openssl rand -hex 32)"
+          TARGET_ID="ecosystem-watch-09fabecdca74c530da98767a20870ece"
+          echo "::add-mask::${DIAG_TOKEN}"
+
           node - <<'NODE'
           const fs=require('fs');
-          const payload=JSON.parse(fs.readFileSync('job-state.json','utf8'));
-          const parts=Array.isArray(payload)?payload:[payload];
-          const rows=parts.flatMap(x=>Array.isArray(x?.results)?x.results:[]);
-          console.log(JSON.stringify(rows,null,2));
+          const source='release-tools/predeploy-backup-refresh/wrangler.jsonc';
+          const target='release-tools/predeploy-backup-refresh/wrangler.diag.jsonc';
+          const d=JSON.parse(fs.readFileSync(source,'utf8'));
+          d.name='mel-gen2-42-diag';
+          fs.writeFileSync(target,JSON.stringify(d,null,2));
           NODE
+
+          cleanup() {
+            set +e
+            curl --silent --show-error --max-time 30 \
+              --request DELETE \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${DIAG_NAME}" \
+              >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          npx wrangler deploy --config "${DIAG_CONFIG}" >/tmp/gen2-diag-deploy.log
+          printf '%s' "${DIAG_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN --config "${DIAG_CONFIG}" >/tmp/gen2-diag-secret.log
+
+          READY=0
+          for attempt in $(seq 1 12); do
+            code="$(curl --silent --show-error --max-time 30 \
+              --header "x-mel-predeploy-backup-refresh: ${DIAG_TOKEN}" \
+              --output /tmp/tables.json \
+              --write-out '%{http_code}' \
+              "${DIAG_URL}/d1/tables" || true)"
+            if [ "${code}" = "200" ]; then READY=1; break; fi
+            sleep 2
+          done
+          test "${READY}" = "1"
+
+          FOUND=0
+          for offset in $(seq 0 100 10000); do
+            code="$(curl --silent --show-error --max-time 30 \
+              --header "x-mel-predeploy-backup-refresh: ${DIAG_TOKEN}" \
+              --output /tmp/page.json \
+              --write-out '%{http_code}' \
+              "${DIAG_URL}/d1/rows?table=dev_jobs&limit=100&offset=${offset}" || true)"
+            test "${code}" = "200"
+
+            if TARGET_ID="${TARGET_ID}" node - <<'NODE'
+            const fs=require('fs');
+            const d=JSON.parse(fs.readFileSync('/tmp/page.json','utf8'));
+            const row=(Array.isArray(d?.rows)?d.rows:[]).find(x=>String(x?.id||'')===process.env.TARGET_ID);
+            if(!row) process.exit(2);
+            const parse=v=>{try{return typeof v==='string'&&v?JSON.parse(v):v||{};}catch{return {};}};
+            const plan=parse(row.plan_json);
+            const result=parse(row.result_json);
+            const ctx=parse(row.optional_context);
+            const history=Array.isArray(result.teacher_bridge_history)?result.teacher_bridge_history:[];
+            const lastHistory=history.length?history[history.length-1]:null;
+            console.log(JSON.stringify({
+              id:row.id,
+              status:row.status,
+              requested_by:row.requested_by,
+              updated_at:row.updated_at,
+              error:row.error||null,
+              source:ctx?.source||null,
+              request_key:ctx?.request_key||null,
+              roadmap_id:ctx?.roadmap_id||null,
+              council:{
+                present:Boolean(plan?.preflight?.council),
+                status:plan?.preflight?.council?.status||null,
+                degraded:plan?.preflight?.council?.degraded===true,
+              },
+              revision:{
+                reason:plan?.revision?.reason||null,
+                previous_request_id:plan?.revision?.previous_request_id||null,
+              },
+              teacher:{
+                active_status:result?.teacher_bridge?.status||null,
+                active_request_id:result?.teacher_bridge?.request?.request_id||null,
+                last_review_request_id:result?.last_teacher_review?.request_id||null,
+                last_review_verdict:result?.last_teacher_review?.verdict||null,
+                history_count:history.length,
+                history_last_status:lastHistory?.status||null,
+                history_last_request_id:lastHistory?.review?.request_id||lastHistory?.request?.request_id||null,
+                history_last_verdict:lastHistory?.review?.verdict||null,
+              },
+              implementation_code:result?.implementation_planning_diagnostic?.code||null,
+              bridge_code:result?.bridge_preparation_diagnostic?.code||null,
+              autonomy_block_reason:result?.autonomy_block_reason||null,
+              runtime_retry_attempts:Number(result?.runtime_retry?.attempts||0),
+              runtime_retry_last_error:result?.runtime_retry?.last_error||null,
+            },null,2));
+            NODE
+            then
+              FOUND=1
+              break
+            else
+              rc=$?
+              if [ "${rc}" -ne 2 ]; then exit "${rc}"; fi
+            fi
+
+            has_more="$(node -e "const d=require('/tmp/page.json');process.stdout.write(d.has_more===true?'1':'0')")"
+            if [ "${has_more}" != "1" ]; then break; fi
+          done
+
+          test "${FOUND}" = "1"
+          cleanup
+          trap - EXIT
