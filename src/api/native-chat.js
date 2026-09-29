@@ -139,7 +139,7 @@ export function inferNativeSelfActivityCapability(text) {
   const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const direct = /\b(?:tu as fait quoi|qu['’]?as[- ]?tu fait|qu['’]?est[- ]?ce que tu as fait|qu['’]?est ce que tu as fait|ce que tu as fait|ton activite recente|tes travaux recents|ton travail recent)\b/.test(normalized);
   const autonomyContext = /\b(?:max|autonom|roadmap|job|travail|activite|evolution|ledger)\b/.test(normalized);
-  const activityQuestion = /\b(?:fait quoi|as[- ]?tu fait|tu as fait|travaille sur quoi|avance sur quoi|activite|travaux)\b/.test(normalized);
+  const activityQuestion = /\b(?:fait quoi|as[- ]?tu fait|tu as fait|travaille sur quoi|avanc(?:e|es|er) sur quoi|activite|travaux)\b/.test(normalized);
   if (!direct && !(autonomyContext && activityQuestion)) return null;
   return { id: 'autonomy.activity', input: { limit: 30 } };
 }
