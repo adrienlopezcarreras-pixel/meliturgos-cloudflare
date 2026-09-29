@@ -178,6 +178,90 @@ test('release bootstrap exposes bounded pause, backup, code-sync and readiness p
   assert.ok(calls.every(row=>row[1]==='NEW_RELEASE_AWAITING_OWNER_LAUNCH'));
 });
 
+
+test('readiness repairs one transient release backup SHA binding mismatch then rechecks the gate', async () => {
+  const sha='9'.repeat(40);
+  let reads=0;
+  let repairs=0;
+  const mismatch={
+    ok:true,
+    status:'NO_GO',
+    launch_ready:false,
+    candidate_sha:sha,
+    blockers:['SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH'],
+    gates:{verified_restore_dry_run:false,shardvault_critical_survival:true},
+    restore:{ok:false,status:'SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH',deployed_sha:sha,backup_deployed_sha:'8'.repeat(40),sha_matches:false},
+    shardvault:{ok:true,status:'PAUSED_FOR_ROADMAP',paused:true,temporary:true,resume_condition:'ROADMAP_COMPLETE',recoverable:false,active_external_count:0,external_code_status:'PAUSED_FOR_ROADMAP',external_code_endpoints:0,target_count:7},
+  };
+  const ready={
+    ...mismatch,
+    status:'GO_FOR_SUPERVISED_AUTONOMY',
+    launch_ready:true,
+    blockers:[],
+    gates:{verified_restore_dry_run:true,shardvault_critical_survival:true},
+    restore:{ok:true,status:'RELEASE_BOUND_SYSTEM_BACKUP_RESTORE_PROOF_VERIFIED',snapshot_id:'system-bound',deployed_sha:sha,backup_deployed_sha:sha,snapshot_deployed_sha:'8'.repeat(40),sha_matches:true},
+  };
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'readiness'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,MEL_DEPLOYED_GIT_SHA:sha,DB:{}},
+    {
+      setControl:async()=>({}),
+      readReadiness:async()=>{reads+=1; return reads===1?mismatch:ready;},
+      prepareBackup:async()=>{repairs+=1; return {ok:true,status:'RELEASE_BOUND_VERIFIED_BACKUP',id:'system-bound',deployedSha:sha};},
+    },
+  );
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.readiness.launch_ready,true);
+  assert.equal(body.backup_repair?.attempted,true);
+  assert.equal(body.backup_repair?.ok,true);
+  assert.equal(body.backup_repair?.status,'RELEASE_BOUND_VERIFIED_BACKUP');
+  assert.equal(repairs,1);
+  assert.equal(reads,2);
+});
+
+test('readiness backup binding repair remains fail-closed when mismatch persists', async () => {
+  const sha='a'.repeat(40);
+  let reads=0;
+  let repairs=0;
+  const mismatch={
+    ok:true,
+    status:'NO_GO',
+    launch_ready:false,
+    candidate_sha:sha,
+    blockers:['SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH'],
+    gates:{verified_restore_dry_run:false,shardvault_critical_survival:true},
+    restore:{ok:false,status:'SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH',deployed_sha:sha,backup_deployed_sha:'b'.repeat(40),sha_matches:false},
+    shardvault:{ok:true,status:'PAUSED_FOR_ROADMAP',paused:true,temporary:true,resume_condition:'ROADMAP_COMPLETE',recoverable:false,active_external_count:0,external_code_status:'PAUSED_FOR_ROADMAP',external_code_endpoints:0,target_count:7},
+  };
+  const response=await maybeHandleReleaseLaunchBootstrap(
+    new Request('https://mel.test/api/internal/release-launch-bootstrap',{
+      method:'POST',
+      headers:{'x-mel-launch-bootstrap':TOKEN,'content-type':'application/json'},
+      body:JSON.stringify({phase:'readiness'}),
+    }),
+    {MEL_LAUNCH_BOOTSTRAP_TOKEN:TOKEN,MEL_DEPLOYED_GIT_SHA:sha,DB:{}},
+    {
+      setControl:async()=>({}),
+      readReadiness:async()=>{reads+=1; return mismatch;},
+      prepareBackup:async()=>{repairs+=1; return {ok:false,status:'NO_RECENT_VERIFIED_SYSTEM_BACKUP'};},
+    },
+  );
+  assert.equal(response.status,409);
+  const body=await response.json();
+  assert.equal(body.ok,false);
+  assert.equal(body.readiness.launch_ready,false);
+  assert.equal(body.backup_repair?.attempted,true);
+  assert.equal(body.backup_repair?.ok,false);
+  assert.equal(repairs,1);
+  assert.equal(reads,1);
+});
+
 test('release bootstrap rejects unknown phase before running preparation', async () => {
   let prepared=false;
   const response=await maybeHandleReleaseLaunchBootstrap(

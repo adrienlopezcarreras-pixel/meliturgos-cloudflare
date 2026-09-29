@@ -1030,12 +1030,41 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
   }
 
   if (phase === 'readiness') {
-    const readiness = safeReadiness(await readReadiness(env));
+    let readiness = safeReadiness(await readReadiness(env));
+    let backupRepair = null;
+    const repairableBackupBindingMismatch = readiness.launch_ready !== true
+      && Array.isArray(readiness.blockers)
+      && readiness.blockers.includes('SYSTEM_BACKUP_DEPLOYED_SHA_MISMATCH');
+
+    if (repairableBackupBindingMismatch) {
+      try {
+        const repaired = await prepareBackup(env);
+        backupRepair = {
+          attempted: true,
+          ok: repaired?.ok === true,
+          status: repaired?.status || null,
+          id: repaired?.id || null,
+          deployed_sha: repaired?.deployedSha || repaired?.deployed_sha || null,
+        };
+        if (repaired?.ok === true) {
+          readiness = safeReadiness(await readReadiness(env));
+        }
+      } catch (error) {
+        backupRepair = {
+          attempted: true,
+          ok: false,
+          status: 'BACKUP_BINDING_REPAIR_FAILED',
+          code: String(error?.code || error?.message || error).slice(0,180),
+        };
+      }
+    }
+
     return Response.json({
       ok: readiness.launch_ready === true,
       status: readiness.launch_ready ? 'LAUNCH_EVIDENCE_READY' : 'LAUNCH_EVIDENCE_INCOMPLETE',
       phase,
       readiness,
+      backup_repair: backupRepair,
       autonomy_started: false,
       owner_launch_required: true,
     }, {
