@@ -160,6 +160,7 @@ jobs:
               done
               if [ "${CLEANED}" != "1" ]; then
                 cat /tmp/predeploy-backup-refresh-secret-delete.log || true
+                set -e
                 return 1
               fi
             fi
@@ -199,7 +200,10 @@ jobs:
           done
           test "${REFRESHED}" = "1"
 
-          cleanup_refresh_secret
+          if ! cleanup_refresh_secret; then
+            echo "Temporary MEL_LAUNCH_BOOTSTRAP_TOKEN cleanup failed; release remains blocked."
+            exit 51
+          fi
           REFRESH_SECRET_INSTALLED=0
           trap - EXIT
           echo "Current production has a freshly prepared or exact-SHA reusable verified backup; temporary bootstrap secret removed."
