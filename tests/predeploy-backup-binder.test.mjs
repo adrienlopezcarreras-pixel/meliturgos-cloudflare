@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   bindingCanonical,
   diagnoseCandidates,
+  preparePredeployRelease,
   selectVerifiedCandidate,
 } from '../release-tools/predeploy-backup-binder/worker.js';
 
@@ -106,4 +107,44 @@ test('predeploy binder still rejects a fully verified backup older than 48h',()=
     row:{created_at:fortyNineHoursAgo},
   });
   assert.equal(selectVerifiedCandidate([candidate],{nowMs:now}),null);
+});
+
+
+test('predeploy prepare pauses autonomy and proves a real restore backup without main Worker secrets',async()=>{
+  const rows=[row()];
+  const state=new Map();
+  const DB={
+    prepare(sql){
+      return {
+        _args:[],
+        bind(...args){this._args=args;return this;},
+        async run(){
+          if(sql.includes('INSERT INTO dev_bridge_state')){
+            state.set('control',{status:'PAUSED',metadata_json:this._args[3]});
+          }
+          return {success:true};
+        },
+        async first(){
+          if(sql.includes('FROM dev_bridge_state')){
+            return state.get('control')||{status:'MAX_AUTONOMY',metadata_json:JSON.stringify({paused:false,max_autonomy:true,owner_override:true})};
+          }
+          return null;
+        },
+        async all(){
+          if(sql.includes('FROM backup_objects')) return {results:rows};
+          return {results:[]};
+        },
+      };
+    },
+  };
+  const MEDIA_BUCKET={async head(key){return key===rows[0].object_key?{size:4096}:null;}};
+  const result=await preparePredeployRelease({DB,MEDIA_BUCKET});
+  assert.equal(result.ok,true);
+  assert.equal(result.status,'PREDEPLOY_RELEASE_PREPARED');
+  assert.equal(result.autonomy.paused,true);
+  assert.equal(result.autonomy.max_autonomy,true);
+  assert.equal(result.backup.restore_candidate_verified,true);
+  assert.equal(result.backup.backup_object_present,true);
+  assert.equal(result.backup.backup_object_bytes,4096);
+  assert.equal(result.backup.snapshot_deployed_sha,sha);
 });
