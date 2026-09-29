@@ -205,37 +205,29 @@ jobs:
           npx wrangler deploy --config "${REFRESH_CONFIG}" >/tmp/predeploy-refresh-deploy.log
           REFRESH_CREATED=1
           printf '%s' "${REFRESH_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN --config "${REFRESH_CONFIG}" >/tmp/predeploy-refresh-auth-secret.log
-          printf '%s' "${MEL_BACKUP_ENCRYPTION_KEY_B64}" | npx wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_B64 --config "${REFRESH_CONFIG}" >/tmp/predeploy-refresh-key-secret.log
-          printf '%s' "${MEL_BACKUP_ENCRYPTION_KEY_ID}" | npx wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_ID --config "${REFRESH_CONFIG}" >/tmp/predeploy-refresh-key-id-secret.log
 
-          REFRESHED=0
-          for REFRESH_ATTEMPT in $(seq 1 12); do
-            REFRESH_CODE="$(curl --silent --show-error --max-time 300 \
-              --request POST \
-              --header "x-mel-predeploy-backup-refresh: ${REFRESH_TOKEN}" \
-              --header "content-type: application/json" \
-              --data "$(node -e 'process.stdout.write(JSON.stringify({source_sha:process.argv[1],source_branch:process.argv[2]}))' "${CURRENT_PRODUCTION_SHA}" "${RELEASE_BRANCH}")" \
-              --output predeploy-backup-refresh.json \
-              --write-out '%{http_code}' \
-              "${REFRESH_URL}/refresh" || true)"
-            if [ "${REFRESH_CODE}" = "200" ] && node - <<'NODE'
+          export MEL_D1_DATABASE_ID="6d502448-8780-4cf0-8c82-863cccb2e1cd"
+          export MEL_R2_BUCKET_NAME="meliturgos-private-media"
+          export MEL_PREDEPLOY_BACKUP_REFRESH_URL="${REFRESH_URL}"
+          export MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN="${REFRESH_TOKEN}"
+          export MEL_SOURCE_SHA="${CURRENT_PRODUCTION_SHA}"
+          export MEL_SOURCE_BRANCH="${RELEASE_BRANCH}"
+
+          if ! node release-tools/predeploy-backup-refresh/runner.mjs > predeploy-backup-refresh.json; then
+            test ! -s predeploy-backup-refresh.json || cat predeploy-backup-refresh.json
+            exit 52
+          fi
+
+          node - <<'NODE'
           const fs=require('fs');
           const d=JSON.parse(fs.readFileSync('predeploy-backup-refresh.json','utf8'));
           const b=d?.backup||{};
           if(d?.ok!==true||d?.status!=='PREDEPLOY_BACKUP_REFRESH_CREATED') process.exit(1);
           if(!b?.id||b?.encrypted!==true||b?.restore_candidate_verified!==true) process.exit(1);
+          if(b?.backup_object_present!==true||Number(b?.backup_object_bytes||0)<=0) process.exit(1);
           if(!/^[0-9a-f]{40}$/.test(String(b?.source_sha||'').toLowerCase())) process.exit(1);
           if(!/^[0-9a-f]{64}$/.test(String(b?.integrity_sha256||'').toLowerCase())) process.exit(1);
           NODE
-            then
-              REFRESHED=1
-              break
-            fi
-            echo "Ephemeral backup refresh attempt ${REFRESH_ATTEMPT}/12 returned HTTP ${REFRESH_CODE}."
-            test ! -s predeploy-backup-refresh.json || cat predeploy-backup-refresh.json
-            sleep 2
-          done
-          test "${REFRESHED}" = "1"
 
           if ! cleanup_refresher; then
             echo "Ephemeral backup refresher cleanup failed; release remains blocked."
@@ -243,7 +235,7 @@ jobs:
           fi
           REFRESH_CREATED=0
           trap - EXIT
-          echo "Fresh encrypted restore-verified production backup created; ephemeral refresher removed."
+          echo "Fresh encrypted restore-verified production backup created on GitHub runner; ephemeral R2 inventory sidecar removed."
 
       - name: Capture current production rollback target
         shell: bash
