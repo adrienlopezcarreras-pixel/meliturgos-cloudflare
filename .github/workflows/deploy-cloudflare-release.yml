@@ -393,7 +393,8 @@ jobs:
           npx wrangler deploy \
             --define "MEL_DEPLOYED_GIT_SHA:'${EXPECTED_SHA}'" \
             --define "MEL_DEPLOYED_GIT_BRANCH:'${RELEASE_BRANCH}'" \
-            --define "MEL_CRITICAL_CODE_BUNDLE_BYTES:${MEL_CRITICAL_CODE_BUNDLE_BYTES}"
+            --define "MEL_CRITICAL_CODE_BUNDLE_BYTES:${MEL_CRITICAL_CODE_BUNDLE_BYTES}" \
+            --define "MEL_SHARDVAULT_ROADMAP_PAUSED:'${MEL_ROADMAP_SHARDVAULT_PAUSED}'"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
