@@ -224,6 +224,7 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       return Response.json({ ok: false, code: 'D1_NOT_BOUND', phase }, { status: 503, headers: { 'cache-control': 'no-store' } });
     }
     const now = Date.now();
+    const deployedSha = exactDeployedSha(env);
     const refresh = {};
     const runRefresh = async (id, fn) => {
       try {
@@ -250,8 +251,10 @@ export async function maybeHandleReleaseLaunchBootstrap(request, env, {
       }
     };
     await runRefresh('ai', runConfiguredAiCandidateValidationRuntime);
-    await runRefresh('source_control', runCompanionSourceControlPrevalidationRuntime);
-    await runRefresh('infrastructure', runCompanionInfrastructurePrevalidationRuntime);
+    await runRefresh('source_control', (runtimeEnv, options) =>
+      runCompanionSourceControlPrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
+    await runRefresh('infrastructure', (runtimeEnv, options) =>
+      runCompanionInfrastructurePrevalidationRuntime(runtimeEnv, { ...options, sourceSha: deployedSha }));
     const store = new D1AlternativeRegistryStore(env.DB);
     const registry = await store.load();
     const coverage = sovereigntyCoverageFromRegistry(registry, { now });
