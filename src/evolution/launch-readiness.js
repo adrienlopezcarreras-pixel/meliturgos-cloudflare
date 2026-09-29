@@ -438,11 +438,24 @@ export function summarizeAutonomyLaunchCodeSync(value) {
     endpoints: Array.isArray(external?.endpoints) ? external.endpoints.slice(0, 14) : [],
     successful_endpoints: Array.isArray(external?.successful_endpoints) ? external.successful_endpoints.slice(0, 14) : [],
     attempted_endpoints: Array.isArray(external?.attempted_endpoints) ? external.attempted_endpoints.slice(0, 28) : [],
+    completed_shards: Number(external?.completed_shards ?? external?.progress?.completed ?? 0),
+    pending_shards: Number(external?.pending_shards ?? 0),
+    progress: {
+      completed: Number(external?.progress?.completed ?? external?.completed_shards ?? 0),
+      target: Number(external?.progress?.target ?? external?.target_count ?? value?.target_count ?? 7),
+    },
+    reason: external?.reason || null,
+    next_retry_at: external?.next_retry_at || null,
+    code_pool_exhaustions: Number(external?.code_pool_exhaustions || 0),
+    code_pool_refreshes: Number(external?.code_pool_refreshes || 0),
     failures: Array.isArray(external?.failures)
       ? external.failures.slice(0, 24).map(row => ({
           shard_index: Number(row?.shard_index),
           endpoint_id: row?.endpoint_id || null,
           error: String(row?.error || '').slice(0, 160),
+          retryable: row?.retryable === true,
+          permanent: row?.permanent === true,
+          retry_after_at: row?.retry_after_at || null,
         }))
       : [],
     verified_roundtrip: external?.verified_roundtrip === true,
