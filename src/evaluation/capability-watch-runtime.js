@@ -121,6 +121,7 @@ export async function reconcileDiscoveryJobs(env, ledger, {
   mirrorTeacherRequest = mirrorRuntimeTeacherRequestToGitHub,
   resumeQueued = true,
   resumeCouncilComplete = resumeQueued,
+  resumePreparedQueued = false,
 } = {}) {
   const jobIds = [...new Set(
     (Array.isArray(ledger?.items) ? ledger.items : [])
@@ -140,13 +141,20 @@ export async function reconcileDiscoveryJobs(env, ledger, {
   }
 
   let resumed = null;
-  const resumableStatuses = new Set();
-  if (resumeQueued) resumableStatuses.add('QUEUED');
-  if (resumeQueued || resumeCouncilComplete) resumableStatuses.add('COUNCIL_COMPLETE');
   const resumable = jobs
     .filter(job => job?.requested_by === 'mel-autonomy')
     .filter(job => String(job?.optional_context?.source || '') === 'ecosystem-watch')
-    .filter(job => resumableStatuses.has(String(job?.status || '').toUpperCase()))
+    .filter(job => {
+      const status = String(job?.status || '').toUpperCase();
+      if (status === 'COUNCIL_COMPLETE') return resumeQueued || resumeCouncilComplete;
+      if (status !== 'QUEUED') return false;
+      if (resumeQueued) return true;
+      if (!resumePreparedQueued) return false;
+      // A release proof may complete a Teacher handoff for a QUEUED job only
+      // when Council evidence is already durably persisted. prepareAutonomyTeacherRequest()
+      // will then reuse plan_json.preflight and cannot start a fresh Council cycle.
+      return Boolean(job?.plan_json?.preflight?.council);
+    })
     .sort((a, b) => Number(a?.created_at || 0) - Number(b?.created_at || 0) || String(a?.id || '').localeCompare(String(b?.id || '')))[0] || null;
 
   if (resumable) {
@@ -387,11 +395,13 @@ export async function proveEcosystemTeacherHandoff(
     resumeTeacherRequest,
     mirrorTeacherRequest,
     // Production proof never starts a fresh QUEUED Council cycle. It may,
-    // however, finish the already-completed Council -> Teacher handoff step.
-    // COUNCIL_COMPLETE already owns durable Council evidence; converting it to
-    // WAITING_TEACHER is bounded/idempotent and keeps deployment/approval false.
+    // however, finish a handoff when Council evidence is already persisted,
+    // whether the durable job currently reports COUNCIL_COMPLETE or was
+    // conservatively re-queued after that completed Council phase.
+    // This remains bounded/idempotent and keeps deployment/approval false.
     resumeQueued: false,
     resumeCouncilComplete: true,
+    resumePreparedQueued: true,
   });
   if (reconciled.changed) {
     ledger = reconciled.ledger;
