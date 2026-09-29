@@ -438,6 +438,13 @@ export function summarizeAutonomyLaunchCodeSync(value) {
     endpoints: Array.isArray(external?.endpoints) ? external.endpoints.slice(0, 14) : [],
     successful_endpoints: Array.isArray(external?.successful_endpoints) ? external.successful_endpoints.slice(0, 14) : [],
     attempted_endpoints: Array.isArray(external?.attempted_endpoints) ? external.attempted_endpoints.slice(0, 28) : [],
+    completed_shards: Math.max(0, Number(external?.completed_shards ?? external?.completed_replicas ?? external?.progress?.completed ?? 0)),
+    pending_shards: Math.max(0, Number(external?.pending_shards ?? external?.pending_replicas ?? 0)),
+    progress: {
+      completed: Math.max(0, Number(external?.progress?.completed ?? external?.completed_shards ?? external?.completed_replicas ?? 0)),
+      target: Math.max(0, Number(external?.progress?.target ?? external?.target_count ?? 7)),
+    },
+    next_retry_at: external?.next_retry_at || null,
     failures: Array.isArray(external?.failures)
       ? external.failures.slice(0, 24).map(row => ({
           shard_index: Number(row?.shard_index),
