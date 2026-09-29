@@ -63,17 +63,31 @@ test('Workers AI zero-cost proof refresh runs after exact production deploy and 
 });
 
 
-test('predeploy backup never mutates the main Worker bootstrap secret before deployment', async () => {
+test('predeploy refresh creates a fresh production backup before rollback capture and removes its temporary secret', async () => {
   const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
-  const start = source.indexOf('      - name: Create verified pre-deploy production backup');
-  const end = source.indexOf('      - name: Install pinned Browser Rendering adapter', start);
-  const block = source.slice(start, end);
-  assert.match(block, /mel-predeploy-backup-binder/);
-  assert.match(block, /\/prepare/);
-  assert.match(block, /predeploy-backup-verified\.marker/);
-  assert.doesNotMatch(block, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
-  assert.doesNotMatch(block, /release-launch-bootstrap/);
-  assert.doesNotMatch(block, /wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  const refresh = source.indexOf('      - name: Refresh current production backup before release gate');
+  const rollback = source.indexOf('      - name: Capture current production rollback target');
+  const binder = source.indexOf('      - name: Create verified pre-deploy production backup');
+  assert.ok(refresh >= 0 && rollback > refresh && binder > rollback, 'backup refresh must complete before rollback capture and binder proof');
+
+  const refreshBlock = source.slice(refresh, rollback);
+  assert.match(refreshBlock, /release-launch-bootstrap/);
+  assert.match(refreshBlock, /'\{"phase":"backup"\}'/);
+  assert.match(refreshBlock, /wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  assert.match(refreshBlock, /wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  assert.match(refreshBlock, /seq 1 12/);
+  assert.match(refreshBlock, /seq 1 5/);
+  assert.match(refreshBlock, /REFRESH_SECRET_INSTALLED=0/);
+  assert.match(refreshBlock, /d\?\.ok!==true/);
+  assert.match(refreshBlock, /b\?\.ok!==true\|\|!b\?\.id/);
+
+  const binderEnd = source.indexOf('      - name: Install pinned Browser Rendering adapter', binder);
+  const binderBlock = source.slice(binder, binderEnd);
+  assert.match(binderBlock, /mel-predeploy-backup-binder/);
+  assert.match(binderBlock, /\/prepare/);
+  assert.match(binderBlock, /predeploy-backup-verified\.marker/);
+  assert.doesNotMatch(binderBlock, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  assert.doesNotMatch(binderBlock, /release-launch-bootstrap/);
 });
 
 
