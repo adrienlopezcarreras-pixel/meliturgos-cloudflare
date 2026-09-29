@@ -59,9 +59,15 @@ test('unbounded ShardVault search keeps full live revalidation even with seven a
 
 
 test('temporary dev-light release accepts explicit PAUSED_FOR_ROADMAP code-sync without weakening normal 7x proof',async()=>{
-  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  const [source,readiness]=await Promise.all([
+    readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8'),
+    readFile(new URL('../src/evolution/launch-readiness.js',import.meta.url),'utf8'),
+  ]);
   assert.match(source,/status==='PAUSED_FOR_ROADMAP'/);
   assert.match(source,/process\.env\.MEL_ROADMAP_SHARDVAULT_PAUSED!=='true'/);
+  assert.match(source,/--define "MEL_SHARDVAULT_ROADMAP_PAUSED:'\$\{MEL_ROADMAP_SHARDVAULT_PAUSED\}'"/);
+  assert.match(readiness,/typeof MEL_SHARDVAULT_ROADMAP_PAUSED !== 'undefined'/);
+  assert.match(readiness,/env\?\.MEL_SHARDVAULT_ROADMAP_PAUSED/);
   assert.match(source,/PRODUCTION_CODE_SYNC_UNEXPECTED_PAUSE/);
   assert.match(source,/PRODUCTION_CODE_SYNC_PAUSE_NOT_EXPLICIT/);
   assert.match(source,/status!=='COPIED'/);
