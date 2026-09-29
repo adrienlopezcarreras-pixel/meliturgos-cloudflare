@@ -183,6 +183,54 @@ export function formatVerifiedSelfStateResponse(state, question = '', { fallback
 }
 
 
+export function formatVerifiedAutonomyActivityResponse(activity, { fallback = '' } = {}) {
+  if (!activity || typeof activity !== 'object' || activity.ok !== true) return String(fallback || '').trim();
+  const control = activity.control && typeof activity.control === 'object' ? activity.control : {};
+  const counts = activity.counts && typeof activity.counts === 'object' ? activity.counts : {};
+  const jobs = Array.isArray(activity.recent_jobs) ? activity.recent_jobs : [];
+  const events = Array.isArray(activity.recent_events) ? activity.recent_events : [];
+  const statusCounts = counts.by_status && typeof counts.by_status === 'object'
+    ? Object.entries(counts.by_status).map(([status, count]) => `${status}=${Number(count || 0)}`).join(', ')
+    : '';
+
+  const mode = control.max_autonomy === true
+    ? 'MAX est actif'
+    : control.paused === true
+      ? 'l’autonomie est en pause'
+      : 'l’autonomie est active sans MAX';
+  const lines = [
+    `Je viens de lire mon état autonome réel${activity.observed_at ? ` au ${String(activity.observed_at)}` : ''} dans la D1 et le ledger. ${mode}.`,
+    `Jobs supervisés visibles : ${Number(counts.supervised_total || 0)}${statusCounts ? ` — ${statusCounts}` : ''}.`,
+  ];
+
+  if (jobs.length) {
+    lines.push('Travaux récents :');
+    for (const job of jobs.slice(0, 8)) {
+      const proof = job.completion_status
+        ? ` ; completion=${job.completion_status}${job.completion_sha ? `@${shortSha(job.completion_sha)}` : ''}${job.completion_ci_run_id ? ` ; CI=${job.completion_ci_run_id}` : ''}`
+        : '';
+      const teacher = job.teacher_verdict ? ` ; Teacher=${job.teacher_verdict}${job.owner_override ? ' + override MAX' : ''}` : '';
+      const bridge = job.bridge_preparation_status ? ` ; bridge=${job.bridge_preparation_status}` : '';
+      const error = job.error ? ` ; erreur=${String(job.error).slice(0, 120)}` : '';
+      lines.push(`- ${String(job.job_id || 'job-inconnu')} — ${String(job.status || 'UNKNOWN')}${job.roadmap_id ? ` [${job.roadmap_id}]` : ''}${teacher}${bridge}${proof}${error} — ${clip(job.goal || '', 180)}`);
+    }
+  } else {
+    lines.push('Aucun job autonome récent n’est visible dans le périmètre lu.');
+  }
+
+  if (events.length) {
+    lines.push('Derniers événements du ledger :');
+    for (const event of events.slice(0, 8)) {
+      const sha = event.source_sha ? ` ; SHA=${shortSha(event.source_sha)}` : '';
+      lines.push(`- #${Number(event.seq || 0)} ${String(event.evolution_id || 'inconnu')} — ${String(event.stage || 'UNKNOWN')} / ${String(event.status || 'UNKNOWN')}${sha}`);
+    }
+  }
+
+  lines.push('Cette réponse vient des états persistés observés maintenant ; je n’utilise pas une ancienne conversation comme preuve de mon activité actuelle.');
+  return lines.join('\n');
+}
+
+
 function clip(value, limit = 220) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
   return text.length <= limit ? text : text.slice(0, Math.max(0, limit - 1)) + '…';

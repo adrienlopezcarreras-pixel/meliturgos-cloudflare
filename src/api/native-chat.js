@@ -16,7 +16,7 @@ import { MentorMemoryRepository } from '../learning/mentor-memory.js';
 import { MEL_RUNTIME_OPERATING_EXPERIENCE } from '../learning/runtime-operating-experience.js';
 import { stripInternalCounters } from './chat-sanitization.js';
 import { formatPersonalProfileRecall, retrieveContext, retrievePersonalProfileContext } from '../core/orchestrator/conversation-context.js';
-import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse } from './response-grounding.js';
+import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse } from './response-grounding.js';
 import { buildResponseQualityInstruction, finalizeEvidenceAlignedResponse, inferResponseMode } from './response-quality.js';
 import { buildConversationFocusInstruction, deriveConversationFocus } from './conversation-focus.js';
 import { loadConversationFocusState, saveConversationFocusState } from './conversation-focus-store.js';
@@ -131,6 +131,17 @@ export function inferNativeExecutionCapability(text) {
     input: { deep: true },
     execution_intent: 'GLOBAL_CAPABILITY_STRESS_TEST',
   };
+}
+
+export function inferNativeSelfActivityCapability(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const direct = /\b(?:tu as fait quoi|qu['’]?as[- ]?tu fait|qu['’]?est[- ]?ce que tu as fait|qu['’]?est ce que tu as fait|ce que tu as fait|ton activite recente|tes travaux recents|ton travail recent)\b/.test(normalized);
+  const autonomyContext = /\b(?:max|autonom|roadmap|job|travail|activite|evolution|ledger)\b/.test(normalized);
+  const activityQuestion = /\b(?:fait quoi|as[- ]?tu fait|tu as fait|travaille sur quoi|avanc(?:e|es|er) sur quoi|activite|travaux)\b/.test(normalized);
+  if (!direct && !(autonomyContext && activityQuestion)) return null;
+  return { id: 'autonomy.activity', input: { limit: 30 } };
 }
 
 export function inferNativeComputerCapability(text) {
@@ -661,9 +672,11 @@ export async function handleNativeChat(request, env, options = {}) {
   const currentFactVerification = releaseSmoke ? null : inferCurrentFactVerificationPolicy(text);
   const personalProfileIntent = isPersonalProfileRecall(text);
   const inferredExecutionCapability = releaseSmoke ? null : inferNativeExecutionCapability(text);
+  const inferredSelfActivityCapability = releaseSmoke ? null : inferNativeSelfActivityCapability(text);
   const inferredCapability = releaseSmoke
     ? inferNativeCodeCapability(text, [])
     : inferredExecutionCapability
+      || inferredSelfActivityCapability
       || inferNativeComputerCapability(text)
       || (!personalProfileIntent ? inferChatGPTHistoryCapability(text) : null)
       || inferDirectCurrentWebCapability(text, body.intent_context || {})
@@ -811,7 +824,8 @@ export async function handleNativeChat(request, env, options = {}) {
     activePromotedAdapter(env),
   ]);
   const archiveRecallQuery = conversationFocus.elliptical && conversationFocus.anchor ? conversationFocus.anchor : text;
-  const shouldRecallArchive = shouldRetrieveArchiveRecall(text) || conversationFocus.anchor_source === 'persisted';
+  const shouldRecallArchive = String(capability?.id || '') !== 'autonomy.activity'
+    && (shouldRetrieveArchiveRecall(text) || conversationFocus.anchor_source === 'persisted');
   const [cognitiveMemory, archiveRecall, personalProfile] = await Promise.all([
     loadCognitiveMemory(env, activeInferenceSettings?.memory_results ?? 12),
     env?.DB && shouldRecallArchive && !personalProfileIntent
@@ -833,6 +847,7 @@ export async function handleNativeChat(request, env, options = {}) {
   const codeAccess = codeAccessTruth(capabilityManifest);
   const operatingManual = buildMelOperatingManualPrompt({ capabilityManifest, experience: operationalExperience });
   const developmentQueued = toolResults.find((row) => row.capability === 'evolution.enqueue' && row.status === 'SUCCEEDED')?.result || null;
+  const autonomyActivityObserved = toolResults.find((row) => row.capability === 'autonomy.activity' && row.status === 'SUCCEEDED')?.result || null;
   const selfStateObserved = toolResults.find((row) => row.capability === 'self.state' && row.status === 'SUCCEEDED')?.result || null;
   const capabilityAuditObserved = toolResults.find((row) => row.capability === 'capability.audit' && row.status === 'SUCCEEDED')?.result || null;
   const communicationAuditObserved = toolResults.find((row) => row.capability === 'conversation.audit' && row.status === 'SUCCEEDED')?.result || null;
@@ -873,6 +888,9 @@ export async function handleNativeChat(request, env, options = {}) {
     'Lorsqu’un résultat d’outil prouve que tu as lu ou recherché ton dépôt, dis clairement que tu as accès à ce code et cite le fichier ou la branche observée.',
     'Ne prétends jamais ne pas avoir accès au code si un TOOL_RESULT SUCCEEDED de cette requête démontre le contraire.',
     'Si un TOOL_RESULT FAILED existe, donne son code d’échec exact au lieu d’inventer une incapacité générale.',
+    autonomyActivityObserved
+      ? 'ACTIVITÉ AUTONOME LIVE : autonomy.activity a réellement lu la D1 et le ledger pendant cette requête. Pour répondre à ce que tu as fait, utilise uniquement ces jobs, statuts, preuves et événements observés maintenant. N’utilise aucune ancienne conversation comme preuve de ton activité autonome actuelle et n’invente jamais un travail absent du TOOL_RESULT.'
+      : '',
     selfStateObserved
       ? 'AUTO-OBSERVATION RUNTIME : self.state a réellement été exécuté pendant cette requête. Réponds directement à partir de ses sections code, work, mémoire, import ChatGPT et système. Pour chaque section ok=true, parle de ce que tu as effectivement observé maintenant; pour ok=false, nomme uniquement la source indisponible. N’emploie pas une formule globale comme « je ne vois pas » ou « je n’ai pas accès » si les observations prouvent le contraire. Distingue toutefois cette observation structurée d’une vision directe des autres onglets du navigateur. Pour les changements en cours, cite seulement les travaux persistants et le HEAD/identité code réellement observés; n’invente jamais les modifications non encore commitées d’une autre page.'
       : '',
@@ -994,9 +1012,11 @@ export async function handleNativeChat(request, env, options = {}) {
   const modelResponseText = stripInternalCounters(ai.text);
   const groundedResponseText = communicationAuditObserved
     ? formatCommunicationAuditResponse(communicationAuditObserved, { fallback: modelResponseText })
-    : capabilityAuditObserved
-      ? formatVerifiedCapabilityAuditResponse(capabilityAuditObserved, { fallback: modelResponseText })
-      : selfStateObserved
+    : autonomyActivityObserved
+      ? formatVerifiedAutonomyActivityResponse(autonomyActivityObserved, { fallback: modelResponseText })
+      : capabilityAuditObserved
+        ? formatVerifiedCapabilityAuditResponse(capabilityAuditObserved, { fallback: modelResponseText })
+        : selfStateObserved
         ? formatVerifiedSelfStateResponse(selfStateObserved, text, { fallback: modelResponseText })
         : modelResponseText;
   const evidenceAlignedResponseText = finalizeEvidenceAlignedResponse({
@@ -1015,12 +1035,14 @@ export async function handleNativeChat(request, env, options = {}) {
     toolResults,
     recent,
   });
-  const qualityGuardedResponseText = enforceResponseQuality({
-    responseText: evidenceAlignedResponseText,
-    userText: text,
-    focus: conversationFocus,
-    assessment: initialQualityAssessment,
-  });
+  const qualityGuardedResponseText = autonomyActivityObserved
+    ? evidenceAlignedResponseText
+    : enforceResponseQuality({
+        responseText: evidenceAlignedResponseText,
+        userText: text,
+        focus: conversationFocus,
+        assessment: initialQualityAssessment,
+      });
   const responseText = qualityGuardedResponseText;
   const responseGuarded = responseText !== evidenceAlignedResponseText;
   const qualityEventSaved = releaseSmoke ? false : await persistResponseQualityEvent(env, {
@@ -1061,6 +1083,8 @@ export async function handleNativeChat(request, env, options = {}) {
         }
       : communicationAuditObserved
         ? { mode: 'deterministic-communication-audit', source: 'conversation.audit', observed_at: communicationAuditObserved.audited_at || null }
+      : autonomyActivityObserved
+        ? { mode: 'deterministic-autonomy-activity', source: 'autonomy.activity', observed_at: autonomyActivityObserved.observed_at || null }
       : capabilityAuditObserved
         ? { mode: 'deterministic-capability-audit', source: 'capability.audit', observed_at: null }
         : selfStateObserved
