@@ -231,6 +231,16 @@ export class D1EvolutionLedger {
     return (result?.results || []).map(rowToPublic);
   }
 
+  async listRecent({ evolution_id = '', limit = 200 } = {}) {
+    await this.ensure();
+    const boundedLimit = Math.max(1, Math.min(MAX_LIST_LIMIT, Math.trunc(Number(limit) || 200)));
+    const id = clean(evolution_id, 220);
+    const result = id
+      ? await this.db.prepare('SELECT * FROM evolution_ledger WHERE evolution_id=? ORDER BY seq DESC LIMIT ?').bind(id, boundedLimit).all()
+      : await this.db.prepare('SELECT * FROM evolution_ledger ORDER BY seq DESC LIMIT ?').bind(boundedLimit).all();
+    return (result?.results || []).map(rowToPublic);
+  }
+
   async verify({ limit = MAX_LIST_LIMIT } = {}) {
     await this.ensure();
     const countRow = await this.db.prepare('SELECT COUNT(*) AS count FROM evolution_ledger').first();
