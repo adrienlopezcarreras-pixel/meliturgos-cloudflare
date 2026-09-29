@@ -424,7 +424,23 @@ export async function proveEcosystemTeacherHandoff(
     String(item.handoff.status || '').toUpperCase() === 'FAILED'
       && item.handoff.retryable === true
   );
-  const open = rawOpen.filter(item => !releasedRetryableFailures.includes(item));
+  // A Teacher request explicitly invalidated because its candidate SHA became
+  // stale is no longer an active Teacher proof. If the canonical dev job has
+  // already been durably re-queued, with the stale request removed from the
+  // current handoff and marked retryable by reconciliation, keep it observable
+  // but do not let that invalidated historical request block an unrelated
+  // production release forever. Ordinary QUEUED jobs remain blocking.
+  const releasedStaleTeacherRequeues = rawOpen.filter(item =>
+    String(item.handoff.status || '').toUpperCase() === 'QUEUED'
+      && item.handoff.retryable === true
+      && String(item.handoff.code || '').toUpperCase() === 'TEACHER_REQUEST_STALE_SHA'
+      && !String(item.handoff.teacher_request_id || '').trim()
+  );
+  const releasedNonBlocking = new Set([
+    ...releasedRetryableFailures,
+    ...releasedStaleTeacherRequeues,
+  ]);
+  const open = rawOpen.filter(item => !releasedNonBlocking.has(item));
 
   const active = open
     .filter(item => String(item.handoff.status || '').toUpperCase() === 'WAITING_TEACHER')
@@ -465,6 +481,17 @@ export async function proveEcosystemTeacherHandoff(
       teacher_request_id: item.handoff.teacher_request_id || null,
       candidate_sha: item.handoff.candidate_sha || null,
       code: item.handoff.code || null,
+    })),
+    released_stale_teacher_requeue_count: releasedStaleTeacherRequeues.length,
+    released_stale_teacher_requeues: releasedStaleTeacherRequeues.slice(0, 20).map(item => ({
+      fingerprint: item.fingerprint,
+      status: String(item.handoff.status || '').toUpperCase() || null,
+      job_id: item.handoff.job_id || null,
+      teacher_request_id: item.handoff.teacher_request_id || null,
+      candidate_sha: item.handoff.candidate_sha || null,
+      retryable: item.handoff.retryable === true,
+      code: item.handoff.code || null,
+      terminal_reason: item.handoff.terminal_reason || null,
     })),
     open_handoffs: open.slice(0, 20).map(item => ({
       fingerprint: item.fingerprint,
