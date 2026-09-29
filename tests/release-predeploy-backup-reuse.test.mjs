@@ -78,6 +78,8 @@ test('predeploy refresh creates a fresh production backup before rollback captur
   assert.match(refreshBlock, /seq 1 12/);
   assert.match(refreshBlock, /seq 1 5/);
   assert.match(refreshBlock, /REFRESH_SECRET_INSTALLED=0/);
+  assert.match(refreshBlock, /cleanup failed; release remains blocked/);
+  assert.match(refreshBlock, /exit 51/);
   assert.match(refreshBlock, /d\?\.ok!==true/);
   assert.match(refreshBlock, /b\?\.ok!==true\|\|!b\?\.id/);
 
