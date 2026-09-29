@@ -94,3 +94,10 @@ test('bounded discovery retry is wired to replace a failed active endpoint witho
   assert.match(workflow, /PRODUCTION_SHARDVAULT_EXTERNAL_LT_7/);
   assert.doesNotMatch(workflow, /active_external_count\|\|0\)<[0-6]/);
 });
+
+
+test('explicit ShardVault code-sync may refresh an exhausted pool without enabling background autonomy', () => {
+  assert.equal(__shardvaultTest.codeSyncDiscoveryRefreshAllowed({ MEL_SHARDVAULT_AUTONOMOUS: 'false' }, false), false);
+  assert.equal(__shardvaultTest.codeSyncDiscoveryRefreshAllowed({ MEL_SHARDVAULT_AUTONOMOUS: 'false' }, true), true);
+  assert.equal(__shardvaultTest.codeSyncDiscoveryRefreshAllowed({ MEL_SHARDVAULT_AUTONOMOUS: 'true' }, false), true);
+});
