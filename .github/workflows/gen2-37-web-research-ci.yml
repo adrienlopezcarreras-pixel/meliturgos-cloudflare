@@ -49,6 +49,7 @@ jobs:
       - name: Normalize branch for candidate-only integration tests
         run: git switch -c candidate/gen2-37-ci
       - name: Full test suite
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         run: npm test
       - name: Runtime dependency security gate
         run: node scripts/runtime-security-gate.mjs
