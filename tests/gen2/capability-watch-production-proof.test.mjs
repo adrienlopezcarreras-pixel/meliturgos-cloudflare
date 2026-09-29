@@ -46,6 +46,84 @@ test('GEN2-42 release reconciliation never resumes queued external work when res
   assert.equal(result.resumed,null);
 });
 
+test('GEN2-42 production proof advances only COUNCIL_COMPLETE into a durable Teacher handoff', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    const ledger={
+      schema:'mel.ecosystem-discovery-ledger.v1',
+      items:[{
+        fingerprint:'council-ready',
+        handoff:{
+          job_id:'job-council',
+          status:'COUNCIL_COMPLETE',
+          teacher_request_id:null,
+          candidate_sha:'b'.repeat(40),
+          closed:false,
+        },
+      }],
+    };
+    await DB.prepare(
+      `INSERT INTO capability_watch_state(id,state_json,updated_at) VALUES(?,?,?)`
+    ).bind('ecosystem-discoveries-canonical',JSON.stringify(ledger),Date.now()).run();
+
+    let job={
+      id:'job-council',
+      status:'COUNCIL_COMPLETE',
+      requested_by:'mel-autonomy',
+      optional_context:{source:'ecosystem-watch'},
+      created_at:1,
+      result_json:{},
+    };
+    let resumeCalls=0;
+    let mirrorCalls=0;
+    const repository={
+      async get(id){ return id===job.id ? structuredClone(job) : null; },
+    };
+
+    const proof=await proveEcosystemTeacherHandoff({DB},{
+      developmentRepository:repository,
+      resumeTeacherRequest:async()=>{
+        resumeCalls+=1;
+        job={
+          ...job,
+          status:'WAITING_TEACHER',
+          result_json:{
+            teacher_bridge:{
+              status:'WAITING_TEACHER',
+              request:{
+                request_id:'req-council',
+                target_sha:'b'.repeat(40),
+                provenance:{candidate_sha:'b'.repeat(40)},
+              },
+            },
+          },
+        };
+        return job.result_json.teacher_bridge;
+      },
+      mirrorTeacherRequest:async()=>{
+        mirrorCalls+=1;
+        return {status:'MIRRORED',request_id:'req-council'};
+      },
+    });
+
+    assert.equal(resumeCalls,1);
+    assert.equal(mirrorCalls,1);
+    assert.equal(proof.ok,true);
+    assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_READY');
+    assert.equal(proof.active_teacher_handoff_count,1);
+    assert.equal(proof.blocked_open_handoff_count,0);
+    assert.equal(proof.job_id,'job-council');
+    assert.equal(proof.teacher_request_id,'req-council');
+    assert.equal(proof.resumed.status,'WAITING_TEACHER');
+    assert.equal(proof.production_activation_allowed,false);
+    assert.equal(proof.auto_approval_allowed,false);
+  } finally {
+    DB.close();
+  }
+});
+
+
 test('GEN2-42 production proof reads a real WAITING_TEACHER handoff without external resume or mirror', async () => {
   const DB=sqliteD1();
   try {
