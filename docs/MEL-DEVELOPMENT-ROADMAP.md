@@ -95,3 +95,11 @@ La migration de modèle ne remplace pas les gates actuels : CI complète verte, 
 - Le collage doit rejoindre le même pipeline de pièces jointes que le glisser-déposer/sélecteur : aperçu ou nom, taille, suppression avant envoi, multi-fichiers et validation type/taille.
 - Le texte collé continue à fonctionner normalement, y compris quand le presse-papiers contient texte + média.
 - DONE_VERIFIED exige une preuve navigateur réelle sur les deux modes.
+
+## P0 — fermeture des capacités à 100 %
+
+- **MEL-CAP-01** : la livraison finale ne peut pas être considérée close tant que toutes les capacités enregistrées ne sont pas réellement opérationnelles.
+- Baseline observée le 29/09/2026 sur la page Compétences : **143 enregistrées = 105 opérationnelles, 21 dégradées, 17 non configurées, 0 en échec**.
+- Groupes visibles à cette baseline : **Cloudflare 3/3, Core 60/60, GitHub 4/5, Google 13/13, MEL 44/59, Vercel 2/3**.
+- La cible est dynamique : si de nouvelles capacités sont ajoutées, elles entrent automatiquement dans le dénominateur.
+- Critère DONE_VERIFIED : **100 % opérationnelles, 0 dégradée, 0 non configurée, 0 en échec**, avec preuve live réelle par capacité ou par famille homogène quand le probe est partagé; aucun simple flag enabled ne compte comme preuve.
