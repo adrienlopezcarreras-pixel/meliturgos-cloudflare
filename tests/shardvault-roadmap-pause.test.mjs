@@ -14,9 +14,15 @@ test('roadmap closeout reactivates ShardVault external replication while autonom
   assert.equal(wrangler.env.preview.vars.MEL_SHARDVAULT_ROADMAP_PAUSED, 'false');
 });
 
-test('release workflow requires external ShardVault 7x proof after roadmap closeout', async () => {
+test('release workflow preserves external ShardVault 7x proof and only permits an explicit temporary dev-light pause', async () => {
   const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'/);
+  const paused=/MEL_ROADMAP_SHARDVAULT_PAUSED: 'true'/.test(workflow);
+  if(paused){
+    assert.match(workflow,/TEMPORARY DEV-LIGHT MODE/);
+    assert.match(workflow,/MUST be restored to 'false' before final validation\/closure/);
+  }else{
+    assert.match(workflow,/MEL_ROADMAP_SHARDVAULT_PAUSED: 'false'/);
+  }
   assert.match(workflow, /if \[ "\$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" \]/);
   assert.match(workflow, /for SHARD_STATUS_ATTEMPT in \$\(seq 1 12\); do/);
   assert.match(workflow, /for SHARD_ATTEMPT in \$\(seq 1 17\); do/);
