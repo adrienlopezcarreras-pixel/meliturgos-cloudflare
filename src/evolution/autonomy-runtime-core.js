@@ -120,6 +120,12 @@ async function persistBridgePreparationDiagnostic(repository, jobId, diagnostic)
   return repository.update(jobId, { result_json: result });
 }
 
+export function isRepairableBridgeJob(job) {
+  const status = String(job?.status || '').toUpperCase();
+  return ['READY_FOR_REVIEW', 'REPAIR_REQUIRED'].includes(status)
+    && job?.result_json?.dev_bridge?.needs_repair === true;
+}
+
 function deployedInspectionSha(env = {}) {
   const direct = String(env?.MEL_DEPLOYED_GIT_SHA || '').trim();
   if (/^[0-9a-f]{40}$/i.test(direct)) return direct.toLowerCase();
@@ -421,7 +427,7 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
   // A local candidate whose tests failed stays inside the same approved goal.
   // Reopen only the implementation stage; never bypass or replace the existing
   // correlated Teacher approval, and never widen the original objective.
-  if (job && String(job.status || '').toUpperCase() === 'READY_FOR_REVIEW' && job.result_json?.dev_bridge?.needs_repair === true) {
+  if (job && isRepairableBridgeJob(job)) {
     const teacherState = job.result_json?.teacher_bridge;
     if (teacherState?.status === 'ANSWERED' && teacherState?.review?.verdict === 'APPROVE_PLAN' && teacherState?.review?.development_allowed === true) {
       const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
