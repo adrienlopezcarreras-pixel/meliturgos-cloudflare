@@ -1,4 +1,5 @@
 import { createCompanionSovereigntyExecutor } from './companion-sovereignty-executor.js';
+import { createCompanionRuntimeProviderAdapter } from './companion-runtime-provider-adapter.js';
 import { createCompanionObjectStorageAdapter } from './companion-object-storage-adapter.js';
 import { createCompanionDatabaseAdapter } from './companion-database-adapter.js';
 import { createCompanionCiProviderAdapter } from './companion-ci-provider-adapter.js';
@@ -13,6 +14,7 @@ const STATE_ID='companion-infrastructure-prevalidation';
 const DEFAULT_INTERVAL_MS=60*60*1000;
 
 const LOCAL_CANDIDATES=Object.freeze([
+  {layer:'runtime',id:'companion-local-runtime',provider:'local-companion-runtime'},
   {layer:'storage',id:'companion-local-storage',provider:'local-companion-storage'},
   {layer:'database',id:'companion-local-db',provider:'local-companion-db'},
   {layer:'ci_cd',id:'companion-local-ci',provider:'local-companion-ci'},
@@ -142,6 +144,17 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
       if(!local)return{descriptor:null,adapter:null};
       const d=descriptor(local);
 
+      if(candidate.layer==='runtime'){
+        await ensureSeeded();
+        return{
+          descriptor:d,
+          adapter:createCompanionRuntimeProviderAdapter({execute}),
+          context:{
+            sourceSha,
+            artifact:{ref:repository,source_sha:sourceSha},
+          },
+        };
+      }
       if(candidate.layer==='storage'){
         return{descriptor:d,adapter:createCompanionObjectStorageAdapter({execute})};
       }
