@@ -1533,6 +1533,8 @@ jobs:
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
           BROWSER_TOKEN="$(openssl rand -hex 32)"
+          BROWSER_SESSION_ID="release-browser-proof-${EXPECTED_SHA:0:12}"
+          export BROWSER_SESSION_ID
           echo "::add-mask::${BROWSER_TOKEN}"
           cleanup_browser_secret() {
             set +e
@@ -1548,7 +1550,7 @@ jobs:
               --header "x-mel-release-smoke: 1" \
               --header "x-mel-launch-bootstrap: ${BROWSER_TOKEN}" \
               --header "content-type: application/json" \
-              --data '{"id":"browser.execute","input":{"session_id":"release-browser-proof","device":{"id":"cloudflare-browser","capabilities":["browser.control"]},"sandbox":{"allowed_origins":["https://meliturgos.adrien-lopezcarreras.workers.dev"],"max_steps":2},"approvals":[],"steps":[{"id":"navigate-mel-about","action":"browser.navigate","url":"https://meliturgos.adrien-lopezcarreras.workers.dev/about"},{"id":"read-mel-about","action":"browser.read-text","selector":"body"}]}}' \
+              --data "$(node -e 'process.stdout.write(JSON.stringify({id:"browser.execute",input:{session_id:process.env.BROWSER_SESSION_ID,device:{id:"cloudflare-browser",capabilities:["browser.control"]},sandbox:{allowed_origins:["https://meliturgos.adrien-lopezcarreras.workers.dev"],max_steps:2},approvals:[],steps:[{id:"navigate-mel-about",action:"browser.navigate",url:"https://meliturgos.adrien-lopezcarreras.workers.dev/about"},{id:"read-mel-about",action:"browser.read-text",selector:"body"}]}}))')" \
               --output production-browser-proof.json \
               --write-out '%{http_code}' \
               "${BASE_URL}/api/gen2/capabilities/execute" || true)"
