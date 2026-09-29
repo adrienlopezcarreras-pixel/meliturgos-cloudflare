@@ -170,246 +170,78 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          PREDEPLOY_TOKEN="$(openssl rand -hex 32)"
-          echo "::add-mask::${PREDEPLOY_TOKEN}"
-          cleanup_predeploy_secret() {
+          BINDER_NAME="mel-predeploy-backup-binder"
+          BINDER_CONFIG="release-tools/predeploy-backup-binder/wrangler.jsonc"
+          BINDER_URL="https://mel-predeploy-backup-binder.adrien-lopezcarreras.workers.dev"
+          BINDER_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${BINDER_TOKEN}"
+          BINDER_CREATED=0
+
+          cleanup_binder() {
             set +e
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-predeploy-secret-delete.log 2>&1 || true
-            set -e
-          }
-          trap cleanup_predeploy_secret EXIT
-          printf '%s' "$PREDEPLOY_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
-
-          READY=0
-          for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 30 \
-              --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
-              --header "content-type: application/json" \
-              --data '{"phase":"pause"}' \
-              --output predeploy-pause.json \
-              --write-out '%{http_code}' \
-              "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
-            if [ "$CODE" = "200" ]; then READY=1; break; fi
-            sleep 2
-          done
-          test "$READY" = "1"
-          node -e 'const d=require("./predeploy-pause.json");if(d?.ok!==true||d?.status!=="RELEASE_PAUSED")throw new Error("PREDEPLOY_PAUSE_FAILED")'
-
-          BACKUP_READY=0
-
-          # Bind an already verified recent backup to the currently deployed
-          # production SHA directly from CI. This mirrors createReleaseBackupBinding()
-          # but avoids invoking the heavy Worker backup path before deployment.
-          # The binding alone never marks the backup ready: the recovery drill
-          # below must still verify the canonical binding and R2 object presence.
-          PROD_IDENTITY_CODE="$(curl --silent --show-error --max-time 20 \
-            --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
-            --header "content-type: application/json" \
-            --data '{"phase":"identity"}' \
-            --output predeploy-production-identity.json \
-            --write-out '%{http_code}' \
-            "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
-          if [ "$PROD_IDENTITY_CODE" = "200" ]; then
-            PROD_SHA="$(node -e 'const d=require("./predeploy-production-identity.json");const s=String(d?.deployed_sha||"").toLowerCase();if(!/^[0-9a-f]{40}$/.test(s))process.exit(1);process.stdout.write(s)' || true)"
-          else
-            echo "Lightweight identity phase unavailable (HTTP ${PROD_IDENTITY_CODE}); using compatibility connection-proof."
-            PROD_IDENTITY_CODE="$(curl --silent --show-error --max-time 60 \
-              --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
-              --header "content-type: application/json" \
-              --data '{"phase":"connection-proof"}' \
-              --output predeploy-production-identity.json \
-              --write-out '%{http_code}' \
-              "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
-            if [ "$PROD_IDENTITY_CODE" = "200" ]; then
-              PROD_SHA="$(node -e 'const d=require("./predeploy-production-identity.json");const s=String(d?.deployed_sha||"").toLowerCase();if(!/^[0-9a-f]{40}$/.test(s))process.exit(1);process.stdout.write(s)' || true)"
-            else
-              PROD_SHA=""
-            fi
-          fi
-
-          if [ -n "$PROD_SHA" ]; then
-            BINDER_NAME="mel-predeploy-backup-binder"
-            BINDER_CONFIG="release-tools/predeploy-backup-binder/wrangler.jsonc"
-            BINDER_URL="https://mel-predeploy-backup-binder.adrien-lopezcarreras.workers.dev"
-            BINDER_TOKEN="$(openssl rand -hex 32)"
-            echo "::add-mask::${BINDER_TOKEN}"
-            BINDER_CREATED=0
-
-            cleanup_binder() {
-              set +e
-              if [ "${BINDER_CREATED:-0}" = "1" ]; then
-                curl --silent --show-error --max-time 30 \
-                  --request DELETE \
-                  --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-                  --output /tmp/predeploy-binder-delete.json \
-                  "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" \
-                  >/dev/null 2>&1 || true
-              fi
-              set -e
-            }
-            cleanup_predeploy_all() {
-              cleanup_binder
-              cleanup_predeploy_secret
-            }
-            trap cleanup_predeploy_all EXIT
-
-            npx wrangler deploy --config "${BINDER_CONFIG}" >/tmp/predeploy-binder-deploy.log
-            BINDER_CREATED=1
-            printf '%s' "${BINDER_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BINDER_TOKEN --config "${BINDER_CONFIG}" >/tmp/predeploy-binder-secret.log
-
-            BINDER_READY=0
-            for BINDER_ATTEMPT in $(seq 1 12); do
-              BINDER_CODE="$(curl --silent --show-error --max-time 30 \
-                --request POST \
-                --header "x-mel-predeploy-binder: ${BINDER_TOKEN}" \
-                --header "content-type: application/json" \
-                --data "{\"target_sha\":\"${PROD_SHA}\"}" \
-                --output predeploy-binder-proof.json \
-                --write-out '%{http_code}' \
-                "${BINDER_URL}/bind" || true)"
-              if [ "${BINDER_CODE}" = "200" ] && PROD_SHA="${PROD_SHA}" node - <<'NODE'
-          const fs=require('fs');
-          const d=JSON.parse(fs.readFileSync('predeploy-binder-proof.json','utf8'));
-          const expected=String(process.env.PROD_SHA||'').toLowerCase();
-          if(d?.ok!==true || d?.status!=='PREDEPLOY_RELEASE_BACKUP_BOUND') process.exit(1);
-          if(String(d?.deployed_sha||'').toLowerCase()!==expected) process.exit(1);
-          if(!d?.snapshot_id) process.exit(1);
-          if(!/^[0-9a-f]{40}$/.test(String(d?.snapshot_deployed_sha||'').toLowerCase())) process.exit(1);
-          if(!/^[0-9a-f]{64}$/.test(String(d?.binding_sha256||'').toLowerCase())) process.exit(1);
-          if(d?.backup_object_present!==true || Number(d?.backup_object_bytes||0)<=0) process.exit(1);
-          NODE
-              then
-                BINDER_READY=1
-                echo "Ephemeral pre-deploy binder verified release backup binding and R2 object."
-                break
-              fi
-              echo "Pre-deploy binder propagation attempt ${BINDER_ATTEMPT}/12 returned HTTP ${BINDER_CODE}."
-              test ! -s predeploy-binder-proof.json || cat predeploy-binder-proof.json
-              sleep 2
-            done
-            test "${BINDER_READY}" = "1"
-
-            BINDER_DELETE_OK=0
-            for DELETE_ATTEMPT in $(seq 1 5); do
-              DELETE_CODE="$(curl --silent --show-error --max-time 30 \
+            if [ "${BINDER_CREATED:-0}" = "1" ]; then
+              curl --silent --show-error --max-time 30 \
                 --request DELETE \
                 --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-                --output predeploy-binder-delete.json \
-                --write-out '%{http_code}' \
-                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" || true)"
-              if [ "${DELETE_CODE}" = "200" ] || [ "${DELETE_CODE}" = "404" ]; then
-                BINDER_DELETE_OK=1
-                break
-              fi
-              sleep 2
-            done
-            test "${BINDER_DELETE_OK}" = "1"
-            BINDER_CREATED=0
-            echo "Ephemeral pre-deploy binder removed before production deployment."
-          else
-            echo "Production SHA unavailable from authenticated release identity proof; canonical recovery drill remains fail-closed."
-          fi
+                --output /tmp/predeploy-binder-delete.json \
+                "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" \
+                >/dev/null 2>&1 || true
+            fi
+            set -e
+          }
+          trap cleanup_binder EXIT
 
-          # First reuse the canonical persisted recovery proof. The recovery
-          # capability verifies persisted restore metadata and the backup object
-          # itself without downloading/rebuilding the full production snapshot.
-          DRILL_CODE="$(curl --silent --show-error --max-time 90 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
-            --header "content-type: application/json" \
-            --data '{"id":"resilience.recovery.drill.latest","input":{"approved":true}}' \
-            --output predeploy-recovery-drill.json \
-            --write-out '%{http_code}' \
-            "$BASE_URL/api/gen2/capabilities/execute" || true)"
-          if [ "$DRILL_CODE" = "200" ]; then
-            if node - <<'NODE'
+          npx wrangler deploy --config "${BINDER_CONFIG}" >/tmp/predeploy-binder-deploy.log
+          BINDER_CREATED=1
+          printf '%s' "${BINDER_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BINDER_TOKEN --config "${BINDER_CONFIG}" >/tmp/predeploy-binder-secret.log
+
+          PREPARED=0
+          for ATTEMPT in $(seq 1 12); do
+            CODE="$(curl --silent --show-error --max-time 45 \
+              --request POST \
+              --header "x-mel-predeploy-binder: ${BINDER_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{}' \
+              --output predeploy-backup.json \
+              --write-out '%{http_code}' \
+              "${BINDER_URL}/prepare" || true)"
+            if [ "${CODE}" = "200" ] && node - <<'NODE'
           const fs=require('fs');
-          const d=JSON.parse(fs.readFileSync('predeploy-recovery-drill.json','utf8'));
-          const r=d?.result||{};
-          if(d?.ok!==true) process.exit(1);
-          if(r?.ok!==true) process.exit(1);
-          if(r?.restore_candidate_verified!==true) process.exit(1);
-          if(r?.backup_object_present!==true) process.exit(1);
-          if(Number(r?.backup_object_bytes||0)<=0) process.exit(1);
-          if(!r?.snapshot_id) process.exit(1);
-          if(!/^[0-9a-f]{40}$/.test(String(r?.deployed_sha||'').toLowerCase())) process.exit(1);
-          fs.writeFileSync('predeploy-backup.json',JSON.stringify({
-            ok:true,
-            status:'REUSED_VERIFIED_RECOVERY_DRILL',
-            backup:{
-              ok:true,
-              status:'PERSISTED_RECOVERY_DRILL_VERIFIED',
-              id:r.snapshot_id,
-              deployed_sha:r.deployed_sha,
-              sha_matches:true,
-              restore_candidate_verified:true,
-              backup_object_present:true,
-              backup_object_bytes:Number(r.backup_object_bytes||0),
-            }
-          },null,2));
+          const d=JSON.parse(fs.readFileSync('predeploy-backup.json','utf8'));
+          const b=d?.backup||{};
+          if(d?.ok!==true||d?.status!=='PREDEPLOY_RELEASE_PREPARED') process.exit(1);
+          if(d?.autonomy?.paused!==true||d?.autonomy?.status!=='PAUSED') process.exit(1);
+          if(b?.ok!==true||b?.restore_candidate_verified!==true) process.exit(1);
+          if(b?.backup_object_present!==true||Number(b?.backup_object_bytes||0)<=0) process.exit(1);
+          if(!b?.id) process.exit(1);
+          if(!/^[0-9a-f]{40}$/.test(String(b?.snapshot_deployed_sha||'').toLowerCase())) process.exit(1);
+          if(!/^[0-9a-f]{64}$/.test(String(b?.integrity_sha256||'').toLowerCase())) process.exit(1);
           NODE
             then
-              BACKUP_READY=1
-              echo "Reusing verified persisted backup from canonical recovery drill."
+              PREPARED=1
+              break
             fi
-          else
-            echo "Pre-deploy recovery drill returned HTTP ${DRILL_CODE}; trying readiness proof."
-            test ! -s predeploy-recovery-drill.json || cat predeploy-recovery-drill.json
-          fi
+            echo "Pre-deploy binder prepare attempt ${ATTEMPT}/12 returned HTTP ${CODE}."
+            test ! -s predeploy-backup.json || cat predeploy-backup.json
+            sleep 2
+          done
+          test "${PREPARED}" = "1"
+          echo "Verified pre-deploy backup and D1 autonomy pause are ready."
 
-          # Prefer the already persisted restore proof from the currently
-          # deployed production SHA. This is read-only and avoids rebuilding a
-          # full system backup when a verified rollback snapshot already exists.
-          READINESS_CODE="$(curl --silent --show-error --max-time 60 \
-            --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
-            --header "content-type: application/json" \
-            --data '{"phase":"readiness"}' \
-            --output predeploy-readiness.json \
-            --write-out '%{http_code}' \
-            "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
-          if [ "$READINESS_CODE" = "200" ] || [ "$READINESS_CODE" = "409" ]; then
-            if node - <<'NODE'
-          const fs=require('fs');
-          const d=JSON.parse(fs.readFileSync('predeploy-readiness.json','utf8'));
-          const r=d?.readiness?.restore||{};
-          const candidate=String(d?.readiness?.candidate_sha||'').toLowerCase();
-          const deployed=String(r?.deployed_sha||'').toLowerCase();
-          const backup=String(r?.backup_deployed_sha||'').toLowerCase();
-          if(!/^[0-9a-f]{40}$/.test(candidate)) process.exit(1);
-          if(r?.ok!==true || r?.sha_matches!==true || !r?.snapshot_id) process.exit(1);
-          if(deployed!==candidate || backup!==candidate) process.exit(1);
-          fs.writeFileSync('predeploy-backup.json',JSON.stringify({
-            ok:true,
-            status:'REUSED_EXISTING_VERIFIED_RESTORE_PROOF',
-            backup:{ok:true,status:r.status||'VERIFIED_RESTORE_PROOF',id:r.snapshot_id,deployed_sha:candidate,sha_matches:true}
-          },null,2));
-          NODE
-            then
-              BACKUP_READY=1
-              echo "Reusing existing verified rollback snapshot from production readiness."
-            fi
-          fi
-
-          if [ "$BACKUP_READY" != "1" ]; then
-            for ATTEMPT in $(seq 1 2); do
-              CODE="$(curl --silent --show-error --max-time 180 \
-                --header "x-mel-launch-bootstrap: ${PREDEPLOY_TOKEN}" \
-                --header "content-type: application/json" \
-                --data '{"phase":"backup"}' \
-                --output predeploy-backup.json \
-                --write-out '%{http_code}' \
-                "$BASE_URL/api/internal/release-launch-bootstrap" || true)"
-              echo "Pre-deploy backup attempt ${ATTEMPT}/2 returned HTTP ${CODE}."
-              if [ "$CODE" = "200" ]; then BACKUP_READY=1; break; fi
-              test ! -s predeploy-backup.json || cat predeploy-backup.json
-              sleep 5
-            done
-          fi
-          test "$BACKUP_READY" = "1"
-          node -e 'const d=require("./predeploy-backup.json");if(d?.ok!==true||d?.backup?.ok!==true)throw new Error("PREDEPLOY_VERIFIED_BACKUP_REQUIRED");console.log("Verified pre-deploy backup ready:",d.backup.status,d.backup.id||"reused")'
+          DELETE_OK=0
+          for ATTEMPT in $(seq 1 5); do
+            DELETE_CODE="$(curl --silent --show-error --max-time 30 \
+              --request DELETE \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              --output /tmp/predeploy-binder-delete.json \
+              --write-out '%{http_code}' \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${BINDER_NAME}" || true)"
+            if [ "${DELETE_CODE}" = "200" ] || [ "${DELETE_CODE}" = "404" ]; then DELETE_OK=1; break; fi
+            sleep 2
+          done
+          test "${DELETE_OK}" = "1"
+          BINDER_CREATED=0
           touch predeploy-backup-verified.marker
-          cleanup_predeploy_secret
           trap - EXIT
 
       - name: Install pinned Browser Rendering adapter

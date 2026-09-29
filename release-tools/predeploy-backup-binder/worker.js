@@ -211,10 +211,100 @@ async function bindBackup(env,targetSha){
   };
 }
 
+
+const AUTONOMY_CONTROL_ID='mel-autonomy-control';
+
+function autonomyMetadata(raw){
+  try{return raw?JSON.parse(raw):{};}catch{return {};}
+}
+
+async function pauseAutonomyForRelease(db){
+  await db.prepare(`CREATE TABLE IF NOT EXISTS dev_bridge_state (
+    bridge_id TEXT PRIMARY KEY,
+    last_seen INTEGER NOT NULL,
+    status TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+  )`).run();
+  const current=await db.prepare(
+    'SELECT status,last_seen,metadata_json FROM dev_bridge_state WHERE bridge_id=?'
+  ).bind(AUTONOMY_CONTROL_ID).first();
+  const metadata=autonomyMetadata(current?.metadata_json);
+  const now=Date.now();
+  const maxAutonomy=metadata?.max_autonomy===true||metadata?.owner_override===true||String(current?.status||'').toUpperCase()==='MAX_AUTONOMY';
+  const next={
+    ...metadata,
+    paused:true,
+    max_autonomy:maxAutonomy,
+    owner_override:maxAutonomy,
+    status:'PAUSED',
+    updated_at:now,
+    source:'release-predeploy-binder',
+    reason:'predeploy-release-safety',
+  };
+  await db.prepare(`
+    INSERT INTO dev_bridge_state(bridge_id,last_seen,status,metadata_json)
+    VALUES(?,?,?,?)
+    ON CONFLICT(bridge_id) DO UPDATE SET
+      last_seen=excluded.last_seen,
+      status=excluded.status,
+      metadata_json=excluded.metadata_json
+  `).bind(AUTONOMY_CONTROL_ID,now,'PAUSED',JSON.stringify(next)).run();
+  const stored=await db.prepare(
+    'SELECT status,metadata_json FROM dev_bridge_state WHERE bridge_id=?'
+  ).bind(AUTONOMY_CONTROL_ID).first();
+  const storedMeta=autonomyMetadata(stored?.metadata_json);
+  if(String(stored?.status||'').toUpperCase()!=='PAUSED'||storedMeta?.paused!==true){
+    throw new Error('PREDEPLOY_AUTONOMY_PAUSE_VERIFY_FAILED');
+  }
+  return {
+    paused:true,
+    status:'PAUSED',
+    max_autonomy:storedMeta?.max_autonomy===true,
+    source:'release-predeploy-binder',
+  };
+}
+
+export async function preparePredeployRelease(env){
+  if(!env?.DB||!env?.MEDIA_BUCKET) return {ok:false,status:'PREDEPLOY_BINDINGS_REQUIRED'};
+  const autonomy=await pauseAutonomyForRelease(env.DB);
+  const result=await env.DB.prepare(
+    "SELECT id,object_key,metadata_json,created_at FROM backup_objects WHERE object_key LIKE 'backups/system/%' ORDER BY created_at DESC LIMIT 100"
+  ).all();
+  const rows=result?.results||[];
+  const candidate=selectVerifiedCandidate(rows);
+  if(!candidate) return {
+    ok:false,
+    status:'NO_RECENT_VERIFIED_ENCRYPTED_BACKUP',
+    autonomy,
+    diagnostics:diagnoseCandidates(rows),
+  };
+  const object=await env.MEDIA_BUCKET.head(candidate.objectKey);
+  if(!object||Number(object?.size||0)<=0){
+    return {ok:false,status:'BACKUP_OBJECT_NOT_PROVEN',autonomy};
+  }
+  return {
+    ok:true,
+    status:'PREDEPLOY_RELEASE_PREPARED',
+    autonomy,
+    backup:{
+      ok:true,
+      status:'VERIFIED_RECENT_ENCRYPTED_RESTORE_BACKUP',
+      id:candidate.id,
+      object_key:candidate.objectKey,
+      integrity_sha256:candidate.integrity,
+      snapshot_deployed_sha:candidate.restoreSha,
+      created_at:candidate.createdAt,
+      restore_candidate_verified:true,
+      backup_object_present:true,
+      backup_object_bytes:Number(object.size||0),
+    },
+  };
+}
+
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
-    if(url.pathname!=='/bind') return new Response('Not Found',{status:404});
+    if(!['/bind','/prepare'].includes(url.pathname)) return new Response('Not Found',{status:404});
     if(request.method!=='POST') return new Response('Method Not Allowed',{status:405,headers:{allow:'POST'}});
     const supplied=request.headers.get('x-mel-predeploy-binder')||'';
     const expected=String(env?.MEL_PREDEPLOY_BINDER_TOKEN||'');
@@ -222,6 +312,10 @@ export default {
       return Response.json({ok:false,status:'BINDER_AUTH_REQUIRED'},{status:401,headers:{'cache-control':'no-store'}});
     }
     try{
+      if(url.pathname==='/prepare'){
+        const result=await preparePredeployRelease(env);
+        return Response.json(result,{status:result.ok?200:409,headers:{'cache-control':'no-store'}});
+      }
       const body=await jsonBody(request);
       const targetSha=String(body?.target_sha||'').trim().toLowerCase();
       if(!SHA40.test(targetSha)){
