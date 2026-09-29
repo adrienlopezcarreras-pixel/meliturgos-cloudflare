@@ -87,8 +87,10 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(refreshBlock, /MEL_R2_BUCKET_NAME/);
   assert.match(refreshBlock, /predeploy-backup-refresh\/runner\.mjs/);
   assert.match(refreshBlock, /\/workers\/scripts\/\$\{REFRESH_NAME\}/);
+  assert.match(refreshBlock, /SIDECAR_READY=0/);
+  assert.match(refreshBlock, /Ephemeral backup sidecar readiness attempt/);
+  assert.match(refreshBlock, /seq 1 12/);
   assert.match(refreshBlock, /seq 1 5/);
-  assert.doesNotMatch(refreshBlock, /seq 1 12/);
   assert.match(refreshBlock, /cleanup failed; release remains blocked/);
   assert.match(refreshBlock, /exit 51/);
   assert.match(refreshBlock, /exit 52/);
