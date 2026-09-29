@@ -73,7 +73,7 @@ jobs:
 
           READY=0
           for ATTEMPT in $(seq 1 12); do
-            CODE="$(curl --silent --show-error --max-time 60 \
+            CODE="$(curl --silent --show-error --max-time 300 \
               --header "x-mel-launch-bootstrap: ${TOKEN}" \
               --header "content-type: application/json" \
               --data '{"phase":"sovereignty-proof"}' \
