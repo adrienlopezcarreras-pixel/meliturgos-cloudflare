@@ -95,3 +95,8 @@ La migration de modèle ne remplace pas les gates actuels : CI complète verte, 
 - Le collage doit rejoindre le même pipeline de pièces jointes que le glisser-déposer/sélecteur : aperçu ou nom, taille, suppression avant envoi, multi-fichiers et validation type/taille.
 - Le texte collé continue à fonctionner normalement, y compris quand le presse-papiers contient texte + média.
 - DONE_VERIFIED exige une preuve navigateur réelle sur les deux modes.
+
+## P0 — vérité runtime Gmail et LoRA
+
+- **MEL-CONN-04** : Gmail doit être réellement exécutable depuis le chat. Une capacité non authentifiée ou en échec ne doit plus être comptée comme disponible/utilisable. Preuve finale : recherche + lecture réelles de la boîte de réception en production.
+- **MEL-LORA-01** : le chat doit lire le dernier état LoRA depuis une source canonique commune avec la page LoRA : run, SHA, checkpoint, statut, adaptateur et benchmark. Aucune réponse improvisée sur le dernier run.
