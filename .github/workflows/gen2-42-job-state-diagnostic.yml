@@ -74,7 +74,7 @@ jobs:
             }
             return rows;
           }
-          const parse=v=>{try{return typeof v==='string'&&v?JSON.parse(v):v||{};}catch{return {};}};
+          const parse=v=>{try{const x=typeof v==='string'&&v?JSON.parse(v):v;return x&&typeof x==='object'?x:{};}catch{return {};}};
           const [jobs,stateRows,ledger]=await Promise.all([table('dev_jobs'),table('dev_bridge_state'),table('evolution_ledger')]);
           const autonomy=jobs.filter(j=>String(j.requested_by||'')==='mel-autonomy'||String(j.requested_by||'').startsWith('owner-chat'));
           const safeJob=j=>{
