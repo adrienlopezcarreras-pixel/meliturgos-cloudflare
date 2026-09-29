@@ -28,3 +28,12 @@ test('canonical release deploys and proves browser.execute through production', 
   assert.match(workflow, /Assistant personnel connecté/);
   assert.match(router, /"browser\.execute"/);
 });
+
+
+test('browser proof session is unique per release SHA', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /BROWSER_SESSION_ID="release-browser-proof-\$\{EXPECTED_SHA:0:12\}"/);
+  assert.match(workflow, /export BROWSER_SESSION_ID/);
+  assert.match(workflow, /session_id:process\.env\.BROWSER_SESSION_ID/);
+  assert.doesNotMatch(workflow, /"session_id":"release-browser-proof"/);
+});
