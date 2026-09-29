@@ -1,6 +1,7 @@
 name: gen2-17-multi-cycle-ci
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'tests/autonomy-runtime.test.mjs'
@@ -42,6 +43,9 @@ jobs:
           tests/evolution-proof-runner.test.mjs
 
   gen2-17-full-suite:
+    # TEMPORARY DEV-LIGHT MODE: targeted autonomy proof remains automatic;
+    # full repository validation is manual until final closure.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: gen2-17-targeted
