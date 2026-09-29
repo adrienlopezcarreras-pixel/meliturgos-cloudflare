@@ -25,3 +25,13 @@ test('cloud bridge workflow claims exact job, reconciles main, and reports resul
   assert.match(source, /gen2-42-cloud-bridge\n/);
   assert.doesNotMatch(source, /secrets\.MEL_DEV_BRIDGE_TOKEN/);
 });
+
+
+test('cloud bridge keeps runtime payloads outside the Git worktree before candidate checkout', async () => {
+  const source = await readFile(new URL('../../.github/workflows/gen2-42-apply-ready-bridge.yml', import.meta.url), 'utf8');
+  assert.match(source, /BRIDGE_JOB_FILE=.*RUNNER_TEMP/);
+  assert.match(source, /--output "\$BRIDGE_JOB_FILE"/);
+  assert.match(source, /git clean -fd/);
+  assert.doesNotMatch(source, /--output bridge-job\.json/);
+  assert.doesNotMatch(source, /readFileSync\(['"]bridge-job\.json/);
+});
