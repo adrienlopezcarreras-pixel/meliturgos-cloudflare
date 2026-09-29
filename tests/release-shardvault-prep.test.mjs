@@ -58,6 +58,19 @@ test('unbounded ShardVault search keeps full live revalidation even with seven a
 });
 
 
+test('temporary dev-light release accepts explicit PAUSED_FOR_ROADMAP code-sync without weakening normal 7x proof',async()=>{
+  const source=await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8');
+  assert.match(source,/status==='PAUSED_FOR_ROADMAP'/);
+  assert.match(source,/process\.env\.MEL_ROADMAP_SHARDVAULT_PAUSED!=='true'/);
+  assert.match(source,/PRODUCTION_CODE_SYNC_UNEXPECTED_PAUSE/);
+  assert.match(source,/PRODUCTION_CODE_SYNC_PAUSE_NOT_EXPLICIT/);
+  assert.match(source,/status!=='COPIED'/);
+  assert.match(source,/PRODUCTION_CODE_SYNC_TARGET_LT_7/);
+  assert.match(source,/PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7/);
+  assert.match(source,/PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED/);
+});
+
+
 test('ShardVault roadmap pause is either closed out or explicitly temporary dev-light only',async()=>{
   const [workflow,wrangler]=await Promise.all([
     readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml',import.meta.url),'utf8'),
