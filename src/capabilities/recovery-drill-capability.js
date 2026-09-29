@@ -375,15 +375,34 @@ export function registerRecoveryDrillCapability(bus, env = {}) {
     requireValue(input?.approved === true, 'RECOVERY_DRILL_EXPLICIT_APPROVAL_REQUIRED', 403);
     requireValue(env?.DB?.prepare, 'BACKUP_DB_UNAVAILABLE', 503);
     requireValue(env?.MEDIA_BUCKET?.get, 'BACKUP_R2_UNAVAILABLE', 503);
-    const encryptionKeyId = String(env?.MEL_BACKUP_ENCRYPTION_KEY_ID || '').trim();
-    const encryptionKey = String(env?.MEL_BACKUP_ENCRYPTION_KEY_B64 || '').trim();
+    const stableEncryptionKeyId = String(env?.MEL_BACKUP_ENCRYPTION_KEY_ID || '').trim();
+    const stableEncryptionKey = String(env?.MEL_BACKUP_ENCRYPTION_KEY_B64 || '').trim();
+    const releaseEncryptionKeyId = context?.releaseSmoke === true
+      ? String(env?.MEL_RELEASE_BACKUP_ENCRYPTION_KEY_ID || '').trim()
+      : '';
+    const releaseEncryptionKey = context?.releaseSmoke === true
+      ? String(env?.MEL_RELEASE_BACKUP_ENCRYPTION_KEY_B64 || '').trim()
+      : '';
+    const releaseEncryptionRequested = Boolean(releaseEncryptionKeyId || releaseEncryptionKey);
+    requireValue(
+      !releaseEncryptionRequested || Boolean(releaseEncryptionKeyId && releaseEncryptionKey),
+      'RELEASE_BACKUP_ENCRYPTION_CONFIG_INCOMPLETE',
+      503,
+    );
+    const encryptionKeyId = releaseEncryptionRequested ? releaseEncryptionKeyId : stableEncryptionKeyId;
+    const encryptionKey = releaseEncryptionRequested ? releaseEncryptionKey : stableEncryptionKey;
     const encryptionRequested = Boolean(encryptionKeyId || encryptionKey);
     requireValue(
       !encryptionRequested || Boolean(encryptionKeyId && encryptionKey),
       'BACKUP_ENCRYPTION_CONFIG_INCOMPLETE',
       503,
     );
-    const encryptionCodec = encryptionRequested ? createEnvBackupEncryptionCodec(env) : null;
+    const encryptionCodec = encryptionRequested
+      ? createEnvBackupEncryptionCodec({
+          MEL_BACKUP_ENCRYPTION_KEY_ID: encryptionKeyId,
+          MEL_BACKUP_ENCRYPTION_KEY_B64: encryptionKey,
+        })
+      : null;
     const storage = createR2D1BackupStorage({
       db: env.DB,
       bucket: env.MEDIA_BUCKET,
