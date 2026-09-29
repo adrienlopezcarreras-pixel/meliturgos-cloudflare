@@ -63,15 +63,16 @@ test('Workers AI zero-cost proof refresh runs after exact production deploy and 
 });
 
 
-test('predeploy refresh uses an isolated worker before rollback capture and removes it fail-closed', async () => {
-  const [source, refresher] = await Promise.all([
+test('predeploy refresh creates the backup on the GitHub runner and keeps the Worker sidecar lightweight', async () => {
+  const [source, refresher, runner] = await Promise.all([
     readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8'),
     readFile(new URL('../release-tools/predeploy-backup-refresh/worker.js', import.meta.url), 'utf8'),
+    readFile(new URL('../release-tools/predeploy-backup-refresh/runner.mjs', import.meta.url), 'utf8'),
   ]);
   const refresh = source.indexOf('      - name: Refresh current production backup through ephemeral worker');
   const rollback = source.indexOf('      - name: Capture current production rollback target');
   const binder = source.indexOf('      - name: Create verified pre-deploy production backup');
-  assert.ok(refresh >= 0 && rollback > refresh && binder > rollback, 'ephemeral backup refresh must complete before rollback capture and binder proof');
+  assert.ok(refresh >= 0 && rollback > refresh && binder > rollback, 'runner backup refresh must complete before rollback capture and binder proof');
 
   const refreshBlock = source.slice(refresh, rollback);
   assert.match(refreshBlock, /mel-predeploy-backup-refresh/);
@@ -80,22 +81,34 @@ test('predeploy refresh uses an isolated worker before rollback capture and remo
   assert.match(refreshBlock, /CURRENT_PRODUCTION_RELEASE_SHA_NOT_FOUND/);
   assert.match(refreshBlock, /wrangler deploy --config/);
   assert.match(refreshBlock, /wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN/);
-  assert.match(refreshBlock, /wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_B64/);
-  assert.match(refreshBlock, /wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_ID/);
+  assert.doesNotMatch(refreshBlock, /wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_B64/);
+  assert.doesNotMatch(refreshBlock, /wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_ID/);
+  assert.match(refreshBlock, /MEL_D1_DATABASE_ID/);
+  assert.match(refreshBlock, /MEL_R2_BUCKET_NAME/);
+  assert.match(refreshBlock, /predeploy-backup-refresh\/runner\.mjs/);
   assert.match(refreshBlock, /\/workers\/scripts\/\$\{REFRESH_NAME\}/);
-  assert.match(refreshBlock, /seq 1 12/);
   assert.match(refreshBlock, /seq 1 5/);
+  assert.doesNotMatch(refreshBlock, /seq 1 12/);
   assert.match(refreshBlock, /cleanup failed; release remains blocked/);
   assert.match(refreshBlock, /exit 51/);
+  assert.match(refreshBlock, /exit 52/);
   assert.doesNotMatch(refreshBlock, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
   assert.doesNotMatch(refreshBlock, /release-launch-bootstrap/);
 
-  assert.match(refresher, /runScheduledSystemBackup/);
-  assert.match(refresher, /force:\s*true/);
-  assert.match(refresher, /compactPostPersistVerify:\s*true/);
-  assert.match(refresher, /MEL_DEPLOYED_GIT_SHA/);
-  assert.match(refresher, /MEL_DEPLOYED_GIT_BRANCH/);
-  assert.match(refresher, /PREDEPLOY_BACKUP_REFRESH_CREATED/);
+  assert.match(refresher, /const PATH = '\/inventory'/);
+  assert.match(refresher, /MEDIA_BUCKET\.list/);
+  assert.match(refresher, /R2_INVENTORY_PAGE/);
+  assert.doesNotMatch(refresher, /runScheduledSystemBackup/);
+  assert.doesNotMatch(refresher, /MEL_BACKUP_ENCRYPTION_KEY_B64/);
+
+  assert.match(runner, /createVerifiedBackupService/);
+  assert.match(runner, /createBackupEncryptionCodec/);
+  assert.match(runner, /inspectRestoreCandidate/);
+  assert.match(runner, /\/d1\/database\//);
+  assert.match(runner, /'r2', 'object', 'put'/);
+  assert.match(runner, /'r2', 'object', 'get'/);
+  assert.match(runner, /INSERT INTO backup_objects/);
+  assert.match(runner, /PREDEPLOY_BACKUP_REFRESH_CREATED/);
 
   const binderEnd = source.indexOf('      - name: Install pinned Browser Rendering adapter', binder);
   const binderBlock = source.slice(binder, binderEnd);
