@@ -479,6 +479,10 @@ export async function proveEcosystemTeacherHandoff(
           ? 'GEN2_42_TEACHER_HANDOFF_IDLE_VERIFIED'
           : 'GEN2_42_TEACHER_HANDOFF_NOT_READY',
     resumed: reconciled.resumed || null,
+    durable_teacher_state_repair_count: Number(reconciled.durable_teacher_state_repair_count || 0),
+    durable_teacher_state_repairs: Array.isArray(reconciled.durable_teacher_state_repairs)
+      ? reconciled.durable_teacher_state_repairs.slice(0, 20)
+      : [],
     idle_verified: idleVerified,
     progress_verified: progressVerified,
     open_handoff_count: open.length,
