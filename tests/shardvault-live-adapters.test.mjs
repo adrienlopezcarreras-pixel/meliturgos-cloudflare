@@ -256,7 +256,10 @@ test('critical bundle is bound through the runtime before qualification', () => 
 test('code sync prefers representative proof metadata and timing over legacy registry entries', () => {
   assert.match(runtime,/const proofWeight=e=>\[/);
   assert.match(runtime,/if\(!current\|\|better\(e,current\)\)by\.set\(e\.id,e\)/);
-  assert.match(runtime,/rankExternalCodeCandidates\(env,\[\.\.\.validated,\.\.\.extra/);
+  assert.match(runtime,/activeCodeTargets=await readActiveExternalEndpoints\(env\)/);
+  assert.match(runtime,/\.\.\.validated,\.\.\.extra,\.\.\.codeCandidates,\.\.\.activeCodeTargets/);
+  assert.match(runtime,/allowUnprovenIds:\[\.\.\.activeCodeTargetIds\]/);
+  assert.match(runtime,/CODE_FRAGMENT_ROUNDTRIP_MISMATCH/);
   assert.match(runtime,/representativeLatencyMs/);
   assert.match(runtime,/const proofBudget=representativeLatency>0\?Math\.ceil\(representativeLatency\*1\.35\+10000\):0/);
   assert.match(autonomous,/REPRESENTATIVE_DEADLINE_EXCEEDED/);
