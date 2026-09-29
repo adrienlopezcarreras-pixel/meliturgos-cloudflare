@@ -19,4 +19,9 @@ test('cloud bridge workflow claims exact job, reconciles main, and reports resul
   assert.match(source, /\/api\/dev-bridge\/result/);
   assert.match(source, /SKIPPED_NOT_CLAIMABLE/);
   assert.match(source, /GITHUB_CLOUD_BRIDGE/);
+  assert.match(source, /Install ephemeral cloud bridge token/);
+  assert.match(source, /MEL_CLOUD_BRIDGE_TOKEN/);
+  assert.match(source, /Remove ephemeral cloud bridge token/);
+  assert.match(source, /gen2-42-cloud-bridge\n/);
+  assert.doesNotMatch(source, /secrets\.MEL_DEV_BRIDGE_TOKEN/);
 });

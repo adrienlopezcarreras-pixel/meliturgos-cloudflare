@@ -24,13 +24,23 @@ function jsonError(code, status) {
 }
 
 export function authorizeDevBridge(request, env = {}) {
-  const secret = typeof env.MEL_DEV_BRIDGE_TOKEN === 'string' ? env.MEL_DEV_BRIDGE_TOKEN : '';
-  if (!secret.trim()) return jsonError('BRIDGE_NOT_CONFIGURED', 503);
+  const secrets = [
+    typeof env.MEL_DEV_BRIDGE_TOKEN === 'string' ? env.MEL_DEV_BRIDGE_TOKEN.trim() : '',
+    typeof env.MEL_CLOUD_BRIDGE_TOKEN === 'string' ? env.MEL_CLOUD_BRIDGE_TOKEN.trim() : '',
+  ].filter(Boolean);
+  if (!secrets.length) return jsonError('BRIDGE_NOT_CONFIGURED', 503);
 
   const authorization = request.headers.get('authorization') || '';
   const prefix = 'Bearer ';
   const provided = authorization.startsWith(prefix) ? authorization.slice(prefix.length) : '';
-  if (!provided || !constantTimeEqual(provided, secret)) return jsonError('BRIDGE_AUTH_REQUIRED', 401);
+  if (!provided) return jsonError('BRIDGE_AUTH_REQUIRED', 401);
+
+  let authorized = false;
+  for (const secret of secrets) {
+    const matches = constantTimeEqual(provided, secret);
+    authorized = matches || authorized;
+  }
+  if (!authorized) return jsonError('BRIDGE_AUTH_REQUIRED', 401);
 
   return null;
 }
