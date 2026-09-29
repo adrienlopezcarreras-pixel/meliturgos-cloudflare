@@ -1,5 +1,5 @@
 GEN2-42 runtime live fallback verification
 mode=owner-max
-release_sha=884ce4e80432a73718bf856b20e036d6db6e0a0d
-purpose=verify-cloud-bridge-fallback-and-max-consumption
-trigger_seq=6
+release_sha=a8610505f0e3257c27d7a9c3a4d5dcf8a9f2ac97
+purpose=verify-ephemeral-cloud-bridge-auth-and-job-consumption
+trigger_seq=7
