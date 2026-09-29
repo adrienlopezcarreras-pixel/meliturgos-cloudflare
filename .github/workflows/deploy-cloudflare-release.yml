@@ -166,9 +166,18 @@ jobs:
           [[ "${CURRENT_PRODUCTION_SHA}" =~ ^[0-9a-f]{40}$ ]]
           echo "Current canonical production release SHA: ${CURRENT_PRODUCTION_SHA}"
 
-          REFRESH_NAME="mel-predeploy-backup-refresh"
-          REFRESH_CONFIG="release-tools/predeploy-backup-refresh/wrangler.jsonc"
-          REFRESH_URL="https://mel-predeploy-backup-refresh.adrien-lopezcarreras.workers.dev"
+          REFRESH_NAME="mel-pd-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          REFRESH_CONFIG="release-tools/predeploy-backup-refresh/wrangler.run.jsonc"
+          REFRESH_URL="https://${REFRESH_NAME}.adrien-lopezcarreras.workers.dev"
+          export REFRESH_NAME
+          node - <<'NODE'
+          const fs=require('fs');
+          const source='release-tools/predeploy-backup-refresh/wrangler.jsonc';
+          const target='release-tools/predeploy-backup-refresh/wrangler.run.jsonc';
+          const config=JSON.parse(fs.readFileSync(source,'utf8'));
+          config.name=process.env.REFRESH_NAME;
+          fs.writeFileSync(target,JSON.stringify(config,null,2));
+          NODE
           REFRESH_TOKEN="$(openssl rand -hex 32)"
           echo "::add-mask::${REFRESH_TOKEN}"
           REFRESH_CREATED=0
