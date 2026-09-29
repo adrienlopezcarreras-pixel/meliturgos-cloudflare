@@ -83,7 +83,7 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(refreshBlock, /wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN/);
   assert.doesNotMatch(refreshBlock, /wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_B64/);
   assert.doesNotMatch(refreshBlock, /wrangler secret put MEL_BACKUP_ENCRYPTION_KEY_ID/);
-  assert.match(refreshBlock, /MEL_D1_DATABASE_ID/);
+  assert.doesNotMatch(refreshBlock, /MEL_D1_DATABASE_ID/);
   assert.match(refreshBlock, /MEL_R2_BUCKET_NAME/);
   assert.match(refreshBlock, /predeploy-backup-refresh\/runner\.mjs/);
   assert.match(refreshBlock, /\/workers\/scripts\/\$\{REFRESH_NAME\}/);
