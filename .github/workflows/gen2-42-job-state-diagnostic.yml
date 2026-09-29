@@ -54,8 +54,8 @@ jobs:
           }
           trap cleanup EXIT
 
-          npx wrangler deploy --config "${DIAG_CONFIG}" >/tmp/gen2-diag-deploy.log
-          printf '%s' "${DIAG_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN --config "${DIAG_CONFIG}" >/tmp/gen2-diag-secret.log
+          npx wrangler deploy --config "${DIAG_CONFIG}"
+          printf '%s' "${DIAG_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN --config "${DIAG_CONFIG}"
 
           READY=0
           for attempt in $(seq 1 12); do
