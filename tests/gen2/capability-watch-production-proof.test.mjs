@@ -287,3 +287,129 @@ test('GEN2-42 release proof keeps retryable failures observable but non-blocking
     assert.equal(proof.released_retryable_failures[0].code,'AUTONOMY_RUNTIME_RETRY_EXHAUSTED:CODE_HEAD_PIN_MISMATCH');
   } finally { DB.close(); }
 });
+
+
+test('GEN2-42 production proof resumes a QUEUED handoff only when Council evidence is already persisted', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    const ledger={
+      schema:'mel.ecosystem-discovery-ledger.v1',
+      items:[{
+        fingerprint:'prepared-queued',
+        handoff:{
+          job_id:'job-prepared',
+          status:'QUEUED',
+          teacher_request_id:'req-old',
+          candidate_sha:'b'.repeat(40),
+          closed:false,
+        },
+      }],
+    };
+    await DB.prepare(
+      `INSERT INTO capability_watch_state(id,state_json,updated_at) VALUES(?,?,?)`
+    ).bind('ecosystem-discoveries-canonical',JSON.stringify(ledger),Date.now()).run();
+
+    let job={
+      id:'job-prepared',
+      status:'QUEUED',
+      requested_by:'mel-autonomy',
+      optional_context:{source:'ecosystem-watch'},
+      created_at:1,
+      plan_json:{
+        preflight:{
+          council:{
+            status:'COMPLETE',
+            responses:[{provider:'fixture-a'},{provider:'fixture-b'}],
+          },
+        },
+      },
+      result_json:{},
+    };
+    let resumeCalls=0;
+    let mirrorCalls=0;
+    const repository={
+      async get(id){ return id===job.id ? structuredClone(job) : null; },
+    };
+
+    const proof=await proveEcosystemTeacherHandoff({DB},{
+      developmentRepository:repository,
+      resumeTeacherRequest:async()=>{
+        resumeCalls+=1;
+        job={
+          ...job,
+          status:'WAITING_TEACHER',
+          result_json:{
+            teacher_bridge:{
+              status:'WAITING_TEACHER',
+              request:{
+                request_id:'req-prepared',
+                target_sha:'b'.repeat(40),
+                provenance:{candidate_sha:'b'.repeat(40)},
+              },
+            },
+          },
+        };
+        return job.result_json.teacher_bridge;
+      },
+      mirrorTeacherRequest:async()=>{
+        mirrorCalls+=1;
+        return {status:'MIRRORED',request_id:'req-prepared'};
+      },
+    });
+
+    assert.equal(resumeCalls,1);
+    assert.equal(mirrorCalls,1);
+    assert.equal(proof.ok,true);
+    assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_READY');
+    assert.equal(proof.resumed.status,'WAITING_TEACHER');
+    assert.equal(proof.teacher_request_id,'req-prepared');
+    assert.equal(proof.blocked_open_handoff_count,0);
+    assert.equal(proof.production_activation_allowed,false);
+    assert.equal(proof.auto_approval_allowed,false);
+  } finally {
+    DB.close();
+  }
+});
+
+test('GEN2-42 production proof still refuses an unprepared QUEUED handoff', async () => {
+  const DB=sqliteD1();
+  try {
+    await migrate(DB);
+    const ledger={
+      schema:'mel.ecosystem-discovery-ledger.v1',
+      items:[{
+        fingerprint:'unprepared-queued',
+        handoff:{job_id:'job-unprepared',status:'QUEUED',teacher_request_id:'req-stale',closed:false},
+      }],
+    };
+    await DB.prepare(
+      `INSERT INTO capability_watch_state(id,state_json,updated_at) VALUES(?,?,?)`
+    ).bind('ecosystem-discoveries-canonical',JSON.stringify(ledger),Date.now()).run();
+
+    let resumeCalls=0;
+    const proof=await proveEcosystemTeacherHandoff({DB},{
+      developmentRepository:{
+        async get(id){
+          return {
+            id,
+            status:'QUEUED',
+            requested_by:'mel-autonomy',
+            optional_context:{source:'ecosystem-watch'},
+            created_at:1,
+            plan_json:{},
+            result_json:{},
+          };
+        },
+      },
+      resumeTeacherRequest:async()=>{resumeCalls+=1;throw new Error('MUST_NOT_RUN');},
+    });
+
+    assert.equal(resumeCalls,0);
+    assert.equal(proof.ok,false);
+    assert.equal(proof.status,'GEN2_42_TEACHER_HANDOFF_NOT_READY');
+    assert.equal(proof.blocked_open_handoff_count,1);
+  } finally {
+    DB.close();
+  }
+});
