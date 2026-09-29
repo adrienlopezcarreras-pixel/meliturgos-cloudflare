@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse } from '../src/api/response-grounding.js';
+import { formatVerifiedSelfStateResponse, formatVerifiedCapabilityAuditResponse, formatCommunicationAuditResponse, formatVerifiedAutonomyActivityResponse } from '../src/api/response-grounding.js';
 
 test('verified self-state response states evidence and preserves observation boundaries', () => {
   const text = formatVerifiedSelfStateResponse({
@@ -75,4 +75,40 @@ test('communication audit formatter reports concrete detected patterns', () => {
   assert.match(text, /POSSIBLE_OFF_TOPIC=4/);
   assert.match(text, /Réponse sans rapport/);
   assert.match(text, /borné/i);
+});
+
+
+test('autonomy activity formatter reports live MAX/jobs/ledger and rejects archive-style claims', () => {
+  const text = formatVerifiedAutonomyActivityResponse({
+    ok:true,
+    observed_at:'2026-09-29T18:00:00.000Z',
+    source:'production_d1',
+    control:{ paused:false, max_autonomy:true },
+    counts:{ supervised_total:3, by_status:{TEACHER_APPROVED:1,COMPLETED:2} },
+    recent_jobs:[{
+      job_id:'mel-ui-06',
+      status:'TEACHER_APPROVED',
+      roadmap_id:'MEL-UI-06',
+      goal:'Clipboard direct',
+      teacher_verdict:'APPROVE_PLAN',
+      owner_override:true,
+      bridge_preparation_status:'READY',
+    }],
+    recent_events:[{
+      seq:42,
+      evolution_id:'mel-ui-06',
+      stage:'JOB_UPDATED',
+      status:'TEACHER_APPROVED',
+      source_sha:'a'.repeat(40),
+    }],
+  }, { fallback:'stale Ligier memory' });
+
+  assert.match(text, /MAX est actif/);
+  assert.match(text, /mel-ui-06/);
+  assert.match(text, /Teacher=APPROVE_PLAN \+ override MAX/);
+  assert.match(text, /bridge=READY/);
+  assert.match(text, /Derniers événements du ledger/);
+  assert.match(text, /#42/);
+  assert.doesNotMatch(text, /Ligier/);
+  assert.match(text, /n’utilise pas une ancienne conversation/i);
 });
