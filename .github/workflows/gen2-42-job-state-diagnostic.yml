@@ -13,7 +13,7 @@ permissions:
 jobs:
   read-only:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -21,7 +21,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Read sanitized GEN2-42 job state through ephemeral D1 binding
+      - name: Read sanitized MEL autonomy audit through ephemeral D1 binding
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -32,7 +32,6 @@ jobs:
           DIAG_CONFIG="release-tools/predeploy-backup-refresh/wrangler.diag.jsonc"
           DIAG_URL="https://${DIAG_NAME}.adrien-lopezcarreras.workers.dev"
           DIAG_TOKEN="$(openssl rand -hex 32)"
-          TARGET_ID="ecosystem-watch-09fabecdca74c530da98767a20870ece"
           echo "::add-mask::${DIAG_TOKEN}"
 
           node - <<'NODE'
@@ -46,111 +45,135 @@ jobs:
 
           cleanup() {
             set +e
-            curl --silent --show-error --max-time 30 \
-              --request DELETE \
-              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${DIAG_NAME}" \
-              >/dev/null 2>&1 || true
+            curl --silent --show-error --max-time 30               --request DELETE               --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"               "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${DIAG_NAME}"               >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
 
-          npx wrangler deploy --config "${DIAG_CONFIG}"
-          printf '%s' "${DIAG_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN --config "${DIAG_CONFIG}"
+          npx wrangler deploy --config "${DIAG_CONFIG}" >/tmp/diag-deploy.log
+          printf '%s' "${DIAG_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN --config "${DIAG_CONFIG}" >/tmp/diag-secret.log
 
-          READY=0
           for attempt in $(seq 1 12); do
-            code="$(curl --silent --show-error --max-time 30 \
-              --header "x-mel-predeploy-backup-refresh: ${DIAG_TOKEN}" \
-              --output /tmp/tables.json \
-              --write-out '%{http_code}' \
-              "${DIAG_URL}/d1/tables" || true)"
-            if [ "${code}" = "200" ]; then READY=1; break; fi
+            code="$(curl --silent --show-error --max-time 30               --header "x-mel-predeploy-backup-refresh: ${DIAG_TOKEN}"               --output /tmp/tables.json               --write-out '%{http_code}'               "${DIAG_URL}/d1/tables" || true)"
+            [ "${code}" = "200" ] && break
             sleep 2
           done
-          test "${READY}" = "1"
+          test "${code}" = "200"
 
-          cat > /tmp/filter-job.mjs <<'NODE'
-          import fs from 'node:fs';
-          const target=process.env.TARGET_ID;
-          const d=JSON.parse(fs.readFileSync('/tmp/page.json','utf8'));
-          const row=(Array.isArray(d?.rows)?d.rows:[]).find(x=>String(x?.id||'')===target);
-          if(!row) process.exit(2);
+          fetch_table() {
+            table="$1"
+            out="$2"
+            : > "${out}"
+            echo '[]' > "${out}"
+            for offset in $(seq 0 100 10000); do
+              curl --silent --show-error --fail-with-body --max-time 30                 --header "x-mel-predeploy-backup-refresh: ${DIAG_TOKEN}"                 "${DIAG_URL}/d1/rows?table=${table}&limit=100&offset=${offset}" > /tmp/page.json
+              TABLE="$table" OUT="$out" node - <<'NODE'
+              const fs=require('fs');
+              const out=process.env.OUT;
+              const page=JSON.parse(fs.readFileSync('/tmp/page.json','utf8'));
+              const prior=JSON.parse(fs.readFileSync(out,'utf8'));
+              fs.writeFileSync(out,JSON.stringify(prior.concat(Array.isArray(page.rows)?page.rows:[])));
+              process.stdout.write(page.has_more===true?'1':'0');
+              NODE
+              has_more="$(TABLE="$table" OUT="$out" node -e "const d=require('/tmp/page.json');process.stdout.write(d.has_more===true?'1':'0')")"
+              [ "${has_more}" = "1" ] || break
+            done
+          }
+
+          fetch_table dev_jobs /tmp/dev_jobs.json
+          fetch_table dev_bridge_state /tmp/dev_bridge_state.json
+          fetch_table evolution_ledger /tmp/evolution_ledger.json
+
+          node - <<'NODE'
+          const fs=require('fs');
           const parse=v=>{try{return typeof v==='string'&&v?JSON.parse(v):v||{};}catch{return {};}};
-          const plan=parse(row.plan_json);
-          const result=parse(row.result_json);
-          const ctx=parse(row.optional_context);
-          const history=Array.isArray(result.teacher_bridge_history)?result.teacher_bridge_history:[];
-          const lastHistory=history.length?history[history.length-1]:null;
-          console.log(JSON.stringify({
-            id:row.id,
-            status:row.status,
-            requested_by:row.requested_by,
-            updated_at:row.updated_at,
-            error:row.error||null,
-            source:ctx?.source||null,
-            request_key:ctx?.request_key||null,
-            roadmap_id:ctx?.roadmap_id||null,
-            council:{
-              present:Boolean(plan?.preflight?.council),
-              status:plan?.preflight?.council?.status||null,
-              degraded:plan?.preflight?.council?.degraded===true,
+          const jobs=JSON.parse(fs.readFileSync('/tmp/dev_jobs.json','utf8'));
+          const stateRows=JSON.parse(fs.readFileSync('/tmp/dev_bridge_state.json','utf8'));
+          const ledger=JSON.parse(fs.readFileSync('/tmp/evolution_ledger.json','utf8'));
+
+          const autonomy=jobs.filter(j=>['mel-autonomy','owner-chat'].includes(String(j.requested_by||'')) || String(j.requested_by||'').startsWith('owner-chat'));
+          const safeJob=j=>{
+            const ctx=parse(j.optional_context);
+            const plan=parse(j.plan_json);
+            const result=parse(j.result_json);
+            const hist=Array.isArray(result.teacher_bridge_history)?result.teacher_bridge_history:[];
+            return {
+              id:j.id,
+              status:j.status,
+              requested_by:j.requested_by,
+              goal:String(j.goal||'').slice(0,240),
+              roadmap_id:ctx.roadmap_id||null,
+              phase_id:ctx.phase_id||null,
+              source:ctx.source||null,
+              request_key:ctx.request_key||null,
+              created_at:Number(j.created_at||0),
+              updated_at:Number(j.updated_at||0),
+              candidate_branch:j.candidate_branch||null,
+              approval_status:j.approval_status||null,
+              error:j.error?String(j.error).slice(0,240):null,
+              council_status:plan?.preflight?.council?.status||null,
+              revision_reason:plan?.revision?.reason||null,
+              teacher_status:result?.teacher_bridge?.status||null,
+              teacher_verdict:result?.teacher_bridge?.review?.verdict||result?.last_teacher_review?.verdict||null,
+              teacher_owner_override:result?.teacher_bridge?.review?.owner_override===true,
+              teacher_history_count:hist.length,
+              completion_status:result?.autonomy_completion?.status||null,
+              completion_sha:result?.autonomy_completion?.candidate_sha||null,
+              completion_ci_run_id:result?.autonomy_completion?.ci?.run_id||null,
+              runtime_retry_attempts:Number(result?.runtime_retry?.attempts||0),
+              autonomy_block_reason:result?.autonomy_block_reason||null,
+            };
+          };
+
+          const controlRow=stateRows.find(r=>String(r.bridge_id||'')==='mel-autonomy-control')||null;
+          const controlMeta=parse(controlRow?.metadata_json);
+          const counts={};
+          for(const j of autonomy) counts[j.status]=(counts[j.status]||0)+1;
+
+          const autonomyIds=new Set(autonomy.map(j=>String(j.id)));
+          const relevantLedger=ledger.filter(e=>autonomyIds.has(String(e.evolution_id||'')) || String(e.actor||'')==='mel-autonomy')
+            .map(e=>({
+              seq:Number(e.seq||0),
+              evolution_id:e.evolution_id,
+              stage:e.stage,
+              status:e.status,
+              actor:e.actor,
+              source_sha:e.source_sha||null,
+              branch:e.branch||null,
+              occurred_at:Number(e.occurred_at||0),
+              evidence:parse(e.evidence_json),
+            }));
+
+          const audit={
+            generated_at:new Date().toISOString(),
+            control:{
+              status:controlRow?.status||null,
+              last_seen:Number(controlRow?.last_seen||0),
+              paused:controlMeta.paused===true,
+              max_autonomy:controlMeta.max_autonomy===true||controlMeta.owner_override===true||String(controlRow?.status||'')==='MAX_AUTONOMY',
+              source:controlMeta.source||null,
+              reason:controlMeta.reason||null,
+              launch_approved_sha:controlMeta.launch_approved_sha||null,
+              launch_approved_at:controlMeta.launch_approved_at||null,
             },
-            revision:{
-              reason:plan?.revision?.reason||null,
-              previous_request_id:plan?.revision?.previous_request_id||null,
+            counts:{
+              autonomy_jobs:autonomy.length,
+              by_status:counts,
+              mel_autonomy:autonomy.filter(j=>j.requested_by==='mel-autonomy').length,
+              owner_chat:autonomy.filter(j=>String(j.requested_by||'').startsWith('owner-chat')).length,
             },
-            teacher:{
-              active_status:result?.teacher_bridge?.status||null,
-              active_request_id:result?.teacher_bridge?.request?.request_id||null,
-              last_review_request_id:result?.last_teacher_review?.request_id||null,
-              last_review_verdict:result?.last_teacher_review?.verdict||null,
-              history_count:history.length,
-              history_last_status:lastHistory?.status||null,
-              history_last_request_id:lastHistory?.review?.request_id||lastHistory?.request?.request_id||null,
-              history_last_verdict:lastHistory?.review?.verdict||null,
-            },
-            implementation_code:result?.implementation_planning_diagnostic?.code||null,
-            bridge_code:result?.bridge_preparation_diagnostic?.code||null,
-            autonomy_block_reason:result?.autonomy_block_reason||null,
-            runtime_retry_attempts:Number(result?.runtime_retry?.attempts||0),
-            runtime_retry_last_error:result?.runtime_retry?.last_error||null,
-          },null,2));
+            jobs:autonomy.map(safeJob).sort((a,b)=>b.updated_at-a.updated_at),
+            evolution_events:relevantLedger.sort((a,b)=>a.seq-b.seq),
+          };
+          fs.writeFileSync('mel-max-autonomy-audit.json',JSON.stringify(audit,null,2));
+          console.log(JSON.stringify(audit,null,2));
           NODE
 
-          FOUND=0
-          for offset in $(seq 0 100 10000); do
-            PAGE_READY=0
-            for page_attempt in $(seq 1 6); do
-              code="$(curl --silent --show-error --max-time 30 \
-                --header "x-mel-predeploy-backup-refresh: ${DIAG_TOKEN}" \
-                --output /tmp/page.json \
-                --write-out '%{http_code}' \
-                "${DIAG_URL}/d1/rows?table=dev_jobs&limit=100&offset=${offset}" || true)"
-              if [ "${code}" = "200" ]; then PAGE_READY=1; break; fi
-              sleep 2
-            done
-            if [ "${PAGE_READY}" != "1" ]; then
-              echo "D1 rows page failed with HTTP ${code}."
-              if [ -s /tmp/page.json ]; then
-                node -e "const d=require('/tmp/page.json');console.log(JSON.stringify({ok:d?.ok,status:d?.status,code:d?.code||null},null,2))"
-              fi
-              exit 1
-            fi
-
-            set +e
-            TARGET_ID="${TARGET_ID}" node /tmp/filter-job.mjs
-            rc=$?
-            set -e
-            if [ "${rc}" -eq 0 ]; then
-              FOUND=1
-              break
-            fi
-            if [ "${rc}" -ne 2 ]; then exit "${rc}"; fi
-
-            has_more="$(node -e "const d=require('/tmp/page.json');process.stdout.write(d.has_more===true?'1':'0')")"
-            if [ "${has_more}" != "1" ]; then break; fi
-          done
-
-          test "${FOUND}" = "1"
           cleanup
           trap - EXIT
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mel-max-autonomy-audit-${{ github.run_id }}
+          path: mel-max-autonomy-audit.json
+          if-no-files-found: error
+          retention-days: 7
