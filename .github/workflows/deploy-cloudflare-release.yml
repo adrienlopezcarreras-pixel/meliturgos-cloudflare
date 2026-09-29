@@ -857,12 +857,19 @@ jobs:
           node - <<'NODE'
           const d=require('./production-launch-code-sync.json');
           const s=d?.code_sync||{};
+          const status=String(s?.status||d?.status||'');
           if(d?.ok!==true || d?.complete!==true) throw new Error('PRODUCTION_CODE_SYNC_FINAL_NOT_COMPLETE');
-          if(String(s?.status||d?.status||'')!=='COPIED') throw new Error('PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED');
-          if(Number(s?.target_count||s?.progress?.target||0)<7) throw new Error('PRODUCTION_CODE_SYNC_TARGET_LT_7');
-          if(Number((s?.successful_endpoints||[]).length)<7) throw new Error('PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7');
-          if(s?.verified_roundtrip!==true) throw new Error('PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED');
-          console.log('ShardVault code-sync reached COPIED with at least 7 verified external endpoints and roundtrip proof.');
+          if(status==='PAUSED_FOR_ROADMAP'){
+            if(process.env.MEL_ROADMAP_SHARDVAULT_PAUSED!=='true') throw new Error('PRODUCTION_CODE_SYNC_UNEXPECTED_PAUSE');
+            if(s?.paused!==true) throw new Error('PRODUCTION_CODE_SYNC_PAUSE_NOT_EXPLICIT');
+            console.log('ShardVault deep code-sync explicitly paused for temporary dev-light release mode.');
+          }else{
+            if(status!=='COPIED') throw new Error('PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED');
+            if(Number(s?.target_count||s?.progress?.target||0)<7) throw new Error('PRODUCTION_CODE_SYNC_TARGET_LT_7');
+            if(Number((s?.successful_endpoints||[]).length)<7) throw new Error('PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7');
+            if(s?.verified_roundtrip!==true) throw new Error('PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED');
+            console.log('ShardVault code-sync reached COPIED with at least 7 verified external endpoints and roundtrip proof.');
+          }
           NODE
 
           ready=0
