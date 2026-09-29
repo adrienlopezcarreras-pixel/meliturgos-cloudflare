@@ -11,7 +11,9 @@ on:
     paths:
       - 'src/media/documents.js'
       - 'src/media/document-runtime.js'
+      - 'src/api/file-upload.js'
       - 'tests/gen2/document-runtime.test.mjs'
+      - 'tests/file-upload-rich-analysis.test.mjs'
       - '.github/workflows/gen2-24-documents-ci.yml'
   workflow_dispatch:
 
@@ -33,7 +35,7 @@ jobs:
       - name: Install exact lockfile
         run: npm ci
       - name: Targeted GEN2-24 tests
-        run: node --test tests/gen2/document-runtime.test.mjs
+        run: node --test tests/gen2/document-runtime.test.mjs tests/file-upload-rich-analysis.test.mjs
       - name: Syntax
         run: npm run check
       - name: Normalize branch for candidate-only integration tests
