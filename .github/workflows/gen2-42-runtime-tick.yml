@@ -140,7 +140,7 @@ jobs:
             exit 0
           fi
           [[ "$JOB_ID" =~ ^[A-Za-z0-9_.:-]+$ ]]
-          node -e "process.stdout.write(JSON.stringify({ref:'main',inputs:{job_id:process.env.JOB_ID}}))" > cloud-bridge-dispatch.json
+          JOB_ID="$JOB_ID" node -e "process.stdout.write(JSON.stringify({ref:'main',inputs:{job_id:process.env.JOB_ID}}))" > cloud-bridge-dispatch.json
           CODE="$(curl --silent --show-error --max-time 30             --request POST             --header "Authorization: Bearer $GH_TOKEN"             --header "Accept: application/vnd.github+json"             --header "X-GitHub-Api-Version: 2022-11-28"             --header "Content-Type: application/json"             --data-binary @cloud-bridge-dispatch.json             --output cloud-bridge-dispatch-response.txt             --write-out '%{http_code}'             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/gen2-42-apply-ready-bridge.yml/dispatches")"
           test "$CODE" = "204"
           echo "CLOUD_BRIDGE_FALLBACK_DISPATCHED job_id=$JOB_ID"
