@@ -207,7 +207,8 @@ jobs:
           printf '%s' "${REFRESH_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN --config "${REFRESH_CONFIG}" >/tmp/predeploy-refresh-auth-secret.log
 
           SIDECAR_READY=0
-          for READY_ATTEMPT in $(seq 1 12); do
+          SIDECAR_STABLE_PROBES=0
+          for READY_ATTEMPT in $(seq 1 18); do
             READY_CODE="$(curl --silent --show-error --max-time 30 \
               --header "x-mel-predeploy-backup-refresh: ${REFRESH_TOKEN}" \
               --output /tmp/predeploy-refresh-ready.json \
@@ -219,10 +220,17 @@ jobs:
           if(d?.ok!==true||d?.status!=='D1_TABLES'||!Array.isArray(d?.tables)) process.exit(1);
           NODE
             then
-              SIDECAR_READY=1
-              break
+              SIDECAR_STABLE_PROBES=$((SIDECAR_STABLE_PROBES + 1))
+              echo "Ephemeral backup sidecar stable probe ${SIDECAR_STABLE_PROBES}/3 passed."
+              if [ "${SIDECAR_STABLE_PROBES}" -ge 3 ]; then
+                SIDECAR_READY=1
+                break
+              fi
+              sleep 1
+              continue
             fi
-            echo "Ephemeral backup sidecar readiness attempt ${READY_ATTEMPT}/12 returned HTTP ${READY_CODE}."
+            SIDECAR_STABLE_PROBES=0
+            echo "Ephemeral backup sidecar readiness attempt ${READY_ATTEMPT}/18 returned HTTP ${READY_CODE}."
             sleep 2
           done
           test "${SIDECAR_READY}" = "1"
