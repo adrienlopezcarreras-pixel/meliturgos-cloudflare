@@ -828,7 +828,11 @@ jobs:
           NODE
 
           CODE_SYNC_READY=0
-          for CODE_SYNC_ATTEMPT in $(seq 1 12); do
+          CODE_SYNC_LAST_COMPLETED=-1
+          CODE_SYNC_STALL=0
+          CODE_SYNC_MAX_ATTEMPTS=32
+          CODE_SYNC_MAX_STALL=12
+          for CODE_SYNC_ATTEMPT in $(seq 1 "$CODE_SYNC_MAX_ATTEMPTS"); do
             CODE_SYNC_CODE="$(curl --silent --show-error --max-time 170 \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
               --header "content-type: application/json" \
@@ -836,20 +840,54 @@ jobs:
               --output production-launch-code-sync.json \
               --write-out '%{http_code}' \
               "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            CODE_SYNC_WAIT=2
             if [ "$CODE_SYNC_CODE" = "200" ]; then
-              CODE_SYNC_STATE="$(node -e 'const d=require("./production-launch-code-sync.json"); if(d?.ok!==true) throw new Error("PRODUCTION_CODE_SYNC_NOT_OK"); process.stdout.write(d?.complete===true?"1":"0");')"
-              if [ "$CODE_SYNC_STATE" = "1" ]; then
+              CODE_SYNC_STATE="$(node - <<'NODE'
+          const d=require('./production-launch-code-sync.json');
+          if(d?.ok!==true) throw new Error('PRODUCTION_CODE_SYNC_NOT_OK');
+          const s=d?.code_sync||{};
+          const completed=Number(s?.progress?.completed ?? s?.completed_shards ?? 0);
+          const target=Number(s?.progress?.target ?? s?.target_count ?? 7);
+          const next=String(s?.next_retry_at||'');
+          const failures=Array.isArray(s?.failures)?s.failures.length:0;
+          process.stdout.write([
+            d?.complete===true?'1':'0',
+            String(s?.status||d?.status||'UNKNOWN'),
+            Number.isFinite(completed)?String(completed):'0',
+            Number.isFinite(target)?String(target):'7',
+            next||'-',
+            String(failures),
+          ].join('|'));
+          NODE
+              )"
+              IFS='|' read -r CODE_SYNC_COMPLETE CODE_SYNC_STATUS CODE_SYNC_COMPLETED CODE_SYNC_TARGET CODE_SYNC_NEXT_RETRY CODE_SYNC_FAILURES <<< "$CODE_SYNC_STATE"
+              node -e 'const d=require("./production-launch-code-sync.json"); const s=d?.code_sync||{}; console.log(JSON.stringify({status:s?.status||d?.status||null,complete:d?.complete===true,progress:s?.progress||null,pending_shards:Number(s?.pending_shards||0),reason:s?.reason||null,next_retry_at:s?.next_retry_at||null,code_pool_exhaustions:Number(s?.code_pool_exhaustions||0),code_pool_refreshes:Number(s?.code_pool_refreshes||0),failure_count:Array.isArray(s?.failures)?s.failures.length:0},null,2));'
+              if [ "$CODE_SYNC_COMPLETE" = "1" ]; then
                 CODE_SYNC_READY=1
                 break
               fi
-              echo "Launch code-sync phase ${CODE_SYNC_ATTEMPT}/12 is healthy but still progressing."
+              if [ "$CODE_SYNC_COMPLETED" -gt "$CODE_SYNC_LAST_COMPLETED" ]; then
+                CODE_SYNC_LAST_COMPLETED="$CODE_SYNC_COMPLETED"
+                CODE_SYNC_STALL=0
+              else
+                CODE_SYNC_STALL=$((CODE_SYNC_STALL + 1))
+              fi
+              if [ "$CODE_SYNC_STATUS" = "RETRY_TARGETS" ] && [ "$CODE_SYNC_NEXT_RETRY" != "-" ]; then
+                CODE_SYNC_WAIT="$(NEXT_RETRY="$CODE_SYNC_NEXT_RETRY" node -e 'const t=Date.parse(process.env.NEXT_RETRY||""); const delta=Number.isFinite(t)?Math.ceil((t-Date.now())/1000):2; process.stdout.write(String(Math.max(2,Math.min(15,delta))))')"
+              fi
+              echo "Launch code-sync phase ${CODE_SYNC_ATTEMPT}/${CODE_SYNC_MAX_ATTEMPTS}: ${CODE_SYNC_COMPLETED}/${CODE_SYNC_TARGET}, status=${CODE_SYNC_STATUS}, stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}."
             else
-              echo "Launch code-sync phase attempt ${CODE_SYNC_ATTEMPT}/12 returned HTTP ${CODE_SYNC_CODE}."
+              CODE_SYNC_STALL=$((CODE_SYNC_STALL + 1))
+              echo "Launch code-sync phase attempt ${CODE_SYNC_ATTEMPT}/${CODE_SYNC_MAX_ATTEMPTS} returned HTTP ${CODE_SYNC_CODE}; stall=${CODE_SYNC_STALL}/${CODE_SYNC_MAX_STALL}."
               if [ -s production-launch-code-sync.json ]; then
                 node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-code-sync.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,complete:d?.complete===true,code_sync:d?.code_sync||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
               fi
             fi
-            sleep 2
+            if [ "$CODE_SYNC_STALL" -ge "$CODE_SYNC_MAX_STALL" ]; then
+              echo "Launch code-sync stopped after bounded no-progress window."
+              break
+            fi
+            sleep "$CODE_SYNC_WAIT"
           done
           test "$CODE_SYNC_READY" = "1"
 
