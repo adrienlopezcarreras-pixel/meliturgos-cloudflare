@@ -86,3 +86,12 @@ Le but est que MEL puisse changer de cerveau sans perdre son identité, sa mémo
 ## Gates avant premier test autonome complet
 
 La migration de modèle ne remplace pas les gates actuels : CI complète verte, vérification visuelle, benchmark/LoRA Professor, audit exhaustif boutons/fonctions/endpoints/parcours d'autonomie, correction de chaque FAIL, nouveau passage complet des gates et sauvegarde des preuves.
+
+## UX — zone d’échange multimodale
+
+**Statut : PLANNED / P0**
+
+- MEL Normal et MEL Complet doivent accepter le **copier-coller direct de fichiers et d’images depuis le presse-papiers** dans la zone d’échange.
+- Le collage doit rejoindre le même pipeline de pièces jointes que le glisser-déposer/sélecteur : aperçu ou nom, taille, suppression avant envoi, multi-fichiers et validation type/taille.
+- Le texte collé continue à fonctionner normalement, y compris quand le presse-papiers contient texte + média.
+- DONE_VERIFIED exige une preuve navigateur réelle sur les deux modes.
