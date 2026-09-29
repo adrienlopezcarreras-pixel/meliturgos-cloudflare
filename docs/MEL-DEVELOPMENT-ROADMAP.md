@@ -87,6 +87,15 @@ Le but est que MEL puisse changer de cerveau sans perdre son identité, sa mémo
 
 La migration de modèle ne remplace pas les gates actuels : CI complète verte, vérification visuelle, benchmark/LoRA Professor, audit exhaustif boutons/fonctions/endpoints/parcours d'autonomie, correction de chaque FAIL, nouveau passage complet des gates et sauvegarde des preuves.
 
+## Cohérence conversationnelle — vérité des capacités
+
+**Statut : PLANNED / après fermeture du release et des capacités plateforme**
+
+- Les réponses de MEL sur ses propres capacités doivent être dérivées du `CAPABILITY_MANIFEST`, de `self.state` ou de `capability.audit`, et non de réflexes génériques du modèle de fondation.
+- Étendre le routage déterministe des questions du type « as-tu accès à… ? », « peux-tu utiliser… ? », « quelles sont tes capacités ? » sans détourner les commandes d’action concrètes.
+- Une capacité réellement disponible ne doit jamais être niée ; une capacité non testée ou dégradée doit être annoncée avec son statut exact.
+- DONE_VERIFIED exige des tests conversationnels réels couvrant web/browser, GitHub/code, Cloudflare, ordinateur, mémoire et connecteurs.
+
 ## UX — zone d’échange multimodale
 
 **Statut : PLANNED / P0**
