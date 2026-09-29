@@ -112,3 +112,24 @@ test('external code sync is resumable and bounded to one verified RS shard per r
   assert.match(workflow,/durable state will be resumed/);
   assert.match(workflow,/SYNC_STATUS.*COPIED/);
 });
+
+
+test('active ShardVault targets can earn code proof through the real roundtrip path', () => {
+  const env={MEL_AUTONOMOUS_MIN_RETENTION_DAYS:'90',MEL_SHARDVAULT_REPRESENTATIVE_PROOF_HOURS:'24'};
+  const endpoint={
+    id:'active-unproven',
+    operatorDomain:'active.example',
+    providerId:'active-provider',
+    expectedRetentionDays:365,
+    maxBytes:8*1024*1024,
+    score:10,
+    confidence:90,
+  };
+  const required=128*1024;
+  assert.equal(__shardvaultTest.rankExternalCodeCandidates(env,[endpoint],required).length,0);
+  const allowed=__shardvaultTest.rankExternalCodeCandidates(
+    env,[endpoint],required,{allowUnprovenIds:[endpoint.id]}
+  );
+  assert.equal(allowed.length,1);
+  assert.equal(allowed[0].id,endpoint.id);
+});
