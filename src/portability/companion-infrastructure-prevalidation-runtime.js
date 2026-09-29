@@ -47,7 +47,7 @@ async function saveState(db,state){
     .bind(STATE_ID,JSON.stringify(state),Date.now()).run();
 }
 
-async function latestOnlineWindows(db,{now=Date.now(),onlineWithinMs=15000}={}){
+async function latestOnlineWindows(db,{now=Date.now(),onlineWithinMs=35000}={}){
   return db.prepare(`SELECT id,last_seen_at,halted,platform
     FROM computer_devices
     WHERE lower(platform)='windows' AND halted=0 AND last_seen_at>=?
