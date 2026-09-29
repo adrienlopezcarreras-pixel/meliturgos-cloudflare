@@ -1096,7 +1096,10 @@ async function withCodeReplicaDeadline(task,ms=45000){
     ]);
   }finally{if(timer!==null)clearTimeout(timer);}
 }
-async function ensureExternalCodeArchive(env,c,codeBackup){
+function codeSyncDiscoveryRefreshAllowed(env,explicit=false){
+  return explicit===true||String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')==='true';
+}
+async function ensureExternalCodeArchive(env,c,codeBackup,{allowDiscoveryRefresh=false}={}){
   if(!codeBackup?.ok||!env?.MEDIA_BUCKET?.get||!env?.MEDIA_BUCKET?.put)return codeBackup;
   const id=deployedCodeIdentity(env);
   if(!id)return codeBackup;
@@ -1194,7 +1197,7 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       const now=Date.now(),lastRefresh=Date.parse(String(state.last_code_pool_refresh_at||''));
       const refreshDue=!Number.isFinite(lastRefresh)||now-lastRefresh>=60000;
       let discoveryRefresh=null;
-      if(refreshDue&&String(env?.MEL_SHARDVAULT_AUTONOMOUS||'true')==='true'){
+      if(refreshDue&&codeSyncDiscoveryRefreshAllowed(env,allowDiscoveryRefresh)){
         state.last_code_pool_refresh_at=new Date(now).toISOString();
         state.code_pool_refreshes=(Number(state.code_pool_refreshes)||0)+1;
         try{
@@ -1352,7 +1355,7 @@ export async function syncShardVaultCodeExternally(env){
     if(known.length>=goal)c=mergeAutonomous(c,{selected:known},env);
     else c=(await enrichAutonomous(env,c,32*1024)).config;
 
-    const result=await ensureExternalCodeArchive(env,c,codeBackup);
+    const result=await ensureExternalCodeArchive(env,c,codeBackup,{allowDiscoveryRefresh:true});
     const external=result?.external||null;
     const progressStatus=['COPYING','RETRY_TARGETS'].includes(String(external?.status||''));
     const copied=external?.status==='COPIED'&&Array.isArray(external?.endpoints)&&external.endpoints.length>=goal;
@@ -1375,7 +1378,7 @@ export const __shardvaultTest = Object.freeze({
   shardVaultWriteFailureEndpoint, rotateActiveEndpointsForWriteFailure, excludeShardVaultEndpoints,
   rankExternalCodeCandidates, assignDistinctExternalTargets, byteArraysEqual, reconstructExternalCodeArchive,
   codeTargetFailureClass, codeTargetRetryDelayMs, codeTargetAvailableNow, prioritizeExternalCodeCandidates,
-  recordCodeTargetFailure, clearCodeTargetFailure, codeFragmentDeadlineMs
+  recordCodeTargetFailure, clearCodeTargetFailure, codeFragmentDeadlineMs, codeSyncDiscoveryRefreshAllowed
 });
 
 
