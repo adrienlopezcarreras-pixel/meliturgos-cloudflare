@@ -95,8 +95,13 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.doesNotMatch(refreshBlock, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
   assert.doesNotMatch(refreshBlock, /release-launch-bootstrap/);
 
-  assert.match(refresher, /const PATH = '\/inventory'/);
+  assert.match(refresher, /INVENTORY_PATH = '\/inventory'/);
+  assert.match(refresher, /D1_TABLES_PATH = '\/d1\/tables'/);
+  assert.match(refresher, /D1_ROWS_PATH = '\/d1\/rows'/);
+  assert.match(refresher, /REGISTER_PATH = '\/register'/);
   assert.match(refresher, /MEDIA_BUCKET\.list/);
+  assert.match(refresher, /env\.DB\.prepare/);
+  assert.match(refresher, /INSERT INTO backup_objects/);
   assert.match(refresher, /R2_INVENTORY_PAGE/);
   assert.doesNotMatch(refresher, /runScheduledSystemBackup/);
   assert.doesNotMatch(refresher, /MEL_BACKUP_ENCRYPTION_KEY_B64/);
@@ -104,10 +109,12 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(runner, /createVerifiedBackupService/);
   assert.match(runner, /createBackupEncryptionCodec/);
   assert.match(runner, /inspectRestoreCandidate/);
-  assert.match(runner, /\/d1\/database\//);
+  assert.match(runner, /'\/d1\/tables'/);
+  assert.match(runner, /\/d1\/rows/);
+  assert.match(runner, /'\/register'/);
+  assert.doesNotMatch(runner, /\/d1\/database\//);
   assert.match(runner, /'r2', 'object', 'put'/);
   assert.match(runner, /'r2', 'object', 'get'/);
-  assert.match(runner, /INSERT INTO backup_objects/);
   assert.match(runner, /PREDEPLOY_BACKUP_REFRESH_CREATED/);
 
   const binderEnd = source.indexOf('      - name: Install pinned Browser Rendering adapter', binder);
