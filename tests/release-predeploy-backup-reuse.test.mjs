@@ -88,8 +88,11 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(refreshBlock, /predeploy-backup-refresh\/runner\.mjs/);
   assert.match(refreshBlock, /\/workers\/scripts\/\$\{REFRESH_NAME\}/);
   assert.match(refreshBlock, /SIDECAR_READY=0/);
+  assert.match(refreshBlock, /SIDECAR_STABLE_PROBES=0/);
+  assert.match(refreshBlock, /stable probe/);
   assert.match(refreshBlock, /Ephemeral backup sidecar readiness attempt/);
-  assert.match(refreshBlock, /seq 1 12/);
+  assert.match(refreshBlock, /seq 1 18/);
+  assert.match(refreshBlock, /-ge 3/);
   assert.match(refreshBlock, /seq 1 5/);
   assert.match(refreshBlock, /cleanup failed; release remains blocked/);
   assert.match(refreshBlock, /exit 51/);
@@ -111,6 +114,8 @@ test('predeploy refresh creates the backup on the GitHub runner and keeps the Wo
   assert.match(runner, /createVerifiedBackupService/);
   assert.match(runner, /createBackupEncryptionCodec/);
   assert.match(runner, /inspectRestoreCandidate/);
+  assert.match(runner, /attempts = 12/);
+  assert.match(runner, /Math\.min\(2000, 500 \* attempt\)/);
   assert.match(runner, /'\/d1\/tables'/);
   assert.match(runner, /\/d1\/rows/);
   assert.match(runner, /'\/register'/);

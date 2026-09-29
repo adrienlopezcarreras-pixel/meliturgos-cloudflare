@@ -25,7 +25,7 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function sidecarJson({ baseUrl, token }, path, init = {}, { attempts = 5 } = {}) {
+async function sidecarJson({ baseUrl, token }, path, init = {}, { attempts = 12 } = {}) {
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -45,7 +45,7 @@ async function sidecarJson({ baseUrl, token }, path, init = {}, { attempts = 5 }
     } catch (error) {
       lastError = error;
     }
-    if (attempt < attempts) await sleep(500 * attempt);
+    if (attempt < attempts) await sleep(Math.min(2000, 500 * attempt));
   }
   throw lastError || new Error('SIDECAR_REQUEST_FAILED');
 }
