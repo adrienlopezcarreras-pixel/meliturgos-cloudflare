@@ -596,3 +596,89 @@ test('GEN2-42 maps vision discovery to the existing canonical image analysis cap
   assert.equal(vision.action, 'UNBLOCK_EXISTING');
   assert.equal(vision.best_match.id, 'media.image.analyze');
 });
+
+
+test('GEN2-42 reconciliation clears only a durably invalidated stale Teacher request from the active handoff', () => {
+  const ledger={
+    items:[{
+      fingerprint:'capability:video.generate',
+      handoff:{
+        job_id:'job-stale-teacher',
+        status:'QUEUED',
+        teacher_request_id:'req-stale',
+        candidate_sha:'a'.repeat(40),
+        attempts:2,
+        closed:false,
+      },
+    }],
+  };
+  const reconciled=reconcileEcosystemDiscoveryHandoffs(ledger,[{
+    id:'job-stale-teacher',
+    status:'QUEUED',
+    updated_at:123,
+    plan_json:{
+      revision:{
+        reason:'TEACHER_REQUEST_STALE_SHA',
+        previous_request_id:'req-stale',
+      },
+    },
+    result_json:{
+      teacher_bridge_history:[{
+        status:'STALE',
+        request:{request_id:'req-stale'},
+      }],
+    },
+  }],200);
+
+  assert.equal(reconciled.changed,true);
+  const handoff=reconciled.ledger.items[0].handoff;
+  assert.equal(handoff.status,'QUEUED');
+  assert.equal(handoff.teacher_request_id,null);
+  assert.equal(handoff.teacher_verdict,null);
+  assert.equal(handoff.candidate_sha,null);
+  assert.equal(handoff.closed,false);
+  assert.equal(handoff.retryable,true);
+  assert.equal(handoff.code,'TEACHER_REQUEST_STALE_SHA');
+  assert.equal(handoff.terminal_reason,'STALE_TEACHER_REQUEST_REQUEUED');
+  assert.equal(handoff.attempts,2);
+});
+
+test('GEN2-42 reconciliation keeps a QUEUED Teacher handoff blocking when stale history is not proven', () => {
+  const ledger={
+    items:[{
+      fingerprint:'capability:video.generate',
+      handoff:{
+        job_id:'job-unproven-stale',
+        status:'QUEUED',
+        teacher_request_id:'req-old',
+        candidate_sha:'b'.repeat(40),
+        attempts:1,
+        closed:false,
+      },
+    }],
+  };
+  const reconciled=reconcileEcosystemDiscoveryHandoffs(ledger,[{
+    id:'job-unproven-stale',
+    status:'QUEUED',
+    updated_at:321,
+    plan_json:{
+      revision:{
+        reason:'TEACHER_REQUEST_STALE_SHA',
+        previous_request_id:'req-old',
+      },
+    },
+    result_json:{
+      teacher_bridge_history:[{
+        status:'STALE',
+        request:{request_id:'different-request'},
+      }],
+    },
+  }],400);
+
+  const handoff=reconciled.ledger.items[0].handoff;
+  assert.equal(handoff.teacher_request_id,'req-old');
+  assert.equal(handoff.candidate_sha,'b'.repeat(40));
+  assert.equal(handoff.retryable,false);
+  assert.equal(handoff.code,null);
+  assert.equal(handoff.terminal_reason,null);
+});
