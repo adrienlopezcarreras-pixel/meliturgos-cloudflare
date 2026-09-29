@@ -1,5 +1,5 @@
 GEN2-42 runtime live repair verification
 mode=owner-max
 release_sha=b0afd2c279b3029d4c28684d3d069ea9f831bc56
-purpose=retry-repair-required-mel-ui-06-through-cloud-bridge
-trigger_seq=10
+purpose=dispatch-retried-mel-ui-06-through-cloud-bridge
+trigger_seq=11
