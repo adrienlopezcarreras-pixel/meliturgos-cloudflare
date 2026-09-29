@@ -108,13 +108,20 @@ async function requeueStaleRequest(repository, request, currentSha) {
   result.teacher_bridge = null;
 
   const plan = job.plan_json && typeof job.plan_json === 'object' ? { ...job.plan_json } : {};
-  plan.preflight = null;
+  // Candidate SHA drift invalidates the Teacher review target, not the Council
+  // reasoning that was already completed for the same job/objective. Preserve
+  // that persisted preflight so the runtime can re-inspect the new immutable
+  // candidate SHA and issue a fresh Teacher request without starting a new
+  // Council inside the release proof. Jobs that never had preflight evidence
+  // remain unprepared and therefore still fail closed.
+  const reusableCouncilPreflight = Boolean(plan.preflight?.council);
   plan.revision = {
     requested_at: now,
     previous_request_id: request.request_id,
     previous_target_sha: request.target_sha || null,
     current_candidate_sha: currentSha,
     reason: 'TEACHER_REQUEST_STALE_SHA',
+    reuse_council_preflight: reusableCouncilPreflight,
   };
   const updated = await repository.update(job.id, { status: 'QUEUED', plan_json: plan, result_json: result, error: null });
   return { request_id: request.request_id, job_id: updated.id, previous_target_sha: request.target_sha || null, current_candidate_sha: currentSha };
