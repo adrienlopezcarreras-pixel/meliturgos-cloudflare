@@ -25,6 +25,6 @@ test('canonical release deploys and proves browser.execute through production', 
   assert.match(workflow, /wrangler deploy --config browser-companion\/runtime\/wrangler\.browser-production\.jsonc/);
   assert.match(workflow, /Prove real production browser\.execute/);
   assert.match(workflow, /"id":"browser\.execute"/);
-  assert.match(workflow, /Example Domain/);
+  assert.match(workflow, /Assistant personnel connecté/);
   assert.match(router, /"browser\.execute"/);
 });
