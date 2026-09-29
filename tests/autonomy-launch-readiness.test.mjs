@@ -9,6 +9,7 @@ import {
   getAutonomyLaunchReadiness,
   prepareAutonomyLaunchCodeSync,
   prepareAutonomyLaunchBackup,
+  summarizeAutonomyLaunchCodeSync,
   prepareAutonomyLaunch,
 } from '../src/evolution/launch-readiness.js';
 import { maybeHandlePublicTeacherBridge } from '../src/teachers/public-teacher-api.js';
@@ -329,4 +330,41 @@ test('ShardVault roadmap pause is opt-in and does not weaken normal production v
   });
   assert.equal(shard.ok, false);
   assert.notEqual(shard.status, 'PAUSED_FOR_ROADMAP');
+});
+
+
+test('ShardVault code-sync summary exposes bounded progress and retry timing', () => {
+  const summary = summarizeAutonomyLaunchCodeSync({
+    ok: true,
+    complete: false,
+    status: 'RETRY_TARGETS',
+    external: {
+      status: 'RETRY_TARGETS',
+      target_count: 7,
+      completed_shards: 4,
+      pending_shards: 3,
+      progress: { completed: 4, target: 7 },
+      reason: 'NO_READY_VALIDATED_CODE_TARGETS',
+      next_retry_at: '2026-09-29T08:00:15.000Z',
+      code_pool_exhaustions: 2,
+      code_pool_refreshes: 1,
+      failures: [{
+        shard_index: 4,
+        endpoint_id: 'endpoint-5',
+        error: 'temporary failure',
+        retryable: true,
+        permanent: false,
+        retry_after_at: '2026-09-29T08:00:15.000Z',
+      }],
+    },
+  });
+  assert.equal(summary.status, 'RETRY_TARGETS');
+  assert.equal(summary.completed_shards, 4);
+  assert.equal(summary.pending_shards, 3);
+  assert.deepEqual(summary.progress, { completed: 4, target: 7 });
+  assert.equal(summary.next_retry_at, '2026-09-29T08:00:15.000Z');
+  assert.equal(summary.code_pool_exhaustions, 2);
+  assert.equal(summary.code_pool_refreshes, 1);
+  assert.equal(summary.failures[0].retryable, true);
+  assert.equal(summary.failures[0].retry_after_at, '2026-09-29T08:00:15.000Z');
 });
