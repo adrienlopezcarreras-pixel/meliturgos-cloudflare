@@ -54,3 +54,17 @@ test('Workers AI zero-cost proof refresh runs after exact production deploy and 
   assert.ok(proof < autonomy, 'Workers AI zero-cost proof must be refreshed before autonomy live proofs begin');
   assert.match(source, /wrangler secret put MEL_WORKERS_AI_ZERO_COST_PROOF_JSON/);
 });
+
+
+test('predeploy backup never mutates the main Worker bootstrap secret before deployment', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const start = source.indexOf('      - name: Create verified pre-deploy production backup');
+  const end = source.indexOf('      - name: Install pinned Browser Rendering adapter', start);
+  const block = source.slice(start, end);
+  assert.match(block, /mel-predeploy-backup-binder/);
+  assert.match(block, /\/prepare/);
+  assert.match(block, /predeploy-backup-verified\.marker/);
+  assert.doesNotMatch(block, /MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+  assert.doesNotMatch(block, /release-launch-bootstrap/);
+  assert.doesNotMatch(block, /wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN/);
+});
