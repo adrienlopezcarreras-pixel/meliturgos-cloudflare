@@ -93,22 +93,32 @@ jobs:
             online_60s:(now-Number(r.last_seen||0))<60000
           })).sort((a,b)=>String(a.bridge_id).localeCompare(String(b.bridge_id)));
 
-          const approved=jobs.filter(r=>String(r.status||'').toUpperCase()==='TEACHER_APPROVED').map(r=>{
+          const summarize=r=>{
             const result=parse(r.result_json);
             return {
               id:r.id,status:r.status,requested_by:r.requested_by,
               goal:String(r.goal||'').slice(0,220),updated_at:Number(r.updated_at||0),
+              error:r.error?String(r.error).slice(0,240):null,
               teacher_status:result?.teacher_bridge?.status||null,
               teacher_verdict:result?.teacher_bridge?.review?.verdict||null,
               owner_override:result?.teacher_bridge?.review?.owner_override===true,
               implementation_status:result?.implementation_proposal?.status||null,
               bridge_preparation_status:result?.bridge_preparation?.status||null,
               candidate_branch:result?.bridge_preparation?.candidate_branch||null,
-              candidate_sha:result?.bridge_preparation?.candidate_sha||null
+              candidate_sha:result?.bridge_preparation?.candidate_sha||null,
+              bridge_result_status:result?.bridge_result?.status||result?.status||null,
+              needs_repair:result?.bridge_result?.needs_repair===true||result?.needs_repair===true,
+              runtime_retry_attempts:Number(result?.runtime_retry_attempts||0),
+              runtime_retry_last_error:result?.runtime_retry_last_error||null,
+              autonomy_completion:result?.autonomy_completion||null
             };
-          }).sort((a,b)=>b.updated_at-a.updated_at);
+          };
+          const approved=jobs.filter(r=>String(r.status||'').toUpperCase()==='TEACHER_APPROVED').map(summarize).sort((a,b)=>b.updated_at-a.updated_at);
+          const target=jobs.filter(r=>String(r.id||'')==='mel-autonomy-mel-ui-06-1').map(summarize);
+          const status_counts={};
+          for(const r of jobs){const s=String(r.status||'UNKNOWN').toUpperCase();status_counts[s]=(status_counts[s]||0)+1;}
 
-          const out={generated_at:new Date(now).toISOString(),bridges,approved_jobs:approved};
+          const out={generated_at:new Date(now).toISOString(),bridges,target_jobs:target,approved_jobs:approved,status_counts};
           fs.writeFileSync('bridge-live-audit.json',JSON.stringify(out,null,2));
           console.log(JSON.stringify(out,null,2));
           NODE
