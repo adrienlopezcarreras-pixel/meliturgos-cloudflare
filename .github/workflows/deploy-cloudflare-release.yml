@@ -206,6 +206,27 @@ jobs:
           REFRESH_CREATED=1
           printf '%s' "${REFRESH_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN --config "${REFRESH_CONFIG}" >/tmp/predeploy-refresh-auth-secret.log
 
+          SIDECAR_READY=0
+          for READY_ATTEMPT in $(seq 1 12); do
+            READY_CODE="$(curl --silent --show-error --max-time 30 \
+              --header "x-mel-predeploy-backup-refresh: ${REFRESH_TOKEN}" \
+              --output /tmp/predeploy-refresh-ready.json \
+              --write-out '%{http_code}' \
+              "${REFRESH_URL}/d1/tables" || true)"
+            if [ "${READY_CODE}" = "200" ] && node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('/tmp/predeploy-refresh-ready.json','utf8'));
+          if(d?.ok!==true||d?.status!=='D1_TABLES'||!Array.isArray(d?.tables)) process.exit(1);
+          NODE
+            then
+              SIDECAR_READY=1
+              break
+            fi
+            echo "Ephemeral backup sidecar readiness attempt ${READY_ATTEMPT}/12 returned HTTP ${READY_CODE}."
+            sleep 2
+          done
+          test "${SIDECAR_READY}" = "1"
+
           export MEL_R2_BUCKET_NAME="meliturgos-private-media"
           export MEL_PREDEPLOY_BACKUP_REFRESH_URL="${REFRESH_URL}"
           export MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN="${REFRESH_TOKEN}"
