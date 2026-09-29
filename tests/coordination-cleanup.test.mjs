@@ -5,14 +5,19 @@ import { stripLegacyNormalVisualLayers } from '../src/professor-live-learning-en
 import { enhanceThemeAvatars } from '../src/pages/theme-avatar-enhancer.js';
 import { BOOTSTRAP_CORRECTIONS } from '../src/learning/bootstrap-corrections.js';
 
-test('shared candidate workflows only listen to the canonical candidate branch', async () => {
+test('shared candidate workflows keep canonical coordination while dev-light mode is temporary', async () => {
   const full = await readFile(new URL('../.github/workflows/full-candidate-ci.yml', import.meta.url), 'utf8');
   const teacher = await readFile(new URL('../.github/workflows/runtime-teacher-smoke.yml', import.meta.url), 'utf8');
-  for (const source of [full, teacher]) {
-    assert.match(source, /candidate\/mel-clean-autonomy/);
-    assert.doesNotMatch(source, /candidate\/augmentio-core/);
-    assert.doesNotMatch(source, /candidate\/mel-ui-selfaware-integration/);
-  }
+
+  assert.match(full, /TEMPORARY DEV-LIGHT MODE/);
+  assert.match(full, /workflow_dispatch:/);
+  assert.match(full, /Re-enable candidate branch push before final closure/);
+  assert.doesNotMatch(full, /candidate\/augmentio-core/);
+  assert.doesNotMatch(full, /candidate\/mel-ui-selfaware-integration/);
+
+  assert.match(teacher, /candidate\/mel-clean-autonomy/);
+  assert.doesNotMatch(teacher, /candidate\/augmentio-core/);
+  assert.doesNotMatch(teacher, /candidate\/mel-ui-selfaware-integration/);
 });
 
 test('normal surface strips retired visual layers and legacy enhancer stays transparent', async () => {
