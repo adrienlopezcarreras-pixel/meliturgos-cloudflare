@@ -13,7 +13,7 @@ permissions:
 jobs:
   read-only:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -21,125 +21,52 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Read sanitized MEL autonomy audit through ephemeral D1 binding
+      - name: Read bridge heartbeat and approved jobs from production D1
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          DIAG_NAME="mel-gen2-42-diag"
-          DIAG_CONFIG="release-tools/predeploy-backup-refresh/wrangler.diag.jsonc"
-          DIAG_URL="https://${DIAG_NAME}.adrien-lopezcarreras.workers.dev"
-          DIAG_TOKEN="$(openssl rand -hex 32)"
-          echo "::add-mask::${DIAG_TOKEN}"
-
-          node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('release-tools/predeploy-backup-refresh/wrangler.jsonc','utf8'));d.name='mel-gen2-42-diag';fs.writeFileSync('release-tools/predeploy-backup-refresh/wrangler.diag.jsonc',JSON.stringify(d,null,2));"
-
-          cleanup() {
-            set +e
-            curl --silent --show-error --max-time 30 --request DELETE               --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"               "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${DIAG_NAME}"               >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-
-          npx wrangler deploy --config "${DIAG_CONFIG}" >/tmp/diag-deploy.log
-          printf '%s' "${DIAG_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN --config "${DIAG_CONFIG}" >/tmp/diag-secret.log
-
-          READY=0
-          for attempt in $(seq 1 12); do
-            code="$(curl --silent --show-error --max-time 30               --header "x-mel-predeploy-backup-refresh: ${DIAG_TOKEN}"               --output /tmp/tables.json               --write-out '%{http_code}'               "${DIAG_URL}/d1/tables" || true)"
-            if [ "${code}" = "200" ]; then READY=1; break; fi
-            sleep 2
-          done
-          test "${READY}" = "1"
-
-          DIAG_URL="${DIAG_URL}" DIAG_TOKEN="${DIAG_TOKEN}" node - <<'NODE'
+          npx wrangler d1 execute DB --remote --json --command "SELECT bridge_id,last_seen,status,metadata_json FROM dev_bridge_state ORDER BY bridge_id" > bridge-state.raw.json
+          npx wrangler d1 execute DB --remote --json --command "SELECT id,status,requested_by,goal,updated_at,result_json FROM dev_jobs WHERE status='TEACHER_APPROVED' ORDER BY updated_at DESC LIMIT 20" > approved-jobs.raw.json
+          node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          const base=process.env.DIAG_URL;
-          const token=process.env.DIAG_TOKEN;
-          const headers={'x-mel-predeploy-backup-refresh':token};
-
-          async function getJson(url){
-            let last='';
-            for(let attempt=1;attempt<=8;attempt++){
-              const r=await fetch(url,{headers,cache:'no-store'});
-              const text=await r.text();
-              if(r.ok) return JSON.parse(text);
-              last='HTTP_'+r.status+':'+text.slice(0,300);
-              if(r.status!==401&&r.status!==500&&r.status!==503) break;
-              await new Promise(resolve=>setTimeout(resolve,1500));
-            }
-            throw new Error(last||'D1_DIAG_FETCH_FAILED');
-          }
-          async function table(name){
-            const rows=[];
-            for(let offset=0;offset<=10000;offset+=100){
-              const page=await getJson(base+'/d1/rows?table='+encodeURIComponent(name)+'&limit=100&offset='+offset);
-              rows.push(...(Array.isArray(page.rows)?page.rows:[]));
-              if(page.has_more!==true) break;
-            }
-            return rows;
-          }
+          const rows = raw => {
+            const d=JSON.parse(fs.readFileSync(raw,'utf8'));
+            const parts=Array.isArray(d)?d:[d];
+            return parts.flatMap(x=>Array.isArray(x?.results)?x.results:[]);
+          };
           const parse=v=>{try{const x=typeof v==='string'&&v?JSON.parse(v):v;return x&&typeof x==='object'?x:{};}catch{return {};}};
-          const jobs=await table('dev_jobs');
-          const stateRows=await table('dev_bridge_state');
-          const ledger=await table('evolution_ledger');
-          const autonomy=jobs.filter(j=>String(j.requested_by||'')==='mel-autonomy'||String(j.requested_by||'').startsWith('owner-chat'));
-          const safeJob=j=>{
-            const ctx=parse(j.optional_context), plan=parse(j.plan_json), result=parse(j.result_json);
-            const hist=Array.isArray(result.teacher_bridge_history)?result.teacher_bridge_history:[];
+          const now=Date.now();
+          const bridges=rows('bridge-state.raw.json').map(r=>({
+            bridge_id:r.bridge_id,
+            status:r.status,
+            last_seen:Number(r.last_seen||0),
+            age_ms:Math.max(0,now-Number(r.last_seen||0)),
+            online_60s:(now-Number(r.last_seen||0))<60000
+          }));
+          const approved=rows('approved-jobs.raw.json').map(r=>{
+            const result=parse(r.result_json);
             return {
-              id:j.id,status:j.status,requested_by:j.requested_by,
-              goal:String(j.goal||'').slice(0,240),
-              roadmap_id:ctx.roadmap_id||null,phase_id:ctx.phase_id||null,source:ctx.source||null,request_key:ctx.request_key||null,
-              created_at:Number(j.created_at||0),updated_at:Number(j.updated_at||0),
-              candidate_branch:j.candidate_branch||null,approval_status:j.approval_status||null,
-              error:j.error?String(j.error).slice(0,240):null,
-              council_status:plan?.preflight?.council?.status||null,
-              revision_reason:plan?.revision?.reason||null,
+              id:r.id,status:r.status,requested_by:r.requested_by,
+              goal:String(r.goal||'').slice(0,220),updated_at:Number(r.updated_at||0),
               teacher_status:result?.teacher_bridge?.status||null,
-              teacher_verdict:result?.teacher_bridge?.review?.verdict||result?.last_teacher_review?.verdict||null,
-              teacher_owner_override:result?.teacher_bridge?.review?.owner_override===true,
-              teacher_history_count:hist.length,
-              completion_status:result?.autonomy_completion?.status||null,
-              completion_sha:result?.autonomy_completion?.candidate_sha||null,
-              completion_ci_run_id:result?.autonomy_completion?.ci?.run_id||null,
-              runtime_retry_attempts:Number(result?.runtime_retry?.attempts||0),
-              autonomy_block_reason:result?.autonomy_block_reason||null,
+              teacher_verdict:result?.teacher_bridge?.review?.verdict||null,
+              owner_override:result?.teacher_bridge?.review?.owner_override===true,
+              implementation_status:result?.implementation_proposal?.status||null,
+              bridge_preparation_status:result?.bridge_preparation?.status||null,
+              candidate_branch:result?.bridge_preparation?.candidate_branch||null,
+              candidate_sha:result?.bridge_preparation?.candidate_sha||null
             };
-          };
-          const controlRow=stateRows.find(r=>String(r.bridge_id||'')==='mel-autonomy-control')||null;
-          const controlMeta=parse(controlRow?.metadata_json);
-          const counts={};
-          for(const j of autonomy) counts[j.status]=(counts[j.status]||0)+1;
-          const ids=new Set(autonomy.map(j=>String(j.id)));
-          const events=ledger.filter(e=>ids.has(String(e.evolution_id||''))||String(e.actor||'')==='mel-autonomy')
-            .map(e=>({seq:Number(e.seq||0),evolution_id:e.evolution_id,stage:e.stage,status:e.status,actor:e.actor,source_sha:e.source_sha||null,branch:e.branch||null,occurred_at:Number(e.occurred_at||0),evidence:parse(e.evidence_json)}))
-            .sort((a,b)=>a.seq-b.seq);
-          const audit={
-            generated_at:new Date().toISOString(),
-            control:{
-              status:controlRow?.status||null,last_seen:Number(controlRow?.last_seen||0),
-              paused:controlMeta.paused===true,
-              max_autonomy:controlMeta.max_autonomy===true||controlMeta.owner_override===true||String(controlRow?.status||'')==='MAX_AUTONOMY',
-              source:controlMeta.source||null,reason:controlMeta.reason||null,
-              launch_approved_sha:controlMeta.launch_approved_sha||null,
-              launch_approved_at:controlMeta.launch_approved_at||null
-            },
-            counts:{autonomy_jobs:autonomy.length,by_status:counts,mel_autonomy:autonomy.filter(j=>j.requested_by==='mel-autonomy').length,owner_chat:autonomy.filter(j=>String(j.requested_by||'').startsWith('owner-chat')).length},
-            jobs:autonomy.map(safeJob).sort((a,b)=>b.updated_at-a.updated_at),
-            evolution_events:events
-          };
-          fs.writeFileSync('mel-max-autonomy-audit.json',JSON.stringify(audit,null,2));
-          console.log(JSON.stringify(audit,null,2));
+          });
+          const out={generated_at:new Date(now).toISOString(),bridges,approved_jobs:approved};
+          fs.writeFileSync('bridge-live-audit.json',JSON.stringify(out,null,2));
+          console.log(JSON.stringify(out,null,2));
           NODE
-
-          cleanup
-          trap - EXIT
-
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: mel-max-autonomy-audit-${{ github.run_id }}
-          path: mel-max-autonomy-audit.json
+          name: bridge-live-audit-${{ github.run_id }}
+          path: bridge-live-audit.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
