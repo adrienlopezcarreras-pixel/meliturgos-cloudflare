@@ -1,0 +1,23 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { NORMAL_RUNTIME_SOURCE } from '../src/pages/mvp-runtime.js';
+import { onRequestGet as renderFullInterface } from '../src/pages/full-interface-v2.js';
+
+test('normal chat accepts clipboard files without hijacking text-only paste', () => {
+  assert.match(NORMAL_RUNTIME_SOURCE, /function filesFromTransfer\(dt\)/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /input\.addEventListener\('paste'/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /if\(!files\.length\)return;e\.preventDefault\(\);handleFiles\(files,'clipboard'\)/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /\/api\/files\/upload/);
+  assert.match(NORMAL_RUNTIME_SOURCE, /handleFiles\(filesFromTransfer\(e\.dataTransfer\),'drag-drop'\)/);
+});
+
+test('full chat exposes picker and clipboard file ingestion through the same upload API', async () => {
+  const response = await renderFullInterface();
+  const html = await response.text();
+  assert.match(html, /id="chatFileInput" type="file" multiple hidden/);
+  assert.match(html, /id="chatAttach"/);
+  assert.match(html, /chatInput'\)\.addEventListener\('paste'/);
+  assert.match(html, /if\(!files\.length\)return;e\.preventDefault\(\);uploadChatFiles\(files,'clipboard'\)/);
+  assert.match(html, /\/api\/files\/upload/);
+  assert.match(html, /input_source:source/);
+});
