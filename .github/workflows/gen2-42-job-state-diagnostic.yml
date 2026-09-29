@@ -54,7 +54,7 @@ jobs:
           test "${READY}" = "1"
 
           DIAG_URL="${DIAG_URL}" DIAG_TOKEN="${DIAG_TOKEN}" node - <<'NODE'
-          const fs=require('fs');
+          import fs from 'node:fs';
           const base=process.env.DIAG_URL;
           const token=process.env.DIAG_TOKEN;
           const headers={'x-mel-predeploy-backup-refresh':token};
