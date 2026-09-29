@@ -41,7 +41,13 @@ function isPreview(env = {}) {
 }
 
 function shardVaultRoadmapPaused(env = {}) {
-  return String(env?.MEL_SHARDVAULT_ROADMAP_PAUSED || '').toLowerCase() === 'true';
+  if (String(env?.MEL_SHARDVAULT_ROADMAP_PAUSED || '').toLowerCase() === 'true') return true;
+  try {
+    return typeof MEL_SHARDVAULT_ROADMAP_PAUSED !== 'undefined'
+      && String(MEL_SHARDVAULT_ROADMAP_PAUSED || '').toLowerCase() === 'true';
+  } catch {
+    return false;
+  }
 }
 
 function roadmapId(job) {
