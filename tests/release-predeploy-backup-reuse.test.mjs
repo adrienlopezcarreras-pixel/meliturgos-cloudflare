@@ -24,3 +24,15 @@ test('real platform capability proof runs automatically after a successful canon
   assert.match(source, /secrets\.MEL_GITHUB_TOKEN \|\| secrets\.GITHUB_PAT \|\| secrets\.GH_PAT \|\| secrets\.GH_TOKEN/);
   assert.doesNotMatch(source, /secrets\.GITHUB_TOKEN/);
 });
+
+
+test('canonical release waits on bounded ShardVault progress instead of a fixed blind retry count', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  assert.match(source, /CODE_SYNC_MAX_ATTEMPTS=32/);
+  assert.match(source, /CODE_SYNC_MAX_STALL=12/);
+  assert.match(source, /CODE_SYNC_LAST_COMPLETED=-1/);
+  assert.match(source, /CODE_SYNC_STATUS" = "RETRY_TARGETS"/);
+  assert.match(source, /CODE_SYNC_NEXT_RETRY/);
+  assert.match(source, /Launch code-sync stopped after bounded no-progress window/);
+  assert.doesNotMatch(source, /for CODE_SYNC_ATTEMPT in \$\(seq 1 12\)/);
+});
