@@ -11,7 +11,7 @@ import { inspectRestoreCandidate } from '../../src/backup/restore-service.js';
 import { APP_VERSION, DB_SCHEMA_VERSION } from '../../src/core/config.js';
 
 const SYSTEM_BACKUP_PREFIX = 'backups/system/';
-const PAGE_SIZE = 1000;
+const D1_PAGE_SIZE = 100;
 const MAX_ROWS_PER_TABLE = 50_000;
 const MAX_R2_PAGES = 1000;
 
@@ -21,101 +21,68 @@ function required(name) {
   return value;
 }
 
-function quoteIdentifier(value) {
-  return `"${String(value).replaceAll('"', '""')}"`;
-}
-
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function cloudflareJson(url, init, { attempts = 4 } = {}) {
+async function sidecarJson({ baseUrl, token }, path, init = {}, { attempts = 5 } = {}) {
   let lastError = null;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const response = await fetch(url, init);
+      const url = new URL(path, baseUrl);
+      const response = await fetch(url, {
+        ...init,
+        headers: {
+          ...(init.headers || {}),
+          'x-mel-predeploy-backup-refresh': token,
+        },
+      });
       const raw = await response.text();
       let parsed = null;
       try { parsed = raw ? JSON.parse(raw) : {}; } catch {}
-      if (response.ok && parsed?.success !== false) return parsed;
-      const code = parsed?.errors?.[0]?.code || parsed?.result?.errors?.[0]?.code || response.status;
-      lastError = new Error(`CLOUDFLARE_HTTP_${response.status}:${code}`);
+      if (response.ok && parsed?.ok === true) return parsed;
+      lastError = new Error(`SIDECAR_HTTP_${response.status}:${parsed?.status || 'INVALID'}:${parsed?.code || ''}`);
     } catch (error) {
       lastError = error;
     }
-    if (attempt < attempts) await sleep(750 * attempt);
+    if (attempt < attempts) await sleep(500 * attempt);
   }
-  throw lastError || new Error('CLOUDFLARE_REQUEST_FAILED');
+  throw lastError || new Error('SIDECAR_REQUEST_FAILED');
 }
 
-function d1Endpoint(accountId, databaseId) {
-  return `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`;
-}
-
-async function d1Execute({ accountId, databaseId, token }, sql, params = []) {
-  const parsed = await cloudflareJson(d1Endpoint(accountId, databaseId), {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${token}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({ sql, params }),
-  });
-  const groups = Array.isArray(parsed?.result)
-    ? parsed.result
-    : (parsed?.result ? [parsed.result] : []);
-  if (!groups.length || groups.some(group => group?.success === false)) {
-    throw new Error('D1_QUERY_FAILED');
+async function exportD1(sidecar) {
+  const discovered = await sidecarJson(sidecar, '/d1/tables');
+  if (discovered?.status !== 'D1_TABLES' || !Array.isArray(discovered.tables)) {
+    throw new Error('D1_TABLE_DISCOVERY_INVALID');
   }
-  return groups;
-}
 
-async function d1Rows(client, sql, params = []) {
-  const groups = await d1Execute(client, sql, params);
-  return groups.flatMap(group => Array.isArray(group?.results) ? group.results : []);
-}
-
-async function exportD1(client) {
-  const discovered = await d1Rows(
-    client,
-    "SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-  );
   const tables = [];
-
-  for (const descriptor of discovered) {
+  for (const descriptor of discovered.tables) {
     const name = String(descriptor?.name || '').trim();
     if (!name || name.startsWith('_cf_')) continue;
     const tableRows = [];
     let offset = 0;
-    let rowidSupported = true;
 
     while (true) {
-      const quoted = quoteIdentifier(name);
-      let page;
-      try {
-        page = await d1Rows(
-          client,
-          `SELECT * FROM ${quoted}${rowidSupported ? ' ORDER BY rowid' : ''} LIMIT ? OFFSET ?`,
-          [PAGE_SIZE, offset],
-        );
-      } catch (error) {
-        if (offset === 0 && rowidSupported) {
-          rowidSupported = false;
-          page = await d1Rows(client, `SELECT * FROM ${quoted} LIMIT ? OFFSET ?`, [PAGE_SIZE, offset]);
-        } else {
-          throw error;
-        }
+      const qs = new URLSearchParams({
+        table: name,
+        offset: String(offset),
+        limit: String(D1_PAGE_SIZE),
+      });
+      const page = await sidecarJson(sidecar, `/d1/rows?${qs.toString()}`);
+      if (page?.status !== 'D1_ROWS_PAGE' || String(page?.table || '') !== name || !Array.isArray(page.rows)) {
+        throw new Error(`D1_ROWS_PAGE_INVALID:${name}`);
       }
-
-      tableRows.push(...page);
+      tableRows.push(...page.rows);
       if (tableRows.length > MAX_ROWS_PER_TABLE) throw new Error(`BACKUP_TABLE_ROW_LIMIT:${name}`);
-      if (page.length < PAGE_SIZE) break;
-      offset += page.length;
+      if (page.has_more !== true) break;
+      offset += page.rows.length;
+      if (page.rows.length === 0) throw new Error(`D1_PAGINATION_STALLED:${name}`);
     }
 
     tables.push({
       name,
-      schema: descriptor?.sql || null,
+      schema: descriptor?.schema || null,
       rowCount: tableRows.length,
       rows: tableRows,
     });
@@ -128,36 +95,19 @@ async function exportD1(client) {
   };
 }
 
-async function fetchInventory({ baseUrl, token }) {
+async function fetchInventory(sidecar) {
   const objects = [];
   let cursor = null;
   for (let pageNumber = 0; pageNumber < MAX_R2_PAGES; pageNumber += 1) {
-    const url = new URL('/inventory', baseUrl);
-    if (cursor) url.searchParams.set('cursor', cursor);
-
-    let payload = null;
-    let lastError = null;
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
-      try {
-        const response = await fetch(url, {
-          headers: { 'x-mel-predeploy-backup-refresh': token },
-        });
-        const raw = await response.text();
-        let parsed = null;
-        try { parsed = raw ? JSON.parse(raw) : {}; } catch {}
-        if (response.ok && parsed?.ok === true && parsed?.status === 'R2_INVENTORY_PAGE') {
-          payload = parsed;
-          break;
-        }
-        lastError = new Error(`R2_INVENTORY_HTTP_${response.status}:${parsed?.status || 'INVALID'}`);
-      } catch (error) {
-        lastError = error;
-      }
-      if (attempt < 5) await sleep(500 * attempt);
+    const qs = new URLSearchParams();
+    if (cursor) qs.set('cursor', cursor);
+    const path = `/inventory${qs.size ? `?${qs.toString()}` : ''}`;
+    const payload = await sidecarJson(sidecar, path);
+    if (payload?.status !== 'R2_INVENTORY_PAGE' || !Array.isArray(payload.objects)) {
+      throw new Error('R2_INVENTORY_PAGE_INVALID');
     }
-    if (!payload) throw lastError || new Error('R2_INVENTORY_FAILED');
 
-    for (const object of payload.objects || []) {
+    for (const object of payload.objects) {
       const key = String(object?.key || '');
       if (!key || key.startsWith(SYSTEM_BACKUP_PREFIX)) continue;
       objects.push({
@@ -182,6 +132,19 @@ async function fetchInventory({ baseUrl, token }) {
   };
 }
 
+async function registerMetadata(sidecar, registration) {
+  const result = await sidecarJson(sidecar, '/register', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(registration),
+  });
+  if (result?.status !== 'BACKUP_METADATA_REGISTERED') throw new Error('BACKUP_METADATA_REGISTRATION_FAILED');
+  if (result?.backup_object_present !== true || Number(result?.backup_object_bytes || 0) <= 0) {
+    throw new Error('BACKUP_OBJECT_NOT_PROVEN_AFTER_UPLOAD');
+  }
+  return result;
+}
+
 function runWrangler(args) {
   const result = spawnSync('npx', ['wrangler', ...args], {
     encoding: 'utf8',
@@ -196,9 +159,8 @@ function runWrangler(args) {
 }
 
 async function createBackup() {
-  const accountId = required('CLOUDFLARE_ACCOUNT_ID');
-  const cloudflareToken = required('CLOUDFLARE_API_TOKEN');
-  const databaseId = required('MEL_D1_DATABASE_ID');
+  required('CLOUDFLARE_ACCOUNT_ID');
+  required('CLOUDFLARE_API_TOKEN');
   const bucketName = required('MEL_R2_BUCKET_NAME');
   const inventoryUrl = required('MEL_PREDEPLOY_BACKUP_REFRESH_URL');
   const inventoryToken = required('MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN');
@@ -210,7 +172,7 @@ async function createBackup() {
   if (!/^[0-9a-f]{40}$/.test(sourceSha)) throw new Error('SOURCE_SHA_INVALID');
   if (!sourceBranch.startsWith('release/')) throw new Error('SOURCE_BRANCH_INVALID');
 
-  const d1 = { accountId, databaseId, token: cloudflareToken };
+  const sidecar = { baseUrl: inventoryUrl, token: inventoryToken };
   const encryptionCodec = createBackupEncryptionCodec({
     keyId,
     keyBytes: decodeBackupEncryptionKey(keyB64),
@@ -220,8 +182,8 @@ async function createBackup() {
   const workdir = await mkdtemp(join(tmpdir(), 'mel-predeploy-backup-'));
 
   const sources = {
-    database: () => exportD1(d1),
-    r2_inventory: () => fetchInventory({ baseUrl: inventoryUrl, token: inventoryToken }),
+    database: () => exportD1(sidecar),
+    r2_inventory: () => fetchInventory(sidecar),
     runtime: async () => ({
       type: 'MEL_RUNTIME_DESCRIPTOR_V1',
       appVersion: APP_VERSION,
@@ -265,10 +227,6 @@ async function createBackup() {
         const downloaded = await readFile(verifyPath, 'utf8');
         if (downloaded !== payload) throw new Error('BACKUP_R2_ROUNDTRIP_MISMATCH');
 
-        await d1Execute(
-          d1,
-          'CREATE TABLE IF NOT EXISTS backup_objects (id TEXT PRIMARY KEY,object_key TEXT NOT NULL,metadata_json TEXT NOT NULL,created_at INTEGER NOT NULL)',
-        );
         const metadata = {
           schema: snapshot.schema,
           createdAt: snapshot.createdAt,
@@ -287,16 +245,17 @@ async function createBackup() {
           restoreRowCount: Number(restoreProof?.database?.rowCount || 0),
           restoreR2ObjectCount: Number(restoreProof?.r2?.objectCount || 0),
         };
-        await d1Execute(
-          d1,
-          'INSERT INTO backup_objects(id,object_key,metadata_json,created_at) VALUES(?,?,?,?)',
-          [snapshot.id, objectKey, JSON.stringify(metadata), Date.parse(snapshot.createdAt) || Date.now()],
-        );
+        const registration = await registerMetadata(sidecar, {
+          id: snapshot.id,
+          object_key: objectKey,
+          metadata,
+          created_at: Date.parse(snapshot.createdAt) || Date.now(),
+        });
         persisted = {
           id: snapshot.id,
           objectKey,
           restoreProof,
-          bytes: Buffer.byteLength(payload),
+          bytes: Number(registration.backup_object_bytes || Buffer.byteLength(payload)),
         };
       } catch (error) {
         try {
