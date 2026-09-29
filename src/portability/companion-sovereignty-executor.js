@@ -16,7 +16,7 @@ async function ensureTables(db){
   )`).run();
 }
 
-async function chooseDevice(db,{deviceId=null,now=Date.now(),onlineWithinMs=15000}={}){
+async function chooseDevice(db,{deviceId=null,now=Date.now(),onlineWithinMs=35000}={}){
   if(deviceId){
     const row=await db.prepare("SELECT * FROM computer_devices WHERE id=? LIMIT 1").bind(clean(deviceId,200)).first();
     if(!row)return null;
@@ -36,7 +36,7 @@ export function createCompanionSovereigntyExecutor(env,{
   deviceId=null,
   pollIntervalMs=300,
   timeoutMs=12000,
-  onlineWithinMs=15000,
+  onlineWithinMs=35000,
 }={}){
   if(!env?.DB)throw Object.assign(new Error('COMPANION_SOVEREIGNTY_DB_REQUIRED'),{code:'COMPANION_SOVEREIGNTY_DB_REQUIRED'});
 
