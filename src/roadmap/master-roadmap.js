@@ -187,7 +187,8 @@ export const MASTER_ROADMAP = Object.freeze([
     item('MEL-UI-01', 'Accueil minimal et contemporain', 'DONE_VERIFIED', 'Polish mobile continu', 'P0'),
     item('MEL-UI-02', 'Avatar grand / cible tactile mobile', 'DONE_VERIFIED', 'Tester sur Android réel', 'P0'),
     item('MEL-UI-03', 'Favicon visage MEL', 'DONE_VERIFIED', '—', 'P3'),
-    item('MEL-UI-05', 'État réel, pas de cartes factices', 'DONE_VERIFIED', 'État fail-closed et consolidation UI certifiés sur SHA cd2e5762cf199a433a29d148859e2b662608060c: full-candidate-ci 35863695942 SUCCESS et production 35863775641 SUCCESS, autonomie/HTTP inclus. Métriques absentes restent —/Indisponible, aucun faux zéro/lifecycle inventé, pseudo-panneau Work supprimé et surface IA & Développement canonique unique.', 'P0')
+    item('MEL-UI-05', 'État réel, pas de cartes factices', 'DONE_VERIFIED', 'État fail-closed et consolidation UI certifiés sur SHA cd2e5762cf199a433a29d148859e2b662608060c: full-candidate-ci 35863695942 SUCCESS et production 35863775641 SUCCESS, autonomie/HTTP inclus. Métriques absentes restent —/Indisponible, aucun faux zéro/lifecycle inventé, pseudo-panneau Work supprimé et surface IA & Développement canonique unique.', 'P0'),
+    item('MEL-UI-06', 'Copier-coller direct de fichiers et images dans la zone d’échange Normal + Complet', 'PARTIAL', 'À implémenter et valider sur les deux interfaces: ClipboardEvent/paste, File/Blob image ou fichier, ajout au même pipeline de pièces jointes que le dépôt classique, aperçu/nom/taille, suppression avant envoi, conservation du texte collé, multi-fichiers et refus explicite des formats/tailles non pris en charge. Tests navigateur réels Normal + Complet obligatoires avant DONE_VERIFIED.', 'P0'),
   ]),
 
   phase('P15', 'Release, migration et maturité finale', [
