@@ -138,6 +138,45 @@ export async function reconcileDiscoveryJobs(env, ledger, {
     }
   }
 
+  const durableTeacherStateRepairs = [];
+  for (let index = 0; index < jobs.length; index += 1) {
+    const job = jobs[index];
+    const bridge = job?.result_json?.teacher_bridge;
+    const request = bridge?.request;
+    const requestId = String(request?.request_id || '').trim();
+    const targetSha = String(
+      request?.target_sha
+      || request?.candidate?.sha
+      || request?.provenance?.candidate_sha
+      || ''
+    ).trim().toLowerCase();
+    const repairable = job?.requested_by === 'mel-autonomy'
+      && String(job?.optional_context?.source || '') === 'ecosystem-watch'
+      && String(job?.status || '').toUpperCase() === 'COUNCIL_COMPLETE'
+      && String(bridge?.status || '').toUpperCase() === 'WAITING_TEACHER'
+      && Boolean(requestId)
+      && /^[0-9a-f]{40}$/.test(targetSha);
+
+    if (!repairable) continue;
+    try {
+      const repaired = await repo.update(job.id, {
+        status: 'WAITING_TEACHER',
+        error: null,
+      });
+      if (repaired) jobs[index] = repaired;
+      durableTeacherStateRepairs.push({
+        job_id: job.id,
+        teacher_request_id: requestId,
+        candidate_sha: targetSha,
+        from: 'COUNCIL_COMPLETE',
+        to: 'WAITING_TEACHER',
+      });
+    } catch {
+      // Fail closed: if the durable D1 state cannot be repaired, the stale
+      // COUNCIL_COMPLETE state remains visible and the production proof blocks.
+    }
+  }
+
   let resumed = null;
   const resumable = jobs
     .filter(job => job?.requested_by === 'mel-autonomy')
@@ -185,7 +224,12 @@ export async function reconcileDiscoveryJobs(env, ledger, {
   }
 
   const reconciled = reconcileEcosystemDiscoveryHandoffs(ledger, jobs, now);
-  return { ...reconciled, resumed };
+  return {
+    ...reconciled,
+    resumed,
+    durable_teacher_state_repair_count: durableTeacherStateRepairs.length,
+    durable_teacher_state_repairs: durableTeacherStateRepairs,
+  };
 }
 
 function watchEvaluator(env) {
