@@ -1,97 +1,9 @@
 name: sovereignty-stress-ci
 
+# TEMPORARY DEV-LIGHT MODE: heavy sovereignty stress is manual until final validation.
+# Re-enable automatic main/path trigger before final closure.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - src/portability/**
-      - tests/gen2/companion-powershell-ci.test.mjs
-      - tests/gen2/companion-powershell-database.test.mjs
-      - tests/gen2/companion-powershell-storage.test.mjs
-      - tests/gen2/companion-sovereignty-runtime-wiring.test.mjs
-      - tests/gen2/companion-storage-prevalidation-runtime.test.mjs
-      - tests/gen2/companion-local-services-prevalidation-runtime.test.mjs
-      - tests/gen2/local-sovereignty-command-wiring.test.mjs
-      - src/portability/companion-source-control-prevalidation-runtime.js
-      - src/portability/companion-sovereignty-executor.js
-      - src/portability/local-sovereignty-actions.js
-      - tests/gen2/local-sovereignty-profile.test.mjs
-      - src/portability/local-sovereignty-profile.js
-      - tests/gen2/companion-git-sovereignty-runtime.test.mjs
-      - dist/MEL-Computer-Companion.ps1
-      - assets/MEL-Computer-Companion.ps1
-      - src/devices/computer-companion-api.js
-      - src/portability/companion-git-sovereignty-runtime.js
-      - src/portability/companion-sovereignty-command-bridge.js
-      - tests/gen2/companion-runtime-secrets.test.mjs
-      - src/portability/companion-secret-store-adapter.js
-      - src/portability/companion-runtime-provider-adapter.js
-      - tests/gen2/companion-storage-database.test.mjs
-      - src/portability/companion-database-adapter.js
-      - src/portability/companion-object-storage-adapter.js
-      - tests/gen2/companion-scheduler-observability.test.mjs
-      - src/portability/companion-observability-adapter.js
-      - src/portability/companion-scheduler-adapter.js
-      - tests/gen2/companion-ci-provider-adapter.test.mjs
-      - src/portability/companion-ci-provider-adapter.js
-      - tests/gen2/companion-source-control-adapter.test.mjs
-      - src/portability/companion-source-control-adapter.js
-      - tests/gen2/configured-ai-candidate-sync.test.mjs
-      - src/portability/configured-ai-candidate-validation-runtime.js
-      - src/portability/configured-ai-candidate-sync.js
-      - tests/gen2/sovereignty-candidate-readiness.test.mjs
-      - src/portability/sovereignty-candidate-readiness.js
-      - tests/gen2/sovereignty-candidate-validator.test.mjs
-      - src/portability/sovereignty-candidate-validator.js
-      - tests/gen2/sovereignty-candidate-store.test.mjs
-      - src/portability/sovereignty-candidate-store.js
-      - tests/gen2/sovereignty-gap-planner.test.mjs
-      - src/portability/sovereignty-gap-planner.js
-      - tests/gen2/infrastructure-alternative-prevalidator.test.mjs
-      - src/portability/infrastructure-alternative-prevalidator.js
-      - tests/gen2/observability-adapter.test.mjs
-      - tests/gen2/scheduler-adapter.test.mjs
-      - tests/gen2/secret-store-adapter.test.mjs
-      - src/portability/observability-adapter.js
-      - src/portability/scheduler-adapter.js
-      - src/portability/secret-store-adapter.js
-      - tests/gen2/ci-provider-adapter.test.mjs
-      - src/portability/ci-provider-adapter.js
-      - tests/gen2/database-adapter.test.mjs
-      - tests/gen2/object-storage-adapter.test.mjs
-      - src/portability/database-adapter.js
-      - src/portability/object-storage-adapter.js
-      - tests/gen2/runtime-alternative-prevalidator.test.mjs
-      - src/portability/runtime-alternative-prevalidator.js
-      - tests/gen2/ai-low-refusal-probe.test.mjs
-      - src/portability/ai-low-refusal-probe.js
-      - tests/gen2/source-control-reseed.test.mjs
-      - src/portability/source-control-reseed.js
-      - tests/gen2/ai-alternative-prevalidation-runtime.test.mjs
-      - tests/gen2/ai-alternative-prevalidator.test.mjs
-      - src/portability/ai-alternative-prevalidation-runtime.js
-      - src/portability/ai-alternative-prevalidator.js
-      - tests/gen2/autonomy-sovereignty-status.test.mjs
-      - tests/gen2/technical-sovereignty-live.test.mjs
-      - tests/gen2/alternative-revalidation.test.mjs
-      - tests/gen2/d1-alternative-registry-store.test.mjs
-      - src/evolution/autonomy-api.js
-      - src/continuity/**
-      - tests/gen2/cold-standby.test.mjs
-      - src/resilience/cold-standby.js
-      - src/evaluation/dependency-longevity-watch*.js
-      - tests/gen2/sovereignty-watch-runtime-wiring.test.mjs
-      - tests/gen2/sovereignty-watch-candidates.test.mjs
-      - src/evaluation/sovereignty-watch-runtime.js
-      - src/evaluation/sovereignty-watch-catalog.js
-      - tests/gen2/dependency-longevity-watch.test.mjs
-      - tests/gen2/prevalidated-alternative-registry.test.mjs
-      - src/portability/prevalidated-alternative-registry.js
-      - tests/gen2/sovereignty-stress.test.mjs
-      - tests/gen2/sovereign-regeneration-stress.test.mjs
-      - .github/workflows/sovereignty-stress-ci.yml
 
 permissions:
   contents: read
