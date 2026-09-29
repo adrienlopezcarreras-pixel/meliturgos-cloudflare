@@ -132,6 +132,78 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Refresh current production backup before release gate
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
+          REFRESH_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::${REFRESH_TOKEN}"
+          REFRESH_SECRET_INSTALLED=0
+
+          cleanup_refresh_secret() {
+            set +e
+            if [ "${REFRESH_SECRET_INSTALLED:-0}" = "1" ]; then
+              CLEANED=0
+              for CLEANUP_ATTEMPT in $(seq 1 5); do
+                printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/predeploy-backup-refresh-secret-delete.log 2>&1
+                rc=${PIPESTATUS[1]}
+                if [ "${rc}" = "0" ]; then
+                  CLEANED=1
+                  REFRESH_SECRET_INSTALLED=0
+                  break
+                fi
+                sleep 2
+              done
+              if [ "${CLEANED}" != "1" ]; then
+                cat /tmp/predeploy-backup-refresh-secret-delete.log || true
+                return 1
+              fi
+            fi
+            set -e
+            return 0
+          }
+          trap 'cleanup_refresh_secret || true' EXIT
+
+          printf '%s' "${REFRESH_TOKEN}" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/predeploy-backup-refresh-secret-put.log
+          REFRESH_SECRET_INSTALLED=1
+
+          REFRESHED=0
+          for REFRESH_ATTEMPT in $(seq 1 12); do
+            REFRESH_CODE="$(curl --silent --show-error --max-time 175 \
+              --request POST \
+              --header "x-mel-launch-bootstrap: ${REFRESH_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"phase":"backup"}' \
+              --output predeploy-backup-refresh.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+            if [ "${REFRESH_CODE}" = "200" ] && node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('predeploy-backup-refresh.json','utf8'));
+          const b=d?.backup||{};
+          if(d?.ok!==true) process.exit(1);
+          if(b?.ok!==true||!b?.id) process.exit(1);
+          if(!/^[0-9a-f]{64}$/.test(String(b?.integritySha256||'').toLowerCase()) && b?.status!=='REUSED_VERIFIED_SHA_BOUND_BACKUP' && b?.status!=='REUSED_RELEASE_BOUND_VERIFIED_BACKUP') process.exit(1);
+          NODE
+            then
+              REFRESHED=1
+              break
+            fi
+            echo "Current-production backup refresh attempt ${REFRESH_ATTEMPT}/12 returned HTTP ${REFRESH_CODE}."
+            test ! -s predeploy-backup-refresh.json || cat predeploy-backup-refresh.json
+            sleep 2
+          done
+          test "${REFRESHED}" = "1"
+
+          cleanup_refresh_secret
+          REFRESH_SECRET_INSTALLED=0
+          trap - EXIT
+          echo "Current production has a freshly prepared or exact-SHA reusable verified backup; temporary bootstrap secret removed."
+
       - name: Capture current production rollback target
         shell: bash
         env:
