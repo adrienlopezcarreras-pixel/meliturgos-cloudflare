@@ -98,3 +98,17 @@ test('automatic rollback forces older version restore after secret changes and s
   assert.match(block, /d\?\.success!==true/);
   assert.match(block, /exit 49/);
 });
+
+
+test('browser live proof uses MEL-owned deterministic public content', async () => {
+  const source = await readFile(new URL('../.github/workflows/deploy-cloudflare-release.yml', import.meta.url), 'utf8');
+  const start = source.indexOf('      - name: Prove real production browser.execute');
+  const end = source.indexOf('      - name: Re-enable MAX 100% after verified autonomous release', start);
+  const block = source.slice(start, end);
+  assert.match(block, /https:\/\/meliturgos\.adrien-lopezcarreras\.workers\.dev\/about/);
+  assert.match(block, /Assistant personnel connecté/);
+  assert.match(block, /navigate-mel-about/);
+  assert.match(block, /read-mel-about/);
+  assert.doesNotMatch(block, /https:\/\/example\.com/);
+  assert.doesNotMatch(block, /Example Domain/);
+});
