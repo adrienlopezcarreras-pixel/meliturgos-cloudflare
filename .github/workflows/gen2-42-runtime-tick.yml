@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
   contract:
@@ -115,12 +116,34 @@ jobs:
             launch_approved_sha:body?.launch_approved_sha||null,
             control_unchanged_by_bootstrap:body?.control_unchanged_by_bootstrap===true,
             owner_authorized_bootstrap:body?.owner_authorized_bootstrap===true,
+            bridge_preparation_ready:body?.bridge_preparation_ready===true,
+            bridge_job:body?.bridge_job||null,
+            bridge_executor:body?.bridge_executor||null,
             completed:Array.isArray(body?.completed)?body.completed:[],
             rejected:Array.isArray(body?.rejected)?body.rejected:[],
           };
           fs.writeFileSync('gen2-42-runtime-tick-proof.json',JSON.stringify(safe,null,2));
           console.log(JSON.stringify(safe,null,2));
           NODE
+
+      - name: Dispatch cloud bridge fallback when local executor is offline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          READY="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).bridge_preparation_ready===true?'true':'false'")"
+          ONLINE="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).bridge_executor?.online===true?'true':'false'")"
+          JOB_ID="$(node -p "JSON.parse(require('fs').readFileSync('gen2-42-runtime-tick-proof.json','utf8')).bridge_job?.job_id||''")"
+          if [ "$READY" != "true" ] || [ "$ONLINE" = "true" ] || [ -z "$JOB_ID" ]; then
+            echo "CLOUD_BRIDGE_FALLBACK_SKIPPED ready=$READY local_online=$ONLINE job_id=$JOB_ID"
+            exit 0
+          fi
+          [[ "$JOB_ID" =~ ^[A-Za-z0-9_.:-]+$ ]]
+          node -e "process.stdout.write(JSON.stringify({ref:'main',inputs:{job_id:process.env.JOB_ID}}))" > cloud-bridge-dispatch.json
+          CODE="$(curl --silent --show-error --max-time 30             --request POST             --header "Authorization: Bearer $GH_TOKEN"             --header "Accept: application/vnd.github+json"             --header "X-GitHub-Api-Version: 2022-11-28"             --header "Content-Type: application/json"             --data-binary @cloud-bridge-dispatch.json             --output cloud-bridge-dispatch-response.txt             --write-out '%{http_code}'             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/gen2-42-apply-ready-bridge.yml/dispatches")"
+          test "$CODE" = "204"
+          echo "CLOUD_BRIDGE_FALLBACK_DISPATCHED job_id=$JOB_ID"
 
       - name: Upload sanitized tick proof
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
