@@ -1632,6 +1632,10 @@ jobs:
             --data-binary @rollback-request.json \
             --output rollback-response.json \
             --write-out '%{http_code}' \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments" || true)"
-          test "$ROLLBACK_CODE" = "200"
-          node -e 'const d=require("./rollback-response.json");if(d?.success===false)throw new Error("AUTOMATIC_ROLLBACK_FAILED");console.log("Automatic rollback accepted to previous stable Cloudflare version.")'
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments?force=true" || true)"
+          if [ "$ROLLBACK_CODE" != "200" ]; then
+            echo "Automatic rollback returned HTTP ${ROLLBACK_CODE}."
+            test ! -s rollback-response.json || cat rollback-response.json
+            exit 49
+          fi
+          node -e 'const d=require("./rollback-response.json");if(d?.success!==true)throw new Error("AUTOMATIC_ROLLBACK_FAILED");console.log("Automatic rollback accepted to previous stable Cloudflare version.")'
