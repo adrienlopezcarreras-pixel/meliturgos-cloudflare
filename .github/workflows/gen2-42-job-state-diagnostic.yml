@@ -60,10 +60,16 @@ jobs:
           const headers={'x-mel-predeploy-backup-refresh':token};
 
           async function getJson(url){
-            const r=await fetch(url,{headers});
-            const text=await r.text();
-            if(!r.ok) throw new Error('HTTP_'+r.status+':'+text.slice(0,300));
-            return JSON.parse(text);
+            let last='';
+            for(let attempt=1;attempt<=8;attempt++){
+              const r=await fetch(url,{headers,cache:'no-store'});
+              const text=await r.text();
+              if(r.ok) return JSON.parse(text);
+              last='HTTP_'+r.status+':'+text.slice(0,300);
+              if(r.status!==401&&r.status!==503) break;
+              await new Promise(resolve=>setTimeout(resolve,1500));
+            }
+            throw new Error(last||'D1_DIAG_FETCH_FAILED');
           }
           async function table(name){
             const rows=[];
