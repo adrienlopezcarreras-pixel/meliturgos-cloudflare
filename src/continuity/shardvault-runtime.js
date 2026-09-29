@@ -1165,14 +1165,27 @@ async function ensureExternalCodeArchive(env,c,codeBackup){
       await clearCodeSyncState(env,id,state);
       return {...codeBackup,external:{status:'CODE_SYNC_SHARD_INVALID',target_count:goal,restart_required:true,shard_index:i}};
     }
-    let validated=[],codeCandidates=[];
+    let validated=[],codeCandidates=[],activeCodeTargets=[];
     try{validated=await readValidatedExternalEndpoints(env,shard.length);}catch{}
     try{codeCandidates=await readCodeCandidateEndpoints(env);}catch{}
+    try{activeCodeTargets=await readActiveExternalEndpoints(env);}catch{}
     const used=new Set(descriptors.map(x=>x.endpointId));
     const buildCandidates=(extra=[])=>{
       const failed=new Set(Array.isArray(state.failed_endpoint_ids)?state.failed_endpoint_ids:[]);
-      const ranked=rankExternalCodeCandidates(env,[...validated,...extra,...codeCandidates],shard.length)
+      let ranked=rankExternalCodeCandidates(env,[...validated,...extra,...codeCandidates,...activeCodeTargets],shard.length)
         .filter(e=>!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e));
+      if(!ranked.length){
+        ranked=uniqueExternalCandidates(env,activeCodeTargets)
+          .filter(e=>endpointMeetsDurability(env,e)&&!used.has(e.id)&&!failed.has(e.id)&&codeTargetAvailableNow(state,e))
+          .sort((a,b)=>{
+            const partsA=Math.max(1,Math.ceil(shard.length/fragmentChunkLimit(a)));
+            const partsB=Math.max(1,Math.ceil(shard.length/fragmentChunkLimit(b)));
+            const latencyA=Number(a?.probeLatencyMs)>0?Number(a.probeLatencyMs):Number.MAX_SAFE_INTEGER;
+            const latencyB=Number(b?.probeLatencyMs)>0?Number(b.probeLatencyMs):Number.MAX_SAFE_INTEGER;
+            return partsA-partsB||latencyA-latencyB||String(a.id).localeCompare(String(b.id));
+          });
+        if(ranked.length)state.active_roundtrip_fallback_used=true;
+      }
       return prioritizeExternalCodeCandidates(ranked,state);
     };
     let candidates=buildCandidates();
