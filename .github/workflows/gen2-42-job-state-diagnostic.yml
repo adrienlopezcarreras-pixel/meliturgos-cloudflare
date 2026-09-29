@@ -34,81 +34,58 @@ jobs:
           DIAG_TOKEN="$(openssl rand -hex 32)"
           echo "::add-mask::${DIAG_TOKEN}"
 
-          node - <<'NODE'
-          const fs=require('fs');
-          const source='release-tools/predeploy-backup-refresh/wrangler.jsonc';
-          const target='release-tools/predeploy-backup-refresh/wrangler.diag.jsonc';
-          const d=JSON.parse(fs.readFileSync(source,'utf8'));
-          d.name='mel-gen2-42-diag';
-          fs.writeFileSync(target,JSON.stringify(d,null,2));
-          NODE
+          node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync('release-tools/predeploy-backup-refresh/wrangler.jsonc','utf8'));d.name='mel-gen2-42-diag';fs.writeFileSync('release-tools/predeploy-backup-refresh/wrangler.diag.jsonc',JSON.stringify(d,null,2));"
 
           cleanup() {
             set +e
-            curl --silent --show-error --max-time 30               --request DELETE               --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"               "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${DIAG_NAME}"               >/dev/null 2>&1 || true
+            curl --silent --show-error --max-time 30 --request DELETE               --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}"               "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${DIAG_NAME}"               >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
 
           npx wrangler deploy --config "${DIAG_CONFIG}" >/tmp/diag-deploy.log
           printf '%s' "${DIAG_TOKEN}" | npx wrangler secret put MEL_PREDEPLOY_BACKUP_REFRESH_TOKEN --config "${DIAG_CONFIG}" >/tmp/diag-secret.log
 
+          READY=0
           for attempt in $(seq 1 12); do
             code="$(curl --silent --show-error --max-time 30               --header "x-mel-predeploy-backup-refresh: ${DIAG_TOKEN}"               --output /tmp/tables.json               --write-out '%{http_code}'               "${DIAG_URL}/d1/tables" || true)"
-            [ "${code}" = "200" ] && break
+            if [ "${code}" = "200" ]; then READY=1; break; fi
             sleep 2
           done
-          test "${code}" = "200"
+          test "${READY}" = "1"
 
-          fetch_table() {
-            table="$1"
-            out="$2"
-            : > "${out}"
-            echo '[]' > "${out}"
-            for offset in $(seq 0 100 10000); do
-              curl --silent --show-error --fail-with-body --max-time 30                 --header "x-mel-predeploy-backup-refresh: ${DIAG_TOKEN}"                 "${DIAG_URL}/d1/rows?table=${table}&limit=100&offset=${offset}" > /tmp/page.json
-              TABLE="$table" OUT="$out" node - <<'NODE'
-              const fs=require('fs');
-              const out=process.env.OUT;
-              const page=JSON.parse(fs.readFileSync('/tmp/page.json','utf8'));
-              const prior=JSON.parse(fs.readFileSync(out,'utf8'));
-              fs.writeFileSync(out,JSON.stringify(prior.concat(Array.isArray(page.rows)?page.rows:[])));
-              process.stdout.write(page.has_more===true?'1':'0');
-              NODE
-              has_more="$(TABLE="$table" OUT="$out" node -e "const d=require('/tmp/page.json');process.stdout.write(d.has_more===true?'1':'0')")"
-              [ "${has_more}" = "1" ] || break
-            done
-          }
-
-          fetch_table dev_jobs /tmp/dev_jobs.json
-          fetch_table dev_bridge_state /tmp/dev_bridge_state.json
-          fetch_table evolution_ledger /tmp/evolution_ledger.json
-
-          node - <<'NODE'
+          DIAG_URL="${DIAG_URL}" DIAG_TOKEN="${DIAG_TOKEN}" node - <<'NODE'
           const fs=require('fs');
-          const parse=v=>{try{return typeof v==='string'&&v?JSON.parse(v):v||{};}catch{return {};}};
-          const jobs=JSON.parse(fs.readFileSync('/tmp/dev_jobs.json','utf8'));
-          const stateRows=JSON.parse(fs.readFileSync('/tmp/dev_bridge_state.json','utf8'));
-          const ledger=JSON.parse(fs.readFileSync('/tmp/evolution_ledger.json','utf8'));
+          const base=process.env.DIAG_URL;
+          const token=process.env.DIAG_TOKEN;
+          const headers={'x-mel-predeploy-backup-refresh':token};
 
-          const autonomy=jobs.filter(j=>['mel-autonomy','owner-chat'].includes(String(j.requested_by||'')) || String(j.requested_by||'').startsWith('owner-chat'));
+          async function getJson(url){
+            const r=await fetch(url,{headers});
+            const text=await r.text();
+            if(!r.ok) throw new Error('HTTP_'+r.status+':'+text.slice(0,300));
+            return JSON.parse(text);
+          }
+          async function table(name){
+            const rows=[];
+            for(let offset=0;offset<=10000;offset+=100){
+              const page=await getJson(base+'/d1/rows?table='+encodeURIComponent(name)+'&limit=100&offset='+offset);
+              rows.push(...(Array.isArray(page.rows)?page.rows:[]));
+              if(page.has_more!==true) break;
+            }
+            return rows;
+          }
+          const parse=v=>{try{return typeof v==='string'&&v?JSON.parse(v):v||{};}catch{return {};}};
+          const [jobs,stateRows,ledger]=await Promise.all([table('dev_jobs'),table('dev_bridge_state'),table('evolution_ledger')]);
+          const autonomy=jobs.filter(j=>String(j.requested_by||'')==='mel-autonomy'||String(j.requested_by||'').startsWith('owner-chat'));
           const safeJob=j=>{
-            const ctx=parse(j.optional_context);
-            const plan=parse(j.plan_json);
-            const result=parse(j.result_json);
+            const ctx=parse(j.optional_context), plan=parse(j.plan_json), result=parse(j.result_json);
             const hist=Array.isArray(result.teacher_bridge_history)?result.teacher_bridge_history:[];
             return {
-              id:j.id,
-              status:j.status,
-              requested_by:j.requested_by,
+              id:j.id,status:j.status,requested_by:j.requested_by,
               goal:String(j.goal||'').slice(0,240),
-              roadmap_id:ctx.roadmap_id||null,
-              phase_id:ctx.phase_id||null,
-              source:ctx.source||null,
-              request_key:ctx.request_key||null,
-              created_at:Number(j.created_at||0),
-              updated_at:Number(j.updated_at||0),
-              candidate_branch:j.candidate_branch||null,
-              approval_status:j.approval_status||null,
+              roadmap_id:ctx.roadmap_id||null,phase_id:ctx.phase_id||null,source:ctx.source||null,request_key:ctx.request_key||null,
+              created_at:Number(j.created_at||0),updated_at:Number(j.updated_at||0),
+              candidate_branch:j.candidate_branch||null,approval_status:j.approval_status||null,
               error:j.error?String(j.error).slice(0,240):null,
               council_status:plan?.preflight?.council?.status||null,
               revision_reason:plan?.revision?.reason||null,
@@ -123,46 +100,27 @@ jobs:
               autonomy_block_reason:result?.autonomy_block_reason||null,
             };
           };
-
           const controlRow=stateRows.find(r=>String(r.bridge_id||'')==='mel-autonomy-control')||null;
           const controlMeta=parse(controlRow?.metadata_json);
           const counts={};
           for(const j of autonomy) counts[j.status]=(counts[j.status]||0)+1;
-
-          const autonomyIds=new Set(autonomy.map(j=>String(j.id)));
-          const relevantLedger=ledger.filter(e=>autonomyIds.has(String(e.evolution_id||'')) || String(e.actor||'')==='mel-autonomy')
-            .map(e=>({
-              seq:Number(e.seq||0),
-              evolution_id:e.evolution_id,
-              stage:e.stage,
-              status:e.status,
-              actor:e.actor,
-              source_sha:e.source_sha||null,
-              branch:e.branch||null,
-              occurred_at:Number(e.occurred_at||0),
-              evidence:parse(e.evidence_json),
-            }));
-
+          const ids=new Set(autonomy.map(j=>String(j.id)));
+          const events=ledger.filter(e=>ids.has(String(e.evolution_id||''))||String(e.actor||'')==='mel-autonomy')
+            .map(e=>({seq:Number(e.seq||0),evolution_id:e.evolution_id,stage:e.stage,status:e.status,actor:e.actor,source_sha:e.source_sha||null,branch:e.branch||null,occurred_at:Number(e.occurred_at||0),evidence:parse(e.evidence_json)}))
+            .sort((a,b)=>a.seq-b.seq);
           const audit={
             generated_at:new Date().toISOString(),
             control:{
-              status:controlRow?.status||null,
-              last_seen:Number(controlRow?.last_seen||0),
+              status:controlRow?.status||null,last_seen:Number(controlRow?.last_seen||0),
               paused:controlMeta.paused===true,
               max_autonomy:controlMeta.max_autonomy===true||controlMeta.owner_override===true||String(controlRow?.status||'')==='MAX_AUTONOMY',
-              source:controlMeta.source||null,
-              reason:controlMeta.reason||null,
+              source:controlMeta.source||null,reason:controlMeta.reason||null,
               launch_approved_sha:controlMeta.launch_approved_sha||null,
-              launch_approved_at:controlMeta.launch_approved_at||null,
+              launch_approved_at:controlMeta.launch_approved_at||null
             },
-            counts:{
-              autonomy_jobs:autonomy.length,
-              by_status:counts,
-              mel_autonomy:autonomy.filter(j=>j.requested_by==='mel-autonomy').length,
-              owner_chat:autonomy.filter(j=>String(j.requested_by||'').startsWith('owner-chat')).length,
-            },
+            counts:{autonomy_jobs:autonomy.length,by_status:counts,mel_autonomy:autonomy.filter(j=>j.requested_by==='mel-autonomy').length,owner_chat:autonomy.filter(j=>String(j.requested_by||'').startsWith('owner-chat')).length},
             jobs:autonomy.map(safeJob).sort((a,b)=>b.updated_at-a.updated_at),
-            evolution_events:relevantLedger.sort((a,b)=>a.seq-b.seq),
+            evolution_events:events
           };
           fs.writeFileSync('mel-max-autonomy-audit.json',JSON.stringify(audit,null,2));
           console.log(JSON.stringify(audit,null,2));
