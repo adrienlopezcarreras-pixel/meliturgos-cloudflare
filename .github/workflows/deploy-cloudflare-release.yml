@@ -1632,6 +1632,36 @@ jobs:
             --data-binary @rollback-request.json \
             --output rollback-response.json \
             --write-out '%{http_code}' \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments" || true)"
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments?force=true" || true)"
           test "$ROLLBACK_CODE" = "200"
-          node -e 'const d=require("./rollback-response.json");if(d?.success===false)throw new Error("AUTOMATIC_ROLLBACK_FAILED");console.log("Automatic rollback accepted to previous stable Cloudflare version.")'
+          node -e 'const d=require("./rollback-response.json");if(d?.success===false)throw new Error("AUTOMATIC_ROLLBACK_FAILED");console.log("Forced rollback accepted by Cloudflare.")'
+
+          ROLLBACK_VERIFIED=0
+          for ATTEMPT in $(seq 1 12); do
+            curl --silent --show-error --fail --max-time 30 \
+              --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/meliturgos/deployments" \
+              > rollback-verify.json
+            if PREVIOUS_CLOUDFLARE_VERSION_ID="${PREVIOUS_CLOUDFLARE_VERSION_ID}" node - <<'NODE'
+          const fs=require('fs');
+          const raw=JSON.parse(fs.readFileSync('rollback-verify.json','utf8'));
+          if(raw?.success===false) process.exit(1);
+          const root=raw?.result ?? raw;
+          const deployments=Array.isArray(root)?root:(Array.isArray(root?.deployments)?root.deployments:[root]);
+          const target=String(process.env.PREVIOUS_CLOUDFLARE_VERSION_ID||'');
+          const active=deployments.some(deployment=>{
+            const versions=Array.isArray(deployment?.versions)?deployment.versions:[];
+            return versions.length===1
+              && String(versions[0]?.version_id||'')===target
+              && Number(versions[0]?.percentage)===100;
+          });
+          process.exit(active?0:1);
+          NODE
+            then
+              ROLLBACK_VERIFIED=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ROLLBACK_VERIFIED" = "1"
+          echo "Automatic rollback verified on previous stable Cloudflare version."
