@@ -828,7 +828,10 @@ jobs:
           NODE
 
           CODE_SYNC_READY=0
-          for CODE_SYNC_ATTEMPT in $(seq 1 12); do
+          CODE_SYNC_ATTEMPT=0
+          CODE_SYNC_DEADLINE="$(( $(date +%s) + 720 ))"
+          while [ "$(date +%s)" -lt "$CODE_SYNC_DEADLINE" ]; do
+            CODE_SYNC_ATTEMPT="$((CODE_SYNC_ATTEMPT + 1))"
             CODE_SYNC_CODE="$(curl --silent --show-error --max-time 170 \
               --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
               --header "content-type: application/json" \
@@ -836,22 +839,63 @@ jobs:
               --output production-launch-code-sync.json \
               --write-out '%{http_code}' \
               "${BASE_URL}/api/internal/release-launch-bootstrap" || true)"
+
+            CODE_SYNC_SLEEP=2
             if [ "$CODE_SYNC_CODE" = "200" ]; then
-              CODE_SYNC_STATE="$(node -e 'const d=require("./production-launch-code-sync.json"); if(d?.ok!==true) throw new Error("PRODUCTION_CODE_SYNC_NOT_OK"); process.stdout.write(d?.complete===true?"1":"0");')"
-              if [ "$CODE_SYNC_STATE" = "1" ]; then
+              CODE_SYNC_STATE="$(node - <<'NODE'
+          const fs=require('fs');
+          const d=JSON.parse(fs.readFileSync('production-launch-code-sync.json','utf8'));
+          if(d?.ok!==true) throw new Error('PRODUCTION_CODE_SYNC_NOT_OK');
+          const c=d?.code_sync||{};
+          const completed=Number(c?.progress?.completed ?? c?.completed_shards ?? c?.completed_replicas ?? 0);
+          const target=Number(c?.progress?.target ?? c?.target_count ?? 7);
+          const status=String(d?.status||c?.status||'UNKNOWN');
+          const nextRetry=Date.parse(String(c?.next_retry_at||''));
+          let sleep=2;
+          if(status==='RETRY_TARGETS' && Number.isFinite(nextRetry)){
+            sleep=Math.max(2,Math.min(30,Math.ceil((nextRetry-Date.now())/1000)));
+          }
+          console.error(JSON.stringify({status,complete:d?.complete===true,completed,target,next_retry_at:c?.next_retry_at||null,attempted_endpoints:(c?.attempted_endpoints||[]).length,successful_endpoints:(c?.successful_endpoints||[]).length}));
+          process.stdout.write((d?.complete===true?'1':'0')+' '+sleep);
+          NODE
+              )"
+              CODE_SYNC_DONE="${CODE_SYNC_STATE%% *}"
+              CODE_SYNC_SLEEP="${CODE_SYNC_STATE##* }"
+              if [ "$CODE_SYNC_DONE" = "1" ]; then
                 CODE_SYNC_READY=1
                 break
               fi
-              echo "Launch code-sync phase ${CODE_SYNC_ATTEMPT}/12 is healthy but still progressing."
+              echo "Launch code-sync attempt ${CODE_SYNC_ATTEMPT} is healthy and still progressing; next check in ${CODE_SYNC_SLEEP}s."
             else
-              echo "Launch code-sync phase attempt ${CODE_SYNC_ATTEMPT}/12 returned HTTP ${CODE_SYNC_CODE}."
+              echo "Launch code-sync attempt ${CODE_SYNC_ATTEMPT} returned HTTP ${CODE_SYNC_CODE}."
               if [ -s production-launch-code-sync.json ]; then
                 node -e 'const fs=require("fs"); const raw=fs.readFileSync("production-launch-code-sync.json","utf8"); try { const d=JSON.parse(raw); console.log(JSON.stringify({status:d?.status||null,complete:d?.complete===true,code_sync:d?.code_sync||null},null,2)); } catch { console.log(JSON.stringify({transient_non_json_response:raw.slice(0,240)})); }'
               fi
+              CODE_SYNC_SLEEP=5
             fi
-            sleep 2
+
+            NOW="$(date +%s)"
+            if [ "$((NOW + CODE_SYNC_SLEEP))" -ge "$CODE_SYNC_DEADLINE" ]; then
+              break
+            fi
+            sleep "$CODE_SYNC_SLEEP"
           done
-          test "$CODE_SYNC_READY" = "1"
+          if [ "$CODE_SYNC_READY" != "1" ]; then
+            echo "ShardVault code-sync did not reach COPIED within the bounded 12-minute release window."
+            test ! -s production-launch-code-sync.json || cat production-launch-code-sync.json
+            exit 48
+          fi
+
+          node - <<'NODE'
+          const d=require('./production-launch-code-sync.json');
+          const c=d?.code_sync||{};
+          if(d?.ok!==true || d?.complete!==true) throw new Error('PRODUCTION_CODE_SYNC_FINAL_NOT_COMPLETE');
+          if(String(d?.status||c?.status||'')!=='COPIED') throw new Error('PRODUCTION_CODE_SYNC_FINAL_NOT_COPIED');
+          if(Number(c?.target_count||0)<7) throw new Error('PRODUCTION_CODE_SYNC_TARGET_LT_7');
+          if(Number((c?.successful_endpoints||[]).length)<7) throw new Error('PRODUCTION_CODE_SYNC_SUCCESSFUL_ENDPOINTS_LT_7');
+          if(c?.verified_roundtrip!==true) throw new Error('PRODUCTION_CODE_SYNC_ROUNDTRIP_NOT_VERIFIED');
+          console.log('ShardVault code-sync reached COPIED with 7 verified external endpoints.');
+          NODE
 
           ready=0
           for attempt in $(seq 1 8); do
