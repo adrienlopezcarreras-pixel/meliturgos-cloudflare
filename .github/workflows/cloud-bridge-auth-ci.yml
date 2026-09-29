@@ -1,0 +1,40 @@
+name: cloud-bridge-auth-ci
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - src/core/dev-bridge-auth.js
+      - .github/workflows/gen2-42-apply-ready-bridge.yml
+      - tests/dev-bridge-auth-gate.test.mjs
+      - tests/gen2/cloud-bridge-fallback-contract.test.mjs
+      - .github/workflows/cloud-bridge-auth-ci.yml
+  push:
+    branches:
+      - main
+    paths:
+      - src/core/dev-bridge-auth.js
+      - .github/workflows/gen2-42-apply-ready-bridge.yml
+      - tests/dev-bridge-auth-gate.test.mjs
+      - tests/gen2/cloud-bridge-fallback-contract.test.mjs
+      - .github/workflows/cloud-bridge-auth-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  targeted:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Syntax gate
+        run: npm run check
+      - name: Cloud bridge auth and fallback contract
+        run: node --test tests/dev-bridge-auth-gate.test.mjs tests/gen2/cloud-bridge-fallback-contract.test.mjs
