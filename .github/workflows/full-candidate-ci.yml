@@ -1,9 +1,8 @@
 name: full-candidate-ci
 
+# TEMPORARY DEV-LIGHT MODE: heavy suite is manual until final validation.
+# Re-enable candidate branch push before final closure.
 on:
-  push:
-    branches:
-      - 'candidate/mel-clean-autonomy'
   workflow_dispatch:
 
 permissions:
