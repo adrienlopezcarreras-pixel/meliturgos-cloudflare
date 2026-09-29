@@ -89,3 +89,38 @@ test('shared actionable selector matches supervisor ordering for retry attributi
   const ensured = await supervisor.ensureNextJob();
   assert.equal(ensured.job.id, approved.id);
 });
+
+
+test('REPAIR_REQUIRED approved work is actionable and outranks unrelated approved work by age', async () => {
+  const repository = repo();
+  const repair = await repository.create({
+    id: 'repair-required-old',
+    requested_by: 'mel-autonomy',
+    goal: 'retry exact approved package',
+    optional_context: { roadmap_id: 'GEN2-17', source: 'autonomy-supervisor', priority: 'P0' },
+  });
+  await repository.update(repair.id, {
+    status: 'REPAIR_REQUIRED',
+    result_json: {
+      teacher_bridge: {
+        status: 'ANSWERED',
+        request: { request_id: 'teacher-repair' },
+        review: { request_id: 'teacher-repair', verdict: 'APPROVE_PLAN', development_allowed: true },
+      },
+      bridge_preparation: { status: 'READY' },
+      dev_bridge: { status: 'REPAIR_REQUIRED', needs_repair: true },
+    },
+  });
+
+  const other = await repository.create({
+    id: 'approved-newer',
+    requested_by: 'mel-autonomy',
+    goal: 'other approved work',
+    optional_context: { roadmap_id: 'GEN2-17', source: 'autonomy-supervisor', priority: 'P0' },
+  });
+  await repository.update(other.id, { status: 'TEACHER_APPROVED' });
+
+  const selected = selectActionableAutonomyJob(await repository.list());
+  assert.equal(selected.id, repair.id);
+  assert.equal(selected.status, 'REPAIR_REQUIRED');
+});

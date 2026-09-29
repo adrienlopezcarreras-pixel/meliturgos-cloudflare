@@ -418,14 +418,20 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
     }
   }
 
-  // A local candidate whose tests failed stays inside the same approved goal.
-  // Reopen only the implementation stage; never bypass or replace the existing
-  // correlated Teacher approval, and never widen the original objective.
-  if (job && String(job.status || '').toUpperCase() === 'READY_FOR_REVIEW' && job.result_json?.dev_bridge?.needs_repair === true) {
+  // A repair result stays inside the same approved goal. Distinguish an
+  // implementation/test failure from an executor failure that happened before
+  // tests ran: the latter should retry the exact approved package instead of
+  // regenerating code unnecessarily.
+  const jobStatus = String(job?.status || '').toUpperCase();
+  const repairRequested = job && (
+    jobStatus === 'REPAIR_REQUIRED'
+    || (jobStatus === 'READY_FOR_REVIEW' && job.result_json?.dev_bridge?.needs_repair === true)
+  );
+  if (repairRequested) {
     const teacherState = job.result_json?.teacher_bridge;
     if (teacherState?.status === 'ANSWERED' && teacherState?.review?.verdict === 'APPROVE_PLAN' && teacherState?.review?.development_allowed === true) {
       const result = job.result_json && typeof job.result_json === 'object' ? { ...job.result_json } : {};
-      const previousAttempts = Number(result?.repair_cycle?.attempts || 0);
+      const previousAttempts = Number(result?.repair_cycle?.attempts || result?.runtime_retry?.attempts || 0);
       const nextAttempt = previousAttempts + 1;
       const failedTests = (Array.isArray(result?.dev_bridge?.tests) ? result.dev_bridge.tests : [])
         .filter((row) => row?.passed !== true)
@@ -438,16 +444,25 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
           stdout: String(row?.stdout || '').slice(0, 2000),
           stderr: String(row?.stderr || '').slice(0, 2000),
         }));
+      const executorFailure = jobStatus === 'REPAIR_REQUIRED' && failedTests.length === 0;
+      const failureSource = executorFailure ? 'DEV_BRIDGE_EXECUTOR_FAILURE' : 'DEV_BRIDGE_TEST_FAILURE';
 
       if (maxAutonomy === true && nextAttempt > MAX_OWNER_MAX_REPAIR_ATTEMPTS) {
         result.repair_cycle = {
           ...(result.repair_cycle || {}),
           status: 'EXHAUSTED',
-          source: 'DEV_BRIDGE_TEST_FAILURE',
+          source: failureSource,
           attempts: previousAttempts,
           max_attempts: MAX_OWNER_MAX_REPAIR_ATTEMPTS,
           failed_tests: failedTests,
           exhausted_at: new Date().toISOString(),
+        };
+        result.runtime_retry = {
+          attempts: previousAttempts,
+          max_attempts: MAX_OWNER_MAX_REPAIR_ATTEMPTS,
+          last_error: String(result?.dev_bridge?.error || result?.dev_bridge?.diff_summary || failureSource).slice(0, 300),
+          exhausted: true,
+          updated_at: new Date().toISOString(),
         };
         result.autonomy_blocked = true;
         result.autonomy_block_reason = 'MAX_REPAIR_ATTEMPTS_EXHAUSTED';
@@ -457,22 +472,39 @@ export async function runAutonomyRuntimeTick(env, { fetchImpl = fetch, repositor
           error: 'MAX_REPAIR_ATTEMPTS_EXHAUSTED',
         });
       } else {
+        const requestedAt = new Date().toISOString();
         result.repair_cycle = {
           status: 'REQUESTED',
-          source: maxAutonomy === true ? 'OWNER_MAX_TEST_FAILURE' : 'DEV_BRIDGE_TEST_FAILURE',
+          source: maxAutonomy === true
+            ? (executorFailure ? 'OWNER_MAX_EXECUTOR_FAILURE' : 'OWNER_MAX_TEST_FAILURE')
+            : failureSource,
           attempts: nextAttempt,
           max_attempts: maxAutonomy === true ? MAX_OWNER_MAX_REPAIR_ATTEMPTS : null,
           failed_tests: failedTests,
-          failed_result_received_at: job.result_json.dev_bridge.received_at || null,
-          requested_at: new Date().toISOString(),
+          failed_result_received_at: job.result_json?.dev_bridge?.received_at || null,
+          requested_at: requestedAt,
         };
-        // A failed test invalidates the prior generated implementation/bridge package.
-        // Keep the exact Teacher-approved goal/SHA, but force a fresh diagnosis and
-        // Mentor repair proposal using the persisted failed-test evidence.
-        delete result.implementation_proposal;
-        delete result.bridge_package;
-        delete result.bridge_preparation;
-        job = await jobRepository.update(job.id, { status: 'TEACHER_APPROVED', result_json: result });
+        result.runtime_retry = {
+          attempts: nextAttempt,
+          max_attempts: maxAutonomy === true ? MAX_OWNER_MAX_REPAIR_ATTEMPTS : null,
+          last_error: String(result?.dev_bridge?.error || result?.dev_bridge?.diff_summary || failureSource).slice(0, 300),
+          executor_retry: executorFailure,
+          updated_at: requestedAt,
+        };
+
+        if (!executorFailure) {
+          // A failed test invalidates the generated implementation/package.
+          delete result.implementation_proposal;
+          delete result.bridge_package;
+          delete result.bridge_preparation;
+        }
+        // An executor-only failure keeps the exact approved package intact so
+        // the corrected bridge can retry it atomically on the next heartbeat.
+        job = await jobRepository.update(job.id, {
+          status: 'TEACHER_APPROVED',
+          result_json: result,
+          error: null,
+        });
       }
     }
   }
