@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           BASE_URL="https://meliturgos.adrien-lopezcarreras.workers.dev"
-          test -n "$MEL_DEV_BRIDGE_TOKEN"
+          test -n "$MEL_CLOUD_BRIDGE_TOKEN"
           [[ "$JOB_ID" =~ ^[A-Za-z0-9_.:-]+$ ]]
           JOB_ID="$JOB_ID" node -e "process.stdout.write(JSON.stringify({job_id:process.env.JOB_ID}))" > claim-request.json
           CLAIM_READY=0
