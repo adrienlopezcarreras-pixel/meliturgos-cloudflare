@@ -487,15 +487,19 @@ jobs:
           cleanup_secret() {
             set +e
             set +o pipefail
-            printf 'y\n' | npx wrangler secret delete MEL_LAUNCH_BOOTSTRAP_TOKEN --env="" >/tmp/mel-launch-secret-delete.log 2>&1
-            rc=${PIPESTATUS[1]}
+            for SECRET_NAME in MEL_LAUNCH_BOOTSTRAP_TOKEN MEL_RELEASE_BACKUP_ENCRYPTION_KEY_ID MEL_RELEASE_BACKUP_ENCRYPTION_KEY_B64; do
+              printf 'y\n' | npx wrangler secret delete "$SECRET_NAME" --env="" >/tmp/"${SECRET_NAME}"-delete.log 2>&1 || true
+            done
             set -o pipefail
             set -e
-            return "$rc"
           }
           trap 'cleanup_secret || true' EXIT
 
+          test -n "${MEL_BACKUP_ENCRYPTION_KEY_ID:-}"
+          test -n "${MEL_BACKUP_ENCRYPTION_KEY_B64:-}"
           printf '%s' "$BOOTSTRAP_TOKEN" | npx wrangler secret put MEL_LAUNCH_BOOTSTRAP_TOKEN --env=""
+          printf '%s' "$MEL_BACKUP_ENCRYPTION_KEY_ID" | npx wrangler secret put MEL_RELEASE_BACKUP_ENCRYPTION_KEY_ID --env=""
+          printf '%s' "$MEL_BACKUP_ENCRYPTION_KEY_B64" | npx wrangler secret put MEL_RELEASE_BACKUP_ENCRYPTION_KEY_B64 --env=""
 
           if [ "$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" ]; then
             echo "ShardVault external replication is PAUSED_FOR_ROADMAP; skipping 7/7 Internet endpoint proof."
@@ -1624,7 +1628,11 @@ jobs:
               echo "- Exact SHA: \`${EXPECTED_SHA}\`"
               echo '- Fresh SHA-bound system backup: verified'
               echo '- ShardVault recovery: verified'
-              echo '- External critical-code copies: >= 7'
+              if [ "$MEL_ROADMAP_SHARDVAULT_PAUSED" = "true" ]; then
+                echo '- External critical-code copies: temporarily paused for roadmap completion'
+              else
+                echo '- External critical-code copies: >= 7'
+              fi
               echo '- Authenticated /api/chat code.read + code.search: verified'
               echo '- D1 runtime observability metrics: verified'
               echo '- Code self-check: verified'
@@ -1642,6 +1650,8 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MEL_BACKUP_ENCRYPTION_KEY_B64: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_B64 }}
+          MEL_BACKUP_ENCRYPTION_KEY_ID: ${{ secrets.MEL_BACKUP_ENCRYPTION_KEY_ID }}
 
       - name: Verify production HTTP
         shell: bash

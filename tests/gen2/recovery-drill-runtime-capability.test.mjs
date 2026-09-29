@@ -378,3 +378,61 @@ test('GEN2-48 release smoke accepts older verified snapshot only through exact v
     error=>error?.code==='RECOVERY_DRILL_PERSISTED_RUNTIME_SHA_MISMATCH',
   );
 });
+
+
+test('GEN2-48 release smoke uses the ephemeral release backup key without rotating the stable Worker key', async () => {
+  const DB=sqliteD1();
+  const MEDIA_BUCKET=bucketStorage();
+  const snapshotSha='a'.repeat(40);
+  const releaseSha='b'.repeat(40);
+  const releaseKeyId='release-ci-backup-key';
+  const releaseKeyB64=Buffer.alloc(32,21).toString('base64');
+  const env={
+    DB,
+    MEDIA_BUCKET,
+    MEL_RUNTIME_ENV:'production',
+    MEL_DEPLOYED_GIT_SHA:snapshotSha,
+    MEL_DEPLOYED_GIT_BRANCH:'release/snapshot',
+    MEL_BACKUP_ENCRYPTION_KEY_ID:releaseKeyId,
+    MEL_BACKUP_ENCRYPTION_KEY_B64:releaseKeyB64,
+  };
+  try {
+    const backup=await runScheduledSystemBackup(env,{
+      force:true,
+      now:()=> '2026-09-29T12:00:00.000Z',
+    });
+    assert.equal(backup.ok,true,JSON.stringify(backup));
+
+    env.MEL_DEPLOYED_GIT_SHA=releaseSha;
+    env.MEL_DEPLOYED_GIT_BRANCH='release/current';
+    const binding=await createReleaseBackupBinding(env,{
+      now:()=> '2026-09-29T12:05:00.000Z',
+    });
+    assert.equal(binding.ok,true,JSON.stringify(binding));
+    assert.equal(binding.snapshot_id,backup.id);
+
+    env.MEL_BACKUP_ENCRYPTION_KEY_ID='stable-worker-key';
+    env.MEL_BACKUP_ENCRYPTION_KEY_B64=Buffer.alloc(32,22).toString('base64');
+    env.MEL_RELEASE_BACKUP_ENCRYPTION_KEY_ID=releaseKeyId;
+    env.MEL_RELEASE_BACKUP_ENCRYPTION_KEY_B64=releaseKeyB64;
+
+    let handler=null;
+    registerRecoveryDrillCapability({
+      discover(_manifest,fn){ handler=fn; },
+    },env);
+    const report=await handler({approved:true},{owner:true,releaseSmoke:true});
+    assert.equal(report.ok,true,JSON.stringify(report));
+    assert.equal(report.state,'PASSED');
+    assert.equal(report.snapshot_id,backup.id);
+    assert.equal(report.release_bound,true);
+
+    delete env.MEL_RELEASE_BACKUP_ENCRYPTION_KEY_ID;
+    delete env.MEL_RELEASE_BACKUP_ENCRYPTION_KEY_B64;
+    await assert.rejects(
+      handler({approved:true},{owner:true,releaseSmoke:true}),
+      error=>error?.code==='RECOVERY_DRILL_ENCRYPTION_KEY_ID_MISMATCH',
+    );
+  } finally {
+    DB.close();
+  }
+});
