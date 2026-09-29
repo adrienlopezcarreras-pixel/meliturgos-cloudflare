@@ -118,6 +118,57 @@ export function inferNativeCodeCapability(text, recent = []) {
 }
 
 
+export function inferNativeAutonomyActivityCapability(text) {
+  const value = String(text || '').trim();
+  if (!value) return null;
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  const asksSelfActivity = /\b(?:qu['’]?as[- ]?tu\s+fait|tu\s+as\s+fait\s+quoi|qu['’]?est[- ]?ce\s+que\s+tu\s+as\s+fait|ton\s+activite|tes\s+activites|sur\s+quoi\s+as[- ]?tu\s+travaille|tu\s+as\s+travaille\s+sur\s+quoi)\b/.test(normalized);
+  const asksMaxActivity = /\b(?:max|max\s+actif|autonomie|autonome)\b/.test(normalized)
+    && /\b(?:fait|activite|travaille|travail|avance|pendant)\b/.test(normalized);
+  if (!asksSelfActivity && !asksMaxActivity) return null;
+
+  return {
+    id: 'autonomy.activity',
+    input: { limit: 12 },
+    introspection_intent: 'AUTONOMY_ACTIVITY',
+  };
+}
+
+export function formatAutonomyActivityResponse(activity = {}) {
+  const control = activity?.control && typeof activity.control === 'object' ? activity.control : {};
+  const counts = activity?.counts && typeof activity.counts === 'object' ? activity.counts : {};
+  const jobs = Array.isArray(activity?.recent_jobs) ? activity.recent_jobs : [];
+  const mode = String(control.status || (control.paused ? 'PAUSED' : (control.max_autonomy ? 'MAX_AUTONOMY' : 'RUNNING')));
+  const maxLabel = control.max_autonomy === true ? 'MAX actif' : 'MAX non actif';
+  const lines = [
+    `État observé maintenant : ${mode} (${maxLabel}).`,
+    `File supervisée : ${Number(counts.supervised_total || 0)} jobs, dont ${Number(counts.mel_autonomy || 0)} créés par mon autonomie et ${Number(counts.owner_chat || 0)} issus du chat propriétaire.`,
+  ];
+
+  if (!jobs.length) {
+    lines.push('Je ne vois aucun job autonome récent dans la source runtime.');
+  } else {
+    lines.push('Activité récente vérifiée :');
+    for (const job of jobs.slice(0, 8)) {
+      const id = String(job?.job_id || 'job-inconnu');
+      const status = String(job?.status || 'UNKNOWN');
+      const goal = String(job?.goal || '').replace(/\s+/g, ' ').trim().slice(0, 150);
+      const details = [];
+      if (job?.completion_status) details.push(`completion=${job.completion_status}`);
+      if (job?.ci_run_id) details.push(`CI #${job.ci_run_id}`);
+      if (job?.completion_sha) details.push(`SHA ${String(job.completion_sha).slice(0, 12)}…`);
+      if (job?.teacher_verdict) details.push(`Teacher=${job.teacher_verdict}`);
+      if (job?.owner_override === true) details.push('override MAX');
+      if (job?.bridge_preparation_status) details.push(`bridge=${job.bridge_preparation_status}`);
+      if (job?.error) details.push(`erreur=${String(job.error).slice(0, 120)}`);
+      lines.push(`- ${id} — ${status}${goal ? ` — ${goal}` : ''}${details.length ? ` [${details.join(', ')}]` : ''}`);
+    }
+  }
+  lines.push('Sources live : dev_jobs + dev_bridge_state (contrôle autonomie) + evolution_ledger.');
+  return lines.join('\n');
+}
+
 export function inferNativeExecutionCapability(text) {
   const value = String(text || '').trim();
   if (!value) return null;
@@ -660,10 +711,12 @@ export async function handleNativeChat(request, env, options = {}) {
 
   const currentFactVerification = releaseSmoke ? null : inferCurrentFactVerificationPolicy(text);
   const personalProfileIntent = isPersonalProfileRecall(text);
+  const inferredAutonomyActivityCapability = releaseSmoke ? null : inferNativeAutonomyActivityCapability(text);
   const inferredExecutionCapability = releaseSmoke ? null : inferNativeExecutionCapability(text);
   const inferredCapability = releaseSmoke
     ? inferNativeCodeCapability(text, [])
-    : inferredExecutionCapability
+    : inferredAutonomyActivityCapability
+      || inferredExecutionCapability
       || inferNativeComputerCapability(text)
       || (!personalProfileIntent ? inferChatGPTHistoryCapability(text) : null)
       || inferDirectCurrentWebCapability(text, body.intent_context || {})
@@ -695,7 +748,7 @@ export async function handleNativeChat(request, env, options = {}) {
     }, { headers:{'cache-control':'no-store'} });
   }
 
-  if (!releaseSmoke && (!env.AI || typeof env.AI.run !== 'function')) {
+  if (!releaseSmoke && !inferredAutonomyActivityCapability && (!env.AI || typeof env.AI.run !== 'function')) {
     return Response.json({ error: 'AI_BINDING_MISSING', code: 'AI_BINDING_MISSING' }, { status: 503 });
   }
 
@@ -755,6 +808,45 @@ export async function handleNativeChat(request, env, options = {}) {
   }
 
   if (!releaseSmoke) capabilityManifest = applyCapabilityExecutionEvidence(capabilityManifest, toolResults);
+
+  if (!releaseSmoke && inferredAutonomyActivityCapability?.introspection_intent === 'AUTONOMY_ACTIVITY') {
+    const observation = toolResults.find(row => row.capability === 'autonomy.activity') || null;
+    const succeeded = observation?.status === 'SUCCEEDED' && observation?.result?.ok === true;
+    const responseText = succeeded
+      ? formatAutonomyActivityResponse(observation.result)
+      : `Je n'ai pas pu lire mon activité autonome réelle : ${String(observation?.error || 'AUTONOMY_ACTIVITY_UNAVAILABLE')}.`;
+    let archiveSaved = false;
+    if (service) {
+      try {
+        await service.archiveMessage({ conversationId, deviceId, role:'user', content:text, timestamp:Date.now(), provenance:userProvenance, metadata:userMetadata });
+        await service.archiveMessage({
+          conversationId,
+          deviceId,
+          role:'assistant',
+          content:responseText,
+          timestamp:Date.now()+1,
+          provenance:'native-chat:autonomy-activity',
+          metadata:{ grounded:true, sources:['dev_jobs','dev_bridge_state','evolution_ledger'], succeeded },
+        });
+        archiveSaved = true;
+      } catch {}
+    }
+    return Response.json({
+      ok:succeeded,
+      text:responseText,
+      model:'deterministic-autonomy-activity',
+      provider:'mel',
+      response_mode:'self-activity',
+      response_grounding:{
+        mode:'deterministic-autonomy-activity',
+        sources:['dev_jobs','dev_bridge_state','evolution_ledger'],
+        observed_at:observation?.result?.observed_at || null,
+      },
+      capability_used:capabilitiesUsed,
+      tool_results:toolResults,
+      archive_saved:archiveSaved,
+    }, { status:succeeded ? 200 : 503, headers:{'cache-control':'no-store'} });
+  }
 
   if (!releaseSmoke && inferredExecutionCapability?.execution_intent === 'GLOBAL_CAPABILITY_STRESS_TEST') {
     const execution = toolResults.find(row => row.capability === 'capability.audit') || null;
