@@ -35,7 +35,10 @@ jobs:
           rc=$?
           set -e
           if [ -s job-state.err ]; then cat job-state.err; fi
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          if [ "$rc" -ne 0 ]; then
+            test ! -s job-state.json || cat job-state.json
+            exit "$rc"
+          fi
           node - <<'NODE'
           const fs=require('fs');
           const payload=JSON.parse(fs.readFileSync('job-state.json','utf8'));
