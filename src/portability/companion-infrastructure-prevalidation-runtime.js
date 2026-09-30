@@ -6,6 +6,7 @@ import { createCompanionCiProviderAdapter } from './companion-ci-provider-adapte
 import { createCompanionSecretStoreAdapter } from './companion-secret-store-adapter.js';
 import { createCompanionSchedulerAdapter } from './companion-scheduler-adapter.js';
 import { createCompanionObservabilityAdapter } from './companion-observability-adapter.js';
+import { proveCompanionBackupRestoreAlternative } from './companion-backup-restore-prevalidation.js';
 import { SovereigntyCandidateStore } from './sovereignty-candidate-store.js';
 import { D1AlternativeRegistryStore } from './d1-alternative-registry-store.js';
 import { validateSovereigntyCandidates } from './sovereignty-candidate-validator.js';
@@ -21,6 +22,7 @@ const LOCAL_CANDIDATES=Object.freeze([
   {layer:'secrets_identity',id:'companion-local-secrets',provider:'local-companion-secret-vault'},
   {layer:'scheduler',id:'companion-local-scheduler',provider:'local-companion-scheduler'},
   {layer:'observability',id:'companion-local-observability',provider:'local-companion-observability'},
+  {layer:'backup_restore',id:'companion-local-backup-restore',provider:'local-companion-backup-restore'},
 ]);
 
 async function ensureState(db){
@@ -177,6 +179,39 @@ export async function runCompanionInfrastructurePrevalidationRuntime(env,{
       }
       if(candidate.layer==='observability'){
         return{descriptor:d,adapter:createCompanionObservabilityAdapter({execute})};
+      }
+      if(candidate.layer==='backup_restore'){
+        const storageAdapter=createCompanionObjectStorageAdapter({
+          execute,
+          id:'companion-backup-restore-storage',
+          provider:'local-companion-backup-restore',
+          namespace:'mel-sovereignty-backup-restore',
+        });
+        const sourceDatabaseAdapter=createCompanionDatabaseAdapter({
+          execute,
+          id:'companion-backup-source-db',
+          provider:'local-companion-backup-restore',
+          database:'mel-sovereignty-backup-source.sqlite',
+        });
+        const restoreDatabaseAdapter=createCompanionDatabaseAdapter({
+          execute,
+          id:'companion-backup-restore-db',
+          provider:'local-companion-backup-restore',
+          database:'mel-sovereignty-backup-restore.sqlite',
+        });
+        const proof=await proveCompanionBackupRestoreAlternative({
+          storageAdapter,
+          sourceDatabaseAdapter,
+          restoreDatabaseAdapter,
+          sourceSha,
+          now,
+        });
+        return{
+          descriptor:d,
+          adapter:Object.freeze({id:local.id,provider:local.provider}),
+          prevalidated:proof?.ok===true,
+          proof,
+        };
       }
       return{descriptor:null,adapter:null};
     },
