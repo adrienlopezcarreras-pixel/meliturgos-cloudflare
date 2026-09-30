@@ -1072,30 +1072,42 @@ jobs:
           console.log('Production GEN2-48 isolated recovery drill passed on snapshot '+result.snapshot_id+'.');
           NODE
 
-          INTEGRITY_CODE="$(curl --silent --show-error --max-time 90 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-            --header "content-type: application/json" \
-            --data '{"id":"system.integrity","input":{}}' \
-            --output production-system-integrity.json \
-            --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/capabilities/execute")"
+          INTEGRITY_CODE="000"
+          for INTEGRITY_ATTEMPT in 1 2 3; do
+            INTEGRITY_CODE="$(curl --silent --show-error --max-time 90 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"id":"system.integrity","input":{}}' \
+              --output production-system-integrity.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "$INTEGRITY_CODE" = "200" ]; then break; fi
+            echo "GEN2-55 production integrity attempt ${INTEGRITY_ATTEMPT}/3 returned HTTP ${INTEGRITY_CODE}; bounded retry."
+            sleep 2
+          done
           if [ "$INTEGRITY_CODE" != "200" ]; then
-            echo "GEN2-55 production integrity smoke returned HTTP ${INTEGRITY_CODE}."
+            echo "GEN2-55 production integrity smoke returned HTTP ${INTEGRITY_CODE} after bounded retries."
             test ! -s production-system-integrity.json || cat production-system-integrity.json
             exit 48
           fi
 
-          MATURITY_CODE="$(curl --silent --show-error --max-time 90 \
-            --header "x-mel-release-smoke: 1" \
-            --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
-            --header "content-type: application/json" \
-            --data '{"id":"system.maturity","input":{}}' \
-            --output production-system-maturity.json \
-            --write-out '%{http_code}' \
-            "${BASE_URL}/api/gen2/capabilities/execute")"
+          MATURITY_CODE="000"
+          for MATURITY_ATTEMPT in 1 2 3; do
+            MATURITY_CODE="$(curl --silent --show-error --max-time 90 \
+              --header "x-mel-release-smoke: 1" \
+              --header "x-mel-launch-bootstrap: ${BOOTSTRAP_TOKEN}" \
+              --header "content-type: application/json" \
+              --data '{"id":"system.maturity","input":{}}' \
+              --output production-system-maturity.json \
+              --write-out '%{http_code}' \
+              "${BASE_URL}/api/gen2/capabilities/execute" || true)"
+            if [ "$MATURITY_CODE" = "200" ]; then break; fi
+            echo "GEN2-55 production maturity attempt ${MATURITY_ATTEMPT}/3 returned HTTP ${MATURITY_CODE}; bounded retry."
+            sleep 2
+          done
           if [ "$MATURITY_CODE" != "200" ]; then
-            echo "GEN2-55 production maturity smoke returned HTTP ${MATURITY_CODE}."
+            echo "GEN2-55 production maturity smoke returned HTTP ${MATURITY_CODE} after bounded retries."
             test ! -s production-system-maturity.json || cat production-system-maturity.json
             exit 49
           fi
