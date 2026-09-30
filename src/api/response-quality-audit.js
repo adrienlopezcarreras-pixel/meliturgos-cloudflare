@@ -194,15 +194,16 @@ export function enforceResponseQuality({ responseText='', userText='', focus=nul
   const severe = issues.filter(issue => issue?.severity === 'high').map(issue => String(issue.code || ''));
   if (!severe.length) return original;
 
-  const scopeFailure = severe.includes('POSSIBLE_OFF_TOPIC') || severe.includes('EXCLUDED_SCOPE_ACTION');
-  if (!scopeFailure) return original;
+  // POSSIBLE_OFF_TOPIC is a heuristic signal, not a safe basis for replacing
+  // an otherwise usable answer. Lexical overlap is intentionally conservative:
+  // a correct answer can use different words than the user's request.
+  // Keep recording the quality event, but only hard-block an explicit scope
+  // violation where the user excluded a topic and the answer acts on it.
+  if (!severe.includes('EXCLUDED_SCOPE_ACTION')) return original;
 
   const anchor = clean(focus?.anchor || userText);
-  const operational = /^(?:ok|go|maj|avance|continue|reprends?|fais[- ]?le|vas[- ]?y|poursuis|termine|finis|corrige|am[ée]liore)\b/i.test(clean(userText));
   if (anchor) {
-    return operational
-      ? 'Je reste uniquement sur ce périmètre : « ' + anchor.slice(0, 500) + ' ». La réponse générée dérivait hors sujet, donc je l’ai bloquée au lieu de changer de chantier.'
-      : 'Je reste sur ta demande : « ' + anchor.slice(0, 500) + ' ». La réponse générée dérivait hors sujet, donc je ne te l’envoie pas comme si elle répondait correctement à ta question.';
+    return 'Je reste uniquement sur ce périmètre : « ' + anchor.slice(0, 500) + ' ». La réponse proposée agissait sur un sujet que tu avais explicitement exclu, donc je l’ai bloquée.';
   }
-  return 'Je n’ai pas de référent fiable pour cette réponse et je préfère demander une précision plutôt que partir sur le mauvais sujet.';
+  return original;
 }
