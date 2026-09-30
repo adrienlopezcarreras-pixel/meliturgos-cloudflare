@@ -409,14 +409,10 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     healthcheck: async () => {
       const cfg = await getVercelConfig();
       return probeHealth(
-        () => {
-          const params = new URLSearchParams({ limit: '1' });
-          if (cfg.teamId) params.set('teamId', cfg.teamId);
-          return requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
-            token: cfg.token,
-            code: 'VERCEL_PROJECTS_READ_FAILED',
-          });
-        },
+        () => requestJson(fetchImpl, `${VERCEL_API}/v2/user`, {
+          token: cfg.token,
+          code: 'VERCEL_ACCOUNT_HEALTH_FAILED',
+        }),
         cfg.token ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
       );
     },
@@ -458,14 +454,10 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     healthcheck: async () => {
       const cfg = await getVercelConfig();
       return probeHealth(
-        () => {
-          const params = new URLSearchParams({ limit: '1' });
-          if (cfg.teamId) params.set('teamId', cfg.teamId);
-          return requestJson(fetchImpl, `${VERCEL_API}/v9/projects?${params.toString()}`, {
-            token: cfg.token,
-            code: 'VERCEL_PROJECTS_READ_FAILED',
-          });
-        },
+        () => requestJson(fetchImpl, `${VERCEL_API}/v2/user`, {
+          token: cfg.token,
+          code: 'VERCEL_ACCOUNT_HEALTH_FAILED',
+        }),
         cfg.token ? '' : 'VERCEL_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
       );
     },
