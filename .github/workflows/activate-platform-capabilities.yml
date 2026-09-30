@@ -118,6 +118,18 @@ jobs:
             test "${RELAY_CODE}" = "204"
           fi
 
+          # Wait only for the temporary bootstrap secret to propagate. This is
+          # transport/auth readiness, not a capability-health verdict.
+          BOOTSTRAP_READY=0
+          for attempt in $(seq 1 15); do
+            if api_get "/api/gen2/capabilities" capabilities-bootstrap.json 2>/tmp/platform-bootstrap.err; then
+              BOOTSTRAP_READY=1
+              break
+            fi
+            sleep 2
+          done
+          test "${BOOTSTRAP_READY}" = "1"
+
           # Capability health is diagnostic here, not the proof gate. The live
           # operations below are stronger evidence and fail closed individually.
           api_get "/api/gen2/capabilities?refresh=1" capabilities-before.json || true
