@@ -6,6 +6,7 @@ import {
   readPersistentCapabilityStress,
   startPersistentCapabilityStress,
 } from '../../src/diagnostics/persistent-capability-stress.js';
+import { validateStart, validateTerminal } from '../../scripts/persistent-capability-stress-live-proof.mjs';
 
 function echoRecord() {
   return {
@@ -103,4 +104,40 @@ test('generic capability route forwards Worker waitUntil and release smoke expos
   assert.match(router, /waitUntil:\s*typeof ctx\?\.waitUntil === "function"/);
   assert.match(router, /handleConversationApi\(request, env, url, ctx\)/);
   assert.match(router, /capabilityContext\(env, request, ctx\)/);
+});
+
+
+test('persistent stress live-proof validators accept a durable terminal report and reject mismatched jobs', () => {
+  const started = validateStart({
+    ok: true,
+    capability: 'capability.audit',
+    result: { persistent: true, job_id: 'cap-stress-proof', status: 'RUNNING' },
+  });
+  assert.equal(started.job_id, 'cap-stress-proof');
+
+  const terminal = validateTerminal({
+    ok: true,
+    capability: 'capability.audit.status',
+    result: {
+      persistent: true,
+      job_id: 'cap-stress-proof',
+      status: 'COMPLETE_WITH_FAILURES',
+      progress: { done: 3, total: 3 },
+      report: { persistent: true, job_id: 'cap-stress-proof' },
+      summary: { remaining_runtime_failures: ['x'] },
+    },
+  }, 'cap-stress-proof');
+  assert.equal(terminal.status, 'COMPLETE_WITH_FAILURES');
+
+  assert.throws(() => validateTerminal({
+    ok: true,
+    capability: 'capability.audit.status',
+    result: {
+      persistent: true,
+      job_id: 'cap-stress-other',
+      status: 'COMPLETE',
+      progress: { done: 1, total: 1 },
+      report: { persistent: true, job_id: 'cap-stress-other' },
+    },
+  }, 'cap-stress-proof'), /CAPABILITY_STRESS_JOB_MISMATCH/);
 });
