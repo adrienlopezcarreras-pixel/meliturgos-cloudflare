@@ -5,6 +5,7 @@ import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 import { CapabilityBus } from '../../src/capabilities/capability-bus.js';
 import { registerPlatformControlCapabilities } from '../../src/capabilities/platform-control-capabilities.js';
 import { D1GitHubActionRelayStore } from '../../src/platform/github-action-relay.js';
+import { R2GitHubActionRelayStore } from '../../src/platform/github-action-r2-relay.js';
 import { githubActionRelayApi } from '../../src/api/github-action-relay-api.js';
 
 const TOKEN = 'r'.repeat(64);
@@ -16,6 +17,25 @@ function approved(id) {
     permissions: [],
     requestId: 'github-relay-test',
     approvedCapabilities: [id],
+  };
+}
+
+function memoryR2() {
+  const objects = new Map();
+  return {
+    objects,
+    async put(key, value) {
+      objects.set(String(key), String(value));
+      return { key: String(key) };
+    },
+    async get(key) {
+      const value = objects.get(String(key));
+      if (value == null) return null;
+      return {
+        async text() { return value; },
+        async json() { return JSON.parse(value); },
+      };
+    },
   };
 }
 
@@ -185,4 +205,42 @@ test('internal GitHub relay API requires its dedicated secret and never accepts 
   } finally {
     db.close();
   }
+});
+
+
+test('GitHub workflow control prefers the live R2 relay and persists readable status', async () => {
+  const bucket = memoryR2();
+  const store = new R2GitHubActionRelayStore(bucket);
+  await store.heartbeat({ metadata: { run_id: 77 } });
+
+  const bus = new CapabilityBus();
+  registerPlatformControlCapabilities(bus, {
+    env: {
+      MEDIA_BUCKET: bucket,
+      MEL_GITHUB_REPOSITORY: 'owner/repo',
+      MEL_GITHUB_WRITABLE_WORKFLOWS: WORKFLOW,
+    },
+    fetchImpl: async () => { throw new Error('DIRECT_GITHUB_NETWORK_MUST_NOT_BE_USED'); },
+  });
+
+  const health = await bus.refreshHealth('github.actions.workflow.dispatch');
+  assert.equal(health.health, 'HEALTHY');
+
+  const result = await bus.execute('github.actions.workflow.dispatch', {
+    workflow: WORKFLOW,
+    ref: 'main',
+    inputs: { smoke: true },
+  }, approved('github.actions.workflow.dispatch'));
+
+  assert.equal(result.accepted, true);
+  assert.equal(result.transport, 'r2-github-actions-relay');
+  assert.equal(result.status, 'QUEUED');
+  assert.match(result.relay_job_id, /^gh-relay-/);
+
+  const status = await bus.execute('github.actions.workflow.dispatch.status', {
+    job_id: result.relay_job_id,
+  }, { owner: 'adrien', permissions: [], requestId: 'r2-relay-status' });
+  assert.equal(status.status, 'QUEUED');
+  assert.equal(status.workflow, WORKFLOW);
+  assert.equal(status.inputs.smoke, true);
 });
