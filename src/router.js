@@ -20,6 +20,7 @@ import { renderPrivacyPolicyPage } from "./pages/privacy-policy.js";
 import { renderPublicMelHomePage } from "./pages/public-mel-home.js";
 import { NORMAL_RUNTIME_SOURCE } from "./pages/mvp-runtime.js";
 import { devRuntime } from "./dev/runtime-api.js";
+import { githubActionRelayApi } from "./api/github-action-relay-api.js";
 import { handleShardVaultStatus } from "./pages/shardvault-status.js";
 import { getLegacyInteractionMigrationStatus, backfillLegacyInteractions } from "./persistence/gen1-interactions-migration.js";
 import { getChatGPTMemoryBackfillStatus, backfillChatGPTArchiveToMemory } from "./persistence/chatgpt-memory-backfill.js";
@@ -46,6 +47,7 @@ const RELEASE_SMOKE_CAPABILITY_ALLOWLIST = Object.freeze([
   "cloudflare.deployments.read",
   "cloudflare.deployments.create",
   "github.actions.workflow.dispatch",
+  "github.actions.workflow.dispatch.status",
   "browser.execute",
   "capability.audit",
   "capability.audit.status",
@@ -331,6 +333,8 @@ async function handleConversationApi(request, env, url = new URL(request.url), c
 
 async function routeResolvedRequest(request, env, ctx) {
     const url = new URL(request.url);
+    const githubRelayResponse = githubActionRelayApi(request, env);
+    if (githubRelayResponse) return await githubRelayResponse;
     const isDevBridge = url.pathname.startsWith('/api/dev-bridge/');
     if (isDevBridge) {
       const bridgeResponse = devRuntime(request, env);

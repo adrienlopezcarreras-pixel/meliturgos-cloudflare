@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: mel-launch-bootstrap-token
@@ -53,7 +54,7 @@ jobs:
             printf '%s' "${MEL_GITHUB_TOKEN}" | npx wrangler secret put MEL_GITHUB_TOKEN --env=""
             echo "GITHUB_RUNTIME_CREDENTIAL=CONFIGURED" >> "${GITHUB_ENV}"
           else
-            echo "GITHUB_RUNTIME_CREDENTIAL=MISSING" >> "${GITHUB_ENV}"
+            echo "GITHUB_RUNTIME_CREDENTIAL=RELAY" >> "${GITHUB_ENV}"
           fi
 
       - name: Prove real production platform capabilities
@@ -95,14 +96,32 @@ jobs:
             node -e 'const d=require("./"+process.argv[1]);if(d?.ok!==true)throw new Error("CAPABILITY_PROOF_NOT_OK:"+process.argv[2]);' "${out}" "${id}"
           }
 
+          if [ "${GITHUB_RUNTIME_CREDENTIAL:-RELAY}" = "RELAY" ]; then
+            printf '%s' '{"ref":"main"}' > github-relay-dispatch.json
+            RELAY_CODE="$(curl --silent --show-error --max-time 30 \
+              --request POST \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --header "Content-Type: application/json" \
+              --data-binary @github-relay-dispatch.json \
+              --output github-relay-dispatch-response.txt \
+              --write-out '%{http_code}' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/github-action-relay.yml/dispatches")"
+            test "${RELAY_CODE}" = "204"
+          fi
+
           READY=0
-          for attempt in $(seq 1 15); do
+          for attempt in $(seq 1 30); do
             if api_get "/api/gen2/capabilities?refresh=1" capabilities-before.json 2>/tmp/platform-capability-refresh.err; then
-              if node - <<'NODE'
+              if GITHUB_RUNTIME_CREDENTIAL="${GITHUB_RUNTIME_CREDENTIAL:-RELAY}" node - <<'NODE'
           const d=require('./capabilities-before.json');
           const ids=['cloudflare.workers.read','cloudflare.deployments.read','cloudflare.deployments.create'];
           const rows=new Map((d.capabilities||[]).map(x=>[x.id,x]));
-          process.exit(ids.every(id=>rows.get(id)?.health==='HEALTHY')?0:1);
+          const cloudflareReady=ids.every(id=>rows.get(id)?.health==='HEALTHY');
+          const mode=process.env.GITHUB_RUNTIME_CREDENTIAL||'RELAY';
+          const githubReady=mode==='CONFIGURED' || rows.get('github.actions.workflow.dispatch')?.health==='HEALTHY';
+          process.exit(cloudflareReady && githubReady ? 0 : 1);
           NODE
               then
                 READY=1
@@ -136,11 +155,45 @@ jobs:
 
           GITHUB_PROOF=false
           GITHUB_BLOCKER=""
-          if [ "${GITHUB_RUNTIME_CREDENTIAL:-MISSING}" = "CONFIGURED" ]; then
-            capability               github.actions.workflow.dispatch               '{"workflow":"gen2-36-provider-write-smoke.yml","ref":"main"}'               github-dispatch.json               github.actions.workflow.dispatch
+          capability             github.actions.workflow.dispatch             '{"workflow":"gen2-36-provider-write-smoke.yml","ref":"main"}'             github-dispatch.json             github.actions.workflow.dispatch
+
+          GITHUB_TRANSPORT="$(node -e 'const d=require("./github-dispatch.json");process.stdout.write(String(d?.result?.transport||""))')"
+          if [ "${GITHUB_TRANSPORT}" = "d1-github-actions-relay" ]; then
+            GITHUB_RELAY_JOB_ID="$(node -e 'const d=require("./github-dispatch.json");const id=String(d?.result?.relay_job_id||"");if(!/^gh-relay-/.test(id))process.exit(2);process.stdout.write(id)')"
+            printf '%s' '{"ref":"main"}' > github-relay-dispatch.json
+            RELAY_CODE="$(curl --silent --show-error --max-time 30 \
+              --request POST \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --header "Content-Type: application/json" \
+              --data-binary @github-relay-dispatch.json \
+              --output github-relay-dispatch-response.txt \
+              --write-out '%{http_code}' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/github-action-relay.yml/dispatches")"
+            test "${RELAY_CODE}" = "204"
+
+            RELAY_DONE=0
+            for ATTEMPT in $(seq 1 40); do
+              STATUS_INPUT="$(GITHUB_RELAY_JOB_ID="${GITHUB_RELAY_JOB_ID}" node -e 'process.stdout.write(JSON.stringify({job_id:process.env.GITHUB_RELAY_JOB_ID}))')"
+              capability github.actions.workflow.dispatch.status "${STATUS_INPUT}" github-dispatch-status.json
+              RELAY_STATUS="$(node -e 'const d=require("./github-dispatch-status.json");process.stdout.write(String(d?.result?.status||""))')"
+              if [ "${RELAY_STATUS}" = "DISPATCHED" ]; then
+                RELAY_DONE=1
+                break
+              fi
+              if [ "${RELAY_STATUS}" = "FAILED" ]; then
+                cat github-dispatch-status.json
+                exit 18
+              fi
+              sleep 2
+            done
+            test "${RELAY_DONE}" = "1"
+            GITHUB_PROOF=true
+          elif [ "${GITHUB_TRANSPORT}" = "direct-github-api" ]; then
             GITHUB_PROOF=true
           else
-            GITHUB_BLOCKER="MEL_GITHUB_TOKEN_REPOSITORY_SECRET_MISSING"
+            GITHUB_BLOCKER="GITHUB_CONTROL_TRANSPORT_UNPROVEN"
           fi
 
           api_get "/api/gen2/capabilities?refresh=1" capabilities-after.json
@@ -163,8 +216,12 @@ jobs:
           const remainingMel=caps
             .filter(x=>x.provider==='mel' && !healthy.has(String(x.health||'').toUpperCase()))
             .map(x=>({id:x.id,health:x.health,detail:x.health_detail||null}));
-          const ghConfigured=process.env.GITHUB_RUNTIME_CREDENTIAL==='CONFIGURED';
+          const ghMode=String(process.env.GITHUB_RUNTIME_CREDENTIAL||'RELAY');
           const gh=rows.get('github.actions.workflow.dispatch')||null;
+          let dispatch=null;
+          let dispatchStatus=null;
+          try{dispatch=require('./github-dispatch.json')?.result||null;}catch{}
+          try{dispatchStatus=require('./github-dispatch-status.json')?.result||null;}catch{}
           const proof={
             schema:'mel.real-platform-capabilities-proof/v1',
             source_sha:process.env.EXPECTED_SHA||null,
@@ -177,10 +234,14 @@ jobs:
               capabilities:cloudflareIds.map(id=>({id,health:rows.get(id)?.health||null})),
             },
             github:{
-              runtime_credential_configured:ghConfigured,
-              workflow_dispatch_executed:ghConfigured,
+              control_mode:ghMode==='CONFIGURED'?'direct-token':'d1-actions-relay',
+              runtime_credential_configured:ghMode==='CONFIGURED',
+              workflow_dispatch_executed:dispatch?.accepted===true && (dispatch?.transport==='direct-github-api' || dispatchStatus?.status==='DISPATCHED'),
+              transport:dispatch?.transport||null,
+              relay_job_id:dispatch?.relay_job_id||null,
+              relay_status:dispatchStatus?.status||null,
               health:gh?.health||null,
-              blocker:ghConfigured?null:'MEL_GITHUB_TOKEN_REPOSITORY_SECRET_MISSING',
+              blocker:null,
             },
             remaining_mel:remainingMel,
             secret_values_exposed:false,
@@ -192,8 +253,8 @@ jobs:
           cleanup
           trap - EXIT
 
-          if [ "${GITHUB_RUNTIME_CREDENTIAL:-MISSING}" != "CONFIGURED" ]; then
-            echo "GitHub runtime control remains truthfully blocked: MEL_GITHUB_TOKEN repo secret is absent."
+          if [ "${GITHUB_PROOF}" != "true" ]; then
+            echo "GitHub runtime control proof failed."
             exit 17
           fi
 
