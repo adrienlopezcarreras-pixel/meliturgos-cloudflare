@@ -228,6 +228,26 @@ jobs:
           fi
 
           capability cloudflare.deployments.read '{"script":"meliturgos","limit":20}' cloudflare-deployments.json
+          CF_DEPLOYMENTS_RELAY_JOB_ID="$(node -e 'const d=require("./cloudflare-deployments.json");process.stdout.write(String(d?.result?.relay_job_id||""))')"
+          if [ -n "${CF_DEPLOYMENTS_RELAY_JOB_ID}" ]; then
+            printf '%s' '{"ref":"main"}' > cloudflare-relay-dispatch.json
+            CF_RELAY_CODE="$(curl --silent --show-error --max-time 30 --request POST --header "Authorization: Bearer ${GH_TOKEN}" --header "Accept: application/vnd.github+json" --header "X-GitHub-Api-Version: 2022-11-28" --header "Content-Type: application/json" --data-binary @cloudflare-relay-dispatch.json --output cloudflare-relay-dispatch-response.txt --write-out '%{http_code}' "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/workflows/cloudflare-api-relay.yml/dispatches")"
+            test "${CF_RELAY_CODE}" = "204"
+            CF_DEPLOYMENTS_DONE=0
+            for ATTEMPT in $(seq 1 40); do
+              CF_STATUS_INPUT="$(CF_DEPLOYMENTS_RELAY_JOB_ID="${CF_DEPLOYMENTS_RELAY_JOB_ID}" node -e 'process.stdout.write(JSON.stringify({relay_job_id:process.env.CF_DEPLOYMENTS_RELAY_JOB_ID}))')"
+              capability cloudflare.deployments.read "${CF_STATUS_INPUT}" cloudflare-deployments-status.json
+              CF_PENDING="$(node -e 'const d=require("./cloudflare-deployments-status.json");process.stdout.write(d?.result?.pending===true?"1":"0")')"
+              if [ "${CF_PENDING}" = "0" ]; then
+                cp cloudflare-deployments-status.json cloudflare-deployments.json
+                CF_DEPLOYMENTS_DONE=1
+                break
+              fi
+              sleep 2
+            done
+            test "${CF_DEPLOYMENTS_DONE}" = "1"
+            node -e 'const d=require("./cloudflare-deployments.json");if(!Array.isArray(d?.result?.deployments))process.exit(2);console.log("cloudflare.deployments.read relay proof: "+JSON.stringify({transport:d?.result?.transport||null,count:d?.result?.count||0}))'
+          fi
 
           ACTIVE_VERSION="$(node - <<'NODE'
           const d=require('./cloudflare-deployments.json');
