@@ -132,13 +132,54 @@ function deploymentRow(row = {}) {
   };
 }
 
-export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null } = {}) {
+async function readCloudflareWorkersRelaySnapshot(env,{now=Date.now(),maxAgeMs=10*60*1000}={}){
+  if(!env?.DB||typeof env.DB.prepare!=='function') return null;
+  let row;
+  try{
+    row=await env.DB.prepare(
+      "SELECT status,last_seen_at,metadata_json FROM cloudflare_api_relay_state WHERE id=?"
+    ).bind('workers-snapshot').first();
+  }catch{
+    return null;
+  }
+  if(!row)return null;
+  let meta={};
+  try{meta=JSON.parse(String(row.metadata_json||'{}'));}catch{}
+  const collectedAt=Number(meta?.collected_at||row.last_seen_at||0);
+  const ageMs=collectedAt>0?Math.max(0,Number(now)-collectedAt):null;
+  const workers=(Array.isArray(meta?.workers)?meta.workers:[]).slice(0,100).map(row=>({
+    id:String(row?.id||'').slice(0,160),
+    created_on:String(row?.created_on||'').slice(0,80),
+    modified_on:String(row?.modified_on||'').slice(0,80),
+    compatibility_date:String(row?.compatibility_date||'').slice(0,32),
+    usage_model:String(row?.usage_model||'').slice(0,80),
+    last_deployed_from:String(row?.last_deployed_from||'').slice(0,120),
+  })).filter(row=>row.id);
+  return {
+    workers,
+    count:workers.length,
+    collected_at:collectedAt||null,
+    source_run_id:Number(meta?.run_id||0)||null,
+    age_ms:ageMs,
+    fresh:Number.isFinite(ageMs)&&ageMs<=Number(maxAgeMs),
+  };
+}
+
+export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fetch, repository = '', resolveVercelConfig = null, resolveCloudflareWorkersSnapshot = null } = {}) {
   const githubRepository = repository || env.MEL_GITHUB_REPOSITORY || '';
   const githubToken = String(env.MEL_GITHUB_TOKEN || '').trim();
   const cloudflareToken = String(env.CLOUDFLARE_API_TOKEN || '').trim();
   const cloudflareAccountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
   const staticVercelToken = String(env.VERCEL_TOKEN || '').trim();
   const staticVercelTeamId = String(env.VERCEL_TEAM_ID || '').trim();
+  const hasCloudflareWorkersRelay = typeof resolveCloudflareWorkersSnapshot === 'function'
+    || Boolean(env?.DB && typeof env.DB.prepare === 'function');
+  const getCloudflareWorkersSnapshot = async () => {
+    const snapshot = typeof resolveCloudflareWorkersSnapshot === 'function'
+      ? await resolveCloudflareWorkersSnapshot()
+      : await readCloudflareWorkersRelaySnapshot(env);
+    return snapshot && typeof snapshot === 'object' ? snapshot : null;
+  };
   const getVercelConfig = async () => {
     const dynamic = typeof resolveVercelConfig === 'function' ? await resolveVercelConfig() : null;
     return {
@@ -240,9 +281,9 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     id: 'cloudflare.workers.read',
     name: 'Cloudflare Workers list',
     category: 'development',
-    version: '1.0.0',
+    version: '1.1.0',
     provider: 'cloudflare',
-    description: 'Reads a bounded inventory of Worker scripts for the configured Cloudflare account. It never downloads source or secrets.',
+    description: 'Reads a bounded, fresh Worker inventory snapshot collected by the authenticated GitHub Actions Cloudflare relay. It never exposes source, API tokens, or secrets.',
     input_schema: {
       type: 'object',
       properties: { limit: { type: 'integer', minimum: 1, maximum: MAX_LIST } },
@@ -251,33 +292,30 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     output_schema: { type: 'object', additionalProperties: true },
     risk: 'LOW',
     permissions: [],
-    health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
+    health: hasCloudflareWorkersRelay ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
-    healthcheck: async () => probeHealth(
-      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
-        token: cloudflareToken,
-        code: 'CLOUDFLARE_WORKERS_READ_FAILED',
-      }),
-      cloudflareToken && cloudflareAccountId ? '' : 'CLOUDFLARE_RUNTIME_CREDENTIALS_NOT_CONFIGURED',
-    ),
+    healthcheck: async () => {
+      if(!hasCloudflareWorkersRelay) return {status:'UNAVAILABLE',reason:'CLOUDFLARE_WORKERS_RELAY_NOT_CONFIGURED'};
+      const snapshot=await getCloudflareWorkersSnapshot();
+      if(!snapshot) return {status:'UNAVAILABLE',reason:'CLOUDFLARE_WORKERS_RELAY_SNAPSHOT_MISSING'};
+      if(snapshot.fresh!==true) return {status:'DEGRADED',reason:'CLOUDFLARE_WORKERS_RELAY_SNAPSHOT_STALE'};
+      return {status:'HEALTHY'};
+    },
   }, async input => {
-    if (!cloudflareToken || !cloudflareAccountId) throw capabilityError('CLOUDFLARE_AUTH_REQUIRED', 503);
-    const accountId = safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64);
-    const count = limit(input.limit);
-    const body = await requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts`, {
-      token: cloudflareToken,
-      code: 'CLOUDFLARE_WORKERS_READ_FAILED',
-    });
-    if (body?.success === false) throw capabilityError('CLOUDFLARE_WORKERS_READ_FAILED', 502);
-    const scripts = (Array.isArray(body?.result) ? body.result : []).slice(0, count).map(row => ({
-      id: String(row.id || ''),
-      created_on: String(row.created_on || ''),
-      modified_on: String(row.modified_on || ''),
-      compatibility_date: String(row.compatibility_date || ''),
-      usage_model: String(row.usage_model || ''),
-      last_deployed_from: String(row.last_deployed_from || ''),
-    }));
-    return { provider: 'cloudflare', scripts, count: scripts.length };
+    if(!hasCloudflareWorkersRelay) throw capabilityError('CLOUDFLARE_WORKERS_RELAY_NOT_CONFIGURED',503);
+    const snapshot=await getCloudflareWorkersSnapshot();
+    if(!snapshot) throw capabilityError('CLOUDFLARE_WORKERS_RELAY_SNAPSHOT_MISSING',503);
+    if(snapshot.fresh!==true) throw capabilityError('CLOUDFLARE_WORKERS_RELAY_SNAPSHOT_STALE',503);
+    const count=limit(input.limit);
+    const scripts=(Array.isArray(snapshot.workers)?snapshot.workers:[]).slice(0,count);
+    return {
+      provider:'cloudflare',
+      transport:'github-actions-relay-snapshot',
+      scripts,
+      count:scripts.length,
+      snapshot_collected_at:Number(snapshot.collected_at||0)||null,
+      source_run_id:Number(snapshot.source_run_id||0)||null,
+    };
   });
 
   bus.discover({
