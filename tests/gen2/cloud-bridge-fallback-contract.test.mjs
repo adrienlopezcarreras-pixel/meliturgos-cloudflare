@@ -55,3 +55,14 @@ test('cloud bridge retries transient D1 result authorization and has an emergenc
   assert.match(source, /steps\.report_emergency\.outcome == 'success'/);
   assert.match(source, /REPORT_READY=0/);
 });
+
+test('cloud bridge normalizes trailing whitespace before hygiene and tests', async () => {
+  const source = await readFile(new URL('../../.github/workflows/gen2-42-apply-ready-bridge.yml', import.meta.url), 'utf8');
+  assert.match(source, /CANDIDATE_TRAILING_WHITESPACE_NORMALIZED/);
+  assert.match(source, /body\.replace\(\/\[ \\t\]\+\(\?=\\r\?\\n\|\$\)\/g,''\)/);
+  const normalizePos = source.indexOf('CANDIDATE_TRAILING_WHITESPACE_NORMALIZED');
+  const hygienePos = source.indexOf('git diff --check');
+  const testStepPos = source.indexOf('- name: Run exact bounded requested tests');
+  assert.ok(normalizePos >= 0 && hygienePos > normalizePos && testStepPos > hygienePos);
+});
+
