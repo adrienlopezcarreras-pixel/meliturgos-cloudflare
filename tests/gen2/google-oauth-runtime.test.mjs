@@ -187,6 +187,50 @@ test('Google access-token resolver automatically refreshes an expiring token', a
   }), true);
 });
 
+test('Google access-token resolver reuses another Google token only when target required scopes are granted', async () => {
+  const { runtime, vaults } = fixture();
+  await vaults.tokenVault.put({
+    owner: 'adrien',
+    connector_id: 'gmail',
+    token_set: {
+      access_token: 'shared-google-access',
+      refresh_token: 'shared-google-refresh',
+      token_type: 'Bearer',
+      scopes: [
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/calendar.events.readonly',
+        'https://www.googleapis.com/auth/tasks.readonly',
+      ],
+      expires_at: Date.now() + 300_000,
+    },
+  });
+
+  assert.equal(
+    await runtime.accessTokenResolver('google-calendar', { owner: 'adrien' }),
+    'shared-google-access',
+  );
+  assert.equal(
+    await runtime.accessTokenResolver('google-tasks', { owner: 'adrien' }),
+    'shared-google-access',
+  );
+
+  await vaults.tokenVault.put({
+    owner: 'adrien',
+    connector_id: 'gmail',
+    token_set: {
+      access_token: 'gmail-only-access',
+      token_type: 'Bearer',
+      scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+      expires_at: Date.now() + 300_000,
+    },
+  });
+
+  assert.equal(
+    await runtime.accessTokenResolver('google-calendar', { owner: 'adrien' }),
+    '',
+  );
+});
+
 test('Google OAuth API full-access begin requests declared optional scopes and never accepts arbitrary connector', async () => {
   const f = fixture();
   const request = new Request('https://mel.example/api/gen2/oauth/google/google-calendar/begin', {

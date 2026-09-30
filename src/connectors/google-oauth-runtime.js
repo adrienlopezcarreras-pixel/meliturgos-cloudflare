@@ -91,6 +91,28 @@ function connectorManifest(connectorId) {
   return structuredClone(manifest);
 }
 
+function tokenHasRequiredScopes(tokenSet, connectorId) {
+  const required = connectorManifest(connectorId).scopes.required;
+  const granted = new Set(
+    Array.isArray(tokenSet?.scopes)
+      ? tokenSet.scopes.map(scope => clean(scope, 500)).filter(Boolean)
+      : [],
+  );
+  return required.every(scope => granted.has(scope));
+}
+
+async function reusableGoogleToken(tokenVault, owner, connectorId) {
+  for (const candidateId of Object.keys(MANIFESTS)) {
+    if (candidateId === connectorId) continue;
+    const candidate = await tokenVault.get({ owner, connector_id: candidateId });
+    if (!candidate?.access_token || !tokenHasRequiredScopes(candidate, connectorId)) continue;
+    const expiresAt = Number(candidate.expires_at);
+    if (Number.isFinite(expiresAt) && expiresAt <= Date.now() + 60_000) continue;
+    return candidate;
+  }
+  return null;
+}
+
 function providerFor(env, connectorId) {
   const id = clean(connectorId, 160);
   connectorManifest(id);
@@ -179,7 +201,10 @@ export function createGoogleOAuthRuntime({ env = {}, fetcher = fetch, vaults = n
     const owner = clean(context.owner, 200);
     requireValue(owner, 'OAUTH_OWNER_REQUIRED', 401);
     let tokenSet = await durableVaults.tokenVault.get({ owner, connector_id: id });
-    if (!tokenSet?.access_token) return '';
+    if (!tokenSet?.access_token) {
+      tokenSet = await reusableGoogleToken(durableVaults.tokenVault, owner, id);
+      return clean(tokenSet?.access_token, 20000);
+    }
     const expiresAt = Number(tokenSet.expires_at);
     const shouldRefresh = Number.isFinite(expiresAt)
       && expiresAt <= Date.now() + 60_000
