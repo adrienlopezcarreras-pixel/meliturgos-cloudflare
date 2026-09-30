@@ -242,7 +242,7 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
     healthcheck: async () => probeHealth(
-      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
+      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/workers`, {
         token: cloudflareToken,
         code: 'CLOUDFLARE_WORKERS_READ_FAILED',
       }),
@@ -252,7 +252,7 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     if (!cloudflareToken || !cloudflareAccountId) throw capabilityError('CLOUDFLARE_AUTH_REQUIRED', 503);
     const accountId = safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64);
     const count = limit(input.limit);
-    const body = await requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts`, {
+    const body = await requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/workers`, {
       token: cloudflareToken,
       code: 'CLOUDFLARE_WORKERS_READ_FAILED',
     });
@@ -290,7 +290,7 @@ export function registerPlatformReadCapabilities(bus, { env = {}, fetchImpl = fe
     health: configured(env, 'CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID') ? 'DEGRADED' : 'UNAVAILABLE',
     enabled: true,
     healthcheck: async () => probeHealth(
-      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/scripts`, {
+      () => requestJson(fetchImpl, `${CLOUDFLARE_API}/accounts/${encodeURIComponent(safeResource(cloudflareAccountId, 'CLOUDFLARE_ACCOUNT_ID_INVALID', 64))}/workers/workers`, {
         token: cloudflareToken,
         code: 'CLOUDFLARE_WORKERS_READ_FAILED',
       }),
