@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 import { sqliteD1 } from '../helpers/sqlite-d1.mjs';
 import { CapabilityBus } from '../../src/capabilities/capability-bus.js';
@@ -188,3 +189,12 @@ test('internal GitHub relay API accepts durable Dev Bridge auth and rejects unre
 });
 
 
+
+
+test('relay workflow uses Wrangler D1 credentials and no missing Dev Bridge secret', async () => {
+  const source = await readFile(new URL('../../.github/workflows/github-action-relay.yml', import.meta.url), 'utf8');
+  assert.match(source, /CLOUDFLARE_API_TOKEN:\s*\$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
+  assert.match(source, /CLOUDFLARE_ACCOUNT_ID:\s*\$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/);
+  assert.doesNotMatch(source, /MEL_DEV_BRIDGE_TOKEN:\s*\$\{\{ secrets\.MEL_DEV_BRIDGE_TOKEN \}\}/);
+  assert.doesNotMatch(source, /MEL_R2_BUCKET/);
+});
