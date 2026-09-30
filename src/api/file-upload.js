@@ -186,3 +186,13 @@ export async function handleFileUpload(request, env, options = {}) {
     analysis_provider,
   }, { headers:{'cache-control':'no-store'} });
 }
+
+
+export function expiredMediaKeys(objects, now = Date.now()) {
+  return (Array.isArray(objects) ? objects : [])
+    .filter(object => {
+      const expiresAt = Date.parse(String(object?.customMetadata?.expiresAt || ''));
+      return Boolean(object?.key) && Number.isFinite(expiresAt) && expiresAt <= now;
+    })
+    .map(object => String(object.key));
+}
