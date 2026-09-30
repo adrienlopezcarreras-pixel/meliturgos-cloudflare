@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
+import { isReleaseSmokeRequest } from '../src/core/security.js';
 import { createVerifiedBackupService } from '../src/backup/backup-service.js';
 
 const TOKEN = 's'.repeat(64);
@@ -207,6 +208,21 @@ function smokeRequest(path, method = 'GET', init = {}) {
     body: init.body,
   });
 }
+
+test('release smoke auth permits only the sanitized connection proof routes added for Pipedream diagnostics', () => {
+  const runtimeEnv = env();
+  for (const [method,path] of [
+    ['GET','/api/gen2/connections/google/status'],
+    ['GET','/api/gen2/connections/pipedream/accounts'],
+    ['POST','/api/gen2/connections/pipedream/test'],
+  ]) {
+    assert.equal(isReleaseSmokeRequest(smokeRequest(path, method), runtimeEnv), true, method+' '+path);
+  }
+  assert.equal(
+    isReleaseSmokeRequest(smokeRequest('/api/gen2/connections/pipedream/save', 'POST'), runtimeEnv),
+    false,
+  );
+});
 
 test('MEL-REL-03 release token verifies self-code through the real Worker route', async () => {
   const response = await worker.fetch(smokeRequest('/api/gen2/code/self-check'), env(), {});
