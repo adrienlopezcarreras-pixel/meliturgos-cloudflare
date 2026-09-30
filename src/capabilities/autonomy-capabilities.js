@@ -36,6 +36,95 @@ export function registerAutonomyCapabilities(bus, env = {}) {
   });
 
   bus.discover({
+    id: 'autonomy.bridge.status',
+    name: 'État réel du Dev Bridge MEL',
+    category: 'evolution',
+    version: '1.0.0',
+    provider: 'mel',
+    description: 'Reads the live local Dev Bridge heartbeat, autonomy lease and bridge-ready/claimed/repair jobs from production D1.',
+    input_schema: {
+      type: 'object',
+      properties: { limit: { type: 'integer', minimum: 1, maximum: 50 } },
+      additionalProperties: false,
+    },
+    output_schema: { type: 'object', additionalProperties: true },
+    risk: 'LOW',
+    permissions: [],
+    health: env.DB ? 'HEALTHY' : 'DEGRADED',
+    enabled: true,
+  }, async (input = {}) => {
+    if (!env.DB) throw capabilityError('DB_BINDING_MISSING');
+    const limit = Math.max(1, Math.min(50, Number(input.limit) || 20));
+    const repository = new D1DevJobRepository(env.DB);
+    const jobs = await repository.list();
+    const stateRows = ((await env.DB.prepare(
+      'SELECT bridge_id,last_seen,status,metadata_json FROM dev_bridge_state ORDER BY bridge_id'
+    ).all())?.results || []);
+    const now = Date.now();
+    const summarizeState = (row) => {
+      const lastSeen = Number(row?.last_seen || 0);
+      const age = lastSeen > 0 ? Math.max(0, now - lastSeen) : null;
+      return {
+        bridge_id: String(row?.bridge_id || ''),
+        status: String(row?.status || 'UNKNOWN'),
+        last_seen: lastSeen || null,
+        age_ms: age,
+        online_60s: age != null && age < 60000 && String(row?.status || '').toUpperCase() === 'ONLINE',
+      };
+    };
+    const states = stateRows.map(summarizeState);
+    const primary = states.find(row => row.bridge_id === 'primary') || {
+      bridge_id: 'primary',
+      status: 'MISSING',
+      last_seen: null,
+      age_ms: null,
+      online_60s: false,
+    };
+    const lease = states.find(row => row.bridge_id === 'runtime-lease:autonomy-heartbeat') || null;
+    const rows = (Array.isArray(jobs) ? jobs : []).map(job => {
+      const result = job?.result_json && typeof job.result_json === 'object' ? job.result_json : {};
+      return {
+        job_id: String(job?.id || ''),
+        status: String(job?.status || 'UNKNOWN').toUpperCase(),
+        requested_by: String(job?.requested_by || ''),
+        updated_at: Number(job?.updated_at || 0),
+        goal: String(job?.goal || '').slice(0, 220),
+        teacher_verdict: result?.teacher_bridge?.review?.verdict || null,
+        owner_override: result?.teacher_bridge?.review?.owner_override === true,
+        implementation_status: result?.implementation_proposal?.status || null,
+        bridge_preparation_status: result?.bridge_preparation?.status || null,
+        candidate_branch: result?.bridge_preparation?.candidate_branch || job?.candidate_branch || null,
+        candidate_sha: result?.bridge_preparation?.candidate_sha || null,
+        dev_bridge_status: result?.dev_bridge?.status || null,
+        needs_repair: result?.dev_bridge?.needs_repair === true,
+        error: job?.error ? String(job.error).slice(0, 220) : null,
+      };
+    }).sort((a, b) => b.updated_at - a.updated_at);
+    const ready = rows.filter(row => row.status === 'TEACHER_APPROVED' && row.bridge_preparation_status === 'READY');
+    const claimed = rows.filter(row => row.status === 'CLAIMED');
+    const repair = rows.filter(row => row.status === 'REPAIR_REQUIRED');
+    const review = rows.filter(row => row.status === 'READY_FOR_REVIEW');
+    return {
+      ok: true,
+      observed_at: new Date(now).toISOString(),
+      source: 'production_d1',
+      local_bridge: primary,
+      autonomy_lease: lease,
+      counts: {
+        ready: ready.length,
+        claimed: claimed.length,
+        repair_required: repair.length,
+        ready_for_review: review.length,
+      },
+      ready_packages: ready.slice(0, limit),
+      claimed_jobs: claimed.slice(0, limit),
+      repair_jobs: repair.slice(0, limit),
+      review_jobs: review.slice(0, limit),
+      local_polling_effective: primary.online_60s === true,
+    };
+  });
+
+  bus.discover({
     id: 'autonomy.activity',
     name: 'Activité autonome récente de MEL',
     category: 'evolution',
